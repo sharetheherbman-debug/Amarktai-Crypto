@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
 
-@router.get("/balances")
-async def get_wallet_balances(user_id: str = Depends(get_current_user)):
-    """Get all wallet balances for user"""
+@router.get("/balances-legacy", include_in_schema=False)
+async def get_wallet_balances_legacy(user_id: str = Depends(get_current_user)):
+    """Get all wallet balances for user (LEGACY - use /api/wallet/balances from wallet_hub instead)"""
     try:
         # Safe check for wallet collection initialization
         if wallet_balances_collection is None:
@@ -314,8 +314,8 @@ async def cancel_funding_plan(plan_id: str, user_id: str = Depends(get_current_u
         logger.error(f"Cancel funding plan error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/transfer")
-async def create_transfer(
+@router.post("/transfer-manual", include_in_schema=False)
+async def create_transfer_manual(
     from_exchange: str,
     to_exchange: str,
     amount: float,
@@ -323,7 +323,7 @@ async def create_transfer(
     user_id: str = Depends(get_current_user)
 ):
     """
-    Create and execute internal transfer between exchanges
+    Create and execute internal transfer between exchanges (LEGACY - use /api/wallet/transfer from wallet_hub instead)
     
     SAFETY: Validates balances, creates audit trail, monitors limits
     Only transfers between user's own exchange accounts
