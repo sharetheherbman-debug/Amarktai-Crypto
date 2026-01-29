@@ -1,5 +1,6 @@
 """
 Trades API - Canonical trade history and metrics
+Uses unified accounting service for consistency
 Frontend calls GET /api/trades/recent?limit=50
 """
 
@@ -9,6 +10,7 @@ from typing import Optional, List
 import logging
 
 from auth import get_current_user
+from services.accounting import accounting_service
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,40 @@ async def trades_ping() -> dict:
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/metrics")
+async def get_trade_metrics(
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get trade metrics using unified accounting service
+    
+    This endpoint provides consistent metrics for Live Trades page.
+    Uses the same accounting service as Overview and Profits pages.
+    
+    Returns:
+        Trade metrics with net PnL, fees, and trade counts
+    """
+    try:
+        # Get unified metrics from accounting service
+        metrics = await accounting_service.get_unified_metrics(
+            user_id=user_id,
+            trading_mode=None,  # All modes
+            include_unrealised=True
+        )
+        
+        return {
+            "success": True,
+            "metrics": metrics,
+            "currency": "ZAR",
+            "data_source": "accounting_service",
+            "timestamp": metrics["last_calculated_at"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Get trade metrics error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/recent")
@@ -147,13 +183,14 @@ async def get_live_trades(
     limit: int = Query(100, ge=1, le=500),
     user_id: str = Depends(get_current_user)
 ):
-    """Live trade feed with enriched payload (D)
+    """Live trade feed with enriched payload and consistent metrics
     
+    Uses unified accounting service for consistent PnL calculations.
     Returns recent trades with full details for live feed display:
     - Bot info (id, name, exchange)
     - Symbol/pair, side, quantity
     - Entry/exit prices
-    - Gross profit/loss, fees, net profit/loss
+    - Gross profit/loss, fees, net profit/loss (from accounting service)
     - Strategy tag or signal reason
     - Timestamps
     
@@ -162,22 +199,29 @@ async def get_live_trades(
         user_id: Current authenticated user
         
     Returns:
-        Enriched trade feed for live updates
+        Enriched trade feed for live updates with consistent metrics
     """
     try:
-        # Fetch recent trades sorted by timestamp descending
-        trades = await db.trades_collection.find(
-            {"user_id": user_id},
-            {"_id": 0}
-        ).sort("timestamp", -1).limit(limit).to_list(limit)
+        # Get trades with consistent metrics from accounting service
+        result = await accounting_service.get_trade_list_with_metrics(
+            user_id=user_id,
+            trading_mode=None,  # All modes
+            limit=limit,
+            status="closed"
+        )
+        
+        trades = result["trades"]
         
         # Get bot names for enrichment
         bot_ids = list(set(t.get('bot_id') for t in trades if t.get('bot_id')))
-        bots = await db.bots_collection.find(
-            {"id": {"$in": bot_ids}},
-            {"_id": 0, "id": 1, "name": 1}
-        ).to_list(1000)
-        bot_names = {bot['id']: bot.get('name') for bot in bots}
+        if bot_ids:
+            bots = await db.bots_collection.find(
+                {"id": {"$in": bot_ids}},
+                {"_id": 0, "id": 1, "name": 1}
+            ).to_list(1000)
+            bot_names = {bot['id']: bot.get('name') for bot in bots}
+        else:
+            bot_names = {}
         
         # Enrich each trade
         enriched_trades = []
@@ -214,10 +258,15 @@ async def get_live_trades(
                 "entry_price": trade.get('entry_price') or trade.get('price', 0),
                 "exit_price": trade.get('exit_price') or trade.get('price', 0),
                 
-                # P&L breakdown
-                "gross_profit_loss": trade.get('gross_pnl', trade.get('profit_loss', 0)),
+                # P&L breakdown (from accounting service - consistent!)
+                "gross_profit_loss": trade.get('gross_pnl', 0),
                 "fee_total": trade.get('fee_amount', 0),
-                "net_profit_loss": trade.get('net_pnl', trade.get('profit_loss', 0)),
+                "net_profit_loss": trade.get('net_pnl', 0),
+                
+                # Display labels
+                "net_pnl_display": trade.get('net_pnl_display', f"R{trade.get('net_pnl', 0):.2f}"),
+                "gross_pnl_display": trade.get('gross_pnl_display', f"R{trade.get('gross_pnl', 0):.2f}"),
+                "fee_display": trade.get('fee_display', f"R{trade.get('fee_amount', 0):.2f}"),
                 
                 # Strategy/signal
                 "strategy_tag": trade.get('strategy_tag') or trade.get('trend', 'unknown'),
@@ -229,7 +278,7 @@ async def get_live_trades(
                 "status": trade.get('status', 'closed'),
                 
                 # Additional context
-                "data_source": trade.get('data_source', 'unknown'),
+                "data_source": "accounting_service",
                 "quality_score": trade.get('quality_score', 0),
                 "ai_confidence": trade.get('ai_confidence', 0)
             }
@@ -239,8 +288,10 @@ async def get_live_trades(
         return {
             "trades": enriched_trades,
             "count": len(enriched_trades),
+            "summary": result.get("summary", {}),
             "limit": limit,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data_source": "accounting_service"
         }
         
     except Exception as e:
