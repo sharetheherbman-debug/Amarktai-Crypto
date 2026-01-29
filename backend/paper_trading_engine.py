@@ -826,7 +826,10 @@ class PaperTradingEngine:
                 "flokx_strength": round(flokx_data.get('strength', 0), 1),
                 "flokx_sentiment": flokx_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
-                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
+                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1),
+                "price_source": data_source,  # CRITICAL: Include for run_trading_cycle
+                "spread": round(slippage_rate * 100, 4),  # For consistency
+                "slippage_bps": round(slippage_rate * 10000, 2)  # For consistency
             }
             
             emoji = "🟢" if is_profitable else "🔴"
@@ -937,11 +940,11 @@ class PaperTradingEngine:
                 "status": "closed",  # Paper trades are immediately closed
                 "new_capital": round(new_capital, 2),
                 "total_profit": round(total_profit, 2),
-                # Paper trading realism ledger fields (TASK F)
-                "price_source": data_source,  # e.g., "LUNO_PUBLIC", "REAL_BINANCE"
+                # Paper trading realism ledger fields (use from trade_result)
+                "price_source": trade_result.get('price_source', f"{bot_data.get('exchange', 'unknown').upper()}_PUBLIC"),
                 "mid_price": round(entry_price, 6),  # Mid-market price at execution
-                "spread": round(slippage_rate * 100, 4),  # Bid-ask spread approximation
-                "slippage_bps": round(slippage_rate * 10000, 2),  # Slippage in basis points
+                "spread": trade_result.get('spread', round(slippage_rate * 100, 4)),  # Bid-ask spread
+                "slippage_bps": trade_result.get('slippage_bps', round(slippage_rate * 10000, 2)),  # Slippage in bps
                 "fee_rate": round(fee_rate, 6),  # Fee rate applied
                 "fee_amount": round(fees, 2),  # Total fees charged
                 "gross_pnl": round(gross_profit, 2),  # PnL before fees
