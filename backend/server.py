@@ -2912,6 +2912,8 @@ routers_to_mount = [
     # REMOVED: routes.system_health_endpoints - has duplicate /health/ping
     ("routes.admin_endpoints", "Admin"),
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
+    ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
+    ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
     ("routes.training", "Bot Training"),  # CRITICAL - Training system
     ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
