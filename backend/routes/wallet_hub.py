@@ -1,0 +1,275 @@
+"""
+Wallet Hub for All 5 Exchanges
+
+Provides unified wallet interface for:
+- Luno, Binance, KuCoin, VALR, OVEX
+- Paper wallet simulation
+- Live wallet integration (when keys available)
+- Auto-funding transfers
+"""
+
+from fastapi import APIRouter, HTTPException, Depends
+from typing import Optional, Dict, List
+from pydantic import BaseModel
+import logging
+from datetime import datetime, timezone
+
+from auth import get_current_user
+import database as db
+from realtime_events import manager
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
+
+
+class TransferRequest(BaseModel):
+    from_exchange: str
+    to_exchange: str
+    amount: float
+    currency: str = "ZAR"
+
+
+@router.get("/health")
+async def get_wallet_health(user_id: str = Depends(get_current_user)):
+    """
+    Get wallet health status for all 5 exchanges
+    
+    Shows:
+    - Keys status (missing, connected, error)
+    - Paper balances
+    - Live balances (if keys available)
+    - Exchange-specific details
+    """
+    try:
+        # Check API keys for each exchange
+        exchanges = ['luno', 'binance', 'kucoin', 'valr', 'ovex']
+        wallet_status = {}
+        
+        for exchange in exchanges:
+            # Check if user has keys for this exchange
+            api_key = await db.api_keys_collection.find_one({
+                "user_id": user_id,
+                "provider": exchange
+            })
+            
+            if not api_key:
+                wallet_status[exchange] = {
+                    "status": "keys_missing",
+                    "message": f"No API keys configured for {exchange.upper()}",
+                    "has_keys": False,
+                    "paper_mode_available": True
+                }
+            elif not api_key.get("last_test_ok"):
+                wallet_status[exchange] = {
+                    "status": "keys_untested",
+                    "message": f"API keys exist but not tested",
+                    "has_keys": True,
+                    "paper_mode_available": True
+                }
+            else:
+                wallet_status[exchange] = {
+                    "status": "connected",
+                    "message": f"Connected to {exchange.upper()}",
+                    "has_keys": True,
+                    "paper_mode_available": True,
+                    "last_tested": api_key.get("last_tested_at")
+                }
+        
+        # Get paper wallet balances (simulated from bots)
+        paper_balances = await get_paper_wallet_balances(user_id)
+        
+        return {
+            "user_id": user_id,
+            "exchanges": wallet_status,
+            "paper_balances": paper_balances,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get wallet health error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_paper_wallet_balances(user_id: str) -> Dict:
+    """Calculate paper wallet balances from bot capital"""
+    try:
+        # Group bot capital by exchange
+        bots_cursor = db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "trading_mode": "paper",
+                "status": {"$nin": ["deleted"]}
+            },
+            {"_id": 0, "exchange": 1, "current_capital": 1}
+        )
+        bots = await bots_cursor.to_list(1000)
+        
+        # Sum by exchange
+        balances = {}
+        for bot in bots:
+            exchange = bot.get("exchange", "unknown")
+            capital = bot.get("current_capital", 0)
+            
+            if exchange not in balances:
+                balances[exchange] = 0
+            balances[exchange] += capital
+        
+        # Round all balances
+        for exchange in balances:
+            balances[exchange] = round(balances[exchange], 2)
+        
+        return balances
+        
+    except Exception as e:
+        logger.error(f"Get paper wallet balances error: {e}")
+        return {}
+
+
+@router.post("/transfer")
+async def transfer_funds(
+    request: TransferRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Transfer funds between exchanges
+    
+    Paper mode: Simulates transfer
+    Live mode: Requires API keys and executes real transfer
+    """
+    try:
+        # Validate exchanges
+        valid_exchanges = ['luno', 'binance', 'kucoin', 'valr', 'ovex']
+        if request.from_exchange not in valid_exchanges:
+            raise HTTPException(status_code=400, detail=f"Invalid source exchange: {request.from_exchange}")
+        if request.to_exchange not in valid_exchanges:
+            raise HTTPException(status_code=400, detail=f"Invalid destination exchange: {request.to_exchange}")
+        
+        # Validate amount
+        if request.amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be positive")
+        
+        # Check if user has keys for both exchanges
+        from_keys = await db.api_keys_collection.find_one({
+            "user_id": user_id,
+            "provider": request.from_exchange
+        })
+        
+        to_keys = await db.api_keys_collection.find_one({
+            "user_id": user_id,
+            "provider": request.to_exchange
+        })
+        
+        # Determine if this is paper or live transfer
+        is_paper = not (from_keys and to_keys and from_keys.get("last_test_ok") and to_keys.get("last_test_ok"))
+        
+        if is_paper:
+            # Paper mode transfer (simulated)
+            transfer_id = f"paper_transfer_{datetime.now(timezone.utc).timestamp()}"
+            
+            # Log the transfer
+            await db.wallet_transfers_collection.insert_one({
+                "id": transfer_id,
+                "user_id": user_id,
+                "from_exchange": request.from_exchange,
+                "to_exchange": request.to_exchange,
+                "amount": request.amount,
+                "currency": request.currency,
+                "status": "simulated",
+                "mode": "paper",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            
+            # Broadcast realtime event
+            await manager.broadcast_json({
+                "type": "wallet_transfer",
+                "user_id": user_id,
+                "transfer_id": transfer_id,
+                "mode": "paper",
+                "from_exchange": request.from_exchange,
+                "to_exchange": request.to_exchange,
+                "amount": request.amount,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            
+            logger.info(f"Paper transfer simulated: {request.amount} {request.currency} from {request.from_exchange} to {request.to_exchange}")
+            
+            return {
+                "success": True,
+                "transfer_id": transfer_id,
+                "mode": "paper",
+                "message": "Transfer simulated (paper mode)",
+                "from_exchange": request.from_exchange,
+                "to_exchange": request.to_exchange,
+                "amount": request.amount,
+                "currency": request.currency
+            }
+        else:
+            # Live mode transfer (would require actual implementation)
+            # For now, return not implemented
+            raise HTTPException(
+                status_code=501,
+                detail="Live transfers not yet implemented. Use paper mode for testing."
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Transfer funds error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/balances")
+async def get_all_balances(user_id: str = Depends(get_current_user)):
+    """
+    Get balances across all exchanges
+    
+    Returns both paper and live balances (if keys available).
+    """
+    try:
+        # Get paper balances
+        paper_balances = await get_paper_wallet_balances(user_id)
+        
+        # TODO: Get live balances when keys are available
+        # For now, just return paper balances
+        
+        return {
+            "user_id": user_id,
+            "paper_balances": paper_balances,
+            "live_balances": {},  # Placeholder for live balances
+            "total_paper": round(sum(paper_balances.values()), 2),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get all balances error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/transactions")
+async def get_wallet_transactions(
+    limit: int = 100,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get wallet transaction history
+    
+    Includes transfers, deposits, withdrawals.
+    """
+    try:
+        # Get transfers
+        transfers_cursor = db.wallet_transfers_collection.find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(limit)
+        
+        transfers = await transfers_cursor.to_list(limit)
+        
+        return {
+            "user_id": user_id,
+            "transactions": transfers,
+            "total": len(transfers)
+        }
+        
+    except Exception as e:
+        logger.error(f"Get wallet transactions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
