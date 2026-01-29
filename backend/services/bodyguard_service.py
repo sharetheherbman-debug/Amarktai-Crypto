@@ -32,6 +32,7 @@ PAUSE_COOLDOWN_MINUTES = 30
 MIN_TRADES_FOR_WIN_CHECK = 10  # Need at least 10 trades to assess profitability
 PROFITABLE_WIN_RATE_THRESHOLD = 50.0  # 50%+ win rate considered profitable
 PROFITABLE_NET_PNL_THRESHOLD = 0.0  # Positive net PnL
+MAX_ACCEPTABLE_LOSS_WITH_GOOD_WIN_RATE = 50.0  # Max loss (in currency) acceptable with >50% win rate
 
 
 class BodyguardService:
@@ -66,8 +67,8 @@ class BodyguardService:
             win_rate = bot.get('win_rate', 0)
             if win_rate >= PROFITABLE_WIN_RATE_THRESHOLD:
                 # Even if slightly down, good win rate means bot has potential
-                if total_profit > -50:  # Allow small losses with good win rate
-                    return True, f"High win rate ({win_rate:.1f}%) with minimal loss"
+                if total_profit > -MAX_ACCEPTABLE_LOSS_WITH_GOOD_WIN_RATE:
+                    return True, f"High win rate ({win_rate:.1f}%) with acceptable loss"
             
             # Check rolling window profitability (last 20 trades)
             recent_profit = await self._get_recent_pnl(bot_id, num_trades=20)

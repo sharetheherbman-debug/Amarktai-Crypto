@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/training-quarantine", tags=["Training & Quarantine"])
 
+# Training and diagnostics thresholds
+LOW_WIN_RATE_THRESHOLD = 40.0  # Consider bot struggling if below 40%
+CRITICAL_WIN_RATE_THRESHOLD = 45.0  # Below 45% needs immediate action
+MAX_CONSECUTIVE_LOSSES = 5  # Alert on 5+ consecutive losses
+HIGH_DRAWDOWN_PCT = 10.0  # Significant drawdown threshold
+MIN_CAPITAL_THRESHOLD = 500.0  # Minimum capital for effective trading
+CRITICAL_ISSUE_COUNT = 3  # 3+ issues means bot should stay in quarantine
+MAX_ACCEPTABLE_LOSS_WITH_GOOD_WIN_RATE = 50.0  # Max loss acceptable with >50% win rate
+
 
 @router.get("/bots")
 async def get_training_quarantine_bots(user_id: str = Depends(get_current_user)):
@@ -72,7 +81,8 @@ async def get_training_quarantine_bots(user_id: str = Depends(get_current_user))
                     now = datetime.now(timezone.utc)
                     if until_dt > now:
                         quarantine_remaining = int((until_dt - now).total_seconds())
-                except:
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"Failed to parse retraining_until: {e}")
                     pass
             
             enriched_bots.append({
@@ -232,7 +242,7 @@ async def _analyze_bot_issues(bot: Dict, recent_trades: List[Dict]) -> List[str]
         wins = len([t for t in recent_trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
         win_rate = (wins / len(recent_trades)) * 100
         
-        if win_rate < 40:
+        if win_rate < LOW_WIN_RATE_THRESHOLD:
             issues.append(f"Low win rate: {win_rate:.1f}% (target: 50%+)")
     
     # Check for consecutive losses
@@ -245,12 +255,12 @@ async def _analyze_bot_issues(bot: Dict, recent_trades: List[Dict]) -> List[str]
         else:
             consecutive_losses = 0
     
-    if max_consecutive_losses >= 5:
+    if max_consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
         issues.append(f"Long losing streak detected: {max_consecutive_losses} consecutive losses")
     
     # Check drawdown
     current_drawdown = bot.get('current_drawdown_pct', 0)
-    if current_drawdown > 10:
+    if current_drawdown > HIGH_DRAWDOWN_PCT:
         issues.append(f"High drawdown: {current_drawdown:.1f}%")
     
     # Check capital erosion
@@ -258,7 +268,7 @@ async def _analyze_bot_issues(bot: Dict, recent_trades: List[Dict]) -> List[str]
     current_capital = bot.get('current_capital', 0)
     if initial_capital > 0:
         capital_change_pct = ((current_capital - initial_capital) / initial_capital) * 100
-        if capital_change_pct < -10:
+        if capital_change_pct < -HIGH_DRAWDOWN_PCT:
             issues.append(f"Significant capital loss: {capital_change_pct:.1f}%")
     
     return issues
@@ -274,20 +284,20 @@ async def _generate_recommendations(bot: Dict, recent_trades: List[Dict], issues
         recommendations.append("Consider switching to 'safe' risk mode to reduce position sizes")
     
     # Recommend pause if severe issues
-    if len(issues) >= 3:
+    if len(issues) >= CRITICAL_ISSUE_COUNT:
         recommendations.append("Multiple issues detected - bot should remain in quarantine")
     
     # Recommend capital injection if capital is low
     current_capital = bot.get('current_capital', 0)
-    if current_capital < 500:
-        recommendations.append("Low capital - consider injecting more funds or reducing trade frequency")
+    if current_capital < MIN_CAPITAL_THRESHOLD:
+        recommendations.append(f"Low capital (R{current_capital:.2f}) - consider injecting more funds or reducing trade frequency")
     
     # Recommend win rate improvement strategies
     if recent_trades:
         wins = len([t for t in recent_trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
         win_rate = (wins / len(recent_trades)) * 100 if recent_trades else 0
         
-        if win_rate < 45:
+        if win_rate < CRITICAL_WIN_RATE_THRESHOLD:
             recommendations.append("Win rate below target - AI models may need recalibration")
     
     if not recommendations:
