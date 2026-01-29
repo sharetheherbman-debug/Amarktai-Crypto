@@ -27,7 +27,7 @@ import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
-import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformIcon, getPlatformDisplayName } from '../constants/platforms';
+import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
   CategoryScale,
@@ -6008,7 +6008,10 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="footer">
         <div>&copy; 2025 Amarktai Network. For personal use only.</div>
-        <div>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></div>
+        <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+          <VersionBadge position="footer" />
+          <span>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></span>
+        </div>
       </footer>
 
       {/* Bot Promotion Modal */}
