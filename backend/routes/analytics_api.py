@@ -574,3 +574,132 @@ async def get_win_rate_stats(
     except Exception as e:
         logger.error(f"Get win rate stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/summary")
+async def get_analytics_summary(user_id: str = Depends(get_current_user)):
+    """Canonical Analytics Summary - SINGLE SOURCE OF TRUTH for all dashboard totals
+    
+    This endpoint returns all monetary totals, trade stats, and performance metrics.
+    All frontend components MUST use this endpoint - no duplicate calculations in JS.
+    
+    Returns:
+        Complete summary with:
+        - Gross profit, total fees, net profit (cash-out value)
+        - Total equity, initial capital, profit percentage
+        - Trade counts and win rate
+        - Per-exchange breakdown
+        - Per-bot summary
+        - Today's performance
+    """
+    try:
+        from services.profit_service import profit_service
+        
+        # Get all user bots (exclude deleted)
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+            {"_id": 0}
+        ).to_list(1000)
+        
+        # Calculate capital totals
+        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
+        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        
+        # Get trade statistics with gross/fees/net breakdown
+        all_stats = await profit_service.get_trade_stats(user_id)
+        paper_stats = await profit_service.get_trade_stats(user_id, "paper")
+        live_stats = await profit_service.get_trade_stats(user_id, "live")
+        
+        # Get today's profit
+        profit_today = await profit_service.calculate_profit_today(user_id)
+        
+        # Calculate profit percentage
+        profit_pct = ((current_capital - initial_capital) / initial_capital * 100) if initial_capital > 0 else 0
+        
+        # Per-exchange breakdown
+        exchange_breakdown = {}
+        for exchange in ["luno", "binance", "kucoin", "valr", "ovex"]:
+            exchange_bots = [b for b in bots if b.get('exchange', '').lower() == exchange]
+            if exchange_bots:
+                exchange_breakdown[exchange] = {
+                    "bot_count": len(exchange_bots),
+                    "capital": sum(b.get('current_capital', 0) for b in exchange_bots),
+                    "profit": sum(b.get('total_profit', 0) for b in exchange_bots)
+                }
+        
+        # Per-bot summary (top 10 by profit)
+        bot_summaries = []
+        for bot in sorted(bots, key=lambda b: b.get('total_profit', 0), reverse=True)[:10]:
+            bot_summaries.append({
+                "bot_id": bot['id'],
+                "name": bot.get('name'),
+                "exchange": bot.get('exchange'),
+                "mode": bot.get('trading_mode'),
+                "status": bot.get('status'),
+                "capital": round(bot.get('current_capital', 0), 2),
+                "profit": round(bot.get('total_profit', 0), 2),
+                "win_rate": round(bot.get('win_rate', 0), 2),
+                "trades": bot.get('trades_count', 0)
+            })
+        
+        # Quarantine and training counts
+        quarantined_count = len([b for b in bots if b.get('status') == 'quarantined'])
+        training_count = len([b for b in bots if b.get('status') == 'training'])
+        paused_count = len([b for b in bots if b.get('status') == 'paused'])
+        active_count = len([b for b in bots if b.get('status') == 'active'])
+        
+        return {
+            # Core monetary totals (backend is source of truth)
+            "gross_profit": round(all_stats['gross_profit'], 2),
+            "total_fees": round(all_stats['total_fees'], 2),
+            "net_profit": round(all_stats['net_profit'], 2),  # True cash-out value
+            
+            # Capital breakdown
+            "initial_capital": round(initial_capital, 2),
+            "current_capital": round(current_capital, 2),
+            "profit_pct": round(profit_pct, 2),
+            
+            # Trade statistics
+            "total_trades": all_stats['total_trades'],
+            "winning_trades": all_stats['winning_trades'],
+            "losing_trades": all_stats['losing_trades'],
+            "win_rate": round(all_stats['win_rate'], 2),
+            
+            # Today's performance
+            "profit_today": round(profit_today, 2),
+            
+            # Mode breakdown
+            "paper_stats": {
+                "trades": paper_stats['total_trades'],
+                "net_profit": round(paper_stats['net_profit'], 2),
+                "fees": round(paper_stats['total_fees'], 2)
+            },
+            "live_stats": {
+                "trades": live_stats['total_trades'],
+                "net_profit": round(live_stats['net_profit'], 2),
+                "fees": round(live_stats['total_fees'], 2)
+            },
+            
+            # Bot status counts
+            "bot_counts": {
+                "total": len(bots),
+                "active": active_count,
+                "paused": paused_count,
+                "quarantined": quarantined_count,
+                "training": training_count
+            },
+            
+            # Exchange breakdown
+            "exchanges": exchange_breakdown,
+            
+            # Top performing bots
+            "top_bots": bot_summaries,
+            
+            # Metadata
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Get analytics summary error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
