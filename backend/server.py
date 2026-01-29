@@ -2917,6 +2917,7 @@ routers_to_mount = [
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
+    ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests
     ("routes.ai_chat", "AI Chat"),
     ("routes.two_factor_auth", "2FA"),
     ("routes.genetic_algorithm", "Genetic Algorithm"),

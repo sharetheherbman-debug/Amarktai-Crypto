@@ -649,10 +649,18 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         active_count = len([b for b in bots if b.get('status') == 'active'])
         
         return {
+            # CANONICAL CASH-OUT FIELDS (B1)
+            # These are THE authoritative money values users can withdraw
+            "equity_current": round(current_capital, 2),  # Sum of current_capital (what's in bots now)
+            "pnl_total_net": round(current_capital - initial_capital, 2),  # Total net P&L (equity - starting)
+            "pnl_today_net": round(profit_today, 2),  # Today's net P&L only
+            "fees_total": round(all_stats['total_fees'], 2),  # All fees paid
+            "fees_today": round(all_stats.get('fees_today', 0), 2),  # Today's fees
+            
             # Core monetary totals (backend is source of truth)
             "gross_profit": round(all_stats['gross_profit'], 2),
             "total_fees": round(all_stats['total_fees'], 2),
-            "net_profit": round(all_stats['net_profit'], 2),  # True cash-out value
+            "net_profit": round(all_stats['net_profit'], 2),  # True cash-out value (same as pnl_total_net)
             
             # Capital breakdown
             "initial_capital": round(initial_capital, 2),
@@ -702,4 +710,285 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         
     except Exception as e:
         logger.error(f"Get analytics summary error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/countdown")
+async def get_countdown_to_target(
+    target_amount: Optional[float] = Query(10000.0, description="Target amount to reach"),
+    user_id: str = Depends(get_current_user)
+):
+    """Countdown to target - forecasts days left based on actual net performance (C1)
+    
+    Countdown starts from FIRST TRADE (not midnight) and updates after every trade.
+    Uses avg_daily_net_pnl computed from trade #1 to now.
+    
+    Args:
+        target_amount: Target profit amount (default: 10000)
+        user_id: Current user ID
+        
+    Returns:
+        Countdown metrics including:
+        - target_amount
+        - equity_current
+        - net_pnl_total
+        - avg_daily_net_pnl (from first trade to now)
+        - days_elapsed (since first trade)
+        - days_to_target_estimate
+        - confidence metric
+        - last_updated_at
+    """
+    try:
+        from services.profit_service import profit_service
+        
+        # Get all user bots (exclude deleted)
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+            {"_id": 0}
+        ).to_list(1000)
+        
+        # Calculate current equity
+        equity_current = sum(bot.get('current_capital', 0) for bot in bots)
+        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
+        net_pnl_total = equity_current - initial_capital
+        
+        # Get first trade timestamp
+        first_trade = await db.trades_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "timestamp": 1},
+            sort=[("timestamp", 1)]
+        )
+        
+        if not first_trade:
+            # No trades yet
+            return {
+                "target_amount": target_amount,
+                "equity_current": round(equity_current, 2),
+                "net_pnl_total": round(net_pnl_total, 2),
+                "avg_daily_net_pnl": 0,
+                "days_elapsed": 0,
+                "days_to_target_estimate": None,
+                "confidence": "insufficient_data",
+                "message": "No trades yet - countdown will start after first trade",
+                "last_updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        
+        # Calculate days elapsed since first trade
+        first_trade_time = first_trade['timestamp']
+        if isinstance(first_trade_time, str):
+            first_trade_dt = datetime.fromisoformat(first_trade_time.replace('Z', '+00:00'))
+        else:
+            first_trade_dt = first_trade_time
+        
+        now = datetime.now(timezone.utc)
+        days_elapsed = (now - first_trade_dt).total_seconds() / 86400
+        
+        # Calculate average daily net PnL
+        if days_elapsed > 0:
+            avg_daily_net_pnl = net_pnl_total / days_elapsed
+        else:
+            avg_daily_net_pnl = 0
+        
+        # Calculate days to target
+        remaining = target_amount - net_pnl_total
+        
+        if avg_daily_net_pnl > 0:
+            days_to_target_estimate = remaining / avg_daily_net_pnl
+        else:
+            days_to_target_estimate = None  # Can't estimate with zero or negative avg
+        
+        # Calculate confidence metric
+        # More trades and more days = higher confidence
+        total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+        
+        if total_trades < 10:
+            confidence = "low"
+        elif total_trades < 50 or days_elapsed < 3:
+            confidence = "medium"
+        else:
+            confidence = "high"
+        
+        # Calculate volatility (standard deviation of daily pnl)
+        # Get daily profit series for volatility
+        from services.profit_service import profit_service
+        daily_series = await profit_service.get_daily_profit_series(user_id, days=min(int(days_elapsed) + 1, 30))
+        
+        if len(daily_series) > 1:
+            profits = [d['profit'] for d in daily_series]
+            mean_profit = sum(profits) / len(profits)
+            variance = sum((p - mean_profit) ** 2 for p in profits) / len(profits)
+            std_dev = variance ** 0.5
+            
+            # Adjust confidence based on volatility
+            if std_dev > abs(mean_profit) * 2:  # High volatility
+                if confidence == "high":
+                    confidence = "medium"
+                elif confidence == "medium":
+                    confidence = "low"
+        
+        return {
+            "target_amount": target_amount,
+            "equity_current": round(equity_current, 2),
+            "net_pnl_total": round(net_pnl_total, 2),
+            "avg_daily_net_pnl": round(avg_daily_net_pnl, 2),
+            "days_elapsed": round(days_elapsed, 2),
+            "days_to_target_estimate": round(days_to_target_estimate, 2) if days_to_target_estimate is not None else None,
+            "confidence": confidence,
+            "total_trades": total_trades,
+            "first_trade_at": first_trade_time,
+            "last_updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get countdown error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/insights")
+async def get_trading_insights(user_id: str = Depends(get_current_user)):
+    """Trading insights - wins/losses for trend learning (E)
+    
+    Returns learning records for AI to form trends:
+    - Top winning/losing pairs
+    - Win rate by exchange + pair
+    - Average net pnl per pair
+    - Drawdown by bot
+    
+    Used for training/quarantine reports and chat daily summary.
+    """
+    try:
+        # Get all closed trades
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "closed"},
+            {"_id": 0}
+        ).to_list(10000)
+        
+        if not trades:
+            return {
+                "message": "No trades yet - insights will be available after trading",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        
+        # Analyze by pair
+        pair_stats = {}
+        for trade in trades:
+            symbol = trade.get('symbol') or trade.get('pair', 'UNKNOWN')
+            if symbol not in pair_stats:
+                pair_stats[symbol] = {
+                    "total_trades": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "total_pnl": 0,
+                    "total_fees": 0
+                }
+            
+            net_pnl = trade.get('net_pnl', trade.get('profit_loss', 0))
+            fee = trade.get('fee_amount', 0)
+            
+            pair_stats[symbol]["total_trades"] += 1
+            pair_stats[symbol]["total_pnl"] += net_pnl
+            pair_stats[symbol]["total_fees"] += fee
+            
+            if net_pnl > 0:
+                pair_stats[symbol]["wins"] += 1
+            else:
+                pair_stats[symbol]["losses"] += 1
+        
+        # Calculate averages and win rates
+        for symbol, stats in pair_stats.items():
+            stats["avg_pnl"] = stats["total_pnl"] / stats["total_trades"] if stats["total_trades"] > 0 else 0
+            stats["win_rate"] = (stats["wins"] / stats["total_trades"] * 100) if stats["total_trades"] > 0 else 0
+        
+        # Sort by total PnL
+        sorted_pairs = sorted(pair_stats.items(), key=lambda x: x[1]["total_pnl"], reverse=True)
+        
+        top_winning_pairs = [
+            {"symbol": symbol, **stats}
+            for symbol, stats in sorted_pairs[:10]
+            if stats["total_pnl"] > 0
+        ]
+        
+        top_losing_pairs = [
+            {"symbol": symbol, **stats}
+            for symbol, stats in sorted(sorted_pairs, key=lambda x: x[1]["total_pnl"])[:10]
+            if stats["total_pnl"] < 0
+        ]
+        
+        # Analyze by exchange
+        exchange_stats = {}
+        for trade in trades:
+            exchange = trade.get('exchange', 'unknown')
+            if exchange not in exchange_stats:
+                exchange_stats[exchange] = {
+                    "total_trades": 0,
+                    "wins": 0,
+                    "total_pnl": 0
+                }
+            
+            net_pnl = trade.get('net_pnl', trade.get('profit_loss', 0))
+            exchange_stats[exchange]["total_trades"] += 1
+            exchange_stats[exchange]["total_pnl"] += net_pnl
+            
+            if net_pnl > 0:
+                exchange_stats[exchange]["wins"] += 1
+        
+        # Calculate win rates by exchange
+        for exchange, stats in exchange_stats.items():
+            stats["win_rate"] = (stats["wins"] / stats["total_trades"] * 100) if stats["total_trades"] > 0 else 0
+            stats["avg_pnl"] = stats["total_pnl"] / stats["total_trades"] if stats["total_trades"] > 0 else 0
+        
+        # Analyze by bot
+        bot_stats = {}
+        for trade in trades:
+            bot_id = trade.get('bot_id')
+            if bot_id and bot_id not in bot_stats:
+                bot_stats[bot_id] = {
+                    "total_trades": 0,
+                    "total_pnl": 0,
+                    "peak_equity": 0,
+                    "current_equity": 0,
+                    "max_drawdown": 0
+                }
+            
+            if bot_id:
+                net_pnl = trade.get('net_pnl', trade.get('profit_loss', 0))
+                bot_stats[bot_id]["total_trades"] += 1
+                bot_stats[bot_id]["total_pnl"] += net_pnl
+                bot_stats[bot_id]["current_equity"] += net_pnl
+                
+                # Track peak and drawdown
+                if bot_stats[bot_id]["current_equity"] > bot_stats[bot_id]["peak_equity"]:
+                    bot_stats[bot_id]["peak_equity"] = bot_stats[bot_id]["current_equity"]
+                
+                current_dd = bot_stats[bot_id]["peak_equity"] - bot_stats[bot_id]["current_equity"]
+                if current_dd > bot_stats[bot_id]["max_drawdown"]:
+                    bot_stats[bot_id]["max_drawdown"] = current_dd
+        
+        # Get bot names
+        bots = await db.bots_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "id": 1, "name": 1}
+        ).to_list(1000)
+        bot_names = {bot['id']: bot.get('name') for bot in bots}
+        
+        # Add bot names to stats
+        bot_insights = []
+        for bot_id, stats in bot_stats.items():
+            bot_insights.append({
+                "bot_id": bot_id,
+                "bot_name": bot_names.get(bot_id, "Unknown"),
+                **stats
+            })
+        
+        return {
+            "top_winning_pairs": top_winning_pairs,
+            "top_losing_pairs": top_losing_pairs,
+            "exchange_performance": exchange_stats,
+            "bot_drawdowns": sorted(bot_insights, key=lambda x: x["max_drawdown"], reverse=True)[:10],
+            "total_trades_analyzed": len(trades),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get trading insights error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
