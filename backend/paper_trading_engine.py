@@ -176,11 +176,15 @@ class PaperTradingEngine:
     LUNO_PAIRS = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
     BINANCE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT']
     KUCOIN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
+    VALR_PAIRS = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
+    OVEX_PAIRS = ['BTC/ZAR', 'ETH/ZAR']
     
     def __init__(self):
         self.luno_exchange = None
         self.binance_exchange = None
         self.kucoin_exchange = None
+        self.valr_exchange = None
+        self.ovex_exchange = None
         self.price_cache = {}
         self.preferred_exchange = 'luno'
         self.available_pairs_cache = {}  # Cache for dynamically fetched pairs
@@ -260,6 +264,38 @@ class PaperTradingEngine:
                 logger.info("✅ KuCoin ready (PUBLIC MODE)")
         except Exception as e:
             logger.warning(f"KuCoin init failed: {e}")
+        
+        try:
+            # VALR - Always PUBLIC MODE
+            if not self.valr_exchange:
+                self.valr_exchange = ccxt.valr({
+                    'enableRateLimit': True,
+                    'timeout': 30000,
+                    'apiKey': None,  # Explicitly no API key - public mode
+                    'secret': None
+                })
+                logger.info("✅ VALR ready (PUBLIC MODE)")
+        except Exception as e:
+            logger.warning(f"VALR init failed: {e}")
+        
+        try:
+            # OVEX - Always PUBLIC MODE
+            if not self.ovex_exchange:
+                # OVEX might not be in ccxt, use luno as fallback for ZAR pairs
+                try:
+                    self.ovex_exchange = ccxt.ovex({
+                        'enableRateLimit': True,
+                        'timeout': 30000,
+                        'apiKey': None,
+                        'secret': None
+                    })
+                    logger.info("✅ OVEX ready (PUBLIC MODE)")
+                except:
+                    # Fallback: simulate OVEX using Luno prices
+                    logger.info("⚠️ OVEX not available in ccxt, using Luno prices as fallback")
+                    self.ovex_exchange = None
+        except Exception as e:
+            logger.warning(f"OVEX init failed: {e}")
     
     def get_mode_label(self) -> dict:
         """
@@ -301,13 +337,17 @@ class PaperTradingEngine:
                 exchange_obj = self.binance_exchange
             elif exchange == 'kucoin' and self.kucoin_exchange:
                 exchange_obj = self.kucoin_exchange
+            elif exchange == 'valr' and self.valr_exchange:
+                exchange_obj = self.valr_exchange
+            elif exchange == 'ovex' and self.ovex_exchange:
+                exchange_obj = self.ovex_exchange
             
             if exchange_obj:
                 markets = await exchange_obj.load_markets()
                 
                 # Filter for active pairs only
-                if exchange == 'luno':
-                    # Luno: Focus on ZAR pairs
+                if exchange in ['luno', 'valr', 'ovex']:
+                    # South African exchanges: Focus on ZAR pairs
                     available = [symbol for symbol in markets.keys() if '/ZAR' in symbol and markets[symbol].get('active', True)]
                 else:
                     # Binance/KuCoin: Focus on USDT pairs (most liquid)
@@ -326,6 +366,10 @@ class PaperTradingEngine:
             return self.LUNO_PAIRS
         elif exchange == 'kucoin':
             return self.KUCOIN_PAIRS
+        elif exchange == 'valr':
+            return self.VALR_PAIRS
+        elif exchange == 'ovex':
+            return self.OVEX_PAIRS
         return self.BINANCE_PAIRS
     
     async def get_real_price(self, symbol: str, exchange: str = 'luno', with_label: bool = False) -> float:
@@ -334,7 +378,7 @@ class PaperTradingEngine:
         
         Args:
             symbol: Trading pair symbol (e.g., 'BTC/ZAR')
-            exchange: Exchange to use ('luno', 'binance', 'kucoin')
+            exchange: Exchange to use ('luno', 'binance', 'kucoin', 'valr', 'ovex')
             with_label: If True, return dict with price and mode label. If False, return price only.
         
         Returns:
@@ -352,6 +396,11 @@ class PaperTradingEngine:
                 exchange_obj = self.binance_exchange
             elif exchange == 'kucoin':
                 exchange_obj = self.kucoin_exchange
+            elif exchange == 'valr':
+                exchange_obj = self.valr_exchange
+            elif exchange == 'ovex':
+                # OVEX fallback to Luno for ZAR pairs if not available
+                exchange_obj = self.ovex_exchange if self.ovex_exchange else self.luno_exchange
             else:
                 exchange_obj = self.luno_exchange  # Default to Luno
             
@@ -826,7 +875,10 @@ class PaperTradingEngine:
                 "flokx_strength": round(flokx_data.get('strength', 0), 1),
                 "flokx_sentiment": flokx_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
-                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
+                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1),
+                "price_source": data_source,  # CRITICAL: Include for run_trading_cycle
+                "spread": round(slippage_rate * 100, 4),  # For consistency
+                "slippage_bps": round(slippage_rate * 10000, 2)  # For consistency
             }
             
             emoji = "🟢" if is_profitable else "🔴"
@@ -937,11 +989,11 @@ class PaperTradingEngine:
                 "status": "closed",  # Paper trades are immediately closed
                 "new_capital": round(new_capital, 2),
                 "total_profit": round(total_profit, 2),
-                # Paper trading realism ledger fields (TASK F)
-                "price_source": data_source,  # e.g., "LUNO_PUBLIC", "REAL_BINANCE"
+                # Paper trading realism ledger fields (use from trade_result)
+                "price_source": trade_result.get('price_source', f"{bot_data.get('exchange', 'unknown').upper()}_PUBLIC"),
                 "mid_price": round(entry_price, 6),  # Mid-market price at execution
-                "spread": round(slippage_rate * 100, 4),  # Bid-ask spread approximation
-                "slippage_bps": round(slippage_rate * 10000, 2),  # Slippage in basis points
+                "spread": trade_result.get('spread', round(slippage_rate * 100, 4)),  # Bid-ask spread
+                "slippage_bps": trade_result.get('slippage_bps', round(slippage_rate * 10000, 2)),  # Slippage in bps
                 "fee_rate": round(fee_rate, 6),  # Fee rate applied
                 "fee_amount": round(fees, 2),  # Total fees charged
                 "gross_pnl": round(gross_profit, 2),  # PnL before fees
@@ -977,7 +1029,9 @@ class PaperTradingEngine:
         exchanges = [
             ("luno", self.luno_exchange),
             ("binance", self.binance_exchange),
-            ("kucoin", self.kucoin_exchange)
+            ("kucoin", self.kucoin_exchange),
+            ("valr", self.valr_exchange),
+            ("ovex", self.ovex_exchange)
         ]
         for name, exchange in exchanges:
             if exchange:
@@ -990,6 +1044,8 @@ class PaperTradingEngine:
         self.luno_exchange = None
         self.binance_exchange = None
         self.kucoin_exchange = None
+        self.valr_exchange = None
+        self.ovex_exchange = None
     
     def get_status(self) -> Dict:
         """Get paper trading engine status for monitoring with mode information"""

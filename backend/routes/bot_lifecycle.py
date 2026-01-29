@@ -787,3 +787,233 @@ async def delete_bot(
     except Exception as e:
         logger.error(f"Delete bot error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{bot_id}/diagnostics")
+async def get_bot_diagnostics(bot_id: str, user_id: str = Depends(get_current_user)):
+    """Get detailed diagnostics for why a bot is or isn't trading
+    
+    Returns comprehensive diagnostic information including:
+    - Trading gates status (paper/live/autopilot/emergency)
+    - Rate limiting and daily budget status
+    - Bodyguard metrics and pause reasons
+    - API key status and permissions
+    - Last trade time and next eligible action
+    - Win rate and profitability metrics
+    
+    Args:
+        bot_id: Bot ID to diagnose
+        user_id: Current user ID (from auth)
+        
+    Returns:
+        Detailed diagnostic information explaining bot trading status
+    """
+    try:
+        # Get bot
+        bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        
+        # Check if deleted
+        if bot.get('status') == 'deleted':
+            raise HTTPException(status_code=404, detail="Bot has been deleted")
+        
+        # Get user for system gates
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        
+        diagnostics = {
+            "bot_id": bot_id,
+            "bot_name": bot.get('name'),
+            "exchange": bot.get('exchange'),
+            "status": bot.get('status'),
+            "can_trade": False,
+            "reasons": [],
+            "gates": {},
+            "limits": {},
+            "bodyguard": {},
+            "api_keys": {},
+            "recent_activity": {}
+        }
+        
+        # Check trading gates
+        trading_mode = bot.get('trading_mode', 'paper')
+        system_mode = user.get('system_mode') if user else 'testing'
+        emergency_stop = user.get('emergency_stop', False) if user else False
+        
+        diagnostics['gates'] = {
+            "trading_mode": trading_mode,
+            "system_mode": system_mode,
+            "emergency_stop": emergency_stop,
+            "autopilot_enabled": user.get('autopilot_enabled', True) if user else True
+        }
+        
+        # Status checks
+        if bot.get('status') != 'active':
+            diagnostics['reasons'].append(f"Bot status is '{bot.get('status')}', not 'active'")
+        
+        if emergency_stop:
+            diagnostics['reasons'].append("Emergency stop is enabled")
+        
+        if bot.get('paused_by_bodyguard'):
+            diagnostics['reasons'].append(f"Paused by bodyguard: {bot.get('pause_reason', 'Unknown reason')}")
+        
+        if bot.get('paused_by_system'):
+            diagnostics['reasons'].append(f"Paused by system: {bot.get('pause_reason', 'Unknown reason')}")
+        
+        # Check trade limits
+        exchange = bot.get('exchange', 'binance')
+        from engines.trade_budget_manager import trade_budget_manager
+        
+        daily_budget = await trade_budget_manager.calculate_bot_daily_budget(bot_id, exchange)
+        remaining = await trade_budget_manager.get_bot_remaining_budget(bot_id, exchange)
+        can_trade_budget, budget_reason = await trade_budget_manager.can_execute_trade(bot_id, exchange)
+        
+        diagnostics['limits'] = {
+            "daily_budget": daily_budget,
+            "remaining_today": remaining,
+            "can_trade": can_trade_budget,
+            "reason": budget_reason
+        }
+        
+        if not can_trade_budget:
+            diagnostics['reasons'].append(f"Trade limit: {budget_reason}")
+        
+        # Check bodyguard metrics
+        from services.bodyguard_service import bodyguard_service
+        bodyguard_status = await bodyguard_service.get_bot_drawdown_status(bot_id)
+        
+        if bodyguard_status:
+            diagnostics['bodyguard'] = bodyguard_status
+            
+            if bodyguard_status.get('paused_by_bodyguard'):
+                diagnostics['reasons'].append(f"Bodyguard paused: {bodyguard_status.get('pause_reason', 'Drawdown exceeded')}")
+        
+        # Check API keys
+        api_key = await db.api_keys_collection.find_one({
+            "user_id": user_id,
+            "provider": exchange
+        }, {"_id": 0})
+        
+        diagnostics['api_keys'] = {
+            "has_keys": api_key is not None,
+            "connected": api_key.get('connected', False) if api_key else False,
+            "provider": exchange
+        }
+        
+        if trading_mode == 'live' and not api_key:
+            diagnostics['reasons'].append(f"No API keys configured for {exchange}")
+        
+        # Recent activity
+        last_trade_time = bot.get('last_trade_time') or bot.get('last_trade')
+        diagnostics['recent_activity'] = {
+            "last_trade_time": last_trade_time,
+            "trades_count": bot.get('trades_count', 0),
+            "current_capital": bot.get('current_capital', 0),
+            "total_profit": bot.get('total_profit', 0),
+            "win_rate": bot.get('win_rate', 0)
+        }
+        
+        # Determine if bot can trade
+        diagnostics['can_trade'] = (
+            bot.get('status') == 'active' and
+            not emergency_stop and
+            not bot.get('paused_by_bodyguard') and
+            not bot.get('paused_by_system') and
+            can_trade_budget
+        )
+        
+        if diagnostics['can_trade']:
+            diagnostics['reasons'] = ["Bot is ready to trade"]
+        
+        diagnostics['timestamp'] = datetime.now(timezone.utc).isoformat()
+        
+        return diagnostics
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get bot diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/diagnostics")
+async def get_all_bots_diagnostics(user_id: str = Depends(get_current_user)):
+    """Get diagnostics for all user bots (bulk endpoint)
+    
+    Returns summary diagnostics for all non-deleted bots
+    
+    Args:
+        user_id: Current user ID (from auth)
+        
+    Returns:
+        List of bot diagnostics with trading readiness status
+    """
+    try:
+        # Get all non-deleted bots
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]}
+            },
+            {"_id": 0}
+        ).to_list(1000)
+        
+        diagnostics_list = []
+        
+        for bot in bots:
+            bot_id = bot['id']
+            exchange = bot.get('exchange', 'binance')
+            
+            # Quick diagnostic check
+            from engines.trade_budget_manager import trade_budget_manager
+            remaining = await trade_budget_manager.get_bot_remaining_budget(bot_id, exchange)
+            can_trade_budget, budget_reason = await trade_budget_manager.can_execute_trade(bot_id, exchange)
+            
+            can_trade = (
+                bot.get('status') == 'active' and
+                not bot.get('paused_by_bodyguard') and
+                not bot.get('paused_by_system') and
+                can_trade_budget
+            )
+            
+            # Build reason summary
+            reasons = []
+            if bot.get('status') != 'active':
+                reasons.append(f"Status: {bot.get('status')}")
+            if bot.get('paused_by_bodyguard'):
+                reasons.append("Bodyguard pause")
+            if not can_trade_budget:
+                reasons.append("Budget limit")
+            
+            diagnostics_list.append({
+                "bot_id": bot_id,
+                "bot_name": bot.get('name'),
+                "exchange": exchange,
+                "status": bot.get('status'),
+                "can_trade": can_trade,
+                "reasons": reasons if reasons else ["Ready to trade"],
+                "remaining_budget": remaining,
+                "trades_count": bot.get('trades_count', 0),
+                "win_rate": bot.get('win_rate', 0),
+                "total_profit": bot.get('total_profit', 0)
+            })
+        
+        # Summary statistics
+        can_trade_count = len([d for d in diagnostics_list if d['can_trade']])
+        paused_count = len([d for d in diagnostics_list if 'pause' in str(d['reasons']).lower()])
+        budget_limited_count = len([d for d in diagnostics_list if 'budget' in str(d['reasons']).lower()])
+        
+        return {
+            "diagnostics": diagnostics_list,
+            "summary": {
+                "total_bots": len(diagnostics_list),
+                "can_trade": can_trade_count,
+                "paused": paused_count,
+                "budget_limited": budget_limited_count
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get all bots diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

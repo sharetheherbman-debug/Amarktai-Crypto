@@ -1,7 +1,8 @@
 """
-Bodyguard Service - AI Drawdown Protection with Recovery Logic
+Bodyguard Service - AI Drawdown Protection with Win-Aware Logic
 Monitors bot equity and enforces risk-adjusted thresholds
 Implements recovery-aware reset and cooldown with hysteresis
+NEVER pauses winning/profitable bots - only intervenes on persistent losses
 """
 
 import logging
@@ -27,12 +28,88 @@ RESUME_HYSTERESIS = 2.0
 # Cooldown period after pause (minutes)
 PAUSE_COOLDOWN_MINUTES = 30
 
+# Win-aware thresholds
+MIN_TRADES_FOR_WIN_CHECK = 10  # Need at least 10 trades to assess profitability
+PROFITABLE_WIN_RATE_THRESHOLD = 50.0  # 50%+ win rate considered profitable
+PROFITABLE_NET_PNL_THRESHOLD = 0.0  # Positive net PnL
+MAX_ACCEPTABLE_LOSS_WITH_GOOD_WIN_RATE = 50.0  # Max loss (in currency) acceptable with >50% win rate
+
 
 class BodyguardService:
-    """Enhanced bodyguard service with recovery-aware drawdown logic"""
+    """Enhanced bodyguard service with win-aware logic and quarantine integration"""
+    
+    async def is_bot_profitable(self, bot_id: str) -> Tuple[bool, str]:
+        """Check if a bot is currently profitable (win-aware check)
+        
+        Args:
+            bot_id: Bot ID to check
+            
+        Returns:
+            Tuple of (is_profitable, reason_description)
+        """
+        try:
+            # Get bot data
+            bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+            if not bot:
+                return False, "Bot not found"
+            
+            # Check trade count
+            trades_count = bot.get('trades_count', 0)
+            if trades_count < MIN_TRADES_FOR_WIN_CHECK:
+                return False, f"Insufficient trades ({trades_count} < {MIN_TRADES_FOR_WIN_CHECK})"
+            
+            # Check net PnL (most important indicator)
+            total_profit = bot.get('total_profit', 0)
+            if total_profit > PROFITABLE_NET_PNL_THRESHOLD:
+                return True, f"Net profitable (R{total_profit:.2f})"
+            
+            # Check win rate
+            win_rate = bot.get('win_rate', 0)
+            if win_rate >= PROFITABLE_WIN_RATE_THRESHOLD:
+                # Even if slightly down, good win rate means bot has potential
+                if total_profit > -MAX_ACCEPTABLE_LOSS_WITH_GOOD_WIN_RATE:
+                    return True, f"High win rate ({win_rate:.1f}%) with acceptable loss"
+            
+            # Check rolling window profitability (last 20 trades)
+            recent_profit = await self._get_recent_pnl(bot_id, num_trades=20)
+            if recent_profit > 0:
+                return True, f"Recent profit positive (R{recent_profit:.2f})"
+            
+            return False, f"Not profitable (total: R{total_profit:.2f}, win rate: {win_rate:.1f}%)"
+            
+        except Exception as e:
+            logger.error(f"Error checking bot profitability: {e}")
+            return False, f"Error: {str(e)}"
+    
+    async def _get_recent_pnl(self, bot_id: str, num_trades: int = 20) -> float:
+        """Get net PnL from recent trades
+        
+        Args:
+            bot_id: Bot ID
+            num_trades: Number of recent trades to check
+            
+        Returns:
+            Net PnL from recent trades
+        """
+        try:
+            trades = await db.trades_collection.find(
+                {"bot_id": bot_id, "status": "closed"},
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1}
+            ).sort("timestamp", -1).limit(num_trades).to_list(num_trades)
+            
+            # Use net_pnl if available, fallback to profit_loss
+            total = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades)
+            return total
+            
+        except Exception as e:
+            logger.error(f"Error getting recent PnL: {e}")
+            return 0.0
     
     async def check_bot_drawdown(self, user_id: str, bot_id: str) -> Tuple[bool, Optional[str]]:
         """Check if bot should be paused or resumed based on drawdown
+        
+        WIN-AWARE: Never pauses profitable bots even if temporary drawdown.
+        Only pauses persistently losing bots.
         
         Args:
             user_id: User ID
@@ -91,8 +168,17 @@ class BodyguardService:
                 
                 return False, None
             
+            # WIN-AWARE CHECK: Don't pause profitable bots
+            is_profitable, profit_reason = await self.is_bot_profitable(bot_id)
+            
             # Check if currently active and drawdown exceeds threshold
             if bot_status == 'active' and current_drawdown_pct >= threshold:
+                # If bot is profitable, don't pause it
+                if is_profitable:
+                    logger.info(f"🛡️ Bodyguard: Not pausing profitable bot {bot.get('name')} despite {current_drawdown_pct:.1f}% drawdown - {profit_reason}")
+                    return False, None
+                
+                # Bot is not profitable and exceeds drawdown - pause it
                 return await self._pause_bot(user_id, bot_id, bot, current_drawdown_pct, threshold)
             
             # Check if paused by bodyguard and drawdown improved enough to resume
@@ -115,7 +201,7 @@ class BodyguardService:
         current_drawdown_pct: float, 
         threshold: float
     ) -> Tuple[bool, str]:
-        """Pause bot due to drawdown threshold breach
+        """Pause bot due to drawdown threshold breach and place in quarantine
         
         Args:
             user_id: User ID
@@ -130,15 +216,27 @@ class BodyguardService:
         try:
             bot_name = bot.get('name', 'Unknown')
             risk_mode = bot.get('risk_mode', 'balanced')
+            trading_mode = bot.get('trading_mode', 'paper')
+            
+            # Determine action based on mode
+            if trading_mode == 'paper':
+                # Paper mode: Quarantine the bot (don't stop scheduler)
+                action = "quarantined"
+                action_description = "quarantined for retraining"
+            else:
+                # Live mode: Pause only (be more cautious)
+                action = "paused"
+                action_description = "paused"
             
             # Update bot status
             await db.bots_collection.update_one(
                 {"id": bot_id},
                 {
                     "$set": {
-                        "status": "paused",
+                        "status": action,
                         "paused_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": True,
+                        "paused_by_system": True,
                         "pause_reason": f"Drawdown threshold breach: {current_drawdown_pct:.1f}% >= {threshold}%",
                         "bodyguard_pause_threshold": threshold,
                         "bodyguard_pause_drawdown": round(current_drawdown_pct, 2)
@@ -146,20 +244,44 @@ class BodyguardService:
                 }
             )
             
+            # If paper mode, quarantine the bot
+            if trading_mode == 'paper':
+                try:
+                    from services.bot_quarantine import quarantine_service
+                    quarantine_result = await quarantine_service.quarantine_bot(
+                        bot_id,
+                        f"Bodyguard: {current_drawdown_pct:.1f}% drawdown >= {threshold}%"
+                    )
+                    
+                    # Create training job stub
+                    training_job_id = await self._create_training_job(bot_id, user_id, {
+                        "trigger": "bodyguard_quarantine",
+                        "reason": f"Drawdown {current_drawdown_pct:.1f}%",
+                        "quarantine_count": quarantine_result.get('quarantine_count', 1)
+                    })
+                    
+                    logger.info(f"🔒 Quarantined bot {bot_name} - training job {training_job_id} created")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to quarantine bot: {e}")
+            
             # Get updated bot data
             updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
             
             # Broadcast realtime update
-            await rt_events.bot_paused(user_id, updated_bot)
+            if action == "quarantined":
+                await rt_events.bot_quarantined(user_id, bot_id, f"Drawdown {current_drawdown_pct:.1f}%")
+            else:
+                await rt_events.bot_paused(user_id, updated_bot)
             
             # Send additional overview update
             await manager.send_message(user_id, {
                 "type": "overview_updated",
-                "message": "Bot paused by bodyguard due to drawdown"
+                "message": f"Bot {action_description} by bodyguard due to drawdown"
             })
             
             description = (
-                f"🛡️ Bodyguard paused '{bot_name}': Drawdown {current_drawdown_pct:.1f}% "
+                f"🛡️ Bodyguard {action_description} '{bot_name}': Drawdown {current_drawdown_pct:.1f}% "
                 f"reached {risk_mode} threshold ({threshold}%)"
             )
             
@@ -169,6 +291,48 @@ class BodyguardService:
         except Exception as e:
             logger.error(f"Error pausing bot {bot_id}: {e}", exc_info=True)
             return False, None
+    
+    async def _create_training_job(self, bot_id: str, user_id: str, metadata: Dict) -> str:
+        """Create a training job for a quarantined bot
+        
+        Args:
+            bot_id: Bot ID
+            user_id: User ID
+            metadata: Additional metadata about why training was triggered
+            
+        Returns:
+            Training job ID
+        """
+        try:
+            import uuid
+            training_job_id = str(uuid.uuid4())
+            
+            # Create training job stub
+            training_job = {
+                "id": training_job_id,
+                "bot_id": bot_id,
+                "user_id": user_id,
+                "status": "pending",
+                "trigger": metadata.get("trigger", "bodyguard"),
+                "trigger_reason": metadata.get("reason", "Bodyguard quarantine"),
+                "quarantine_count": metadata.get("quarantine_count", 1),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "training_started_at": None,
+                "training_completed_at": None,
+                "report": None
+            }
+            
+            # Save to database
+            await db.training_jobs_collection.insert_one(training_job)
+            
+            # Broadcast training job created event
+            await rt_events.training_started(user_id, bot_id, training_job)
+            
+            return training_job_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create training job: {e}")
+            return "error"
     
     async def _resume_bot(
         self, 

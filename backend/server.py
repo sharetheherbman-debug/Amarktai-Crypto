@@ -2909,14 +2909,21 @@ routers_to_mount = [
     ("routes.capital_tracking_endpoints", "Capital Tracking"),
     ("routes.emergency_stop_endpoints", "Emergency Stop"),
     ("routes.wallet_endpoints", "Wallet Hub"),
+    ("routes.wallet_hub", "Wallet Hub Enhanced"),  # NEW - All 5 exchanges
     # REMOVED: routes.system_health_endpoints - has duplicate /health/ping
     ("routes.admin_endpoints", "Admin"),
+    ("routes.admin_enhanced", "Admin Enhanced"),  # NEW - User dropdown, bot profit/loss
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
+    ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
+    ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
     ("routes.training", "Bot Training"),  # CRITICAL - Training system
+    ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
+    ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests
     ("routes.ai_chat", "AI Chat"),
+    ("routes.chat_enhanced", "AI Chat Enhanced"),  # NEW - Clear on refresh, daily summary
     ("routes.two_factor_auth", "2FA"),
     ("routes.genetic_algorithm", "Genetic Algorithm"),
     ("routes.dashboard_endpoints", "Dashboard"),

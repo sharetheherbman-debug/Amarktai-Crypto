@@ -37,6 +37,9 @@ bot_lifecycle_collection = None
 bot_metrics_collection = None
 system_metrics_collection = None
 
+# Training and quarantine
+training_jobs_collection = None
+
 # Advanced features
 risk_profiles_collection = None
 market_regimes_collection = None
@@ -159,6 +162,7 @@ async def setup_collections():
     global api_keys_collection, alerts_collection, sessions_collection
     global system_config_collection, system_modes_collection, chat_messages_collection
     global bot_lifecycle_collection, bot_metrics_collection, system_metrics_collection
+    global training_jobs_collection
     global risk_profiles_collection, market_regimes_collection
     global learning_data_collection, learning_logs_collection, audit_logs_collection
     global notifications_collection, reports_collection, promotion_requests_collection
@@ -193,6 +197,9 @@ async def setup_collections():
     bot_lifecycle_collection = db.bot_lifecycle
     bot_metrics_collection = db.bot_metrics
     system_metrics_collection = db.system_metrics
+    
+    # Training and quarantine
+    training_jobs_collection = db.training_jobs
     
     # Advanced features
     risk_profiles_collection = db.risk_profiles

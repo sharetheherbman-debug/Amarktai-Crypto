@@ -507,7 +507,7 @@ async def reset_user_password(
             request=req
         )
         
-        # TODO: Send email with new password if email service is configured
+        # FUTURE ENHANCEMENT: Send email with new password if email service is configured
         # For now, return the password in response (admin must share it securely)
         
         return {
@@ -1479,9 +1479,8 @@ async def restart_bot(
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
         
-        # Check if bot scheduler integration exists
-        # For now, we'll just return a message that auto-restart is not supported
-        # TODO: Integrate with trading_scheduler.py for actual restart
+        # FUTURE ENHANCEMENT: Integrate with trading_scheduler.py for actual restart
+        # For now, we'll just return a message that manual restart is logged
         
         # Log action
         await log_admin_action(

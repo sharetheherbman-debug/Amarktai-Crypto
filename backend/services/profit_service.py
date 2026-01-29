@@ -25,6 +25,9 @@ class ProfitService:
     ) -> float:
         """Calculate total realized profit from closed trades
         
+        Uses net_pnl (after fees) as the true profit value.
+        Falls back to profit_loss for backward compatibility.
+        
         Args:
             user_id: User ID
             trading_mode: Filter by 'paper' or 'live' (None = both)
@@ -32,7 +35,7 @@ class ProfitService:
             end_date: End date filter (None = now)
             
         Returns:
-            Total realized profit (sum of profit_loss for closed trades)
+            Total realized profit (sum of net_pnl for closed trades)
         """
         try:
             # Build query
@@ -52,12 +55,12 @@ class ProfitService:
                 if end_date:
                     query["timestamp"]["$lte"] = end_date.isoformat()
             
-            # Get trades
-            trades_cursor = db.trades_collection.find(query, {"_id": 0, "profit_loss": 1})
+            # Get trades - prefer net_pnl over profit_loss
+            trades_cursor = db.trades_collection.find(query, {"_id": 0, "net_pnl": 1, "profit_loss": 1})
             trades = await trades_cursor.to_list(10000)
             
-            # Calculate total
-            total_profit = sum(t.get("profit_loss", 0) for t in trades)
+            # Calculate total using net_pnl (after fees) or fallback to profit_loss
+            total_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades)
             
             return round(total_profit, 2)
             
@@ -444,10 +447,11 @@ class ProfitService:
         user_id: str,
         trading_mode: Optional[str] = None
     ) -> Dict:
-        """Get trading statistics
+        """Get trading statistics including gross profit, fees, and net profit
         
         Returns:
-            Dict with total_trades, winning_trades, losing_trades, win_rate, total_fees
+            Dict with total_trades, winning_trades, losing_trades, win_rate,  
+            gross_profit, total_fees, net_profit
         """
         try:
             # Build query
@@ -465,9 +469,13 @@ class ProfitService:
             
             # Calculate stats
             total_trades = len(trades)
-            winning_trades = sum(1 for t in trades if t.get("profit_loss", 0) > 0)
-            losing_trades = sum(1 for t in trades if t.get("profit_loss", 0) < 0)
-            total_fees = sum(t.get("fees", 0) for t in trades)
+            winning_trades = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
+            losing_trades = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) < 0)
+            
+            # Calculate gross profit (before fees), fees, and net profit
+            gross_profit = sum(t.get("gross_pnl", t.get("profit_loss", 0)) for t in trades)
+            total_fees = sum(t.get("fee_amount", 0) for t in trades)
+            net_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades)
             
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
             
@@ -476,7 +484,9 @@ class ProfitService:
                 "winning_trades": winning_trades,
                 "losing_trades": losing_trades,
                 "win_rate": round(win_rate, 2),
-                "total_fees": round(total_fees, 2)
+                "gross_profit": round(gross_profit, 2),
+                "total_fees": round(total_fees, 2),
+                "net_profit": round(net_profit, 2)
             }
             
         except Exception as e:
@@ -486,7 +496,9 @@ class ProfitService:
                 "winning_trades": 0,
                 "losing_trades": 0,
                 "win_rate": 0,
-                "total_fees": 0
+                "gross_profit": 0,
+                "total_fees": 0,
+                "net_profit": 0
             }
 
 

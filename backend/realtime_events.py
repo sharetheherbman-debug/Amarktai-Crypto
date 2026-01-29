@@ -296,7 +296,8 @@ class RealTimeEvents:
             "paused": "⏸️",
             "stopped": "⏹️",
             "error": "❌",
-            "training": "🎓"
+            "training": "🎓",
+            "quarantined": "🔒"
         }
         emoji = emoji_map.get(status, "🔄")
         message = f"{emoji} Bot status changed to {status.upper()}"
@@ -311,6 +312,28 @@ class RealTimeEvents:
             "message": message
         })
         logger.info(f"📡 Real-time: bot_status_changed ({bot_id[:8]}, {status}) for user {user_id[:8]}")
+    
+    @staticmethod
+    async def bot_quarantined(user_id: str, bot_id: str, reason: str):
+        """Broadcast when bot is quarantined for retraining"""
+        await manager.send_message(user_id, {
+            "type": "bot_quarantined",
+            "bot_id": bot_id,
+            "reason": reason,
+            "message": f"🔒 Bot quarantined for retraining: {reason}"
+        })
+        logger.info(f"📡 Real-time: bot_quarantined ({bot_id[:8]}) for user {user_id[:8]}")
+    
+    @staticmethod
+    async def training_started(user_id: str, bot_id: str, training_job: dict):
+        """Broadcast when training job is created"""
+        await manager.send_message(user_id, {
+            "type": "training_started",
+            "bot_id": bot_id,
+            "training_job": training_job,
+            "message": f"🎓 Training started for bot"
+        })
+        logger.info(f"📡 Real-time: training_started ({bot_id[:8]}) for user {user_id[:8]}")
     
     @staticmethod
     async def metrics_updated(user_id: str, metrics: dict):
