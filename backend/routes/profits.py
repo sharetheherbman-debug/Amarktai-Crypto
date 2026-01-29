@@ -1,6 +1,6 @@
 """
 Profits API Endpoints
-Provides profit data using canonical profit_service
+Provides profit data using canonical profit_service and accounting_service
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -10,11 +10,93 @@ from datetime import datetime, timezone, timedelta
 
 from auth import get_current_user
 from services.profit_service import profit_service
+from services.accounting import accounting_service
 import database as db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/profits", tags=["Profits"])
+
+
+@router.get("/metrics")
+async def get_unified_metrics(
+    mode: Optional[str] = None,
+    user_id: str = Depends(get_current_user)
+):
+    """Get unified profit/trade metrics - SINGLE SOURCE OF TRUTH
+    
+    This endpoint provides consistent metrics used across Overview, Profits, and Live Trades pages.
+    All pages should use this endpoint to ensure consistency.
+    
+    Args:
+        mode: Filter by trading mode ('paper' or 'live', None = both)
+        user_id: Current user ID from auth
+        
+    Returns:
+        Unified metrics:
+        - executed_trades_count: Count of executed trades
+        - net_realised_pnl_zar: Net realised PnL (after fees)
+        - gross_realised_pnl_zar: Gross realised PnL (before fees)
+        - total_fees_zar: Total fees paid
+        - unrealised_pnl_zar: Unrealised PnL (open positions)
+        - total_pnl_zar: Total PnL (realised + unrealised)
+    """
+    try:
+        metrics = await accounting_service.get_unified_metrics(
+            user_id=user_id,
+            trading_mode=mode,
+            include_unrealised=True
+        )
+        
+        return {
+            "success": True,
+            "metrics": metrics,
+            "currency": "ZAR",
+            "data_source": "accounting_service",
+            "note": "This is the single source of truth for profit metrics"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting unified metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/trades")
+async def get_profit_trades(
+    mode: Optional[str] = None,
+    limit: int = 100,
+    user_id: str = Depends(get_current_user)
+):
+    """Get trades with profit metrics for Profits page
+    
+    Returns trade list with consistent PnL calculations.
+    
+    Args:
+        mode: Filter by trading mode
+        limit: Max trades to return
+        user_id: Current user ID
+        
+    Returns:
+        Trade list with summary metrics
+    """
+    try:
+        result = await accounting_service.get_trade_list_with_metrics(
+            user_id=user_id,
+            trading_mode=mode,
+            limit=limit,
+            status="closed"
+        )
+        
+        return {
+            "success": True,
+            **result,
+            "currency": "ZAR",
+            "data_source": "accounting_service"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting profit trades: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("")

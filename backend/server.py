@@ -3040,6 +3040,28 @@ if collision_found:
 
 logger.info(f"✅ Route collision check passed - {len(route_registry)} unique routes registered")
 
+# ============================================================================
+# WALLET ROUTES DIAGNOSTIC LOG - Prevent future collisions
+# ============================================================================
+wallet_routes_found = {}
+for route in app.routes:
+    if hasattr(route, 'path') and '/wallet' in route.path:
+        if hasattr(route, 'methods'):
+            for method in route.methods:
+                if method not in ['HEAD', 'OPTIONS']:
+                    route_key = f"{method} {route.path}"
+                    endpoint_name = getattr(route, 'name', 'unknown')
+                    wallet_routes_found[route_key] = endpoint_name
+
+logger.info("=" * 80)
+logger.info("📋 WALLET ROUTES REGISTERED:")
+logger.info("=" * 80)
+for route_key, endpoint_name in sorted(wallet_routes_found.items()):
+    logger.info(f"   {route_key:50} -> {endpoint_name}")
+logger.info("=" * 80)
+logger.info(f"✅ Total wallet routes: {len(wallet_routes_found)}")
+logger.info("=" * 80)
+
 # Summary
 logger.info(f"📊 Router mounting complete: {len(mounted_routers)} mounted, {len(failed_routers)} failed")
 if failed_routers:

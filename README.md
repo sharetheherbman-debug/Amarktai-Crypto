@@ -344,6 +344,103 @@ For detailed troubleshooting and operational procedures:
 
 ---
 
+## 🚀 Deployment Verification
+
+After deploying to production, verify the deployment with these commands:
+
+### 1. Check Build Version
+
+```bash
+# Backend build info (unauthenticated endpoint)
+curl https://your-domain.com/api/build/info
+
+# Expected response:
+{
+  "version": "abc1234",
+  "built_at": "2026-01-29T...",
+  "backend_path": "/path/to/backend",
+  "env": "production",
+  "api_base": "/api",
+  ...
+}
+```
+
+### 2. Run Smoke Tests
+
+```bash
+# From repository root
+python3 smoke_test.py
+
+# Or with custom URL
+API_BASE_URL=https://your-domain.com python3 smoke_test.py
+```
+
+The smoke test validates:
+- ✅ Health check endpoint
+- ✅ Build info (unauthenticated)
+- ✅ Authentication system
+- ✅ Wallet routes (no collisions)
+- ✅ Unified profit metrics
+- ✅ Overview metrics consistency
+
+### 3. Verify Wallet Routes
+
+```bash
+# Check wallet routes are registered correctly
+curl https://your-domain.com/api/wallet/balances \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Should return wallet balances, NOT a 404 or 500
+```
+
+### 4. Verify Profit Metrics Consistency
+
+```bash
+# Get unified metrics from accounting service
+curl https://your-domain.com/api/profits/metrics \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Expected response:
+{
+  "success": true,
+  "metrics": {
+    "net_realised_pnl_zar": 1234.56,
+    "executed_trades_count": 42,
+    "total_fees_zar": 12.34,
+    ...
+  },
+  "data_source": "accounting_service"
+}
+
+# Verify Overview uses same metrics
+curl https://your-domain.com/api/overview \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Should include:
+# "data_source": "accounting_service"
+# "net_realised_pnl_zar": <same as above>
+```
+
+### 5. Check Frontend Version Badge
+
+- Open the application in a browser
+- Look for version badge in footer or header
+- Verify it matches the backend version from /api/build/info
+
+### 6. Monitor Logs
+
+```bash
+# Check for route collisions on startup
+sudo journalctl -u amarktai-api.service -n 100 | grep -i "wallet\|collision"
+
+# Should see:
+# ✅ "WALLET ROUTES REGISTERED"
+# ✅ "Route collision check passed"
+# ❌ NOT "ROUTE COLLISION DETECTED" or "FATAL"
+```
+
+---
+
 ## ⚖️ License
 
 See LICENSE file for details.

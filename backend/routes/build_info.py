@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/system", tags=["Build"])
+router = APIRouter(prefix="/api/build", tags=["Build"])
 
 
 def get_git_sha() -> str:
@@ -53,27 +53,45 @@ BUILD_TIME = os.environ.get("BUILD_TIME") or datetime.utcnow().isoformat()
 BUILD_BRANCH = os.environ.get("BUILD_BRANCH") or get_git_branch()
 
 
-@router.get("/build")
+@router.get("/info")
 async def get_build_info():
-    """Get build information
+    """Get build information (no authentication required)
+    
+    This endpoint is publicly accessible to verify deployment status.
     
     Returns:
-        Build SHA, time, branch, and expected frontend SHA
+        version: Git SHA or build ID
+        built_at: Build timestamp (ISO format)
+        backend_path: Working directory of backend
+        env: Environment name (prod/staging/dev)
+        api_base: API base path
     """
     return {
-        "success": True,
+        "version": BUILD_SHA,
+        "built_at": BUILD_TIME,
+        "backend_path": os.getcwd(),
+        "env": os.environ.get("ENVIRONMENT", "production"),
+        "api_base": "/api",
         "backend": {
             "sha": BUILD_SHA,
             "branch": BUILD_BRANCH,
             "build_time": BUILD_TIME,
-            "python_version": os.sys.version.split()[0]
+            "python_version": os.sys.version.split()[0],
+            "working_directory": os.getcwd()
         },
         "frontend": {
-            "expected_sha": BUILD_SHA,  # Frontend should match backend
+            "expected_sha": BUILD_SHA,
             "note": "Frontend build SHA should be displayed in UI footer"
         },
         "deployment": {
-            "environment": os.environ.get("ENVIRONMENT", "development"),
-            "host": os.environ.get("HOSTNAME", "unknown")
+            "environment": os.environ.get("ENVIRONMENT", "production"),
+            "host": os.environ.get("HOSTNAME", "unknown"),
+            "deployed_at": BUILD_TIME
         }
     }
+
+
+@router.get("/build")
+async def get_build_info_legacy():
+    """Legacy endpoint - redirects to /info"""
+    return await get_build_info()

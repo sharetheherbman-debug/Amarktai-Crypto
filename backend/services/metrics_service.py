@@ -1,6 +1,7 @@
 """
 Metrics Service - Single Source of Truth for Overview and Profits
 All dashboard metrics MUST be computed through this service
+Uses accounting_service for consistent profit/trade calculations
 Provides consistent, accurate counts and calculations
 """
 
@@ -8,6 +9,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
 import database as db
+from services.accounting import accounting_service
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +20,11 @@ class MetricsService:
     async def get_overview_metrics(self, user_id: str) -> Dict:
         """Get comprehensive overview metrics for dashboard
         
+        Uses accounting_service for profit calculations to ensure consistency
+        across Overview, Profits, and Live Trades pages.
+        
         Computes:
-        - Total profit (real profit excluding capital injections)
+        - Total profit (from accounting service - net realised PnL)
         - 24h change and percentage
         - Bot counts (total, active, paper, live)
         - Exposure and risk level
@@ -33,6 +38,17 @@ class MetricsService:
             Dict of metrics with all overview data
         """
         try:
+            # Get unified accounting metrics (SINGLE SOURCE OF TRUTH)
+            accounting_metrics = await accounting_service.get_unified_metrics(
+                user_id=user_id,
+                trading_mode=None,  # All modes
+                include_unrealised=True
+            )
+            
+            # Get profit from accounting service
+            total_profit = accounting_metrics["net_realised_pnl_zar"]
+            executed_trades_count = accounting_metrics["executed_trades_count"]
+            
             # Get all user's bots (excluding deleted)
             bots_cursor = db.bots_collection.find(
                 {"user_id": user_id, "status": {"$ne": "deleted"}},
@@ -49,16 +65,12 @@ class MetricsService:
             paper_bots = len([b for b in active_bots if b.get('trading_mode') == 'paper'])
             live_bots = len([b for b in active_bots if b.get('trading_mode') == 'live'])
             
-            # Calculate REAL total profit (excluding capital injections)
+            # Calculate total capital
             total_current = sum(bot.get('current_capital', 0) for bot in active_bots)
             total_initial = sum(bot.get('initial_capital', 0) for bot in active_bots)
-            total_injections = sum(bot.get('total_injections', 0) for bot in active_bots)
             
-            # Real profit = (current - initial) - injections
-            gross_profit = total_current - total_initial
-            total_profit = gross_profit - total_injections
-            
-            # Calculate 24h change from actual trades
+            # Calculate 24h change from accounting service
+            # Get trades from last 24h
             twenty_four_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
             recent_trades_cursor = db.trades_collection.find(
                 {
@@ -66,11 +78,15 @@ class MetricsService:
                     "status": "closed",
                     "timestamp": {"$gte": twenty_four_hours_ago}
                 },
-                {"_id": 0, "profit_loss": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1}
             )
             recent_trades = await recent_trades_cursor.to_list(10000)
             
-            change_24h = sum(t.get('profit_loss', 0) for t in recent_trades)
+            # Use net_pnl if available, fallback to profit_loss (consistent with accounting service)
+            change_24h = sum(
+                t.get('net_pnl', t.get('profit_loss', 0)) 
+                for t in recent_trades
+            )
             change_24h_pct = (change_24h / total_initial * 100) if total_initial > 0 else 0
             
             # Calculate exposure
@@ -113,25 +129,42 @@ class MetricsService:
             integrity_status = await self._check_integrity(user_id, all_bots)
             
             return {
-                "total_profit": round(total_profit, 2),
-                "totalProfit": round(total_profit, 2),  # Backward compatibility
+                # Profit metrics from accounting service (SINGLE SOURCE OF TRUTH)
+                "total_profit": total_profit,
+                "totalProfit": total_profit,  # Backward compatibility
+                "net_realised_pnl_zar": accounting_metrics["net_realised_pnl_zar"],
+                "unrealised_pnl_zar": accounting_metrics["unrealised_pnl_zar"],
+                "executed_trades_count": executed_trades_count,
+                "total_fees_zar": accounting_metrics["total_fees_zar"],
                 "change_24h": round(change_24h, 2),
                 "change_24h_pct": round(change_24h_pct, 2),
+                
+                # Bot counts
                 "total_bots": total_bots,
                 "active_bots": active_count,
                 "paper_bots": paper_bots,
                 "live_bots": live_bots,
                 "activeBots": bot_display,  # Backward compatibility
+                
+                # Risk metrics
                 "exposure": round(exposure, 2),
                 "risk_level": risk_level,
                 "riskLevel": risk_level,  # Backward compatibility
+                
+                # Sentiment
                 "ai_sentiment": ai_sentiment,
                 "aiSentiment": ai_sentiment,  # Backward compatibility
+                
+                # Status
                 "trading_status": trading_status,
                 "tradingStatus": trading_status,  # Backward compatibility
                 "last_update": datetime.now(timezone.utc).isoformat(),
                 "lastUpdate": datetime.now(timezone.utc).isoformat(),  # Backward compatibility
-                "integrity_status": integrity_status
+                "integrity_status": integrity_status,
+                
+                # Metadata
+                "data_source": "accounting_service",
+                "accounting_timestamp": accounting_metrics["last_calculated_at"]
             }
             
         except Exception as e:
