@@ -2913,6 +2913,7 @@ routers_to_mount = [
     ("routes.admin_endpoints", "Admin"),
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
     ("routes.training", "Bot Training"),  # CRITICAL - Training system
+    ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
