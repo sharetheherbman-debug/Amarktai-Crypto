@@ -229,14 +229,46 @@ async def get_all_balances(user_id: str = Depends(get_current_user)):
         # Get paper balances
         paper_balances = await get_paper_wallet_balances(user_id)
         
-        # TODO: Get live balances when keys are available
-        # For now, just return paper balances
+        # Get live balances when keys are available
+        live_balances = {}
+        exchanges = ['luno', 'binance', 'kucoin', 'valr', 'ovex']
+        
+        for exchange in exchanges:
+            api_key_doc = await db.api_keys_collection.find_one({
+                "user_id": user_id,
+                "service": exchange
+            })
+            
+            if api_key_doc and api_key_doc.get("last_test_ok"):
+                # Keys exist and were tested successfully
+                try:
+                    # Use ccxt to get real balance
+                    from ccxt_service import ccxt_service
+                    balance_data = await ccxt_service.get_balance(user_id, exchange)
+                    
+                    if balance_data and balance_data.get("total"):
+                        # Convert to ZAR equivalent if needed
+                        total_usd = sum([
+                            float(balance_data["total"].get(currency, 0))
+                            for currency in balance_data["total"]
+                        ])
+                        # Simple approximation: 1 USD = 18 ZAR
+                        live_balances[exchange] = round(total_usd * 18, 2)
+                    else:
+                        live_balances[exchange] = 0.0
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to get live balance for {exchange}: {e}")
+                    live_balances[exchange] = 0.0
+            else:
+                live_balances[exchange] = 0.0
         
         return {
             "user_id": user_id,
             "paper_balances": paper_balances,
-            "live_balances": {},  # Placeholder for live balances
+            "live_balances": live_balances,
             "total_paper": round(sum(paper_balances.values()), 2),
+            "total_live": round(sum(live_balances.values()), 2),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
