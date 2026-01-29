@@ -10,6 +10,7 @@ import logging
 
 from auth import get_current_user
 from engines.trade_budget_manager import trade_budget_manager
+from exchange_limits import EXCHANGE_LIMITS, MAX_BOTS_GLOBAL, BOT_ALLOCATION
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -22,17 +23,29 @@ async def get_trade_limits(user_id: str = Depends(get_current_user)):
     """Get current trade budgets and remaining capacity per exchange and per bot
     
     Returns comprehensive budget information:
+    - Exchange limits configuration (max bots, trades per bot/day, fees)
     - Per-exchange daily budgets and utilization
     - Per-bot allocated budgets and remaining trades
     - System-wide statistics
     """
     try:
+        # Return static exchange limits configuration
+        exchange_configs = {}
+        for exchange, limits in EXCHANGE_LIMITS.items():
+            exchange_configs[exchange] = {
+                "max_bots": limits.get("max_bots"),
+                "trades_per_bot_day": limits.get("trades_per_bot_day"),
+                "total_trades_day": limits.get("total_trades_day"),
+                "fee_maker": limits.get("fee_maker"),
+                "fee_taker": limits.get("fee_taker"),
+            }
+        
         # Get all exchanges budget report
         exchange_reports = await trade_budget_manager.get_all_exchanges_budget_report()
         
-        # Get user's active bots
+        # Get user's active bots (excluding deleted)
         user_bots = await db.bots_collection.find(
-            {"user_id": user_id, "status": "active"},
+            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
             {"_id": 0}
         ).to_list(1000)
         
@@ -58,6 +71,11 @@ async def get_trade_limits(user_id: str = Depends(get_current_user)):
         
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "global_limits": {
+                "max_bots_total": MAX_BOTS_GLOBAL,
+                "bot_allocation": BOT_ALLOCATION
+            },
+            "exchange_limits": exchange_configs,
             "exchanges": exchange_reports,
             "user_bots": bot_budgets,
             "summary": {

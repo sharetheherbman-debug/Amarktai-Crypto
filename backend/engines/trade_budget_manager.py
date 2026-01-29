@@ -52,7 +52,8 @@ class TradeBudgetManager:
             Maximum number of trades allowed per day for this exchange
         """
         limits = get_exchange_limits(exchange)
-        return limits.get('max_orders_per_day', 500)
+        # Use new 'total_trades_day' key, fallback to old key for compatibility
+        return limits.get('total_trades_day', limits.get('max_orders_per_day', 500))
     
     async def get_active_bots_for_exchange(self, exchange: str, user_id: Optional[str] = None) -> List[Dict]:
         """Get all active bots trading on a specific exchange
@@ -77,9 +78,8 @@ class TradeBudgetManager:
     async def calculate_bot_daily_budget(self, bot_id: str, exchange: str) -> int:
         """Calculate daily trade budget for a specific bot
         
-        Fair allocation formula:
-        - If 1 bot on exchange → gets full daily budget
-        - If N bots on exchange → each gets floor(daily_budget / N)
+        Uses exchange-specific per-bot limits (trades_per_bot_day).
+        If multiple bots exceed exchange max, scales down proportionally.
         
         Args:
             bot_id: Bot ID
@@ -88,8 +88,10 @@ class TradeBudgetManager:
         Returns:
             Number of trades allowed for this bot today
         """
-        # Get total daily budget for exchange
-        total_budget = await self.get_exchange_daily_budget(exchange)
+        limits = get_exchange_limits(exchange)
+        
+        # Get per-bot limit from new configuration
+        per_bot_limit = limits.get('trades_per_bot_day', 50)
         
         # Get all active bots on this exchange
         active_bots = await self.get_active_bots_for_exchange(exchange)
@@ -98,14 +100,20 @@ class TradeBudgetManager:
         if bot_count == 0:
             return 0
         
-        # Fair allocation: floor division ensures no overspending
-        per_bot_budget = total_budget // bot_count
+        # Check if we need to scale down (e.g., if max_bots exceeded)
+        max_bots = limits.get('max_bots', 10)
+        total_budget = limits.get('total_trades_day', per_bot_limit * max_bots)
         
-        # Minimum of 10 trades per day per bot
-        per_bot_budget = max(10, per_bot_budget)
+        # If within limit, use per-bot limit
+        if bot_count <= max_bots:
+            per_bot_budget = per_bot_limit
+        else:
+            # Scale down proportionally if too many bots
+            per_bot_budget = total_budget // bot_count
+            per_bot_budget = max(10, per_bot_budget)  # Minimum 10 trades/day
         
         logger.debug(f"Bot {bot_id[:8]} on {exchange}: {per_bot_budget} trades/day "
-                    f"(total: {total_budget}, bots: {bot_count})")
+                    f"(limit: {per_bot_limit}, bots: {bot_count}/{max_bots})")
         
         return per_bot_budget
     
