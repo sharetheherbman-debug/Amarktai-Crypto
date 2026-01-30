@@ -36,8 +36,6 @@ const AIChatPanel = () => {
       // Old messages must NOT render by default
       // Users can click "Load previous chat" to fetch history
       await fetchDailyGreeting();
-      const now = Date.now();
-      localStorage.setItem('lastChatSession', now.toString());
       
       // Show "Load previous chat" button if there's history
       setShowLoadHistory(true);
@@ -60,19 +58,46 @@ const AIChatPanel = () => {
 
       const data = await response.json();
       
+      const newMessages = [];
+      
       // Always show only the greeting, never auto-load old messages
       if (data.content) {
-        setMessages([{
+        newMessages.push({
           role: 'assistant',
           content: data.content,
           timestamp: data.timestamp,
           is_greeting: true
-        }]);
+        });
         
         if (data.system_state) {
           setSystemState(data.system_state);
         }
       }
+      
+      // Fetch and display since-last-login report
+      try {
+        const sinceLoginResponse = await fetch('/api/system/since-last-login', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (sinceLoginResponse.ok) {
+          const sinceData = await sinceLoginResponse.json();
+          const reportContent = formatSinceLastLoginReport(sinceData);
+          
+          newMessages.push({
+            role: 'assistant',
+            content: reportContent,
+            timestamp: new Date().toISOString(),
+            is_greeting: false
+          });
+        }
+      } catch (sinceErr) {
+        console.error('Failed to fetch since-last-login:', sinceErr);
+      }
+      
+      setMessages(newMessages);
     } catch (err) {
       console.error('Failed to fetch daily greeting:', err);
       // Show fallback greeting
@@ -85,6 +110,53 @@ const AIChatPanel = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatSinceLastLoginReport = (data) => {
+    if (!data) return 'No activity since your last login.';
+    
+    let report = '📊 **Since Your Last Login:**\n\n';
+    
+    if (data.new_trades && data.new_trades > 0) {
+      report += `✅ **${data.new_trades} new trades** executed\n`;
+    }
+    
+    if (data.profit_change !== undefined && data.profit_change !== 0) {
+      const profitSign = data.profit_change > 0 ? '+' : '';
+      const profitColor = data.profit_change > 0 ? '📈' : '📉';
+      report += `${profitColor} Profit: **${profitSign}R${data.profit_change.toFixed(2)}**\n`;
+    }
+    
+    if (data.bot_status_changes && data.bot_status_changes.length > 0) {
+      report += `\n🤖 **Bot Status Changes:**\n`;
+      data.bot_status_changes.forEach(change => {
+        report += `  • ${change.bot_name}: ${change.old_status} → ${change.new_status}\n`;
+      });
+    }
+    
+    if (data.alerts && data.alerts.length > 0) {
+      report += `\n⚠️ **${data.alerts.length} new alerts**\n`;
+      data.alerts.slice(0, 3).forEach(alert => {
+        report += `  • ${alert.message}\n`;
+      });
+      if (data.alerts.length > 3) {
+        report += `  • ... and ${data.alerts.length - 3} more\n`;
+      }
+    }
+    
+    if (data.errors && data.errors.length > 0) {
+      report += `\n🔴 **${data.errors.length} errors occurred**\n`;
+    }
+    
+    if (!data.new_trades && !data.bot_status_changes?.length && !data.alerts?.length) {
+      report += 'No significant activity.\n';
+    }
+    
+    if (data.last_login_time) {
+      report += `\n🕒 Last login: ${new Date(data.last_login_time).toLocaleString()}`;
+    }
+    
+    return report;
   };
 
   const loadRecentMessages = async () => {
@@ -167,9 +239,6 @@ const AIChatPanel = () => {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
-    
-    // Update session timestamp on each message
-    localStorage.setItem('lastChatSession', Date.now().toString());
 
     try {
       const response = await fetch('/api/ai/chat', {
@@ -227,8 +296,6 @@ const AIChatPanel = () => {
     // Clear UI only (backend history is preserved)
     setMessages([]);
     setSessionChecked(false);
-    // Will trigger fresh session check on next mount
-    localStorage.removeItem('lastChatSession');
   };
 
   return (
