@@ -53,14 +53,20 @@ class AutopilotEngine:
             
             # Only add jobs if scheduler is not already running and schedulers are enabled
             if enable_schedulers and not self.scheduler.running:
-                # Schedule daily reinvestment at 23:59 UTC
+                # Schedule hourly reinvestment (changed from daily for faster capital redeployment)
                 self.scheduler.add_job(
-                    self.daily_reinvestment_cycle,
-                    trigger='cron',
-                    hour=23,
-                    minute=59,
-                    timezone='UTC',
-                    id='daily_reinvestment'
+                    self.hourly_reinvestment_cycle,
+                    trigger='interval',
+                    hours=1,
+                    id='hourly_reinvestment'
+                )
+                
+                # Schedule hourly evolution cycle (genetic algorithm optimization)
+                self.scheduler.add_job(
+                    self.hourly_evolution_cycle,
+                    trigger='interval',
+                    hours=1,
+                    id='hourly_evolution'
                 )
                 
                 # Check paper bot promotions every hour
@@ -80,7 +86,7 @@ class AutopilotEngine:
                 )
                 
                 self.scheduler.start()
-                logger.info("🤖 Autopilot Engine started with scheduler")
+                logger.info("🤖 Autopilot Engine started with scheduler (hourly reinvestment & evolution)")
             else:
                 logger.info("🤖 Autopilot Engine started without scheduler (ENABLE_SCHEDULERS not truthy or already running)")
         except Exception as e:
@@ -88,10 +94,10 @@ class AutopilotEngine:
             self.running = False
             # Don't raise - let server continue
         
-    async def daily_reinvestment_cycle(self):
-        """Daily profit reinvestment at 23:59 UTC - LEDGER-BASED"""
+    async def hourly_reinvestment_cycle(self):
+        """Hourly profit reinvestment - LEDGER-BASED (changed from daily)"""
         try:
-            logger.info("💰 Starting daily reinvestment cycle (ledger-based)...")
+            logger.info("💰 Starting hourly reinvestment cycle (ledger-based)...")
             
             # Get all users with autopilot enabled
             users = await self.db.users.find({'autopilot_enabled': True}).to_list(1000)
@@ -137,19 +143,26 @@ class AutopilotEngine:
                 # Get bot count
                 bots = await self.db.bots.find({'user_id': user_id}).to_list(1000)
                 bot_count = len(bots)
-                max_bots = int(os.getenv('MAX_BOTS', 45))
                 
-                # Strategy: Create new bot if profit >= R1000 (after fees) and under max bots
+                # Import config to get MAX_TOTAL_BOTS
+                import config
+                max_bots = config.MAX_TOTAL_BOTS
+                
+                # Get reinvestment threshold from config
+                reinvest_threshold = config.REINVEST_THRESHOLD_ZAR
+                new_bot_capital = config.NEW_BOT_CAPITAL
+                
+                # Strategy: Create new bot if profit >= new_bot_capital (after fees) and under max bots
                 # Use the gated spawn function
-                if total_profit_after_fees >= 1000 and bot_count < max_bots:
-                    result = await self.spawn_bot_if_profit_allows(user_id, 1000)
+                if total_profit_after_fees >= new_bot_capital and bot_count < max_bots:
+                    result = await self.spawn_bot_if_profit_allows(user_id, new_bot_capital)
                     if result['success']:
                         logger.info(f"User {user_id}: {result['message']} (net profit: R{total_profit_after_fees:.2f})")
                     else:
                         logger.warning(f"User {user_id}: Bot spawn failed - {result.get('message', result.get('error'))}")
                     
-                # Strategy: Reinvest in top performing bots (only profit after fees)
-                elif total_profit_after_fees > 100:
+                # Strategy: Reinvest in top performing bots (when profit >= threshold)
+                elif total_profit_after_fees >= reinvest_threshold:
                     await self.reinvest_in_top_bots(user_id, total_profit_after_fees, bots)
                     
                 # Create alert
@@ -157,13 +170,13 @@ class AutopilotEngine:
                     'user_id': user_id,
                     'type': 'autopilot',
                     'severity': 'low',
-                    'message': f'Daily reinvestment complete. Net profit: R{total_profit_after_fees:.2f}',
+                    'message': f'Hourly reinvestment complete. Net profit: R{total_profit_after_fees:.2f}',
                     'timestamp': datetime.now(timezone.utc).isoformat(),
                     'dismissed': False
                 })
                 
         except Exception as e:
-            logger.error(f"Daily reinvestment error: {e}")
+            logger.error(f"Hourly reinvestment error: {e}")
     
     async def spawn_bot_if_profit_allows(self, user_id: str, seed_amount: float = 1000.0) -> dict:
         """
@@ -210,7 +223,10 @@ class AutopilotEngine:
             # Step 3: Check bot caps
             bots = await self.db.bots.find({'user_id': user_id}).to_list(1000)
             bot_count = len(bots)
-            max_bots = int(os.getenv('MAX_BOTS', 45))
+            
+            # Import config to get MAX_TOTAL_BOTS
+            import config
+            max_bots = config.MAX_TOTAL_BOTS
             
             if bot_count >= max_bots:
                 return {
@@ -492,6 +508,52 @@ class AutopilotEngine:
                     
         except Exception as e:
             logger.error(f"Strategy optimization error: {e}")
+    
+    async def hourly_evolution_cycle(self):
+        """Hourly genetic evolution of bot population"""
+        try:
+            from bot_dna_evolution import bot_dna_evolution
+            import config
+            
+            logger.info("🧬 Starting hourly evolution cycle...")
+            
+            # Get all users with autopilot enabled
+            users = await self.db.users.find({'autopilot_enabled': True}).to_list(1000)
+            
+            for user in users:
+                user_id = user['id']
+                
+                # Get user's bots
+                bots = await self.db.bots.find({
+                    'user_id': user_id,
+                    'status': 'active'
+                }).to_list(1000)
+                
+                # Need minimum bots for evolution
+                if len(bots) < 10:
+                    logger.info(f"User {user_id}: Insufficient bots for evolution (need 10+, have {len(bots)})")
+                    continue
+                
+                # Run evolution
+                result = await bot_dna_evolution.evolve_bots(user_id)
+                
+                if result.get('evolved', 0) > 0:
+                    logger.info(f"User {user_id}: Evolved {result['evolved']} bots (Generation {result.get('generation', 0)})")
+                    
+                    # Create alert
+                    await self.db.alerts.insert_one({
+                        'user_id': user_id,
+                        'type': 'evolution',
+                        'severity': 'low',
+                        'message': f"Evolution complete: {result['evolved']} bots optimized (Gen {result.get('generation', 0)})",
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
+                        'dismissed': False
+                    })
+                
+            logger.info("🧬 Evolution cycle complete")
+            
+        except Exception as e:
+            logger.error(f"Evolution cycle error: {e}")
             
     async def stop(self):
         """Stop the autopilot engine - async, never raises"""
