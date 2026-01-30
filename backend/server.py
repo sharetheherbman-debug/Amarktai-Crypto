@@ -360,7 +360,7 @@ async def decision_trace_websocket(websocket: WebSocket):
 # ============================================================================
 @api_router.get("/bots")
 async def get_bots(user_id: str = Depends(get_current_user)):
-    bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
     return bots
 
 @api_router.post("/bots")
@@ -976,7 +976,7 @@ async def bodyguard_system_check(user_id: str = Depends(get_current_user)):
         import psutil
         
         # Get user's bots ONLY
-        bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         active_bots = [b for b in bots if b.get('status') == 'active']
         
         # Get today's trades
@@ -1124,7 +1124,7 @@ async def get_storage_usage(user_id: str = Depends(get_current_user)):
             trades_size = sum(sys.getsizeof(json.dumps(trade)) for trade in trades)
             
             # 3. Bot configurations
-            bots = await db.bots_collection.find({"user_id": usr_id}, {"_id": 0}).to_list(1000)
+            bots = await db.bots_collection.find({"user_id": usr_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
             bots_size = sum(sys.getsizeof(json.dumps(bot)) for bot in bots)
             
             # 4. User data
@@ -1369,7 +1369,7 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
         from collections import defaultdict
         
         # BACKEND TRUTH: Query MongoDB directly for bot and trade data
-        bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         trades = await db.trades_collection.find({"user_id": user_id}, {"_id": 0}).to_list(None)
         
         labels = []
@@ -1512,7 +1512,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         current_capital = zar_balance + (btc_balance * btc_price)
         
         # BACKEND TRUTH: Get all bots total capital from MongoDB
-        bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         total_bot_capital = sum(bot.get('current_capital', 0) for bot in bots)
         total_capital = max(current_capital, total_bot_capital)
         
@@ -1847,7 +1847,7 @@ async def get_user_profile(user_email: str, admin_id: str = Depends(get_current_
             raise HTTPException(status_code=404, detail="User not found")
         
         # Get user's bots
-        bots = await db.bots_collection.find({"user_id": user['id']}, {"_id": 0}).to_list(1000)
+        bots = await db.bots_collection.find({"user_id": user['id'], "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         
         # Calculate stats
         total_profit = sum(bot.get('total_profit', 0) for bot in bots)
@@ -2489,7 +2489,7 @@ async def sse_overview_stream(request: Request, user_id: str = Depends(get_curre
                     break
                 
                 # Fetch overview data
-                bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+                bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
                 active_bots = [b for b in bots if b.get('status') == 'active']
                 
                 total_profit = sum(

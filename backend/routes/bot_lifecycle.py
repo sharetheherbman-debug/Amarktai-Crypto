@@ -32,7 +32,7 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
         List of bots with id, exchange, state, paused_reason, etc.
     """
     try:
-        bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         
         # Enrich each bot with detailed state
         enriched_bots = []
