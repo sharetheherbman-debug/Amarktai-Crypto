@@ -31,10 +31,12 @@ VPS_ROOT="/var/amarktai/app"
 BACKEND_DIR="$VPS_ROOT/backend"
 DEPLOYMENT_DIR="$VPS_ROOT/deployment"
 SERVICE_USER="www-data"
+LOG_DIR="/var/log/amarktai"
 
 # Get script directory and source project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$VPS_ROOT"  # Use VPS_ROOT as the project root after setup
 
 log_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
@@ -79,6 +81,7 @@ log_section "0. Setting Up VPS Directory Structure"
 if [ "$SOURCE_ROOT" != "$VPS_ROOT" ]; then
     log_info "Creating VPS directory structure..."
     mkdir -p /var/amarktai
+    mkdir -p "$LOG_DIR"
     
     if [ -d "$VPS_ROOT" ]; then
         log_warning "VPS directory $VPS_ROOT already exists"
@@ -89,7 +92,14 @@ if [ "$SOURCE_ROOT" != "$VPS_ROOT" ]; then
     fi
 else
     log_info "Already running from VPS location: $VPS_ROOT"
+    mkdir -p "$LOG_DIR"
 fi
+
+# Set PROJECT_ROOT to VPS_ROOT now that we've copied
+PROJECT_ROOT="$VPS_ROOT"
+
+log_success "VPS directory structure ready"
+log_info "Log directory: $LOG_DIR"
 
 # ============================================================================
 # 1. Install OS Dependencies
