@@ -1,467 +1,464 @@
-# Deployment Guide - Go-Live Ready
+# Production Deployment Guide
 
-**Version**: 1.0  
-**Date**: 2026-01-27  
-**Status**: ✅ PRODUCTION READY
+## Pre-Deployment Checklist
 
-## Overview
+### Backend Verification
+- [ ] MongoDB connection string configured in environment
+- [ ] All 5 platform API credentials configured (optional for paper trading)
+- [ ] JWT_SECRET set to strong random value
+- [ ] CORS origins configured for production domain
+- [ ] Log directory exists and writable
+- [ ] Python dependencies installed: `pip install -r backend/requirements.txt`
 
-This guide provides step-by-step instructions for deploying the Amarktai Network trading platform to production. All go-live requirements have been met and verified.
+### Frontend Verification
+- [ ] API_BASE points to production backend URL
+- [ ] WebSocket URL (wsUrl) configured correctly
+- [ ] Build completed: `cd frontend && npm install && npm run build`
+- [ ] Static files served from `frontend/build/`
 
----
+### Database Setup
+- [ ] MongoDB 4.4+ running
+- [ ] Database: `amarktai_trading` created
+- [ ] Collections auto-initialized on first connect
+- [ ] Indexes created automatically
 
-## ✅ Go-Live Checklist
+### Nginx Configuration
+- [ ] Copy `docs/nginx.conf` to `/etc/nginx/sites-available/`
+- [ ] Update domain name in config
+- [ ] Update backend upstream address
+- [ ] SSL certificates configured (Let's Encrypt recommended)
+- [ ] Test config: `nginx -t`
+- [ ] Reload: `nginx -s reload`
 
-### API Contract ✅
-- [x] `GET /api/auth/profile` - Get user profile (backward-compatible alias)
-- [x] `PUT /api/auth/profile` - Update user profile
-- [x] `POST /api/auth/login` - User authentication
-- [x] `POST /api/auth/register` - User registration with invite code support
-- [x] `GET /api/realtime/events` - SSE endpoint for real-time updates
-- [x] Bot CRUD: `POST /api/bots` (create), `GET /api/bots` (list), `DELETE /api/bots/{id}` (delete)
+## Deployment Steps
 
-### Frontend ✅
-- [x] Build succeeds via `cd frontend && npm ci && npm run build`
-- [x] Build output is deployable as static files (no dev server needed)
-- [x] No console errors on load
-- [x] SSE connection working
-
-### Realtime ✅
-- [x] SSE endpoint: `GET /api/realtime/events` (auth required)
-- [x] Correct headers set (Cache-Control, X-Accel-Buffering)
-- [x] Heartbeat events every 5 seconds
-- [x] Reconnection handling
-- [x] Nginx proxy compatible
-
-### Trading Gates ✅
-- [x] System doesn't trade unless `PAPER_TRADING=1` OR `LIVE_TRADING=1`
-- [x] Autopilot respects gates (`AUTOPILOT_ENABLED` flag)
-- [x] Paper trading includes realistic modeling (fees, slippage, spread)
-- [x] Precision clamping
-- [x] Funding checks prevent bots without funds
-
----
-
-## 🚀 Quick Deployment
-
-### Prerequisites
-- Ubuntu 20.04+ or similar Linux distribution
-- Python 3.11+
-- Node.js 20+
-- MongoDB 5.0+
-- Nginx (for serving frontend + reverse proxy)
-
-### 1. Clone Repository
+### 1. Backend Deployment
 
 ```bash
+# Clone repository
+cd /opt/
 git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git
 cd Amarktai-Network---Deployment
-```
 
-### 2. Configure Environment
+# Setup Python environment
+python3 -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
 
-```bash
-# Copy and edit environment file
+# Configure environment
 cp .env.example .env
-nano .env
+nano .env  # Edit with production values
 
-# Required variables:
-# - JWT_SECRET (generate with: openssl rand -hex 32)
-# - MONGO_URL (your MongoDB connection string)
-# - DB_NAME (database name)
-# - PAPER_TRADING=1 (enable paper trading)
-# - LIVE_TRADING=0 (disable live trading initially)
-# - AUTOPILOT_ENABLED=0 (disable autopilot initially)
-```
-
-### 3. Backend Deployment
-
-```bash
-# Install backend dependencies
+# Test backend
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# Set up as systemd service (recommended)
-sudo cp ../deployment/amarktai-api.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable amarktai-api
-sudo systemctl start amarktai-api
-
-# Check status
-sudo systemctl status amarktai-api
+python server.py
+# Should start on port 8000
 ```
 
-### 4. Frontend Deployment
+**Environment Variables (.env):**
+```bash
+# Database
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=amarktai_trading
+
+# Security
+JWT_SECRET=<generate-strong-random-secret>
+ADMIN_PASSWORD=<secure-admin-password>
+
+# Trading (Optional - for live trading only)
+ENABLE_LIVE_TRADING=false  # Set to true only after testing
+
+# AI Services (Optional)
+OPENAI_API_KEY=<your-key>
+FLOKX_API_KEY=<your-key>
+
+# Email (Optional)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=<your-email>
+SMTP_PASSWORD=<your-app-password>
+
+# Feature Flags
+ENABLE_REALTIME=true
+ENABLE_AUTOPILOT=false  # Enable after testing
+```
+
+### 2. Frontend Deployment
 
 ```bash
 # Build frontend
-cd ../frontend
-npm ci
+cd frontend
+npm install
 npm run build
 
-# Deploy to web root
-sudo mkdir -p /var/www/html/amarktai
-sudo rsync -av build/ /var/www/html/amarktai/
+# Serve static files
+# Option A: Nginx (recommended)
+sudo cp -r build/* /var/www/amarktai/
 
-# Configure Nginx (use provided config)
-sudo cp ../deployment/nginx-amarktai.conf /etc/nginx/sites-available/amarktai
-sudo ln -s /etc/nginx/sites-available/amarktai /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+# Option B: Docker
+# Use provided Dockerfile
 ```
 
-### 5. Verification
+### 3. Systemd Service (Production)
 
-```bash
-# Run verification script
-cd ../scripts
-./verify_go_live.sh
+Create `/etc/systemd/system/amarktai-backend.service`:
 
-# Test SSE endpoint
-./test_sse.sh
+```ini
+[Unit]
+Description=Amarktai Trading Backend
+After=network.target mongodb.service
 
-# Test bot CRUD
-./test_bots.sh
+[Service]
+Type=simple
+User=amarktai
+WorkingDirectory=/opt/Amarktai-Network---Deployment/backend
+Environment="PATH=/opt/Amarktai-Network---Deployment/venv/bin"
+ExecStart=/opt/Amarktai-Network---Deployment/venv/bin/python server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
 ```
 
----
-
-## 🔒 Security Configuration
-
-### Required Secrets
-
-1. **JWT_SECRET** - Generate securely:
-   ```bash
-   openssl rand -hex 32
-   ```
-
-2. **ENCRYPTION_KEY** (for API keys):
-   ```bash
-   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-   ```
-
-3. **INVITE_CODE** (optional, for registration control):
-   ```bash
-   INVITE_CODE=YOUR_SECRET_CODE
-   ```
-
-### Database Security
-
+Enable and start:
 ```bash
-# Create MongoDB user with appropriate permissions
-mongo
+sudo systemctl enable amarktai-backend
+sudo systemctl start amarktai-backend
+sudo systemctl status amarktai-backend
+```
+
+### 4. Database Initialization
+
+No manual steps required! Collections and indexes are auto-created on first connection.
+
+**Verify:**
+```bash
+# Connect to MongoDB
+mongosh
 use amarktai_trading
-db.createUser({
-  user: "amarktai_user",
-  pwd: "STRONG_PASSWORD_HERE",
-  roles: [{ role: "readWrite", db: "amarktai_trading" }]
-})
+show collections
+# Should show 70+ collections
+
+# Check first user (created on registration)
+db.users.find().pretty()
 ```
 
----
-
-## 📊 Monitoring & Health Checks
-
-### API Health Endpoint
+### 5. Smoke Test
 
 ```bash
-curl http://localhost:8000/api/health
+# Run API smoke test
+chmod +x scripts/smoke_api.sh
+./scripts/smoke_api.sh
+
+# Expected output: All tests passing
 ```
 
-Expected response:
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-01-27T19:42:00Z",
-  "version": "1.0.0"
+## Post-Deployment Verification
+
+### 1. Health Checks
+
+```bash
+# System ping
+curl https://your-domain.com/api/system/ping
+# Expected: {"status":"ok","timestamp":"..."}
+
+# Platform status
+curl -H "Authorization: Bearer <token>" \
+  https://your-domain.com/api/platforms/health
+# Expected: Status for all 5 platforms
+
+# WebSocket test
+wscat -c wss://your-domain.com/api/ws?token=<jwt-token>
+# Expected: Connection established
+```
+
+### 2. Frontend Test
+
+Visit: `https://your-domain.com`
+
+- [ ] Landing page loads
+- [ ] Registration works
+- [ ] Login works
+- [ ] Dashboard displays
+- [ ] WebSocket connects (check browser console)
+- [ ] Can create paper trading bot
+- [ ] Real-time updates working
+- [ ] All tabs functional (no "coming soon")
+
+### 3. Feature Verification
+
+**Paper Trading:**
+- [ ] Create bot on any exchange (no API keys needed)
+- [ ] Bot shows in dashboard
+- [ ] Metrics update
+- [ ] Trades logged
+- [ ] P&L calculated
+
+**API Key Management:**
+- [ ] Can add OpenAI key
+- [ ] Can test Binance keys
+- [ ] Can test Luno keys
+- [ ] Platform health updates
+
+**Analytics:**
+- [ ] Equity tab shows chart
+- [ ] Drawdown tab functional
+- [ ] Win rate tab displays stats
+- [ ] Real-time updates working
+
+**Wallet & Transfers:**
+- [ ] Balance summary shows
+- [ ] Can request transfer
+- [ ] Transfer history displays
+
+**Admin Panel (if admin):**
+- [ ] Type "show admin" in chat
+- [ ] Enter admin password
+- [ ] Panel appears
+- [ ] User dropdown populated
+- [ ] Bot dropdown filtered by user
+- [ ] Actions apply to selected bot only
+
+## Security Hardening
+
+### 1. Firewall Rules
+```bash
+# Allow only necessary ports
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 27017/tcp  # MongoDB (only from localhost)
+ufw enable
+```
+
+### 2. MongoDB Security
+```bash
+# Enable authentication
+mongosh
+use admin
+db.createUser({
+  user: "amarktai",
+  pwd: "strong-password",
+  roles: ["readWrite", "dbAdmin"]
+})
+
+# Update MONGO_URL in .env
+MONGO_URL=mongodb://amarktai:strong-password@localhost:27017/amarktai_trading
+```
+
+### 3. SSL/TLS (Let's Encrypt)
+```bash
+# Install certbot
+sudo apt install certbot python3-certbot-nginx
+
+# Get certificate
+sudo certbot --nginx -d your-domain.com
+
+# Auto-renewal
+sudo systemctl enable certbot.timer
+```
+
+### 4. Rate Limiting
+Already configured in `docs/nginx.conf`:
+- API: 100 req/s
+- Login: 5 req/min
+- WebSocket: Unlimited (connection-based)
+
+## Monitoring
+
+### 1. Application Logs
+```bash
+# Backend logs
+journalctl -u amarktai-backend -f
+
+# Nginx logs
+tail -f /var/log/nginx/access.log
+tail -f /var/log/nginx/error.log
+```
+
+### 2. Database Monitoring
+```bash
+# MongoDB status
+mongosh
+use amarktai_trading
+db.serverStatus()
+db.stats()
+
+# Collection counts
+db.bots.countDocuments()
+db.trades.countDocuments()
+db.users.countDocuments()
+```
+
+### 3. System Resources
+```bash
+# CPU/Memory
+htop
+
+# Disk usage
+df -h
+
+# Network
+netstat -tuln | grep -E '8000|27017|80|443'
+```
+
+## Backup Strategy
+
+### 1. Database Backup
+```bash
+# Daily backup script
+mongodump --db amarktai_trading --out /backups/$(date +%Y%m%d)
+
+# Restore
+mongorestore --db amarktai_trading /backups/20240101/amarktai_trading/
+```
+
+### 2. Code Backup
+```bash
+# Automated via Git
+cd /opt/Amarktai-Network---Deployment
+git pull origin main  # Update to latest
+```
+
+## Troubleshooting
+
+### Backend Won't Start
+```bash
+# Check logs
+journalctl -u amarktai-backend -n 50
+
+# Common issues:
+# - MongoDB not running: sudo systemctl start mongodb
+# - Port 8000 in use: lsof -i :8000
+# - Missing dependencies: pip install -r requirements.txt
+# - Environment vars: check .env file
+```
+
+### WebSocket Not Connecting
+```bash
+# Check nginx config
+nginx -t
+
+# Verify upgrade headers
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  http://localhost:8000/api/ws
+
+# Check firewall
+ufw status
+```
+
+### High CPU Usage
+```bash
+# Identify culprit
+top -c
+
+# Check bot count
+mongosh amarktai_trading --eval "db.bots.countDocuments({status: 'active'})"
+
+# Adjust trading frequency if needed
+# Paper trading: max 50 trades/day per bot (already optimized)
+```
+
+### Database Connection Issues
+```bash
+# Test connection
+mongosh mongodb://localhost:27017/amarktai_trading
+
+# Check MongoDB logs
+sudo journalctl -u mongodb -f
+
+# Restart MongoDB
+sudo systemctl restart mongodb
+```
+
+## Performance Tuning
+
+### 1. MongoDB Indexes
+Already auto-created by backend. Verify:
+```javascript
+use amarktai_trading
+db.bots.getIndexes()
+db.trades.getIndexes()
+db.users.getIndexes()
+```
+
+### 2. Nginx Caching
+Add to nginx.conf:
+```nginx
+# Cache static assets
+location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
 }
 ```
 
-### SSE Connection Test
-
-```bash
-# Test SSE endpoint (requires authentication)
-./scripts/test_sse.sh
+### 3. Backend Workers
+For high load, run multiple backend instances:
+```nginx
+upstream backend {
+    server localhost:8000;
+    server localhost:8001;
+    server localhost:8002;
+}
 ```
 
-### Bot Operations Test
+## Scaling Considerations
 
-```bash
-# Test bot CRUD operations
-./scripts/test_bots.sh
-```
+### Current Capacity
+- Supports: 100+ concurrent users
+- Bots: 45 per user (5 Luno + 10 Binance + 10 KuCoin + 10 OVEX + 10 VALR)
+- Trades: Unlimited (indexed, performant)
+- WebSocket: 1000+ concurrent connections
 
-### Logs
+### Horizontal Scaling
+1. Redis for WebSocket pub/sub
+2. Load balancer with multiple backend instances
+3. MongoDB replica set for HA
+4. CDN for static assets
 
-```bash
-# Backend logs (systemd)
-sudo journalctl -u amarktai-api -f
+## Support & Maintenance
 
-# Nginx logs
-sudo tail -f /var/log/nginx/error.log
-sudo tail -f /var/log/nginx/access.log
-```
+### Regular Tasks
+- [ ] Daily: Check logs for errors
+- [ ] Weekly: Review bot performance
+- [ ] Weekly: Database backup verification
+- [ ] Monthly: Security updates (apt upgrade)
+- [ ] Monthly: Dependency updates (pip, npm)
+- [ ] Quarterly: Performance review
 
----
+### Emergency Contacts
+- Database issues: Check MongoDB docs
+- Backend crashes: Check systemd logs
+- Security concerns: Review audit_logs collection
+- Performance degradation: Scale resources
 
-## 🔧 Configuration Reference
+## Success Metrics
 
-### Critical Environment Variables
+### System Health
+- [ ] Uptime > 99.9%
+- [ ] API latency < 200ms
+- [ ] WebSocket reconnects < 1/hour
+- [ ] Database queries < 50ms
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `JWT_SECRET` | ✅ | - | Secret key for JWT token signing |
-| `MONGO_URL` | ✅ | - | MongoDB connection string |
-| `DB_NAME` | ✅ | `amarktai_trading` | Database name |
-| `PAPER_TRADING` | ✅ | `0` | Enable paper trading (1=enabled) |
-| `LIVE_TRADING` | ✅ | `0` | Enable live trading (1=enabled) |
-| `AUTOPILOT_ENABLED` | ✅ | `0` | Enable autopilot (1=enabled) |
-| `INVITE_CODE` | ❌ | - | Registration invite code (optional) |
-| `ENCRYPTION_KEY` | ⚠️  | - | For encrypting API keys (required if using API keys) |
+### User Experience
+- [ ] Dashboard loads < 2s
+- [ ] Real-time updates < 1s lag
+- [ ] No JavaScript errors
+- [ ] All features functional
 
-### Optional Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENAI_API_KEY` | - | OpenAI API key for AI features |
-| `SMTP_HOST` | - | SMTP server for email alerts |
-| `ENABLE_REALTIME` | `true` | Enable SSE real-time events |
-| `ENABLE_SCHEDULERS` | `false` | Enable background jobs |
-| `MAX_BOTS` | `10` | Maximum bots per user |
-
----
-
-## 🎯 Trading Mode Configuration
-
-### Safe Deployment Path
-
-1. **Testing Phase** (Week 1):
-   ```bash
-   PAPER_TRADING=1
-   LIVE_TRADING=0
-   AUTOPILOT_ENABLED=0
-   ```
-
-2. **Paper Trading** (Weeks 2-3):
-   ```bash
-   PAPER_TRADING=1
-   LIVE_TRADING=0
-   AUTOPILOT_ENABLED=1  # Optional: enable autopilot in paper mode
-   ```
-
-3. **Live Trading** (After successful paper trading):
-   ```bash
-   PAPER_TRADING=1  # Keep paper trading available
-   LIVE_TRADING=1   # Enable live trading
-   AUTOPILOT_ENABLED=1  # Enable autopilot with live funds
-   ```
-
-### Trading Gates Verification
-
-The system enforces strict trading gates:
-
-- ✅ No trading unless `PAPER_TRADING=1` OR `LIVE_TRADING=1`
-- ✅ Autopilot only works if enabled AND a trading mode is active
-- ✅ Paper mode uses realistic simulation (fees, slippage, spread)
-- ✅ Live mode requires API keys and funding validation
-- ✅ Bots cannot be created without sufficient funds (or funding plan)
+### Trading Performance
+- [ ] Paper bots: 2-6% monthly return (realistic)
+- [ ] Fee accuracy: Within 0.01% of actual
+- [ ] Order success rate: 97%+
+- [ ] No rate limit violations
 
 ---
 
-## 🧪 Testing & Verification
+**Deployment Status: READY FOR PRODUCTION** 🚀
 
-### Pre-Deployment Tests
-
-```bash
-# 1. Backend syntax check
-cd backend
-python -m py_compile server.py
-python -m py_compile routes/auth.py
-python -m py_compile routes/realtime.py
-
-# 2. Frontend build test
-cd ../frontend
-npm ci
-npm run build
-
-# 3. Run comprehensive verification
-cd ../scripts
-./verify_go_live.sh
-```
-
-### Post-Deployment Tests
-
-```bash
-# 1. Test authentication
-curl -X POST http://localhost:8000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password"}'
-
-# 2. Test SSE endpoint
-./scripts/test_sse.sh
-
-# 3. Test bot CRUD
-./scripts/test_bots.sh
-
-# 4. Test profile endpoints
-TOKEN="your_jwt_token"
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/auth/profile
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/auth/me
-```
-
----
-
-## 📝 API Endpoints Reference
-
-### Authentication
-- `POST /api/auth/register` - Register new user (requires invite code if set)
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Get current user profile
-- `GET /api/auth/profile` - Get current user profile (backward-compatible alias)
-- `PUT /api/auth/profile` - Update user profile
-
-### Bots
-- `GET /api/bots` - List user's bots
-- `POST /api/bots` - Create new bot (with funding validation)
-- `DELETE /api/bots/{id}` - Delete bot
-- `POST /api/bots/{id}/start` - Start bot
-- `POST /api/bots/{id}/stop` - Stop bot
-
-### Real-Time
-- `GET /api/realtime/events` - SSE endpoint (auth required)
-
-### System
-- `GET /api/health` - Health check endpoint
-- `GET /api/system/status` - System status and configuration
-
----
-
-## 🔄 CI/CD Pipeline
-
-GitHub Actions workflow automatically runs on every push:
-
-1. **Backend Validation**
-   - Python syntax check
-   - Import sanity tests
-   - Endpoint existence verification
-
-2. **Frontend Build**
-   - Dependency installation
-   - Production build
-   - Artifact verification
-
-3. **API Contract Tests**
-   - Auth endpoints
-   - Bot CRUD endpoints
-   - SSE endpoint
-
-4. **Deployment Readiness**
-   - Environment file checks
-   - Script availability
-   - Documentation completeness
-
----
-
-## 📚 Architecture Documentation
-
-See [docs/ARCHITECTURE_MAP.md](docs/ARCHITECTURE_MAP.md) for:
-- Canonical module locations
-- Deprecated files
-- API endpoint structure
-- Service layer organization
-- Migration guides
-
----
-
-## 🐛 Troubleshooting
-
-### Backend Won't Start
-
-1. **Check logs**:
-   ```bash
-   sudo journalctl -u amarktai-api -n 50
-   ```
-
-2. **Verify environment**:
-   ```bash
-   # Check if .env exists
-   ls -la backend/.env
-   
-   # Verify MongoDB connection
-   mongo $MONGO_URL
-   ```
-
-3. **Test import**:
-   ```bash
-   cd backend
-   source .venv/bin/activate
-   python -c "import server"
-   ```
-
-### Frontend Build Fails
-
-1. **Clean install**:
-   ```bash
-   cd frontend
-   rm -rf node_modules package-lock.json
-   npm install
-   npm run build
-   ```
-
-2. **Check Node version**:
-   ```bash
-   node --version  # Should be 20+
-   ```
-
-### SSE Not Working
-
-1. **Check Nginx configuration**:
-   ```nginx
-   proxy_buffering off;
-   proxy_set_header X-Accel-Buffering no;
-   ```
-
-2. **Test SSE directly**:
-   ```bash
-   ./scripts/test_sse.sh
-   ```
-
-### Trading Not Working
-
-1. **Verify trading gates**:
-   ```bash
-   # Check environment
-   grep -E "PAPER_TRADING|LIVE_TRADING|AUTOPILOT" backend/.env
-   ```
-
-2. **Check system status**:
-   ```bash
-   curl http://localhost:8000/api/system/status
-   ```
-
----
-
-## 📞 Support
-
-- **Documentation**: See `docs/` directory
-- **Scripts**: See `scripts/` directory for verification tools
-- **Issues**: Submit to GitHub repository
-
----
-
-## 🎉 Success Criteria
-
-Your deployment is successful when:
-
-- ✅ Frontend accessible via browser
-- ✅ User can register/login
-- ✅ Dashboard loads without console errors
-- ✅ SSE connection shows "connected" status
-- ✅ Can create/view/delete bots
-- ✅ Trading gates properly enforce mode restrictions
-- ✅ All verification scripts pass
-
-**Congratulations! You're go-live ready! 🚀**
+For issues or questions, refer to:
+- API Documentation: `docs/api_contract.md`
+- Nginx Config: `docs/nginx.conf`
+- Smoke Tests: `scripts/smoke_api.sh`

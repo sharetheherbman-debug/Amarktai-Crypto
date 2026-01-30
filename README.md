@@ -51,10 +51,12 @@
 
 | Document | Description |
 |----------|-------------|
-| **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** | Production deployment, nginx setup, systemd service |
+| **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** | Production deployment, nginx setup, systemd service |
 | **[API Contract](docs/api_contract.md)** | Complete API documentation with all endpoints |
 | **[Nginx Config](docs/nginx.conf)** | Production-ready nginx configuration |
 | **[Single Source of Truth](docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md)** | Architecture & operations |
+| **[Quick Start Guide](docs/QUICK_START.md)** | Basic getting started instructions |
+| **[Complete Feature List](docs/COMPLETE_FEATURE_LIST.md)** | All features and capabilities |
 
 ---
 
@@ -207,9 +209,11 @@ This script checks:
 ## 📚 Documentation
 
 - **[Complete Deployment Guide](docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md)** ← START HERE
-- [Quick Start](QUICK_START.md) - Basic getting started
+- [Quick Start](docs/QUICK_START.md) - Basic getting started
 - [Environment Variables](.env.example) - All configuration options
 - [API Documentation](http://127.0.0.1:8000/docs) - Interactive API docs (after deployment)
+- [Production Features](docs/PRODUCTION_FEATURES_IMPLEMENTATION.md) - All implemented features
+- [Go Live Guide](docs/GO_LIVE.md) - Production launch checklist
 
 **Archived docs:** See `docs/archive/` for historical reference
 
