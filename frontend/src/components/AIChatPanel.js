@@ -117,43 +117,43 @@ const AIChatPanel = () => {
     
     let report = '📊 **Since Your Last Login:**\n\n';
     
-    if (data.new_trades && data.new_trades > 0) {
-      report += `✅ **${data.new_trades} new trades** executed\n`;
-    }
-    
-    if (data.profit_change !== undefined && data.profit_change !== 0) {
-      const profitSign = data.profit_change > 0 ? '+' : '';
-      const profitColor = data.profit_change > 0 ? '📈' : '📉';
-      report += `${profitColor} Profit: **${profitSign}R${data.profit_change.toFixed(2)}**\n`;
-    }
-    
-    if (data.bot_status_changes && data.bot_status_changes.length > 0) {
-      report += `\n🤖 **Bot Status Changes:**\n`;
-      data.bot_status_changes.forEach(change => {
-        report += `  • ${change.bot_name}: ${change.old_status} → ${change.new_status}\n`;
+    // Display notes from backend
+    if (data.notes && data.notes.length > 0) {
+      data.notes.forEach(note => {
+        report += `• ${note}\n`;
       });
+      report += '\n';
     }
     
-    if (data.alerts && data.alerts.length > 0) {
-      report += `\n⚠️ **${data.alerts.length} new alerts**\n`;
-      data.alerts.slice(0, 3).forEach(alert => {
-        report += `  • ${alert.message}\n`;
-      });
-      if (data.alerts.length > 3) {
-        report += `  • ... and ${data.alerts.length - 3} more\n`;
-      }
+    // System modes
+    const modes = [];
+    if (data.paperTrading) modes.push('📝 Paper Trading');
+    if (data.liveTrading) modes.push('🔴 Live Trading');
+    if (data.autopilot) modes.push('🤖 Autopilot');
+    
+    if (modes.length > 0) {
+      report += `**Active Modes:** ${modes.join(', ')}\n`;
     }
     
-    if (data.errors && data.errors.length > 0) {
-      report += `\n🔴 **${data.errors.length} errors occurred**\n`;
+    // Additional details
+    if (data.active_bots !== undefined) {
+      report += `\n🤖 **Active Bots:** ${data.active_bots}\n`;
     }
     
-    if (!data.new_trades && !data.bot_status_changes?.length && !data.alerts?.length) {
-      report += 'No significant activity.\n';
+    if (data.recent_trades_count && data.recent_trades_count > 0) {
+      report += `✅ **${data.recent_trades_count} trades** in last 24h\n`;
     }
     
-    if (data.last_login_time) {
-      report += `\n🕒 Last login: ${new Date(data.last_login_time).toLocaleString()}`;
+    if (data.last_trade_time) {
+      report += `🕒 Last trade: ${new Date(data.last_trade_time).toLocaleString()}\n`;
+    }
+    
+    if (data.alerts_count && data.alerts_count > 0) {
+      report += `⚠️ **${data.alerts_count} new alerts**\n`;
+    }
+    
+    if (data.last_login) {
+      report += `\n🕐 Previous login: ${new Date(data.last_login).toLocaleString()}`;
     }
     
     return report;
