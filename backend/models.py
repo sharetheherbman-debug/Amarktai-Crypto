@@ -115,6 +115,8 @@ class Bot(BaseModel):
     trades_count: int = 0
     max_drawdown: float = 0
     stop_loss_percent: float = 15.0
+    trailing_stop_percent: Optional[float] = None  # Trailing stop loss (e.g., 5.0 = 5%)
+    take_profit_percent: Optional[float] = None  # Dynamic take profit (e.g., 10.0 = 10%)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     paper_start_date: Optional[datetime] = None
     promoted_to_live: bool = False

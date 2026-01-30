@@ -19,6 +19,7 @@ DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
 
 # Security
 JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
+ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', '')  # Required for encrypting API keys
 
 # AI / OpenAI
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
@@ -51,6 +52,8 @@ ENABLE_SELF_HEALING = os.getenv('ENABLE_SELF_HEALING', 'true').lower() == 'true'
 ENABLE_CCXT = os.getenv('ENABLE_CCXT', 'true').lower() == 'true'  # Safe for price data
 ENABLE_UAGENTS = os.getenv('ENABLE_UAGENTS', 'false').lower() == 'true'
 PAYMENT_AGENT_ENABLED = os.getenv('PAYMENT_AGENT_ENABLED', 'false').lower() == 'true'
+ENABLE_REALTIME_TRANSFERS = os.getenv('ENABLE_REALTIME_TRANSFERS', 'false').lower() == 'true'  # Real-time wallet transfers
+ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'true').lower() == 'true'  # Background jobs
 
 # Live Trading Gate Requirements
 # NOTE: PAPER_TRAINING_DAYS is defined below in "Paper → Live promotion criteria" section (line ~117)
@@ -80,34 +83,38 @@ EXCHANGE_BOT_LIMITS = {
     'valr': 10
 }
 
-# Trading limits - Per exchange (configurable)
-# NOTE: These are ASPIRATIONAL limits for future optimization.
+# Trading limits - Per exchange (Safety caps per upgrade guide)
+# NOTE: These are SAFETY CAPS to protect exchanges and user accounts.
 # ACTUAL ENFORCED LIMITS are in exchange_limits.py (50 per bot per day).
 # The rate_limiter.py uses exchange_limits.py as the authoritative source.
-# These values represent theoretical maximums based on exchange API limits.
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 75,  # Theoretical max (NOT enforced - see exchange_limits.py)
+        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
+        'max_trades_per_exchange_per_day': 400,  # Safety cap per upgrade guide
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 150,  # Theoretical max (NOT enforced - see exchange_limits.py)
+        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
+        'max_trades_per_exchange_per_day': 500,  # Safety cap per upgrade guide
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 150,  # Theoretical max (NOT enforced - see exchange_limits.py)
+        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
+        'max_trades_per_exchange_per_day': 1000,  # Safety cap per upgrade guide
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'ovex': {
-        'max_trades_per_bot_per_day': 100,  # Theoretical max (NOT enforced - see exchange_limits.py)
+        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
+        'max_trades_per_exchange_per_day': 500,  # Safety cap per upgrade guide
         'min_cooldown_minutes': 12,
         'max_api_calls_per_minute': 120
     },
     'valr': {
-        'max_trades_per_bot_per_day': 100,  # Theoretical max (NOT enforced - see exchange_limits.py)
+        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
+        'max_trades_per_exchange_per_day': 1500,  # Safety cap per upgrade guide
         'min_cooldown_minutes': 12,
         'max_api_calls_per_minute': 100
     }
@@ -126,11 +133,13 @@ MIN_TRADES_FOR_PROMOTION = 25
 # Live Training Bay - new/spawned bots must be quarantined for minimum hours before trading
 LIVE_MIN_TRAINING_HOURS = int(os.getenv('LIVE_MIN_TRAINING_HOURS', '24'))  # Default 24 hours
 
-# Autopilot settings
-REINVEST_THRESHOLD_ZAR = 500  # Reinvest every R500
-NEW_BOT_CAPITAL = 1000  # R1000 minimum per bot
-MAX_TOTAL_BOTS = 45  # MUST match MAX_BOTS_GLOBAL in exchange_limits.py (5+10+10+10+10)
-TOP_PERFORMERS_COUNT = 5
+# Autopilot settings (configurable via env vars)
+REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold for more frequent reinvestment
+NEW_BOT_CAPITAL = int(os.getenv('NEW_BOT_CAPITAL', '500'))  # Lower capital requirement for new bots
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '45'))  # MUST match MAX_BOTS_GLOBAL in exchange_limits.py (5+10+10+10+10)
+TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
+EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation rate for genetic evolution
+QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% performance threshold
 
 # AI Models
 AI_MODELS = {
@@ -145,6 +154,51 @@ STOP_LOSS_SAFE = 0.05  # 5%
 STOP_LOSS_BALANCED = 0.10  # 10%
 STOP_LOSS_AGGRESSIVE = 0.15  # 15%
 
-# Rogue bot detection
+# Risk Management - Adjusted for production (more tolerance)
 MAX_HOURLY_LOSS_PERCENT = 0.15  # 15% in 1 hour
-MAX_DRAWDOWN_PERCENT = 0.20  # 20%
+MAX_DAILY_LOSS_PERCENT = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15'))  # 15% daily loss limit (increased from 10%)
+MAX_DRAWDOWN_PERCENT = float(os.getenv('MAX_DRAWDOWN_PERCENT', '0.25'))  # 25% drawdown limit (increased from 20%)
+MIN_POSITION_SIZE_PERCENT = 0.02  # 2% minimum per-trade sizing
+MAX_POSITION_SIZE_PERCENT = 0.05  # 5% maximum per-trade sizing
+
+# Self-healing configuration
+MAX_ERRORS_PER_HOUR = int(os.getenv('MAX_ERRORS_PER_HOUR', '20'))  # Error budget for self-healing
+
+# ============================================================================
+# WALLET TRANSFER LIMITS & SECURITY
+# ============================================================================
+
+# Withdrawal limits (USD equivalent)
+DAILY_WITHDRAWAL_LIMIT_USD = float(os.getenv('DAILY_WITHDRAWAL_LIMIT_USD', '10000'))  # $10k per day default
+MONTHLY_WITHDRAWAL_LIMIT_USD = float(os.getenv('MONTHLY_WITHDRAWAL_LIMIT_USD', '100000'))  # $100k per month default
+MAX_SINGLE_WITHDRAWAL_USD = float(os.getenv('MAX_SINGLE_WITHDRAWAL_USD', '5000'))  # $5k per transaction default
+
+# Email confirmation for withdrawals
+REQUIRE_EMAIL_CONFIRMATION = os.getenv('REQUIRE_EMAIL_CONFIRMATION', 'true').lower() == 'true'
+EMAIL_CONFIRMATION_TIMEOUT_HOURS = int(os.getenv('EMAIL_CONFIRMATION_TIMEOUT_HOURS', '24'))  # 24 hour token expiry
+
+# Whitelisted addresses requirement
+REQUIRE_WHITELISTED_ADDRESS = os.getenv('REQUIRE_WHITELISTED_ADDRESS', 'true').lower() == 'true'
+
+# Rate limiting for withdrawals
+MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR = int(os.getenv('MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR', '5'))  # Prevent spam
+
+# ============================================================================
+# DeFi/DEX TRADING SETTINGS
+# ============================================================================
+
+# Web3 Provider URLs (Alchemy, Infura, etc.)
+ETH_RPC_URL = os.getenv('ETH_RPC_URL', 'https://eth.llamarpc.com')  # Public fallback
+BSC_RPC_URL = os.getenv('BSC_RPC_URL', 'https://bsc-dataseed.binance.org')  # Public fallback
+POLYGON_RPC_URL = os.getenv('POLYGON_RPC_URL', 'https://polygon-rpc.com')  # Public fallback
+
+# DEX Router Addresses (Uniswap V2 style)
+UNISWAP_V2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D'  # Ethereum Mainnet
+PANCAKESWAP_ROUTER = '0x10ED43C718714eb63d5aA57B78B54704E256024E'  # BSC Mainnet
+QUICKSWAP_ROUTER = '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff'  # Polygon Mainnet
+
+# DEX Trading Limits
+MAX_SLIPPAGE_PERCENT = float(os.getenv('MAX_SLIPPAGE_PERCENT', '5.0'))  # 5% max slippage
+MIN_LIQUIDITY_USD = float(os.getenv('MIN_LIQUIDITY_USD', '10000'))  # Minimum liquidity for safety
+GAS_LIMIT_SWAP = int(os.getenv('GAS_LIMIT_SWAP', '300000'))  # Gas limit for swaps
+GAS_LIMIT_APPROVAL = int(os.getenv('GAS_LIMIT_APPROVAL', '100000'))  # Gas limit for approvals
