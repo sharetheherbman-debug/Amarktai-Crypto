@@ -27,7 +27,7 @@ import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
-import VersionBadge from '../components/VersionBadge';
+// import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
   CategoryScale,
@@ -5929,7 +5929,6 @@ export default function Dashboard() {
           />
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
-            <a href="#" className={activeSection === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('overview'); }}>📊 Overview</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
@@ -6009,7 +6008,7 @@ export default function Dashboard() {
       <footer className="footer">
         <div>&copy; 2025 Amarktai Network. For personal use only.</div>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-          <VersionBadge position="footer" />
+          {/* <VersionBadge position="footer" /> */}
           <span>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></span>
         </div>
       </footer>
