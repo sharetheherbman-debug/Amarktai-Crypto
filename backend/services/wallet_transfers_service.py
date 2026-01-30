@@ -177,60 +177,205 @@ class WalletTransfersService:
         Steps:
         1. Withdraw from source exchange
         2. Wait for withdrawal confirmation
-        3. Deposit to destination exchange
+        3. Monitor deposit to destination exchange
         4. Update status and broadcast
         """
         try:
+            import ccxt.async_support as ccxt
+            
             transfer_id = transfer['id']
             user_id = transfer['user_id']
+            from_exchange = transfer['from_exchange']
+            to_exchange = transfer['to_exchange']
+            currency = transfer['currency']
+            amount = transfer['amount']
+            withdrawal_address = transfer.get('withdrawal_address')
             
             # Update status to processing
             await self._update_transfer_status(transfer_id, TransferStatus.PROCESSING)
             
-            # Step 1: Withdraw from source exchange
-            # NOTE: This is a stub - actual implementation would use ccxt
-            logger.info(f"Processing transfer {transfer_id}: Withdrawing from {transfer['from_exchange']}")
+            # Step 1: Get API keys for source exchange
+            from_keys = await db.api_keys_collection.find_one({
+                "user_id": user_id,
+                "provider": from_exchange,
+                "connected": True
+            })
             
-            # Simulate withdrawal (in production, use ccxt withdrawal API)
-            withdrawal_id = f"withdrawal_{datetime.now(timezone.utc).timestamp()}"
+            if not from_keys:
+                raise Exception(f"No API keys found for {from_exchange}")
             
-            # Update transfer with withdrawal ID
+            # Initialize CCXT exchange
+            exchange_class = getattr(ccxt, from_exchange, None)
+            if not exchange_class:
+                raise Exception(f"Exchange {from_exchange} not supported by CCXT")
+            
+            exchange = exchange_class({
+                'apiKey': from_keys['api_key'],
+                'secret': from_keys['api_secret'],
+                'password': from_keys.get('passphrase'),
+                'enableRateLimit': True,
+            })
+            
+            # Get deposit address for destination exchange if not provided
+            if not withdrawal_address:
+                to_keys = await db.api_keys_collection.find_one({
+                    "user_id": user_id,
+                    "provider": to_exchange,
+                    "connected": True
+                })
+                
+                if not to_keys:
+                    raise Exception(f"No API keys found for {to_exchange}")
+                
+                to_exchange_class = getattr(ccxt, to_exchange, None)
+                to_exchange_obj = to_exchange_class({
+                    'apiKey': to_keys['api_key'],
+                    'secret': to_keys['api_secret'],
+                    'password': to_keys.get('passphrase'),
+                    'enableRateLimit': True,
+                })
+                
+                # Fetch deposit address
+                try:
+                    deposit_address_response = await to_exchange_obj.fetch_deposit_address(currency)
+                    withdrawal_address = deposit_address_response['address']
+                    withdrawal_tag = deposit_address_response.get('tag')
+                    
+                    logger.info(f"Fetched deposit address for {to_exchange}: {withdrawal_address}")
+                except Exception as addr_err:
+                    logger.error(f"Failed to fetch deposit address: {addr_err}")
+                    raise Exception(f"Could not get deposit address for {currency} on {to_exchange}")
+                finally:
+                    await to_exchange_obj.close()
+            else:
+                withdrawal_tag = None
+            
+            logger.info(f"Processing transfer {transfer_id}: Withdrawing {amount} {currency} from {from_exchange} to {withdrawal_address}")
+            
+            # Step 2: Execute withdrawal
+            try:
+                withdrawal_params = {}
+                if withdrawal_tag:
+                    withdrawal_params['tag'] = withdrawal_tag
+                
+                withdrawal_response = await exchange.withdraw(
+                    currency,
+                    amount,
+                    withdrawal_address,
+                    withdrawal_tag,
+                    withdrawal_params
+                )
+                
+                withdrawal_id = withdrawal_response.get('id') or withdrawal_response.get('txid') or f"withdrawal_{datetime.now(timezone.utc).timestamp()}"
+                
+                logger.info(f"Withdrawal initiated: {withdrawal_id}")
+                
+                # Update transfer with withdrawal ID
+                await db.db['wallet_transfers'].update_one(
+                    {"id": transfer_id},
+                    {
+                        "$set": {
+                            "withdrawal_id": withdrawal_id,
+                            "withdrawal_response": withdrawal_response,
+                            "withdrawal_address": withdrawal_address,
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }
+                    }
+                )
+                
+            except ccxt.InsufficientFunds as e:
+                raise Exception(f"Insufficient funds: {str(e)}")
+            except ccxt.InvalidAddress as e:
+                raise Exception(f"Invalid withdrawal address: {str(e)}")
+            except ccxt.ExchangeError as e:
+                raise Exception(f"Exchange error: {str(e)}")
+            finally:
+                await exchange.close()
+            
+            # Step 3: Monitor withdrawal status
+            logger.info(f"Monitoring withdrawal {withdrawal_id}...")
+            
+            # Poll for withdrawal status (up to 30 minutes, check every 30 seconds)
+            max_checks = 60
+            check_interval = 30
+            
+            for check_num in range(max_checks):
+                await asyncio.sleep(check_interval)
+                
+                try:
+                    # Reconnect to exchange
+                    exchange = exchange_class({
+                        'apiKey': from_keys['api_key'],
+                        'secret': from_keys['api_secret'],
+                        'password': from_keys.get('passphrase'),
+                        'enableRateLimit': True,
+                    })
+                    
+                    # Fetch withdrawal status
+                    withdrawal_status = await exchange.fetch_withdrawal(withdrawal_id, currency)
+                    
+                    status_code = withdrawal_status.get('status', 'pending')
+                    
+                    logger.info(f"Withdrawal {withdrawal_id} status: {status_code} (check {check_num+1}/{max_checks})")
+                    
+                    if status_code in ['ok', 'complete', 'confirmed', 'success']:
+                        # Withdrawal completed
+                        await self._update_transfer_status(
+                            transfer_id,
+                            TransferStatus.COMPLETED,
+                            deposit_id=withdrawal_id  # Use same ID for tracking
+                        )
+                        
+                        # Broadcast success
+                        await manager.broadcast_to_user(user_id, {
+                            "type": "wallet_transfer_completed",
+                            "transfer_id": transfer_id,
+                            "status": TransferStatus.COMPLETED,
+                            "withdrawal_id": withdrawal_id,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        
+                        logger.info(f"Transfer completed: {transfer_id}")
+                        await exchange.close()
+                        return
+                        
+                    elif status_code in ['failed', 'rejected', 'canceled']:
+                        # Withdrawal failed
+                        await self._update_transfer_status(
+                            transfer_id,
+                            TransferStatus.FAILED,
+                            error_message=f"Withdrawal {status_code}: {withdrawal_status.get('info', '')}"
+                        )
+                        
+                        await manager.broadcast_to_user(user_id, {
+                            "type": "wallet_transfer_failed",
+                            "transfer_id": transfer_id,
+                            "status": TransferStatus.FAILED,
+                            "error": f"Withdrawal {status_code}",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        
+                        await exchange.close()
+                        return
+                        
+                    await exchange.close()
+                    
+                except Exception as status_err:
+                    logger.warning(f"Error checking withdrawal status: {status_err}")
+                    # Continue checking
+            
+            # Timeout - mark as processing but not confirmed
+            logger.warning(f"Transfer {transfer_id} timed out waiting for confirmation")
             await db.db['wallet_transfers'].update_one(
                 {"id": transfer_id},
                 {
                     "$set": {
-                        "withdrawal_id": withdrawal_id,
+                        "status": TransferStatus.PROCESSING,
+                        "status_note": "Withdrawal initiated but confirmation timeout. Check exchange manually.",
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }
                 }
             )
-            
-            # Step 2: Wait for withdrawal confirmation
-            # In production, poll exchange API for withdrawal status
-            await asyncio.sleep(10)  # Simulated wait
-            
-            # Step 3: Deposit to destination exchange
-            logger.info(f"Processing transfer {transfer_id}: Depositing to {transfer['to_exchange']}")
-            
-            # Simulate deposit (in production, verify deposit address and confirm)
-            deposit_id = f"deposit_{datetime.now(timezone.utc).timestamp()}"
-            
-            # Update transfer as completed
-            await self._update_transfer_status(
-                transfer_id, 
-                TransferStatus.COMPLETED,
-                deposit_id=deposit_id
-            )
-            
-            # Broadcast success
-            await manager.broadcast_to_user(user_id, {
-                "type": "wallet_transfer_completed",
-                "transfer_id": transfer_id,
-                "status": TransferStatus.COMPLETED,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
-            
-            logger.info(f"Transfer completed: {transfer_id}")
             
         except Exception as e:
             logger.error(f"Transfer processing failed: {e}")
