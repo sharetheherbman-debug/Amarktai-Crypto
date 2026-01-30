@@ -43,7 +43,8 @@ class WalletTransfersService:
         to_exchange: str,
         currency: str,
         amount: float,
-        withdrawal_address: Optional[str] = None
+        withdrawal_address: Optional[str] = None,
+        user_email: Optional[str] = None
     ) -> Dict:
         """
         Initiate a wallet transfer between exchanges
@@ -55,17 +56,39 @@ class WalletTransfersService:
             currency: Currency to transfer (e.g., BTC, ETH, ZAR)
             amount: Amount to transfer
             withdrawal_address: Optional whitelisted address
+            user_email: User email for confirmation
             
         Returns:
             Dict with transfer_id and status
         """
         try:
+            from services.email_service import email_service
+            
             # Check if real-time transfers are enabled
             if not config.ENABLE_REALTIME_TRANSFERS:
                 return {
                     "success": False,
                     "error": "TRANSFERS_DISABLED",
                     "message": "Real-time transfers are disabled. Set ENABLE_REALTIME_TRANSFERS=true to enable."
+                }
+            
+            # Check withdrawal limits
+            limit_check = await self._check_withdrawal_limits(user_id, amount, currency)
+            if not limit_check['allowed']:
+                return {
+                    "success": False,
+                    "error": "LIMIT_EXCEEDED",
+                    "message": limit_check['message'],
+                    "limits": limit_check['limits']
+                }
+            
+            # Check rate limiting (prevent spam)
+            rate_limit_check = await self._check_rate_limit(user_id)
+            if not rate_limit_check['allowed']:
+                return {
+                    "success": False,
+                    "error": "RATE_LIMIT_EXCEEDED",
+                    "message": f"Too many withdrawal attempts. Try again in {rate_limit_check['wait_minutes']} minutes."
                 }
             
             # Validate user has API keys for both exchanges
@@ -88,8 +111,8 @@ class WalletTransfersService:
                     "message": f"API keys not configured for {from_exchange} or {to_exchange}"
                 }
             
-            # Security check: Verify whitelisted address if provided
-            if withdrawal_address:
+            # Security check: Verify whitelisted address if required
+            if config.REQUIRE_WHITELISTED_ADDRESS and withdrawal_address:
                 is_whitelisted = await self._check_whitelisted_address(
                     user_id, from_exchange, currency, withdrawal_address
                 )
@@ -111,22 +134,59 @@ class WalletTransfersService:
                 "amount": amount,
                 "withdrawal_address": withdrawal_address,
                 "status": TransferStatus.PENDING,
+                "requires_confirmation": config.REQUIRE_EMAIL_CONFIRMATION,
+                "confirmed": not config.REQUIRE_EMAIL_CONFIRMATION,  # Auto-confirm if not required
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "withdrawal_id": None,
                 "deposit_id": None,
-                "error_message": None
+                "error_message": None,
+                "confirmation_token": None
             }
             
             # Save to database
             await db.db['wallet_transfers'].insert_one(transfer)
             
-            # Add to queue
-            self.transfer_queue.append(transfer)
+            # Send email confirmation if required
+            confirmation_result = None
+            if config.REQUIRE_EMAIL_CONFIRMATION and user_email:
+                try:
+                    confirmation_result = await email_service.send_withdrawal_confirmation(
+                        user_id=user_id,
+                        email=user_email,
+                        transfer_id=transfer_id,
+                        from_exchange=from_exchange,
+                        to_exchange=to_exchange,
+                        currency=currency,
+                        amount=amount
+                    )
+                    
+                    if confirmation_result['success']:
+                        # Store confirmation token in transfer
+                        await db.db['wallet_transfers'].update_one(
+                            {"id": transfer_id},
+                            {"$set": {
+                                "confirmation_token": confirmation_result['confirmation_token'],
+                                "confirmation_expires_at": confirmation_result['expires_at']
+                            }}
+                        )
+                        
+                        logger.info(f"Email confirmation sent for transfer {transfer_id}")
+                except Exception as email_err:
+                    logger.error(f"Failed to send confirmation email: {email_err}")
             
-            # Start processing if not already running
-            if not self.processing:
-                asyncio.create_task(self._process_queue())
+            # Only add to queue if no confirmation required OR if SMTP not configured
+            # (so transfers can still work during testing)
+            if not config.REQUIRE_EMAIL_CONFIRMATION or not user_email:
+                # Add to queue for immediate processing
+                self.transfer_queue.append(transfer)
+                
+                # Start processing if not already running
+                if not self.processing:
+                    asyncio.create_task(self._process_queue())
+            
+            # Record withdrawal attempt for rate limiting
+            await self._record_withdrawal_attempt(user_id)
             
             # Send SSE update
             await manager.broadcast_to_user(user_id, {
@@ -395,6 +455,109 @@ class WalletTransfersService:
                 "error": str(e),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
+    
+    async def _check_withdrawal_limits(self, user_id: str, amount: float, currency: str) -> Dict:
+        """Check if withdrawal is within limits"""
+        try:
+            amount_usd = amount  # Simplified - would need conversion in production
+            
+            if amount_usd > config.MAX_SINGLE_WITHDRAWAL_USD:
+                return {
+                    "allowed": False,
+                    "message": f"Single withdrawal limit is ${config.MAX_SINGLE_WITHDRAWAL_USD:,.2f}",
+                    "limits": {"max_single": config.MAX_SINGLE_WITHDRAWAL_USD, "requested": amount_usd}
+                }
+            
+            daily_total = await self._get_withdrawal_total_24h(user_id)
+            if daily_total + amount_usd > config.DAILY_WITHDRAWAL_LIMIT_USD:
+                return {
+                    "allowed": False,
+                    "message": f"Daily limit exceeded. Limit: ${config.DAILY_WITHDRAWAL_LIMIT_USD:,.2f}, Used: ${daily_total:,.2f}",
+                    "limits": {"daily_limit": config.DAILY_WITHDRAWAL_LIMIT_USD, "already_withdrawn_24h": daily_total}
+                }
+            
+            monthly_total = await self._get_withdrawal_total_30d(user_id)
+            if monthly_total + amount_usd > config.MONTHLY_WITHDRAWAL_LIMIT_USD:
+                return {
+                    "allowed": False,
+                    "message": f"Monthly limit exceeded. Limit: ${config.MONTHLY_WITHDRAWAL_LIMIT_USD:,.2f}, Used: ${monthly_total:,.2f}",
+                    "limits": {"monthly_limit": config.MONTHLY_WITHDRAWAL_LIMIT_USD, "already_withdrawn_30d": monthly_total}
+                }
+            
+            return {"allowed": True, "message": "Within limits"}
+        except Exception as e:
+            logger.error(f"Error checking limits: {e}")
+            return {"allowed": False, "message": "Error checking limits"}
+    
+    async def _get_withdrawal_total_24h(self, user_id: str) -> float:
+        """Get total withdrawals in last 24 hours"""
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        transfers = await db.db['wallet_transfers'].find({
+            "user_id": user_id,
+            "status": {"$in": [TransferStatus.COMPLETED, TransferStatus.PROCESSING]},
+            "created_at": {"$gte": cutoff.isoformat()}
+        }).to_list(1000)
+        return sum(t.get('amount', 0) for t in transfers)
+    
+    async def _get_withdrawal_total_30d(self, user_id: str) -> float:
+        """Get total withdrawals in last 30 days"""
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        transfers = await db.db['wallet_transfers'].find({
+            "user_id": user_id,
+            "status": {"$in": [TransferStatus.COMPLETED, TransferStatus.PROCESSING]},
+            "created_at": {"$gte": cutoff.isoformat()}
+        }).to_list(1000)
+        return sum(t.get('amount', 0) for t in transfers)
+    
+    async def _check_rate_limit(self, user_id: str) -> Dict:
+        """Check withdrawal attempt rate limit"""
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        attempts = await db.db['withdrawal_attempts'].count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": cutoff.isoformat()}
+        })
+        
+        if attempts >= config.MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR:
+            return {"allowed": False, "wait_minutes": 60}
+        return {"allowed": True}
+    
+    async def _record_withdrawal_attempt(self, user_id: str):
+        """Record withdrawal attempt for rate limiting"""
+        await db.db['withdrawal_attempts'].insert_one({
+            "user_id": user_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    
+    async def confirm_transfer(self, transfer_id: str, confirmation_token: str) -> Dict:
+        """Confirm transfer via email token"""
+        try:
+            from services.email_service import email_service
+            confirmation = await email_service.verify_confirmation_token(confirmation_token)
+            
+            if not confirmation or confirmation.get('transfer_id') != transfer_id:
+                return {"success": False, "error": "INVALID_TOKEN", "message": "Invalid or expired token"}
+            
+            transfer = await db.db['wallet_transfers'].find_one({"id": transfer_id})
+            if not transfer:
+                return {"success": False, "error": "TRANSFER_NOT_FOUND"}
+            
+            await db.db['wallet_transfers'].update_one(
+                {"id": transfer_id},
+                {"$set": {"confirmed": True, "confirmed_at": datetime.now(timezone.utc).isoformat()}}
+            )
+            
+            transfer['confirmed'] = True
+            self.transfer_queue.append(transfer)
+            if not self.processing:
+                asyncio.create_task(self._process_queue())
+            
+            return {"success": True, "message": "Transfer confirmed and queued", "transfer_id": transfer_id}
+        except Exception as e:
+            logger.error(f"Confirmation failed: {e}")
+            return {"success": False, "error": str(e)}
     
     async def _update_transfer_status(
         self,

@@ -163,3 +163,42 @@ MAX_POSITION_SIZE_PERCENT = 0.05  # 5% maximum per-trade sizing
 
 # Self-healing configuration
 MAX_ERRORS_PER_HOUR = int(os.getenv('MAX_ERRORS_PER_HOUR', '20'))  # Error budget for self-healing
+
+# ============================================================================
+# WALLET TRANSFER LIMITS & SECURITY
+# ============================================================================
+
+# Withdrawal limits (USD equivalent)
+DAILY_WITHDRAWAL_LIMIT_USD = float(os.getenv('DAILY_WITHDRAWAL_LIMIT_USD', '10000'))  # $10k per day default
+MONTHLY_WITHDRAWAL_LIMIT_USD = float(os.getenv('MONTHLY_WITHDRAWAL_LIMIT_USD', '100000'))  # $100k per month default
+MAX_SINGLE_WITHDRAWAL_USD = float(os.getenv('MAX_SINGLE_WITHDRAWAL_USD', '5000'))  # $5k per transaction default
+
+# Email confirmation for withdrawals
+REQUIRE_EMAIL_CONFIRMATION = os.getenv('REQUIRE_EMAIL_CONFIRMATION', 'true').lower() == 'true'
+EMAIL_CONFIRMATION_TIMEOUT_HOURS = int(os.getenv('EMAIL_CONFIRMATION_TIMEOUT_HOURS', '24'))  # 24 hour token expiry
+
+# Whitelisted addresses requirement
+REQUIRE_WHITELISTED_ADDRESS = os.getenv('REQUIRE_WHITELISTED_ADDRESS', 'true').lower() == 'true'
+
+# Rate limiting for withdrawals
+MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR = int(os.getenv('MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR', '5'))  # Prevent spam
+
+# ============================================================================
+# DeFi/DEX TRADING SETTINGS
+# ============================================================================
+
+# Web3 Provider URLs (Alchemy, Infura, etc.)
+ETH_RPC_URL = os.getenv('ETH_RPC_URL', 'https://eth.llamarpc.com')  # Public fallback
+BSC_RPC_URL = os.getenv('BSC_RPC_URL', 'https://bsc-dataseed.binance.org')  # Public fallback
+POLYGON_RPC_URL = os.getenv('POLYGON_RPC_URL', 'https://polygon-rpc.com')  # Public fallback
+
+# DEX Router Addresses (Uniswap V2 style)
+UNISWAP_V2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D'  # Ethereum Mainnet
+PANCAKESWAP_ROUTER = '0x10ED43C718714eb63d5aA57B78B54704E256024E'  # BSC Mainnet
+QUICKSWAP_ROUTER = '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff'  # Polygon Mainnet
+
+# DEX Trading Limits
+MAX_SLIPPAGE_PERCENT = float(os.getenv('MAX_SLIPPAGE_PERCENT', '5.0'))  # 5% max slippage
+MIN_LIQUIDITY_USD = float(os.getenv('MIN_LIQUIDITY_USD', '10000'))  # Minimum liquidity for safety
+GAS_LIMIT_SWAP = int(os.getenv('GAS_LIMIT_SWAP', '300000'))  # Gas limit for swaps
+GAS_LIMIT_APPROVAL = int(os.getenv('GAS_LIMIT_APPROVAL', '100000'))  # Gas limit for approvals
