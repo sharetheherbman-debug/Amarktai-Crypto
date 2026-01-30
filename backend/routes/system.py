@@ -76,8 +76,8 @@ async def get_platforms() -> dict:
                 {"id": "luno", "name": "Luno", "display_name": "Luno", "enabled": True, "bot_limit": 5, "supports_paper": True, "supports_live": True},
                 {"id": "binance", "name": "Binance", "display_name": "Binance", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
                 {"id": "kucoin", "name": "KuCoin", "display_name": "KuCoin", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
-                {"id": "ovex", "name": "OVEX", "display_name": "OVEX", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": False},
-                {"id": "valr", "name": "VALR", "display_name": "VALR", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": False}
+                {"id": "ovex", "name": "OVEX", "display_name": "OVEX", "enabled": False, "bot_limit": 10, "supports_paper": True, "supports_live": False},
+                {"id": "valr", "name": "VALR", "display_name": "VALR", "enabled": False, "bot_limit": 10, "supports_paper": True, "supports_live": False}
             ],
             "total_count": 5,
             "default": "all",

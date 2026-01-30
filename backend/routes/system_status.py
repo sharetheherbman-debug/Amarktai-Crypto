@@ -114,6 +114,120 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/since-last-login")
+async def get_since_last_login(user_id: str = Depends(get_current_user)):
+    """
+    Get activity since last login:
+    - Updates last_login timestamp
+    - Returns system modes, active bots, recent trades, alerts
+    - Returns notes describing activity
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Get user's last login and update it
+        user = await db.users_collection.find_one({"_id": user_id}, {"last_login": 1})
+        last_login = user.get("last_login") if user else None
+        
+        # Update last_login to now
+        await db.users_collection.update_one(
+            {"_id": user_id},
+            {"$set": {"last_login": now}},
+            upsert=False
+        )
+        
+        # Get system modes
+        modes = await db.system_modes_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0}
+        )
+        system_modes = {
+            "paperTrading": modes.get("paperTrading", False) if modes else False,
+            "liveTrading": modes.get("liveTrading", False) if modes else False,
+            "autopilot": modes.get("autopilot", False) if modes else False
+        }
+        
+        # Get active bots count
+        active_bots = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": "active"
+        })
+        
+        # Get recent trades (last 24h)
+        cutoff_24h = now - timedelta(hours=24)
+        recent_trades_count = 0
+        last_trade_time = None
+        
+        if last_login:
+            # Count trades since last login
+            recent_trades_count = await db.trades_collection.count_documents({
+                "user_id": user_id,
+                "timestamp": {"$gte": cutoff_24h}
+            })
+        
+        # Get last trade time
+        last_trade = await db.trades_collection.find_one(
+            {"user_id": user_id},
+            {"timestamp": 1},
+            sort=[("timestamp", -1)]
+        )
+        if last_trade:
+            last_trade_time = last_trade.get("timestamp")
+        
+        # Get alerts count (if alerts collection exists)
+        alerts_count = 0
+        try:
+            if last_login:
+                alerts_count = await db.alerts_collection.count_documents({
+                    "user_id": user_id,
+                    "timestamp": {"$gte": last_login}
+                })
+        except Exception:
+            pass  # alerts collection may not exist
+        
+        # Build activity notes
+        notes = []
+        if not last_login:
+            notes.append("First login - welcome!")
+        else:
+            time_away = (now - last_login).total_seconds()
+            if time_away < 3600:
+                notes.append(f"Welcome back! You were away for {int(time_away / 60)} minutes")
+            elif time_away < 86400:
+                notes.append(f"Welcome back! You were away for {int(time_away / 3600)} hours")
+            else:
+                notes.append(f"Welcome back! You were away for {int(time_away / 86400)} days")
+            
+            if recent_trades_count > 0:
+                notes.append(f"{recent_trades_count} trade(s) executed in the last 24 hours")
+            
+            if active_bots > 0:
+                notes.append(f"{active_bots} bot(s) currently active")
+            else:
+                notes.append("No active bots")
+            
+            if alerts_count > 0:
+                notes.append(f"{alerts_count} new alert(s)")
+        
+        return {
+            "success": True,
+            "last_login": last_login.isoformat() if last_login else None,
+            "now": now.isoformat(),
+            "paperTrading": system_modes["paperTrading"],
+            "liveTrading": system_modes["liveTrading"],
+            "autopilot": system_modes["autopilot"],
+            "active_bots": active_bots,
+            "recent_trades_count": recent_trades_count,
+            "last_trade_time": last_trade_time.isoformat() if last_trade_time else None,
+            "alerts_count": alerts_count,
+            "notes": notes
+        }
+        
+    except Exception as e:
+        logger.error(f"Since last login error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/health")
 async def health_check():
     """

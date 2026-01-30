@@ -27,7 +27,7 @@ import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
-import VersionBadge from '../components/VersionBadge';
+// import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
   CategoryScale,
@@ -3696,80 +3696,6 @@ export default function Dashboard() {
                 👆 Select a user and bot above to perform admin actions
               </div>
             )}
-            
-            {/* All Bots Table - Read-only overview */}
-            <div style={{marginTop: '24px'}}>
-              <h4 style={{margin: '0 0 12px 0', color: 'var(--muted)', fontSize: '0.9rem'}}>📊 All Bots Overview (Read-only)</h4>
-              {loadingBots ? (
-                <div style={{textAlign: 'center', padding: '40px', color: 'var(--muted)'}}>
-                  Loading bots...
-                </div>
-              ) : adminBots.length === 0 ? (
-                <div style={{textAlign: 'center', padding: '40px', color: 'var(--muted)'}}>
-                  No bots found
-                </div>
-              ) : (
-                <div style={{overflowX: 'auto'}}>
-                  <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem'}}>
-                    <thead>
-                      <tr style={{borderBottom: '2px solid var(--line)', background: 'var(--glass)'}}>
-                        <th style={{padding: '8px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600}}>Bot Name</th>
-                        <th style={{padding: '8px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600}}>User</th>
-                        <th style={{padding: '8px', textAlign: 'center', color: 'var(--muted)', fontWeight: 600}}>Exchange</th>
-                        <th style={{padding: '8px', textAlign: 'center', color: 'var(--muted)', fontWeight: 600}}>Mode</th>
-                        <th style={{padding: '8px', textAlign: 'center', color: 'var(--muted)', fontWeight: 600}}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adminBots.map(bot => (
-                        <tr key={bot.bot_id} style={{borderBottom: '1px solid var(--line)'}}>
-                          <td style={{padding: '8px', fontWeight: 600}}>{bot.name}</td>
-                          <td style={{padding: '8px'}}>
-                            <div style={{fontSize: '0.8rem'}}>{bot.username || 'Unknown'}</div>
-                            <div style={{fontSize: '0.7rem', color: 'var(--muted)'}}>{bot.email}</div>
-                          </td>
-                          <td style={{padding: '8px', textAlign: 'center'}}>
-                            <span style={{
-                              padding: '2px 6px',
-                              background: 'var(--glass)',
-                              borderRadius: '3px',
-                              fontSize: '0.75rem',
-                              fontWeight: 600
-                            }}>
-                              {bot.exchange?.toUpperCase()}
-                            </span>
-                          </td>
-                          <td style={{padding: '8px', textAlign: 'center'}}>
-                            <span style={{
-                              padding: '2px 6px',
-                              background: bot.mode === 'live' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(34, 197, 94, 0.2)',
-                              borderRadius: '3px',
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                              color: bot.mode === 'live' ? '#f59e0b' : 'var(--success)'
-                            }}>
-                              {bot.mode === 'live' ? '💰 Live' : '📝 Paper'}
-                            </span>
-                          </td>
-                          <td style={{padding: '8px', textAlign: 'center'}}>
-                            <span style={{
-                              padding: '2px 6px',
-                              borderRadius: '3px',
-                              fontSize: '0.75rem',
-                              fontWeight: 600,
-                              background: bot.status === 'active' ? 'var(--success)' : (bot.status === 'paused' ? '#f59e0b' : 'var(--error)'),
-                              color: 'white'
-                            }}>
-                              {bot.status === 'active' ? '▶ Active' : (bot.status === 'paused' ? '⏸ Paused' : '⏹ Stopped')}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
           </div>
           
           {/* Admin Tools - All in One Section */}
@@ -5929,7 +5855,6 @@ export default function Dashboard() {
           />
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
-            <a href="#" className={activeSection === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('overview'); }}>📊 Overview</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
@@ -6009,7 +5934,7 @@ export default function Dashboard() {
       <footer className="footer">
         <div>&copy; 2025 Amarktai Network. For personal use only.</div>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-          <VersionBadge position="footer" />
+          {/* <VersionBadge position="footer" /> */}
           <span>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></span>
         </div>
       </footer>

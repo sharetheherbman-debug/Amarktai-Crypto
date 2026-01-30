@@ -36,8 +36,6 @@ const AIChatPanel = () => {
       // Old messages must NOT render by default
       // Users can click "Load previous chat" to fetch history
       await fetchDailyGreeting();
-      const now = Date.now();
-      localStorage.setItem('lastChatSession', now.toString());
       
       // Show "Load previous chat" button if there's history
       setShowLoadHistory(true);
@@ -60,19 +58,46 @@ const AIChatPanel = () => {
 
       const data = await response.json();
       
+      const newMessages = [];
+      
       // Always show only the greeting, never auto-load old messages
       if (data.content) {
-        setMessages([{
+        newMessages.push({
           role: 'assistant',
           content: data.content,
           timestamp: data.timestamp,
           is_greeting: true
-        }]);
+        });
         
         if (data.system_state) {
           setSystemState(data.system_state);
         }
       }
+      
+      // Fetch and display since-last-login report
+      try {
+        const sinceLoginResponse = await fetch('/api/system/since-last-login', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (sinceLoginResponse.ok) {
+          const sinceData = await sinceLoginResponse.json();
+          const reportContent = formatSinceLastLoginReport(sinceData);
+          
+          newMessages.push({
+            role: 'assistant',
+            content: reportContent,
+            timestamp: new Date().toISOString(),
+            is_greeting: false
+          });
+        }
+      } catch (sinceErr) {
+        console.error('Failed to fetch since-last-login:', sinceErr);
+      }
+      
+      setMessages(newMessages);
     } catch (err) {
       console.error('Failed to fetch daily greeting:', err);
       // Show fallback greeting
@@ -85,6 +110,53 @@ const AIChatPanel = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatSinceLastLoginReport = (data) => {
+    if (!data) return 'No activity since your last login.';
+    
+    let report = '📊 **Since Your Last Login:**\n\n';
+    
+    // Display notes from backend
+    if (data.notes && data.notes.length > 0) {
+      data.notes.forEach(note => {
+        report += `• ${note}\n`;
+      });
+      report += '\n';
+    }
+    
+    // System modes
+    const modes = [];
+    if (data.paperTrading) modes.push('📝 Paper Trading');
+    if (data.liveTrading) modes.push('🔴 Live Trading');
+    if (data.autopilot) modes.push('🤖 Autopilot');
+    
+    if (modes.length > 0) {
+      report += `**Active Modes:** ${modes.join(', ')}\n`;
+    }
+    
+    // Additional details
+    if (data.active_bots !== undefined) {
+      report += `\n🤖 **Active Bots:** ${data.active_bots}\n`;
+    }
+    
+    if (data.recent_trades_count && data.recent_trades_count > 0) {
+      report += `✅ **${data.recent_trades_count} trades** in last 24h\n`;
+    }
+    
+    if (data.last_trade_time) {
+      report += `🕒 Last trade: ${new Date(data.last_trade_time).toLocaleString()}\n`;
+    }
+    
+    if (data.alerts_count && data.alerts_count > 0) {
+      report += `⚠️ **${data.alerts_count} new alerts**\n`;
+    }
+    
+    if (data.last_login) {
+      report += `\n🕐 Previous login: ${new Date(data.last_login).toLocaleString()}`;
+    }
+    
+    return report;
   };
 
   const loadRecentMessages = async () => {
@@ -167,9 +239,6 @@ const AIChatPanel = () => {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
-    
-    // Update session timestamp on each message
-    localStorage.setItem('lastChatSession', Date.now().toString());
 
     try {
       const response = await fetch('/api/ai/chat', {
@@ -227,8 +296,6 @@ const AIChatPanel = () => {
     // Clear UI only (backend history is preserved)
     setMessages([]);
     setSessionChecked(false);
-    // Will trigger fresh session check on next mount
-    localStorage.removeItem('lastChatSession');
   };
 
   return (
