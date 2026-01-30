@@ -153,8 +153,13 @@ async def clone_strategy(
 ):
     """
     Clone a strategy from marketplace to user's account
+    
+    Creates a new bot using the strategy DNA from the marketplace
     """
     try:
+        from uuid import uuid4
+        from realtime_events import rt_events
+        
         # Get strategy
         strategy = await db.db['marketplace_strategies'].find_one(
             {"id": strategy_id, "public": True}
@@ -163,8 +168,45 @@ async def clone_strategy(
         if not strategy:
             raise HTTPException(status_code=404, detail="Strategy not found")
         
-        # TODO: Create bot with cloned strategy DNA
-        # TODO: Link to original strategy
+        # Extract strategy DNA
+        strategy_dna = strategy.get('strategy_dna', {})
+        strategy_name = strategy.get('name', 'Cloned Strategy')
+        
+        # Create bot with cloned strategy DNA
+        bot_id = str(uuid4())
+        bot_data = {
+            "id": bot_id,
+            "user_id": user_id,
+            "name": f"{strategy_name} (Clone)",
+            "exchange": strategy_dna.get('exchange', 'luno'),
+            "risk_mode": strategy_dna.get('risk_mode', 'balanced'),
+            "trading_mode": "paper",  # Always start cloned strategies in paper mode
+            "status": "active",
+            "initial_capital": strategy_dna.get('initial_capital', 1000),
+            "current_capital": strategy_dna.get('initial_capital', 1000),
+            "total_profit": 0,
+            "win_rate": 0,
+            "trades_count": 0,
+            "max_drawdown": 0,
+            "stop_loss_percent": strategy_dna.get('stop_loss_percent', 15.0),
+            "trailing_stop_percent": strategy_dna.get('trailing_stop_percent'),
+            "take_profit_percent": strategy_dna.get('take_profit_percent'),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "paper_start_date": datetime.now(timezone.utc).isoformat(),
+            "promoted_to_live": False,
+            "strategy": strategy_dna,
+            "learned_insights": [],
+            # Link to original strategy
+            "cloned_from": {
+                "strategy_id": strategy_id,
+                "strategy_name": strategy_name,
+                "author_id": strategy.get('user_id'),
+                "cloned_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+        
+        # Insert bot
+        await db.db['bots'].insert_one(bot_data)
         
         # Increment clone count
         await db.db['marketplace_strategies'].update_one(
@@ -172,11 +214,23 @@ async def clone_strategy(
             {"$inc": {"clones": 1}}
         )
         
-        logger.info(f"Strategy {strategy_id} cloned by user {user_id}")
+        # Remove _id for response
+        bot_data.pop('_id', None)
+        
+        # Send real-time notification
+        try:
+            await rt_events.bot_created(user_id, bot_data)
+            await rt_events.force_refresh(user_id, f"Strategy '{strategy_name}' cloned successfully")
+        except Exception as rt_error:
+            logger.warning(f"Real-time event error: {rt_error}")
+        
+        logger.info(f"Strategy {strategy_id} cloned by user {user_id}, created bot {bot_id}")
         
         return {
             "success": True,
-            "message": "Strategy cloned successfully (stub implementation)"
+            "message": "Strategy cloned successfully",
+            "bot_id": bot_id,
+            "bot": bot_data
         }
         
     except HTTPException:
@@ -244,20 +298,125 @@ async def rate_strategy(
 
 @router.get("/leaderboard")
 async def get_leaderboard(
-    metric: str = "profit",  # profit, win_rate, sharpe
-    limit: int = 50
+    metric: str = "profit",  # profit, win_rate, sharpe, rating, clones
+    limit: int = 50,
+    time_period: str = "all_time"  # all_time, monthly, weekly
 ):
     """
     Get leaderboard of top strategies
+    
+    Calculates real performance metrics from bots using each strategy
+    and ranks them by the specified metric.
     """
     try:
-        # TODO: Calculate real performance metrics
-        # TODO: Sort by specified metric
+        from datetime import timedelta
+        
+        # Build time filter if needed
+        time_filter = {}
+        if time_period == "monthly":
+            cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+            time_filter = {"created_at": {"$gte": cutoff.isoformat()}}
+        elif time_period == "weekly":
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            time_filter = {"created_at": {"$gte": cutoff.isoformat()}}
+        
+        # Get all strategies
+        strategies = await db.db['marketplace_strategies'].find(
+            {"public": True},
+            {"_id": 0}
+        ).to_list(1000)
+        
+        # For each strategy, calculate real performance from bots that use it
+        leaderboard = []
+        
+        for strategy in strategies:
+            strategy_id = strategy.get('id')
+            
+            # Find bots that were cloned from this strategy
+            bots = await db.db['bots'].find({
+                "cloned_from.strategy_id": strategy_id,
+                **time_filter
+            }).to_list(1000)
+            
+            if not bots and time_period != "all_time":
+                # If no bots in time period, skip
+                continue
+            
+            # Calculate aggregate metrics
+            total_bots = len(bots)
+            if total_bots > 0:
+                total_profit = sum(bot.get('total_profit', 0) for bot in bots)
+                avg_profit = total_profit / total_bots
+                avg_win_rate = sum(bot.get('win_rate', 0) for bot in bots) / total_bots
+                total_trades = sum(bot.get('trades_count', 0) for bot in bots)
+                
+                # Calculate Sharpe ratio (simplified)
+                profits = [bot.get('total_profit', 0) for bot in bots]
+                if len(profits) > 1:
+                    mean_profit = sum(profits) / len(profits)
+                    variance = sum((p - mean_profit) ** 2 for p in profits) / len(profits)
+                    std_dev = variance ** 0.5
+                    sharpe = mean_profit / std_dev if std_dev > 0 else 0
+                else:
+                    sharpe = 0
+            else:
+                # Use static metrics from strategy if no bots yet
+                total_profit = 0
+                avg_profit = 0
+                avg_win_rate = strategy.get('performance_metrics', {}).get('win_rate', 0)
+                total_trades = 0
+                sharpe = 0
+            
+            leaderboard_entry = {
+                "strategy_id": strategy_id,
+                "name": strategy.get('name'),
+                "description": strategy.get('description', '')[:200],  # Truncate
+                "author_id": strategy.get('user_id'),
+                "published_at": strategy.get('published_at'),
+                "rating": strategy.get('rating', 0),
+                "rating_count": strategy.get('rating_count', 0),
+                "views": strategy.get('views', 0),
+                "clones": strategy.get('clones', 0),
+                "tags": strategy.get('tags', []),
+                # Performance metrics
+                "metrics": {
+                    "total_profit": round(total_profit, 2),
+                    "avg_profit_per_bot": round(avg_profit, 2),
+                    "avg_win_rate": round(avg_win_rate, 2),
+                    "total_trades": total_trades,
+                    "sharpe_ratio": round(sharpe, 4),
+                    "total_bots_using": total_bots
+                }
+            }
+            
+            leaderboard.append(leaderboard_entry)
+        
+        # Sort by specified metric
+        metric_map = {
+            "profit": lambda x: x['metrics']['total_profit'],
+            "win_rate": lambda x: x['metrics']['avg_win_rate'],
+            "sharpe": lambda x: x['metrics']['sharpe_ratio'],
+            "rating": lambda x: x['rating'],
+            "clones": lambda x: x['clones'],
+            "views": lambda x: x['views']
+        }
+        
+        sort_key = metric_map.get(metric, metric_map["profit"])
+        leaderboard.sort(key=sort_key, reverse=True)
+        
+        # Limit results
+        leaderboard = leaderboard[:limit]
+        
+        # Add rank
+        for idx, entry in enumerate(leaderboard):
+            entry['rank'] = idx + 1
         
         return {
             "success": True,
-            "leaderboard": [],
-            "message": "Stub implementation - leaderboard not yet available"
+            "leaderboard": leaderboard,
+            "count": len(leaderboard),
+            "metric": metric,
+            "time_period": time_period
         }
         
     except Exception as e:
