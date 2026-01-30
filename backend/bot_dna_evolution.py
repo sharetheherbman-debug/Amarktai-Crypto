@@ -3,6 +3,8 @@ Bot DNA Evolution System
 - Genetic algorithm for bot optimization
 - Mutation and crossover of successful bots
 - Natural selection based on performance
+- Configurable mutation rate (default 25%)
+- Pair and exchange diversity requirements
 """
 
 import asyncio
@@ -11,11 +13,13 @@ from datetime import datetime, timezone
 from logger_config import logger
 import database as db
 from performance_ranker import performance_ranker
+import config
 
 
 class BotDNAEvolution:
     def __init__(self):
-        self.mutation_rate = 0.15  # 15% chance of mutation
+        # Use configurable mutation rate from config (default 25%)
+        self.mutation_rate = config.EVOLUTION_MUTATION_RATE
         self.elite_percent = 0.30  # Top 30% survive
         self.generation = 0
     
@@ -42,10 +46,14 @@ class BotDNAEvolution:
             # Evolve weak bots based on elite DNA
             evolved_count = 0
             
+            # Track diversity: ensure we have different pairs and exchanges
+            evolved_pairs = set()
+            evolved_exchanges = set()
+            
             for weak_bot in weak_bots:
-                # Select two elite parents
+                # Select two elite parents (prefer different exchanges for diversity)
                 parent1 = random.choice(elite_bots)
-                parent2 = random.choice(elite_bots)
+                parent2 = self._select_diverse_parent(elite_bots, parent1)
                 
                 # Create child DNA
                 new_dna = self._crossover(parent1, parent2)
@@ -53,12 +61,20 @@ class BotDNAEvolution:
                 # Apply mutation
                 new_dna = self._mutate(new_dna)
                 
+                # Ensure diversity: avoid too many bots on same pair/exchange
+                new_dna = self._ensure_diversity(new_dna, evolved_pairs, evolved_exchanges, ranked_bots)
+                
+                # Track what we've created
+                evolved_pairs.add(new_dna.get('trading_pair', 'BTC/ZAR'))
+                evolved_exchanges.add(new_dna.get('exchange', 'luno'))
+                
                 # Update weak bot with new DNA
                 await self._update_bot_dna(weak_bot['id'], new_dna)
                 evolved_count += 1
             
             self.generation += 1
             logger.info(f"Evolution complete: {evolved_count} bots evolved (Generation {self.generation})")
+            logger.info(f"Diversity: {len(evolved_pairs)} pairs, {len(evolved_exchanges)} exchanges")
             
             return {
                 "evolved": evolved_count,
@@ -70,6 +86,37 @@ class BotDNAEvolution:
         except Exception as e:
             logger.error(f"Bot evolution failed: {e}")
             return {"evolved": 0, "error": str(e)}
+    
+    def _select_diverse_parent(self, elite_bots: list, parent1: dict) -> dict:
+        """Select a second parent, preferring different exchange for diversity"""
+        # Try to find a parent from a different exchange
+        different_exchange = [b for b in elite_bots if b.get('exchange') != parent1.get('exchange')]
+        
+        if different_exchange and random.random() < 0.7:  # 70% chance to prefer diversity
+            return random.choice(different_exchange)
+        else:
+            return random.choice(elite_bots)
+    
+    def _ensure_diversity(self, dna: dict, evolved_pairs: set, evolved_exchanges: set, all_bots: list) -> dict:
+        """Ensure genetic diversity by avoiding over-concentration on single pair/exchange"""
+        # Count existing bots per exchange
+        exchange_counts = {}
+        for bot in all_bots:
+            ex = bot.get('exchange', 'luno')
+            exchange_counts[ex] = exchange_counts.get(ex, 0) + 1
+        
+        # If proposed exchange is over-represented, try to diversify
+        proposed_exchange = dna.get('exchange', 'luno')
+        if exchange_counts.get(proposed_exchange, 0) > len(all_bots) * 0.4:  # >40% concentration
+            # Try to pick a less-represented exchange
+            available_exchanges = ['luno', 'binance', 'kucoin', 'valr', 'ovex']
+            under_represented = [ex for ex in available_exchanges 
+                               if exchange_counts.get(ex, 0) < len(all_bots) * 0.3]
+            if under_represented:
+                dna['exchange'] = random.choice(under_represented)
+                logger.info(f"Diversity: Switched exchange to {dna['exchange']}")
+        
+        return dna
     
     def _crossover(self, parent1: dict, parent2: dict) -> dict:
         """Combine DNA from two parents"""
