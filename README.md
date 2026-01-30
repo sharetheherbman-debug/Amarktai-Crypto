@@ -105,6 +105,13 @@ sudo systemctl status amarktai-api.service
 # Test health endpoint
 curl http://127.0.0.1:8000/api/health/ping
 
+# Run comprehensive endpoint doctor (NEW - RECOMMENDED)
+cd /var/amarktai/app/backend/scripts
+./endpoint_doctor.sh http://127.0.0.1:8000 YOUR_JWT_TOKEN
+
+# Run backend pre-flight checks
+cd /var/amarktai/app/backend/scripts && ./doctor.sh
+
 # Run comprehensive verification
 cd /var/amarktai/app/deployment && sudo ./verify.sh
 
@@ -117,6 +124,30 @@ cd /var/amarktai/app && ./scripts/test_spa_routing.sh
 # Run complete go-live audit
 cd /var/amarktai/app && ./scripts/go_live_audit.sh
 ```
+
+### Endpoint Doctor Script (Recommended)
+
+The new **endpoint_doctor.sh** script provides comprehensive API endpoint testing:
+
+```bash
+cd /var/amarktai/app/backend/scripts
+./endpoint_doctor.sh http://127.0.0.1:8000 YOUR_JWT_TOKEN
+```
+
+**What it tests:**
+- ✅ Health & ping endpoints
+- ✅ System status, mode, and since-last-login endpoint
+- ✅ API keys management (save, test, delete lifecycle)
+- ✅ Bots management (create, list, delete with soft-delete verification)
+- ✅ Trades & portfolio endpoints
+- ✅ Platform/exchange configuration (luno, binance, kucoin enabled)
+
+**Expected output**: All critical endpoints return correct status codes and JSON shapes.
+
+**Exit codes:**
+- `0` = All tests passed ✅
+- `1` = Some tests failed ❌
+- `2` = All tests skipped (no authentication)
 
 ### Go-Live Audit Script
 
