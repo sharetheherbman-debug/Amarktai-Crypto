@@ -23,9 +23,7 @@ class PriceFallbackService:
     - Binance (USDT pairs)
     - KuCoin (USDT pairs)
     - Bybit (USDT pairs)
-    - Kraken (USDT pairs)
     - Bitget (USDT pairs)
-    - Gate.io (USDT pairs)
     """
     
     def __init__(self):
@@ -80,16 +78,6 @@ class PriceFallbackService:
             logger.warning(f"Bybit fallback init failed: {e}")
         
         try:
-            # Kraken public
-            self.exchanges['kraken'] = ccxt.kraken({
-                'enableRateLimit': True,
-                'timeout': 30000
-            })
-            logger.info("✅ Kraken public fallback initialized")
-        except Exception as e:
-            logger.warning(f"Kraken fallback init failed: {e}")
-        
-        try:
             # Bitget public
             self.exchanges['bitget'] = ccxt.bitget({
                 'enableRateLimit': True,
@@ -98,16 +86,6 @@ class PriceFallbackService:
             logger.info("✅ Bitget public fallback initialized")
         except Exception as e:
             logger.warning(f"Bitget fallback init failed: {e}")
-        
-        try:
-            # Gate.io public
-            self.exchanges['gate'] = ccxt.gateio({
-                'enableRateLimit': True,
-                'timeout': 30000
-            })
-            logger.info("✅ Gate.io public fallback initialized")
-        except Exception as e:
-            logger.warning(f"Gate.io fallback init failed: {e}")
         
         self.initialized = True
     
