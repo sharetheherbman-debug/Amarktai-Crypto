@@ -19,9 +19,7 @@ Exchange limits are sourced from official documentation:
   - Rate limit: 300 requests per minute per IP
   - No explicit order count limit documented (conservative: 100 orders/min)
 - Bybit: Similar rate limits to Binance
-- Kraken: Conservative rate limits apply
 - Bitget: Similar rate limits to KuCoin
-- Gate.io: Similar rate limits to KuCoin
 """
 
 import asyncio

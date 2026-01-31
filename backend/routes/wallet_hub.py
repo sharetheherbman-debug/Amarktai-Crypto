@@ -2,7 +2,7 @@
 Wallet Hub for All 5 exchanges
 
 Provides unified wallet interface for:
-- Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate
+- Luno, Binance, KuCoin, Bybit, Bitget
 - Paper wallet simulation
 - Live wallet integration (when keys available)
 - Auto-funding transfers

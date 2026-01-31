@@ -38,7 +38,7 @@ async def get_platforms() -> dict:
     
     Returns platform names, enabled status, and bot limits.
     Frontend should use this to populate platform selectors.
-    NOW RETURNS ALL 5 PLATFORMS: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate
+    NOW RETURNS ALL 5 PLATFORMS: Luno, Binance, KuCoin, Bybit, Bitget
     """
     try:
         # Import canonical platform registry
@@ -69,7 +69,7 @@ async def get_platforms() -> dict:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
-        # Never crash - return safe defaults with ALL 7 platforms
+        # Never crash - return safe defaults with ALL 5 platforms
         logger.error(f"Error in get_platforms: {e}")
         return {
             "platforms": [

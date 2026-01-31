@@ -110,7 +110,7 @@ class PriceFallbackService:
         Get price for symbol on exchange with fallback
         
         Args:
-            exchange: Exchange name (luno, binance, kucoin, bybit, kraken, bitget, gate)
+            exchange: Exchange name (luno, binance, kucoin, bybit, bitget)
             symbol: Trading pair (e.g., 'BTC/ZAR', 'BTC/USDT')
         
         Returns:
