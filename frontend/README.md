@@ -1,70 +1,181 @@
-# Getting Started with Create React App
+# Amarktai Network - Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Production-ready React frontend (CRA/CRACO) for the Amarktai Network trading platform. Integrates with the backend API at `https://amarktai.online` with real-time WebSocket/SSE dashboard updates.
 
-## Available Scripts
+## Quick Start
 
-In the project directory, you can run:
+```bash
+# Install dependencies
+npm install
 
-### `npm start`
+# Development server
+npm start
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+# Production build
+npm run build
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Architecture
 
-### `npm test`
+### API Integration
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+**Base URL**: `/api` (proxied by nginx to backend)
 
-### `npm run build`
+All API calls use the unified client in `src/lib/apiClient.js`:
+- Automatic JWT authentication via `Authorization: Bearer <token>` header
+- Retry logic with exponential backoff
+- Consistent error normalization (displays backend `detail` field where present)
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Real-Time System
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+The frontend supports **WebSocket (primary)** with **SSE fallback** and **polling** as a last resort:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. **WebSocket**: `wss://amarktai.online/api/ws?token=<JWT>`
+   - Ping/pong every 20 seconds
+   - Auto-reconnect with backoff (max 5 attempts)
+   - On failure → SSE fallback
 
-### `npm run eject`
+2. **SSE**: `GET /api/realtime/events` (Bearer auth)
+   - Server-Sent Events for one-way streaming
+   - On failure → polling fallback
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+3. **Polling**: Falls back to REST endpoints every 5-30s
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+**Real-time Client**: `src/lib/realtime.js`
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### Supported Providers
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+**Exchanges (7)**:
+- luno
+- binance
+- kucoin
+- bybit
+- kraken
+- bitget
+- gate
 
-## Learn More
+**AI Providers (3)**:
+- openai
+- flokx
+- fetchai
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+All defined in `src/constants/platforms.js` (single source of truth)
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## API Endpoints
 
-### Code Splitting
+### Authentication
+```
+POST /api/auth/login
+  → { access_token, token }
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### System
+```
+GET /api/system/status
+  → { feature_flags, scheduler_status, database, trading_activity }
 
-### Analyzing the Bundle Size
+GET /api/system/since-last-login
+  → { last_login, notes[], active_bots, paperTrading, liveTrading }
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### API Keys
+```
+GET  /api/keys/list
+  → { keys: [{provider, status, status_display}] }
 
-### Making a Progressive Web App
+GET  /api/keys/providers
+  → { providers: [{ id, name, required_fields }] }
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+POST /api/keys/save
+  body: { provider, api_key, api_secret?, passphrase? }
 
-### Advanced Configuration
+POST /api/keys/test
+  body: { provider }
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+DELETE /api/keys/{provider}
+```
 
-### Deployment
+### Trades
+```
+GET /api/trades/recent?limit=50
+  → { trades: [{id, symbol, side, quantity, price, pnl, platform, status, timestamp}] }
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+GET /api/trades/metrics
+  → { total_pnl, total_fees, win_rate }
+```
 
-### `npm run build` fails to minify
+### Real-Time
+```
+WebSocket: wss://amarktai.online/api/ws?token=<JWT>
+  Messages: { type, data, timestamp }
+  Types: trades, bots, balances, metrics, system_health
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+SSE: GET /api/realtime/events (Authorization: Bearer <JWT>)
+  Events: heartbeat, overview_update, bot_update, trade_update
+```
+
+## Key Components
+
+- **Dashboard** (`src/pages/Dashboard.js`): Main trading interface
+- **LiveTradesPanel** (`src/components/LiveTradesPanel.js`): Real-time trade feed
+- **AIChatPanel** (`src/components/AIChatPanel.js`): AI assistant with daily reports
+- **APIKeySettings** (`src/components/APIKeySettings.js`): Key management for all 10 providers
+
+## Features
+
+### Real-Time Updates
+- WebSocket-first with SSE/polling fallback
+- Automatic reconnection with exponential backoff
+- Live trades, bot status, system health
+
+### AI Chat
+- Fresh start on each login/refresh (no localStorage persistence)
+- Daily report from `/api/system/since-last-login` shown once per day
+- Optional "Load Previous Chat" button
+
+### System Overview
+- Calls `/api/system/status` to show:
+  - Database connection status
+  - Feature flags
+  - Scheduler status & errors
+  - Trading activity (active bots, last trade)
+
+### API Key Management
+- All 10 providers (3 AI + 7 exchanges)
+- Save, test, delete operations
+- Proper field validation (api_key + api_secret + passphrase where required)
+
+## Build & Deploy
+
+```bash
+# Production build
+npm run build
+
+# Output: build/ directory ready for deployment
+```
+
+The build is optimized and minified, ready to be served behind nginx at `https://amarktai.online`.
+
+## Development
+
+```bash
+# Start dev server
+npm start
+# → http://localhost:3000
+
+# Build production
+npm run build
+```
+
+## Environment
+
+- **Node**: >= 20.0.0
+- **Framework**: React 19 (CRA + CRACO)
+- **UI**: Radix UI + Tailwind CSS
+- **Charts**: Chart.js + Recharts
+- **HTTP**: Axios
+- **Routing**: React Router v7
+
+## License
+
+Proprietary - Amarktai Network

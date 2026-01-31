@@ -11,16 +11,17 @@ import { wsUrl } from './api';
 class RealtimeClient {
   constructor() {
     this.ws = null;
+    this.eventSource = null;
     this.token = null;
     this.connected = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 10;
+    this.maxReconnectAttempts = 5;
     this.reconnectDelay = 1000; // Start at 1 second
     this.maxReconnectDelay = 30000; // Max 30 seconds
     this.listeners = new Map();
     this.pollingIntervals = new Map();
     this.lastUpdate = {};
-    this.connectionMode = 'disconnected'; // 'ws', 'polling', 'disconnected'
+    this.connectionMode = 'disconnected'; // 'ws', 'sse', 'polling', 'disconnected'
     this.pingInterval = null;
     this.pongTimeout = null;
     this.rtt = null;
@@ -48,7 +49,7 @@ class RealtimeClient {
     }
 
     try {
-      const url = `${wsUrl()}&token=${this.token}`;
+      const url = `${wsUrl()}?token=${this.token}`;
       // Mask token in logs - replace query parameter value
       const maskedUrl = url.replace(/token=[^&]*/, 'token=***');
       console.log('🔌 Connecting to WebSocket:', maskedUrl);
@@ -155,7 +156,7 @@ class RealtimeClient {
           this.ws?.close();
         }, 10000); // 10 second timeout
       }
-    }, 30000); // Ping every 30 seconds
+    }, 20000); // Ping every 20 seconds
   }
 
   /**
@@ -177,8 +178,8 @@ class RealtimeClient {
    */
   scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('❌ Max reconnect attempts reached - falling back to polling');
-      this.startPolling();
+      console.error('❌ Max reconnect attempts reached - falling back to SSE');
+      this.startSSE();
       return;
     }
 
@@ -193,6 +194,64 @@ class RealtimeClient {
     setTimeout(() => {
       this.connectWebSocket();
     }, delay);
+  }
+
+  /**
+   * Start SSE (Server-Sent Events) fallback
+   */
+  startSSE() {
+    if (this.connectionMode === 'sse') {
+      return; // Already using SSE
+    }
+
+    console.log('📡 Starting SSE fallback');
+    this.connectionMode = 'sse';
+    this.emit('connection', { status: 'connected', mode: 'sse' });
+
+    try {
+      const eventSource = new EventSource('/api/realtime/events', {
+        withCredentials: true
+      });
+
+      eventSource.onopen = () => {
+        console.log('✅ SSE connected');
+        this.connected = true;
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          this.handleMessage(message);
+        } catch (error) {
+          console.error('❌ SSE message parse error:', error);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('❌ SSE error:', error);
+        eventSource.close();
+        this.connected = false;
+        this.connectionMode = 'disconnected';
+        this.emit('connection', { status: 'error', mode: 'sse' });
+        // Fall back to polling if SSE fails
+        setTimeout(() => this.startPolling(), 2000);
+      };
+
+      this.eventSource = eventSource;
+    } catch (error) {
+      console.error('❌ SSE connection error:', error);
+      this.startPolling();
+    }
+  }
+
+  /**
+   * Stop SSE
+   */
+  stopSSE() {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
   }
 
   /**
@@ -305,6 +364,7 @@ class RealtimeClient {
     console.log('🔌 Disconnecting...');
     
     this.stopPing();
+    this.stopSSE();
     this.stopPolling();
     
     if (this.ws) {

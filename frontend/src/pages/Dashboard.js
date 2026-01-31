@@ -27,6 +27,7 @@ import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
+import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 // import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
@@ -174,6 +175,7 @@ export default function Dashboard() {
     loadRecentTrades();
     loadCountdown();
     loadCustomCountdowns();
+    loadSystemHealth();
     
     // Setup real-time connections ONCE
     if (!wsInitializedRef.current) {
@@ -216,6 +218,7 @@ export default function Dashboard() {
       loadBots();
       loadApiStatuses();
       loadSystemStats();
+      loadSystemHealth();
       loadProfitData();
       loadLivePrices();
       // REMOVED: Duplicate setupRealTimeConnections() call
@@ -407,7 +410,7 @@ export default function Dashboard() {
                 timestamp: startTime 
               }));
             }
-          }, 5000);
+          }, 20000); // Ping every 20 seconds
           
           wsRef.current.pingInterval = pingInterval;
         };
@@ -1032,6 +1035,40 @@ export default function Dashboard() {
       setSystemStats(res.data);
     } catch (err) {
       console.error('System stats error:', err);
+    }
+  };
+
+  const loadSystemHealth = async () => {
+    try {
+      const res = await axios.get(`${API}/system/status`, axiosConfig);
+      const data = res.data;
+      
+      // Update systemHealth state with real data
+      setSystemHealth({
+        status: data.database?.connected ? 'Healthy' : 'Degraded',
+        errors: (data.scheduler_status?.errors || []).length,
+        uptime: data.uptime || '—',
+        lastCheck: new Date().toLocaleTimeString()
+      });
+      
+      // Also update metrics with trading activity data if available
+      if (data.trading_activity) {
+        setMetrics(prev => ({
+          ...prev,
+          activeBots: `${data.trading_activity.active_bots || 0} / ${data.trading_activity.total_bots || 0}`,
+          lastUpdate: data.trading_activity.last_trade_time 
+            ? new Date(data.trading_activity.last_trade_time).toLocaleString()
+            : prev.lastUpdate
+        }));
+      }
+    } catch (err) {
+      console.error('System health error:', err);
+      setSystemHealth({
+        status: 'Unknown',
+        errors: 0,
+        uptime: '—',
+        lastCheck: new Date().toLocaleTimeString()
+      });
     }
   };
 
@@ -2472,7 +2509,7 @@ export default function Dashboard() {
                     {provider === 'openai' && (
                       <input name="api_key" placeholder="API Key (sk-...)" type="password" />
                     )}
-                    {(provider === 'luno' || provider === 'binance' || provider === 'kucoin' || provider === 'bybit' || provider === 'kraken' || provider === 'bitget' || provider === 'gate') && (
+                    {SUPPORTED_PLATFORMS.includes(provider) && (
                       <>
                         <input name="api_key" placeholder="API Key" type="text" />
                         <input name="api_secret" placeholder="Secret" type="password" />

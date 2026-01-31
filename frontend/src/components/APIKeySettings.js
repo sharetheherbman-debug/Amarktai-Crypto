@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import './APIKeySettings.css';
+import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
 
 const APIKeySettings = () => {
-  // All 10 supported providers (3 AI + 7 exchanges)
-  const PROVIDERS = [
-    { id: 'openai', name: 'OpenAI', icon: '🤖', fields: ['api_key'] },
-    { id: 'luno', name: 'Luno', icon: '🇿🇦', fields: ['api_key', 'api_secret'] },
-    { id: 'binance', name: 'Binance', icon: '🟡', fields: ['api_key', 'api_secret'] },
-    { id: 'kucoin', name: 'KuCoin', icon: '🟢', fields: ['api_key', 'api_secret', 'passphrase'] },
-    { id: 'bybit', name: 'Bybit', icon: '🟠', fields: ['api_key', 'api_secret'] },
-    { id: 'kraken', name: 'Kraken', icon: '🟣', fields: ['api_key', 'api_secret'] },
-    { id: 'bitget', name: 'Bitget', icon: '🔵', fields: ['api_key', 'api_secret', 'passphrase'] },
-    { id: 'gate', name: 'Gate.io', icon: '⚪', fields: ['api_key', 'api_secret'] }
-  ];
+  // Build providers list from platform config (10 providers: 3 AI + 7 exchanges)
+  const PROVIDERS = ALL_PROVIDERS.map(id => {
+    const config = PLATFORM_CONFIG[id];
+    return {
+      id: config.id,
+      name: config.displayName || config.name,
+      icon: config.icon,
+      fields: config.requiredKeyFields
+    };
+  });
 
   const [providers, setProviders] = useState([]);
   const [formData, setFormData] = useState({});
@@ -62,7 +62,7 @@ const APIKeySettings = () => {
     
     setLoading(true);
     try {
-      const response = await fetch(`/api/keys/${providerId}`, {
+      const response = await fetch('/api/keys/save', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
