@@ -410,7 +410,7 @@ export default function Dashboard() {
                 timestamp: startTime 
               }));
             }
-          }, 5000);
+          }, 20000); // Ping every 20 seconds
           
           wsRef.current.pingInterval = pingInterval;
         };
