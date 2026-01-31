@@ -136,7 +136,20 @@ async def login(credentials: UserLogin):
             }}
         )
     
-    access_token = create_access_token({"user_id": user['id']})
+    # BLOCKER FIX: Normalize user_id to handle both 'id' and '_id' fields
+    # Some users may only have '_id' (MongoDB ObjectId), others have 'id' (string UUID)
+    user_id = str(user.get("id") or user.get("_id"))
+    
+    # Auto-migrate: ensure 'id' field exists for users that only have '_id'
+    if "id" not in user:
+        logger.info(f"Migrating user {normalized_email} - adding 'id' field from '_id'")
+        await db.users_collection.update_one(
+            {"email": normalized_email},
+            {"$set": {"id": user_id}}
+        )
+        user["id"] = user_id  # Update local copy
+    
+    access_token = create_access_token({"user_id": user_id})
     
     # Sanitize user object - NEVER return sensitive fields
     sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}

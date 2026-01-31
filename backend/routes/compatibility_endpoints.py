@@ -240,12 +240,12 @@ async def reinvest_profits(
             "user_id": user_id
         })
         
-        if bot_count >= 45:
+        if bot_count >= 65:
             return {
                 "success": False,
-                "message": "Cannot reinvest: maximum bot limit (45) reached",
+                "message": "Cannot reinvest: maximum bot limit (65) reached",
                 "current_bots": bot_count,
-                "max_bots": 45
+                "max_bots": 65
             }
         
         # Try to use the reinvestment service if available

@@ -25,7 +25,7 @@ EXCHANGES = platforms.SUPPORTED_PLATFORMS
 async def get_platforms():
     """Get list of all supported platforms (public endpoint)
     
-    Returns the authoritative list of 5 supported platforms with their configurations.
+    Returns the authoritative list of 7 supported platforms with their configurations.
     This endpoint does not require authentication and serves as the single source of truth
     for platform information consumed by the frontend and other clients.
     
@@ -33,7 +33,7 @@ async def get_platforms():
         {
             "success": true,
             "platforms": [...],  # List of platform configs
-            "total": 5
+            "total": 7
         }
     """
     try:
@@ -178,7 +178,7 @@ async def get_platform_bots(
     """Get all bots on a specific platform with performance metrics
     
     Args:
-        platform: Platform/exchange name (luno, binance, kucoin, ovex, valr)
+        platform: Platform/exchange name (luno, binance, kucoin, bybit, bitget)
         mode: Filter by trading mode ('paper' or 'live')
         user_id: Current user ID
         
@@ -299,6 +299,74 @@ async def get_platform_bots(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/status")
+async def get_platform_status(user_id: str = Depends(get_current_user)) -> dict:
+    """
+    GET /api/platforms/status (auth required)
+    
+    Returns per-platform status for the current user:
+    - enabled_for_user: whether user wants to trade on this platform
+    - ready_for_paper: can do paper trading (always true for all platforms)
+    - ready_for_live: has valid API keys for live trading
+    - missing_keys: true if API keys not configured or invalid
+    - last_error: string with last known error or null
+    
+    This is the canonical source for frontend to determine which platforms
+    a user can trade on in paper vs live mode.
+    """
+    try:
+        from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
+        
+        platform_statuses = {}
+        
+        for platform_id in SUPPORTED_PLATFORMS:
+            platform_config = get_platform_config(platform_id)
+            
+            if not platform_config:
+                continue
+            
+            # Check if user has API keys configured
+            api_key_doc = await db.api_keys_collection.find_one({
+                "user_id": user_id,
+                "provider": platform_id
+            }, {"_id": 0, "test_status": 1, "last_test": 1, "error_message": 1})
+            
+            has_keys = bool(api_key_doc)
+            keys_valid = api_key_doc.get("test_status") == "test_ok" if has_keys else False
+            last_error = api_key_doc.get("error_message") if has_keys else None
+            
+            # Get user's enabled platforms preference (if stored in user settings)
+            user = await db.users_collection.find_one(
+                {"id": user_id},
+                {"_id": 0, "enabled_platforms": 1}
+            )
+            enabled_platforms = user.get("enabled_platforms", SUPPORTED_PLATFORMS) if user else SUPPORTED_PLATFORMS
+            enabled_for_user = platform_id in enabled_platforms
+            
+            platform_statuses[platform_id] = {
+                "platform": platform_id,
+                "display_name": platform_config['display_name'],
+                "enabled_for_user": enabled_for_user,
+                "ready_for_paper": platform_config.get("supports_paper", True),
+                "ready_for_live": keys_valid and platform_config.get("supports_live", True),
+                "missing_keys": not keys_valid,
+                "has_keys": has_keys,
+                "last_error": last_error,
+                "last_check": api_key_doc.get("last_test") if has_keys else None
+            }
+        
+        return {
+            "success": True,
+            "platforms": platform_statuses,
+            "total_platforms": len(SUPPORTED_PLATFORMS),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Get platform status error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get platform status: {str(e)}")
+
+
 @router.get("/health")
 async def platform_health(user_id: str = Depends(get_current_user)) -> dict:
     """
@@ -309,7 +377,7 @@ async def platform_health(user_id: str = Depends(get_current_user)) -> dict:
     - Whether keys are valid (if configured)
     - Platform operational status
     
-    Returns status for: Luno, Binance, KuCoin, OVEX, VALR
+    Returns status for: Luno, Binance, KuCoin, Bybit, Bitget
     """
     try:
         from config.platforms import SUPPORTED_PLATFORMS, get_platform_config

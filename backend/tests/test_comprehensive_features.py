@@ -383,7 +383,7 @@ class ComprehensiveAPITester:
         self.log_result("Current Luno Bots", True, f"{len(luno_bots)} Luno bots found")
         
         # Test creating bots on different exchanges
-        exchanges_to_test = ["luno", "binance", "kucoin", "ovex", "valr"]
+        exchanges_to_test = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
         
         for exchange in exchanges_to_test:
             bot_data = {

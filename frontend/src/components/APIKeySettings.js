@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import './APIKeySettings.css';
 
 const APIKeySettings = () => {
-  // All 6 supported providers
+  // All 10 supported providers (3 AI + 7 exchanges)
   const PROVIDERS = [
     { id: 'openai', name: 'OpenAI', icon: '🤖', fields: ['api_key'] },
     { id: 'luno', name: 'Luno', icon: '🇿🇦', fields: ['api_key', 'api_secret'] },
     { id: 'binance', name: 'Binance', icon: '🟡', fields: ['api_key', 'api_secret'] },
     { id: 'kucoin', name: 'KuCoin', icon: '🟢', fields: ['api_key', 'api_secret', 'passphrase'] },
-    { id: 'valr', name: 'VALR', icon: '🇿🇦', fields: ['api_key', 'api_secret'] },
-    { id: 'ovex', name: 'OVEX', icon: '🇿🇦', fields: ['api_key', 'api_secret'] }
+    { id: 'bybit', name: 'Bybit', icon: '🟠', fields: ['api_key', 'api_secret'] },
+    { id: 'kraken', name: 'Kraken', icon: '🟣', fields: ['api_key', 'api_secret'] },
+    { id: 'bitget', name: 'Bitget', icon: '🔵', fields: ['api_key', 'api_secret', 'passphrase'] },
+    { id: 'gate', name: 'Gate.io', icon: '⚪', fields: ['api_key', 'api_secret'] }
   ];
 
   const [providers, setProviders] = useState([]);

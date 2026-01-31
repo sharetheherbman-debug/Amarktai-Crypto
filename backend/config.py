@@ -79,8 +79,8 @@ EXCHANGE_BOT_LIMITS = {
     'luno': 5,
     'binance': 10,
     'kucoin': 10,
-    'ovex': 10,
-    'valr': 10
+    'bybit': 10,
+    'bitget': 10
 }
 
 # Trading limits - Per exchange (Safety caps per upgrade guide)
@@ -106,17 +106,17 @@ EXCHANGE_TRADE_LIMITS = {
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
-    'ovex': {
+    'bybit': {
         'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 500,  # Safety cap per upgrade guide
-        'min_cooldown_minutes': 12,
-        'max_api_calls_per_minute': 120
+        'max_trades_per_exchange_per_day': 1000,  # Safety cap per upgrade guide
+        'min_cooldown_minutes': 10,
+        'max_api_calls_per_minute': 600
     },
-    'valr': {
+    'bitget': {
         'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 1500,  # Safety cap per upgrade guide
-        'min_cooldown_minutes': 12,
-        'max_api_calls_per_minute': 100
+        'max_trades_per_exchange_per_day': 800,  # Safety cap per upgrade guide
+        'min_cooldown_minutes': 10,
+        'max_api_calls_per_minute': 400
     }
 }
 

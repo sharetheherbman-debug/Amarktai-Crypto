@@ -266,7 +266,7 @@ async def autopilot_functionality_check(user_id: str = Depends(get_current_user)
             ).to_list(1000)
             
             bot_count = len(bots)
-            max_bots = 45
+            max_bots = 65
             
             # Count by exchange
             exchange_counts = {}
@@ -274,8 +274,10 @@ async def autopilot_functionality_check(user_id: str = Depends(get_current_user)
                 'luno': 5,
                 'binance': 10,
                 'kucoin': 10,
-                'valr': 10,
-                'ovex': 10
+                'bybit': 10,
+                'kraken': 10,
+                'bitget': 10,
+                'gate': 10
             }
             
             for bot in bots:

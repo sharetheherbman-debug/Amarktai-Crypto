@@ -22,8 +22,8 @@ class PriceFallbackService:
     - Luno (ZAR pairs)
     - Binance (USDT pairs)
     - KuCoin (USDT pairs)
-    - VALR (ZAR pairs)
-    - OVEX (ZAR pairs, fallback to Luno)
+    - Bybit (USDT pairs)
+    - Bitget (USDT pairs)
     """
     
     def __init__(self):
@@ -68,16 +68,24 @@ class PriceFallbackService:
             logger.warning(f"KuCoin fallback init failed: {e}")
         
         try:
-            # VALR public
-            self.exchanges['valr'] = ccxt.valr({
+            # Bybit public
+            self.exchanges['bybit'] = ccxt.bybit({
                 'enableRateLimit': True,
                 'timeout': 30000
             })
-            logger.info("✅ VALR public fallback initialized")
+            logger.info("✅ Bybit public fallback initialized")
         except Exception as e:
-            logger.warning(f"VALR fallback init failed: {e}")
+            logger.warning(f"Bybit fallback init failed: {e}")
         
-        # OVEX uses Luno as fallback for ZAR pairs
+        try:
+            # Bitget public
+            self.exchanges['bitget'] = ccxt.bitget({
+                'enableRateLimit': True,
+                'timeout': 30000
+            })
+            logger.info("✅ Bitget public fallback initialized")
+        except Exception as e:
+            logger.warning(f"Bitget fallback init failed: {e}")
         
         self.initialized = True
     
@@ -102,7 +110,7 @@ class PriceFallbackService:
         Get price for symbol on exchange with fallback
         
         Args:
-            exchange: Exchange name (luno, binance, kucoin, valr, ovex)
+            exchange: Exchange name (luno, binance, kucoin, bybit, bitget)
             symbol: Trading pair (e.g., 'BTC/ZAR', 'BTC/USDT')
         
         Returns:
@@ -117,11 +125,6 @@ class PriceFallbackService:
         if self._is_cache_valid(cache_entry):
             logger.debug(f"Cache hit for {cache_key}")
             return cache_entry['price']
-        
-        # OVEX fallback to Luno for ZAR pairs
-        if exchange == 'ovex' and '/ZAR' in symbol:
-            exchange = 'luno'
-            logger.debug(f"OVEX requested, using Luno fallback for {symbol}")
         
         # Get exchange object
         exchange_obj = self.exchanges.get(exchange)

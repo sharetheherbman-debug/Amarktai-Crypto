@@ -17,8 +17,12 @@ from pathlib import Path
 
 class AIMemoryManager:
     def __init__(self):
-        self.archive_path = Path("/app/data/chat_archives")
+        # BLOCKER FIX: Make AI memory path configurable via env var
+        # Default to writable location in production, not /app
+        memory_base = os.getenv("AI_MEMORY_PATH", "/var/amarktai/data/ai_memory")
+        self.archive_path = Path(memory_base) / "chat_archives"
         self.archive_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"AI Memory Manager initialized with path: {self.archive_path}")
         
     async def get_conversation_history(self, user_id: str, days: int = 30) -> list:
         """Get conversation history for the last N days"""

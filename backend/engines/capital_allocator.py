@@ -70,8 +70,8 @@ class CapitalAllocator:
             
             total_capital = master_balance.get('total_zar', 0)
             
-            # Base allocation per bot (80% of capital / 45 bots)
-            base_allocation = (total_capital * 0.8) / 45
+            # Base allocation per bot (80% of capital / 65 bots)
+            base_allocation = (total_capital * 0.8) / 65
             
             # Apply risk mode multiplier
             risk_mode = bot.get('risk_mode', 'safe')

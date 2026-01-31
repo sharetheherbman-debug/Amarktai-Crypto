@@ -26,8 +26,8 @@ class TradeStaggerer:
             'luno': {'max_concurrent': 2, 'min_delay': 10},      # 2 concurrent, 10s between
             'binance': {'max_concurrent': 5, 'min_delay': 2},    # 5 concurrent, 2s between
             'kucoin': {'max_concurrent': 3, 'min_delay': 3},     # 3 concurrent, 3s between
-            'ovex': {'max_concurrent': 3, 'min_delay': 5},       # 3 concurrent, 5s between
-            'valr': {'max_concurrent': 2, 'min_delay': 8}        # 2 concurrent, 8s between
+            'bybit': {'max_concurrent': 4, 'min_delay': 3},      # 4 concurrent, 3s between
+            'bitget': {'max_concurrent': 4, 'min_delay': 3}      # 4 concurrent, 3s between
         }
         
         self.last_trade_per_exchange = {}

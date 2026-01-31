@@ -1,10 +1,10 @@
 /**
  * Platform Constants - Single Source of Truth
- * Defines the 5 supported platforms for the entire system
+ * Defines the 7 supported platforms for the entire system
  */
 
-// Supported platforms (in display order)
-export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'ovex', 'valr'];
+// Supported platforms (in display order) - EXACTLY 7 PLATFORMS
+export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
 
 // Platform display configuration
 export const PLATFORM_CONFIG = {
@@ -50,28 +50,56 @@ export const PLATFORM_CONFIG = {
     supportsLive: true,
     requiredKeyFields: ['api_key', 'api_secret', 'passphrase']  // KuCoin needs passphrase
   },
-  ovex: {
-    id: 'ovex',
-    name: 'OVEX',
-    displayName: 'OVEX',
+  bybit: {
+    id: 'bybit',
+    name: 'Bybit',
+    displayName: 'Bybit',
     icon: '🟠',
-    color: '#FF8C00',
+    color: '#F7A600',
     maxBots: 10,
-    region: 'ZA',
+    region: 'Global',
     requiresPassphrase: false,
     enabled: true,
     supportsPaper: true,
     supportsLive: true,
     requiredKeyFields: ['api_key', 'api_secret']
   },
-  valr: {
-    id: 'valr',
-    name: 'VALR',
-    displayName: 'VALR',
+  bitget: {
+    id: 'bitget',
+    name: 'Bitget',
+    displayName: 'Bitget',
     icon: '🔵',
-    color: '#00B8D4',
+    color: '#00F0FF',
     maxBots: 10,
-    region: 'ZA',
+    region: 'Global',
+    requiresPassphrase: true,  // Bitget requires passphrase
+    enabled: true,
+    supportsPaper: true,
+    supportsLive: true,
+    requiredKeyFields: ['api_key', 'api_secret', 'passphrase']  // Bitget needs passphrase
+  },
+  kraken: {
+    id: 'kraken',
+    name: 'Kraken',
+    displayName: 'Kraken',
+    icon: '🟣',
+    color: '#5741D9',
+    maxBots: 10,
+    region: 'Global',
+    requiresPassphrase: false,
+    enabled: true,
+    supportsPaper: true,
+    supportsLive: true,
+    requiredKeyFields: ['api_key', 'api_secret']
+  },
+  gate: {
+    id: 'gate',
+    name: 'Gate.io',
+    displayName: 'Gate.io',
+    icon: '⚪',
+    color: '#17E6A1',
+    maxBots: 10,
+    region: 'Global',
     requiresPassphrase: false,
     enabled: true,
     supportsPaper: true,
@@ -81,7 +109,7 @@ export const PLATFORM_CONFIG = {
 };
 
 // Total bot capacity
-export const TOTAL_BOT_CAPACITY = Object.values(PLATFORM_CONFIG).reduce((sum, p) => sum + p.maxBots, 0);  // 45
+export const TOTAL_BOT_CAPACITY = Object.values(PLATFORM_CONFIG).reduce((sum, p) => sum + p.maxBots, 0);  // 65
 
 /**
  * Get configuration for a specific platform
