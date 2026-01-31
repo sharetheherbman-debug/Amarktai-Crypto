@@ -313,7 +313,7 @@ class PaperTradingEngine:
         try:
             # Gate.io - Always PUBLIC MODE
             if not self.gate_exchange:
-                self.gate_exchange = ccxt.gate({
+                self.gate_exchange = ccxt.gateio({
                     'enableRateLimit': True,
                     'timeout': 30000,
                     'apiKey': None,  # Explicitly no API key - public mode
