@@ -25,20 +25,10 @@ EXCHANGE_REQUIRED_FIELDS = {
         "api_secret": "API Secret (private)",
         "note": "Bybit supports derivatives and spot trading"
     },
-    "kraken": {
-        "api_key": "API Key (public)",
-        "api_secret": "API Secret (private)",
-        "note": "Kraken is a trusted exchange with strong security"
-    },
     "bitget": {
         "api_key": "API Key (public)",
         "api_secret": "API Secret (private)",
         "note": "Bitget supports copy trading and futures"
-    },
-    "gate": {
-        "api_key": "API Key (public)",
-        "api_secret": "API Secret (private)",
-        "note": "Gate.io supports a wide range of altcoins"
     }
 }
 
@@ -70,20 +60,10 @@ EXCHANGE_DEPOSIT_REQUIREMENTS = {
         "deposit_methods": ["Crypto", "Card"],
         "processing_time": "Instant to 30 minutes"
     },
-    "kraken": {
-        "min_deposit_zar": 0,
-        "deposit_methods": ["Crypto", "Wire Transfer"],
-        "processing_time": "Varies by method"
-    },
     "bitget": {
         "min_deposit_zar": 0,
         "deposit_methods": ["Crypto", "Card"],
         "processing_time": "Instant to 30 minutes"
-    },
-    "gate": {
-        "min_deposit_zar": 0,
-        "deposit_methods": ["Crypto"],
-        "processing_time": "Network dependent"
     }
 }
 

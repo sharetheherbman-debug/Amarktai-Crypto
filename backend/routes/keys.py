@@ -1,6 +1,6 @@
 """
 Canonical API Keys Router - Unified key management with provider registry
-Handles all 10 providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate
+Handles all 8 providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, bitget
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -186,7 +186,7 @@ async def save_key(
         if not provider_def:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown provider: {provider_id}. Valid providers: openai, flokx, fetchai, luno, binance, kucoin, ovex, valr"
+                detail=f"Unknown provider: {provider_id}. Valid providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, bitget"
             )
         
         # Build credentials dict

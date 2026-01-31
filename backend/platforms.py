@@ -4,7 +4,7 @@ Backend Authoritative Platform Registry
 This module is the SINGLE SOURCE OF TRUTH for supported platforms.
 All other parts of the application should consume from here.
 
-Supported platforms: luno, binance, kucoin, bybit, kraken, bitget, gate (exactly 7)
+Supported platforms: luno, binance, kucoin, bybit, bitget (exactly 5)
 
 This module re-exports from config.platforms to provide a consistent import path.
 """

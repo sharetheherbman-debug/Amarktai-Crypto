@@ -52,9 +52,7 @@ EXCHANGE_FEES = {
     "kucoin": {"maker": 0.001, "taker": 0.001},   # 0.1%
     "luno": {"maker": 0.0, "taker": 0.001},       # 0.1% taker
     "bybit": {"maker": 0.001, "taker": 0.001},    # 0.1%
-    "kraken": {"maker": 0.0016, "taker": 0.0026}, # 0.16% maker, 0.26% taker
     "bitget": {"maker": 0.001, "taker": 0.001},   # 0.1%
-    "gate": {"maker": 0.002, "taker": 0.002}      # 0.2%
 }
 
 # EXCHANGE SYMBOL RULES (basic validation rules)
@@ -179,18 +177,14 @@ class PaperTradingEngine:
     BINANCE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT']
     KUCOIN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     BYBIT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
-    KRAKEN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     BITGET_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
-    GATE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     
     def __init__(self):
         self.luno_exchange = None
         self.binance_exchange = None
         self.kucoin_exchange = None
         self.bybit_exchange = None
-        self.kraken_exchange = None
         self.bitget_exchange = None
-        self.gate_exchange = None
         self.price_cache = {}
         self.preferred_exchange = 'luno'
         self.available_pairs_cache = {}  # Cache for dynamically fetched pairs
@@ -285,19 +279,6 @@ class PaperTradingEngine:
             logger.warning(f"Bybit init failed: {e}")
         
         try:
-            # Kraken - Always PUBLIC MODE
-            if not self.kraken_exchange:
-                self.kraken_exchange = ccxt.kraken({
-                    'enableRateLimit': True,
-                    'timeout': 30000,
-                    'apiKey': None,  # Explicitly no API key - public mode
-                    'secret': None
-                })
-                logger.info("✅ Kraken ready (PUBLIC MODE)")
-        except Exception as e:
-            logger.warning(f"Kraken init failed: {e}")
-        
-        try:
             # Bitget - Always PUBLIC MODE
             if not self.bitget_exchange:
                 self.bitget_exchange = ccxt.bitget({
@@ -309,19 +290,6 @@ class PaperTradingEngine:
                 logger.info("✅ Bitget ready (PUBLIC MODE)")
         except Exception as e:
             logger.warning(f"Bitget init failed: {e}")
-        
-        try:
-            # Gate.io - Always PUBLIC MODE
-            if not self.gate_exchange:
-                self.gate_exchange = ccxt.gateio({
-                    'enableRateLimit': True,
-                    'timeout': 30000,
-                    'apiKey': None,  # Explicitly no API key - public mode
-                    'secret': None
-                })
-                logger.info("✅ Gate.io ready (PUBLIC MODE)")
-        except Exception as e:
-            logger.warning(f"Gate.io init failed: {e}")
     
     def get_mode_label(self) -> dict:
         """
@@ -365,12 +333,8 @@ class PaperTradingEngine:
                 exchange_obj = self.kucoin_exchange
             elif exchange == 'bybit' and self.bybit_exchange:
                 exchange_obj = self.bybit_exchange
-            elif exchange == 'kraken' and self.kraken_exchange:
-                exchange_obj = self.kraken_exchange
             elif exchange == 'bitget' and self.bitget_exchange:
                 exchange_obj = self.bitget_exchange
-            elif exchange == 'gate' and self.gate_exchange:
-                exchange_obj = self.gate_exchange
             
             if exchange_obj:
                 markets = await exchange_obj.load_markets()
@@ -398,12 +362,8 @@ class PaperTradingEngine:
             return self.KUCOIN_PAIRS
         elif exchange == 'bybit':
             return self.BYBIT_PAIRS
-        elif exchange == 'kraken':
-            return self.KRAKEN_PAIRS
         elif exchange == 'bitget':
             return self.BITGET_PAIRS
-        elif exchange == 'gate':
-            return self.GATE_PAIRS
         return self.BINANCE_PAIRS
     
     async def get_real_price(self, symbol: str, exchange: str = 'luno', with_label: bool = False) -> float:
@@ -412,7 +372,7 @@ class PaperTradingEngine:
         
         Args:
             symbol: Trading pair symbol (e.g., 'BTC/ZAR')
-            exchange: Exchange to use ('luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate')
+            exchange: Exchange to use ('luno', 'binance', 'kucoin', 'bybit', 'bitget')
             with_label: If True, return dict with price and mode label. If False, return price only.
         
         Returns:
@@ -432,12 +392,8 @@ class PaperTradingEngine:
                 exchange_obj = self.kucoin_exchange
             elif exchange == 'bybit':
                 exchange_obj = self.bybit_exchange
-            elif exchange == 'kraken':
-                exchange_obj = self.kraken_exchange
             elif exchange == 'bitget':
                 exchange_obj = self.bitget_exchange
-            elif exchange == 'gate':
-                exchange_obj = self.gate_exchange
             else:
                 exchange_obj = self.luno_exchange  # Default to Luno
             
@@ -1068,9 +1024,7 @@ class PaperTradingEngine:
             ("binance", self.binance_exchange),
             ("kucoin", self.kucoin_exchange),
             ("bybit", self.bybit_exchange),
-            ("kraken", self.kraken_exchange),
-            ("bitget", self.bitget_exchange),
-            ("gate", self.gate_exchange)
+            ("bitget", self.bitget_exchange)
         ]
         for name, exchange in exchanges:
             if exchange:
@@ -1084,9 +1038,7 @@ class PaperTradingEngine:
         self.binance_exchange = None
         self.kucoin_exchange = None
         self.bybit_exchange = None
-        self.kraken_exchange = None
         self.bitget_exchange = None
-        self.gate_exchange = None
     
     def get_status(self) -> Dict:
         """Get paper trading engine status for monitoring with mode information"""

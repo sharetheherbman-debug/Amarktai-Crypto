@@ -80,9 +80,7 @@ EXCHANGE_BOT_LIMITS = {
     'binance': 10,
     'kucoin': 10,
     'bybit': 10,
-    'kraken': 10,
-    'bitget': 10,
-    'gate': 10
+    'bitget': 10
 }
 
 # Trading limits - Per exchange (Safety caps per upgrade guide)
@@ -114,23 +112,11 @@ EXCHANGE_TRADE_LIMITS = {
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
-    'kraken': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 500,  # Safety cap per upgrade guide
-        'min_cooldown_minutes': 12,
-        'max_api_calls_per_minute': 120
-    },
     'bitget': {
         'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
         'max_trades_per_exchange_per_day': 800,  # Safety cap per upgrade guide
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
-    },
-    'gate': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 900,  # Safety cap per upgrade guide
-        'min_cooldown_minutes': 10,
-        'max_api_calls_per_minute': 500
     }
 }
 

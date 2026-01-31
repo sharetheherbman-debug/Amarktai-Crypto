@@ -25,7 +25,7 @@ EXCHANGES = platforms.SUPPORTED_PLATFORMS
 async def get_platforms():
     """Get list of all supported platforms (public endpoint)
     
-    Returns the authoritative list of 7 supported platforms with their configurations.
+    Returns the authoritative list of 5 supported platforms with their configurations.
     This endpoint does not require authentication and serves as the single source of truth
     for platform information consumed by the frontend and other clients.
     
@@ -33,7 +33,7 @@ async def get_platforms():
         {
             "success": true,
             "platforms": [...],  # List of platform configs
-            "total": 7
+            "total": 5
         }
     """
     try:
@@ -178,7 +178,7 @@ async def get_platform_bots(
     """Get all bots on a specific platform with performance metrics
     
     Args:
-        platform: Platform/exchange name (luno, binance, kucoin, bybit, kraken, bitget, gate)
+        platform: Platform/exchange name (luno, binance, kucoin, bybit, bitget)
         mode: Filter by trading mode ('paper' or 'live')
         user_id: Current user ID
         
@@ -370,14 +370,14 @@ async def get_platform_status(user_id: str = Depends(get_current_user)) -> dict:
 @router.get("/health")
 async def platform_health(user_id: str = Depends(get_current_user)) -> dict:
     """
-    Get health status for all 7 platforms
+    Get health status for all 5 platforms
     
     Checks:
     - Whether user has configured API keys
     - Whether keys are valid (if configured)
     - Platform operational status
     
-    Returns status for: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io
+    Returns status for: Luno, Binance, KuCoin, Bybit, Bitget
     """
     try:
         from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
