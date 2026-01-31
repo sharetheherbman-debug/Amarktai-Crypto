@@ -52,9 +52,7 @@ async def get_limits_config(user_id: str = Depends(get_current_user)):
                 "luno": {"maker": 20.0, "taker": 25.0},
                 "kucoin": {"maker": 10.0, "taker": 10.0},
                 "bybit": {"maker": 10.0, "taker": 10.0},
-                "kraken": {"maker": 16.0, "taker": 26.0},
                 "bitget": {"maker": 10.0, "taker": 10.0},
-                "gate": {"maker": 15.0, "taker": 20.0}
             }
         }
         

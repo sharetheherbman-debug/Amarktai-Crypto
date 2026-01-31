@@ -125,7 +125,7 @@ class BotModeChangeRequest(BaseModel):
 
 
 class BotExchangeChangeRequest(BaseModel):
-    exchange: str = Field(..., description="Exchange: luno, binance, kucoin, bybit, kraken, bitget, gate")
+    exchange: str = Field(..., description="Exchange: luno, binance, kucoin, bybit, bitget")
 
 
 @router.post("/unlock")
@@ -234,9 +234,7 @@ async def get_all_users(admin_id: str = Depends(require_admin)):
                 "binance": any(k.get("provider") == "binance" for k in api_keys),
                 "kucoin": any(k.get("provider") == "kucoin" for k in api_keys),
                 "bybit": any(k.get("provider") == "bybit" for k in api_keys),
-                "kraken": any(k.get("provider") == "kraken" for k in api_keys),
                 "bitget": any(k.get("provider") == "bitget" for k in api_keys),
-                "gate": any(k.get("provider") == "gate" for k in api_keys),
             }
             
             # Get bots summary
@@ -1176,7 +1174,7 @@ async def get_user_api_keys_status(
         
         # Return only status, not actual keys
         key_status = {}
-        for exchange in ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]:
+        for exchange in ["luno", "binance", "kucoin", "bybit", "bitget"]:
             key_status[exchange] = {
                 "configured": exchange in api_keys and api_keys[exchange],
                 "last_tested": api_keys.get(f"{exchange}_last_tested"),
@@ -1520,7 +1518,7 @@ async def change_bot_exchange(
     """
     try:
         new_exchange = request.exchange.lower()
-        valid_exchanges = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+        valid_exchanges = ["luno", "binance", "kucoin", "bybit", "bitget"]
         
         if new_exchange not in valid_exchanges:
             raise HTTPException(

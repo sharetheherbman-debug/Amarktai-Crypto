@@ -42,7 +42,7 @@ async def get_wallet_health(user_id: str = Depends(get_current_user)):
     """
     try:
         # Check API keys for each exchange
-        exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+        exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
         wallet_status = {}
         
         for exchange in exchanges:
@@ -138,7 +138,7 @@ async def transfer_funds(
     """
     try:
         # Validate exchanges
-        valid_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+        valid_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
         if request.from_exchange not in valid_exchanges:
             raise HTTPException(status_code=400, detail=f"Invalid source exchange: {request.from_exchange}")
         if request.to_exchange not in valid_exchanges:
@@ -231,7 +231,7 @@ async def get_all_balances(user_id: str = Depends(get_current_user)):
         
         # Get live balances when keys are available
         live_balances = {}
-        exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+        exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
         
         for exchange in exchanges:
             api_key_doc = await db.api_keys_collection.find_one({
