@@ -94,6 +94,17 @@ async def lifespan(app: FastAPI):
         if not selftest_passed:
             logger.error("❌ Boot selftest failed - some collections not initialized")
             # Continue anyway - collections may be initialized lazily
+        
+        # ========================================================================
+        # STEP 1.5: Run startup migrations to fix schema drift
+        # ========================================================================
+        try:
+            from migrations.fix_user_id_field import run_startup_migrations
+            await run_startup_migrations(db)
+            logger.info("✅ Startup migrations completed")
+        except Exception as migration_error:
+            logger.warning(f"⚠️ Startup migrations failed (non-fatal): {migration_error}")
+            # Continue - migrations are best-effort repairs
             
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)
