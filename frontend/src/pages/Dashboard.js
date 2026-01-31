@@ -27,6 +27,7 @@ import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
+import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 // import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
@@ -2508,7 +2509,7 @@ export default function Dashboard() {
                     {provider === 'openai' && (
                       <input name="api_key" placeholder="API Key (sk-...)" type="password" />
                     )}
-                    {(provider === 'luno' || provider === 'binance' || provider === 'kucoin' || provider === 'bybit' || provider === 'kraken' || provider === 'bitget' || provider === 'gate') && (
+                    {SUPPORTED_PLATFORMS.includes(provider) && (
                       <>
                         <input name="api_key" placeholder="API Key" type="text" />
                         <input name="api_secret" placeholder="Secret" type="password" />
