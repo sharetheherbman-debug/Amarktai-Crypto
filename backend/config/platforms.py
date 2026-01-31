@@ -1,13 +1,14 @@
 """
 Platform Configuration - Single Source of Truth
-Defines all 5 supported trading platforms/exchanges
+Defines all 7 supported trading platforms/exchanges
 All platform-related logic MUST reference this module
 """
 
 from typing import Dict, List, Optional
 
 # All supported platforms (canonical list)
-SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'ovex', 'valr']
+# IMPORTANT: OVEX and VALR removed, replaced with bybit, kraken, bitget, gate
+SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
 
 # Platform configuration with complete metadata
 PLATFORM_CONFIG: Dict[str, Dict] = {
@@ -59,37 +60,69 @@ PLATFORM_CONFIG: Dict[str, Dict] = {
         'ccxt_id': 'kucoin',
         'description': 'Global cryptocurrency exchange'
     },
-    'ovex': {
-        'id': 'ovex',
-        'name': 'OVEX',
-        'display_name': 'OVEX',
+    'bybit': {
+        'id': 'bybit',
+        'name': 'Bybit',
+        'display_name': 'Bybit',
         'icon': '🟠',
-        'color': '#FF8C00',
+        'color': '#F7A600',
         'max_bots': 10,
-        'region': 'ZA',
+        'region': 'Global',
         'requires_passphrase': False,
         'enabled': True,
         'supports_paper': True,
-        'supports_live': True,  # Now supports live trading
+        'supports_live': True,
         'required_key_fields': ['api_key', 'api_secret'],
-        'ccxt_id': 'ovex',
-        'description': 'South African cryptocurrency exchange'
+        'ccxt_id': 'bybit',
+        'description': 'Global derivatives and cryptocurrency exchange'
     },
-    'valr': {
-        'id': 'valr',
-        'name': 'VALR',
-        'display_name': 'VALR',
-        'icon': '🔵',
-        'color': '#00B8D4',
+    'kraken': {
+        'id': 'kraken',
+        'name': 'Kraken',
+        'display_name': 'Kraken',
+        'icon': '🟣',
+        'color': '#5741D9',
         'max_bots': 10,
-        'region': 'ZA',
+        'region': 'Global',
         'requires_passphrase': False,
         'enabled': True,
         'supports_paper': True,
-        'supports_live': True,  # Now supports live trading
+        'supports_live': True,
         'required_key_fields': ['api_key', 'api_secret'],
-        'ccxt_id': 'valr',
-        'description': 'South African cryptocurrency exchange'
+        'ccxt_id': 'kraken',
+        'description': 'US-based cryptocurrency exchange'
+    },
+    'bitget': {
+        'id': 'bitget',
+        'name': 'Bitget',
+        'display_name': 'Bitget',
+        'icon': '🔵',
+        'color': '#00F0FF',
+        'max_bots': 10,
+        'region': 'Global',
+        'requires_passphrase': True,
+        'enabled': True,
+        'supports_paper': True,
+        'supports_live': True,
+        'required_key_fields': ['api_key', 'api_secret', 'passphrase'],
+        'ccxt_id': 'bitget',
+        'description': 'Global cryptocurrency and derivatives exchange'
+    },
+    'gate': {
+        'id': 'gate',
+        'name': 'Gate.io',
+        'display_name': 'Gate.io',
+        'icon': '⚪',
+        'color': '#17E6A1',
+        'max_bots': 10,
+        'region': 'Global',
+        'requires_passphrase': False,
+        'enabled': True,
+        'supports_paper': True,
+        'supports_live': True,
+        'required_key_fields': ['api_key', 'api_secret'],
+        'ccxt_id': 'gateio',  # CCXT uses 'gateio' as the exchange ID
+        'description': 'Global cryptocurrency exchange'
     }
 }
 
