@@ -267,6 +267,15 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         icon="kucoin.svg",
         description="KuCoin cryptocurrency exchange"
     ),
+    "bybit": ProviderDefinition(
+        provider_id="bybit",
+        provider_type=ProviderType.EXCHANGE,
+        display_name="Bybit",
+        required_fields=["api_key", "api_secret"],
+        test_method=test_bybit,
+        icon="bybit.svg",
+        description="Bybit global derivatives and cryptocurrency exchange"
+    ),
     "bitget": ProviderDefinition(
         provider_id="bitget",
         provider_type=ProviderType.EXCHANGE,
