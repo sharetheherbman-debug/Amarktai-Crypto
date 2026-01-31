@@ -18,10 +18,10 @@ Exchange limits are sourced from official documentation:
 - Luno: https://www.luno.com/en/developers/api
   - Rate limit: 300 requests per minute per IP
   - No explicit order count limit documented (conservative: 100 orders/min)
-- OVEX: Conservative rate limits apply
-  - 100 requests per 10 seconds per IP
-- VALR: https://docs.valr.com/#section/Rate-Limiting
-  - 100 requests per 10 seconds per IP
+- Bybit: Similar rate limits to Binance
+- Kraken: Conservative rate limits apply
+- Bitget: Similar rate limits to KuCoin
+- Gate.io: Similar rate limits to KuCoin
 """
 
 import asyncio

@@ -64,23 +64,75 @@ EXCHANGE_RULES = {
             "max_precision": 4
         }
     },
-    "valr": {
-        "BTC/ZAR": {
+    "bybit": {
+        "BTC/USDT": {
+            "min_qty": 0.00001,
+            "max_qty": 10000.0,
+            "step_size": 0.00001,
+            "price_tick": 0.1,
+            "min_notional": 10.0,
+            "max_precision": 5
+        },
+        "ETH/USDT": {
             "min_qty": 0.0001,
-            "max_qty": 100.0,
+            "max_qty": 100000.0,
             "step_size": 0.0001,
-            "price_tick": 1.0,
-            "min_notional": 100.0,  # ZAR
+            "price_tick": 0.01,
+            "min_notional": 10.0,
             "max_precision": 4
         }
     },
-    "ovex": {
-        "BTC/ZAR": {
+    "kraken": {
+        "BTC/USDT": {
             "min_qty": 0.0001,
-            "max_qty": 100.0,
+            "max_qty": 10000.0,
             "step_size": 0.0001,
-            "price_tick": 1.0,
-            "min_notional": 100.0,  # ZAR
+            "price_tick": 0.1,
+            "min_notional": 10.0,
+            "max_precision": 4
+        },
+        "ETH/USDT": {
+            "min_qty": 0.001,
+            "max_qty": 100000.0,
+            "step_size": 0.001,
+            "price_tick": 0.01,
+            "min_notional": 10.0,
+            "max_precision": 3
+        }
+    },
+    "bitget": {
+        "BTC/USDT": {
+            "min_qty": 0.00001,
+            "max_qty": 10000.0,
+            "step_size": 0.00001,
+            "price_tick": 0.1,
+            "min_notional": 5.0,
+            "max_precision": 5
+        },
+        "ETH/USDT": {
+            "min_qty": 0.0001,
+            "max_qty": 100000.0,
+            "step_size": 0.0001,
+            "price_tick": 0.01,
+            "min_notional": 5.0,
+            "max_precision": 4
+        }
+    },
+    "gate": {
+        "BTC/USDT": {
+            "min_qty": 0.00001,
+            "max_qty": 10000.0,
+            "step_size": 0.00001,
+            "price_tick": 0.1,
+            "min_notional": 1.0,
+            "max_precision": 5
+        },
+        "ETH/USDT": {
+            "min_qty": 0.0001,
+            "max_qty": 100000.0,
+            "step_size": 0.0001,
+            "price_tick": 0.01,
+            "min_notional": 1.0,
             "max_precision": 4
         }
     }
@@ -91,8 +143,10 @@ EXCHANGE_FEES = {
     "binance": {"maker": 0.001, "taker": 0.001},  # 0.1%
     "luno": {"maker": 0.0, "taker": 0.001},  # 0% maker, 0.1% taker
     "kucoin": {"maker": 0.001, "taker": 0.001},  # 0.1%
-    "valr": {"maker": 0.0, "taker": 0.00075},  # 0% maker, 0.075% taker
-    "ovex": {"maker": 0.001, "taker": 0.002},  # 0.1% maker, 0.2% taker
+    "bybit": {"maker": 0.001, "taker": 0.001},  # 0.1%
+    "kraken": {"maker": 0.0016, "taker": 0.0026},  # 0.16% maker, 0.26% taker
+    "bitget": {"maker": 0.001, "taker": 0.001},  # 0.1%
+    "gate": {"maker": 0.0015, "taker": 0.002},  # 0.15% maker, 0.2% taker
 }
 
 # Slippage estimates (percentage)

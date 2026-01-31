@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # All supported providers
 SUPPORTED_PROVIDERS = [
     'openai', 'flokx', 'fetchai',  # AI providers
-    'luno', 'binance', 'kucoin', 'ovex', 'valr'  # Exchange providers
+    'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'  # Exchange providers
 ]
 
 
@@ -93,7 +93,7 @@ class KeysService:
         """Test exchange API key
         
         Args:
-            provider: Exchange name (luno, binance, kucoin, ovex, valr)
+            provider: Exchange name (luno, binance, kucoin, bybit, kraken, bitget, gate)
             api_key: API key
             api_secret: API secret
             passphrase: Optional passphrase (for KuCoin)
@@ -178,7 +178,7 @@ class KeysService:
             metadata = {'working_model': model} if success else None
             return success, metadata, error
             
-        elif provider_lower in ['luno', 'binance', 'kucoin', 'ovex', 'valr']:
+        elif provider_lower in ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']:
             if not api_secret:
                 return False, None, "API secret required for exchange"
             return await self.test_exchange_key(provider_lower, api_key, api_secret, passphrase)

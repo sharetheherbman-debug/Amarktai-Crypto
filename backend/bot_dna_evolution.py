@@ -109,7 +109,7 @@ class BotDNAEvolution:
         proposed_exchange = dna.get('exchange', 'luno')
         if exchange_counts.get(proposed_exchange, 0) > len(all_bots) * 0.4:  # >40% concentration
             # Try to pick a less-represented exchange
-            available_exchanges = ['luno', 'binance', 'kucoin', 'valr', 'ovex']
+            available_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
             under_represented = [ex for ex in available_exchanges 
                                if exchange_counts.get(ex, 0) < len(all_bots) * 0.3]
             if under_represented:

@@ -20,15 +20,25 @@ EXCHANGE_REQUIRED_FIELDS = {
         "api_secret": "API Secret (private)",
         "note": "KuCoin supports multiple trading pairs"
     },
-    "valr": {
+    "bybit": {
         "api_key": "API Key (public)",
         "api_secret": "API Secret (private)",
-        "note": "VALR is South African exchange"
+        "note": "Bybit supports derivatives and spot trading"
     },
-    "ovex": {
+    "kraken": {
         "api_key": "API Key (public)",
         "api_secret": "API Secret (private)",
-        "note": "OVEX supports ZAR deposits"
+        "note": "Kraken is a trusted exchange with strong security"
+    },
+    "bitget": {
+        "api_key": "API Key (public)",
+        "api_secret": "API Secret (private)",
+        "note": "Bitget supports copy trading and futures"
+    },
+    "gate": {
+        "api_key": "API Key (public)",
+        "api_secret": "API Secret (private)",
+        "note": "Gate.io supports a wide range of altcoins"
     }
 }
 
@@ -55,15 +65,25 @@ EXCHANGE_DEPOSIT_REQUIREMENTS = {
         "deposit_methods": ["Crypto"],
         "processing_time": "Network dependent"
     },
-    "valr": {
-        "min_deposit_zar": 10,
-        "deposit_methods": ["EFT"],
-        "processing_time": "Instant to 2 hours"
+    "bybit": {
+        "min_deposit_zar": 0,
+        "deposit_methods": ["Crypto", "Card"],
+        "processing_time": "Instant to 30 minutes"
     },
-    "ovex": {
-        "min_deposit_zar": 50,
-        "deposit_methods": ["EFT"],
-        "processing_time": "Instant to 2 hours"
+    "kraken": {
+        "min_deposit_zar": 0,
+        "deposit_methods": ["Crypto", "Wire Transfer"],
+        "processing_time": "Varies by method"
+    },
+    "bitget": {
+        "min_deposit_zar": 0,
+        "deposit_methods": ["Crypto", "Card"],
+        "processing_time": "Instant to 30 minutes"
+    },
+    "gate": {
+        "min_deposit_zar": 0,
+        "deposit_methods": ["Crypto"],
+        "processing_time": "Network dependent"
     }
 }
 

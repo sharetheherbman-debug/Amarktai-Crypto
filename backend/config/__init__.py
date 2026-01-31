@@ -27,8 +27,10 @@ EXCHANGE_BOT_LIMITS = {
     'luno': 5,
     'binance': 10,
     'kucoin': 10,
-    'ovex': 10,
-    'valr': 10
+    'bybit': 10,
+    'kraken': 10,
+    'bitget': 10,
+    'gate': 10
 }
 
 EXCHANGE_TRADE_LIMITS = {
@@ -47,15 +49,25 @@ EXCHANGE_TRADE_LIMITS = {
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
-    'ovex': {
+    'bybit': {
+        'max_trades_per_bot_per_day': 150,
+        'min_cooldown_minutes': 10,
+        'max_api_calls_per_minute': 600
+    },
+    'kraken': {
         'max_trades_per_bot_per_day': 100,
         'min_cooldown_minutes': 12,
         'max_api_calls_per_minute': 120
     },
-    'valr': {
-        'max_trades_per_bot_per_day': 100,
-        'min_cooldown_minutes': 12,
-        'max_api_calls_per_minute': 100
+    'bitget': {
+        'max_trades_per_bot_per_day': 120,
+        'min_cooldown_minutes': 10,
+        'max_api_calls_per_minute': 400
+    },
+    'gate': {
+        'max_trades_per_bot_per_day': 130,
+        'min_cooldown_minutes': 10,
+        'max_api_calls_per_minute': 500
     }
 }
 
@@ -66,7 +78,7 @@ MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0
 # Autopilot settings (configurable via env vars)
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold
 NEW_BOT_CAPITAL = int(os.getenv('NEW_BOT_CAPITAL', '500'))  # Lower capital requirement
-MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '45'))  # Total bots across all exchanges
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # Total bots across all exchanges
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% threshold

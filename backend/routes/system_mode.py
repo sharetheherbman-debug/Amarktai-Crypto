@@ -111,7 +111,7 @@ async def check_live_readiness() -> tuple[bool, list[str]]:
     
     # Check 1: At least one exchange key configured and tested
     keys_cursor = db.api_keys_collection.find(
-        {"provider": {"$in": ["luno", "binance", "kucoin", "ovex", "valr"]}},
+        {"provider": {"$in": ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]}},
         {"_id": 0}
     )
     exchange_keys = await keys_cursor.to_list(100)

@@ -56,7 +56,7 @@ class BotManager:
                 return {"success": False, "message": f"❌ Minimum capital is R{NEW_BOT_CAPITAL}"}
             
             # Determine trading pair
-            pair = "BTC/ZAR" if exchange.lower() in ['luno', 'valr'] else "BTC/USDT"
+            pair = "BTC/ZAR" if exchange.lower() == 'luno' else "BTC/USDT"
             
             # Create bot document
             bot_id = str(uuid4())

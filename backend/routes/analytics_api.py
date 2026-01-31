@@ -209,7 +209,7 @@ async def get_exchange_comparison(
         
         # Group by exchange
         exchange_data = {}
-        supported_exchanges = ["luno", "binance", "kucoin"]
+        supported_exchanges = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
         
         for exchange in supported_exchanges:
             exchange_trades = [t for t in trades if t.get('exchange', '').lower() == exchange]
@@ -618,7 +618,7 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         
         # Per-exchange breakdown
         exchange_breakdown = {}
-        for exchange in ["luno", "binance", "kucoin", "valr", "ovex"]:
+        for exchange in ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]:
             exchange_bots = [b for b in bots if b.get('exchange', '').lower() == exchange]
             if exchange_bots:
                 exchange_breakdown[exchange] = {

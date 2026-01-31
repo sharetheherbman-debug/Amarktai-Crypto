@@ -61,7 +61,7 @@ class WalletBalanceMonitor:
             master_balance = await wallet_manager.get_master_balance(user_id)
             
             # Get all exchange balances
-            exchanges = ['luno', 'binance', 'kucoin', 'ovex', 'valr']
+            exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
             exchange_balances = {}
             
             for exchange in exchanges:

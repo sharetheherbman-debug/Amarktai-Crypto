@@ -79,9 +79,9 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
             }
             enriched_bots.append(enriched_bot)
         
-        # Count by exchange to ensure all 5 are represented
+        # Count by exchange to ensure all 7 are represented
         exchange_counts = {}
-        all_exchanges = ['luno', 'binance', 'kucoin', 'ovex', 'valr']
+        all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
         for exchange in all_exchanges:
             exchange_counts[exchange] = len([b for b in enriched_bots if b.get('exchange') == exchange])
         
