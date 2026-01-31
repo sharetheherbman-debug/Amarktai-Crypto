@@ -79,9 +79,19 @@ cp .env.example .env
 # - JWT_SECRET (random string)
 # - MONGO_URL (your MongoDB connection string)
 nano .env
+cd ..
 ```
 
-#### 5. Setup MongoDB (if using native MongoDB)
+#### 5. Build Frontend
+```bash
+# Install Node.js dependencies and build
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+#### 6. Setup MongoDB (if using native MongoDB)
 ```bash
 # Install MongoDB
 sudo apt-get update
@@ -104,7 +114,7 @@ sudo systemctl status mongod
 ./scripts/doctor.sh
 ```
 
-Expected output: `✅ PERFECT HEALTH - GO-LIVE READY!`
+**Expected:** `✅ PERFECT HEALTH - GO-LIVE READY!` or minimal warnings
 
 #### 7. Start the API
 ```bash
