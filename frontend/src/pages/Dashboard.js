@@ -4334,7 +4334,6 @@ export default function Dashboard() {
                       </ErrorBoundary>
                     </div>
                   </div>
-                </div>
               </ErrorBoundary>
             </div>
           )}

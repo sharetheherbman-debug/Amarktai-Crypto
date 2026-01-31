@@ -434,6 +434,124 @@ fi
 echo ""
 
 ###############################################################################
+# CHECK 13: DEPLOYMENT BLOCKER CHECKS - CRITICAL
+###############################################################################
+echo "🚨 Check 13: Deployment Blockers (CRITICAL)"
+echo "-----------------------------------"
+
+# Check if we can find the venv or Python environment
+PYTHON_CMD="python3"
+VENV_PATH=""
+
+# Try to find venv
+if [ -d "backend/.venv" ]; then
+    VENV_PATH="backend/.venv"
+    PYTHON_CMD="backend/.venv/bin/python3"
+    pass "Virtual environment found at backend/.venv"
+elif [ -d ".venv" ]; then
+    VENV_PATH=".venv"
+    PYTHON_CMD=".venv/bin/python3"
+    pass "Virtual environment found at .venv"
+else
+    warn "No virtual environment found (backend/.venv or .venv)"
+fi
+
+# Check if Python can import critical dependencies
+if $PYTHON_CMD -c "import fastapi" 2>/dev/null; then
+    pass "FastAPI importable"
+else
+    fail "FastAPI not importable - run: pip install -r backend/requirements.txt"
+fi
+
+if $PYTHON_CMD -c "import uvicorn" 2>/dev/null; then
+    pass "Uvicorn importable"
+else
+    fail "Uvicorn not importable - run: pip install uvicorn"
+fi
+
+# Check routes.keys import (CRITICAL BLOCKER)
+if [ -d "backend" ]; then
+    cd backend || { fail "Cannot cd to backend directory"; exit 1; }
+    if $PYTHON_CMD -c "import routes.keys" 2>/dev/null; then
+        pass "routes.keys importable (CRITICAL)"
+    else
+        fail "routes.keys import FAILED - API will not start!"
+    fi
+
+    # Check api_key_management module exports (CRITICAL BLOCKER)
+    if $PYTHON_CMD -c "from routes.api_key_management import encrypt_api_key, decrypt_api_key" 2>/dev/null; then
+        pass "routes.api_key_management exports encrypt_api_key, decrypt_api_key (CRITICAL)"
+    else
+        fail "routes.api_key_management imports FAILED - routes.keys will fail!"
+    fi
+    cd - >/dev/null 2>&1 || true
+else
+    fail "backend directory not found - run from repository root"
+fi
+
+# Check for Fernet encryption key environment variables
+if [ -n "$AMARKTAI_FERNET_KEY" ]; then
+    pass "AMARKTAI_FERNET_KEY is set"
+elif [ -n "$FERNET_KEY" ]; then
+    pass "FERNET_KEY is set"
+else
+    warn "Neither AMARKTAI_FERNET_KEY nor FERNET_KEY is set - will derive from JWT_SECRET (not recommended for production)"
+    info "Generate a key with: python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+fi
+
+# Check MongoDB directories (deployment responsibility, not repo)
+if [ -d "/var/lib/mongodb" ]; then
+    pass "/var/lib/mongodb directory exists"
+    
+    # Check ownership if running as root/sudo or stat is available
+    if [ "$(id -u)" -eq 0 ] || command -v stat >/dev/null 2>&1; then
+        # Try GNU stat first, then BSD stat, with error suppression
+        OWNER=$(stat -c '%U' /var/lib/mongodb 2>/dev/null || stat -f '%Su' /var/lib/mongodb 2>/dev/null || echo "unknown")
+        if [ "$OWNER" = "mongodb" ]; then
+            pass "/var/lib/mongodb owned by mongodb user"
+        elif [ "$OWNER" = "unknown" ]; then
+            info "Cannot determine /var/lib/mongodb ownership (stat command unavailable or insufficient permissions)"
+        else
+            warn "/var/lib/mongodb owner is $OWNER (expected: mongodb)"
+            info "Run: sudo chown -R mongodb:mongodb /var/lib/mongodb"
+        fi
+    fi
+else
+    fail "/var/lib/mongodb directory does not exist"
+    info "Create with: sudo mkdir -p /var/lib/mongodb /var/log/mongodb"
+    info "Set ownership: sudo chown -R mongodb:mongodb /var/lib/mongodb /var/log/mongodb"
+    info "Set permissions: sudo chmod 755 /var/lib/mongodb /var/log/mongodb"
+fi
+
+if [ -d "/var/log/mongodb" ]; then
+    pass "/var/log/mongodb directory exists"
+else
+    fail "/var/log/mongodb directory does not exist"
+    info "Create with: sudo mkdir -p /var/log/mongodb"
+    info "Set ownership: sudo chown -R mongodb:mongodb /var/log/mongodb"
+fi
+
+# Check port 8000 availability (optional but helpful)
+if command -v lsof >/dev/null 2>&1; then
+    if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1; then
+        warn "Port 8000 is already in use"
+        info "Process using port 8000: $(lsof -Pi :8000 -sTCP:LISTEN | tail -n1)"
+    else
+        pass "Port 8000 is available"
+    fi
+elif command -v netstat >/dev/null 2>&1; then
+    if netstat -tuln | grep -q ':8000 '; then
+        warn "Port 8000 appears to be in use"
+    else
+        pass "Port 8000 is available"
+    fi
+else
+    info "Cannot check port 8000 (lsof/netstat not available)"
+fi
+
+echo ""
+
+###############################################################################
 # SUMMARY
 ###############################################################################
 echo "=========================================="

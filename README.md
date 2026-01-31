@@ -109,8 +109,11 @@ curl http://127.0.0.1:8000/api/health/ping
 cd /var/amarktai/app/backend/scripts
 ./endpoint_doctor.sh http://127.0.0.1:8000 YOUR_JWT_TOKEN
 
-# Run backend pre-flight checks
-cd /var/amarktai/app/backend/scripts && ./doctor.sh
+# Run backend pre-flight checks (RECOMMENDED FIRST)
+cd /var/amarktai/app && ./scripts/doctor.sh
+
+# Run local smoke test (tests API starts and health endpoint)
+cd /var/amarktai/app && ./scripts/smoke_local.sh
 
 # Run comprehensive verification
 cd /var/amarktai/app/deployment && sudo ./verify.sh
