@@ -1,10 +1,16 @@
 /**
  * Platform Constants - Single Source of Truth
- * Defines the 7 supported platforms for the entire system
+ * Defines the 7 supported exchanges + 3 AI providers for the entire system
  */
 
-// Supported platforms (in display order) - EXACTLY 7 PLATFORMS
+// Supported exchanges (in display order) - EXACTLY 7 EXCHANGES
 export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
+
+// Supported AI providers - EXACTLY 3 PROVIDERS
+export const SUPPORTED_AI_PROVIDERS = ['openai', 'flokx', 'fetchai'];
+
+// All supported providers (exchanges + AI)
+export const ALL_PROVIDERS = [...SUPPORTED_PLATFORMS, ...SUPPORTED_AI_PROVIDERS];
 
 // Platform display configuration
 export const PLATFORM_CONFIG = {
@@ -105,6 +111,37 @@ export const PLATFORM_CONFIG = {
     supportsPaper: true,
     supportsLive: true,
     requiredKeyFields: ['api_key', 'api_secret']
+  },
+  // AI Providers
+  openai: {
+    id: 'openai',
+    name: 'OpenAI',
+    displayName: 'OpenAI',
+    icon: '🤖',
+    color: '#10A37F',
+    type: 'ai_provider',
+    enabled: true,
+    requiredKeyFields: ['api_key']
+  },
+  flokx: {
+    id: 'flokx',
+    name: 'FlokX',
+    displayName: 'FlokX AI',
+    icon: '🧠',
+    color: '#6366F1',
+    type: 'ai_provider',
+    enabled: true,
+    requiredKeyFields: ['api_key']
+  },
+  fetchai: {
+    id: 'fetchai',
+    name: 'Fetch.ai',
+    displayName: 'Fetch.ai',
+    icon: '🔮',
+    color: '#3B82F6',
+    type: 'ai_provider',
+    enabled: true,
+    requiredKeyFields: ['api_key']
   }
 };
 
@@ -119,10 +156,17 @@ export function getPlatformConfig(platformId) {
 }
 
 /**
- * Check if platform ID is valid
+ * Check if platform ID is valid (exchange or AI provider)
  */
 export function isValidPlatform(platformId) {
-  return SUPPORTED_PLATFORMS.includes(platformId?.toLowerCase());
+  return ALL_PROVIDERS.includes(platformId?.toLowerCase());
+}
+
+/**
+ * Check if provider is an AI provider
+ */
+export function isAIProvider(providerId) {
+  return SUPPORTED_AI_PROVIDERS.includes(providerId?.toLowerCase());
 }
 
 /**
@@ -180,10 +224,13 @@ export function getPlatformOptions() {
 
 export default {
   SUPPORTED_PLATFORMS,
+  SUPPORTED_AI_PROVIDERS,
+  ALL_PROVIDERS,
   PLATFORM_CONFIG,
   TOTAL_BOT_CAPACITY,
   getPlatformConfig,
   isValidPlatform,
+  isAIProvider,
   getEnabledPlatforms,
   getPlatformDisplayName,
   getMaxBots,
