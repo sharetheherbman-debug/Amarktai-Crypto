@@ -22,12 +22,12 @@ def get_encryption_key() -> bytes:
     """Get or create encryption key for API keys
     
     Priority:
-    1. AMARKTAI_FERNET_KEY environment variable
-    2. FERNET_KEY environment variable  
+    1. AMARKTAI_FERNET_KEY environment variable (base64-encoded Fernet key)
+    2. FERNET_KEY environment variable (base64-encoded Fernet key)
     3. Fallback: derived from JWT_SECRET (dev only)
     
     Returns:
-        bytes: Fernet encryption key (32 bytes, url-safe base64 encoded)
+        bytes: Fernet encryption key (base64-encoded 32-byte key)
     """
     global _cached_fernet_key
     
@@ -42,7 +42,14 @@ def get_encryption_key() -> bytes:
     
     if key_env:
         try:
-            _cached_fernet_key = base64.urlsafe_b64decode(key_env.encode())
+            # Fernet key should be provided as base64-encoded string
+            # Validate it's proper base64 and 32 bytes when decoded
+            key_bytes = key_env.encode()
+            decoded = base64.urlsafe_b64decode(key_bytes)
+            if len(decoded) != 32:
+                raise ValueError(f"Fernet key must be exactly 32 bytes when decoded, got {len(decoded)} bytes")
+            # Return the base64-encoded bytes for Fernet constructor
+            _cached_fernet_key = key_bytes
             return _cached_fernet_key
         except Exception as e:
             logger.warning(f"Invalid FERNET_KEY format: {e}, falling back to derived key")
@@ -63,7 +70,7 @@ def encrypt_api_key(value: str) -> str:
         value: Plain text value to encrypt
         
     Returns:
-        str: Encrypted value (base64 encoded token)
+        str: Encrypted value (Fernet token as base64 string)
         
     Raises:
         Exception: If encryption fails
@@ -73,8 +80,8 @@ def encrypt_api_key(value: str) -> str:
         
         fernet = Fernet(get_encryption_key())
         encrypted = fernet.encrypt(value.encode())
-        # Return base64-encoded token
-        return base64.urlsafe_b64encode(encrypted).decode()
+        # Fernet.encrypt() already returns base64-encoded bytes, just decode to string
+        return encrypted.decode()
     except Exception as e:
         logger.error(f"Encryption error: {e}")
         raise Exception(f"Failed to encrypt API key: {e}")
@@ -84,7 +91,7 @@ def decrypt_api_key(token: str) -> str:
     """Decrypt an API key from storage
     
     Args:
-        token: Encrypted token (base64 encoded)
+        token: Encrypted token (Fernet base64 string)
         
     Returns:
         str: Decrypted plaintext value
@@ -97,8 +104,8 @@ def decrypt_api_key(token: str) -> str:
         from cryptography.fernet import Fernet
         
         fernet = Fernet(get_encryption_key())
-        decoded = base64.urlsafe_b64decode(token.encode())
-        decrypted = fernet.decrypt(decoded)
+        # Fernet expects base64 bytes, encode the string
+        decrypted = fernet.decrypt(token.encode())
         return decrypted.decode()
     except Exception as e:
         # Backwards compatibility: if decryption fails, assume it's plaintext

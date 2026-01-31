@@ -24,6 +24,9 @@ HEALTH_ENDPOINT="http://${HOST}:${PORT}/api/health/ping"
 STARTUP_TIMEOUT=30
 HEALTH_CHECK_RETRIES=10
 UVICORN_PID=""
+# Use project-relative log directory or fallback to /tmp
+LOG_DIR="${LOG_DIR:-/tmp}"
+LOG_FILE="$LOG_DIR/uvicorn_smoke.log"
 
 # Cleanup function
 cleanup() {
@@ -79,10 +82,11 @@ echo "🚀 Starting uvicorn server..."
 echo "-----------------------------------"
 
 # Start uvicorn in background
-$PYTHON_CMD -m uvicorn server:app --host ${HOST} --port ${PORT} --log-level warning > /tmp/uvicorn.log 2>&1 &
+$PYTHON_CMD -m uvicorn server:app --host ${HOST} --port ${PORT} --log-level warning > "$LOG_FILE" 2>&1 &
 UVICORN_PID=$!
 
 echo "Uvicorn started (PID: $UVICORN_PID)"
+echo "Log file: $LOG_FILE"
 echo "Waiting for server to be ready (max ${STARTUP_TIMEOUT}s)..."
 
 # Wait for server to start
@@ -96,7 +100,7 @@ for i in $(seq 1 ${STARTUP_TIMEOUT}); do
     if ! kill -0 $UVICORN_PID 2>/dev/null; then
         echo -e "${RED}✗ FAIL${NC}: Uvicorn process died during startup"
         echo "Last 20 lines of log:"
-        tail -n 20 /tmp/uvicorn.log
+        tail -n 20 "$LOG_FILE"
         exit 1
     fi
     
@@ -105,7 +109,7 @@ for i in $(seq 1 ${STARTUP_TIMEOUT}); do
     if [ $i -eq ${STARTUP_TIMEOUT} ]; then
         echo -e "${RED}✗ FAIL${NC}: Server did not start within ${STARTUP_TIMEOUT}s"
         echo "Last 20 lines of log:"
-        tail -n 20 /tmp/uvicorn.log
+        tail -n 20 "$LOG_FILE"
         exit 1
     fi
 done

@@ -470,20 +470,24 @@ else
 fi
 
 # Check routes.keys import (CRITICAL BLOCKER)
-cd backend 2>/dev/null || true
-if $PYTHON_CMD -c "import routes.keys" 2>/dev/null; then
-    pass "routes.keys importable (CRITICAL)"
-else
-    fail "routes.keys import FAILED - API will not start!"
-fi
+if [ -d "backend" ]; then
+    cd backend || { fail "Cannot cd to backend directory"; exit 1; }
+    if $PYTHON_CMD -c "import routes.keys" 2>/dev/null; then
+        pass "routes.keys importable (CRITICAL)"
+    else
+        fail "routes.keys import FAILED - API will not start!"
+    fi
 
-# Check api_key_management module exports (CRITICAL BLOCKER)
-if $PYTHON_CMD -c "from routes.api_key_management import encrypt_api_key, decrypt_api_key" 2>/dev/null; then
-    pass "routes.api_key_management exports encrypt_api_key, decrypt_api_key (CRITICAL)"
+    # Check api_key_management module exports (CRITICAL BLOCKER)
+    if $PYTHON_CMD -c "from routes.api_key_management import encrypt_api_key, decrypt_api_key" 2>/dev/null; then
+        pass "routes.api_key_management exports encrypt_api_key, decrypt_api_key (CRITICAL)"
+    else
+        fail "routes.api_key_management imports FAILED - routes.keys will fail!"
+    fi
+    cd - >/dev/null 2>&1 || true
 else
-    fail "routes.api_key_management imports FAILED - routes.keys will fail!"
+    fail "backend directory not found - run from repository root"
 fi
-cd - >/dev/null 2>&1 || true
 
 # Check for Fernet encryption key environment variables
 if [ -n "$AMARKTAI_FERNET_KEY" ]; then
@@ -499,11 +503,14 @@ fi
 if [ -d "/var/lib/mongodb" ]; then
     pass "/var/lib/mongodb directory exists"
     
-    # Check ownership if running as root/sudo
+    # Check ownership if running as root/sudo or stat is available
     if [ "$(id -u)" -eq 0 ] || command -v stat >/dev/null 2>&1; then
+        # Try GNU stat first, then BSD stat, with error suppression
         OWNER=$(stat -c '%U' /var/lib/mongodb 2>/dev/null || stat -f '%Su' /var/lib/mongodb 2>/dev/null || echo "unknown")
         if [ "$OWNER" = "mongodb" ]; then
             pass "/var/lib/mongodb owned by mongodb user"
+        elif [ "$OWNER" = "unknown" ]; then
+            info "Cannot determine /var/lib/mongodb ownership (stat command unavailable or insufficient permissions)"
         else
             warn "/var/lib/mongodb owner is $OWNER (expected: mongodb)"
             info "Run: sudo chown -R mongodb:mongodb /var/lib/mongodb"
