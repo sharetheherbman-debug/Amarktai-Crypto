@@ -25,7 +25,7 @@ EXCHANGES = platforms.SUPPORTED_PLATFORMS
 async def get_platforms():
     """Get list of all supported platforms (public endpoint)
     
-    Returns the authoritative list of 5 supported platforms with their configurations.
+    Returns the authoritative list of 7 supported platforms with their configurations.
     This endpoint does not require authentication and serves as the single source of truth
     for platform information consumed by the frontend and other clients.
     
@@ -33,7 +33,7 @@ async def get_platforms():
         {
             "success": true,
             "platforms": [...],  # List of platform configs
-            "total": 5
+            "total": 7
         }
     """
     try:

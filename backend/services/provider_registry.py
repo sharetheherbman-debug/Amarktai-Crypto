@@ -183,6 +183,29 @@ async def test_kucoin(api_key: str, api_secret: str, passphrase: str = None) -> 
         return False, f"Test failed: {error_msg[:100]}"
 
 
+async def test_bybit(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
+    """Test Bybit exchange credentials"""
+    try:
+        exchange = ccxt.bybit({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True
+        })
+        
+        # Test by fetching balance
+        balance = await exchange.fetch_balance()
+        await exchange.close()
+        
+        return True, None
+    except ccxt.AuthenticationError:
+        return False, "Invalid API key or secret"
+    except ccxt.PermissionDenied:
+        return False, "API key lacks required permissions"
+    except Exception as e:
+        error_msg = str(e)
+        return False, f"Test failed: {error_msg[:100]}"
+
+
 async def test_bitget(api_key: str, api_secret: str, passphrase: str = None) -> tuple[bool, Optional[str]]:
     """Test Bitget exchange credentials"""
     try:
@@ -200,6 +223,52 @@ async def test_bitget(api_key: str, api_secret: str, passphrase: str = None) -> 
         return True, None
     except ccxt.AuthenticationError:
         return False, "Invalid API key, secret, or passphrase"
+    except ccxt.PermissionDenied:
+        return False, "API key lacks required permissions"
+    except Exception as e:
+        error_msg = str(e)
+        return False, f"Test failed: {error_msg[:100]}"
+
+
+async def test_kraken(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
+    """Test Kraken exchange credentials"""
+    try:
+        exchange = ccxt.kraken({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True
+        })
+        
+        # Test by fetching balance
+        balance = await exchange.fetch_balance()
+        await exchange.close()
+        
+        return True, None
+    except ccxt.AuthenticationError:
+        return False, "Invalid API key or secret"
+    except ccxt.PermissionDenied:
+        return False, "API key lacks required permissions"
+    except Exception as e:
+        error_msg = str(e)
+        return False, f"Test failed: {error_msg[:100]}"
+
+
+async def test_gate(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
+    """Test Gate.io exchange credentials"""
+    try:
+        exchange = ccxt.gateio({  # CCXT uses 'gateio' as the ID
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True
+        })
+        
+        # Test by fetching balance
+        balance = await exchange.fetch_balance()
+        await exchange.close()
+        
+        return True, None
+    except ccxt.AuthenticationError:
+        return False, "Invalid API key or secret"
     except ccxt.PermissionDenied:
         return False, "API key lacks required permissions"
     except Exception as e:
@@ -284,6 +353,24 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         test_method=test_bitget,
         icon="bitget.svg",
         description="Bitget global cryptocurrency and derivatives exchange"
+    ),
+    "kraken": ProviderDefinition(
+        provider_id="kraken",
+        provider_type=ProviderType.EXCHANGE,
+        display_name="Kraken",
+        required_fields=["api_key", "api_secret"],
+        test_method=test_kraken,
+        icon="kraken.svg",
+        description="Kraken US-based cryptocurrency exchange"
+    ),
+    "gate": ProviderDefinition(
+        provider_id="gate",
+        provider_type=ProviderType.EXCHANGE,
+        display_name="Gate.io",
+        required_fields=["api_key", "api_secret"],
+        test_method=test_gate,
+        icon="gateio.svg",
+        description="Gate.io global cryptocurrency exchange"
     ),
 }
 

@@ -5,12 +5,7 @@
  * Including bot caps and feature flags
  */
 
-// Feature flags (can be overridden by environment variables)
-export const FEATURE_FLAGS = {
-  ENABLE_OVEX: process.env.REACT_APP_ENABLE_OVEX === 'true' || false, // OVEX is optional for South African users
-};
-
-// Supported exchanges
+// Supported exchanges - EXACTLY 7 PLATFORMS
 export const EXCHANGES = {
   LUNO: {
     id: 'luno',
@@ -45,24 +40,46 @@ export const EXCHANGES = {
     requiresPassphrase: true, // KuCoin requires passphrase
     supported: true
   },
-  OVEX: {
-    id: 'ovex',
-    name: 'OVEX',
-    displayName: 'OVEX',
+  BYBIT: {
+    id: 'bybit',
+    name: 'Bybit',
+    displayName: 'Bybit',
     maxBots: 10,
-    region: 'ZA', // South Africa
+    region: 'Global',
     icon: '🟠',
     requiresSecret: true,
     requiresPassphrase: false,
     supported: true
   },
-  VALR: {
-    id: 'valr',
-    name: 'VALR',
-    displayName: 'VALR',
+  KRAKEN: {
+    id: 'kraken',
+    name: 'Kraken',
+    displayName: 'Kraken',
     maxBots: 10,
-    region: 'ZA', // South Africa
+    region: 'Global',
+    icon: '🟣',
+    requiresSecret: true,
+    requiresPassphrase: false,
+    supported: true
+  },
+  BITGET: {
+    id: 'bitget',
+    name: 'Bitget',
+    displayName: 'Bitget',
+    maxBots: 10,
+    region: 'Global',
     icon: '🔵',
+    requiresSecret: true,
+    requiresPassphrase: true, // Bitget requires passphrase
+    supported: true
+  },
+  GATE: {
+    id: 'gate',
+    name: 'Gate.io',
+    displayName: 'Gate.io',
+    maxBots: 10,
+    region: 'Global',
+    icon: '⚪',
     requiresSecret: true,
     requiresPassphrase: false,
     supported: true

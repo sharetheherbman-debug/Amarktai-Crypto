@@ -1,6 +1,6 @@
 """
 Autonomous Bot Spawner
-- Auto-spawns bots until 45 total
+- Auto-spawns bots until 65 total
 - Distributes across exchanges
 - AI-controlled allocation
 - Uses wallet_manager for funding
@@ -21,12 +21,16 @@ logger = logging.getLogger(__name__)
 
 class BotSpawner:
     def __init__(self):
-        self.max_bots = 45
-        # SUPPORTED EXCHANGES: Luno, Binance, KuCoin ONLY
+        self.max_bots = 65
+        # SUPPORTED EXCHANGES: All 7 platforms
         self.exchange_distribution = {
-            'luno': 15,     # 15 bots on Luno
-            'binance': 15,  # 15 bots on Binance
-            'kucoin': 15,   # 15 bots on KuCoin
+            'luno': 5,      # 5 bots on Luno
+            'binance': 10,  # 10 bots on Binance
+            'kucoin': 10,   # 10 bots on KuCoin
+            'bybit': 10,    # 10 bots on Bybit
+            'kraken': 10,   # 10 bots on Kraken
+            'bitget': 10,   # 10 bots on Bitget
+            'gate': 10,     # 10 bots on Gate.io
         }
         
         self.risk_distribution = {

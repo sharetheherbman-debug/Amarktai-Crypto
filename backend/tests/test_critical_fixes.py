@@ -304,6 +304,10 @@ class TestExchangeFiltering:
         assert 'luno' in PAPER_SUPPORTED_EXCHANGES, "luno should be supported"
         assert 'binance' in PAPER_SUPPORTED_EXCHANGES, "binance should be supported"
         assert 'kucoin' in PAPER_SUPPORTED_EXCHANGES, "kucoin should be supported"
+        assert 'bybit' in PAPER_SUPPORTED_EXCHANGES, "bybit should be supported"
+        assert 'kraken' in PAPER_SUPPORTED_EXCHANGES, "kraken should be supported"
+        assert 'bitget' in PAPER_SUPPORTED_EXCHANGES, "bitget should be supported"
+        assert 'gate' in PAPER_SUPPORTED_EXCHANGES, "gate should be supported"
         
         # These should NOT be supported in production
         assert 'ovex' not in PAPER_SUPPORTED_EXCHANGES, "ovex should not be supported"

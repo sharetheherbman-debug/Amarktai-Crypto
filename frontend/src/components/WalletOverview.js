@@ -90,8 +90,10 @@ const WalletOverview = () => {
               <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px' }}>
                 {exchange === 'binance' && '🌍 Binance'}
                 {exchange === 'kucoin' && '🌐 KuCoin'}
-                {exchange === 'ovex' && '🟠 OVEX'}
-                {exchange === 'valr' && '💠 VALR'}
+                {exchange === 'bybit' && '🟠 Bybit'}
+                {exchange === 'kraken' && '🟣 Kraken'}
+                {exchange === 'bitget' && '🔵 Bitget'}
+                {exchange === 'gate' && '⚪ Gate.io'}
                 {exchange === 'luno' && '🏦 Luno'}
               </div>
               <div style={{ fontSize: '1.1rem', fontWeight: '600', color: 'var(--text)' }}>
@@ -167,8 +169,10 @@ const WalletOverview = () => {
                 <span>
                   {exchange === 'binance' && '🌍'}
                   {exchange === 'kucoin' && '🌐'}
-                  {exchange === 'ovex' && '🟠'}
-                  {exchange === 'valr' && '💠'}
+                  {exchange === 'bybit' && '🟠'}
+                  {exchange === 'kraken' && '🟣'}
+                  {exchange === 'bitget' && '🔵'}
+                  {exchange === 'gate' && '⚪'}
                   {exchange === 'luno' && '🏦'}
                 </span>
                 <span style={{ color: 'var(--text)', fontWeight: '600' }}>

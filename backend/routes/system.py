@@ -69,7 +69,7 @@ async def get_platforms() -> dict:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
-        # Never crash - return safe defaults with ALL 5 platforms
+        # Never crash - return safe defaults with ALL 7 platforms
         logger.error(f"Error in get_platforms: {e}")
         return {
             "platforms": [
@@ -77,9 +77,11 @@ async def get_platforms() -> dict:
                 {"id": "binance", "name": "Binance", "display_name": "Binance", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
                 {"id": "kucoin", "name": "KuCoin", "display_name": "KuCoin", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
                 {"id": "bybit", "name": "Bybit", "display_name": "Bybit", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
-                {"id": "bitget", "name": "Bitget", "display_name": "Bitget", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True}
+                {"id": "kraken", "name": "Kraken", "display_name": "Kraken", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
+                {"id": "bitget", "name": "Bitget", "display_name": "Bitget", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True},
+                {"id": "gate", "name": "Gate.io", "display_name": "Gate.io", "enabled": True, "bot_limit": 10, "supports_paper": True, "supports_live": True}
             ],
-            "total_count": 5,
+            "total_count": 7,
             "default": "all",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }

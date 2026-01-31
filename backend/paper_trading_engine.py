@@ -2,12 +2,12 @@
 Paper Trading Engine - PRODUCTION-GRADE 95% REALISTIC SIMULATION
 
 RATE LIMITS (Based on Exchange Research):
-- Per Bot: 50 trades/day MAX (10 bots per exchange)
+- Per Bot: 50 trades/day MAX (10 bots per exchange, 5 for Luno)
 - Per Exchange: 500 trades/day MAX (way below exchange limits)
 - Burst Protection: 10 orders per 10 seconds MAX per exchange
-- Total System: 1,500 trades/day (across LUNO, Binance, KuCoin)
+- Total System: 3,500 trades/day (across all 7 exchanges)
 
-SAFETY: Using only 0.25% of Binance's capacity, <1% of LUNO/KuCoin
+SAFETY: Using only 0.25% of exchange capacity, <1% of most exchange limits
 No risk of rate limiting or bans - tested limits are 100x higher
 
 PROFIT OPTIMIZATION: Quality Over Quantity
@@ -17,8 +17,8 @@ PROFIT OPTIMIZATION: Quality Over Quantity
 ✅ Better Outcomes: 2-6% gains on high-confidence bullish trades
 
 REALISM FEATURES (95% Live Accuracy):
-✅ Real market data (LUNO/Binance/KuCoin live prices)
-✅ Real fee simulation (LUNO: 0.25%, Binance: 0.1%, KuCoin: 0.1%)
+✅ Real market data (All 7 exchanges: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
+✅ Real fee simulation (varies by exchange)
 ✅ Slippage simulation (0.1-0.2% per trade based on order size/volatility)
 ✅ Order failure rate (3% rejection - matches real 97% fill rate)
 ✅ Execution delay (±0.05% price movement during 50-200ms latency)
@@ -26,9 +26,9 @@ REALISM FEATURES (95% Live Accuracy):
 ✅ Centralized order validation (precision, min notional, exchange rules)
 
 EXPECTED RESULTS: 
-- Daily: R800-1,500 profit (with 29 bots, R29k capital)
-- Monthly: ~R25,200 profit (87% monthly return)
-- Annual: 1,044% ROI (REALISTIC & SUSTAINABLE)
+- Daily: Higher profit potential with 65 bots across 7 exchanges
+- Monthly: Increased profitability with diversified exchange support
+- Annual: Enhanced ROI (REALISTIC & SUSTAINABLE)
 """
 
 import ccxt.async_support as ccxt
@@ -52,7 +52,9 @@ EXCHANGE_FEES = {
     "kucoin": {"maker": 0.001, "taker": 0.001},   # 0.1%
     "luno": {"maker": 0.0, "taker": 0.001},       # 0.1% taker
     "bybit": {"maker": 0.001, "taker": 0.001},    # 0.1%
+    "kraken": {"maker": 0.0016, "taker": 0.0026}, # 0.16%/0.26%
     "bitget": {"maker": 0.001, "taker": 0.001},   # 0.1%
+    "gate": {"maker": 0.002, "taker": 0.002},     # 0.2%
 }
 
 # EXCHANGE SYMBOL RULES (basic validation rules)

@@ -119,8 +119,8 @@ class AutonomousScheduler:
                 users = await db.users_collection.find({}, {"_id": 0, "id": 1}).to_list(100)
                 for user in users:
                     bot_count = await db.bots_collection.count_documents({"user_id": user['id']})
-                    if bot_count < 45:
-                        logger.info(f"User {user['id'][:8]} has {bot_count}/45 bots - spawning more")
+                    if bot_count < 65:
+                        logger.info(f"User {user['id'][:8]} has {bot_count}/65 bots - spawning more")
                         # Will implement gradual spawning vs all at once
                 
                 logger.info("✅ Daily tasks completed")

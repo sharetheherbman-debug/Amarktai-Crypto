@@ -4,7 +4,7 @@
  * Provides fallback market data from public APIs when user keys are not available
  * or backend fails. NO API KEYS required.
  * 
- * Supported exchanges: Binance, KuCoin, Luno, OVEX, VALR
+ * Supported exchanges: Binance, KuCoin, Luno, Bybit, Kraken, Bitget, Gate.io
  * Supported pairs: BTC, ETH, XRP (to ZAR or USD)
  */
 
@@ -83,47 +83,93 @@ class MarketDataFallback {
   }
 
   /**
-   * Fetch BTC price from VALR (BTCZAR)
+   * Fetch BTC price from Bybit (BTCUSDT)
    */
-  async fetchVALRBTC() {
+  async fetchBybitBTC() {
     try {
-      const response = await fetch('https://api.valr.com/v1/public/BTCZAR/marketsummary', {
+      const response = await fetch('https://api.bybit.com/v5/market/tickers?category=spot&symbol=BTCUSDT', {
         method: 'GET',
         headers: { 'Accept': 'application/json' }
       });
       
-      if (!response.ok) throw new Error('VALR API error');
+      if (!response.ok) throw new Error('Bybit API error');
       
       const data = await response.json();
-      if (data.lastTradedPrice) {
-        return parseFloat(data.lastTradedPrice);
+      if (data.result?.list?.[0]?.lastPrice) {
+        return parseFloat(data.result.list[0].lastPrice);
       }
       return null;
     } catch (error) {
-      console.error('VALR fetch error:', error);
+      console.error('Bybit fetch error:', error);
       return null;
     }
   }
 
   /**
-   * Fetch BTC price from OVEX (BTCZAR) - South African exchange
+   * Fetch BTC price from Kraken (XBTUSD)
    */
-  async fetchOVEXBTC() {
+  async fetchKrakenBTC() {
     try {
-      const response = await fetch('https://www.ovex.io/api/v2/markets/btczar/ticker', {
+      const response = await fetch('https://api.kraken.com/0/public/Ticker?pair=XBTUSD', {
         method: 'GET',
         headers: { 'Accept': 'application/json' }
       });
       
-      if (!response.ok) throw new Error('OVEX API error');
+      if (!response.ok) throw new Error('Kraken API error');
       
       const data = await response.json();
-      if (data.ticker && data.ticker.last) {
-        return parseFloat(data.ticker.last);
+      if (data.result?.XXBTZUSD?.c?.[0]) {
+        return parseFloat(data.result.XXBTZUSD.c[0]);
       }
       return null;
     } catch (error) {
-      console.error('OVEX fetch error:', error);
+      console.error('Kraken fetch error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch BTC price from Bitget (BTCUSDT)
+   */
+  async fetchBitgetBTC() {
+    try {
+      const response = await fetch('https://api.bitget.com/api/spot/v1/market/ticker?symbol=BTCUSDT', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (!response.ok) throw new Error('Bitget API error');
+      
+      const data = await response.json();
+      if (data.data?.close) {
+        return parseFloat(data.data.close);
+      }
+      return null;
+    } catch (error) {
+      console.error('Bitget fetch error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch BTC price from Gate.io (BTC_USDT)
+   */
+  async fetchGateBTC() {
+    try {
+      const response = await fetch('https://api.gateio.ws/api/v4/spot/tickers?currency_pair=BTC_USDT', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (!response.ok) throw new Error('Gate.io API error');
+      
+      const data = await response.json();
+      if (data[0]?.last) {
+        return parseFloat(data[0].last);
+      }
+      return null;
+    } catch (error) {
+      console.error('Gate.io fetch error:', error);
       return null;
     }
   }
@@ -140,12 +186,14 @@ class MarketDataFallback {
     }
 
     // Fetch fresh data from multiple sources in parallel
-    const [binanceBTC, kucoinBTC, lunoBTC, valrBTC, ovexBTC] = await Promise.all([
+    const [binanceBTC, kucoinBTC, lunoBTC, bybitBTC, krakenBTC, bitgetBTC, gateBTC] = await Promise.all([
       this.fetchBinanceBTC(),
       this.fetchKuCoinBTC(),
       this.fetchLunoBTC(),
-      this.fetchVALRBTC(),
-      this.fetchOVEXBTC()
+      this.fetchBybitBTC(),
+      this.fetchKrakenBTC(),
+      this.fetchBitgetBTC(),
+      this.fetchGateBTC()
     ]);
 
     // Use USD/ZAR conversion rate (approximate, you might want a real API for this)
@@ -154,16 +202,16 @@ class MarketDataFallback {
     // Build price map
     const prices = {
       'BTC/ZAR': {
-        price: lunoBTC || valrBTC || ovexBTC || (binanceBTC ? binanceBTC * usdToZar : 0),
+        price: lunoBTC || (binanceBTC ? binanceBTC * usdToZar : 0),
         change: 0, // We don't have 24h change from public APIs easily
-        source: lunoBTC ? 'Luno' : valrBTC ? 'VALR' : ovexBTC ? 'OVEX' : 'Binance (USD→ZAR)',
+        source: lunoBTC ? 'Luno' : 'Binance (USD→ZAR)',
         currency: 'ZAR',
         isFallback: true
       },
       'BTC/USD': {
-        price: binanceBTC || kucoinBTC || 0,
+        price: binanceBTC || kucoinBTC || bybitBTC || krakenBTC || bitgetBTC || gateBTC || 0,
         change: 0,
-        source: binanceBTC ? 'Binance' : kucoinBTC ? 'KuCoin' : 'N/A',
+        source: binanceBTC ? 'Binance' : kucoinBTC ? 'KuCoin' : bybitBTC ? 'Bybit' : krakenBTC ? 'Kraken' : bitgetBTC ? 'Bitget' : gateBTC ? 'Gate.io' : 'N/A',
         currency: 'USD',
         isFallback: true
       },

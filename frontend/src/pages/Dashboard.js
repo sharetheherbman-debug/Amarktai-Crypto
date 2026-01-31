@@ -1546,7 +1546,7 @@ export default function Dashboard() {
     }
 
     // Validate exchange keys have secrets (except for some exchanges)
-    const exchangesNeedingSecret = ['luno', 'binance', 'kucoin', 'ovex', 'valr'];
+    const exchangesNeedingSecret = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
     if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.apiSecret) {
       showNotification(`${provider.toUpperCase()} requires both API key and secret`, 'error');
       return;
@@ -2472,7 +2472,7 @@ export default function Dashboard() {
                     {provider === 'openai' && (
                       <input name="api_key" placeholder="API Key (sk-...)" type="password" />
                     )}
-                    {(provider === 'luno' || provider === 'binance' || provider === 'valr' || provider === 'ovex' || provider === 'kucoin') && (
+                    {(provider === 'luno' || provider === 'binance' || provider === 'kucoin' || provider === 'bybit' || provider === 'kraken' || provider === 'bitget' || provider === 'gate') && (
                       <>
                         <input name="api_key" placeholder="API Key" type="text" />
                         <input name="api_secret" placeholder="Secret" type="password" />
@@ -2646,9 +2646,7 @@ export default function Dashboard() {
                         ))}
                       </select>
                       <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
-                        {FEATURE_FLAGS.ENABLE_OVEX 
-                          ? '✅ All exchanges available' 
-                          : '⚠️ Luno, Binance, KuCoin, OVEX, VALR supported'}
+                        ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
                       </small>
                     </div>
                     <div className="form-group">
@@ -3678,8 +3676,10 @@ export default function Dashboard() {
                         <option value="binance">Binance</option>
                         <option value="luno">Luno</option>
                         <option value="kucoin">KuCoin</option>
-                        <option value="valr">VALR</option>
-                        <option value="ovex">OVEX</option>
+                        <option value="bybit">Bybit</option>
+                        <option value="kraken">Kraken</option>
+                        <option value="bitget">Bitget</option>
+                        <option value="gate">Gate.io</option>
                       </select>
                     </div>
                   </div>
@@ -3867,8 +3867,10 @@ export default function Dashboard() {
       luno: recentTrades.filter(t => t.exchange?.toLowerCase() === 'luno'),
       binance: recentTrades.filter(t => t.exchange?.toLowerCase() === 'binance'),
       kucoin: recentTrades.filter(t => t.exchange?.toLowerCase() === 'kucoin'),
-      ovex: recentTrades.filter(t => t.exchange?.toLowerCase() === 'ovex'),
-      valr: recentTrades.filter(t => t.exchange?.toLowerCase() === 'valr')
+      bybit: recentTrades.filter(t => t.exchange?.toLowerCase() === 'bybit'),
+      kraken: recentTrades.filter(t => t.exchange?.toLowerCase() === 'kraken'),
+      bitget: recentTrades.filter(t => t.exchange?.toLowerCase() === 'bitget'),
+      gate: recentTrades.filter(t => t.exchange?.toLowerCase() === 'gate')
     };
 
     // Calculate stats per exchange
@@ -3896,7 +3898,7 @@ export default function Dashboard() {
         <div className="card">
           <h2>📊 Live Trades - Platform Comparison</h2>
           <p style={{color: 'var(--muted)', marginBottom: '20px', fontSize: '0.9rem'}}>
-            Real-time trade feed showing all 5 supported platforms (Luno, Binance, KuCoin, OVEX, VALR)
+            Real-time trade feed showing all 7 supported platforms (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
           </p>
           
           {/* 50/50 Split Layout: LEFT = Trade Feed | RIGHT = Platform Selector + Comparison */}

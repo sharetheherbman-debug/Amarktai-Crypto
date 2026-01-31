@@ -1,12 +1,14 @@
 /**
  * Platform Utilities
  * 
- * Centralized platform management for all 5 supported exchanges:
+ * Centralized platform management for all 7 supported exchanges:
  * - luno
  * - binance
  * - kucoin
- * - ovex
- * - valr
+ * - bybit
+ * - kraken
+ * - bitget
+ * - gate
  */
 
 import { API_BASE } from './api';
@@ -43,22 +45,42 @@ export const PLATFORMS = {
     supports_paper: true,
     supports_live: true
   },
-  ovex: {
-    id: 'ovex',
-    name: 'OVEX',
-    displayName: 'OVEX',
+  bybit: {
+    id: 'bybit',
+    name: 'Bybit',
+    displayName: 'Bybit',
     icon: '🟠',
-    color: '#FF8C00',
+    color: '#F7A600',
     bot_limit: 10,
     supports_paper: true,
     supports_live: true
   },
-  valr: {
-    id: 'valr',
-    name: 'VALR',
-    displayName: 'VALR',
+  kraken: {
+    id: 'kraken',
+    name: 'Kraken',
+    displayName: 'Kraken',
+    icon: '🟣',
+    color: '#5741D9',
+    bot_limit: 10,
+    supports_paper: true,
+    supports_live: true
+  },
+  bitget: {
+    id: 'bitget',
+    name: 'Bitget',
+    displayName: 'Bitget',
     icon: '🔵',
-    color: '#00B8D4',
+    color: '#00F0FF',
+    bot_limit: 10,
+    supports_paper: true,
+    supports_live: true
+  },
+  gate: {
+    id: 'gate',
+    name: 'Gate.io',
+    displayName: 'Gate.io',
+    icon: '⚪',
+    color: '#17E6A1',
     bot_limit: 10,
     supports_paper: true,
     supports_live: true
@@ -66,7 +88,7 @@ export const PLATFORMS = {
 };
 
 // Platform list in display order
-export const PLATFORM_LIST = ['luno', 'binance', 'kucoin', 'ovex', 'valr'];
+export const PLATFORM_LIST = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
 
 /**
  * Fetch platforms from backend with their enabled status and limits

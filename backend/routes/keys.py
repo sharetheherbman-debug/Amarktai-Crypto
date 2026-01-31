@@ -1,6 +1,6 @@
 """
 Canonical API Keys Router - Unified key management with provider registry
-Handles all 8 providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, bitget
+Handles all 10 providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate
 """
 
 from fastapi import APIRouter, HTTPException, Depends

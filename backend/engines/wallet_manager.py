@@ -156,7 +156,7 @@ class WalletManager:
         
         return balances
     
-    async def calculate_allocation_per_bot(self, user_id: str, total_bots: int = 45) -> float:
+    async def calculate_allocation_per_bot(self, user_id: str, total_bots: int = 65) -> float:
         """Calculate how much capital to allocate per bot"""
         try:
             master_balance = await self.get_master_balance(user_id)
