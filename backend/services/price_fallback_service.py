@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class PriceFallbackService:
     """
-    Fallback price service for all 7 exchanges
+    Fallback price service for all 5 exchanges
     
     Supports:
     - Luno (ZAR pairs)

@@ -66,7 +66,7 @@ MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0
 # Autopilot settings (configurable via env vars)
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold
 NEW_BOT_CAPITAL = int(os.getenv('NEW_BOT_CAPITAL', '500'))  # Lower capital requirement
-MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # Total bots across all exchanges
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '45'))  # Total bots across all 5 exchanges
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% threshold

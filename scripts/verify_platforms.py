@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Verify Platform CCXT Support
-Checks that all 7 supported platforms are available in CCXT (both sync and async)
+Checks that all 5 supported platforms are available in CCXT (both sync and async)
 Exits with non-zero status if any platform is missing or unavailable
 """
 
@@ -17,9 +17,7 @@ REQUIRED_PLATFORMS = {
     'binance': 'binance',
     'kucoin': 'kucoin',
     'bybit': 'bybit',
-    'kraken': 'kraken',
     'bitget': 'bitget',
-    'gate': 'gateio',  # Note: CCXT uses 'gateio' not 'gate'
 }
 
 

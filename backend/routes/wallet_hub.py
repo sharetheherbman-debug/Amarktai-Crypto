@@ -1,5 +1,5 @@
 """
-Wallet Hub for All 7 Exchanges
+Wallet Hub for All 5 exchanges
 
 Provides unified wallet interface for:
 - Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate
@@ -32,7 +32,7 @@ class TransferRequest(BaseModel):
 @router.get("/health")
 async def get_wallet_health(user_id: str = Depends(get_current_user)):
     """
-    Get wallet health status for all 7 exchanges
+    Get wallet health status for all 5 exchanges
     
     Shows:
     - Keys status (missing, connected, error)
