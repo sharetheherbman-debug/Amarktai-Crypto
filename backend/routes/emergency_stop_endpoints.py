@@ -73,6 +73,15 @@ async def activate_emergency_stop(
 async def deactivate_emergency_stop(user_id: str = Depends(get_current_user)):
     """
     Deactivate emergency stop - resume normal operations
+    DEPRECATED: Use /emergency-resume instead
+    """
+    return await emergency_resume(user_id)
+
+
+@router.post("/emergency-resume")
+async def emergency_resume(user_id: str = Depends(get_current_user)):
+    """
+    Resume trading after emergency stop
     """
     try:
         # Check if emergency stop is active
@@ -160,4 +169,78 @@ async def get_emergency_stop_status(user_id: str = Depends(get_current_user)):
         
     except Exception as e:
         logger.error(f"Get emergency stop status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status")
+async def get_system_status(user_id: str = Depends(get_current_user)):
+    """
+    Get comprehensive system status including all safety gates
+    
+    Returns:
+        emergency_stop: Whether emergency stop is active
+        live_trading_enabled: Whether live trading is allowed (env + user toggle)
+        autopilot_enabled: Whether autopilot is allowed (env + user toggle)
+        paper_trading_enabled: Whether paper trading is allowed
+        system_mode: Current system mode (testing/paper/live)
+        features: Dict of enabled features
+    """
+    try:
+        import os
+        from utils.env_utils import env_bool
+        
+        # Get user system modes
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        
+        # Emergency stop status
+        emergency_stop = modes.get('emergencyStop', False) if modes else False
+        
+        # Check environment and user toggles for live trading
+        env_live_enabled = env_bool("ENABLE_LIVE_TRADING", False) or env_bool("LIVE_TRADING", False)
+        user_live_enabled = modes.get('liveTrading', False) if modes else False
+        live_trading_enabled = env_live_enabled and user_live_enabled and not emergency_stop
+        
+        # Check environment and user toggles for autopilot
+        env_autopilot_enabled = env_bool("ENABLE_AUTOPILOT", False) or env_bool("AUTOPILOT_ENABLED", False)
+        user_autopilot_enabled = user.get('autopilot_enabled', False) if user else False
+        autopilot_enabled = env_autopilot_enabled and user_autopilot_enabled and not emergency_stop
+        
+        # Paper trading (always safe)
+        env_paper_enabled = env_bool("ENABLE_PAPER_TRADING", True) or env_bool("PAPER_TRADING", True)
+        paper_trading_enabled = env_paper_enabled and not emergency_stop
+        
+        # System mode
+        system_mode = modes.get('systemMode', 'testing') if modes else 'testing'
+        
+        # Feature flags
+        features = {
+            "realtime": env_bool("ENABLE_REALTIME", True),
+            "ccxt": env_bool("ENABLE_CCXT", True),
+            "schedulers": env_bool("ENABLE_SCHEDULERS", True),
+            "wallet_autopilot": env_bool("ENABLE_WALLET_AUTOPILOT", False),
+            "withdrawals": env_bool("ENABLE_WITHDRAWALS", False),
+            "2fa_required": env_bool("REQUIRE_2FA_FOR_WITHDRAWALS", False)
+        }
+        
+        return {
+            "success": True,
+            "emergency_stop": emergency_stop,
+            "live_trading_enabled": live_trading_enabled,
+            "autopilot_enabled": autopilot_enabled,
+            "paper_trading_enabled": paper_trading_enabled,
+            "system_mode": system_mode,
+            "features": features,
+            "gates": {
+                "env_live_gate": env_live_enabled,
+                "user_live_gate": user_live_enabled,
+                "env_autopilot_gate": env_autopilot_enabled,
+                "user_autopilot_gate": user_autopilot_enabled,
+                "emergency_stop_gate": not emergency_stop
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get system status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
