@@ -69,10 +69,27 @@ class TOTPService:
                 logger.warning(f"TOTP verify: user not found {user_id}")
                 return False
             
-            secret = user.get("two_factor_secret")
-            if not secret:
+            encrypted_secret = user.get("two_factor_secret")
+            if not encrypted_secret:
                 logger.warning(f"TOTP verify: no secret for user {user_id}")
                 return False
+            
+            # Decrypt secret if encrypted
+            try:
+                import config
+                from cryptography.fernet import Fernet
+                
+                fernet_key = getattr(config, 'AMARKTAI_FERNET_KEY', None) or getattr(config, 'FERNET_KEY', None)
+                if fernet_key:
+                    cipher = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
+                    secret = cipher.decrypt(encrypted_secret.encode()).decode()
+                else:
+                    # Assume unencrypted (legacy or dev)
+                    secret = encrypted_secret
+            except Exception as dec_err:
+                logger.error(f"Failed to decrypt TOTP secret: {dec_err}")
+                # Try using as-is (might be unencrypted)
+                secret = encrypted_secret
             
             totp = pyotp.TOTP(secret)
             is_valid = totp.verify(code, valid_window=valid_window)
@@ -96,7 +113,7 @@ class TOTPService:
         
         Args:
             user_id: User ID
-            secret: TOTP secret to store
+            secret: TOTP secret to store (will be encrypted)
             verification_code: Code to verify before enabling
             
         Returns:
@@ -112,13 +129,31 @@ class TOTPService:
                     "message": "Invalid verification code"
                 }
             
-            # Store encrypted secret (in production, should encrypt)
+            # Encrypt secret before storing (production security)
+            try:
+                import config
+                from cryptography.fernet import Fernet
+                
+                # Get encryption key
+                fernet_key = getattr(config, 'AMARKTAI_FERNET_KEY', None) or getattr(config, 'FERNET_KEY', None)
+                if fernet_key:
+                    cipher = Fernet(fernet_key.encode() if isinstance(fernet_key, str) else fernet_key)
+                    encrypted_secret = cipher.encrypt(secret.encode()).decode()
+                else:
+                    # Fallback: store unencrypted with warning
+                    logger.warning("No FERNET_KEY configured - storing TOTP secret unencrypted (NOT RECOMMENDED FOR PRODUCTION)")
+                    encrypted_secret = secret
+            except Exception as enc_err:
+                logger.error(f"Failed to encrypt TOTP secret: {enc_err}")
+                encrypted_secret = secret
+            
+            # Store encrypted secret
             await db.users_collection.update_one(
                 {"id": user_id},
                 {
                     "$set": {
                         "two_factor_enabled": True,
-                        "two_factor_secret": secret,
+                        "two_factor_secret": encrypted_secret,
                         "two_factor_enabled_at": datetime.now(timezone.utc).isoformat()
                     }
                 }

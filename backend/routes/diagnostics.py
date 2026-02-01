@@ -765,7 +765,6 @@ async def get_transfer_diagnostics(user_id: str = Depends(get_current_user)):
                 created = transfer.get("created_at")
                 updated = transfer.get("updated_at")
                 if created and updated:
-                    from datetime import datetime
                     try:
                         created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
                         updated_dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))

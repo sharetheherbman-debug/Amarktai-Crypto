@@ -1,32 +1,62 @@
 # Amarktai Network - Autonomous Trading Platform
 
-**Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 5 major exchanges.
+**Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 7 major exchanges.
 
 [![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 [![Real-time](https://img.shields.io/badge/realtime-WebSocket%20%2B%20SSE-blue)]()
-[![Platforms](https://img.shields.io/badge/platforms-5%20exchanges-orange)]()
+[![Platforms](https://img.shields.io/badge/platforms-7%20exchanges-orange)]()
+[![ToS Safe](https://img.shields.io/badge/ToS-compliant-success)]()
 
 ---
 
-## ✨ **Key Features - All Production-Ready**
+## 🚀 **Quick Start**
 
-### 🤖 **Multi-Platform Trading**
-- **5 Fully Supported Exchanges**: Luno, Binance, KuCoin, OVEX, VALR
-- **Paper Trading**: Realistic simulation with fees, slippage, and real market data
-- **Live Trading**: Full API integration with all 5 platforms
-- **45 Bots Total Capacity**: Distributed across exchanges (5+10+10+10+10)
+### Fresh Installation (Ubuntu 24.04)
+```bash
+# See docs/INSTALL.md for complete 30-minute guide
+./scripts/preflight.sh  # Pre-deployment checks
+./scripts/verify.sh     # Post-deployment verification
+```
+
+### Production Deployment
+- **Installation Guide**: [`docs/INSTALL.md`](docs/INSTALL.md)
+- **Deliverables & Status**: [`docs/DELIVERABLES.md`](docs/DELIVERABLES.md)
+- **Systemd Service**: [`docs/examples/amarktai.service`](docs/examples/amarktai.service)
+- **Nginx Config**: [`docs/examples/nginx.conf`](docs/examples/nginx.conf)
+
+---
+
+## ✨ **Key Features - Production-Ready**
+
+### 🤖 **Multi-Exchange Trading**
+- **7 Fully Supported Exchanges**: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io
+- **Paper Trading**: 7-day requirement with realistic simulation
+- **Live Trading**: Auto-promotion after criteria met (win rate, drawdown, edge gate)
+- **65 Bots Maximum**: Distributed across exchanges (5+10+10+10+10+10+10)
+- **Auto-Spawn**: New bot every R1000 realized profit
 
 ### 📊 **Real-Time Analytics** 
 - **Equity Tracking**: Live P&L curves with realized/unrealized profits
+- **Execution Quality**: Latency p50/p95, reject rate, slippage monitoring
 - **Drawdown Analysis**: Maximum drawdown, current underwater periods
 - **Win Rate Statistics**: Comprehensive trade performance metrics
 - **Real-Time Updates**: WebSocket + SSE for instant dashboard updates
 
-### 💰 **Wallet & Fund Management**
-- **Multi-Exchange Balances**: Unified view across all platforms
-- **Internal Transfers**: Virtual ledger for fund movement between providers
-- **Capital Allocation**: Autopilot-ready fund distribution
-- **Transfer History**: Complete audit trail of all movements
+### 💰 **Wallet Architecture (Production-Safe)**
+- **Transfer State Machine**: requested → approved → queued → broadcast → confirmed
+- **Idempotency Keys**: Prevent double-send
+- **2FA/TOTP**: Required for withdrawals (REQUIRE_2FA_FOR_WITHDRAWALS)
+- **Admin Approval**: Large transfers need approval
+- **Reserved Funds**: Prevents double-spending
+- **Balance Sync**: All 7 exchanges
+- **Real CCXT API**: No simulation, actual withdrawals
+
+### 🧠 **Profit-Core + Super Brain (ToS-Safe)**
+- **Edge Gate**: Rejects trades if EV < fees + spread + slippage + buffer
+- **Bot Coordination**: Dibs & pivot system prevents conflicts
+- **Market Regime**: Trending/mean-reversion/high-vol/low-vol detection
+- **Self-Healing**: Watchdog, backoff, circuit breakers
+- **Treasury**: Sweep excess capital, reinvest to top 5 performers
 
 ### 🤖 **AI-Powered Intelligence**
 - **AI Chat Assistant**: Natural language trading commands
@@ -35,87 +65,226 @@
 - **Chat History**: On-demand previous conversation loading
 
 ### 🎯 **Custom Goals & Dreams**
-- **Financial Countdowns**: Track progress to custom targets (e.g., "BMW M3: R1,340,000")
-- **Real-Time Progress**: Live updates on days remaining and % complete
-- **Multiple Goals**: Up to 2 custom targets per user + system default
+- **Financial Countdowns**: Track progress to custom targets
+- **Real-Time Progress**: Live updates on days remaining
+- **Multiple Goals**: Up to 2 custom targets per user
 
-### 🔐 **Admin & Security**
-- **Role-Based Access**: Secure admin panel with password protection
-- **User-Scoped Actions**: Granular bot control per user
-- **Audit Logging**: Complete trail of all admin actions
-- **Content Guardrails**: AI filters prevent credential leaks
+### 🔐 **Security & Compliance**
+- **ToS-Safe**: No proxy rotation, IP masking, wash trades, or detection avoidance
+- **API Key Encryption**: Fernet symmetric encryption
+- **JWT Authentication**: Secure token-based auth
+- **2FA/TOTP**: Two-factor authentication
+- **Audit Logging**: Immutable transfer ledger
+- **Emergency Stop**: Global kill switch
 
 ---
 
-## 📖 **Complete Documentation**
+## 📖 **Documentation**
 
+### **Getting Started**
 | Document | Description |
 |----------|-------------|
-| **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** | Production deployment, nginx setup, systemd service |
-| **[API Contract](docs/api_contract.md)** | Complete API documentation with all endpoints |
-| **[Nginx Config](docs/nginx.conf)** | Production-ready nginx configuration |
-| **[Single Source of Truth](docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md)** | Architecture & operations |
-| **[Quick Start Guide](docs/QUICK_START.md)** | Basic getting started instructions |
+| **[INSTALL.md](docs/INSTALL.md)** | 📦 Fresh Ubuntu 24.04 installation (~30 minutes) |
+| **[DELIVERABLES.md](docs/DELIVERABLES.md)** | ✅ Production readiness checklist & verification |
+
+### **Deployment**
+| Document | Description |
+|----------|-------------|
+| **[Systemd Service](docs/examples/amarktai.service)** | Production systemd configuration |
+| **[Nginx Config](docs/examples/nginx.conf)** | WebSocket + SSE reverse proxy |
+| **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Detailed deployment guide |
+
+### **Reference**
+| Document | Description |
+|----------|-------------|
+| **[API Contract](docs/api_contract.md)** | Complete API documentation |
 | **[Complete Feature List](docs/COMPLETE_FEATURE_LIST.md)** | All features and capabilities |
+| **[Single Source of Truth](docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md)** | Architecture & operations |
 
 ---
 
-## 🚀 Quick Start (Ubuntu 24.04)
+## 🚀 Quick Start
 
-### Prerequisites
-- Ubuntu 24.04 LTS VPS
-- Root or sudo access
-- 2GB RAM, 20GB disk minimum
-- Nginx installed (`sudo apt install nginx`)
+### Option 1: Fresh Install (Recommended)
 
-### Installation (5 minutes)
+See **[`docs/INSTALL.md`](docs/INSTALL.md)** for complete step-by-step guide.
 
 ```bash
-# 1. Clone repository to canonical location
-sudo mkdir -p /var/amarktai
-cd /var/amarktai
-sudo git clone <repository-url> app
-
-# 2. Run installation script
-cd app/deployment
-sudo ./install.sh
-
-# 3. Configure environment
-sudo nano /var/amarktai/app/backend/.env
-# Edit: JWT_SECRET, ENCRYPTION_KEY, trading mode flags
-
-# 4. Install Nginx SPA configuration for deep linking
-sudo cp /var/amarktai/app/deployment/nginx/amarktai-spa.conf /etc/nginx/sites-available/amarktai
-sudo ln -s /etc/nginx/sites-available/amarktai /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-
-# 5. Verify installation
-sudo ./verify.sh
+# Quick verification after install
+./scripts/preflight.sh  # Pre-deployment checks
+./scripts/verify.sh     # Post-deployment tests
 ```
 
-**That's it!** Service is now running on `http://127.0.0.1:8000`
-
-### Verify Deployment
+### Option 2: Development Setup
 
 ```bash
+# 1. Clone repository
+git clone <repository-url>
+cd Amarktai-Network---Deployment
+
+# 2. Backend setup
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Configure environment
+cp .env.example .env
+nano .env  # Edit configuration
+
+# 4. Frontend setup
+cd ../frontend
+npm install
+npm run dev
+
+# 5. Start backend
+cd ../backend
+python -m uvicorn server:app --reload
+```
+
+---
+
+## 🛠️ **Scripts & Tools**
+
+### **Pre-Deployment**
+```bash
+./scripts/preflight.sh  # Check system requirements, dependencies, MongoDB
+```
+
+### **Post-Deployment**
+```bash
+./scripts/verify.sh  # Test all critical endpoints
+```
+
+### **Monitoring**
+```bash
+# System health
+curl http://localhost:8000/api/diagnostics/health-detail
+
+# Wallet status
+curl http://localhost:8000/api/diagnostics/wallet-status
+
+# Execution quality
+curl http://localhost:8000/api/execution-quality/status
+
+# Treasury status
+curl http://localhost:8000/api/treasury/status
+```
+
+---
+
+## 🔒 **Security Checklist**
+
+Before production deployment:
+
+- [ ] Changed `JWT_SECRET` from default
+- [ ] Set `AMARKTAI_FERNET_KEY` for API key encryption
+- [ ] Configured firewall (UFW or iptables)
+- [ ] Setup SSL/HTTPS with Let's Encrypt
+- [ ] MongoDB not exposed externally
+- [ ] Created non-root user for application
+- [ ] Set `.env` file permissions to 600
+- [ ] Reviewed and enabled 2FA for withdrawals
+
+---
+
+## 📊 **System Limits**
+
+| Resource | Limit | Configurable |
+|----------|-------|--------------|
+| Total bots | 65 | `MAX_TOTAL_BOTS` |
+| Bots per exchange | 5-10 | Per exchange config |
+| Max capital per bot | 10,000 ZAR | `BOT_MAX_CAPITAL_ZAR` |
+| Paper training days | 7 | `PAPER_TRAINING_DAYS` |
+| Min win rate (promote) | 52% | `MIN_WIN_RATE` |
+| Min trades (promote) | 25 | `MIN_TRADES_FOR_PROMOTION` |
+
+---
+
+## 🌐 **Supported Exchanges**
+
+| Exchange | Status | Max Bots | Features |
+|----------|--------|----------|----------|
+| **Luno** | ✅ Primary | 5 | ZAR support, zero fees |
+| **Binance** | ✅ | 10 | Global liquidity |
+| **KuCoin** | ✅ | 10 | Wide coin selection |
+| **Bybit** | ✅ | 10 | Low latency |
+| **Kraken** | ✅ | 10 | Regulated, secure |
+| **Bitget** | ✅ | 10 | Copy trading |
+| **Gate.io** | ✅ | 10 | Altcoin specialist |
+
+**Total:** 65 bots maximum across all exchanges
+
+---
+
+## 🔍 **Diagnostics Endpoints**
+
+### System Health
+- `GET /api/diagnostics/system-health` - DB, collections, services
+- `GET /api/diagnostics/health-detail` - Self-healing, circuit breakers
+- `GET /api/diagnostics/realtime` - WebSocket/SSE status
+
+### Trading
+- `GET /api/diagnostics/paper-status` - Paper trading status
+- `GET /api/diagnostics/autopilot-check` - Autopilot readiness
+- `GET /api/diagnostics/auto-spawn` - Auto-spawn diagnostics
+- `GET /api/diagnostics/regime` - Market regime detection
+
+### Wallet
+- `GET /api/diagnostics/wallet-status` - Balances, transfers
+- `GET /api/diagnostics/transfers` - Transfer state distribution
+
+### Performance
+- `GET /api/execution-quality/status` - Latency, reject rate, slippage
+- `GET /api/execution-quality/history` - Time-series metrics
+- `GET /api/treasury/status` - Treasury balance, top performers
+
+---
+
+## 📞 **Support**
+
+### Troubleshooting
+```bash
+# View logs
+sudo journalctl -u amarktai -f
+
 # Check service status
-sudo systemctl status amarktai-api.service
+sudo systemctl status amarktai
 
-# Test health endpoint
-curl http://127.0.0.1:8000/api/health/ping
+# Run diagnostics
+curl http://localhost:8000/api/diagnostics/system-health | jq
+```
 
-# Run comprehensive endpoint doctor (NEW - RECOMMENDED)
-cd /var/amarktai/app/backend/scripts
-./endpoint_doctor.sh http://127.0.0.1:8000 YOUR_JWT_TOKEN
+### Emergency Procedures
+```bash
+# Activate emergency stop
+curl -X POST http://localhost:8000/api/emergency-stop/activate
 
-# Run backend pre-flight checks (RECOMMENDED FIRST)
-cd /var/amarktai/app && ./scripts/doctor.sh
+# Stop service
+sudo systemctl stop amarktai
 
-# Run local smoke test (tests API starts and health endpoint)
-cd /var/amarktai/app && ./scripts/smoke_local.sh
+# Database backup
+mongodump --db amarktai_trading --out /backup/$(date +%Y%m%d)
+```
 
-# Run comprehensive verification
+---
+
+## 📄 **License**
+
+MIT License - See LICENSE file for details
+
+---
+
+## 🎯 **Status**
+
+✅ **Production-Ready**
+- All critical features implemented
+- ToS-compliant (no violations)
+- Security hardened
+- Comprehensive documentation
+- Automated deployment
+
+**Last Updated:** 2026-02-01
 cd /var/amarktai/app/deployment && sudo ./verify.sh
 
 # Run API smoke tests
