@@ -209,3 +209,132 @@ class SystemMetrics(BaseModel):
     risk_level: str
     ai_sentiment: str
     last_update: datetime
+
+
+# ============================================================================
+# Wallet Transfer Models - Production-Safe State Machine
+# ============================================================================
+
+class TransferState(str, Enum):
+    """
+    Transfer job states for production-safe wallet transfers
+    
+    REQUESTED: Transfer request created by user
+    NEEDS_APPROVAL: Transfer requires admin approval (amount > threshold)
+    APPROVED: Transfer approved and ready for execution
+    QUEUED: Transfer queued for execution
+    BROADCAST: Transfer broadcast to exchange
+    CONFIRMED: Transfer confirmed (blockchain/exchange confirmation)
+    FAILED: Transfer failed (see error_message)
+    CANCELLED: Transfer cancelled by user or admin
+    """
+    REQUESTED = "requested"
+    NEEDS_APPROVAL = "needs_approval"
+    APPROVED = "approved"
+    QUEUED = "queued"
+    BROADCAST = "broadcast"
+    CONFIRMED = "confirmed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class StateHistoryEntry(BaseModel):
+    """Single state transition entry for transfer audit trail"""
+    state: TransferState
+    timestamp: str  # ISO 8601 format
+    reason: str
+    actor_id: Optional[str] = None  # user_id or admin_id who triggered transition
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class TransferJob(BaseModel):
+    """
+    Transfer Job - Production-safe wallet transfer with state machine
+    
+    Supports idempotency, 2FA, approval workflow, and complete audit trail.
+    All transfers go through this state machine for safety and auditability.
+    """
+    model_config = ConfigDict(extra="ignore")
+    
+    # Identifiers
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    idempotency_key: str  # Critical for duplicate prevention
+    
+    # Transfer details
+    from_exchange: str  # Source exchange (e.g., 'luno', 'binance')
+    to_exchange: str  # Destination exchange
+    currency: str  # Currency code (e.g., 'ZAR', 'BTC', 'ETH')
+    amount: float = Field(gt=0)  # Transfer amount (must be positive)
+    
+    # State management
+    state: TransferState = TransferState.REQUESTED
+    state_history: List[StateHistoryEntry] = Field(default_factory=list)
+    
+    # Approval workflow
+    requires_approval: bool = False
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approval_reason: Optional[str] = None
+    
+    # 2FA verification
+    totp_verified: bool = False
+    totp_verified_at: Optional[datetime] = None
+    
+    # Execution tracking
+    withdrawal_id: Optional[str] = None  # Exchange withdrawal ID from ccxt.withdraw()
+    txid: Optional[str] = None  # Blockchain transaction ID
+    deposit_address: Optional[str] = None
+    deposit_tag: Optional[str] = None  # For XRP, XLM, etc.
+    
+    # Timestamps
+    requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    completed_at: Optional[datetime] = None
+    
+    # Error handling and retry
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    max_retries: int = 3
+    
+    # Additional metadata
+    reason: Optional[str] = None  # e.g., 'autopilot_rebalance', 'manual'
+    notes: Optional[str] = None
+
+
+class TransferJobCreate(BaseModel):
+    """Request model for creating a new transfer"""
+    from_exchange: str
+    to_exchange: str
+    currency: str
+    amount: float = Field(gt=0)
+    idempotency_key: str
+    totp_code: Optional[str] = None  # TOTP code if 2FA enabled
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TransferJobUpdate(BaseModel):
+    """Request model for updating a transfer (admin operations)"""
+    state: Optional[TransferState] = None
+    approval_reason: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TransferLedgerEvent(BaseModel):
+    """
+    Immutable transfer event for audit trail
+    
+    Every state transition is logged as an immutable event.
+    This provides a complete, tamper-proof audit trail.
+    """
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    transfer_job_id: str  # Reference to transfer_jobs
+    event_type: str  # 'state_transition', 'approval', 'error', 'retry'
+    from_state: Optional[TransferState] = None
+    to_state: TransferState
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    actor_id: Optional[str] = None  # user_id or admin_id
+    reason: str
+    metadata: Optional[Dict[str, Any]] = None

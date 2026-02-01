@@ -66,7 +66,11 @@ wallets_collection = None
 ledger_collection = None
 profits_collection = None
 funding_plans_collection = None
-wallet_transfers_collection = None  # Fund transfers between providers
+wallet_transfers_collection = None  # Fund transfers between providers (legacy)
+
+# Production-safe wallet transfer system
+transfer_jobs_collection = None  # Transfer jobs with state machine
+transfers_ledger_collection = None  # Immutable transfer event log
 
 # Orders and positions
 orders_collection = None
@@ -172,6 +176,7 @@ async def setup_collections():
     global wallet_balances_collection, capital_injections_collection
     global wallets_collection, ledger_collection, profits_collection, funding_plans_collection
     global wallet_transfers_collection
+    global transfer_jobs_collection, transfers_ledger_collection  # Production-safe wallet transfers
     global orders_collection, positions_collection, balance_snapshots_collection, performance_metrics_collection
     global user_countdowns_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
@@ -227,7 +232,11 @@ async def setup_collections():
     ledger_collection = db.ledger
     profits_collection = db.profits
     funding_plans_collection = db.funding_plans
-    wallet_transfers_collection = db.wallet_transfers  # Fund transfers between providers
+    wallet_transfers_collection = db.wallet_transfers  # Fund transfers between providers (legacy)
+    
+    # Production-safe wallet transfer system
+    transfer_jobs_collection = db.transfer_jobs  # Transfer jobs with state machine
+    transfers_ledger_collection = db.transfers_ledger  # Immutable transfer event log
     
     # Orders and positions
     orders_collection = db.orders
