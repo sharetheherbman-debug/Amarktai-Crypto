@@ -115,7 +115,7 @@
 **REMAINING (Critical):**
 - ❌ Real transfer execution with ccxt.withdraw() (in progress in state machine)
 - ❌ Withdrawal address whitelisting
-- ❌ Diagnostics endpoints: `/api/diagnostics/wallet-status`, `/api/diagnostics/transfers`
+- ✅ Diagnostics endpoints: `/api/diagnostics/wallet-status`, `/api/diagnostics/transfers` - COMPLETE
 - ❌ Frontend wallet UI components
 - ❌ Comprehensive wallet integration tests
 
