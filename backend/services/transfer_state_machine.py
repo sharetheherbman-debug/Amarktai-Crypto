@@ -339,6 +339,28 @@ class TransferStateMachine:
                     transfer["currency"]
                 )
             
+            # Validate address is whitelisted (if whitelisting is enabled)
+            if getattr(config, 'REQUIRE_ADDRESS_WHITELIST', True):
+                from services.address_whitelist import address_whitelist_service
+                is_whitelisted = await address_whitelist_service.is_address_whitelisted(
+                    transfer["user_id"],
+                    transfer["to_exchange"],
+                    transfer["currency"],
+                    withdrawal_address
+                )
+                if not is_whitelisted:
+                    await self._transition_state(transfer_id, TransferState.FAILED, 
+                                                "Address not whitelisted")
+                    await self._release_funds(
+                        transfer["user_id"],
+                        transfer["from_exchange"],
+                        transfer["currency"],
+                        transfer["amount"],
+                        transfer_id
+                    )
+                    await exchange.close()
+                    return
+            
             # Execute withdrawal
             try:
                 withdrawal_response = await exchange.withdraw(
