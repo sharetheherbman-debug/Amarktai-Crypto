@@ -1,0 +1,40 @@
+[Unit]
+Description=Amarktai Network Trading Platform
+After=network.target mongodb.service
+Wants=mongodb.service
+
+[Service]
+Type=simple
+User=amarktai
+Group=amarktai
+WorkingDirectory=/opt/amarktai
+Environment="PATH=/opt/amarktai/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/opt/amarktai/.env
+
+# Main process
+ExecStart=/opt/amarktai/venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000 --workers 4
+
+# Restart policy
+Restart=always
+RestartSec=10s
+StartLimitInterval=5min
+StartLimitBurst=3
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/amarktai /var/amarktai /var/log/amarktai
+
+# Resource limits
+LimitNOFILE=65536
+MemoryLimit=2G
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=amarktai
+
+[Install]
+WantedBy=multi-user.target
