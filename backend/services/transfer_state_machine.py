@@ -3,6 +3,8 @@ Transfer State Machine - Production-Safe Wallet Transfers
 NON-NEGOTIABLE: Real CCXT API, Idempotency, State Tracking, 2FA
 
 State Flow: requested → (needs_approval?) approved → queued → broadcast → confirmed | failed
+
+Updated to use TransferJob model from models.py for consistency.
 """
 
 import asyncio
@@ -16,20 +18,9 @@ import hashlib
 import config
 import database as db
 from realtime_events import manager
+from models import TransferState, TransferJob, TransferLedgerEvent
 
 logger = logging.getLogger(__name__)
-
-
-class TransferState(str, Enum):
-    """Transfer state machine states"""
-    REQUESTED = "requested"
-    NEEDS_APPROVAL = "needs_approval"
-    APPROVED = "approved"
-    QUEUED = "queued"
-    BROADCAST = "broadcast"
-    CONFIRMED = "confirmed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class TransferBlockedReason(str, Enum):
