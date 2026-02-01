@@ -2956,6 +2956,8 @@ routers_to_mount = [
     ("routes.chat_endpoints", "Chat Message Endpoint"),  # Frontend compatibility
     ("routes.wallet_transfers", "Wallet Transfers"),  # Fund movement between providers
     ("routes.user_countdowns", "User Countdowns"),  # Custom user financial goals
+    ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
+    ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
 ]
 
 # Mount realtime router only if enabled via feature flag

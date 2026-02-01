@@ -645,3 +645,311 @@ async def get_realtime_status(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Realtime status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/wallet-status")
+async def get_wallet_status(user_id: str = Depends(get_current_user)):
+    """
+    Get wallet diagnostics status
+    
+    Returns:
+        - Balance snapshots per exchange
+        - Active transfers
+        - Reserved funds
+        - Recent transfer history
+        - Wallet health indicators
+    """
+    try:
+        # Get balance snapshots
+        snapshots = await db.db["balances_snapshots"].find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(50).to_list(50)
+        
+        # Group by exchange and currency
+        balances = {}
+        for snapshot in snapshots:
+            exchange = snapshot.get("exchange")
+            currency = snapshot.get("currency")
+            balance = snapshot.get("balance", 0)
+            
+            if exchange not in balances:
+                balances[exchange] = {}
+            
+            if currency not in balances[exchange]:
+                balances[exchange][currency] = balance
+        
+        # Get active transfers
+        active_transfers = await db.db["transfer_jobs"].find(
+            {
+                "user_id": user_id,
+                "state": {"$nin": ["confirmed", "failed", "cancelled"]}
+            },
+            {"_id": 0}
+        ).to_list(20)
+        
+        # Get reserved funds
+        reserved_funds = await db.db["reserved_funds"].find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).to_list(20)
+        
+        # Get recent transfer history (last 10)
+        recent_transfers = await db.db["transfer_jobs"].find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("created_at", -1).limit(10).to_list(10)
+        
+        # Calculate health indicators
+        total_balance = 0
+        for exchange_balances in balances.values():
+            for balance in exchange_balances.values():
+                total_balance += balance
+        
+        total_reserved = sum(rf.get("amount", 0) for rf in reserved_funds)
+        available = total_balance - total_reserved
+        
+        return {
+            "success": True,
+            "balances": balances,
+            "active_transfers": len(active_transfers),
+            "active_transfer_details": active_transfers,
+            "reserved_funds": reserved_funds,
+            "recent_transfers": recent_transfers,
+            "health": {
+                "total_balance": round(total_balance, 2),
+                "total_reserved": round(total_reserved, 2),
+                "available": round(available, 2),
+                "exchanges_with_balance": len(balances)
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Wallet status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/transfers")
+async def get_transfer_diagnostics(user_id: str = Depends(get_current_user)):
+    """
+    Get transfer system diagnostics
+    
+    Returns:
+        - Transfer queue status
+        - Recent transfers with states
+        - Transfer state distribution
+        - Average processing time
+        - Success rate
+    """
+    try:
+        # Get all transfers for user
+        all_transfers = await db.db["transfer_jobs"].find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("created_at", -1).limit(100).to_list(100)
+        
+        # Calculate statistics
+        state_distribution = {}
+        processing_times = []
+        successful = 0
+        failed = 0
+        
+        for transfer in all_transfers:
+            state = transfer.get("state", "unknown")
+            state_distribution[state] = state_distribution.get(state, 0) + 1
+            
+            if state == "confirmed":
+                successful += 1
+                # Calculate processing time if both timestamps exist
+                created = transfer.get("created_at")
+                updated = transfer.get("updated_at")
+                if created and updated:
+                    from datetime import datetime
+                    try:
+                        created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                        updated_dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+                        processing_time = (updated_dt - created_dt).total_seconds()
+                        processing_times.append(processing_time)
+                    except:
+                        pass
+            
+            elif state == "failed":
+                failed += 1
+        
+        avg_processing_time = sum(processing_times) / len(processing_times) if processing_times else 0
+        total = successful + failed
+        success_rate = (successful / total * 100) if total > 0 else 0
+        
+        # Get pending transfers
+        pending = await db.db["transfer_jobs"].count_documents({
+            "user_id": user_id,
+            "state": {"$in": ["requested", "queued", "broadcast"]}
+        })
+        
+        # Get transfers needing approval
+        needs_approval = await db.db["transfer_jobs"].count_documents({
+            "user_id": user_id,
+            "state": "needs_approval"
+        })
+        
+        return {
+            "success": True,
+            "total_transfers": len(all_transfers),
+            "state_distribution": state_distribution,
+            "pending_queue": pending,
+            "needs_approval": needs_approval,
+            "statistics": {
+                "successful": successful,
+                "failed": failed,
+                "success_rate": round(success_rate, 2),
+                "avg_processing_time_seconds": round(avg_processing_time, 2)
+            },
+            "recent_transfers": all_transfers[:10],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Transfer diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/regime")
+async def get_market_regime(pair: str = "BTC/USD", exchange: str = "luno"):
+    """
+    Get current market regime detection
+    
+    Returns:
+        - Current regime (trending, mean-reversion, high-vol, low-vol)
+        - Trend direction
+        - Volatility level
+        - Recommended strategy
+        - Confidence score
+    """
+    try:
+        from market_regime import MarketRegimeDetector
+        
+        detector = MarketRegimeDetector()
+        regime = await detector.detect_regime(pair, exchange)
+        
+        # Add strategy recommendation based on regime
+        strategy_map = {
+            "trending_up": "momentum_long",
+            "trending_down": "momentum_short",
+            "sideways": "mean_reversion",
+            "high_volatility": "breakout",
+            "low_volatility": "range_trading"
+        }
+        
+        recommended_strategy = strategy_map.get(regime.get("regime"), "balanced")
+        
+        return {
+            "success": True,
+            "pair": pair,
+            "exchange": exchange,
+            "regime": regime.get("regime", "unknown"),
+            "trend": regime.get("trend", "neutral"),
+            "volatility": regime.get("volatility", "normal"),
+            "confidence": regime.get("confidence", 0),
+            "recommended_strategy": recommended_strategy,
+            "cached_for_minutes": 15,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Market regime error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/health-detail")
+async def get_health_detail():
+    """
+    Detailed system health with self-healing status
+    
+    Returns:
+        - Database connectivity
+        - Service health (schedulers, engines, etc.)
+        - Self-healing status
+        - Circuit breaker states
+        - Error rates
+        - Resource usage
+    """
+    try:
+        # Check database
+        db_healthy = False
+        try:
+            await db.db.command("ping")
+            db_healthy = True
+        except:
+            pass
+        
+        # Check collections
+        collection_status = {}
+        required_collections = [
+            "users", "bots", "trades", "api_keys",
+            "transfer_jobs", "transfers_ledger", "balances_snapshots",
+            "reserved_funds", "coordination_locks"
+        ]
+        
+        for coll_name in required_collections:
+            try:
+                count = await db.db[coll_name].count_documents({})
+                collection_status[coll_name] = {"exists": True, "count": count}
+            except:
+                collection_status[coll_name] = {"exists": False, "count": 0}
+        
+        # Check self-healing
+        self_healing_status = {}
+        try:
+            from self_healing import self_healing_monitor
+            self_healing_status = self_healing_monitor.get_status() if hasattr(self_healing_monitor, 'get_status') else {}
+        except:
+            self_healing_status = {"error": "self_healing module not available"}
+        
+        # Check circuit breakers
+        circuit_breaker_status = {}
+        try:
+            # Get circuit breaker states from database
+            breakers = await db.db["circuit_breakers"].find({}, {"_id": 0}).to_list(10)
+            for breaker in breakers:
+                circuit_breaker_status[breaker.get("name", "unknown")] = {
+                    "state": breaker.get("state", "unknown"),
+                    "last_triggered": breaker.get("last_triggered")
+                }
+        except:
+            circuit_breaker_status = {"error": "circuit_breakers collection not available"}
+        
+        # Calculate overall health score
+        health_score = 0
+        if db_healthy:
+            health_score += 40
+        
+        collections_healthy = sum(1 for cs in collection_status.values() if cs.get("exists"))
+        health_score += (collections_healthy / len(required_collections)) * 40
+        
+        if not self_healing_status.get("error"):
+            health_score += 10
+        
+        if not circuit_breaker_status.get("error"):
+            health_score += 10
+        
+        return {
+            "success": True,
+            "health_score": round(health_score, 1),
+            "database": {
+                "healthy": db_healthy,
+                "collections": collection_status
+            },
+            "self_healing": self_healing_status,
+            "circuit_breakers": circuit_breaker_status,
+            "services": {
+                "scheduler": "unknown",  # Would check actual scheduler status
+                "paper_trading": "unknown",
+                "realtime_events": "unknown"
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Health detail error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
