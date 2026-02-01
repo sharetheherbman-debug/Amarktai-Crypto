@@ -398,3 +398,250 @@ async def autopilot_functionality_check(user_id: str = Depends(get_current_user)
     except Exception as e:
         logger.error(f"Autopilot functionality check error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/paper-status")
+async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
+    """Get paper trading diagnostic status
+    
+    Returns:
+        last_tick: Last scheduler tick time
+        last_decision: Last trading decision made
+        last_order_attempt: Last order attempt
+        last_fill: Last successful fill
+        last_error: Last error encountered
+        active_bots: Count of active paper trading bots
+        trades_today: Count of trades executed today
+        scheduler_running: Whether scheduler is active
+    """
+    try:
+        from paper_trading_engine import paper_trading_engine
+        from trading_scheduler import trading_scheduler
+        from datetime import datetime, timezone, timedelta
+        
+        # Get scheduler status
+        scheduler_status = trading_scheduler.get_status() if hasattr(trading_scheduler, 'get_status') else {}
+        
+        # Get paper trading engine status  
+        engine_status = {}
+        if hasattr(paper_trading_engine, 'last_tick_time'):
+            engine_status['last_tick'] = paper_trading_engine.last_tick_time
+        
+        # Count active paper trading bots for this user
+        active_bots_count = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": "active",
+            "mode": "paper"
+        })
+        
+        # Count trades today
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        trades_today = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": today_start.isoformat()},
+            "mode": "paper"
+        })
+        
+        # Get last trade/order info
+        last_trade = await db.trades_collection.find_one(
+            {"user_id": user_id, "mode": "paper"},
+            {"_id": 0},
+            sort=[("timestamp", -1)]
+        )
+        
+        # Get last decision from bot decisions collection if it exists
+        last_decision = None
+        if hasattr(db, 'bot_decisions_collection'):
+            decision_doc = await db.bot_decisions_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "decision": 1, "reason": 1, "timestamp": 1},
+                sort=[("timestamp", -1)]
+            )
+            if decision_doc:
+                last_decision = {
+                    "decision": decision_doc.get('decision'),
+                    "reason": decision_doc.get('reason'),
+                    "timestamp": decision_doc.get('timestamp')
+                }
+        
+        # Get last error from logs (if available)
+        last_error = None
+        if hasattr(db, 'error_logs_collection'):
+            error_doc = await db.error_logs_collection.find_one(
+                {"user_id": user_id, "context": "paper_trading"},
+                {"_id": 0, "error": 1, "timestamp": 1},
+                sort=[("timestamp", -1)]
+            )
+            if error_doc:
+                last_error = {
+                    "error": error_doc.get('error'),
+                    "timestamp": error_doc.get('timestamp')
+                }
+        
+        return {
+            "success": True,
+            "last_tick": engine_status.get('last_tick'),
+            "last_decision": last_decision,
+            "last_order_attempt": last_trade.get('timestamp') if last_trade else None,
+            "last_fill": {
+                "timestamp": last_trade.get('timestamp'),
+                "pair": last_trade.get('pair'),
+                "side": last_trade.get('side'),
+                "amount": last_trade.get('amount'),
+                "price": last_trade.get('price')
+            } if last_trade else None,
+            "last_error": last_error,
+            "active_bots": active_bots_count,
+            "trades_today": trades_today,
+            "scheduler_running": scheduler_status.get('running', False),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Paper trading status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/auto-spawn")
+async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
+    """Get auto-spawn diagnostic status
+    
+    Returns:
+        enabled: Whether auto-spawn is enabled
+        profit_threshold: Minimum profit required (ZAR)
+        current_profit: User's current realized profit (ZAR)
+        eligible: Whether user is eligible for spawn
+        available_capital: Available capital for spawning
+        next_eligibility: When user will be eligible (if not now)
+        last_spawn_time: Last spawn timestamp
+        spawn_count_today: Spawns today
+        reason: Why spawn is blocked (if applicable)
+    """
+    try:
+        import os
+        from services.ledger_service import get_ledger_service
+        
+        # Check if auto-spawn is enabled
+        enabled = os.getenv('ENABLE_AUTO_SPAWN', '0') == '1' or os.getenv('AUTOPILOT_ENABLED', '0') == '1'
+        profit_threshold = float(os.getenv('AUTO_SPAWN_MIN_PROFIT_ZAR', '1000'))
+        
+        # Get user's realized profit from ledger
+        ledger_service = get_ledger_service()
+        profit_summary = await ledger_service.get_profit_summary(user_id)
+        current_profit = profit_summary.get('total_realized_profit_zar', 0)
+        
+        # Check eligibility
+        eligible = enabled and current_profit >= profit_threshold
+        reason = None
+        
+        if not enabled:
+            reason = "AUTO_SPAWN_DISABLED"
+        elif current_profit < profit_threshold:
+            reason = f"PROFIT_TOO_LOW (need {profit_threshold} ZAR, have {current_profit:.2f} ZAR)"
+        
+        # Get available capital
+        # Check wallet balances across all exchanges
+        total_available = 0
+        try:
+            from engines.wallet_manager import wallet_manager
+            luno_balance = await wallet_manager.get_master_balance(user_id)
+            if 'total_zar' in luno_balance:
+                total_available = luno_balance['total_zar']
+        except:
+            pass
+        
+        # Check if enough capital available
+        bot_capital_requirement = float(os.getenv('BOT_INITIAL_CAPITAL_ZAR', '500'))
+        if eligible and total_available < bot_capital_requirement:
+            eligible = False
+            reason = f"INSUFFICIENT_CAPITAL (need {bot_capital_requirement} ZAR, have {total_available:.2f} ZAR)"
+        
+        # Get last spawn time
+        last_spawn = await db.bots_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "created_at": 1},
+            sort=[("created_at", -1)]
+        )
+        last_spawn_time = last_spawn.get('created_at') if last_spawn else None
+        
+        # Count spawns today
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        spawn_count_today = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "created_at": {"$gte": today_start.isoformat()}
+        })
+        
+        # Calculate next eligibility
+        next_eligibility = None
+        if not eligible and reason and "PROFIT_TOO_LOW" in reason:
+            needed_profit = profit_threshold - current_profit
+            # Estimate: assuming 1% daily return, calculate days needed
+            daily_return_estimate = max(current_profit * 0.01, 10)  # At least 10 ZAR/day
+            days_needed = needed_profit / daily_return_estimate if daily_return_estimate > 0 else 999
+            next_eligibility = f"~{int(days_needed)} days (at current rate)"
+        
+        return {
+            "success": True,
+            "enabled": enabled,
+            "profit_threshold": profit_threshold,
+            "current_profit": current_profit,
+            "eligible": eligible,
+            "available_capital": total_available,
+            "bot_capital_requirement": bot_capital_requirement,
+            "next_eligibility": next_eligibility,
+            "last_spawn_time": last_spawn_time,
+            "spawn_count_today": spawn_count_today,
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto-spawn status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/realtime")
+async def get_realtime_status(user_id: str = Depends(get_current_user)):
+    """Get realtime connection diagnostic status
+    
+    Returns:
+        ws_connected: WebSocket connection count for user
+        ws_total_connections: Total WS connections
+        sse_supported: Whether SSE is supported
+        last_event_type: Type of last event sent
+        last_event_time: Time of last event
+        connection_count: Total active connections
+        uptime_seconds: How long realtime system has been up
+    """
+    try:
+        import os
+        from websocket_manager import manager
+        from realtime_events import rt_events
+        
+        # Get WebSocket connection info
+        user_connections = len(manager.active_connections.get(user_id, []))
+        total_connections = sum(len(conns) for conns in manager.active_connections.values())
+        
+        # Get last event info (if tracking exists)
+        last_event = None
+        if hasattr(rt_events, 'last_event'):
+            last_event = rt_events.last_event
+        
+        # Check SSE support
+        sse_supported = hasattr(manager, 'send_sse') or os.path.exists('/api/realtime/events')
+        
+        return {
+            "success": True,
+            "ws_connected": user_connections,
+            "ws_total_connections": total_connections,
+            "sse_supported": sse_supported,
+            "last_event_type": last_event.get('type') if last_event else None,
+            "last_event_time": last_event.get('timestamp') if last_event else None,
+            "connection_count": total_connections,
+            "manager_type": type(manager).__name__,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Realtime status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
