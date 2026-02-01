@@ -173,21 +173,40 @@ echo ""
 
 # 9. Check exchange registry
 echo "9. Checking exchange registry..."
-if [ -f "backend/config/platforms.py" ]; then
-    echo -e "${GREEN}✓${NC} Exchange registry exists"
+if [ -f "backend/exchange_limits.py" ]; then
+    echo -e "${GREEN}✓${NC} Exchange limits file exists"
     
-    # Check for required exchanges
-    REQUIRED_EXCHANGES=("luno" "binance" "kucoin" "bybit" "kraken" "bitget" "gateio")
+    # Check for required 7 exchanges
+    REQUIRED_EXCHANGES=("luno" "binance" "kucoin" "bybit" "kraken" "bitget" "gate")
+    EXCHANGE_COUNT=0
+    
     for exchange in "${REQUIRED_EXCHANGES[@]}"; do
-        if grep -qi "$exchange" backend/config/platforms.py; then
+        if grep -q "\"$exchange\"" backend/exchange_limits.py; then
             echo -e "${GREEN}✓${NC} Exchange configured: $exchange"
+            ((EXCHANGE_COUNT++))
         else
             echo -e "${RED}✗${NC} Exchange NOT configured: $exchange"
             ((ERRORS++))
         fi
     done
+    
+    # Verify exactly 7 exchanges (no more, no less)
+    if [ $EXCHANGE_COUNT -eq 7 ]; then
+        echo -e "${GREEN}✓${NC} Exactly 7 exchanges configured (production requirement)"
+    else
+        echo -e "${RED}✗${NC} Expected 7 exchanges, found $EXCHANGE_COUNT"
+        ((ERRORS++))
+    fi
+    
+    # Check for VALR/OVEX (should NOT exist)
+    if grep -qi "valr\|ovex" backend/exchange_limits.py backend/platforms.py 2>/dev/null; then
+        echo -e "${RED}✗${NC} VALR or OVEX found (must be removed)"
+        ((ERRORS++))
+    else
+        echo -e "${GREEN}✓${NC} No VALR/OVEX references (correct)"
+    fi
 else
-    echo -e "${RED}✗${NC} Exchange registry (platforms.py) not found"
+    echo -e "${RED}✗${NC} Exchange limits file (exchange_limits.py) not found"
     ((ERRORS++))
 fi
 echo ""
