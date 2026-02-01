@@ -265,3 +265,87 @@ For issues with these scripts:
 ---
 
 **Last Updated:** 2026-01-18
+
+---
+
+## 🔍 Audit & Compliance Tools (Added 2026-02-01)
+
+### audit_repo.py
+**Purpose:** Comprehensive repository scanner and analyzer
+
+**What it does:**
+- Scans all backend routers and endpoints
+- Detects supported exchanges
+- Finds TODO/FIXME markers
+- Checks for VALR/OVEX references
+- Identifies removed features
+- Detects potential ToS violations
+
+**Usage:**
+```bash
+python3 scripts/audit_repo.py
+```
+
+**Outputs:**
+- `audit_report.json` - Machine-readable audit data
+- `docs/CURRENT_STATE.md` - Human-readable current state
+- `docs/API_CONTRACT.md` - Backend/frontend API contract
+
+---
+
+### run_audit.sh
+**Purpose:** Wrapper script to run audit_repo.py
+
+**Usage:**
+```bash
+./scripts/run_audit.sh
+```
+
+---
+
+### compliance_checks.sh
+**Purpose:** Automated compliance verification
+
+**What it checks:**
+- ✅ No VALR/OVEX references in active code
+- ✅ No removed features (walk-forward, Monte Carlo, etc.)
+- ✅ No ToS-breaking keywords (proxy rotation, wash trading, etc.)
+- ✅ Exactly 7 exchanges configured
+
+**Usage:**
+```bash
+./scripts/compliance_checks.sh
+```
+
+---
+
+### preflight.sh (Enhanced)
+**Purpose:** Pre-deployment validation and environment check
+
+**What it checks:**
+- Python 3.8+ and Node.js 16+ installed
+- MongoDB accessible
+- Required packages installed
+- Environment variables configured
+- Exchange registry (exactly 7 exchanges)
+- No VALR/OVEX references
+- Backend Python files compile
+
+**Usage:**
+```bash
+./scripts/preflight.sh
+```
+
+---
+
+## �� Additional Documentation (Added 2026-02-01)
+
+- **Production Summary:** `docs/PRODUCTION_PERFECT_SUMMARY.md` - Executive summary
+- **Implementation Status:** `docs/IMPLEMENTATION_STATUS.md` - Current state
+- **Wallet Implementation:** `docs/WALLET_IMPLEMENTATION_GUIDE.md` - Wallet roadmap
+- **Current State:** `docs/CURRENT_STATE.md` - Generated audit output
+- **API Contract:** `docs/API_CONTRACT.md` - Endpoint documentation
+
+---
+
+**Last Updated:** 2026-02-01
