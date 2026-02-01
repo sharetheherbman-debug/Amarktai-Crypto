@@ -165,12 +165,6 @@ run_test "Binance Limits Present" \
 run_test "KuCoin Limits Present" \
     "auth_get '/api/system/limits' | grep -q '\"kucoin\"'"
 
-run_test "VALR Limits Present" \
-    "auth_get '/api/system/limits' | grep -q '\"valr\"'"
-
-run_test "OVEX Limits Present" \
-    "auth_get '/api/system/limits' | grep -q '\"ovex\"'"
-
 echo ""
 
 # Step 7: Test Training & Quarantine

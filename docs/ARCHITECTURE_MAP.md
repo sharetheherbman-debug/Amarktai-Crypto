@@ -124,7 +124,7 @@
   - `DELETE /api/keys/{key_id}` - Delete API key
   - `POST /api/keys/{key_id}/test` - Test API key validity
 - **Features**:
-  - 8 provider support (OpenAI, Flokx, FetchAI, Luno, Binance, KuCoin, OVEX, VALR)
+  - 8 provider support (OpenAI, Flokx, FetchAI, Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO)
   - Encryption/decryption with Fernet
   - Provider registry integration
   - API key testing before storage
@@ -243,7 +243,7 @@ Location: `backend/_archive/`
 
 ### Platform Configuration
 **Canonical**: `backend/config/platforms.py`
-- Defines 5 supported platforms: Luno, Binance, KuCoin, OVEX, VALR
+- Defines 7 supported exchanges: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO
 - Bot capacity limits per platform
 - Total system capacity (45 bots)
 

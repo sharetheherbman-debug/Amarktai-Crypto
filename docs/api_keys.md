@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Amarktai Network securely manages API keys for multiple service providers including AI services (OpenAI) and cryptocurrency exchanges (Luno, Binance, KuCoin, VALR, OVEX).
+The Amarktai Network securely manages API keys for multiple service providers including AI services (OpenAI) and cryptocurrency exchanges (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO).
 
 ## Supported Providers
 
@@ -12,8 +12,6 @@ The Amarktai Network securely manages API keys for multiple service providers in
 | **luno** | Exchange | `api_key`, `api_secret` | South African crypto trading (BTC/ZAR) |
 | **binance** | Exchange | `api_key`, `api_secret` | Global crypto trading |
 | **kucoin** | Exchange | `api_key`, `api_secret`, `passphrase` | Crypto trading with passphrase |
-| **valr** | Exchange | `api_key`, `api_secret` | South African crypto exchange |
-| **ovex** | Exchange | `api_key`, `api_secret` | South African crypto exchange |
 
 ## Security Architecture
 
@@ -166,7 +164,7 @@ All API key endpoints are under: `/api/keys`
 ```
 
 **Validation**:
-- Provider must be recognized (openai, luno, binance, kucoin, valr, ovex)
+- Provider must be recognized (openai, luno, binance, kucoin, bybit, kraken, bitget, gateio)
 - Required fields for provider must be provided
 - Keys are encrypted before storage
 - Test status is reset when keys change
@@ -316,8 +314,6 @@ db.api_keys_collection.createIndex({ "user_id": 1 })
 - Lower fees for maker orders
 - Good for ZAR-denominated trading
 
-### VALR
-
 **Required**: `api_key`, `api_secret`
 
 **Supported Pairs**: Multiple ZAR pairs
@@ -328,8 +324,6 @@ db.api_keys_collection.createIndex({ "user_id": 1 })
 - South African exchange
 - Competitive fees (0% maker, 0.075% taker)
 - Growing liquidity
-
-### OVEX
 
 **Required**: `api_key`, `api_secret`
 

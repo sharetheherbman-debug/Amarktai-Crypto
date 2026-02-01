@@ -132,7 +132,6 @@ This document summarizes all changes made to produce a **clean, redeployable bui
 - **Status:** COMPLETE
 - **Changes:**
   - **Enabled by default:** luno, binance, kucoin
-  - **Disabled by default:** ovex, valr
   - Updated fallback platform list in `/api/system/platforms`
 - **Files:** `backend/routes/system.py` (lines 79-80)
 - **Impact:** Only production-ready exchanges enabled

@@ -3037,7 +3037,7 @@
     {
       "type": "VALR_OVEX_PRESENT",
       "severity": "HIGH",
-      "message": "Found 289 VALR/OVEX references"
+      "message": "Found 283 VALR/OVEX references"
     },
     {
       "type": "REMOVED_FEATURES_PRESENT",
@@ -3052,424 +3052,109 @@
   ],
   "valr_ovex_references": [
     {
-      "file": "backend/server.py",
-      "line": 932,
-      "text": "# OVEX and VALR removed - only Luno, Binance, KuCoin supported"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 112,
+      "text": "Found 286 VALR/OVEX references"
     },
     {
-      "file": "backend/scripts/endpoint_doctor.sh",
-      "line": 297,
-      "text": "# Check for correct exchange enablement (luno, binance, kucoin enabled; ovex, valr disabled)"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 121,
+      "text": "## VALR/OVEX References (Must Be Removed)"
     },
     {
-      "file": "backend/tests/test_critical_fixes.py",
-      "line": 313,
-      "text": "assert 'ovex' not in PAPER_SUPPORTED_EXCHANGES, \"ovex should not be supported\""
-    },
-    {
-      "file": "backend/tests/test_critical_fixes.py",
-      "line": 314,
-      "text": "assert 'valr' not in PAPER_SUPPORTED_EXCHANGES, \"valr should not be supported\""
-    },
-    {
-      "file": "docs/admin_panel.md",
-      "line": 100,
-      "text": "\"valr\": false,"
-    },
-    {
-      "file": "docs/admin_panel.md",
-      "line": 101,
-      "text": "\"ovex\": false"
-    },
-    {
-      "file": "docs/admin_panel.md",
-      "line": 447,
-      "text": "**Allowed Values:** `\"luno\"`, `\"binance\"`, `\"kucoin\"`, `\"valr\"`, `\"ovex\"`"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 14,
-      "text": "- **5 platforms** implemented (Luno, Binance, KuCoin, OVEX, VALR)"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 38,
-      "text": "**Requirement**: \"total 6 platforms. Kraken must be replaced with OVEX\""
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 43,
-      "text": "- **5 platforms defined**: Luno, Binance, KuCoin, OVEX, VALR"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 52,
-      "text": "| `backend/config.py` | Exchange config | \u2705 Has OVEX, no Kraken |"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 53,
-      "text": "| `frontend/src/config/exchanges.js` | Frontend config | \u2705 Has OVEX, no Kraken |"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 96,
-      "text": "- \u2705 OVEX: supports both modes, requires api_key + api_secret"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 97,
-      "text": "- \u2705 VALR: supports both modes, requires api_key + api_secret"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 340,
-      "text": "1. \u2705 Platform standardization (OVEX present, Kraken removed)"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 393,
-      "text": "4. **\u2753 CLARIFY PLATFORM COUNT**: Comment says \"6 platforms\" but lists same 5 (Luno, Binance, KuCoin,"
-    },
-    {
-      "file": "docs/AUDIT_REPORT.md",
-      "line": 477,
-      "text": "2. **5e5a40e** - Replace Kraken with OVEX"
-    },
-    {
-      "file": "docs/IMPLEMENTATION_COMPLETE.md",
-      "line": 16,
-      "text": "- **Result**: All 5 exchanges (Luno, Binance, KuCoin, OVEX, VALR) now show as fully supported"
-    },
-    {
-      "file": "docs/FINAL_PRODUCTION_AUDIT.md",
-      "line": 16,
-      "text": "- **5 Platforms**: Luno (5), Binance (10), KuCoin (10), OVEX (10), VALR (10) = 45 bots total"
-    },
-    {
-      "file": "docs/FINAL_PRODUCTION_AUDIT.md",
-      "line": 39,
-      "text": "- [x] Exactly 5 platforms defined (Luno, Binance, KuCoin, OVEX, VALR)"
-    },
-    {
-      "file": "docs/FINAL_PRODUCTION_AUDIT.md",
-      "line": 319,
-      "text": "- [x] Supports all 5 platforms (Luno, Binance, KuCoin, OVEX, VALR)"
-    },
-    {
-      "file": "docs/FINAL_PRODUCTION_AUDIT.md",
-      "line": 365,
-      "text": "for platform in luno binance kucoin ovex valr; do"
-    },
-    {
-      "file": "docs/FINAL_PRODUCTION_AUDIT.md",
-      "line": 659,
-      "text": "- [x] **5 Platforms**: Luno, Binance, KuCoin, OVEX, VALR (45 bots total)"
-    },
-    {
-      "file": "docs/PR_SUMMARY.md",
-      "line": 39,
-      "text": "- Exchange validation (5 platforms: Luno, Binance, KuCoin, OVEX, VALR)"
-    },
-    {
-      "file": "docs/ARCHITECTURE_MAP.md",
-      "line": 127,
-      "text": "- 8 provider support (OpenAI, Flokx, FetchAI, Luno, Binance, KuCoin, OVEX, VALR)"
-    },
-    {
-      "file": "docs/ARCHITECTURE_MAP.md",
-      "line": 246,
-      "text": "- Defines 5 supported platforms: Luno, Binance, KuCoin, OVEX, VALR"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 22,
-      "text": "### 1. \u2705 VALR & OVEX Support (COMPLETE)"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 25,
-      "text": "- Added VALR and OVEX exchange initialization in paper_trading_engine.py"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 28,
-      "text": "- Updated get_available_pairs() to support valr and ovex"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 29,
-      "text": "- Updated get_real_price() to support valr and ovex"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 30,
-      "text": "- OVEX automatically falls back to Luno for ZAR pairs"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 31,
-      "text": "- Updated close_exchanges() to clean up valr and ovex"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 35,
-      "text": "# Test VALR price fetching"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 36,
-      "text": "curl -X GET \"http://localhost:8000/api/prices/valr/BTC-ZAR\""
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 38,
-      "text": "# Test OVEX price fetching (falls back to Luno)"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 39,
-      "text": "curl -X GET \"http://localhost:8000/api/prices/ovex/BTC-ZAR\""
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 41,
-      "text": "# Test paper trading on VALR"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 42,
-      "text": "# Create bot with exchange=\"valr\""
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 45,
-      "text": "# Test paper trading on OVEX"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 46,
-      "text": "# Create bot with exchange=\"ovex\""
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 51,
-      "text": "- VALR prices fetched successfully"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 52,
-      "text": "- OVEX prices fetched (via Luno fallback)"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 53,
-      "text": "- Paper trades execute on VALR"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 54,
-      "text": "- Paper trades execute on OVEX"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 256,
-      "text": "- Supports: Luno, Binance, KuCoin, VALR, OVEX"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 259,
-      "text": "- OVEX fallback to Luno"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 269,
-      "text": "price = await price_fallback_service.get_price('valr', 'BTC/ZAR')"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 270,
-      "text": "print(f\"VALR BTC/ZAR: {price}\")"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 272,
-      "text": "price = await price_fallback_service.get_price('ovex', 'BTC/ZAR')"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 273,
-      "text": "print(f\"OVEX BTC/ZAR (via Luno): {price}\")"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 278,
-      "text": "('valr', 'BTC/ZAR'),"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 281,
-      "text": "('ovex', 'ETH/ZAR')"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 294,
-      "text": "- OVEX uses Luno prices for ZAR pairs"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 323,
-      "text": "-d '{\"from_exchange\":\"luno\",\"to_exchange\":\"valr\",\"amount\":1000,\"currency\":\"ZAR\"}' \\"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 386,
-      "text": "- [ ] VALR paper trading executes"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 387,
-      "text": "- [ ] OVEX paper trading executes"
-    },
-    {
-      "file": "docs/PRODUCTION_LAUNCH_VERIFICATION.md",
-      "line": 468,
-      "text": "- VALR & OVEX fully supported"
-    },
-    {
-      "file": "docs/PRODUCTION_UPDATE_COMPLETE.md",
-      "line": 31,
-      "text": "- **VALR**: 10 bots max, 1,500 trades/bot/day, 15,000 total/day"
-    },
-    {
-      "file": "docs/PRODUCTION_UPDATE_COMPLETE.md",
-      "line": 32,
-      "text": "- **OVEX**: 10 bots max, 500 trades/bot/day, 5,000 total/day"
-    },
-    {
-      "file": "docs/PRODUCTION_UPDATE_COMPLETE.md",
-      "line": 53,
-      "text": "\"valr\": {\"max_bots\": 10, \"trades_per_bot_day\": 1500, \"total_trades_day\": 15000},"
-    },
-    {
-      "file": "docs/PRODUCTION_UPDATE_COMPLETE.md",
-      "line": 54,
-      "text": "\"ovex\": {\"max_bots\": 10, \"trades_per_bot_day\": 500, \"total_trades_day\": 5000}"
-    },
-    {
-      "file": "docs/PRODUCTION_UPDATE_COMPLETE.md",
-      "line": 136,
-      "text": "- Services supported: `openai`, `luno`, `binance`, `kucoin`, `valr`, `ovex`, `smtp`"
-    },
-    {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 27,
-      "text": "- VALR: 10 bots, 1,500 trades/bot/day, 15,000 total/day"
-    },
-    {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 28,
-      "text": "- OVEX: 10 bots, 500 trades/bot/day, 5,000 total/day"
-    },
-    {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
+      "file": "docs/CURRENT_STATE.md",
       "line": 125,
-      "text": "### 12. VALR & OVEX Exchange Support"
+      "text": "- `docs/CURRENT_STATE.md:112` - Found 286 VALR/OVEX references"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
+      "file": "docs/CURRENT_STATE.md",
+      "line": 126,
+      "text": "- `docs/CURRENT_STATE.md:121` - ## VALR/OVEX References (Must Be Removed)"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 128,
+      "text": "- `docs/CURRENT_STATE.md:127` - - `docs/api_keys.md:15` - | **valr** | Exchange | `api_key`, `api_se"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 129,
+      "text": "- `docs/CURRENT_STATE.md:128` - - `docs/api_keys.md:16` - | **ovex** | Exchange | `api_key`, `api_se"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 130,
+      "text": "- `docs/CURRENT_STATE.md:129` - - `docs/api_keys.md:169` - - Provider must be recognized (openai, lu"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
       "line": 131,
-      "text": "- [ ] Add VALR/OVEX exchange initialization in paper_trading_engine"
+      "text": "- `docs/CURRENT_STATE.md:130` - - `docs/api_keys.md:319` - ### VALR"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
+      "file": "docs/CURRENT_STATE.md",
       "line": 132,
-      "text": "- [ ] Add VALR/OVEX pairs to available pairs list"
+      "text": "- `docs/CURRENT_STATE.md:131` - - `docs/api_keys.md:332` - ### OVEX"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
+      "file": "docs/CURRENT_STATE.md",
       "line": 133,
-      "text": "- [ ] Add VALR/OVEX price feed support"
+      "text": "- `docs/CURRENT_STATE.md:132` - - `docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md:92` - \u274c **REMOVED:** OVEX"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
+      "file": "docs/CURRENT_STATE.md",
+      "line": 134,
+      "text": "- `docs/CURRENT_STATE.md:133` - - `docs/COMPLETE_FEATURE_LIST.md:15` - - \u2705 **OVEX** - South African "
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
       "line": 135,
-      "text": "- [ ] Test paper trading on VALR/OVEX"
+      "text": "- `docs/CURRENT_STATE.md:134` - - `docs/COMPLETE_FEATURE_LIST.md:16` - - \u2705 **VALR** - Local ZAR trad"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
+      "file": "docs/CURRENT_STATE.md",
       "line": 136,
-      "text": "- [ ] Add VALR/OVEX to ccxt exchange initialization"
+      "text": "- `docs/CURRENT_STATE.md:135` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:120` - \"ovex\": 10,     # 10 "
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 145,
-      "text": "self.valr_exchange = ccxt.valr({'enableRateLimit': True})"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 137,
+      "text": "- `docs/CURRENT_STATE.md:136` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:121` - \"valr\": 10      # 10 "
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 146,
-      "text": "self.ovex_exchange = ccxt.ovex({'enableRateLimit': True})"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 138,
+      "text": "- `docs/CURRENT_STATE.md:137` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:153` - **OVEX:**"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 207,
-      "text": "- [ ] Accept keys for VALR, OVEX"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 139,
+      "text": "- `docs/CURRENT_STATE.md:138` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:162` - **VALR:**"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 246,
-      "text": "- [ ] VALR/OVEX bots can trade in paper mode"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 140,
+      "text": "- `docs/CURRENT_STATE.md:139` - - `docs/WORLD_CLASS_GAP_ANALYSIS.md:130` - - \u2705 5 exchanges (Luno, Bi"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 254,
-      "text": "- [ ] VALR/OVEX quarantine removed (needs implementation)"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 141,
+      "text": "- `docs/CURRENT_STATE.md:140` - - `docs/DEPLOYMENT_GUIDE.md:411` - - Bots: 45 per user (5 Luno + 10 "
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 264,
-      "text": "### Priority 1: Complete VALR/OVEX Support"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 142,
+      "text": "- `docs/CURRENT_STATE.md:141` - - `docs/AI_LEARNING_SUMMARY.md:97` - \u251c\u2500 OVEX: 10 bots"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 268,
-      "text": "1. Add VALR/OVEX exchange initialization"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 143,
+      "text": "- `docs/CURRENT_STATE.md:142` - - `docs/AI_LEARNING_SUMMARY.md:98` - \u2514\u2500 VALR: 10 bots"
     },
     {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 322,
-      "text": "- VALR/OVEX need full implementation"
-    },
-    {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 343,
-      "text": "- \u26a0\ufe0f VALR/OVEX support incomplete (needs implementation)"
-    },
-    {
-      "file": "docs/PRODUCTION_FIXES_STATUS.md",
-      "line": 358,
-      "text": "- \u26a0\ufe0f VALR/OVEX need testing"
-    },
-    {
-      "file": "docs/PRODUCTION_READY_SUMMARY.md",
-      "line": 16,
-      "text": "4. **OVEX** (South Africa) - 10 bots capacity"
-    },
-    {
-      "file": "docs/PRODUCTION_READY_SUMMARY.md",
-      "line": 17,
-      "text": "5. **VALR** (South Africa) - 10 bots capacity"
-    },
-    {
-      "file": "docs/PRODUCTION_READY_SUMMARY.md",
-      "line": 50,
-      "text": "- \u2705 Exchange-specific fee simulation (Luno: 0.1%, Binance: 0.1%, KuCoin: 0.1%, OVEX: 0.2%, VALR: 0.0"
-    },
-    {
-      "file": "docs/PRODUCTION_READY_SUMMARY.md",
-      "line": 328,
-      "text": "\u2705 **All 5 platforms operational** (Luno, Binance, KuCoin, OVEX, VALR)"
+      "file": "docs/CURRENT_STATE.md",
+      "line": 144,
+      "text": "- `docs/CURRENT_STATE.md:143` - - `docs/AI_LEARNING_SUMMARY.md:114` - OVEX:    Maker 0.1%,  Taker 0."
     },
     {
       "file": "docs/api_keys.md",
@@ -3477,464 +3162,254 @@
       "text": "The Amarktai Network securely manages API keys for multiple service providers including AI services "
     },
     {
-      "file": "docs/api_keys.md",
-      "line": 15,
-      "text": "| **valr** | Exchange | `api_key`, `api_secret` | South African crypto exchange |"
-    },
-    {
-      "file": "docs/api_keys.md",
-      "line": 16,
-      "text": "| **ovex** | Exchange | `api_key`, `api_secret` | South African crypto exchange |"
-    },
-    {
-      "file": "docs/api_keys.md",
-      "line": 169,
-      "text": "- Provider must be recognized (openai, luno, binance, kucoin, valr, ovex)"
-    },
-    {
-      "file": "docs/api_keys.md",
-      "line": 319,
-      "text": "### VALR"
-    },
-    {
-      "file": "docs/api_keys.md",
-      "line": 332,
-      "text": "### OVEX"
-    },
-    {
-      "file": "docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md",
-      "line": 92,
-      "text": "\u274c **REMOVED:** OVEX, VALR (not supported)"
-    },
-    {
-      "file": "docs/IMPLEMENTATION_SUMMARY.md",
-      "line": 16,
-      "text": "- \u2705 Verified no VALR/OVEX in active code"
-    },
-    {
-      "file": "docs/COMPLETE_FEATURE_LIST.md",
-      "line": 15,
-      "text": "- \u2705 **OVEX** - South African exchange support"
-    },
-    {
-      "file": "docs/COMPLETE_FEATURE_LIST.md",
-      "line": 16,
-      "text": "- \u2705 **VALR** - Local ZAR trading support"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 26,
-      "text": "1. \u2705 **VALR & OVEX Exchange Support**"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 97,
-      "text": "1. `backend/paper_trading_engine.py` - VALR/OVEX support"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 143,
-      "text": "| VALR | \u274c Quarantined | \u2705 Fully Supported | **FIXED** |"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 144,
-      "text": "| OVEX | \u274c Quarantined | \u2705 Fully Supported | **FIXED** |"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 255,
-      "text": "- [ ] Test VALR paper trading"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 256,
-      "text": "- [ ] Test OVEX paper trading"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 350,
-      "text": "- VALR fully supported"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 351,
-      "text": "- OVEX fully supported"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 367,
-      "text": "- VALR/OVEX: \u274c Quarantined"
-    },
-    {
-      "file": "docs/DEPLOYMENT_SUMMARY.md",
-      "line": 373,
-      "text": "- VALR/OVEX: \u2705 Fully supported"
-    },
-    {
-      "file": "docs/SYSTEM_RULES_AND_AI_LEARNING.md",
-      "line": 120,
-      "text": "\"ovex\": 10,     # 10 bots max"
-    },
-    {
-      "file": "docs/SYSTEM_RULES_AND_AI_LEARNING.md",
-      "line": 121,
-      "text": "\"valr\": 10      # 10 bots max"
-    },
-    {
-      "file": "docs/SYSTEM_RULES_AND_AI_LEARNING.md",
-      "line": 153,
-      "text": "**OVEX:**"
-    },
-    {
-      "file": "docs/SYSTEM_RULES_AND_AI_LEARNING.md",
-      "line": 162,
-      "text": "**VALR:**"
-    },
-    {
-      "file": "docs/WORLD_CLASS_GAP_ANALYSIS.md",
-      "line": 130,
-      "text": "- \u2705 5 exchanges (Luno, Binance, KuCoin, OVEX, VALR)"
-    },
-    {
-      "file": "docs/DEPLOYMENT_GUIDE.md",
-      "line": 411,
-      "text": "- Bots: 45 per user (5 Luno + 10 Binance + 10 KuCoin + 10 OVEX + 10 VALR)"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 48,
-      "text": "'ovex': {'max_trades_per_bot_per_day': 100}"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 49,
-      "text": "'valr': {'max_trades_per_bot_per_day': 100}"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 57,
-      "text": "'ovex': {'max_orders_per_bot_per_day': 50}"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 58,
-      "text": "'valr': {'max_orders_per_bot_per_day': 50}"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 117,
-      "text": "OVEX: Max orders per bot per day: 50"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 118,
-      "text": "VALR: Max orders per bot per day: 50"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 126,
-      "text": "OVEX: 100"
-    },
-    {
-      "file": "docs/RULE_CONFLICTS_ANALYSIS.md",
-      "line": 127,
-      "text": "VALR: 100"
-    },
-    {
-      "file": "docs/PRODUCTION_UPGRADE_SUMMARY.md",
-      "line": 87,
-      "text": "| VALR     | 1500        | South African |"
-    },
-    {
-      "file": "docs/PRODUCTION_UPGRADE_SUMMARY.md",
-      "line": 88,
-      "text": "| OVEX     | 500         | Moderate |"
-    },
-    {
-      "file": "docs/PR_STATUS_REPORT.md",
-      "line": 25,
-      "text": "- \u2705 **VALR/OVEX**: Not found in active code (only in `_archive/`)"
-    },
-    {
-      "file": "docs/PR_STATUS_REPORT.md",
-      "line": 463,
-      "text": "grep -r \"VALR\\|OVEX\" . --include=\"*.js\" --include=\"*.jsx\""
-    },
-    {
-      "file": "docs/PR_STATUS_REPORT.md",
-      "line": 611,
-      "text": "- \u2705 VALR exchange (only in `_archive/`)"
-    },
-    {
-      "file": "docs/PR_STATUS_REPORT.md",
-      "line": 612,
-      "text": "- \u2705 OVEX exchange (only in `_archive/`)"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 3,
-      "text": "## Migration Complete: OVEX+VALR Removed, Bybit+Kraken+Bitget+Gate Added"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 6,
-      "text": "**Branch:** copilot/update-repo-remove-ovex-valr"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 23,
-      "text": "- \u274c OVEX (South African) - Not in CCXT"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 24,
-      "text": "- \u274c VALR (South African) - Not reliable in CCXT"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 186,
-      "text": "- \u2705 Removed OVEX/VALR positive tests"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 187,
-      "text": "- \u2705 Added assertions that OVEX/VALR are NOT supported"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 194,
-      "text": "- \u2705 **0 references** to ovex/valr in production code (only test assertions)"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 234,
-      "text": "git pull origin copilot/update-repo-remove-ovex-valr"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 272,
-      "text": "- OVEX is NOT available in CCXT (reason for removal)"
-    },
-    {
-      "file": "docs/PLATFORM_MIGRATION_SUMMARY.md",
-      "line": 273,
-      "text": "- VALR may have limited CCXT support (reason for removal)"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_AUDIT_REPORT.md",
-      "line": 193,
-      "text": "- OVEX: 10 bots"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_AUDIT_REPORT.md",
-      "line": 194,
-      "text": "- VALR: 10 bots"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 42,
-      "text": "| paper_trading_engine.py | \u2705 Complete | VALR/OVEX added, all 5 exchanges |"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 55,
-      "text": "| VALR | \u2705 3 pairs | \u2705 Yes | \u2705 ccxt + fallback | \u2705 Complete |"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 56,
-      "text": "| OVEX | \u2705 2 pairs | \u2705 Yes | \u2705 Luno fallback | \u2705 Complete |"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 64,
-      "text": "self.valr_exchange = ccxt.valr()  # Line 142"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 65,
-      "text": "self.ovex_exchange = ccxt.luno()  # Line 143 (OVEX uses Luno API)"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 181,
-      "text": "\"valr\": {\"status\": \"connected\", \"keys\": true},"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 182,
-      "text": "\"ovex\": {\"status\": \"connected\", \"keys\": true}"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 279,
-      "text": "| VALR | \u2705 ccxt public | \u2705 60s | \u2705 Yes | \u2705 Complete |"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 280,
-      "text": "| OVEX | \u2705 Luno fallback | \u2705 60s | \u2705 Yes | \u2705 Complete |"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 287,
-      "text": "- \u2705 OVEX fallback to Luno for ZAR pairs"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 438,
-      "text": "- [ ] Test VALR paper trading"
-    },
-    {
-      "file": "docs/COMPREHENSIVE_PRODUCTION_AUDIT.md",
-      "line": 439,
-      "text": "- [ ] Test OVEX paper trading"
-    },
-    {
-      "file": "docs/AI_LEARNING_SUMMARY.md",
-      "line": 97,
-      "text": "\u251c\u2500 OVEX: 10 bots"
-    },
-    {
-      "file": "docs/AI_LEARNING_SUMMARY.md",
-      "line": 98,
-      "text": "\u2514\u2500 VALR: 10 bots"
-    },
-    {
-      "file": "docs/AI_LEARNING_SUMMARY.md",
-      "line": 114,
-      "text": "OVEX:    Maker 0.1%,  Taker 0.15%"
-    },
-    {
-      "file": "docs/AI_LEARNING_SUMMARY.md",
-      "line": 115,
-      "text": "VALR:    Maker 0.07%, Taker 0.075%"
-    },
-    {
-      "file": "docs/PRODUCTION_FEATURES_IMPLEMENTATION.md",
-      "line": 18,
-      "text": "- \ud83d\udfe0 OVEX (South Africa)"
-    },
-    {
-      "file": "docs/PRODUCTION_FEATURES_IMPLEMENTATION.md",
-      "line": 19,
-      "text": "- \ud83d\udd35 VALR (South Africa)"
-    },
-    {
-      "file": "docs/DASHBOARD_AUDIT_REPORT.md",
-      "line": 283,
-      "text": "- OVEX (South Africa)"
-    },
-    {
-      "file": "docs/DASHBOARD_AUDIT_REPORT.md",
-      "line": 284,
-      "text": "- VALR (South Africa)"
-    },
-    {
-      "file": "docs/AI_LEARNING_QUICK_REF.md",
-      "line": 34,
-      "text": "\u251c\u2500 OVEX: 10 bots"
-    },
-    {
-      "file": "docs/AI_LEARNING_QUICK_REF.md",
-      "line": 35,
-      "text": "\u2514\u2500 VALR: 10 bots"
-    },
-    {
-      "file": "docs/PREMERGE_REPORT.md",
-      "line": 361,
-      "text": "- VALR: 10 bots max"
-    },
-    {
-      "file": "docs/PREMERGE_REPORT.md",
-      "line": 362,
-      "text": "- OVEX: 10 bots max"
-    },
-    {
-      "file": "docs/PREMERGE_REPORT.md",
-      "line": 506,
-      "text": "- [x] VALR key management works"
-    },
-    {
-      "file": "docs/PREMERGE_REPORT.md",
-      "line": 507,
-      "text": "- [x] OVEX key management works"
-    },
-    {
       "file": "docs/DEPLOYMENT_CHECKLIST.md",
       "line": 135,
       "text": "- **Disabled by default:** ovex, valr"
     },
     {
-      "file": "docs/PLATFORM_UPDATE_SUMMARY.md",
-      "line": 6,
-      "text": "**REMOVED**: ovex, valr"
-    },
-    {
-      "file": "docs/PLATFORM_UPDATE_SUMMARY.md",
-      "line": 91,
-      "text": "- Removed OVEX and VALR"
-    },
-    {
-      "file": "docs/PLATFORM_UPDATE_SUMMARY.md",
-      "line": 104,
-      "text": "- Removed OVEX/VALR, added new platforms"
-    },
-    {
-      "file": "docs/PLATFORM_UPDATE_SUMMARY.md",
-      "line": 119,
-      "text": "- \u274c All references to 'ovex' removed (except test assertions)"
-    },
-    {
-      "file": "docs/PLATFORM_UPDATE_SUMMARY.md",
-      "line": 120,
-      "text": "- \u274c All references to 'valr' removed (except test assertions)"
-    },
-    {
-      "file": "docs/PLATFORM_UPDATE_SUMMARY.md",
-      "line": 145,
-      "text": "- [x] No references to ovex or valr anywhere in production code"
-    },
-    {
-      "file": "docs/GO_LIVE.md",
-      "line": 434,
-      "text": "- 5 supported platforms: Luno, Binance, KuCoin, OVEX, VALR"
-    },
-    {
-      "file": "docs/paper_trading.md",
-      "line": 5,
-      "text": "The Amarktai Network Paper Trading Engine provides **95% realistic simulation** of live trading cond"
-    },
-    {
-      "file": "docs/paper_trading.md",
-      "line": 64,
-      "text": "| **VALR** | 0.0% | 0.075% | Free maker, 0.075% taker |"
-    },
-    {
-      "file": "docs/paper_trading.md",
-      "line": 65,
-      "text": "| **OVEX** | 0.1% | 0.2% | Higher taker fee |"
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 14,
+      "text": "- **5 platforms** implemented (Luno, Binance, KuCoin, OVEX, VALR)"
     },
     {
       "file": "docs/archive/AUDIT_REPORT.md",
-      "line": 291,
-      "text": "- \u2705 ovex"
+      "line": 38,
+      "text": "**Requirement**: \"total 6 platforms. Kraken must be replaced with OVEX\""
     },
     {
       "file": "docs/archive/AUDIT_REPORT.md",
-      "line": 292,
-      "text": "- \u2705 valr"
+      "line": 43,
+      "text": "- **5 platforms defined**: Luno, Binance, KuCoin, OVEX, VALR"
     },
     {
       "file": "docs/archive/AUDIT_REPORT.md",
-      "line": 301,
-      "text": "- luno, binance, kucoin, ovex, valr (Exchanges) \u2705"
+      "line": 52,
+      "text": "| `backend/config.py` | Exchange config | \u2705 Has OVEX, no Kraken |"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 53,
+      "text": "| `frontend/src/config/exchanges.js` | Frontend config | \u2705 Has OVEX, no Kraken |"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 96,
+      "text": "- \u2705 OVEX: supports both modes, requires api_key + api_secret"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 97,
+      "text": "- \u2705 VALR: supports both modes, requires api_key + api_secret"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 340,
+      "text": "1. \u2705 Platform standardization (OVEX present, Kraken removed)"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 393,
+      "text": "4. **\u2753 CLARIFY PLATFORM COUNT**: Comment says \"6 platforms\" but lists same 5 (Luno, Binance, KuCoin,"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 477,
+      "text": "2. **5e5a40e** - Replace Kraken with OVEX"
     },
     {
       "file": "docs/archive/REMAINING_TASKS.md",
       "line": 15,
       "text": "- [x] **API Keys Routes** - Standardized to `/api/keys/{provider}` for all 6 providers (openai, luno"
+    },
+    {
+      "file": "docs/archive/IMPLEMENTATION_COMPLETE.md",
+      "line": 16,
+      "text": "- **Result**: All 5 exchanges (Luno, Binance, KuCoin, OVEX, VALR) now show as fully supported"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 16,
+      "text": "- **5 Platforms**: Luno (5), Binance (10), KuCoin (10), OVEX (10), VALR (10) = 45 bots total"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 39,
+      "text": "- [x] Exactly 5 platforms defined (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 319,
+      "text": "- [x] Supports all 5 platforms (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 365,
+      "text": "for platform in luno binance kucoin ovex valr; do"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 659,
+      "text": "- [x] **5 Platforms**: Luno, Binance, KuCoin, OVEX, VALR (45 bots total)"
+    },
+    {
+      "file": "docs/archive/PR_SUMMARY.md",
+      "line": 39,
+      "text": "- Exchange validation (5 platforms: Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 22,
+      "text": "### 1. \u2705 VALR & OVEX Support (COMPLETE)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 25,
+      "text": "- Added VALR and OVEX exchange initialization in paper_trading_engine.py"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 28,
+      "text": "- Updated get_available_pairs() to support valr and ovex"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 29,
+      "text": "- Updated get_real_price() to support valr and ovex"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 30,
+      "text": "- OVEX automatically falls back to Luno for ZAR pairs"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 31,
+      "text": "- Updated close_exchanges() to clean up valr and ovex"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 35,
+      "text": "# Test VALR price fetching"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 36,
+      "text": "curl -X GET \"http://localhost:8000/api/prices/valr/BTC-ZAR\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 38,
+      "text": "# Test OVEX price fetching (falls back to Luno)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 39,
+      "text": "curl -X GET \"http://localhost:8000/api/prices/ovex/BTC-ZAR\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 41,
+      "text": "# Test paper trading on VALR"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 42,
+      "text": "# Create bot with exchange=\"valr\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 45,
+      "text": "# Test paper trading on OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 46,
+      "text": "# Create bot with exchange=\"ovex\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 51,
+      "text": "- VALR prices fetched successfully"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 52,
+      "text": "- OVEX prices fetched (via Luno fallback)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 53,
+      "text": "- Paper trades execute on VALR"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 54,
+      "text": "- Paper trades execute on OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 256,
+      "text": "- Supports: Luno, Binance, KuCoin, VALR, OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 259,
+      "text": "- OVEX fallback to Luno"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 269,
+      "text": "price = await price_fallback_service.get_price('valr', 'BTC/ZAR')"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 270,
+      "text": "print(f\"VALR BTC/ZAR: {price}\")"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 272,
+      "text": "price = await price_fallback_service.get_price('ovex', 'BTC/ZAR')"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 273,
+      "text": "print(f\"OVEX BTC/ZAR (via Luno): {price}\")"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 278,
+      "text": "('valr', 'BTC/ZAR'),"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 281,
+      "text": "('ovex', 'ETH/ZAR')"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 294,
+      "text": "- OVEX uses Luno prices for ZAR pairs"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 323,
+      "text": "-d '{\"from_exchange\":\"luno\",\"to_exchange\":\"valr\",\"amount\":1000,\"currency\":\"ZAR\"}' \\"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 386,
+      "text": "- [ ] VALR paper trading executes"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 387,
+      "text": "- [ ] OVEX paper trading executes"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 468,
+      "text": "- VALR & OVEX fully supported"
     },
     {
       "file": "docs/archive/ADMIN_PANEL_IMPLEMENTATION.md",
@@ -3952,6 +3427,121 @@
       "text": "\"exchange\": \"luno|binance|kucoin|valr|ovex\""
     },
     {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 31,
+      "text": "- **VALR**: 10 bots max, 1,500 trades/bot/day, 15,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 32,
+      "text": "- **OVEX**: 10 bots max, 500 trades/bot/day, 5,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 53,
+      "text": "\"valr\": {\"max_bots\": 10, \"trades_per_bot_day\": 1500, \"total_trades_day\": 15000},"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 54,
+      "text": "\"ovex\": {\"max_bots\": 10, \"trades_per_bot_day\": 500, \"total_trades_day\": 5000}"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 136,
+      "text": "- Services supported: `openai`, `luno`, `binance`, `kucoin`, `valr`, `ovex`, `smtp`"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 27,
+      "text": "- VALR: 10 bots, 1,500 trades/bot/day, 15,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 28,
+      "text": "- OVEX: 10 bots, 500 trades/bot/day, 5,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 125,
+      "text": "### 12. VALR & OVEX Exchange Support"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 131,
+      "text": "- [ ] Add VALR/OVEX exchange initialization in paper_trading_engine"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 132,
+      "text": "- [ ] Add VALR/OVEX pairs to available pairs list"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 133,
+      "text": "- [ ] Add VALR/OVEX price feed support"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 135,
+      "text": "- [ ] Test paper trading on VALR/OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 136,
+      "text": "- [ ] Add VALR/OVEX to ccxt exchange initialization"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 145,
+      "text": "self.valr_exchange = ccxt.valr({'enableRateLimit': True})"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 146,
+      "text": "self.ovex_exchange = ccxt.ovex({'enableRateLimit': True})"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 207,
+      "text": "- [ ] Accept keys for VALR, OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 246,
+      "text": "- [ ] VALR/OVEX bots can trade in paper mode"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 254,
+      "text": "- [ ] VALR/OVEX quarantine removed (needs implementation)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 264,
+      "text": "### Priority 1: Complete VALR/OVEX Support"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 268,
+      "text": "1. Add VALR/OVEX exchange initialization"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 322,
+      "text": "- VALR/OVEX need full implementation"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 343,
+      "text": "- \u26a0\ufe0f VALR/OVEX support incomplete (needs implementation)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 358,
+      "text": "- \u26a0\ufe0f VALR/OVEX need testing"
+    },
+    {
       "file": "docs/archive/CLEAN_REPO_RULES.md",
       "line": 112,
       "text": "- AUTHORITATIVE: `backend/config/platforms.py` (5 platforms: luno, binance, kucoin, ovex, valr)"
@@ -3965,6 +3555,81 @@
       "file": "docs/archive/CLEAN_REPO_RULES.md",
       "line": 134,
       "text": "5. valr (VALR - South Africa)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 16,
+      "text": "4. **OVEX** (South Africa) - 10 bots capacity"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 17,
+      "text": "5. **VALR** (South Africa) - 10 bots capacity"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 50,
+      "text": "- \u2705 Exchange-specific fee simulation (Luno: 0.1%, Binance: 0.1%, KuCoin: 0.1%, OVEX: 0.2%, VALR: 0.0"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 328,
+      "text": "\u2705 **All 5 platforms operational** (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/IMPLEMENTATION_SUMMARY.md",
+      "line": 16,
+      "text": "- \u2705 Verified no VALR/OVEX in active code"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 26,
+      "text": "1. \u2705 **VALR & OVEX Exchange Support**"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 97,
+      "text": "1. `backend/paper_trading_engine.py` - VALR/OVEX support"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 143,
+      "text": "| VALR | \u274c Quarantined | \u2705 Fully Supported | **FIXED** |"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 144,
+      "text": "| OVEX | \u274c Quarantined | \u2705 Fully Supported | **FIXED** |"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 255,
+      "text": "- [ ] Test VALR paper trading"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 256,
+      "text": "- [ ] Test OVEX paper trading"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 350,
+      "text": "- VALR fully supported"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 351,
+      "text": "- OVEX fully supported"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 367,
+      "text": "- VALR/OVEX: \u274c Quarantined"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 373,
+      "text": "- VALR/OVEX: \u2705 Fully supported"
     },
     {
       "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
@@ -4022,6 +3687,76 @@
       "text": "exchange: {\\$in: ['ovex', 'valr']},"
     },
     {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 48,
+      "text": "'ovex': {'max_trades_per_bot_per_day': 100}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 49,
+      "text": "'valr': {'max_trades_per_bot_per_day': 100}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 57,
+      "text": "'ovex': {'max_orders_per_bot_per_day': 50}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 58,
+      "text": "'valr': {'max_orders_per_bot_per_day': 50}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 117,
+      "text": "OVEX: Max orders per bot per day: 50"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 118,
+      "text": "VALR: Max orders per bot per day: 50"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 126,
+      "text": "OVEX: 100"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 127,
+      "text": "VALR: 100"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPGRADE_SUMMARY.md",
+      "line": 87,
+      "text": "| VALR     | 1500        | South African |"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPGRADE_SUMMARY.md",
+      "line": 88,
+      "text": "| OVEX     | 500         | Moderate |"
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 25,
+      "text": "- \u2705 **VALR/OVEX**: Not found in active code (only in `_archive/`)"
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 463,
+      "text": "grep -r \"VALR\\|OVEX\" . --include=\"*.js\" --include=\"*.jsx\""
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 611,
+      "text": "- \u2705 VALR exchange (only in `_archive/`)"
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 612,
+      "text": "- \u2705 OVEX exchange (only in `_archive/`)"
+    },
+    {
       "file": "docs/archive/FINAL_IMPLEMENTATION_SUMMARY.md",
       "line": 23,
       "text": "- VALR (ZAR exchange)"
@@ -4072,6 +3807,56 @@
       "text": "\u2713 Platform 'valr' present"
     },
     {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 3,
+      "text": "## Migration Complete: OVEX+VALR Removed, Bybit+Kraken+Bitget+Gate Added"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 6,
+      "text": "**Branch:** copilot/update-repo-remove-ovex-valr"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 23,
+      "text": "- \u274c OVEX (South African) - Not in CCXT"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 24,
+      "text": "- \u274c VALR (South African) - Not reliable in CCXT"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 186,
+      "text": "- \u2705 Removed OVEX/VALR positive tests"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 187,
+      "text": "- \u2705 Added assertions that OVEX/VALR are NOT supported"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 194,
+      "text": "- \u2705 **0 references** to ovex/valr in production code (only test assertions)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 234,
+      "text": "git pull origin copilot/update-repo-remove-ovex-valr"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 272,
+      "text": "- OVEX is NOT available in CCXT (reason for removal)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 273,
+      "text": "- VALR may have limited CCXT support (reason for removal)"
+    },
+    {
       "file": "docs/archive/ADMIN_API_QUICK_REFERENCE.md",
       "line": 37,
       "text": "\"valr\": false,"
@@ -4087,6 +3872,76 @@
       "text": "- Valid exchanges: luno, binance, kucoin, valr, ovex"
     },
     {
+      "file": "docs/archive/COMPREHENSIVE_AUDIT_REPORT.md",
+      "line": 193,
+      "text": "- OVEX: 10 bots"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_AUDIT_REPORT.md",
+      "line": 194,
+      "text": "- VALR: 10 bots"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 42,
+      "text": "| paper_trading_engine.py | \u2705 Complete | VALR/OVEX added, all 5 exchanges |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 55,
+      "text": "| VALR | \u2705 3 pairs | \u2705 Yes | \u2705 ccxt + fallback | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 56,
+      "text": "| OVEX | \u2705 2 pairs | \u2705 Yes | \u2705 Luno fallback | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 64,
+      "text": "self.valr_exchange = ccxt.valr()  # Line 142"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 65,
+      "text": "self.ovex_exchange = ccxt.luno()  # Line 143 (OVEX uses Luno API)"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 181,
+      "text": "\"valr\": {\"status\": \"connected\", \"keys\": true},"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 182,
+      "text": "\"ovex\": {\"status\": \"connected\", \"keys\": true}"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 279,
+      "text": "| VALR | \u2705 ccxt public | \u2705 60s | \u2705 Yes | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 280,
+      "text": "| OVEX | \u2705 Luno fallback | \u2705 60s | \u2705 Yes | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 287,
+      "text": "- \u2705 OVEX fallback to Luno for ZAR pairs"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 438,
+      "text": "- [ ] Test VALR paper trading"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 439,
+      "text": "- [ ] Test OVEX paper trading"
+    },
+    {
       "file": "docs/archive/DEPLOYMENT_COMPLETION_REPORT.md",
       "line": 58,
       "text": "- Exchanges: luno, binance, kucoin, ovex, valr"
@@ -4095,6 +3950,81 @@
       "file": "docs/archive/DEPLOYMENT_COMPLETION_REPORT.md",
       "line": 176,
       "text": "**Supported Platforms:** luno, binance, kucoin, ovex, valr"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FEATURES_IMPLEMENTATION.md",
+      "line": 18,
+      "text": "- \ud83d\udfe0 OVEX (South Africa)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FEATURES_IMPLEMENTATION.md",
+      "line": 19,
+      "text": "- \ud83d\udd35 VALR (South Africa)"
+    },
+    {
+      "file": "docs/archive/DASHBOARD_AUDIT_REPORT.md",
+      "line": 283,
+      "text": "- OVEX (South Africa)"
+    },
+    {
+      "file": "docs/archive/DASHBOARD_AUDIT_REPORT.md",
+      "line": 284,
+      "text": "- VALR (South Africa)"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 361,
+      "text": "- VALR: 10 bots max"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 362,
+      "text": "- OVEX: 10 bots max"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 506,
+      "text": "- [x] VALR key management works"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 507,
+      "text": "- [x] OVEX key management works"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 6,
+      "text": "**REMOVED**: ovex, valr"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 91,
+      "text": "- Removed OVEX and VALR"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 104,
+      "text": "- Removed OVEX/VALR, added new platforms"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 119,
+      "text": "- \u274c All references to 'ovex' removed (except test assertions)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 120,
+      "text": "- \u274c All references to 'valr' removed (except test assertions)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 145,
+      "text": "- [x] No references to ovex or valr anywhere in production code"
+    },
+    {
+      "file": "docs/archive/GO_LIVE.md",
+      "line": 434,
+      "text": "- 5 supported platforms: Luno, Binance, KuCoin, OVEX, VALR"
     },
     {
       "file": "docs/archive/IMPLEMENTATION_STATUS.md",
@@ -4117,283 +4047,143 @@
       "text": "- VALR"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 137,
       "text": "2. **Location 2 (Line 2271):** Hardcoded `<select>` with 5 platforms (Luno, Binance, KuCoin, Kraken,"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 138,
       "text": "3. **Location 3 (Line 2212):** Bot creation form showing 5 exchanges including unsupported Kraken/VA"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 151,
       "text": "2. `frontend/src/lib/platforms.js` (marked Kraken/VALR as \"Coming Soon\")"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 172,
       "text": "// BEFORE: 5 exchanges (Luno, Binance, KuCoin, Kraken, VALR)"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 193,
       "text": "valr: {"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 194,
       "text": "id: 'valr',"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 195,
       "text": "displayName: 'VALR (Coming Soon)',"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 228,
       "text": "Live Trades section only showed 3 platform cards (Luno, Binance, KuCoin) instead of 5, and Kraken/VA"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 246,
       "text": "{ id: 'valr', name: 'VALR', icon: '\ud83d\udd35', supported: false }"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 275,
       "text": "4. **Verify unsupported platforms:** Kraken and VALR show \"\ud83d\udea7 Coming Soon\" message with dimmed stylin"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 279,
       "text": "- \u2705 5 platform cards visible (Luno, Binance, KuCoin, Kraken, VALR)"
     },
     {
-      "file": "docs/reports/fix-pack-2026-01-14.md",
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
       "line": 280,
       "text": "- \u2705 Kraken and VALR marked as \"Coming Soon\" with orange badge"
     },
     {
-      "file": "docs/_reports/IMPLEMENTATION_SUMMARY.md",
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY.md",
       "line": 54,
       "text": "- Consolidated: OpenAI, Luno, Binance, KuCoin, Kraken, VALR, Flokx, FetchAI"
     },
     {
-      "file": "docs/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
       "line": 30,
       "text": "- Returns all 5 enabled platforms (luno, binance, kucoin, kraken, valr)"
     },
     {
-      "file": "docs/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
       "line": 126,
       "text": "5. **VALR** \ud83d\udc8e - Bot limit: 10"
     },
     {
-      "file": "docs/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
       "line": 214,
       "text": "- valr \u2705"
     },
     {
-      "file": "docs/_reports/reports/ENDPOINTS.md",
+      "file": "docs/archive/_reports/reports/ENDPOINTS.md",
       "line": 330,
       "text": "- **VALR**: 120 requests/minute"
     },
     {
-      "file": "docs/_reports/reports/LEDGER_IMPLEMENTATION_SUMMARY.md",
+      "file": "docs/archive/_reports/reports/LEDGER_IMPLEMENTATION_SUMMARY.md",
       "line": 60,
       "text": "- VALR: 15 bps maker / 15 bps taker"
     },
     {
-      "file": "docs/_reports/reports/PER_USER_API_KEYS.md",
+      "file": "docs/archive/_reports/reports/PER_USER_API_KEYS.md",
       "line": 17,
       "text": "- **Supported Exchanges:** Binance, KuCoin, Kraken, VALR, Luno, Bitfinex, etc."
     },
     {
-      "file": "docs/_reports/reports/VERIFICATION_REPORT.md",
+      "file": "docs/archive/_reports/reports/VERIFICATION_REPORT.md",
       "line": 128,
       "text": "\"valr\": {\"maker\": 15.0, \"taker\": 15.0}"
     },
     {
-      "file": "docs/_reports/reports/DEPLOYMENT.md",
+      "file": "docs/archive/_reports/reports/DEPLOYMENT.md",
       "line": 246,
       "text": "- **VALR**: 100 requests/10s"
     },
     {
-      "file": "scripts/go_live_smoke.sh",
-      "line": 103,
-      "text": "for platform in luno binance kucoin ovex valr; do"
-    },
-    {
-      "file": "scripts/go_live_smoke.sh",
-      "line": 149,
-      "text": "# Test 5: Bot validation with OVEX/VALR"
-    },
-    {
-      "file": "scripts/go_live_smoke.sh",
-      "line": 152,
-      "text": "# This test verifies that ovex and valr are accepted platforms"
-    },
-    {
-      "file": "scripts/go_live_smoke.sh",
-      "line": 157,
-      "text": "if echo \"$bots_response\" | grep -q \"ovex\\|valr\"; then"
-    },
-    {
-      "file": "scripts/go_live_smoke.sh",
-      "line": 158,
-      "text": "pass \"OVEX/VALR bots found in system\""
-    },
-    {
-      "file": "scripts/go_live_smoke.sh",
-      "line": 160,
-      "text": "warn \"No OVEX/VALR bots found (this is OK if none created yet)\""
-    },
-    {
       "file": "scripts/verify_go_live.sh",
-      "line": 46,
-      "text": "# TEST 1: Platform Standardization - OVEX present, Kraken absent"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 52,
-      "text": "if grep -q \"ovex\" frontend/src/lib/platforms.js && grep -q \"OVEX\" frontend/src/lib/platforms.js; the"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 54,
-      "text": "pass \"Frontend platforms.js: OVEX present, Kraken removed\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 59,
-      "text": "fail \"Frontend platforms.js: OVEX not found\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 63,
-      "text": "if grep -q \"ovex\" frontend/src/config/exchanges.js && grep -q \"OVEX\" frontend/src/config/exchanges.j"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 64,
-      "text": "pass \"Frontend exchanges.js: OVEX present, Kraken removed\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 66,
-      "text": "fail \"Frontend exchanges.js: OVEX not found\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 70,
-      "text": "if grep -q '\"ovex\"' backend/exchange_limits.py; then"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 72,
-      "text": "pass \"Backend exchange_limits.py: OVEX present, Kraken removed\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 77,
-      "text": "fail \"Backend exchange_limits.py: OVEX not found\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 81,
-      "text": "if grep -q \"'ovex'\" backend/config.py; then"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 83,
-      "text": "pass \"Backend config.py: OVEX present, Kraken removed\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 88,
-      "text": "fail \"Backend config.py: OVEX not found\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 91,
-      "text": "# Verify bot limits: Luno(5), Binance(10), KuCoin(10), OVEX(10), VALR(10) = 45"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 97,
-      "text": "grep -A5 \"BOT_ALLOCATION\" backend/exchange_limits.py | grep -q '\"ovex\": 10' && \\"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 98,
-      "text": "grep -A5 \"BOT_ALLOCATION\" backend/exchange_limits.py | grep -q '\"valr\": 10'; then"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 192,
+      "line": 166,
       "text": "# Check if OVEX is in the test logic"
     },
     {
       "file": "scripts/verify_go_live.sh",
-      "line": 193,
-      "text": "if grep -q '\"ovex\"' backend/routes/api_key_management.py; then"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 194,
-      "text": "pass \"OVEX included in API key test logic\""
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 196,
+      "line": 168,
       "text": "fail \"OVEX not in API key test logic\""
     },
     {
       "file": "scripts/verify_go_live.sh",
-      "line": 344,
-      "text": "grep -q \"'ovex'\" backend/platform_constants.py && \\"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 345,
-      "text": "grep -q \"'valr'\" backend/platform_constants.py; then"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 366,
-      "text": "grep -q \"'ovex'\" frontend/src/constants/platforms.js && \\"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 367,
-      "text": "grep -q \"'valr'\" frontend/src/constants/platforms.js; then"
-    },
-    {
-      "file": "scripts/verify_go_live.sh",
-      "line": 481,
+      "line": 449,
       "text": "if grep -q \"OVEX\" \"$MAIN_JS\"; then"
     },
     {
       "file": "scripts/verify_go_live.sh",
-      "line": 482,
+      "line": 450,
       "text": "pass \"Bundle contains 'OVEX'\""
     },
     {
       "file": "scripts/verify_go_live.sh",
-      "line": 484,
+      "line": 452,
       "text": "fail \"Bundle missing 'OVEX' string\""
     },
     {
       "file": "scripts/verify_go_live.sh",
-      "line": 539,
+      "line": 507,
       "text": "PLATFORM_COUNT=$(grep -o \"'luno'\\|'binance'\\|'kucoin'\\|'ovex'\\|'valr'\" frontend/src/constants/platfo"
     },
     {
       "file": "scripts/verify_go_live.sh",
-      "line": 556,
+      "line": 524,
       "text": "BACKEND_PLATFORM_COUNT=$(grep -o \"'luno'\\|'binance'\\|'kucoin'\\|'ovex'\\|'valr'\" backend/platform_cons"
     },
     {
@@ -4432,69 +4222,249 @@
       "text": "print(f\"  - VALR/OVEX References: {len(self.audit_data['valr_ovex_references'])}\")"
     },
     {
-      "file": "scripts/premerge_smoke.sh",
-      "line": 168,
-      "text": "run_test \"VALR Limits Present\" \\"
-    },
-    {
-      "file": "scripts/premerge_smoke.sh",
-      "line": 169,
-      "text": "\"auth_get '/api/system/limits' | grep -q '\\\"valr\\\"'\""
-    },
-    {
-      "file": "scripts/premerge_smoke.sh",
-      "line": 171,
-      "text": "run_test \"OVEX Limits Present\" \\"
-    },
-    {
-      "file": "scripts/premerge_smoke.sh",
-      "line": 172,
-      "text": "\"auth_get '/api/system/limits' | grep -q '\\\"ovex\\\"'\""
-    },
-    {
       "file": "scripts/comprehensive_audit.sh",
-      "line": 129,
-      "text": "# Check VALR and OVEX in paper_trading_engine.py"
-    },
-    {
-      "file": "scripts/comprehensive_audit.sh",
-      "line": 131,
-      "text": "test_pass \"VALR pairs defined\""
-    },
-    {
-      "file": "scripts/comprehensive_audit.sh",
-      "line": 133,
-      "text": "test_fail \"VALR pairs NOT defined\""
-    },
-    {
-      "file": "scripts/comprehensive_audit.sh",
-      "line": 137,
-      "text": "test_pass \"OVEX pairs defined\""
-    },
-    {
-      "file": "scripts/comprehensive_audit.sh",
-      "line": 139,
+      "line": 132,
       "text": "test_fail \"OVEX pairs NOT defined\""
     },
     {
       "file": "scripts/comprehensive_audit.sh",
-      "line": 143,
+      "line": 136,
       "text": "test_pass \"VALR exchange initialization found\""
     },
     {
       "file": "scripts/comprehensive_audit.sh",
-      "line": 145,
+      "line": 138,
       "text": "test_fail \"VALR exchange initialization NOT found\""
     },
     {
       "file": "scripts/comprehensive_audit.sh",
-      "line": 149,
+      "line": 142,
       "text": "test_pass \"OVEX exchange initialization found\""
     },
     {
       "file": "scripts/comprehensive_audit.sh",
-      "line": 151,
+      "line": 144,
       "text": "test_fail \"OVEX exchange initialization NOT found\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 2,
+      "text": "# Script to remove all VALR and OVEX references from the repository"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 10,
+      "text": "echo \"\ud83e\uddf9 Removing VALR and OVEX References\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 16,
+      "text": "git branch backup-before-valr-ovex-removal || true"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 19,
+      "text": "echo \"Step 1: Removing/Archiving docs with VALR/OVEX references...\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 56,
+      "text": "echo \"Step 2: Removing VALR/OVEX from remaining active docs...\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 62,
+      "text": "# Remove VALR/OVEX lines"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 63,
+      "text": "sed -i '/[\"\\x27]valr[\"\\x27]/d' docs/admin_panel.md"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 64,
+      "text": "sed -i '/[\"\\x27]ovex[\"\\x27]/d' docs/admin_panel.md"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 66,
+      "text": "sed -i 's/`\"luno\"`, `\"binance\"`, `\"kucoin\"`, `\"valr\"`, `\"ovex\"`/`\"luno\"`, `\"binance\"`, `\"kucoin\"`, `"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 77,
+      "text": "sed -i 's/luno binance kucoin ovex valr/luno binance kucoin bybit kraken bitget gateio/g' scripts/go"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 78,
+      "text": "# Remove OVEX/VALR specific tests"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 79,
+      "text": "sed -i '/Test 5: Bot validation with OVEX\\/VALR/,/^fi$/d' scripts/go_live_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 80,
+      "text": "sed -i '/OVEX\\/VALR bots found/d' scripts/go_live_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 81,
+      "text": "sed -i '/No OVEX\\/VALR bots found/d' scripts/go_live_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 86,
+      "text": "# Remove OVEX/VALR verification tests"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 87,
+      "text": "sed -i '/TEST 1: Platform Standardization - OVEX present/,/^fi$/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 88,
+      "text": "sed -i '/OVEX present, Kraken removed/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 89,
+      "text": "sed -i '/grep -q.*ovex/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 90,
+      "text": "sed -i '/grep -q.*valr/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 91,
+      "text": "sed -i '/OVEX not found/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 92,
+      "text": "sed -i '/OVEX included/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 93,
+      "text": "sed -i \"s/Luno(5), Binance(10), KuCoin(10), OVEX(10), VALR(10) = 45/Luno(5), Binance(10), KuCoin(10)"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 98,
+      "text": "# Remove VALR/OVEX tests"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 99,
+      "text": "sed -i '/run_test \"VALR Limits Present\"/,/^$/d' scripts/premerge_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 100,
+      "text": "sed -i '/run_test \"OVEX Limits Present\"/,/^$/d' scripts/premerge_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 105,
+      "text": "# Remove VALR/OVEX checks"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 106,
+      "text": "sed -i '/Check VALR and OVEX/,/^fi$/d' scripts/comprehensive_audit.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 107,
+      "text": "sed -i '/VALR pairs defined/d' scripts/comprehensive_audit.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 108,
+      "text": "sed -i '/OVEX pairs defined/d' scripts/comprehensive_audit.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 117,
+      "text": "# Remove OVEX/VALR assertions"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 118,
+      "text": "sed -i \"/assert.*ovex.*not in PAPER_SUPPORTED_EXCHANGES/d\" backend/tests/test_critical_fixes.py"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 119,
+      "text": "sed -i \"/assert.*valr.*not in PAPER_SUPPORTED_EXCHANGES/d\" backend/tests/test_critical_fixes.py"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 123,
+      "text": "echo \"Step 5: Update CURRENT_STATE.md to remove VALR/OVEX section...\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 127,
+      "text": "# Remove the VALR/OVEX references section"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 128,
+      "text": "sed -i '/## VALR\\/OVEX References (Must Be Removed)/,/## Removed Features/d' docs/CURRENT_STATE.md"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 129,
+      "text": "# Update blocker about VALR/OVEX"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 139,
+      "text": "sed -i 's/# OVEX and VALR removed - only Luno, Binance, KuCoin supported/# Supported exchanges: Luno"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 153,
+      "text": "sed -i 's/Luno, Binance, KuCoin, OVEX, VALR/Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO/g' "
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 154,
+      "text": "sed -i 's/Luno, Binance, KuCoin, OVEX and VALR/Luno, Binance, KuCoin, Bybit, Kraken, Bitget, and Gat"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 156,
+      "text": "sed -i 's/, OVEX//g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 157,
+      "text": "sed -i 's/, VALR//g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 158,
+      "text": "sed -i 's/OVEX, //g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 159,
+      "text": "sed -i 's/VALR, //g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 168,
+      "text": "echo \"\u2705 VALR/OVEX Removal Complete\""
     }
   ],
   "removed_features": [

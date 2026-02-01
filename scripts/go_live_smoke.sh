@@ -100,7 +100,7 @@ if [ "$platforms_http_code" = "200" ]; then
         pass "Platform registry returns 5 platforms"
         
         # Check for each platform
-        for platform in luno binance kucoin ovex valr; do
+        for platform in luno binance kucoin bybit kraken bitget gateio; do
             if echo "$platforms_body" | grep -q "\"id\":\"$platform\""; then
                 echo "  ✓ $platform found"
             else
@@ -146,19 +146,6 @@ else
     fail "Overview request failed (HTTP $overview_http_code)"
 fi
 
-# Test 5: Bot validation with OVEX/VALR
-echo ""
-echo "Test 5: Bot Exchange Validation"
-# This test verifies that ovex and valr are accepted platforms
-# We won't actually create bots, just check validation
-
-# Get list of bots to verify system accepts all platforms
-bots_response=$(curl -s "$API_BASE/api/bots" -H "Authorization: Bearer $TOKEN")
-if echo "$bots_response" | grep -q "ovex\|valr"; then
-    pass "OVEX/VALR bots found in system"
-else
-    warn "No OVEX/VALR bots found (this is OK if none created yet)"
-fi
 
 # Test 6: API keys endpoint
 echo ""

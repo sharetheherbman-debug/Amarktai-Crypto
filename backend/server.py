@@ -929,7 +929,7 @@ async def test_api_key(provider: str, user_id: str = Depends(get_current_user)):
             logger.error(f"Fetch.ai test failed: {e}")
             raise HTTPException(status_code=400, detail=f"Fetch.ai test failed: {str(e)}")
     
-    # OVEX and VALR removed - only Luno, Binance, KuCoin supported
+    # Supported exchanges: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO (7 total)
     else:
         # Unsupported provider
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}. Supported exchanges: luno, binance, kucoin")

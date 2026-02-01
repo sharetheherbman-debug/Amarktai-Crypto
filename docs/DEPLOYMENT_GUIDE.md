@@ -166,7 +166,7 @@ curl https://your-domain.com/api/system/ping
 # Platform status
 curl -H "Authorization: Bearer <token>" \
   https://your-domain.com/api/platforms/health
-# Expected: Status for all 5 platforms
+# Expected: Status for all 7 exchanges
 
 # WebSocket test
 wscat -c wss://your-domain.com/api/ws?token=<jwt-token>
@@ -408,7 +408,7 @@ upstream backend {
 
 ### Current Capacity
 - Supports: 100+ concurrent users
-- Bots: 45 per user (5 Luno + 10 Binance + 10 KuCoin + 10 OVEX + 10 VALR)
+- Bots: 65 per user (5 Luno + 10 Binance + 10 KuCoin + 10 Bybit + 10 Kraken + 10 Bitget + 10 GateIO)
 - Trades: Unlimited (indexed, performant)
 - WebSocket: 1000+ concurrent connections
 

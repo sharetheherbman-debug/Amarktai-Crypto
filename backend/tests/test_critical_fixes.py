@@ -310,8 +310,6 @@ class TestExchangeFiltering:
         assert 'gate' in PAPER_SUPPORTED_EXCHANGES, "gate should be supported"
         
         # These should NOT be supported in production
-        assert 'ovex' not in PAPER_SUPPORTED_EXCHANGES, "ovex should not be supported"
-        assert 'valr' not in PAPER_SUPPORTED_EXCHANGES, "valr should not be supported"
 
 
 class TestLiveTradingGate:

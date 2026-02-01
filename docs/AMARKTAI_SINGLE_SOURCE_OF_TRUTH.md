@@ -89,7 +89,6 @@ This document is the **authoritative reference** for Amarktai Network deployment
 - **Binance** (International)
 - **KuCoin** (International)
 
-❌ **REMOVED:** OVEX, VALR (not supported)
 
 ### Bot Distribution
 

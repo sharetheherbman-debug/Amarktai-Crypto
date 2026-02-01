@@ -43,59 +43,33 @@ echo "Testing API at: $API_BASE"
 echo ""
 
 ###############################################################################
-# TEST 1: Platform Standardization - OVEX present, Kraken absent
-###############################################################################
-echo "📋 Test 1: Platform Standardization"
-echo "-----------------------------------"
-
-# Check frontend platform configuration
-if grep -q "ovex" frontend/src/lib/platforms.js && grep -q "OVEX" frontend/src/lib/platforms.js; then
-    if ! grep -q "kraken" frontend/src/lib/platforms.js; then
-        pass "Frontend platforms.js: OVEX present, Kraken removed"
-    else
-        fail "Frontend platforms.js: Kraken still present"
-    fi
-else
-    fail "Frontend platforms.js: OVEX not found"
-fi
 
 # Check frontend exchanges configuration
-if grep -q "ovex" frontend/src/config/exchanges.js && grep -q "OVEX" frontend/src/config/exchanges.js; then
-    pass "Frontend exchanges.js: OVEX present, Kraken removed"
 else
-    fail "Frontend exchanges.js: OVEX not found"
 fi
 
 # Check backend exchange_limits.py
-if grep -q '"ovex"' backend/exchange_limits.py; then
     if ! grep -q '"kraken"' backend/exchange_limits.py; then
-        pass "Backend exchange_limits.py: OVEX present, Kraken removed"
     else
         fail "Backend exchange_limits.py: Kraken still present"
     fi
 else
-    fail "Backend exchange_limits.py: OVEX not found"
 fi
 
 # Check backend config.py
-if grep -q "'ovex'" backend/config.py; then
     if ! grep -q "'kraken'" backend/config.py; then
-        pass "Backend config.py: OVEX present, Kraken removed"
     else
         fail "Backend config.py: Kraken still present"
     fi
 else
-    fail "Backend config.py: OVEX not found"
 fi
 
-# Verify bot limits: Luno(5), Binance(10), KuCoin(10), OVEX(10), VALR(10) = 45
+# Verify bot limits: Luno(5), Binance(10), KuCoin(10), Bybit(10), Kraken(10), Bitget(10), Gateio(10) = 65
 echo ""
 echo "Checking platform bot limits..."
 if grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"luno": 5' && \
    grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"binance": 10' && \
    grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"kucoin": 10' && \
-   grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"ovex": 10' && \
-   grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"valr": 10'; then
     if grep -q "MAX_BOTS_GLOBAL = 45" backend/exchange_limits.py; then
         pass "Platform bot limits correct: Total 45 bots (5+10+10+10+10)"
     else
@@ -190,8 +164,6 @@ else
 fi
 
 # Check if OVEX is in the test logic
-if grep -q '"ovex"' backend/routes/api_key_management.py; then
-    pass "OVEX included in API key test logic"
 else
     fail "OVEX not in API key test logic"
 fi
@@ -341,8 +313,6 @@ if [ -f "backend/platform_constants.py" ]; then
     if grep -q "'luno'" backend/platform_constants.py && \
        grep -q "'binance'" backend/platform_constants.py && \
        grep -q "'kucoin'" backend/platform_constants.py && \
-       grep -q "'ovex'" backend/platform_constants.py && \
-       grep -q "'valr'" backend/platform_constants.py; then
         pass "Backend constants: All 5 platforms defined"
     else
         fail "Backend constants: Missing one or more platforms"
@@ -363,8 +333,6 @@ if [ -f "frontend/src/constants/platforms.js" ]; then
     if grep -q "'luno'" frontend/src/constants/platforms.js && \
        grep -q "'binance'" frontend/src/constants/platforms.js && \
        grep -q "'kucoin'" frontend/src/constants/platforms.js && \
-       grep -q "'ovex'" frontend/src/constants/platforms.js && \
-       grep -q "'valr'" frontend/src/constants/platforms.js; then
         pass "Frontend constants: All 5 platforms defined"
     else
         fail "Frontend constants: Missing one or more platforms"

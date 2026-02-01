@@ -97,8 +97,6 @@ Authorization: Bearer {admin_token}
         "luno": true,
         "binance": true,
         "kucoin": false,
-        "valr": false,
-        "ovex": false
       },
       "bots_summary": {
         "total": 5,
@@ -444,7 +442,6 @@ Authorization: Bearer {admin_token}
 }
 ```
 
-**Allowed Values:** `"luno"`, `"binance"`, `"kucoin"`, `"valr"`, `"ovex"`
 
 **Response:**
 ```json
