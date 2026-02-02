@@ -2970,8 +2970,8 @@ routers_to_mount = [
     ("routes.compatibility_endpoints", "Compatibility"),
     # REMOVED: routes.bots - duplicate of bot_lifecycle
     ("routes.chat_endpoints", "Chat Message Endpoint"),  # Frontend compatibility
-    ("routes.wallet_transfers", "Wallet Transfers"),  # Fund movement between providers (legacy)
-    ("routes.wallet_transfers_enhanced", "Wallet Transfers Enhanced"),  # Production-safe state machine
+    # REMOVED: routes.wallet_transfers - duplicate of wallet_transfers_enhanced (GET /api/wallet/transfers collision)
+    ("routes.wallet_transfers_enhanced", "Wallet Transfers Enhanced"),  # Production-safe state machine (canonical)
     ("routes.wallet_addresses", "Wallet Addresses"),  # Withdrawal address whitelist management
     ("routes.admin_whitelist", "Admin Whitelist Management"),  # Admin whitelist CRUD
     ("routes.user_whitelist", "User Whitelist Management"),  # User whitelist requests

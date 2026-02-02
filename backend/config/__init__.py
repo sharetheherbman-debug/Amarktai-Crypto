@@ -129,7 +129,9 @@ REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 't
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'
 
 # Supported Exchanges for Paper Trading
-PAPER_SUPPORTED_EXCHANGES = {'luno', 'binance', 'kucoin', 'bybit', 'bitget'}
+# Import from canonical source: backend/config/platforms.py
+from config.platforms import SUPPORTED_PLATFORMS
+PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 7 exchanges supported
 
 __all__ = [
     'PAPER_TRAINING_DAYS', 'MIN_WIN_RATE', 'MIN_PROFIT_PERCENT', 'MIN_TRADES_FOR_PROMOTION',

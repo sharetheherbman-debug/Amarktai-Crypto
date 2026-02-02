@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Verify Platform CCXT Support
-Checks that all 5 supported platforms are available in CCXT (both sync and async)
-Exits with non-zero status if any platform is missing or unavailable
+Checks that all 7 supported exchanges are available in CCXT (both sync and async)
+Exits with non-zero status if any exchange is missing or unavailable
 """
 
 import sys
@@ -12,12 +12,15 @@ import asyncio
 
 
 # Expected platforms from backend/config/platforms.py
+# Note: gate.io uses 'gateio' in CCXT, but we use 'gate' as our platform ID
 REQUIRED_PLATFORMS = {
     'luno': 'luno',
     'binance': 'binance',
     'kucoin': 'kucoin',
     'bybit': 'bybit',
+    'kraken': 'kraken',
     'bitget': 'bitget',
+    'gate': 'gateio',  # gate.io uses 'gateio' in CCXT
 }
 
 
@@ -77,7 +80,7 @@ def main():
     print("=" * 60)
     print("Platform CCXT Support Verification")
     print("=" * 60)
-    print(f"\nVerifying {len(REQUIRED_PLATFORMS)} required platforms:")
+    print(f"\nVerifying {len(REQUIRED_PLATFORMS)} required exchanges:")
     for platform, ccxt_id in REQUIRED_PLATFORMS.items():
         print(f"  - {platform}: {ccxt_id}")
     print()
@@ -104,7 +107,7 @@ def main():
     else:
         print("✅ VERIFICATION PASSED")
         print("=" * 60)
-        print("\nAll platforms are supported in both sync and async CCXT modes.")
+        print("\nAll 7 exchanges are supported in both sync and async CCXT modes.")
         print("Ready for deployment!")
         sys.exit(0)
 

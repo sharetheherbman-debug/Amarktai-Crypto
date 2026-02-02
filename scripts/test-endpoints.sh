@@ -148,7 +148,7 @@ main() {
     
     # Test 3: System Endpoints
     print_section "System Endpoints"
-    test_endpoint "GET" "/system/platforms" "200" "Get all platforms (must return 5)"
+    test_endpoint "GET" "/system/platforms" "200" "Get all platforms (must return 7 exchanges)"
     test_endpoint "GET" "/system/mode" "200" "Get system mode"
     test_endpoint "GET" "/system/health" "200" "Get system health"
     

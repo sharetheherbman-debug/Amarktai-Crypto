@@ -345,11 +345,12 @@ async def create_transfer_manual(
         if from_exchange == to_exchange:
             raise HTTPException(status_code=400, detail="Cannot transfer to same exchange")
         
-        supported_exchanges = ['luno', 'binance', 'kucoin']
-        if from_exchange not in supported_exchanges or to_exchange not in supported_exchanges:
+        # Import supported exchanges from canonical source
+        from config.platforms import SUPPORTED_PLATFORMS
+        if from_exchange not in SUPPORTED_PLATFORMS or to_exchange not in SUPPORTED_PLATFORMS:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Unsupported exchange. Supported: {', '.join(supported_exchanges)}"
+                detail=f"Unsupported exchange. Supported: {', '.join(SUPPORTED_PLATFORMS)}"
             )
         
         # Get current balances

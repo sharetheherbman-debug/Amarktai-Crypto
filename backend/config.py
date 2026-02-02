@@ -61,7 +61,9 @@ REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 't
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'  # Must have exchange API keys
 
 # Supported Exchanges for Paper Trading (PRODUCTION)
-PAPER_SUPPORTED_EXCHANGES = {'luno', 'binance', 'kucoin'}  # Only these exchanges in paper loop
+# Import from canonical source: backend/config/platforms.py
+from config.platforms import SUPPORTED_PLATFORMS
+PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 7 exchanges supported for paper trading
 
 # Safe mode: All trading disabled by default
 # Enable gradually:
