@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Amarktai Network Paper Trading Engine provides **95% realistic simulation** of live trading conditions, enabling bots to develop and prove their strategies without risking real capital. The engine uses actual market data from supported exchanges (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO) and simulates realistic fees, slippage, order failures, and execution delays.
+The Amarktai Network Paper Trading Engine provides **95% realistic simulation** of live trading conditions, enabling bots to develop and prove their strategies without risking real capital. The engine uses actual market data from supported exchanges (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io) and simulates realistic fees, slippage, order failures, and execution delays.
 
 ### Key Features
 
@@ -64,7 +64,7 @@ Realistic exchange fees are applied to every simulated trade:
 | **Bybit** | 0.1% | 0.1% | Standard spot trading |
 | **Kraken** | 0.16% | 0.26% | USD pairs |
 | **Bitget** | 0.1% | 0.1% | Standard spot trading |
-| **GateIO** | 0.2% | 0.2% | Gate.io exchange |
+| **Gate.io** | 0.2% | 0.2% | Gate.io exchange |
 
 ### Fee Calculation Example
 

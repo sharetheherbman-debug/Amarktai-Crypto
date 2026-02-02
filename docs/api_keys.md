@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Amarktai Network securely manages API keys for multiple service providers including AI services (OpenAI) and cryptocurrency exchanges (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO).
+The Amarktai Network securely manages API keys for multiple service providers including AI services (OpenAI) and cryptocurrency exchanges (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io).
 
 ## Supported Providers
 

@@ -256,7 +256,7 @@ All critical remaining work has been successfully completed. The repository is n
 ### Known Issues (Minor)
 
 **None Critical:**
-- Some archive files still reference VALR/OVEX (documentation only)
+- Some archive files still reference VALR (documentation only)
 - Test environment missing motor/pydantic (expected)
 - Some frontend components could use additional error boundaries
 

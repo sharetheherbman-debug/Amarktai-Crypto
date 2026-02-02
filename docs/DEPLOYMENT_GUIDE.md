@@ -4,7 +4,7 @@
 
 ### Backend Verification
 - [ ] MongoDB connection string configured in environment
-- [ ] All 5 platform API credentials configured (optional for paper trading)
+- [ ] All 7 exchange API credentials configured (optional for paper trading)
 - [ ] JWT_SECRET set to strong random value
 - [ ] CORS origins configured for production domain
 - [ ] Log directory exists and writable
@@ -166,7 +166,7 @@ curl https://your-domain.com/api/system/ping
 # Platform status
 curl -H "Authorization: Bearer <token>" \
   https://your-domain.com/api/platforms/health
-# Expected: Status for all 7 exchanges
+# Expected: Status for all 7 exchanges (luno, binance, kucoin, bybit, kraken, bitget, gate.io)
 
 # WebSocket test
 wscat -c wss://your-domain.com/api/ws?token=<jwt-token>
@@ -408,7 +408,7 @@ upstream backend {
 
 ### Current Capacity
 - Supports: 100+ concurrent users
-- Bots: 65 per user (5 Luno + 10 Binance + 10 KuCoin + 10 Bybit + 10 Kraken + 10 Bitget + 10 GateIO)
+- Bots: 65 per user (5 Luno + 10 Binance + 10 KuCoin + 10 Bybit + 10 Kraken + 10 Bitget + 10 Gate.io)
 - Trades: Unlimited (indexed, performant)
 - WebSocket: 1000+ concurrent connections
 

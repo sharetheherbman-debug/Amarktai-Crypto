@@ -614,8 +614,8 @@ sudo journalctl -u amarktai-api.service | grep "spawn_bot"
 
 **Common errors:**
 - `PROFIT_INSUFFICIENT`: Not enough realized profit (need >= 1000 ZAR)
-- `BOT_LIMIT_REACHED`: Already at maximum 45 bots
-- `EXCHANGE_LIMIT_REACHED`: All exchanges at capacity (15/15)
+- `BOT_LIMIT_REACHED`: Already at maximum 65 bots
+- `EXCHANGE_LIMIT_REACHED`: All exchanges at capacity
 - `NO_EXCHANGES`: No exchange API keys configured
 
 **Solutions:**

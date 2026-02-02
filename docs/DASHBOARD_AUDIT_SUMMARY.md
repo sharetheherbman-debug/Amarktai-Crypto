@@ -53,7 +53,7 @@
 
 ### Required (2):
 - ✅ **OPENAI_API_KEY** - Powers AI features (backend .env)
-- ✅ **Exchange APIs** - Live trading (user-provided, 5 exchanges)
+- ✅ **Exchange APIs** - Live trading (user-provided, 7 exchanges)
 
 ### Optional (2):
 - ⚠️ **FETCHAI_API_KEY** - Supplementary market data (minimal value)

@@ -215,7 +215,7 @@ sudo ufw status
 - [ ] Service is running: `sudo systemctl status amarktai-api`
 - [ ] Smoke tests pass: `bash tools/smoke_test.sh`
 - [ ] Health endpoint responds: `curl http://localhost:8000/api/health/ping`
-- [ ] Platform registry returns 5 platforms: `curl http://localhost:8000/api/platforms`
+- [ ] Platform registry returns 7 exchanges: `curl http://localhost:8000/api/platforms`
 - [ ] .env configured with secure secrets
 - [ ] MongoDB password saved securely
 - [ ] First admin user created
