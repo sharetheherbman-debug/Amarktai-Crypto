@@ -36,6 +36,8 @@ class BotManager:
     async def create_bot(self, user_id: str, name: str, exchange: str, risk_mode: str = 'safe', capital: float = None) -> dict:
         """Create a new bot with all validations"""
         try:
+            from services.reserved_funds_service import reserved_funds_service
+            
             # Check limits
             can_create, message = await self.can_create_bot(user_id, exchange)
             if not can_create:
@@ -44,6 +46,17 @@ class BotManager:
             # Validate capital
             if capital is None:
                 capital = NEW_BOT_CAPITAL
+            
+            # Check available funds (includes reserved funds)
+            has_funds, available = await reserved_funds_service.check_available_funds(
+                user_id, exchange, "ZAR", capital
+            )
+            
+            if not has_funds:
+                return {
+                    "success": False, 
+                    "message": f"❌ Insufficient available funds. Available: R{available:.2f}, Required: R{capital:.2f}"
+                }
             
             # Validate bot funding (capital allocation integrity)
             is_valid, error_code, error_msg = await capital_validator.validate_bot_funding(
@@ -87,13 +100,24 @@ class BotManager:
             
             await db.bots_collection.insert_one(bot)
             
+            # Reserve funds atomically
+            reserve_success, reserve_msg = await reserved_funds_service.reserve_funds(
+                user_id, exchange.lower(), "ZAR", capital, bot_id
+            )
+            
+            if not reserve_success:
+                # Rollback: delete bot if reservation failed
+                await db.bots_collection.delete_one({"id": bot_id})
+                return {"success": False, "message": f"❌ Failed to reserve funds: {reserve_msg}"}
+            
             # Atomically allocate capital to this bot
             success, alloc_msg = await capital_validator.allocate_capital_to_bot(
                 user_id, bot_id, capital
             )
             if not success:
-                # Rollback: delete bot if allocation failed
+                # Rollback: delete bot and release reserved funds
                 await db.bots_collection.delete_one({"id": bot_id})
+                await reserved_funds_service.release_funds(user_id, exchange.lower(), "ZAR", capital, bot_id)
                 return {"success": False, "message": f"❌ Capital allocation failed: {alloc_msg}"}
             
             logger.info(f"✅ Created bot: {name} on {exchange} for user {user_id[:8]} with R{capital:,.2f} allocated")
@@ -114,6 +138,8 @@ class BotManager:
     async def delete_bot(self, user_id: str, bot_id: str = None, bot_name: str = None) -> dict:
         """Delete a bot"""
         try:
+            from services.reserved_funds_service import reserved_funds_service
+            
             query = {"user_id": user_id}
             if bot_id:
                 query["id"] = bot_id
@@ -131,6 +157,18 @@ class BotManager:
             bot_id_to_release = bot.get("id")
             if bot_id_to_release:
                 await capital_validator.release_capital_from_bot(user_id, bot_id_to_release)
+            
+            # Release reserved funds
+            exchange = bot.get("exchange", "unknown")
+            allocated_capital = bot.get("allocated_capital", bot.get("current_capital", 0))
+            
+            if allocated_capital > 0:
+                release_success, release_msg = await reserved_funds_service.release_funds(
+                    user_id, exchange, "ZAR", allocated_capital, bot_id_to_release
+                )
+                
+                if not release_success:
+                    logger.warning(f"Failed to release reserved funds: {release_msg}")
             
             # Delete bot
             result = await db.bots_collection.delete_one(query)
