@@ -235,6 +235,68 @@ else
 fi
 echo ""
 
+# 11. Check wallet services
+echo "11. Checking wallet services..."
+WALLET_SERVICES=("backend/services/reserved_funds_service.py" "backend/services/balance_sync_service.py" "backend/services/transfer_state_machine.py" "backend/services/email_service.py")
+
+for service in "${WALLET_SERVICES[@]}"; do
+    if [ -f "$service" ]; then
+        echo -e "${GREEN}✓${NC} $service exists"
+        
+        # Check if it compiles
+        if python3 -m py_compile "$service" 2>/dev/null; then
+            echo -e "${GREEN}✓${NC} $service compiles"
+        else
+            echo -e "${RED}✗${NC} $service has syntax errors"
+            ((ERRORS++))
+        fi
+    else
+        echo -e "${RED}✗${NC} $service missing"
+        ((ERRORS++))
+    fi
+done
+
+# Check wallet config vars
+if [ -f ".env" ]; then
+    source .env
+    
+    # Check REQUIRE_2FA_FOR_WITHDRAWALS
+    if [ ! -z "$REQUIRE_2FA_FOR_WITHDRAWALS" ]; then
+        echo -e "${GREEN}✓${NC} REQUIRE_2FA_FOR_WITHDRAWALS is set: $REQUIRE_2FA_FOR_WITHDRAWALS"
+    else
+        echo -e "${YELLOW}⚠${NC}  REQUIRE_2FA_FOR_WITHDRAWALS not set (will use default)"
+        ((WARNINGS++))
+    fi
+    
+    # Check WALLET_MAX_TRANSFER_ZAR_PER_TX
+    if [ ! -z "$WALLET_MAX_TRANSFER_ZAR_PER_TX" ]; then
+        echo -e "${GREEN}✓${NC} WALLET_MAX_TRANSFER_ZAR_PER_TX is set: $WALLET_MAX_TRANSFER_ZAR_PER_TX"
+    else
+        echo -e "${YELLOW}⚠${NC}  WALLET_MAX_TRANSFER_ZAR_PER_TX not set (will use default)"
+        ((WARNINGS++))
+    fi
+    
+    # Check WALLET_MAX_TRANSFER_ZAR_PER_DAY
+    if [ ! -z "$WALLET_MAX_TRANSFER_ZAR_PER_DAY" ]; then
+        echo -e "${GREEN}✓${NC} WALLET_MAX_TRANSFER_ZAR_PER_DAY is set: $WALLET_MAX_TRANSFER_ZAR_PER_DAY"
+    else
+        echo -e "${YELLOW}⚠${NC}  WALLET_MAX_TRANSFER_ZAR_PER_DAY not set (will use default)"
+        ((WARNINGS++))
+    fi
+    
+    # Check MIN_RESERVE_PER_EXCHANGE_ZAR
+    if [ ! -z "$MIN_RESERVE_PER_EXCHANGE_ZAR" ]; then
+        echo -e "${GREEN}✓${NC} MIN_RESERVE_PER_EXCHANGE_ZAR is set: $MIN_RESERVE_PER_EXCHANGE_ZAR"
+    else
+        echo -e "${YELLOW}⚠${NC}  MIN_RESERVE_PER_EXCHANGE_ZAR not set (will use default)"
+        ((WARNINGS++))
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  Skipping wallet config check (.env not found)"
+    ((WARNINGS++))
+fi
+echo ""
+
 # Summary
 echo "========================================="
 echo "Preflight Check Summary"

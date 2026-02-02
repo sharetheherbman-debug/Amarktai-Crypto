@@ -9,11 +9,14 @@ Last Updated: 2026-01-28
 ## 🚀 CORE TRADING FEATURES
 
 ### 1. Multi-Exchange Support (REAL-TIME)
-- ✅ **Luno** - Full API integration, live pricing, order execution
-- ✅ **Binance** - Complete support, spot trading, real-time data
-- ✅ **KuCoin** - Full integration, live market data
-- ✅ **Bybit, Kraken, Bitget, GateIO** - Additional exchange support
-- **Status:** All 5 exchanges operational with real-time WebSocket connections
+- ✅ **Luno** - Full API integration, live pricing, order execution (5 bots max)
+- ✅ **Binance** - Complete support, spot trading, real-time data (10 bots max)
+- ✅ **KuCoin** - Full integration, live market data (10 bots max)
+- ✅ **Bybit** - Derivatives and spot trading (10 bots max)
+- ✅ **Kraken** - Regulated US-based exchange (10 bots max)
+- ✅ **Bitget** - Global crypto and derivatives (10 bots max)
+- ✅ **Gate.io** - Wide altcoin selection (10 bots max)
+- **Status:** All 7 exchanges operational with real-time WebSocket connections
 
 ### 2. Paper Trading (REAL-TIME)
 - ✅ Realistic fee simulation (0.1% Binance/KuCoin, 0%/0.1% Luno maker/taker)
@@ -41,7 +44,7 @@ Last Updated: 2026-01-28
 - ✅ Live trading bay (24h training period for live bots)
 - ✅ Quarantine system for underperforming bots
 - ✅ Bot DNA evolution and genetic algorithms
-- ✅ Max bot capacity enforcement (45 total: 5+10+10+10+10)
+- ✅ Max bot capacity enforcement (65 total: 5+10+10+10+10+10+10)
 - **Status:** All CRUD operations working, real-time status updates
 
 ---

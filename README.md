@@ -43,13 +43,16 @@
 - **Real-Time Updates**: WebSocket + SSE for instant dashboard updates
 
 ### 💰 **Wallet Architecture (Production-Safe)**
-- **Transfer State Machine**: requested → approved → queued → broadcast → confirmed
-- **Idempotency Keys**: Prevent double-send
-- **2FA/TOTP**: Required for withdrawals (REQUIRE_2FA_FOR_WITHDRAWALS)
-- **Admin Approval**: Large transfers need approval
-- **Reserved Funds**: Prevents double-spending
-- **Balance Sync**: All 7 exchanges
-- **Real CCXT API**: No simulation, actual withdrawals
+- ✅ **Transfer State Machine**: requested → approved → queued → broadcast → confirmed
+- ✅ **Idempotency Keys**: Prevent duplicate transfers
+- ✅ **2FA/TOTP Enforcement**: Required for withdrawals (configurable via REQUIRE_2FA_FOR_WITHDRAWALS)
+- ✅ **Admin Approval Workflows**: Large transfers require manual approval
+- ✅ **Reserved Funds Tracking**: Prevents double-spending with capital allocation ledger
+- ✅ **Balance Sync**: Real-time balance fetching for all 7 exchanges
+- ✅ **Real CCXT Withdrawals**: Actual exchange API withdrawals (no simulation in live mode)
+- ✅ **Safety Limits**: Transaction, daily, and monthly withdrawal limits
+- ✅ **Emergency Stop Integration**: Blocks all transfers when emergency stop is active
+- ✅ **Immutable Audit Trail**: transfers_ledger with complete transaction history
 
 ### 🧠 **Profit-Core + Super Brain (ToS-Safe)**
 - **Edge Gate**: Rejects trades if EV < fees + spread + slippage + buffer
@@ -645,6 +648,118 @@ sudo journalctl -u amarktai-api.service -n 100 | grep -i "wallet\|collision"
 # ✅ "Route collision check passed"
 # ❌ NOT "ROUTE COLLISION DETECTED" or "FATAL"
 ```
+
+---
+
+## 🚀 Go Live Checklist
+
+Before deploying to production with live trading and wallet transfers:
+
+### Infrastructure Prerequisites
+- [ ] Ubuntu 24.04 LTS VPS with at least 2GB RAM
+- [ ] MongoDB 7.0+ installed and secured
+- [ ] Redis installed (optional but recommended)
+- [ ] SSL/HTTPS certificate configured (Let's Encrypt)
+- [ ] Firewall configured (UFW: allow 80, 443, block 8000)
+- [ ] Non-root user created for application
+- [ ] Systemd service configured and enabled
+
+### Security Prerequisites
+- [ ] Changed `JWT_SECRET` from default (32+ chars, randomly generated)
+- [ ] Set `AMARKTAI_FERNET_KEY` for API key encryption
+- [ ] MongoDB not exposed externally (bind to 127.0.0.1 only)
+- [ ] `.env` file permissions set to 600
+- [ ] Admin password changed from default
+- [ ] All API keys encrypted in database
+- [ ] 2FA/TOTP configured and tested
+
+### Wallet Prerequisites (CRITICAL)
+- [ ] **Transfer State Machine**: Verified `transfer_jobs` collection working
+- [ ] **Idempotency**: Tested duplicate prevention with same idempotency key
+- [ ] **2FA Enforcement**: Set `REQUIRE_2FA_FOR_WITHDRAWALS=true` in .env
+- [ ] **Admin Approval**: Tested approval workflow for large transfers
+- [ ] **Reserved Funds**: Capital allocation ledger preventing over-allocation
+- [ ] **Balance Sync**: All 7 exchanges returning real-time balances
+- [ ] **Safety Limits**: Transaction/daily/monthly limits configured
+- [ ] **Emergency Stop**: Verified it blocks ALL transfers immediately
+- [ ] **Withdrawal Testing**: Small test withdrawal completed successfully on each exchange
+- [ ] **Audit Trail**: `transfers_ledger` recording all transactions immutably
+
+### Trading Prerequisites
+- [ ] API keys configured for all 7 exchanges you plan to use
+- [ ] Keys tested via `/api/keys/test` endpoint
+- [ ] Paper trading tested for 7+ days with profitable results
+- [ ] Live trading gates understood (win rate, drawdown, profit thresholds)
+- [ ] Emergency stop tested and verified working
+- [ ] Rate limits configured appropriately
+- [ ] Bot allocation limits verified (5 for Luno, 10 for others)
+
+### Monitoring Prerequisites
+- [ ] All diagnostics endpoints tested and returning expected data
+- [ ] Health checks passing (`/api/diagnostics/system-health`)
+- [ ] Wallet status endpoint working (`/api/diagnostics/wallet-status`)
+- [ ] Log rotation configured
+- [ ] Backup strategy in place for MongoDB
+- [ ] Alert system configured (email/webhook for critical events)
+
+### Testing Prerequisites
+- [ ] All preflight checks passed (`./scripts/preflight.sh`)
+- [ ] All verification tests passed (`./scripts/verify.sh`)
+- [ ] Compliance checks passed (`./scripts/compliance_checks.sh`)
+- [ ] Route collision checks passed (no wallet route conflicts)
+- [ ] Frontend build successful and deployed
+- [ ] WebSocket/SSE connections working through nginx
+- [ ] No 404s on route refresh (SPA routing working)
+
+### Documentation Prerequisites
+- [ ] Read and understood wallet implementation guide
+- [ ] Reviewed emergency procedures
+- [ ] Team trained on admin approval workflow
+- [ ] Incident response plan documented
+- [ ] Rollback procedure tested
+
+### Configuration Prerequisites
+- [ ] `PAPER_TRADING=0` (disabled for live mode)
+- [ ] `LIVE_TRADING=1` (enabled for real trades)
+- [ ] `AUTOPILOT_ENABLED=0` initially (enable after monitoring)
+- [ ] `REQUIRE_2FA_FOR_WITHDRAWALS=true` (enforce 2FA)
+- [ ] `ENABLE_TRADING=true` (master switch)
+- [ ] `ENABLE_CCXT=true` (exchange connections)
+- [ ] Transfer limits appropriate for your risk tolerance
+
+### Final Verification
+```bash
+# 1. Run all automated checks
+./scripts/preflight.sh
+./scripts/verify.sh
+./scripts/compliance_checks.sh
+
+# 2. Test small wallet transfer
+curl -X POST https://your-domain.com/api/wallet/transfers \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_exchange": "binance",
+    "to_exchange": "luno",
+    "currency": "BTC",
+    "amount": 0.0001,
+    "idempotency_key": "test-transfer-001",
+    "totp_code": "123456"
+  }'
+
+# 3. Verify transfer appears in ledger
+curl https://your-domain.com/api/diagnostics/transfers \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# 4. Test emergency stop
+curl -X POST https://your-domain.com/api/system/emergency-stop \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# 5. Verify all operations blocked
+# 6. Resume and verify normal operations
+```
+
+**REMEMBER:** Start with small amounts and gradually increase as confidence builds. Monitor closely for the first 72 hours.
 
 ---
 

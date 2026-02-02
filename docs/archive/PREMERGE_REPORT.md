@@ -1,3 +1,14 @@
+> **⚠️ ARCHIVED DOCUMENT - NOT USED IN CURRENT RELEASE**
+>
+> This document is archived for historical reference only. It may contain outdated information, including references to VALR and OVEX exchanges which are NO LONGER supported.
+>
+> **Current Platform List**: luno, binance, kucoin, bybit, kraken, bitget, gate (7 exchanges)
+>
+> For current documentation, see the main docs/ folder and README.md.
+
+---
+
+
 # Pre-Merge Verification Report
 
 **Date**: 2026-01-29

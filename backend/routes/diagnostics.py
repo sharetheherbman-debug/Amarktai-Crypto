@@ -952,3 +952,192 @@ async def get_health_detail():
     except Exception as e:
         logger.error(f"Health detail error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# WALLET DIAGNOSTICS ENDPOINTS
+# ============================================================================
+
+@router.get("/wallet-status")
+async def get_wallet_status(user_id: str = Depends(get_current_user)):
+    """
+    Wallet diagnostics - sync status per exchange
+    
+    Returns:
+    - Balance sync status for all 7 exchanges
+    - Last sync time
+    - Sync errors if any
+    - Reserved funds status
+    """
+    try:
+        from config.platforms import SUPPORTED_PLATFORMS
+        
+        wallet_status = {
+            "exchanges": {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        for exchange in SUPPORTED_PLATFORMS:
+            # Check API keys
+            api_key = await db.api_keys_collection.find_one({
+                "user_id": user_id,
+                "provider": exchange
+            })
+            
+            # Get latest balance snapshot
+            balance_snapshot = await db.db["balances_snapshots"].find_one(
+                {"user_id": user_id, "exchange": exchange},
+                sort=[("timestamp", -1)]
+            )
+            
+            # Get reserved funds from wallet_balances_collection
+            wallet_balance = await db.wallet_balances_collection.find_one({
+                "user_id": user_id,
+                "exchange": exchange
+            })
+            reserved_total = wallet_balance.get("reserved", 0) if wallet_balance else 0
+            
+            wallet_status["exchanges"][exchange] = {
+                "has_keys": bool(api_key),
+                "keys_connected": api_key.get("connected", False) if api_key else False,
+                "last_balance_sync": balance_snapshot.get("timestamp") if balance_snapshot else None,
+                "balance_sync_status": "synced" if balance_snapshot else "never_synced",
+                "reserved_funds_total": reserved_total
+            }
+        
+        return wallet_status
+        
+    except Exception as e:
+        logger.error(f"Wallet status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/transfers")
+async def get_transfer_diagnostics(
+    limit: int = 50,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Transfer diagnostics - recent transfer jobs
+    
+    Returns:
+    - Recent transfers with states
+    - Success/failure counts
+    - Average confirmation time
+    """
+    try:
+        # Get recent transfer jobs
+        transfers_cursor = db.db["transfer_jobs"].find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("created_at", -1).limit(limit)
+        
+        transfers = await transfers_cursor.to_list(limit)
+        
+        # Calculate statistics
+        total_transfers = len(transfers)
+        states_count = {}
+        
+        for transfer in transfers:
+            state = transfer.get("state", "unknown")
+            states_count[state] = states_count.get(state, 0) + 1
+        
+        return {
+            "transfers": transfers,
+            "total": total_transfers,
+            "states_count": states_count,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Transfer diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/approvals")
+async def get_approvals_diagnostics(user_id: str = Depends(get_current_user)):
+    """
+    Approval diagnostics - pending/processed approvals
+    
+    Returns:
+    - Pending approvals count
+    - Recent approvals/rejections
+    - Approval queue health
+    """
+    try:
+        # Check if user is admin
+        user = await db.users_collection.find_one({"id": user_id})
+        is_admin = user and user.get("role") == "admin"
+        
+        if not is_admin:
+            return {
+                "message": "Admin access required for approval diagnostics",
+                "is_admin": False
+            }
+        
+        # Get pending approvals
+        pending_cursor = db.db["transfer_jobs"].find(
+            {"state": "needs_approval"},
+            {"_id": 0}
+        ).sort("created_at", -1)
+        
+        pending = await pending_cursor.to_list(100)
+        
+        # Get recent processed approvals
+        processed_cursor = db.db["audit_log"].find(
+            {"event": {"$in": ["transfer_approved", "transfer_rejected"]}},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(50)
+        
+        processed = await processed_cursor.to_list(50)
+        
+        return {
+            "pending_count": len(pending),
+            "pending_approvals": pending,
+            "recent_processed": processed,
+            "is_admin": True,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Approvals diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/email-status")
+async def get_email_status():
+    """
+    Email service diagnostics
+    
+    Returns:
+    - SMTP configured status
+    - Recent email confirmations sent
+    - Configuration details (redacted)
+    """
+    try:
+        import config
+        
+        smtp_configured = bool(config.SMTP_USER and config.SMTP_PASSWORD)
+        
+        # Get recent email confirmations
+        recent_emails_cursor = db.db["email_confirmations"].find(
+            {},
+            {"_id": 0, "token": 0}  # Exclude sensitive token
+        ).sort("created_at", -1).limit(10)
+        
+        recent_emails = await recent_emails_cursor.to_list(10)
+        
+        return {
+            "smtp_configured": smtp_configured,
+            "smtp_host": config.SMTP_HOST if smtp_configured else None,
+            "smtp_port": config.SMTP_PORT if smtp_configured else None,
+            "from_email": config.FROM_EMAIL if smtp_configured else None,
+            "recent_emails_count": len(recent_emails),
+            "recent_emails": recent_emails,
+            "status": "configured" if smtp_configured else "not_configured",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Email status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

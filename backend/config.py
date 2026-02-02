@@ -184,6 +184,28 @@ REQUIRE_WHITELISTED_ADDRESS = os.getenv('REQUIRE_WHITELISTED_ADDRESS', 'true').l
 MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR = int(os.getenv('MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR', '5'))  # Prevent spam
 
 # ============================================================================
+# WALLET TRANSFER SECURITY & LIMITS (Production-Safe)
+# ============================================================================
+
+# 2FA Requirements
+REQUIRE_2FA_FOR_WITHDRAWALS = os.getenv('REQUIRE_2FA_FOR_WITHDRAWALS', 'false').lower() == 'true'  # OFF by default, enable for production
+
+# Admin Approval Thresholds (ZAR)
+REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR = float(os.getenv('REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR', '100000'))  # R100k default
+
+# Transfer Limits (ZAR)
+WALLET_MAX_TRANSFER_ZAR_PER_TX = float(os.getenv('WALLET_MAX_TRANSFER_ZAR_PER_TX', '50000'))  # R50k per transaction
+WALLET_MAX_TRANSFER_ZAR_PER_DAY = float(os.getenv('WALLET_MAX_TRANSFER_ZAR_PER_DAY', '200000'))  # R200k per day
+WALLET_MAX_TRANSFER_ZAR_PER_MONTH = float(os.getenv('WALLET_MAX_TRANSFER_ZAR_PER_MONTH', '2000000'))  # R2M per month
+
+# Address Whitelisting
+REQUIRE_ADDRESS_WHITELIST = os.getenv('REQUIRE_ADDRESS_WHITELIST', 'true').lower() == 'true'  # Require whitelisted addresses
+
+# Reserve Requirements (ZAR) - Working Capital Model
+MIN_RESERVE_LUNO_ZAR = float(os.getenv('MIN_RESERVE_LUNO_ZAR', '10000'))  # R10k minimum on Luno (hub)
+MIN_RESERVE_PER_EXCHANGE_ZAR = float(os.getenv('MIN_RESERVE_PER_EXCHANGE_ZAR', '5000'))  # R5k minimum per other exchange
+
+# ============================================================================
 # DeFi/DEX TRADING SETTINGS
 # ============================================================================
 

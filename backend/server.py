@@ -163,6 +163,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Bot Quarantine Service: {e}")
     
+    # Start Balance Sync Service (background balance fetching every 5 minutes)
+    try:
+        from services.balance_sync_service import balance_sync_service
+        await balance_sync_service.start_background_sync()
+        logger.info("💰 Balance Sync Service started")
+    except Exception as e:
+        logger.warning(f"Could not start Balance Sync Service: {e}")
+    
     logger.info("🚀 All autonomous systems operational")
     
     yield
@@ -196,6 +204,14 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Bot Quarantine Service stopped")
     except Exception as e:
         logger.error(f"Error stopping quarantine service: {e}")
+    
+    # Stop Balance Sync Service
+    try:
+        from services.balance_sync_service import balance_sync_service
+        await balance_sync_service.stop_background_sync()
+        logger.info("✅ Balance Sync Service stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Balance Sync Service: {e}")
     
     # Close CCXT async sessions if trading/ccxt enabled
     enable_trading = env_bool('ENABLE_TRADING', False)

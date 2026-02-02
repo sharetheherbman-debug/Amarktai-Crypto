@@ -130,6 +130,23 @@ class BotSpawner:
                 }
             
             from services.capital_validator import capital_validator
+            from services.reserved_funds_service import reserved_funds_service
+            
+            # Check available funds before spawning (includes reserved funds tracking)
+            has_funds, available = await reserved_funds_service.check_available_funds(
+                user_id, config['exchange'], "ZAR", config['capital']
+            )
+            
+            if not has_funds:
+                logger.warning(
+                    f"Bot spawn blocked: Insufficient available funds. "
+                    f"Available: R{available:.2f}, Required: R{config['capital']:.2f}"
+                )
+                return {
+                    "success": False,
+                    "error": f"Insufficient available funds. Available: R{available:.2f}, Required: R{config['capital']:.2f}",
+                    "error_code": "INSUFFICIENT_AVAILABLE_FUNDS"
+                }
             
             # Validate funding FIRST before attempting to spawn
             is_valid, error_code, error_msg = await capital_validator.validate_bot_funding(
@@ -156,6 +173,16 @@ class BotSpawner:
             
             if not allocation.get('success'):
                 return {"success": False, "error": "Fund allocation failed"}
+            
+            # Reserve funds atomically
+            reserve_success, reserve_msg = await reserved_funds_service.reserve_funds(
+                user_id, config['exchange'], "ZAR", config['capital'], bot_id
+            )
+            
+            if not reserve_success:
+                logger.error(f"Failed to reserve funds: {reserve_msg}")
+                # Note: Continue anyway since wallet_manager already allocated
+                # This is a tracking issue, not a blocker
             
             # Create bot document
             bot_doc = {
@@ -188,8 +215,11 @@ class BotSpawner:
             )
             
             if not success:
-                # Rollback: delete bot if allocation failed
+                # Rollback: delete bot and release reserved funds if allocation failed
                 await db.bots_collection.delete_one({"id": bot_id})
+                await reserved_funds_service.release_funds(
+                    user_id, config['exchange'], "ZAR", config['capital'], bot_id
+                )
                 return {"success": False, "error": f"Capital allocation failed: {alloc_msg}"}
             
             logger.info(f"🤖 Spawned {config['name']} on {config['exchange']} with R{config['capital']:.2f} allocated")

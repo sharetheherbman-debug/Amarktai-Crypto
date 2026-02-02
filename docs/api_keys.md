@@ -12,6 +12,10 @@ The Amarktai Network securely manages API keys for multiple service providers in
 | **luno** | Exchange | `api_key`, `api_secret` | South African crypto trading (BTC/ZAR) |
 | **binance** | Exchange | `api_key`, `api_secret` | Global crypto trading |
 | **kucoin** | Exchange | `api_key`, `api_secret`, `passphrase` | Crypto trading with passphrase |
+| **bybit** | Exchange | `api_key`, `api_secret` | Derivatives and spot trading |
+| **kraken** | Exchange | `api_key`, `api_secret` | US-based regulated exchange |
+| **bitget** | Exchange | `api_key`, `api_secret`, `passphrase` | Global crypto and derivatives |
+| **gate** | Exchange | `api_key`, `api_secret` | Wide altcoin selection |
 
 ## Security Architecture
 
@@ -164,7 +168,7 @@ All API key endpoints are under: `/api/keys`
 ```
 
 **Validation**:
-- Provider must be recognized (openai, luno, binance, kucoin, bybit, kraken, bitget, gateio)
+- Provider must be recognized (openai, luno, binance, kucoin, bybit, kraken, bitget, gate)
 - Required fields for provider must be provided
 - Keys are encrypted before storage
 - Test status is reset when keys change
@@ -314,26 +318,57 @@ db.api_keys_collection.createIndex({ "user_id": 1 })
 - Lower fees for maker orders
 - Good for ZAR-denominated trading
 
+### Bybit
+
 **Required**: `api_key`, `api_secret`
 
-**Supported Pairs**: Multiple ZAR pairs
+**Supported**: Spot and derivatives trading
 
 **Test Method**: Authenticates and fetches account data
 
 **Notes**:
-- South African exchange
-- Competitive fees (0% maker, 0.075% taker)
+- Global exchange
+- Low latency trading
+- Popular for derivatives
+
+### Kraken
+
+**Required**: `api_key`, `api_secret`
+
+**Supported**: Wide range of crypto pairs
+
+**Test Method**: Authenticates and fetches account data
+
+**Notes**:
+- US-based regulated exchange
+- Strong security reputation
+- Good liquidity
+
+### Bitget
+
+**Required**: `api_key`, `api_secret`, `passphrase`
+
+**Unique Feature**: Requires passphrase like KuCoin
+
+**Test Method**: Authenticates with passphrase
+
+**Notes**:
+- Global exchange
+- Copy trading features
 - Growing liquidity
 
+### Gate.io
+
 **Required**: `api_key`, `api_secret`
 
-**Supported Pairs**: ZAR pairs
+**Supported**: Wide altcoin selection
 
 **Test Method**: Authenticates and fetches account data
 
 **Notes**:
-- South African exchange
-- Higher taker fees (0.2%)
+- Altcoin specialist
+- Deep order books for many pairs
+- Good API documentation
 
 ## Usage Examples
 
