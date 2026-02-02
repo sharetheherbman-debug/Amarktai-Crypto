@@ -104,6 +104,7 @@ echo ""
 echo "=== 4. Platform Configuration ==="
 
 # Check exchange_limits.py for 7 exchanges
+# Note: "gate" is the internal ID, displayed as "Gate.io" in UI
 REQUIRED_EXCHANGES=("luno" "binance" "kucoin" "bybit" "kraken" "bitget" "gate")
 EXCHANGE_COUNT=0
 

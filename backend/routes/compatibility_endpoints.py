@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from auth import get_current_user
 import database as db
+from services.metrics_service import metrics_service
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +380,6 @@ async def get_profit_history_compat(
     the old endpoint name. New code should use /api/analytics/pnl_timeseries directly.
     """
     try:
-        from services.metrics_service import metrics_service
         # Map period parameter (frontend may use different naming)
         range_param = period
         return await metrics_service.get_profit_history(user_id, range_param, interval)

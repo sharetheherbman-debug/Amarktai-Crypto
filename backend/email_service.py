@@ -25,8 +25,8 @@ class EmailService:
         self.enabled = self._validate_config()
         
         if not self.enabled:
-            logger.warning("⚠️  Email service disabled: Missing SMTP configuration (SMTP_HOST, SMTP_USER, SMTP_PASSWORD)")
-            logger.warning("⚠️  Set SMTP environment variables to enable email notifications")
+            logger.warning("⚠️  Email service disabled: Missing SMTP configuration")
+            logger.warning("⚠️  Set required SMTP environment variables to enable email notifications")
     
     def _validate_config(self) -> bool:
         """Validate SMTP configuration and return whether email is enabled"""
