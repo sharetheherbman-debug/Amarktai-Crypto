@@ -22,13 +22,19 @@ check_pattern() {
     
     echo "Checking: $description"
     
-    # Search in active code (excluding archives and audit tools)
+    # Search in active code (excluding archives, audit tools, and dependency directories)
     matches=$(grep -ri "$pattern" \
         --include="*.py" \
         --include="*.js" \
         --include="*.jsx" \
         --include="*.md" \
         --include="*.sh" \
+        --exclude-dir=".venv" \
+        --exclude-dir="site-packages" \
+        --exclude-dir="node_modules" \
+        --exclude-dir="dist" \
+        --exclude-dir="build" \
+        --exclude-dir="__pycache__" \
         backend/ frontend/ docs/ scripts/ 2>/dev/null \
         | grep -v "$exclude_pattern" \
         | grep -v "CURRENT_STATE.md" \
@@ -52,6 +58,12 @@ check_pattern() {
             --include="*.jsx" \
             --include="*.md" \
             --include="*.sh" \
+            --exclude-dir=".venv" \
+            --exclude-dir="site-packages" \
+            --exclude-dir="node_modules" \
+            --exclude-dir="dist" \
+            --exclude-dir="build" \
+            --exclude-dir="__pycache__" \
             backend/ frontend/ docs/ scripts/ 2>/dev/null \
             | grep -v "$exclude_pattern" \
             | grep -v "CURRENT_STATE.md" \

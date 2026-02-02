@@ -143,12 +143,12 @@ if [ "$STATUS" = "200" ]; then
     if [ "$PLATFORM_COUNT" = "5" ]; then
         log_success "Platform registry returns exactly 5 platforms"
     else
-        log_error "Platform registry returns $PLATFORM_COUNT platforms (expected 5)"
+        log_error "Platform registry returns $PLATFORM_COUNT platforms (expected 7)"
     fi
     
-    # Verify all 5 platforms are present
+    # Verify all 7 supported exchanges are present
     PLATFORMS_OK=true
-    for platform in luno binance kucoin ovex valr; do
+    for platform in luno binance kucoin bybit kraken bitget gate; do
         if echo "$BODY" | grep -q "\"$platform\""; then
             echo "  ✓ Platform '$platform' present"
         else
@@ -158,7 +158,7 @@ if [ "$STATUS" = "200" ]; then
     done
     
     if [ "$PLATFORMS_OK" = true ]; then
-        log_success "All 5 platforms (luno, binance, kucoin, ovex, valr) are present"
+        log_success "All 7 platforms (luno, binance, kucoin, bybit, kraken, bitget, gate) are present"
     else
         log_error "Not all required platforms are present"
     fi
