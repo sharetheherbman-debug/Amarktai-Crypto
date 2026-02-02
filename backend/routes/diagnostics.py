@@ -1141,3 +1141,68 @@ async def get_email_status():
     except Exception as e:
         logger.error(f"Email status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reserves")
+async def get_reserves_diagnostics(user_id: str = Depends(get_current_user)):
+    """
+    Reserved funds diagnostics - Available vs reserved per exchange
+    
+    Returns:
+    - Reserved funds by exchange and currency
+    - Available balance (total - reserved)
+    - Bot allocations
+    """
+    try:
+        # Get wallet balances with reserved funds
+        balances_cursor = db.wallet_balances_collection.find(
+            {"user_id": user_id},
+            {"_id": 0}
+        )
+        
+        balances = await balances_cursor.to_list(100)
+        
+        # Calculate totals per exchange
+        exchange_summary = {}
+        for bal in balances:
+            exchange = bal.get("exchange", "unknown")
+            currency = bal.get("currency", "unknown")
+            total = float(bal.get("balance", 0))
+            reserved = float(bal.get("reserved", 0))
+            available = total - reserved
+            
+            if exchange not in exchange_summary:
+                exchange_summary[exchange] = {
+                    "currencies": {},
+                    "total_value_zar": 0
+                }
+            
+            exchange_summary[exchange]["currencies"][currency] = {
+                "total": round(total, 2),
+                "reserved": round(reserved, 2),
+                "available": round(available, 2),
+                "utilization_pct": round((reserved / total * 100) if total > 0 else 0, 1)
+            }
+        
+        # Get active bots to show what's reserved
+        active_bots_cursor = db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "state": {"$in": ["running", "waiting"]}
+            },
+            {"_id": 0, "id": 1, "name": 1, "exchange": 1, "budget": 1}
+        )
+        
+        active_bots = await active_bots_cursor.to_list(100)
+        
+        return {
+            "success": True,
+            "exchange_summary": exchange_summary,
+            "active_bots": active_bots,
+            "total_active_bots": len(active_bots),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Reserves diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

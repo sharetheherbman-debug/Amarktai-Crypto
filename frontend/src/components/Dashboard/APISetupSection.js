@@ -31,12 +31,12 @@ export const APISetupSection = ({ apiKeys, token, onKeysUpdate }) => {
 
   const handleSaveKey = async (provider) => {
     try {
-      await axios.post(`${API}/api-keys`, {
+      const response = await axios.post(`${API}/api/keys/save`, {
         provider: provider.id,
         ...formData
       }, axiosConfig);
       
-      toast.success(`${provider.name} API key saved!`);
+      toast.success(response.data?.message || `${provider.name} API key saved!`);
       setShowForm(null);
       setFormData({});
       onKeysUpdate();
@@ -49,14 +49,16 @@ export const APISetupSection = ({ apiKeys, token, onKeysUpdate }) => {
 
   const handleTestConnection = async (providerId) => {
     try {
-      const res = await axios.get(`${API}/api-keys/${providerId}/test`, axiosConfig);
-      if (res.data.connected) {
-        toast.success(`${providerId} connection successful!`);
+      const res = await axios.post(`${API}/api/keys/test`, {
+        provider: providerId
+      }, axiosConfig);
+      if (res.data.success) {
+        toast.success(res.data.message || `${providerId} connection successful!`);
       } else {
-        toast.error(`${providerId} connection failed`);
+        toast.error(res.data.message || `${providerId} connection failed`);
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Connection test failed';
+      const errorMsg = err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection test failed';
       console.error('Connection test error:', err);
       toast.error(`Connection test failed: ${errorMsg}`);
     }
@@ -69,14 +71,15 @@ export const APISetupSection = ({ apiKeys, token, onKeysUpdate }) => {
       <div className="api-providers-grid">
         {providers.map(provider => {
           const keyData = apiKeys[provider.id];
-          const isConnected = keyData?.status === 'connected';
+          // Handle new API response format: status can be "test_ok", "test_failed", "saved_untested", "not_configured"
+          const isConnected = keyData?.status === 'connected' || keyData?.status === 'test_ok';
           
           return (
             <div key={provider.id} className="api-provider-card">
               <div className="provider-header">
                 <h3>{provider.name}</h3>
                 <span className={`status-badge ${isConnected ? 'connected' : 'not-connected'}`}>
-                  {isConnected ? '✅ Connected' : '⚠️ Not Connected'}
+                  {isConnected ? '✅ Connected' : keyData?.status === 'test_failed' ? '❌ Test Failed' : keyData?.status === 'saved_untested' ? '⚠️ Untested' : '⚠️ Not Connected'}
                 </span>
               </div>
               
