@@ -17,6 +17,7 @@ Last Updated: 2026-01-28
 - ✅ **Bitget** - Global crypto and derivatives (10 bots max)
 - ✅ **Gate.io** - Wide altcoin selection (10 bots max)
 - **Status:** All 7 exchanges operational with real-time WebSocket connections
+- **Total Bot Capacity:** 65 (5+10+10+10+10+10+10)
 
 ### 2. Paper Trading (REAL-TIME)
 - ✅ Realistic fee simulation (0.1% Binance/KuCoin, 0%/0.1% Luno maker/taker)
@@ -28,7 +29,7 @@ Last Updated: 2026-01-28
 - **Status:** Production-ready, mathematically accurate
 
 ### 3. Live Trading (REAL-TIME)
-- ✅ Real API key integration with all 5 exchanges
+- ✅ Real API key integration with all 7 exchanges
 - ✅ Live order placement and execution
 - ✅ Real-time balance checking
 - ✅ Order status tracking
@@ -231,7 +232,7 @@ Last Updated: 2026-01-28
 ### 25. OpenAPI Documentation
 - ✅ Auto-generated OpenAPI schema at `/api/openapi.json`
 - ✅ Interactive docs at `/docs`
-- ✅ 50+ documented endpoints
+- ✅ 284+ documented endpoints
 - **Status:** Complete API documentation
 
 ### 26. WebSocket Real-Time Updates

@@ -34,7 +34,7 @@ GLOBAL MAX: 65 bots
 ├─ Bybit: 10 bots
 ├─ Kraken: 10 bots
 ├─ Bitget: 10 bots
-└─ GateIO: 10 bots
+└─ Gate.io: 10 bots
 ```
 
 ### Trading Limits (Per Bot)

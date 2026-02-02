@@ -120,7 +120,7 @@ BOT_ALLOCATION = {
     "bybit": 10,    # 10 bots max
     "kraken": 10,   # 10 bots max
     "bitget": 10,   # 10 bots max
-    "gate": 10      # 10 bots max (GateIO)
+    "gate": 10      # 10 bots max (Gate.io)
 }
 # TOTAL: 65 bots maximum across all 7 exchanges
 ```

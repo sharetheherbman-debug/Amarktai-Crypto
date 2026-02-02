@@ -97,7 +97,7 @@ TOTAL BOTS: 65 maximum
 ├─ Bybit: 10 bots
 ├─ Kraken: 10 bots
 ├─ Bitget: 10 bots
-└─ GateIO: 10 bots
+└─ Gate.io: 10 bots
 ```
 
 **Trading Limits (Per Exchange):**
@@ -116,7 +116,7 @@ KuCoin:  Maker 0.1%,  Taker 0.1%
 Bybit:   Maker 0.1%,  Taker 0.1%
 Kraken:  Maker 0.16%, Taker 0.26%
 Bitget:  Maker 0.1%,  Taker 0.1%
-GateIO:  Maker 0.2%,  Taker 0.2%
+Gate.io: Maker 0.2%,  Taker 0.2%
 ```
 
 ### Risk Engine Rules ✅
@@ -415,7 +415,7 @@ db.learning_data_collection.find({
 
 ### Hard-Coded Rules
 
-✅ **Exchange Limits** - 45 bots max, per-exchange caps  
+✅ **Exchange Limits** - 65 bots max, per-exchange caps  
 ✅ **Rate Limiting** - Burst protection, daily limits  
 ✅ **Risk Engine** - Capital protection, loss limits  
 ✅ **Trading Gates** - Safety enforcement, cannot bypass  

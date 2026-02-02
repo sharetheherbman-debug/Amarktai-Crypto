@@ -378,7 +378,7 @@ if not dry_run:
 **Code Evidence:**
 ```bash
 # Lines 178-191: Exchange validation
-REQUIRED_EXCHANGES=("luno" "binance" "kucoin" "bybit" "kraken" "bitget" "gateio")
+REQUIRED_EXCHANGES=("luno" "binance" "kucoin" "bybit" "kraken" "bitget" "gate")
 for exchange in "${REQUIRED_EXCHANGES[@]}"; do
     if grep -qi "$exchange" backend/config/platforms.py; then
         echo "✓ Exchange configured: $exchange"

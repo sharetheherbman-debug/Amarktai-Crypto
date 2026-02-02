@@ -174,14 +174,38 @@ class PromotionEngine:
                     "message": f"❌ Bot not eligible:\n{reason}"
                 }
             
-            # Promote to live
+            # Promote to live with clean stat separation
+            # Archive paper stats and reset live counters
+            bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+            
+            # Preserve paper trading history
+            paper_history = {
+                "paper_total_trades": bot.get("trades_count", 0),
+                "paper_winning_trades": bot.get("winning_trades", 0),
+                "paper_losing_trades": bot.get("losing_trades", 0),
+                "paper_total_profit": bot.get("total_profit", 0),
+                "paper_win_rate": performance.get("win_rate", 0),
+                "paper_profit_percent": performance.get("profit_percent", 0),
+                "paper_max_drawdown": bot.get("max_drawdown", 0),
+                "paper_start_date": bot.get("paper_start_date"),
+                "paper_end_date": datetime.now(timezone.utc).isoformat()
+            }
+            
             result = await db.bots_collection.update_one(
                 {"id": bot_id},
                 {
                     "$set": {
                         "trading_mode": "live",
                         "promoted_at": datetime.now(timezone.utc).isoformat(),
-                        "learning_complete": True
+                        "learning_complete": True,
+                        # Archive paper stats
+                        "paper_history": paper_history,
+                        # Reset live counters (clean slate for live trading)
+                        "live_trades_count": 0,
+                        "live_winning_trades": 0,
+                        "live_losing_trades": 0,
+                        "live_total_profit": 0,
+                        "live_start_date": datetime.now(timezone.utc).isoformat()
                     }
                 }
             )

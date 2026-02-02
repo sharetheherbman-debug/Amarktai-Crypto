@@ -109,8 +109,8 @@ Total: 99 TODO/FIXME/XXX/HACK markers
 **Status:** ✅ Production-Ready
 
 ### Exchange Compliance
-- ✅ Exactly 7 supported exchanges (luno, binance, kucoin, bybit, kraken, bitget, gate)
-- ✅ No VALR/OVEX references in active codebase
+- ✅ Exactly 7 supported exchanges (luno, binance, kucoin, bybit, kraken, bitget, gate.io)
+- ✅ No VALR references in active codebase
 - ✅ Bot allocation: 65 total (5+10+10+10+10+10+10)
 
 ### Code Quality

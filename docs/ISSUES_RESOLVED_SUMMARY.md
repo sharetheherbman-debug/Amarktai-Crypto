@@ -60,7 +60,7 @@ Create a complete list of every single feature and function, and confirm they ar
 
 #### Categories Covered:
 1. **Core Trading Features** (4 features)
-   - Multi-Exchange Support (5 exchanges)
+   - Multi-Exchange Support (7 exchanges)
    - Paper Trading
    - Live Trading
    - Bot Management

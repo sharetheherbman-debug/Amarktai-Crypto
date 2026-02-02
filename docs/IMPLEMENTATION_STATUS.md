@@ -16,8 +16,7 @@
 - 99 TODO markers identified
 
 ### Phase 2: Exchange Compliance ✅
-- ✅ Removed VALR references (289 → ~20 remaining, mostly in archives)
-- ✅ Removed OVEX references (289 → ~20 remaining, mostly in archives)
+- ✅ Removed VALR references (archived only)
 - ✅ Verified exactly 7 supported exchanges:
   1. **luno** (5 bots max) - South African fiat gateway
   2. **binance** (10 bots max) - Largest global exchange
@@ -25,7 +24,7 @@
   4. **bybit** (10 bots max) - Derivatives & spot
   5. **kraken** (10 bots max) - USD pairs
   6. **bitget** (10 bots max) - Copy trading & futures
-  7. **gate** / **gateio** (10 bots max) - Alternative platform
+  7. **gate.io** (10 bots max) - Alternative platform
 
 - ✅ Verified exchange limits: **Total 65 bots**
 - ✅ Archived 21 outdated docs to `docs/archive/`
