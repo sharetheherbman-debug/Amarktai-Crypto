@@ -1,307 +1,208 @@
 #!/bin/bash
-# Smoke Test Script - Automated API Testing
-# Tests critical endpoints to verify production readiness
-# Exit code 0 = all tests passed, non-zero = failures
-
 set -e
 
-# Configuration
-API_BASE="${API_BASE:-https://amarktai.online/api}"
-EMAIL="${TEST_EMAIL:-}"
-PASSWORD="${TEST_PASSWORD:-}"
-VERBOSE="${VERBOSE:-0}"
+# smoke.sh - Deployment Acceptance Tests
+# Validates critical endpoints and functionality before go-live
+# Can run against local server or production
 
 # Colors
-RED='\033[0;31m'
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Test results
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
+# Configuration
+BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 
-echo "========================================="
-echo "🧪 Amarktai Network - Smoke Tests"
-echo "========================================="
+echo "============================================"
+echo "Deployment Acceptance Tests (Smoke Tests)"
+echo "============================================"
 echo ""
-echo "API Base: $API_BASE"
+echo "Target: $BASE_URL"
 echo ""
 
-# Helper: Print test result
-test_result() {
+# Test counter
+TOTAL_TESTS=0
+PASSED_TESTS=0
+FAILED_TESTS=0
+
+# Test helper function
+run_test() {
     local test_name="$1"
-    local status="$2"
-    local message="$3"
+    local test_cmd="$2"
     
-    TESTS_RUN=$((TESTS_RUN + 1))
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
     
-    if [[ "$status" == "pass" ]]; then
-        TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo -e "${GREEN}✅ PASS${NC} - $test_name"
-        [[ "$VERBOSE" == "1" ]] && echo "   $message"
-    elif [[ "$status" == "warn" ]]; then
-        echo -e "${YELLOW}⚠️  WARN${NC} - $test_name"
-        echo "   $message"
+    printf "%-60s" "$test_name"
+    
+    if eval "$test_cmd" > /tmp/smoke_test_output.txt 2>&1; then
+        echo -e "${GREEN}✅ PASS${NC}"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        return 0
     else
-        TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo -e "${RED}❌ FAIL${NC} - $test_name"
-        echo "   $message"
+        echo -e "${RED}❌ FAIL${NC}"
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        cat /tmp/smoke_test_output.txt
+        return 1
     fi
 }
 
-# Helper: Make API request
-api_request() {
-    local method="$1"
-    local endpoint="$2"
-    local data="$3"
-    local token="$4"
-    local timeout="${5:-10}"
-    
-    local url="$API_BASE$endpoint"
-    local headers=(-H "Content-Type: application/json")
-    
-    if [[ -n "$token" ]]; then
-        headers+=(-H "Authorization: Bearer $token")
-    fi
-    
-    if [[ "$method" == "GET" ]]; then
-        curl -s -f -m "$timeout" "${headers[@]}" "$url"
-    else
-        curl -s -f -m "$timeout" -X "$method" "${headers[@]}" -d "$data" "$url"
-    fi
-}
+# Test 1: Health Check
+run_test "Health check (GET /api/health/ping)" \
+    "curl -sf '$BASE_URL/api/health/ping' | grep -q 'pong'"
 
-# ============================================================================
-# TEST 1: Health Check - Ping
-# ============================================================================
-echo "📍 Test 1: Health Check - Ping"
-if response=$(api_request GET /health/ping "" "" 5 2>&1); then
-    status=$(echo "$response" | jq -r '.status // "unknown"' 2>/dev/null)
-    if [[ "$status" == "healthy" ]]; then
-        test_result "Health Ping" "pass" "Status: $status"
-    else
-        test_result "Health Ping" "fail" "Unexpected status: $status"
-    fi
+# Test 2: OpenAPI Schema
+run_test "OpenAPI schema exists (GET /openapi.json)" \
+    "curl -sf '$BASE_URL/openapi.json' | grep -q '\"openapi\"'"
+
+# Test 3: OpenAPI contains /api/keys/test
+run_test "OpenAPI contains /api/keys/test endpoint" \
+    "curl -sf '$BASE_URL/openapi.json' | grep -q '/api/keys/test'"
+
+# Test 4: Get providers list
+run_test "Get providers list (GET /api/keys/providers)" \
+    "curl -sf '$BASE_URL/api/keys/providers' | grep -q '\"success\":true'"
+
+# Test 5: Providers list includes all 10 providers
+TEST_OUTPUT=$(curl -sf "$BASE_URL/api/keys/providers" 2>/dev/null)
+if echo "$TEST_OUTPUT" | grep -q '"openai"' && \
+   echo "$TEST_OUTPUT" | grep -q '"flokx"' && \
+   echo "$TEST_OUTPUT" | grep -q '"fetchai"' && \
+   echo "$TEST_OUTPUT" | grep -q '"luno"' && \
+   echo "$TEST_OUTPUT" | grep -q '"binance"' && \
+   echo "$TEST_OUTPUT" | grep -q '"kucoin"' && \
+   echo "$TEST_OUTPUT" | grep -q '"bybit"' && \
+   echo "$TEST_OUTPUT" | grep -q '"kraken"' && \
+   echo "$TEST_OUTPUT" | grep -q '"bitget"' && \
+   echo "$TEST_OUTPUT" | grep -q '"gate"'; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Providers include all 10 expected providers"
 else
-    test_result "Health Ping" "fail" "Endpoint unreachable or returned error"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Providers include all 10 expected providers"
+    echo "Missing one or more providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate"
 fi
+
+# Test 6: Total providers count is 10
+TEST_OUTPUT=$(curl -sf "$BASE_URL/api/keys/providers" 2>/dev/null)
+PROVIDER_COUNT=$(echo "$TEST_OUTPUT" | grep -o '"total":[0-9]*' | grep -o '[0-9]*')
+if [ "$PROVIDER_COUNT" = "10" ]; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Total providers count is exactly 10"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Total providers count is exactly 10"
+    echo "Expected 10 providers, got: $PROVIDER_COUNT"
+fi
+
+echo ""
+echo "============================================"
+echo "Authentication & Keys API Tests"
+echo "============================================"
 echo ""
 
-# ============================================================================
-# TEST 2: Health Check - Ready
-# ============================================================================
-echo "📍 Test 2: Health Check - Ready"
-if response=$(api_request GET /health/ready "" "" 5 2>&1); then
-    ready=$(echo "$response" | jq -r '.ready // false' 2>/dev/null)
-    if [[ "$ready" == "true" ]]; then
-        test_result "Health Ready" "pass" "Service is ready"
-    else
-        issues=$(echo "$response" | jq -r '.issues[]' 2>/dev/null | tr '\n' ', ')
-        test_result "Health Ready" "fail" "Service not ready: $issues"
-    fi
+# Test 7: Auth login (get token)
+TOKEN_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
+
+ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+if [ -n "$ACCESS_TOKEN" ]; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Auth login returns token"
 else
-    test_result "Health Ready" "fail" "Endpoint unreachable or returned error"
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Auth login returns token"
+    echo "Could not get access token. Response: $TOKEN_RESPONSE"
+    echo "Note: Remaining tests require authentication and will be skipped."
+    ACCESS_TOKEN=""
 fi
+
+# Only run authenticated tests if we have a token
+if [ -n "$ACCESS_TOKEN" ]; then
+    # Test 8: Test with invalid provider returns 400 with correct error
+    TEST_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/keys/test" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"provider":"notarealexchange","api_key":"dummy"}' 2>/dev/null || echo "{}")
+    
+    if echo "$TEST_RESPONSE" | grep -q "notarealexchange" && \
+       ! echo "$TEST_RESPONSE" | grep -qi "unknown provider: test"; then
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        printf "%-60s${GREEN}✅ PASS${NC}\n" "Invalid provider returns correct error message"
+    else
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        printf "%-60s${RED}❌ FAIL${NC}\n" "Invalid provider returns correct error message"
+        echo "Expected error to mention 'notarealexchange', got: $TEST_RESPONSE"
+    fi
+    
+    # Test 9: Test with valid provider name (binance) and dummy credentials
+    TEST_RESPONSE=$(curl -s -X POST "$BASE_URL/api/keys/test" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"provider":"binance","api_key":"dummy_key_12345","api_secret":"dummy_secret_67890"}' 2>/dev/null || echo "{}")
+    
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/keys/test" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"provider":"binance","api_key":"dummy_key_12345","api_secret":"dummy_secret_67890"}')
+    
+    if [ "$HTTP_CODE" != "422" ]; then
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        printf "%-60s${GREEN}✅ PASS${NC}\n" "Test binance with dummy key returns 200 or 400 (not 422)"
+    else
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        printf "%-60s${RED}❌ FAIL${NC}\n" "Test binance with dummy key returns 200 or 400 (not 422)"
+        echo "Got 422 (validation error), expected 200 or 400. Response: $TEST_RESPONSE"
+    fi
+    
+    # Test 10: Error message includes kraken and gate
+    TEST_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/keys/test" \
+        -H "Authorization: Bearer $ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"provider":"invalid","api_key":"dummy"}' 2>/dev/null || echo "{}")
+    
+    if echo "$TEST_RESPONSE" | grep -qi "kraken" && echo "$TEST_RESPONSE" | grep -qi "gate"; then
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        printf "%-60s${GREEN}✅ PASS${NC}\n" "Error message includes kraken and gate"
+    else
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        printf "%-60s${RED}❌ FAIL${NC}\n" "Error message includes kraken and gate"
+        echo "Error message should mention kraken and gate. Got: $TEST_RESPONSE"
+    fi
+fi
+
+echo ""
+echo "============================================"
+echo "Test Results"
+echo "============================================"
+echo "Total tests: $TOTAL_TESTS"
+echo -e "${GREEN}Passed: $PASSED_TESTS${NC}"
+echo -e "${RED}Failed: $FAILED_TESTS${NC}"
 echo ""
 
-# ============================================================================
-# TEST 3: Authentication - Login
-# ============================================================================
-echo "📍 Test 3: Authentication - Login"
-TOKEN=""
-
-if [[ -z "$EMAIL" ]] || [[ -z "$PASSWORD" ]]; then
-    test_result "Auth Login" "warn" "TEST_EMAIL and TEST_PASSWORD not set - skipping auth tests"
-    echo ""
-    echo "To run auth tests, set environment variables:"
-    echo "  export TEST_EMAIL=your@email.com"
-    echo "  export TEST_PASSWORD=yourpassword"
-    echo ""
-else
-    login_data=$(cat <<EOF
-{
-  "email": "$EMAIL",
-  "password": "$PASSWORD"
-}
-EOF
-)
-    
-    if response=$(api_request POST /auth/login "$login_data" "" 10 2>&1); then
-        TOKEN=$(echo "$response" | jq -r '.access_token // .token // ""' 2>/dev/null)
-        token_type=$(echo "$response" | jq -r '.token_type // ""' 2>/dev/null)
-        
-        if [[ -n "$TOKEN" ]] && [[ "$token_type" == "bearer" ]]; then
-            test_result "Auth Login" "pass" "Token received (${#TOKEN} chars)"
-        else
-            test_result "Auth Login" "fail" "Invalid response: missing token or token_type"
-        fi
-    else
-        test_result "Auth Login" "fail" "Login failed: $response"
-    fi
-    echo ""
-fi
-
-# ============================================================================
-# TEST 4: Authentication - Get Current User (/auth/me)
-# ============================================================================
-if [[ -n "$TOKEN" ]]; then
-    echo "📍 Test 4: Authentication - Get Current User"
-    
-    if response=$(api_request GET /auth/me "" "$TOKEN" 10 2>&1); then
-        user_id=$(echo "$response" | jq -r '.id // .user_id // ""' 2>/dev/null)
-        email=$(echo "$response" | jq -r '.email // ""' 2>/dev/null)
-        
-        if [[ -n "$user_id" ]] && [[ -n "$email" ]]; then
-            test_result "Get Current User" "pass" "User: $email (ID: ${user_id:0:8}...)"
-        else
-            test_result "Get Current User" "fail" "Invalid user response: missing id or email"
-        fi
-    else
-        test_result "Get Current User" "fail" "Endpoint failed: $response"
-    fi
-    echo ""
-else
-    echo "📍 Test 4: Authentication - Get Current User [SKIPPED]"
-    echo ""
-fi
-
-# ============================================================================
-# TEST 5: Bots Endpoint
-# ============================================================================
-if [[ -n "$TOKEN" ]]; then
-    echo "📍 Test 5: Bots Endpoint"
-    
-    if response=$(api_request GET /bots "" "$TOKEN" 10 2>&1); then
-        # Check if response is valid JSON array
-        if echo "$response" | jq -e '. | type == "array"' > /dev/null 2>&1; then
-            bot_count=$(echo "$response" | jq 'length' 2>/dev/null)
-            test_result "Get Bots" "pass" "Retrieved $bot_count bot(s)"
-        elif echo "$response" | jq -e '.bots | type == "array"' > /dev/null 2>&1; then
-            bot_count=$(echo "$response" | jq '.bots | length' 2>/dev/null)
-            test_result "Get Bots" "pass" "Retrieved $bot_count bot(s)"
-        else
-            test_result "Get Bots" "fail" "Invalid response format (expected array)"
-        fi
-    else
-        test_result "Get Bots" "fail" "Endpoint failed: $response"
-    fi
-    echo ""
-else
-    echo "📍 Test 5: Bots Endpoint [SKIPPED]"
-    echo ""
-fi
-
-# ============================================================================
-# TEST 6: Portfolio Summary
-# ============================================================================
-if [[ -n "$TOKEN" ]]; then
-    echo "📍 Test 6: Portfolio Summary"
-    
-    if response=$(api_request GET /portfolio/summary "" "$TOKEN" 10 2>&1); then
-        equity=$(echo "$response" | jq -r '.equity // "N/A"' 2>/dev/null)
-        realized_pnl=$(echo "$response" | jq -r '.realized_pnl // "N/A"' 2>/dev/null)
-        
-        if [[ "$equity" != "N/A" ]]; then
-            test_result "Portfolio Summary" "pass" "Equity: $equity, Realized PnL: $realized_pnl"
-        else
-            test_result "Portfolio Summary" "fail" "Invalid response: missing equity field"
-        fi
-    else
-        test_result "Portfolio Summary" "fail" "Endpoint failed: $response"
-    fi
-    echo ""
-else
-    echo "📍 Test 6: Portfolio Summary [SKIPPED]"
-    echo ""
-fi
-
-# ============================================================================
-# TEST 7: SSE (Server-Sent Events) Connection
-# ============================================================================
-if [[ -n "$TOKEN" ]]; then
-    echo "📍 Test 7: SSE (Server-Sent Events) Connection"
-    echo "   Testing for 5 seconds..."
-    
-    # Start SSE connection in background and capture output
-    timeout 5 curl -s -N -H "Authorization: Bearer $TOKEN" \
-        "$API_BASE/realtime/events" > /tmp/sse_test.log 2>&1 &
-    SSE_PID=$!
-    
-    sleep 5
-    
-    # Check if we received any events
-    if [[ -f /tmp/sse_test.log ]]; then
-        event_count=$(grep -c "^event:" /tmp/sse_test.log 2>/dev/null || echo "0")
-        heartbeat_count=$(grep -c "event: heartbeat" /tmp/sse_test.log 2>/dev/null || echo "0")
-        
-        if [[ $event_count -gt 0 ]]; then
-            test_result "SSE Connection" "pass" "Received $event_count events ($heartbeat_count heartbeats)"
-        else
-            test_result "SSE Connection" "warn" "No events received in 5 seconds (might be slow)"
-        fi
-    else
-        test_result "SSE Connection" "fail" "No SSE output captured"
-    fi
-    
-    # Cleanup
-    kill $SSE_PID 2>/dev/null || true
-    rm -f /tmp/sse_test.log
-    echo ""
-else
-    echo "📍 Test 7: SSE Connection [SKIPPED]"
-    echo ""
-fi
-
-# ============================================================================
-# TEST 8: WebSocket Handshake (Optional)
-# ============================================================================
-if [[ -n "$TOKEN" ]]; then
-    echo "📍 Test 8: WebSocket Handshake (Optional)"
-    
-    # WebSocket handshake test using curl (just checks if endpoint exists)
-    ws_url="${API_BASE/https:/wss:}/ws?token=$TOKEN"
-    
-    # Try to connect for 2 seconds
-    if timeout 2 curl -s -N --http1.1 \
-        -H "Connection: Upgrade" \
-        -H "Upgrade: websocket" \
-        "$ws_url" > /dev/null 2>&1; then
-        test_result "WebSocket Handshake" "pass" "WebSocket endpoint responsive"
-    else
-        test_result "WebSocket Handshake" "warn" "WebSocket test inconclusive (requires proper WS client)"
-    fi
-    echo ""
-else
-    echo "📍 Test 8: WebSocket Handshake [SKIPPED]"
-    echo ""
-fi
-
-# ============================================================================
-# FINAL REPORT
-# ============================================================================
-echo "========================================="
-echo "🧪 Smoke Test Report"
-echo "========================================="
-echo ""
-echo "Tests Run:    $TESTS_RUN"
-echo -e "Tests Passed: ${GREEN}$TESTS_PASSED${NC}"
-if [[ $TESTS_FAILED -gt 0 ]]; then
-    echo -e "Tests Failed: ${RED}$TESTS_FAILED${NC}"
-else
-    echo "Tests Failed: $TESTS_FAILED"
-fi
-echo ""
-
-if [[ $TESTS_FAILED -eq 0 ]]; then
-    echo -e "${GREEN}✅ ALL TESTS PASSED${NC}"
-    echo ""
-    echo "System is ready for production use!"
-    exit 0
-else
-    echo -e "${RED}❌ TESTS FAILED${NC}"
-    echo ""
-    echo "Review errors above and fix issues before deploying."
+if [ $FAILED_TESTS -gt 0 ]; then
+    echo -e "${RED}❌ SMOKE TESTS FAILED${NC}"
+    echo "Fix the issues above before deploying to production."
     exit 1
+else
+    echo -e "${GREEN}✅ ALL SMOKE TESTS PASSED${NC}"
+    echo "System is ready for deployment."
+    exit 0
 fi

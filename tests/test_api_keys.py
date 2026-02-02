@@ -195,5 +195,86 @@ class TestOpenAPIEndpoint:
         assert response.status_code == 200
 
 
+class TestKeysRouteOrder:
+    """Test that routes in keys.py are ordered correctly to prevent shadowing"""
+    
+    def test_keys_test_endpoint_exists_in_openapi(self):
+        """Test that POST /api/keys/test is registered in OpenAPI schema"""
+        response = client.get("/openapi.json")
+        assert response.status_code == 200
+        
+        openapi = response.json()
+        paths = openapi.get("paths", {})
+        
+        # Verify /api/keys/test exists
+        assert "/api/keys/test" in paths, "/api/keys/test should be in OpenAPI schema"
+        assert "post" in paths["/api/keys/test"], "POST method should exist for /api/keys/test"
+    
+    def test_keys_test_not_shadowed_by_provider(self, mock_auth):
+        """Test that POST /api/keys/test is NOT caught by /{provider} route"""
+        with patch('database.api_keys_collection') as mock_db:
+            mock_db.find_one = AsyncMock(return_value=None)
+            
+            # Attempt to POST to /api/keys/test with invalid provider
+            payload = {
+                "provider": "notarealexchange",
+                "api_key": "test_key"
+            }
+            
+            response = client.post("/api/keys/test", json=payload)
+            
+            # Should return 400 with "Unknown provider: notarealexchange"
+            # NOT 422 or error about "test" being an unknown provider
+            assert response.status_code == 400
+            data = response.json()
+            detail = data.get("detail", "")
+            
+            # Should mention the actual invalid provider name
+            assert "notarealexchange" in detail.lower(), f"Error should mention 'notarealexchange', got: {detail}"
+            # Should NOT mention "test" as the provider
+            assert "unknown provider: test" not in detail.lower(), f"Should not say 'Unknown provider: test', got: {detail}"
+    
+    def test_provider_list_includes_all_10_providers(self):
+        """Test that provider validation includes all 10 supported providers"""
+        response = client.get("/api/keys/providers")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data.get("success") is True
+        
+        providers = data.get("providers", [])
+        provider_ids = {p["id"] for p in providers}
+        
+        # Must include all 10 providers
+        expected_providers = {
+            "openai", "flokx", "fetchai",  # AI
+            "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"  # Exchanges
+        }
+        
+        assert provider_ids == expected_providers, f"Expected {expected_providers}, got {provider_ids}"
+        assert data.get("total") == 10, f"Should have exactly 10 providers, got {data.get('total')}"
+    
+    def test_unknown_provider_error_includes_all_providers(self, mock_auth):
+        """Test that unknown provider error message includes kraken and gate"""
+        with patch('database.api_keys_collection') as mock_db:
+            mock_db.find_one = AsyncMock(return_value=None)
+            
+            payload = {
+                "provider": "invalid_exchange",
+                "api_key": "test_key"
+            }
+            
+            response = client.post("/api/keys/test", json=payload)
+            assert response.status_code == 400
+            
+            data = response.json()
+            detail = data.get("detail", "")
+            
+            # Error message should include kraken and gate
+            assert "kraken" in detail.lower(), f"Error should mention 'kraken', got: {detail}"
+            assert "gate" in detail.lower(), f"Error should mention 'gate', got: {detail}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
