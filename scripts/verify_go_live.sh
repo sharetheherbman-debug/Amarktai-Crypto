@@ -163,10 +163,8 @@ else
     fi
 fi
 
-# Check if OVEX is in the test logic
-else
-    fail "OVEX not in API key test logic"
-fi
+# NOTE: OVEX is NOT a supported exchange (removed)
+# Supported exchanges: luno, binance, kucoin, bybit, kraken, bitget, gate
 
 echo ""
 
@@ -446,11 +444,8 @@ if [ "${BUILD_FRONTEND}" = "true" ]; then
             # Check for required strings in bundle
             echo "Checking bundle for required strings..."
             
-            if grep -q "OVEX" "$MAIN_JS"; then
-                pass "Bundle contains 'OVEX'"
-            else
-                fail "Bundle missing 'OVEX' string"
-            fi
+            # NOTE: OVEX is NOT a supported exchange (removed)
+            # Supported exchanges: luno, binance, kucoin, bybit, kraken, bitget, gate
             
             if grep -q "Win Rate\|WIN RATE" "$MAIN_JS"; then
                 pass "Bundle contains 'Win Rate'"

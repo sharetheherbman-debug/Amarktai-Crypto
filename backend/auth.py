@@ -109,3 +109,6 @@ async def require_admin(user_id: str = Depends(get_current_user)) -> str:
             detail="Admin privileges required"
         )
     return user_id
+
+# Alias for backward compatibility with routers that import get_admin_user
+get_admin_user = require_admin

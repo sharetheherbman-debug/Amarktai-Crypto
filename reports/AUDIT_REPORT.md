@@ -74,15 +74,17 @@ EXCHANGE_BOT_LIMITS = {
     'luno': 5,
     'binance': 10,
     'kucoin': 10,
+    'bybit': 10,
     'kraken': 10,
-    'valr': 10
+    'bitget': 10,
+    'gate': 10
 }
 ```
 
 ### Missing Features
 
 1. **❌ Platform selector UI in frontend** - Must add dropdown to filter by platform
-2. **❌ `/api/system/platforms` endpoint** - Must implement to return all 5 platforms
+2. **❌ `/api/system/platforms` endpoint** - Must implement to return all 7 platforms
 3. **❌ Platform filtering in Bot Management** - Must filter bots by selected platform
 4. **❌ Platform filtering in Trading screens** - Must filter trades by selected platform
 
@@ -227,12 +229,14 @@ The dashboard currently shows placeholder data. Real-time profit graphs must use
 - luno ✅
 - binance ✅
 - kucoin ✅
+- bybit ✅
 - kraken ✅
-- valr ✅
+- bitget ✅
+- gate ✅
 
 ### Required Implementation
 
-- [ ] Test save for all 5 platforms
+- [ ] Test save for all 7 platforms
 - [ ] Test connection test for all 5 platforms
 - [ ] Ensure no key logging (security)
 - [ ] Show connection status per platform

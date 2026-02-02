@@ -234,6 +234,9 @@ class RepoAuditor:
         
         patterns = [r'\bvalr\b', r'\bVALR\b', r'\bovex\b', r'\bOVEX\b']
         
+        # Exclude patterns for directories to skip
+        exclude_dirs = {'_archive', 'node_modules', '.venv', 'site-packages', 'dist', 'build', '__pycache__'}
+        
         # Search in all relevant files
         for root_dir in [self.backend_dir, self.frontend_dir, self.docs_dir, self.repo_root / "scripts"]:
             if not root_dir.exists():
@@ -241,7 +244,8 @@ class RepoAuditor:
             
             for file_path in root_dir.rglob("*"):
                 if file_path.is_file() and file_path.suffix in ['.py', '.js', '.jsx', '.md', '.sh', '.json', '.yaml', '.yml']:
-                    if "_archive" in str(file_path) or "node_modules" in str(file_path):
+                    # Skip if any parent directory is in exclude list
+                    if any(excluded in file_path.parts for excluded in exclude_dirs):
                         continue
                     
                     content = file_path.read_text(errors='ignore')

@@ -365,24 +365,6 @@ async def get_recent_decisions(
 # ============================================================================
 # Analytics Compatibility - Profit History Alias
 # ============================================================================
-
-@router.get("/analytics/profit-history")
-async def get_profit_history_compat(
-    period: str = Query("7d", regex="^(1d|7d|30d|90d|1y|all)$"),
-    interval: str = Query("1h", regex="^(5m|15m|1h|4h|1d)$"),
-    user_id: str = Depends(get_current_user)
-):
-    """
-    Compatibility endpoint for legacy /api/analytics/profit-history calls
-    Maps to the correct /api/analytics/pnl_timeseries endpoint
-    
-    This endpoint exists to support frontend components that still call
-    the old endpoint name. New code should use /api/analytics/pnl_timeseries directly.
-    """
-    try:
-        # Map period parameter (frontend may use different naming)
-        range_param = period
-        return await metrics_service.get_profit_history(user_id, range_param, interval)
-    except Exception as e:
-        logger.error(f"Profit history compat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# NOTE: Removed duplicate GET /api/analytics/profit-history endpoint (line 369)
+# Canonical version exists in server.py api_router at line 1378
+# This was causing route collision on boot

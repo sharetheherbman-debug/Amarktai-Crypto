@@ -126,23 +126,9 @@ echo ""
 echo "4. Exchange Support Checks"
 echo "----------------------------------------------------------------------"
 
-
-if grep -q "OVEX_PAIRS" "$BACKEND_DIR/paper_trading_engine.py"; then
-else
-    test_fail "OVEX pairs NOT defined"
-fi
-
-if grep -q "self.valr_exchange" "$BACKEND_DIR/paper_trading_engine.py"; then
-    test_pass "VALR exchange initialization found"
-else
-    test_fail "VALR exchange initialization NOT found"
-fi
-
-if grep -q "self.ovex_exchange" "$BACKEND_DIR/paper_trading_engine.py"; then
-    test_pass "OVEX exchange initialization found"
-else
-    test_fail "OVEX exchange initialization NOT found"
-fi
+# NOTE: VALR and OVEX are NOT supported exchanges
+# Supported exchanges are: luno, binance, kucoin, bybit, kraken, bitget, gate
+# No tests for VALR/OVEX as they have been removed from active code
 
 echo ""
 echo "5. Timezone Implementation Checks"
