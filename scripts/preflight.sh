@@ -276,19 +276,19 @@ if [ -f ".env" ]; then
         ((WARNINGS++))
     fi
     
-    # Check WALLET_MAX_DAILY_WITHDRAWAL_ZAR
-    if [ ! -z "$WALLET_MAX_DAILY_WITHDRAWAL_ZAR" ]; then
-        echo -e "${GREEN}✓${NC} WALLET_MAX_DAILY_WITHDRAWAL_ZAR is set: $WALLET_MAX_DAILY_WITHDRAWAL_ZAR"
+    # Check WALLET_MAX_TRANSFER_ZAR_PER_DAY
+    if [ ! -z "$WALLET_MAX_TRANSFER_ZAR_PER_DAY" ]; then
+        echo -e "${GREEN}✓${NC} WALLET_MAX_TRANSFER_ZAR_PER_DAY is set: $WALLET_MAX_TRANSFER_ZAR_PER_DAY"
     else
-        echo -e "${YELLOW}⚠${NC}  WALLET_MAX_DAILY_WITHDRAWAL_ZAR not set (will use default)"
+        echo -e "${YELLOW}⚠${NC}  WALLET_MAX_TRANSFER_ZAR_PER_DAY not set (will use default)"
         ((WARNINGS++))
     fi
     
-    # Check WALLET_MIN_RESERVE_ZAR
-    if [ ! -z "$WALLET_MIN_RESERVE_ZAR" ]; then
-        echo -e "${GREEN}✓${NC} WALLET_MIN_RESERVE_ZAR is set: $WALLET_MIN_RESERVE_ZAR"
+    # Check MIN_RESERVE_PER_EXCHANGE_ZAR
+    if [ ! -z "$MIN_RESERVE_PER_EXCHANGE_ZAR" ]; then
+        echo -e "${GREEN}✓${NC} MIN_RESERVE_PER_EXCHANGE_ZAR is set: $MIN_RESERVE_PER_EXCHANGE_ZAR"
     else
-        echo -e "${YELLOW}⚠${NC}  WALLET_MIN_RESERVE_ZAR not set (will use default)"
+        echo -e "${YELLOW}⚠${NC}  MIN_RESERVE_PER_EXCHANGE_ZAR not set (will use default)"
         ((WARNINGS++))
     fi
 else
