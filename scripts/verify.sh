@@ -140,6 +140,39 @@ test_endpoint "GET" "/api/treasury/status" "Treasury status" "200|404"
 test_endpoint "GET" "/api/diagnostics/regime" "Market regime" "200|404"
 echo ""
 
+echo "11. Transfer Safety Features"
+echo "----------------------------"
+test_endpoint "GET" "/api/diagnostics/transfer-path" "Transfer path diagnostic" "200"
+echo ""
+echo "Checking transfer path configuration..."
+TRANSFER_PATH_RESPONSE=$(curl -s "$BASE_URL/api/diagnostics/transfer-path" --max-time $TIMEOUT 2>/dev/null || echo '{}')
+ACTIVE_PATH=$(echo "$TRANSFER_PATH_RESPONSE" | grep -o '"active_path":"[^"]*"' | cut -d'"' -f4)
+PRODUCTION_READY=$(echo "$TRANSFER_PATH_RESPONSE" | grep -o '"production_ready":[^,}]*' | cut -d':' -f2 | tr -d ' ')
+
+if [ "$ACTIVE_PATH" = "enhanced" ]; then
+    echo -e "${GREEN}✓${NC} Enhanced transfer path active"
+    ((TESTS_PASSED++))
+elif [ "$ACTIVE_PATH" = "legacy_blocked" ]; then
+    echo -e "${YELLOW}⚠${NC} Legacy transfer path (blocked for safety)"
+    echo "   Enable ENABLE_WALLET_TRANSFERS_ENHANCED=1 to use production-safe transfers"
+elif [ "$ACTIVE_PATH" = "enhanced_partial" ]; then
+    echo -e "${YELLOW}⚠${NC} Enhanced transfer path partially configured"
+    ((TESTS_FAILED++))
+else
+    echo -e "${RED}✗${NC} Unknown transfer path: $ACTIVE_PATH"
+    ((TESTS_FAILED++))
+fi
+
+if [ "$PRODUCTION_READY" = "true" ]; then
+    echo -e "${GREEN}✓${NC} Transfer system production-ready"
+    ((TESTS_PASSED++))
+else
+    echo -e "${YELLOW}⚠${NC} Transfer system not fully production-ready"
+    echo "   Check /api/diagnostics/transfer-path for details"
+fi
+
+echo ""
+
 # Summary
 echo ""
 echo "========================================="

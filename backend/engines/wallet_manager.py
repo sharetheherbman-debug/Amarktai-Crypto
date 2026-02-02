@@ -384,43 +384,82 @@ class WalletManager:
             return {"success": False, "error": str(e)}
     
     async def transfer_funds_between_exchanges(self, user_id: str, from_exchange: str, 
-                                              to_exchange: str, amount: float) -> Dict:
+                                              to_exchange: str, amount: float, currency: str = "ZAR") -> Dict:
         """
-        BLOCKED: Fund transfers between exchanges
+        Fund transfers between exchanges using production-safe state machine
         
-        SAFETY CONSTRAINT:
-        This function is BLOCKED for safety. Automatic transfers between exchanges
-        could result in loss of funds.
-        
-        FUTURE: Implement manual approval workflow before enabling this function.
+        If ENABLE_WALLET_TRANSFERS_ENHANCED=1 or ENABLE_REALTIME_TRANSFERS=1:
+            Routes through transfer_state_machine for safety
+        Else:
+            BLOCKED with clear error message
         
         Args:
             user_id: User ID
             from_exchange: Source exchange
             to_exchange: Destination exchange
             amount: Amount to transfer
+            currency: Currency code (default ZAR)
             
         Returns:
-            dict with hard-fail error
+            dict with success status or error
         """
-        logger.critical(
-            f"🚨 BLOCKED TRANSFER ATTEMPT: User {user_id} tried to transfer "
-            f"R{amount:.2f} from {from_exchange} to {to_exchange}"
-        )
+        import config
+        from utils.env_utils import env_bool
         
-        return {
-            "success": False,
-            "error": "TRANSFER_BLOCKED",
-            "message": (
-                "Automatic fund transfers between exchanges are BLOCKED for safety. "
-                "Manual approval workflow not yet implemented. "
-                "Please transfer funds manually through exchange interfaces."
-            ),
-            "from_exchange": from_exchange,
-            "to_exchange": to_exchange,
-            "amount": amount,
-            "blocked_at": datetime.now(timezone.utc).isoformat()
-        }
+        # Check if enhanced transfers are enabled
+        enhanced_enabled = env_bool('ENABLE_WALLET_TRANSFERS_ENHANCED', False) or \
+                          env_bool('ENABLE_REALTIME_TRANSFERS', False)
+        
+        if enhanced_enabled:
+            # Route through transfer state machine
+            try:
+                from services.transfer_state_machine import transfer_state_machine
+                import uuid
+                
+                # Generate idempotency key for this transfer
+                idempotency_key = f"auto_{user_id[:8]}_{from_exchange}_{to_exchange}_{uuid.uuid4().hex[:8]}"
+                
+                result = await transfer_state_machine.request_transfer(
+                    user_id=user_id,
+                    from_exchange=from_exchange,
+                    to_exchange=to_exchange,
+                    currency=currency,
+                    amount=amount,
+                    idempotency_key=idempotency_key,
+                    notes="Automated transfer via wallet_manager"
+                )
+                
+                return result
+                
+            except Exception as e:
+                logger.error(f"Transfer via state machine failed: {e}")
+                return {
+                    "success": False,
+                    "error": "TRANSFER_FAILED",
+                    "message": f"Transfer failed: {str(e)}"
+                }
+        else:
+            # Legacy blocked behavior
+            logger.critical(
+                f"🚨 BLOCKED TRANSFER ATTEMPT: User {user_id} tried to transfer "
+                f"R{amount:.2f} from {from_exchange} to {to_exchange} "
+                f"(Enhanced transfers disabled)"
+            )
+            
+            return {
+                "success": False,
+                "error": "TRANSFER_BLOCKED",
+                "message": (
+                    "Automatic fund transfers between exchanges are BLOCKED for safety. "
+                    "Enable ENABLE_WALLET_TRANSFERS_ENHANCED=1 to use production-safe state machine, "
+                    "or transfer funds manually through exchange interfaces."
+                ),
+                "from_exchange": from_exchange,
+                "to_exchange": to_exchange,
+                "amount": amount,
+                "blocked_at": datetime.now(timezone.utc).isoformat(),
+                "enable_enhanced_transfers": "Set ENABLE_WALLET_TRANSFERS_ENHANCED=1 in .env"
+            }
 
 # Global instance
 wallet_manager = WalletManager()

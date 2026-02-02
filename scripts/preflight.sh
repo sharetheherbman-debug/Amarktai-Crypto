@@ -340,6 +340,65 @@ else
 fi
 echo ""
 
+# 13. Check wallet transfer safety features
+echo "13. Checking wallet transfer safety features..."
+if [ -f "backend/services/transfer_limits_service.py" ]; then
+    echo -e "${GREEN}✓${NC} Transfer limits service exists"
+    
+    # Check that it contains required limit checks
+    if grep -q "WALLET_MAX_TRANSFER_ZAR_PER_TX\|WALLET_MAX_TRANSFER_ZAR_PER_DAY\|WALLET_MAX_TRANSFER_ZAR_PER_MONTH" backend/services/transfer_limits_service.py; then
+        echo -e "${GREEN}✓${NC} Transfer limits enforcement implemented"
+    else
+        echo -e "${RED}✗${NC} Transfer limits not properly configured"
+        ((ERRORS++))
+    fi
+    
+    # Check that limits are defined in config
+    if grep -q "WALLET_MAX_TRANSFER_ZAR_PER_TX\|WALLET_MAX_TRANSFER_ZAR_PER_DAY\|WALLET_MAX_TRANSFER_ZAR_PER_MONTH" backend/config.py; then
+        echo -e "${GREEN}✓${NC} Transfer limits configured in config.py"
+    else
+        echo -e "${RED}✗${NC} Transfer limits missing from config.py"
+        ((ERRORS++))
+    fi
+else
+    echo -e "${RED}✗${NC} Transfer limits service not found"
+    ((ERRORS++))
+fi
+
+# Check address whitelist
+if [ -f "backend/services/address_whitelist.py" ]; then
+    echo -e "${GREEN}✓${NC} Address whitelist service exists"
+    
+    # Check for whitelist enforcement in state machine
+    if grep -q "is_address_whitelisted" backend/services/transfer_state_machine.py; then
+        echo -e "${GREEN}✓${NC} Whitelist enforcement integrated"
+    else
+        echo -e "${YELLOW}⚠${NC} Whitelist check not found in state machine"
+        ((WARNINGS++))
+    fi
+else
+    echo -e "${RED}✗${NC} Address whitelist service not found"
+    ((ERRORS++))
+fi
+
+# Check tag/memo support
+if grep -q "deposit_tag\|deposit_memo" backend/services/transfer_state_machine.py; then
+    echo -e "${GREEN}✓${NC} Tag/memo support implemented"
+else
+    echo -e "${YELLOW}⚠${NC} Tag/memo support not detected"
+    ((WARNINGS++))
+fi
+
+# Check that TRANSFER_BLOCKED legacy path can be disabled
+if grep -q "ENABLE_WALLET_TRANSFERS_ENHANCED\|ENABLE_REALTIME_TRANSFERS" backend/engines/wallet_manager.py; then
+    echo -e "${GREEN}✓${NC} Enhanced transfer path can be enabled"
+else
+    echo -e "${YELLOW}⚠${NC} Legacy transfer block not conditional"
+    ((WARNINGS++))
+fi
+
+echo ""
+
 # Summary
 echo "========================================="
 echo "Preflight Check Summary"

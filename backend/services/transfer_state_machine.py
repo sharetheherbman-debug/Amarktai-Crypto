@@ -28,10 +28,13 @@ class TransferBlockedReason(str, Enum):
     EMERGENCY_STOP = "emergency_stop"
     INSUFFICIENT_BALANCE = "insufficient_balance"
     RESERVED_FUNDS = "reserved_funds"
-    LIMIT_EXCEEDED = "limit_exceeded"
+    LIMIT_PER_TX = "limit_per_tx"
+    LIMIT_DAILY = "limit_daily"
+    LIMIT_MONTHLY = "limit_monthly"
     MISSING_2FA = "missing_2fa"
     MISSING_APPROVAL = "missing_approval"
-    INVALID_ADDRESS = "invalid_address"
+    ADDRESS_NOT_WHITELISTED = "address_not_whitelisted"
+    TAG_REQUIRED = "tag_required"
     EXCHANGE_ERROR = "exchange_error"
 
 
@@ -53,6 +56,9 @@ class TransferStateMachine:
         idempotency_key: str,
         totp_code: Optional[str] = None,
         withdrawal_address: Optional[str] = None,
+        tag: Optional[str] = None,
+        memo: Optional[str] = None,
+        network: Optional[str] = None,
         notes: Optional[str] = None
     ) -> Dict:
         """
@@ -67,6 +73,9 @@ class TransferStateMachine:
             idempotency_key: Unique key to prevent duplicate transfers
             totp_code: TOTP 2FA code (required if REQUIRE_2FA_FOR_WITHDRAWALS=1)
             withdrawal_address: Optional whitelisted address
+            tag: Optional tag for XRP, XLM, etc.
+            memo: Optional memo (alternative to tag)
+            network: Optional network specification (e.g., 'ERC20', 'TRC20')
             notes: Optional transfer notes
             
         Returns:
@@ -115,7 +124,39 @@ class TransferStateMachine:
                         "message": "Invalid TOTP code"
                     }
             
-            # 4. Check reserved funds
+            # 4. Convert amount to ZAR for limit checking
+            amount_zar = await self._convert_to_zar(amount, currency)
+            
+            # 5. Check transfer limits (per-tx, daily, monthly)
+            from services.transfer_limits_service import transfer_limits_service
+            limit_check = await transfer_limits_service.check_limits(
+                user_id, amount_zar, from_exchange, currency
+            )
+            if not limit_check["allowed"]:
+                reason_code = TransferBlockedReason(limit_check["reason_code"].lower())
+                await self._emit_blocked(user_id, idempotency_key, reason_code)
+                return {
+                    "success": False,
+                    "error": limit_check["reason_code"],
+                    "message": limit_check["message"],
+                    "limit": limit_check.get("limit"),
+                    "used": limit_check.get("used"),
+                    "available": limit_check.get("available")
+                }
+            
+            # 6. Validate tag/memo requirement for currencies that need it
+            tag_required_currencies = ['XRP', 'XLM', 'EOS', 'BNB', 'ATOM', 'HBAR']
+            if currency.upper() in tag_required_currencies:
+                if not tag and not memo:
+                    await self._emit_blocked(user_id, idempotency_key,
+                                            TransferBlockedReason.TAG_REQUIRED)
+                    return {
+                        "success": False,
+                        "error": "TAG_REQUIRED",
+                        "message": f"{currency} transfers require a tag or memo"
+                    }
+            
+            # 7. Check reserved funds
             reserved_check = await self._check_reserved_funds(
                 user_id, from_exchange, currency, amount
             )
@@ -130,28 +171,16 @@ class TransferStateMachine:
                     "available": reserved_check["available"]
                 }
             
-            # 5. Check withdrawal limits
-            limit_check = await self._check_limits(user_id, amount)
-            if not limit_check["allowed"]:
-                await self._emit_blocked(user_id, idempotency_key,
-                                        TransferBlockedReason.LIMIT_EXCEEDED)
-                return {
-                    "success": False,
-                    "error": "LIMIT_EXCEEDED",
-                    "message": limit_check["message"]
-                }
-            
-            # 6. Generate transfer_id
+            # 8. Generate transfer_id
             transfer_id = f"txf_{uuid.uuid4().hex[:16]}"
             
-            # 7. Determine if admin approval needed
-            amount_zar = await self._convert_to_zar(amount, currency)
+            # 9. Determine if admin approval needed
             approval_threshold = getattr(config, 'REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR', 100000)
             needs_approval = amount_zar > approval_threshold
             
             initial_state = TransferState.NEEDS_APPROVAL if needs_approval else TransferState.REQUESTED
             
-            # 8. Create transfer job
+            # 10. Create transfer job
             transfer_job = {
                 "transfer_id": transfer_id,
                 "user_id": user_id,
@@ -162,6 +191,9 @@ class TransferStateMachine:
                 "amount": amount,
                 "amount_zar": amount_zar,
                 "withdrawal_address": withdrawal_address,
+                "deposit_tag": tag,
+                "deposit_memo": memo,
+                "network": network,
                 "state": initial_state,
                 "needs_approval": needs_approval,
                 "approval_status": None,
@@ -177,16 +209,16 @@ class TransferStateMachine:
                 ]
             }
             
-            # 9. Save to transfer_jobs collection
+            # 11. Save to transfer_jobs collection
             await db.db["transfer_jobs"].insert_one(transfer_job)
             
-            # 10. Save to immutable ledger
+            # 12. Save to immutable ledger
             await self._append_ledger(transfer_id, "transfer_requested", transfer_job)
             
-            # 11. Reserve funds
+            # 13. Reserve funds
             await self._reserve_funds(user_id, from_exchange, currency, amount, transfer_id)
             
-            # 12. Emit event
+            # 14. Emit event
             await manager.broadcast_to_user(user_id, {
                 "type": "transfer_job_created",
                 "transfer_id": transfer_id,
@@ -361,14 +393,23 @@ class TransferStateMachine:
                     await exchange.close()
                     return
             
+            # Prepare withdrawal parameters
+            tag_or_memo = transfer.get("deposit_tag") or transfer.get("deposit_memo")
+            network = transfer.get("network")
+            
+            # Build params dict for ccxt
+            params = {}
+            if network:
+                params['network'] = network
+            
             # Execute withdrawal
             try:
                 withdrawal_response = await exchange.withdraw(
                     transfer["currency"],
                     transfer["amount"],
                     withdrawal_address,
-                    None,  # tag
-                    {}
+                    tag_or_memo,  # tag parameter (None if not needed)
+                    params  # additional params
                 )
                 
                 withdrawal_txid = withdrawal_response.get('id') or withdrawal_response.get('txid')
@@ -442,6 +483,17 @@ class TransferStateMachine:
                     if status_code in ['ok', 'complete', 'confirmed', 'success']:
                         await self._transition_state(transfer_id, TransferState.CONFIRMED, 
                                                     "Withdrawal confirmed")
+                        
+                        # Record successful transfer for limit tracking
+                        from services.transfer_limits_service import transfer_limits_service
+                        await transfer_limits_service.record_transfer(
+                            transfer["user_id"],
+                            transfer_id,
+                            transfer.get("amount_zar", 0),
+                            transfer["from_exchange"],
+                            transfer["currency"]
+                        )
+                        
                         await self._release_funds(
                             transfer["user_id"],
                             transfer["from_exchange"],
@@ -572,13 +624,23 @@ class TransferStateMachine:
         return {"allowed": True}
     
     async def _convert_to_zar(self, amount: float, currency: str) -> float:
-        """Convert amount to ZAR for approval threshold checking"""
-        # Simplified - would use real exchange rates
-        if currency == "ZAR":
+        """Convert amount to ZAR for approval threshold and limit checking"""
+        if currency.upper() == "ZAR":
             return amount
-        # Mock conversion rates
-        rates = {"USD": 18.5, "BTC": 800000, "ETH": 50000}
-        return amount * rates.get(currency, 1)
+        
+        # Mock conversion rates (in production, use real-time rates)
+        rates = {
+            "USD": 18.5,
+            "USDT": 18.5,
+            "USDC": 18.5,
+            "BTC": 800000,
+            "ETH": 50000,
+            "XRP": 11.0,
+            "XLM": 2.0,
+            "EUR": 20.0,
+            "GBP": 23.0
+        }
+        return amount * rates.get(currency.upper(), 18.5)  # Default to USD rate
     
     async def _transition_state(self, transfer_id: str, new_state: TransferState, note: Optional[str] = None):
         """Transition transfer to new state"""

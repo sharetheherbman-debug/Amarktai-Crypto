@@ -286,6 +286,8 @@ class TransferJob(BaseModel):
     txid: Optional[str] = None  # Blockchain transaction ID
     deposit_address: Optional[str] = None
     deposit_tag: Optional[str] = None  # For XRP, XLM, etc.
+    deposit_memo: Optional[str] = None  # Alternative to tag for some currencies
+    network: Optional[str] = None  # Network specification (e.g., 'ERC20', 'TRC20', 'BEP20')
     
     # Timestamps
     requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -309,6 +311,10 @@ class TransferJobCreate(BaseModel):
     amount: float = Field(gt=0)
     idempotency_key: str
     totp_code: Optional[str] = None  # TOTP code if 2FA enabled
+    withdrawal_address: Optional[str] = None  # Optional whitelisted address
+    tag: Optional[str] = None  # For XRP, XLM, etc.
+    memo: Optional[str] = None  # Alternative to tag
+    network: Optional[str] = None  # Network specification (e.g., 'ERC20', 'TRC20')
     reason: Optional[str] = None
     notes: Optional[str] = None
 
