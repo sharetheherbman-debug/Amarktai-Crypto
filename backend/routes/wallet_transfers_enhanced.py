@@ -48,8 +48,11 @@ async def create_transfer_with_state_machine(
     - Idempotency via idempotency_key (prevents duplicate transfers)
     - 2FA verification (if REQUIRE_2FA_FOR_WITHDRAWALS=1)
     - Automatic approval workflow (if amount > threshold)
+    - Transfer limits enforcement (per-tx, daily, monthly)
     - Emergency stop checking
     - Withdrawal limits enforcement
+    - Address whitelist enforcement
+    - Tag/memo support for applicable currencies
     - Reserved funds checking
     - Real-time SSE events
     
@@ -61,6 +64,10 @@ async def create_transfer_with_state_machine(
         "amount": 5000.0,
         "idempotency_key": "unique-key-12345",
         "totp_code": "123456",  // Optional, required if 2FA enabled
+        "withdrawal_address": "0x123...",  // Optional, will fetch if not provided
+        "tag": "12345678",  // Optional, for XRP/XLM etc.
+        "memo": "12345678",  // Alternative to tag
+        "network": "ERC20",  // Optional, network specification
         "reason": "manual_allocation",
         "notes": "Moving funds for new bot"
     }
@@ -83,6 +90,10 @@ async def create_transfer_with_state_machine(
             amount=request.amount,
             idempotency_key=request.idempotency_key,
             totp_code=request.totp_code,
+            withdrawal_address=request.withdrawal_address,
+            tag=request.tag,
+            memo=request.memo,
+            network=request.network,
             notes=request.notes
         )
         

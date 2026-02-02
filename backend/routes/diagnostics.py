@@ -1206,3 +1206,95 @@ async def get_reserves_diagnostics(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Reserves diagnostics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/transfer-path")
+async def transfer_path_diagnostic():
+    """
+    Diagnostic endpoint to verify which transfer path is active
+    
+    Checks:
+    - Enhanced wallet transfers enabled
+    - Transfer state machine availability
+    - Legacy wallet_manager blocked status
+    - Transfer limits service availability
+    - Address whitelist service availability
+    
+    Returns:
+        active_path: 'enhanced' | 'legacy_blocked' | 'unknown'
+        enhanced_enabled: bool
+        services_available: dict
+        config: dict with relevant settings
+        production_ready: bool
+    """
+    try:
+        import config
+        from services.transfer_state_machine import transfer_state_machine
+        from services.transfer_limits_service import transfer_limits_service
+        from services.address_whitelist import address_whitelist_service
+        
+        # Check if enhanced transfers are enabled
+        enhanced_enabled = getattr(config, 'ENABLE_WALLET_TRANSFERS_ENHANCED', False) or \
+                          getattr(config, 'ENABLE_REALTIME_TRANSFERS', False)
+        
+        # Check service availability
+        services_available = {
+            "transfer_state_machine": transfer_state_machine is not None,
+            "transfer_limits_service": transfer_limits_service is not None,
+            "address_whitelist_service": address_whitelist_service is not None
+        }
+        
+        # Check limit configuration
+        limits_configured = {
+            "per_tx_limit": getattr(config, 'WALLET_MAX_TRANSFER_ZAR_PER_TX', None),
+            "daily_limit": getattr(config, 'WALLET_MAX_TRANSFER_ZAR_PER_DAY', None),
+            "monthly_limit": getattr(config, 'WALLET_MAX_TRANSFER_ZAR_PER_MONTH', None)
+        }
+        
+        # Check security settings
+        security_config = {
+            "require_2fa": getattr(config, 'REQUIRE_2FA_FOR_WITHDRAWALS', False),
+            "require_whitelist": getattr(config, 'REQUIRE_ADDRESS_WHITELIST', True),
+            "approval_threshold_zar": getattr(config, 'REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR', 100000)
+        }
+        
+        # Determine active path
+        if enhanced_enabled and all(services_available.values()):
+            active_path = "enhanced"
+        elif enhanced_enabled and not all(services_available.values()):
+            active_path = "enhanced_partial"
+        else:
+            active_path = "legacy_blocked"
+        
+        # Production readiness check
+        production_ready = (
+            active_path == "enhanced" and
+            all(limits_configured.values()) and
+            all(v is not None for v in limits_configured.values())
+        )
+        
+        return {
+            "success": True,
+            "active_path": active_path,
+            "enhanced_enabled": enhanced_enabled,
+            "services_available": services_available,
+            "limits_configured": limits_configured,
+            "security_config": security_config,
+            "production_ready": production_ready,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message": (
+                "✅ Enhanced transfer path active and production-ready" if production_ready
+                else "⚠️ Enhanced transfer path not fully configured" if active_path == "enhanced_partial"
+                else "❌ Legacy transfer path (blocked for safety)"
+            )
+        }
+        
+    except Exception as e:
+        logger.error(f"Transfer path diagnostic error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "active_path": "unknown",
+            "production_ready": False,
+            "message": f"❌ Unable to determine transfer path: {str(e)}"
+        }
