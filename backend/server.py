@@ -2973,6 +2973,8 @@ routers_to_mount = [
     ("routes.wallet_transfers", "Wallet Transfers"),  # Fund movement between providers (legacy)
     ("routes.wallet_transfers_enhanced", "Wallet Transfers Enhanced"),  # Production-safe state machine
     ("routes.wallet_addresses", "Wallet Addresses"),  # Withdrawal address whitelist management
+    ("routes.admin_whitelist", "Admin Whitelist Management"),  # Admin whitelist CRUD
+    ("routes.user_whitelist", "User Whitelist Management"),  # User whitelist requests
     ("routes.user_countdowns", "User Countdowns"),  # Custom user financial goals
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
