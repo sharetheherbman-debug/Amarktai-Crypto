@@ -1,11 +1,11 @@
 """
-Wallet Hub for All 5 exchanges
+Wallet Hub for All 7 exchanges
 
 Provides unified wallet interface for:
-- Luno, Binance, KuCoin, Bybit, Bitget
+- Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io
 - Paper wallet simulation
 - Live wallet integration (when keys available)
-- Auto-funding transfers
+- Production-safe transfers with state machine
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from auth import get_current_user
 import database as db
 from realtime_events import manager
+from config.platforms import SUPPORTED_PLATFORMS
+from services.transfer_state_machine import transfer_state_machine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
@@ -27,12 +29,16 @@ class TransferRequest(BaseModel):
     to_exchange: str
     amount: float
     currency: str = "ZAR"
+    idempotency_key: str  # Required for production safety
+    totp_code: Optional[str] = None  # Required if 2FA enabled
+    withdrawal_address: Optional[str] = None  # Optional whitelisted address
+    notes: Optional[str] = None
 
 
 @router.get("/health")
 async def get_wallet_health(user_id: str = Depends(get_current_user)):
     """
-    Get wallet health status for all 5 exchanges
+    Get wallet health status for all 7 exchanges
     
     Shows:
     - Keys status (missing, connected, error)
@@ -41,11 +47,10 @@ async def get_wallet_health(user_id: str = Depends(get_current_user)):
     - Exchange-specific details
     """
     try:
-        # Check API keys for each exchange
-        exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
+        # Check API keys for all supported exchanges
         wallet_status = {}
         
-        for exchange in exchanges:
+        for exchange in SUPPORTED_PLATFORMS:
             # Check if user has keys for this exchange
             api_key = await db.api_keys_collection.find_one({
                 "user_id": user_id,
@@ -131,17 +136,23 @@ async def transfer_funds(
     user_id: str = Depends(get_current_user)
 ):
     """
-    Transfer funds between exchanges
+    Transfer funds between exchanges - PRODUCTION SAFE
+    
+    Uses transfer_state_machine for:
+    - Idempotency (prevents double-send)
+    - 2FA enforcement (if REQUIRE_2FA_FOR_WITHDRAWALS=1)
+    - Approval workflows (for large amounts)
+    - Reserved funds checking
+    - State tracking (requested → approved → queued → broadcast → confirmed)
     
     Paper mode: Simulates transfer
-    Live mode: Requires API keys and executes real transfer
+    Live mode: Executes real CCXT withdrawal with all safety checks
     """
     try:
         # Validate exchanges
-        valid_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
-        if request.from_exchange not in valid_exchanges:
+        if request.from_exchange not in SUPPORTED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"Invalid source exchange: {request.from_exchange}")
-        if request.to_exchange not in valid_exchanges:
+        if request.to_exchange not in SUPPORTED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"Invalid destination exchange: {request.to_exchange}")
         
         # Validate amount
@@ -163,7 +174,7 @@ async def transfer_funds(
         is_paper = not (from_keys and to_keys and from_keys.get("last_test_ok") and to_keys.get("last_test_ok"))
         
         if is_paper:
-            # Paper mode transfer (simulated)
+            # Paper mode transfer (simulated) - bypass state machine for simplicity
             transfer_id = f"paper_transfer_{datetime.now(timezone.utc).timestamp()}"
             
             # Log the transfer
@@ -176,6 +187,7 @@ async def transfer_funds(
                 "currency": request.currency,
                 "status": "simulated",
                 "mode": "paper",
+                "idempotency_key": request.idempotency_key,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
             
@@ -204,12 +216,33 @@ async def transfer_funds(
                 "currency": request.currency
             }
         else:
-            # Live mode transfer (would require actual implementation)
-            # For now, return not implemented
-            raise HTTPException(
-                status_code=501,
-                detail="Live transfers not yet implemented. Use paper mode for testing."
+            # Live mode transfer - use production-safe state machine
+            logger.info(f"Live transfer requested: {request.amount} {request.currency} from {request.from_exchange} to {request.to_exchange}")
+            
+            result = await transfer_state_machine.request_transfer(
+                user_id=user_id,
+                from_exchange=request.from_exchange,
+                to_exchange=request.to_exchange,
+                currency=request.currency,
+                amount=request.amount,
+                idempotency_key=request.idempotency_key,
+                totp_code=request.totp_code,
+                withdrawal_address=request.withdrawal_address,
+                notes=request.notes
             )
+            
+            if not result.get("success"):
+                # Return error without raising exception (error codes expected by frontend)
+                return result
+            
+            return {
+                **result,
+                "mode": "live",
+                "from_exchange": request.from_exchange,
+                "to_exchange": request.to_exchange,
+                "amount": request.amount,
+                "currency": request.currency
+            }
         
     except HTTPException:
         raise
@@ -221,7 +254,7 @@ async def transfer_funds(
 @router.get("/balances")
 async def get_all_balances(user_id: str = Depends(get_current_user)):
     """
-    Get balances across all exchanges
+    Get balances across all 7 exchanges
     
     Returns both paper and live balances (if keys available).
     """
@@ -231,9 +264,8 @@ async def get_all_balances(user_id: str = Depends(get_current_user)):
         
         # Get live balances when keys are available
         live_balances = {}
-        exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
         
-        for exchange in exchanges:
+        for exchange in SUPPORTED_PLATFORMS:
             api_key_doc = await db.api_keys_collection.find_one({
                 "user_id": user_id,
                 "service": exchange
@@ -304,4 +336,113 @@ async def get_wallet_transactions(
         
     except Exception as e:
         logger.error(f"Get wallet transactions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ADMIN APPROVAL ENDPOINTS
+# ============================================================================
+
+@router.post("/admin/approve/{transfer_id}")
+async def admin_approve_transfer(
+    transfer_id: str,
+    notes: Optional[str] = None,
+    admin_id: str = Depends(get_current_user)
+):
+    """
+    Admin approval for large transfers
+    
+    Requires admin role. Transitions transfer from NEEDS_APPROVAL → APPROVED → QUEUED
+    """
+    try:
+        # Check if user is admin
+        user = await db.users_collection.find_one({"id": admin_id})
+        if not user or user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        result = await transfer_state_machine.approve_transfer(
+            transfer_id=transfer_id,
+            admin_id=admin_id,
+            notes=notes
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Approval failed"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin approve transfer error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/reject/{transfer_id}")
+async def admin_reject_transfer(
+    transfer_id: str,
+    reason: str,
+    admin_id: str = Depends(get_current_user)
+):
+    """
+    Admin rejection of transfer
+    
+    Requires admin role. Transitions transfer to CANCELLED and releases reserved funds
+    """
+    try:
+        # Check if user is admin
+        user = await db.users_collection.find_one({"id": admin_id})
+        if not user or user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        result = await transfer_state_machine.reject_transfer(
+            transfer_id=transfer_id,
+            admin_id=admin_id,
+            reason=reason
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Rejection failed"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin reject transfer error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/pending-approvals")
+async def get_pending_approvals(
+    admin_id: str = Depends(get_current_user)
+):
+    """
+    Get all pending transfer approvals
+    
+    Requires admin role. Returns list of transfers needing approval
+    """
+    try:
+        # Check if user is admin
+        user = await db.users_collection.find_one({"id": admin_id})
+        if not user or user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Get pending approvals
+        pending_cursor = db.db["transfer_jobs"].find(
+            {"state": "needs_approval"},
+            {"_id": 0}
+        ).sort("created_at", -1)
+        
+        pending = await pending_cursor.to_list(100)
+        
+        return {
+            "pending_approvals": pending,
+            "count": len(pending)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get pending approvals error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
