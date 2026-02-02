@@ -929,7 +929,7 @@ async def test_api_key(provider: str, user_id: str = Depends(get_current_user)):
             logger.error(f"Fetch.ai test failed: {e}")
             raise HTTPException(status_code=400, detail=f"Fetch.ai test failed: {str(e)}")
     
-    # OVEX and VALR removed - only Luno, Binance, KuCoin supported
+    # Supported exchanges: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO (7 total)
     else:
         # Unsupported provider
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}. Supported exchanges: luno, binance, kucoin")
@@ -2954,7 +2954,9 @@ routers_to_mount = [
     ("routes.compatibility_endpoints", "Compatibility"),
     # REMOVED: routes.bots - duplicate of bot_lifecycle
     ("routes.chat_endpoints", "Chat Message Endpoint"),  # Frontend compatibility
-    ("routes.wallet_transfers", "Wallet Transfers"),  # Fund movement between providers
+    ("routes.wallet_transfers", "Wallet Transfers"),  # Fund movement between providers (legacy)
+    ("routes.wallet_transfers_enhanced", "Wallet Transfers Enhanced"),  # Production-safe state machine
+    ("routes.wallet_addresses", "Wallet Addresses"),  # Withdrawal address whitelist management
     ("routes.user_countdowns", "User Countdowns"),  # Custom user financial goals
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation

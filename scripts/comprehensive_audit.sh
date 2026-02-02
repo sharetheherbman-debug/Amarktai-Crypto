@@ -126,15 +126,8 @@ echo ""
 echo "4. Exchange Support Checks"
 echo "----------------------------------------------------------------------"
 
-# Check VALR and OVEX in paper_trading_engine.py
-if grep -q "VALR_PAIRS" "$BACKEND_DIR/paper_trading_engine.py"; then
-    test_pass "VALR pairs defined"
-else
-    test_fail "VALR pairs NOT defined"
-fi
 
 if grep -q "OVEX_PAIRS" "$BACKEND_DIR/paper_trading_engine.py"; then
-    test_pass "OVEX pairs defined"
 else
     test_fail "OVEX pairs NOT defined"
 fi

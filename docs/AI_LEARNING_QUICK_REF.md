@@ -27,12 +27,14 @@
 
 ### Bot Limits
 ```
-GLOBAL MAX: 45 bots
+GLOBAL MAX: 65 bots
 ├─ Luno: 5 bots
 ├─ Binance: 10 bots
 ├─ KuCoin: 10 bots
-├─ OVEX: 10 bots
-└─ VALR: 10 bots
+├─ Bybit: 10 bots
+├─ Kraken: 10 bots
+├─ Bitget: 10 bots
+└─ GateIO: 10 bots
 ```
 
 ### Trading Limits (Per Bot)

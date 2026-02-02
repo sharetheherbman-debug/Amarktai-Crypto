@@ -12,8 +12,7 @@ Last Updated: 2026-01-28
 - ✅ **Luno** - Full API integration, live pricing, order execution
 - ✅ **Binance** - Complete support, spot trading, real-time data
 - ✅ **KuCoin** - Full integration, live market data
-- ✅ **OVEX** - South African exchange support
-- ✅ **VALR** - Local ZAR trading support
+- ✅ **Bybit, Kraken, Bitget, GateIO** - Additional exchange support
 - **Status:** All 5 exchanges operational with real-time WebSocket connections
 
 ### 2. Paper Trading (REAL-TIME)

@@ -3,6 +3,8 @@ Transfer State Machine - Production-Safe Wallet Transfers
 NON-NEGOTIABLE: Real CCXT API, Idempotency, State Tracking, 2FA
 
 State Flow: requested → (needs_approval?) approved → queued → broadcast → confirmed | failed
+
+Updated to use TransferJob model from models.py for consistency.
 """
 
 import asyncio
@@ -16,20 +18,9 @@ import hashlib
 import config
 import database as db
 from realtime_events import manager
+from models import TransferState, TransferJob, TransferLedgerEvent
 
 logger = logging.getLogger(__name__)
-
-
-class TransferState(str, Enum):
-    """Transfer state machine states"""
-    REQUESTED = "requested"
-    NEEDS_APPROVAL = "needs_approval"
-    APPROVED = "approved"
-    QUEUED = "queued"
-    BROADCAST = "broadcast"
-    CONFIRMED = "confirmed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class TransferBlockedReason(str, Enum):
@@ -347,6 +338,28 @@ class TransferStateMachine:
                     transfer["to_exchange"],
                     transfer["currency"]
                 )
+            
+            # Validate address is whitelisted (if whitelisting is enabled)
+            if getattr(config, 'REQUIRE_ADDRESS_WHITELIST', True):
+                from services.address_whitelist import address_whitelist_service
+                is_whitelisted = await address_whitelist_service.is_address_whitelisted(
+                    transfer["user_id"],
+                    transfer["to_exchange"],
+                    transfer["currency"],
+                    withdrawal_address
+                )
+                if not is_whitelisted:
+                    await self._transition_state(transfer_id, TransferState.FAILED, 
+                                                "Address not whitelisted")
+                    await self._release_funds(
+                        transfer["user_id"],
+                        transfer["from_exchange"],
+                        transfer["currency"],
+                        transfer["amount"],
+                        transfer_id
+                    )
+                    await exchange.close()
+                    return
             
             # Execute withdrawal
             try:

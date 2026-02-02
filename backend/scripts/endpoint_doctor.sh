@@ -294,7 +294,7 @@ echo "----------------------------------------"
 test_endpoint "GET" "/api/system/platforms" "200" "Platforms list endpoint" false
 test_json_shape "GET" "/api/system/platforms" "platforms" "Platforms returns platforms array" false
 
-# Check for correct exchange enablement (luno, binance, kucoin enabled; ovex, valr disabled)
+# Check for correct exchange enablement (all 7 exchanges enabled: luno, binance, kucoin, bybit, kraken, bitget, gateio)
 echo -n "Testing: Exchange defaults (luno/binance/kucoin enabled)... "
 platforms_response=$(curl -s "${API_URL}/api/system/platforms" 2>/dev/null || echo "{}")
 has_luno=$(echo "$platforms_response" | grep -o '"id":"luno"' | wc -l)

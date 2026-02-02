@@ -1,0 +1,4509 @@
+{
+  "exchanges": {
+    "luno": {
+      "max_bots": 5,
+      "source": "exchange_limits.py"
+    },
+    "binance": {
+      "max_bots": 10,
+      "source": "exchange_limits.py"
+    },
+    "kucoin": {
+      "max_bots": 10,
+      "source": "exchange_limits.py"
+    },
+    "bybit": {
+      "max_bots": 10,
+      "source": "exchange_limits.py"
+    },
+    "kraken": {
+      "max_bots": 10,
+      "source": "exchange_limits.py"
+    },
+    "bitget": {
+      "max_bots": 10,
+      "source": "exchange_limits.py"
+    },
+    "gate": {
+      "max_bots": 10,
+      "source": "exchange_limits.py"
+    }
+  },
+  "routers": [
+    {
+      "file": "backend/routes/order_endpoints.py",
+      "name": "order_endpoints",
+      "prefix": "/api",
+      "tags": [
+        "orders",
+        "circuit-breaker"
+      ]
+    },
+    {
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "name": "advanced_trading_endpoints",
+      "prefix": "/api/advanced",
+      "tags": [
+        "Advanced Trading"
+      ]
+    },
+    {
+      "file": "backend/routes/websocket.py",
+      "name": "websocket",
+      "prefix": null,
+      "tags": [
+        "WebSocket"
+      ]
+    },
+    {
+      "file": "backend/routes/system_health_endpoints.py",
+      "name": "system_health_endpoints",
+      "prefix": "/api/health",
+      "tags": [
+        "System Health"
+      ]
+    },
+    {
+      "file": "backend/routes/keys.py",
+      "name": "keys",
+      "prefix": "/api/keys",
+      "tags": [
+        "API Keys"
+      ]
+    },
+    {
+      "file": "backend/routes/system_status.py",
+      "name": "system_status",
+      "prefix": "/api/system",
+      "tags": [
+        "System Status"
+      ]
+    },
+    {
+      "file": "backend/routes/admin_endpoints.py",
+      "name": "admin_endpoints",
+      "prefix": "/api/admin",
+      "tags": [
+        "Admin Dashboard"
+      ]
+    },
+    {
+      "file": "backend/routes/execution_quality.py",
+      "name": "execution_quality",
+      "prefix": "/api/execution-quality",
+      "tags": [
+        "Execution Quality"
+      ]
+    },
+    {
+      "file": "backend/routes/bot_lifecycle.py",
+      "name": "bot_lifecycle",
+      "prefix": "/api/bots",
+      "tags": [
+        "Bot Lifecycle"
+      ]
+    },
+    {
+      "file": "backend/routes/wallet_endpoints.py",
+      "name": "wallet_endpoints",
+      "prefix": "/api/wallet",
+      "tags": [
+        "Wallet Hub"
+      ]
+    },
+    {
+      "file": "backend/routes/auth.py",
+      "name": "auth",
+      "prefix": null,
+      "tags": []
+    },
+    {
+      "file": "backend/routes/ledger_endpoints.py",
+      "name": "ledger_endpoints",
+      "prefix": "/api",
+      "tags": [
+        "ledger"
+      ]
+    },
+    {
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "name": "payment_agent_endpoints",
+      "prefix": "/api/payment",
+      "tags": [
+        "Payment Agent"
+      ]
+    },
+    {
+      "file": "backend/routes/wallet_hub.py",
+      "name": "wallet_hub",
+      "prefix": "/api/wallet",
+      "tags": [
+        "Wallet Hub"
+      ]
+    },
+    {
+      "file": "backend/routes/realtime.py",
+      "name": "realtime",
+      "prefix": "/api/realtime",
+      "tags": [
+        "RealTime"
+      ]
+    },
+    {
+      "file": "backend/routes/two_factor_auth.py",
+      "name": "two_factor_auth",
+      "prefix": "/api/auth/2fa",
+      "tags": [
+        "Two-Factor Authentication"
+      ]
+    },
+    {
+      "file": "backend/routes/platforms.py",
+      "name": "platforms",
+      "prefix": "/api/platforms",
+      "tags": [
+        "Platforms"
+      ]
+    },
+    {
+      "file": "backend/routes/admin_enhanced.py",
+      "name": "admin_enhanced",
+      "prefix": "/api/admin",
+      "tags": [
+        "Enhanced Admin"
+      ]
+    },
+    {
+      "file": "backend/routes/dashboard_endpoints.py",
+      "name": "dashboard_endpoints",
+      "prefix": "/api",
+      "tags": [
+        "Dashboard"
+      ]
+    },
+    {
+      "file": "backend/routes/training.py",
+      "name": "training",
+      "prefix": "/api/training",
+      "tags": [
+        "Bot Training"
+      ]
+    },
+    {
+      "file": "backend/routes/treasury.py",
+      "name": "treasury",
+      "prefix": "/api/treasury",
+      "tags": [
+        "Treasury"
+      ]
+    },
+    {
+      "file": "backend/routes/chat_enhanced.py",
+      "name": "chat_enhanced",
+      "prefix": "/api/chat",
+      "tags": [
+        "AI Chat Enhanced"
+      ]
+    },
+    {
+      "file": "backend/routes/decision_trace.py",
+      "name": "decision_trace",
+      "prefix": "/api/decisions",
+      "tags": [
+        "Decision Trace"
+      ]
+    },
+    {
+      "file": "backend/routes/training_quarantine.py",
+      "name": "training_quarantine",
+      "prefix": "/api/training-quarantine",
+      "tags": [
+        "Training & Quarantine"
+      ]
+    },
+    {
+      "file": "backend/routes/system_mode.py",
+      "name": "system_mode",
+      "prefix": "/api/system",
+      "tags": [
+        "System Mode"
+      ]
+    },
+    {
+      "file": "backend/routes/compatibility_endpoints.py",
+      "name": "compatibility_endpoints",
+      "prefix": "/api",
+      "tags": [
+        "Compatibility"
+      ]
+    },
+    {
+      "file": "backend/routes/capital_tracking_endpoints.py",
+      "name": "capital_tracking_endpoints",
+      "prefix": "/api/capital",
+      "tags": [
+        "Capital Tracking"
+      ]
+    },
+    {
+      "file": "backend/routes/autopilot_control.py",
+      "name": "autopilot_control",
+      "prefix": null,
+      "tags": []
+    },
+    {
+      "file": "backend/routes/wallet_transfers.py",
+      "name": "wallet_transfers",
+      "prefix": "/api/wallet",
+      "tags": [
+        "Wallet"
+      ]
+    },
+    {
+      "file": "backend/routes/bot_control.py",
+      "name": "bot_control",
+      "prefix": null,
+      "tags": []
+    },
+    {
+      "file": "backend/routes/phase8_endpoints.py",
+      "name": "phase8_endpoints",
+      "prefix": "/api/phase8",
+      "tags": [
+        "Phase 8 - Logging & Monitoring"
+      ]
+    },
+    {
+      "file": "backend/routes/alerts.py",
+      "name": "alerts",
+      "prefix": "/api",
+      "tags": []
+    },
+    {
+      "file": "backend/routes/user_countdowns.py",
+      "name": "user_countdowns",
+      "prefix": "/api/countdowns",
+      "tags": [
+        "countdowns"
+      ]
+    },
+    {
+      "file": "backend/routes/live_trading_gate.py",
+      "name": "live_trading_gate",
+      "prefix": "/api/system",
+      "tags": [
+        "Live Trading Gate"
+      ]
+    },
+    {
+      "file": "backend/routes/health.py",
+      "name": "health",
+      "prefix": "/api/health",
+      "tags": [
+        "Health"
+      ]
+    },
+    {
+      "file": "backend/routes/analytics_api.py",
+      "name": "analytics_api",
+      "prefix": "/api/analytics",
+      "tags": [
+        "Analytics"
+      ]
+    },
+    {
+      "file": "backend/routes/daily_report.py",
+      "name": "daily_report",
+      "prefix": "/api/reports",
+      "tags": [
+        "Reports"
+      ]
+    },
+    {
+      "file": "backend/routes/build_info.py",
+      "name": "build_info",
+      "prefix": "/api/build",
+      "tags": [
+        "Build"
+      ]
+    },
+    {
+      "file": "backend/routes/phase5_endpoints.py",
+      "name": "phase5_endpoints",
+      "prefix": "/api/phase5",
+      "tags": [
+        "Phase 5 - Risk & Capital"
+      ]
+    },
+    {
+      "file": "backend/routes/limits_management.py",
+      "name": "limits_management",
+      "prefix": "/api/limits",
+      "tags": [
+        "Limits"
+      ]
+    },
+    {
+      "file": "backend/routes/genetic_algorithm.py",
+      "name": "genetic_algorithm",
+      "prefix": "/api/genetic",
+      "tags": [
+        "Genetic Algorithm"
+      ]
+    },
+    {
+      "file": "backend/routes/backtesting.py",
+      "name": "backtesting",
+      "prefix": "/api/backtesting",
+      "tags": [
+        "Backtesting"
+      ]
+    },
+    {
+      "file": "backend/routes/system_limits.py",
+      "name": "system_limits",
+      "prefix": "/api/system",
+      "tags": [
+        "System Limits"
+      ]
+    },
+    {
+      "file": "backend/routes/chat_endpoints.py",
+      "name": "chat_endpoints",
+      "prefix": "/api/chat",
+      "tags": [
+        "Chat"
+      ]
+    },
+    {
+      "file": "backend/routes/quarantine.py",
+      "name": "quarantine",
+      "prefix": "/api/quarantine",
+      "tags": [
+        "Bot Quarantine"
+      ]
+    },
+    {
+      "file": "backend/routes/ai_chat.py",
+      "name": "ai_chat",
+      "prefix": "/api/ai",
+      "tags": [
+        "AI Chat"
+      ]
+    },
+    {
+      "file": "backend/routes/dashboard_aliases.py",
+      "name": "dashboard_aliases",
+      "prefix": "/api",
+      "tags": [
+        "Dashboard Aliases"
+      ]
+    },
+    {
+      "file": "backend/routes/system.py",
+      "name": "system",
+      "prefix": "/api/system",
+      "tags": [
+        "System"
+      ]
+    },
+    {
+      "file": "backend/routes/emergency_stop_endpoints.py",
+      "name": "emergency_stop_endpoints",
+      "prefix": "/api/system",
+      "tags": [
+        "Emergency Stop"
+      ]
+    },
+    {
+      "file": "backend/routes/trading.py",
+      "name": "trading",
+      "prefix": null,
+      "tags": []
+    },
+    {
+      "file": "backend/routes/diagnostics.py",
+      "name": "diagnostics",
+      "prefix": "/api/diagnostics",
+      "tags": [
+        "Diagnostics"
+      ]
+    },
+    {
+      "file": "backend/routes/trades.py",
+      "name": "trades",
+      "prefix": "/api/trades",
+      "tags": [
+        "Trades"
+      ]
+    },
+    {
+      "file": "backend/routes/phase6_endpoints.py",
+      "name": "phase6_endpoints",
+      "prefix": "/api/phase6",
+      "tags": [
+        "Phase 6 - AI & Learning"
+      ]
+    }
+  ],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/orders/submit",
+      "function": "submit_order",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/orders/{order_id}/status",
+      "function": "get_order_status",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/orders/pending",
+      "function": "get_pending_orders",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/circuit-breaker/status",
+      "function": "get_circuit_breaker_status",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/circuit-breaker/reset",
+      "function": "reset_circuit_breaker",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/circuit-breaker/history",
+      "function": "get_circuit_breaker_history",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/limits/status",
+      "function": "get_limits_status",
+      "file": "backend/routes/order_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_advanced_system_status",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/regime/update-price",
+      "function": "update_regime_price",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/regime/{symbol}",
+      "function": "get_regime_for_symbol",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/regime/summary",
+      "function": "get_regime_summary",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/ofi/snapshot",
+      "function": "add_ofi_snapshot",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ofi/{symbol}",
+      "function": "get_ofi_signal",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ofi/stats/{symbol}",
+      "function": "get_ofi_stats",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/whale/{coin}",
+      "function": "get_whale_signal",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/whale/summary",
+      "function": "get_whale_summary",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/sentiment/{coin}",
+      "function": "get_sentiment_signal",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/sentiment/summary",
+      "function": "get_sentiment_summary",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/macro/signal",
+      "function": "get_macro_signal",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/macro/summary",
+      "function": "get_macro_summary",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/fusion/{symbol}",
+      "function": "get_fusion_signal",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/fusion/portfolio",
+      "function": "get_portfolio_fusion",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/self-healing/health",
+      "function": "get_self_healing_health",
+      "file": "backend/routes/advanced_trading_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/indicators",
+      "function": "get_health_indicators",
+      "file": "backend/routes/system_health_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/ping",
+      "function": "ping",
+      "file": "backend/routes/system_health_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/paper-trading",
+      "function": "get_paper_trading_status",
+      "file": "backend/routes/system_health_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/providers",
+      "function": "get_providers_list",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/list",
+      "function": "list_user_keys",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{provider}",
+      "function": "save_key_provider_path",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/save",
+      "function": "save_key",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/test",
+      "function": "test_key",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/{provider}",
+      "function": "get_key",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/{provider}",
+      "function": "delete_key",
+      "file": "backend/routes/keys.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_system_status",
+      "file": "backend/routes/system_status.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/since-last-login",
+      "function": "get_since_last_login",
+      "file": "backend/routes/system_status.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "function": "health_check",
+      "file": "backend/routes/system_status.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/unlock",
+      "function": "unlock_admin_panel",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/users",
+      "function": "get_all_users",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "function": "get_user_details",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/users/{user_id}/block",
+      "function": "block_user",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/users/{user_id}/unblock",
+      "function": "unblock_user",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/users/{user_id}/reset-password",
+      "function": "reset_user_password",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/users/{user_id}",
+      "function": "delete_user",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/users/{user_id}/logout",
+      "function": "force_logout_user",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/system-stats",
+      "function": "get_system_stats_extended",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/user-storage",
+      "function": "get_user_storage_usage",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/stats",
+      "function": "get_system_stats",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/audit/events",
+      "function": "get_audit_events",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/system/resources",
+      "function": "get_system_resources",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/system/processes",
+      "function": "get_process_health",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/system/logs",
+      "function": "get_system_logs",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/change-password",
+      "function": "change_admin_password",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/users/{user_id}/api-keys",
+      "function": "get_user_api_keys_status",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/bots",
+      "function": "get_all_bots_admin",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/mode",
+      "function": "change_bot_mode",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/pause",
+      "function": "pause_bot",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/resume",
+      "function": "resume_bot",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/restart",
+      "function": "restart_bot",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/exchange",
+      "function": "change_bot_exchange",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/resources/users",
+      "function": "get_user_resource_usage",
+      "file": "backend/routes/admin_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_execution_quality_status",
+      "file": "backend/routes/execution_quality.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/history",
+      "function": "get_execution_quality_history",
+      "file": "backend/routes/execution_quality.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_bots_status",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/start",
+      "function": "start_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/stop",
+      "function": "stop_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/pause",
+      "function": "pause_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "PUT",
+      "path": "/{bot_id}/pause",
+      "function": "pause_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/resume",
+      "function": "resume_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "PUT",
+      "path": "/{bot_id}/resume",
+      "function": "resume_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/unpause",
+      "function": "resume_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "PUT",
+      "path": "/{bot_id}/unpause",
+      "function": "resume_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/cooldown",
+      "function": "set_bot_cooldown",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/{bot_id}/status",
+      "function": "get_bot_detailed_status",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/pause-all",
+      "function": "pause_all_bots",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/resume-all",
+      "function": "resume_all_bots",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "PUT",
+      "path": "/{bot_id}/trading-enabled",
+      "function": "toggle_bot_trading",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/trading-enabled",
+      "function": "toggle_bot_trading",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/{bot_id}",
+      "function": "delete_bot",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/{bot_id}/diagnostics",
+      "function": "get_bot_diagnostics",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics",
+      "function": "get_all_bots_diagnostics",
+      "file": "backend/routes/bot_lifecycle.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/balances-legacy",
+      "function": "get_wallet_balances_legacy",
+      "file": "backend/routes/wallet_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/requirements",
+      "function": "get_capital_requirements",
+      "file": "backend/routes/wallet_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/funding-plans",
+      "function": "get_funding_plans",
+      "file": "backend/routes/wallet_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/funding-plans/{plan_id}",
+      "function": "get_funding_plan",
+      "file": "backend/routes/wallet_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/funding-plans/{plan_id}/cancel",
+      "function": "cancel_funding_plan",
+      "file": "backend/routes/wallet_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/transfer-manual",
+      "function": "create_transfer_manual",
+      "file": "backend/routes/wallet_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/register",
+      "function": "register",
+      "file": "backend/routes/auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "function": "login",
+      "file": "backend/routes/auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/auth/me",
+      "function": "get_current_user_profile",
+      "file": "backend/routes/auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "PUT",
+      "path": "/auth/profile",
+      "function": "update_profile",
+      "file": "backend/routes/auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/auth/profile",
+      "function": "get_profile",
+      "file": "backend/routes/auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/portfolio/summary",
+      "function": "get_portfolio_summary",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/profits",
+      "function": "get_profits",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/countdown/status",
+      "function": "get_countdown_status",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ledger/fills",
+      "function": "get_fills",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/ledger/funding",
+      "function": "record_funding",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ledger/audit-trail",
+      "function": "get_audit_trail",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ledger/reconcile",
+      "function": "reconcile_ledger",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ledger/verify-integrity",
+      "function": "verify_ledger_integrity",
+      "file": "backend/routes/ledger_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_payment_agent_status",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/stats",
+      "function": "get_payment_statistics",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "POST",
+      "path": "/make-payment",
+      "function": "make_payment",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "POST",
+      "path": "/pay-alpha-signal",
+      "function": "pay_for_alpha_signal",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "POST",
+      "path": "/pay-data-feed",
+      "function": "pay_for_data_feed",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "POST",
+      "path": "/history",
+      "function": "get_payment_history",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "POST",
+      "path": "/request-testnet-funds",
+      "function": "request_testnet_funds",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/can-pay/{amount_fet}",
+      "function": "check_can_make_payment",
+      "file": "backend/routes/payment_agent_endpoints.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "function": "get_wallet_health",
+      "file": "backend/routes/wallet_hub.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/transfer",
+      "function": "transfer_funds",
+      "file": "backend/routes/wallet_hub.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/balances",
+      "function": "get_all_balances",
+      "file": "backend/routes/wallet_hub.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/transactions",
+      "function": "get_wallet_transactions",
+      "file": "backend/routes/wallet_hub.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/events",
+      "function": "realtime_events",
+      "file": "backend/routes/realtime.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/enroll",
+      "function": "enroll_",
+      "file": "backend/routes/two_factor_auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/verify",
+      "function": "verify_",
+      "file": "backend/routes/two_factor_auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/disable",
+      "function": "disable_",
+      "file": "backend/routes/two_factor_auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_",
+      "file": "backend/routes/two_factor_auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/validate",
+      "function": "validate_",
+      "file": "backend/routes/two_factor_auth.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/summary",
+      "function": "get_platforms_summary",
+      "file": "backend/routes/platforms.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/{platform}/bots",
+      "function": "get_platform_bots",
+      "file": "backend/routes/platforms.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_platform_status",
+      "file": "backend/routes/platforms.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "function": "platform_health",
+      "file": "backend/routes/platforms.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/readiness",
+      "function": "platform_readiness",
+      "file": "backend/routes/platforms.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/users/list",
+      "function": "get_users_list",
+      "file": "backend/routes/admin_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/users/{user_id}/bots",
+      "function": "get_user_bots_detailed",
+      "file": "backend/routes/admin_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard/stats",
+      "function": "get_admin_dashboard_stats",
+      "file": "backend/routes/admin_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/queue",
+      "function": "get_training_queue",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/promote",
+      "function": "promote_bot_from_training",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{bot_id}/fail",
+      "function": "fail_training",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/live-bay",
+      "function": "get_live_training_bay",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/history",
+      "function": "get_training_history",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/start",
+      "function": "start_training",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/{run_id}/status",
+      "function": "get_training_status",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/{run_id}/stop",
+      "function": "stop_training",
+      "file": "backend/routes/training.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_treasury_status",
+      "file": "backend/routes/treasury.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/rebalance",
+      "function": "rebalance_treasury",
+      "file": "backend/routes/treasury.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/sweep",
+      "function": "sweep_excess_capital",
+      "file": "backend/routes/treasury.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/clear",
+      "function": "clear_chat_history",
+      "file": "backend/routes/chat_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/daily-summary",
+      "function": "get_daily_summary",
+      "file": "backend/routes/chat_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/welcome",
+      "function": "get_welcome_message",
+      "file": "backend/routes/chat_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/session/end",
+      "function": "end_chat_session",
+      "file": "backend/routes/chat_enhanced.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/trace",
+      "function": "get_decision_trace",
+      "file": "backend/routes/decision_trace.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/latest",
+      "function": "get_latest_decisions",
+      "file": "backend/routes/decision_trace.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/log",
+      "function": "log_decision",
+      "file": "backend/routes/decision_trace.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/bots",
+      "function": "get_training_quarantine_bots",
+      "file": "backend/routes/training_quarantine.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/reports",
+      "function": "get_training_reports",
+      "file": "backend/routes/training_quarantine.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/report/{bot_id}",
+      "function": "get_bot_training_report",
+      "file": "backend/routes/training_quarantine.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/mode",
+      "function": "get_mode",
+      "file": "backend/routes/system_mode.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/mode/switch",
+      "function": "switch_mode",
+      "file": "backend/routes/system_mode.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/mode/readiness",
+      "function": "check_readiness",
+      "file": "backend/routes/system_mode.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ai/insights",
+      "function": "get_ai_insights",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ml/predict",
+      "function": "ml_predict_query_params",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/profits/reinvest",
+      "function": "reinvest_profits",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/advanced/decisions/recent",
+      "function": "get_recent_decisions",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/bot/{bot_id}/real-profit",
+      "function": "get_bot_real_profit",
+      "file": "backend/routes/capital_tracking_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/user/real-profit",
+      "function": "get_user_real_profit",
+      "file": "backend/routes/capital_tracking_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/bot/{bot_id}/injections",
+      "function": "get_bot_injections",
+      "file": "backend/routes/capital_tracking_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/user/injections",
+      "function": "get_user_injections",
+      "file": "backend/routes/capital_tracking_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/initialize",
+      "function": "initialize_capital_tracking",
+      "file": "backend/routes/capital_tracking_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/autopilot/status",
+      "function": "get_autopilot_status",
+      "file": "backend/routes/autopilot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/autopilot/toggle",
+      "function": "toggle_autopilot",
+      "file": "backend/routes/autopilot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/autopilot/enable",
+      "function": "enable_autopilot",
+      "file": "backend/routes/autopilot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/autopilot/disable",
+      "function": "disable_autopilot",
+      "file": "backend/routes/autopilot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/transfers",
+      "function": "get_transfers",
+      "file": "backend/routes/wallet_transfers.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/transfers",
+      "function": "create_transfer",
+      "file": "backend/routes/wallet_transfers.py",
+      "auth_required": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/transfer/{transfer_id}/status",
+      "function": "update_transfer_status",
+      "file": "backend/routes/wallet_transfers.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/balance/summary",
+      "function": "get_balance_summary",
+      "file": "backend/routes/wallet_transfers.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/pause",
+      "function": "pause_bot",
+      "file": "backend/routes/bot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/resume",
+      "function": "resume_bot",
+      "file": "backend/routes/bot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/bots/{bot_id}/start",
+      "function": "start_bot",
+      "file": "backend/routes/bot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/bots/{bot_id}/status",
+      "function": "get_bot_status",
+      "file": "backend/routes/bot_control.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/audit/trail",
+      "function": "get_audit_trail",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/audit/critical",
+      "function": "get_critical_events",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/audit/compliance-report",
+      "function": "get_compliance_report",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/audit/statistics",
+      "function": "get_audit_statistics",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/email/send-daily-report",
+      "function": "send_daily_report",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/email/test",
+      "function": "test_email",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/email/report-preview",
+      "function": "preview_daily_report",
+      "file": "backend/routes/phase8_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/alerts",
+      "function": "get_alerts",
+      "file": "backend/routes/alerts.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/alerts/ack/{alert_id}",
+      "function": "acknowledge_alert",
+      "file": "backend/routes/alerts.py",
+      "auth_required": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/alerts/clear",
+      "function": "clear_alerts",
+      "file": "backend/routes/alerts.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "function": "get_user_countdowns",
+      "file": "backend/routes/user_countdowns.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/",
+      "function": "create_countdown",
+      "file": "backend/routes/user_countdowns.py",
+      "auth_required": true
+    },
+    {
+      "method": "PUT",
+      "path": "/{countdown_id}",
+      "function": "update_countdown",
+      "file": "backend/routes/user_countdowns.py",
+      "auth_required": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/{countdown_id}",
+      "function": "delete_countdown",
+      "file": "backend/routes/user_countdowns.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/request-live",
+      "function": "request_live_trading",
+      "file": "backend/routes/live_trading_gate.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/live-eligibility",
+      "function": "get_live_eligibility",
+      "file": "backend/routes/live_trading_gate.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/start-paper-learning",
+      "function": "start_paper_learning",
+      "file": "backend/routes/live_trading_gate.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/preflight",
+      "function": "preflight_check",
+      "file": "backend/routes/health.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/ping",
+      "function": "health_ping",
+      "file": "backend/routes/health.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "function": "health_ready",
+      "file": "backend/routes/health.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/pnl_timeseries",
+      "function": "get_pnl_timeseries",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/capital_breakdown",
+      "function": "get_capital_breakdown",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/performance_summary",
+      "function": "get_performance_summary",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/exchange-comparison",
+      "function": "get_exchange_comparison",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/equity",
+      "function": "get_equity_curve",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/drawdown",
+      "function": "get_drawdown_analysis",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/win_rate",
+      "function": "get_win_rate_stats",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/summary",
+      "function": "get_analytics_summary",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/countdown",
+      "function": "get_countdown_to_target",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/insights",
+      "function": "get_trading_insights",
+      "file": "backend/routes/analytics_api.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/daily/send-test",
+      "function": "send_test_report",
+      "file": "backend/routes/daily_report.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/daily/send-all",
+      "function": "send_all_reports",
+      "file": "backend/routes/daily_report.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/daily/config",
+      "function": "get_report_config",
+      "file": "backend/routes/daily_report.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/admin/reinvest/trigger",
+      "function": "trigger_manual_reinvestment",
+      "file": "backend/routes/daily_report.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/admin/reinvest/status",
+      "function": "get_reinvestment_status",
+      "file": "backend/routes/daily_report.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/info",
+      "function": "get_build_info",
+      "file": "backend/routes/build_info.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/build",
+      "function": "get_build_info_legacy",
+      "file": "backend/routes/build_info.py",
+      "auth_required": false
+    },
+    {
+      "method": "GET",
+      "path": "/capital/allocation-report",
+      "function": "get_allocation_report",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/capital/rebalance",
+      "function": "rebalance_capital",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/capital/bot/{bot_id}/optimal",
+      "function": "get_optimal_allocation",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/staggerer/schedule",
+      "function": "get_trade_schedule",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/staggerer/queue-status",
+      "function": "get_queue_status",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/circuit-breaker/status/{bot_id}",
+      "function": "get_circuit_breaker_status",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/circuit-breaker/global-status",
+      "function": "get_global_circuit_breaker_status",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/limiter/bot/{bot_id}/status",
+      "function": "get_bot_trade_status",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/risk/check-trade",
+      "function": "check_trade_risk",
+      "file": "backend/routes/phase5_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "function": "get_limits_config",
+      "file": "backend/routes/limits_management.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/usage",
+      "function": "get_limits_usage",
+      "file": "backend/routes/limits_management.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/quarantined",
+      "function": "get_quarantined_bots",
+      "file": "backend/routes/limits_management.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/quarantine/reset/{bot_id}",
+      "function": "reset_quarantined_bot",
+      "file": "backend/routes/limits_management.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/circuit-breaker/check",
+      "function": "check_circuit_breaker",
+      "file": "backend/routes/limits_management.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "function": "get_limits_health",
+      "file": "backend/routes/limits_management.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/evolve",
+      "function": "evolve_bots",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_evolution_status",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/mutate/{bot_id}",
+      "function": "mutate_bot",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/crossover",
+      "function": "crossover_bots",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/performance-ranking",
+      "function": "get_performance_ranking",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/auto-evolve/enable",
+      "function": "enable_auto_evolution",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/auto-evolve/disable",
+      "function": "disable_auto_evolution",
+      "file": "backend/routes/genetic_algorithm.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/standard",
+      "function": "run_backtest",
+      "file": "backend/routes/backtesting.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/walkforward",
+      "function": "run_walkforward",
+      "file": "backend/routes/backtesting.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/montecarlo",
+      "function": "run_montecarlo",
+      "file": "backend/routes/backtesting.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/results/{backtest_id}",
+      "function": "get_backtest_results",
+      "file": "backend/routes/backtesting.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/history",
+      "function": "get_backtest_history",
+      "file": "backend/routes/backtesting.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/optimize/{strategy_id}",
+      "function": "optimize_parameters",
+      "file": "backend/routes/backtesting.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/limits",
+      "function": "get_trade_limits",
+      "file": "backend/routes/system_limits.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/limits/exchange/{exchange}",
+      "function": "get_exchange_limits",
+      "file": "backend/routes/system_limits.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/limits/bot/{bot_id}",
+      "function": "get_bot_limits",
+      "file": "backend/routes/system_limits.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/message",
+      "function": "chat_message",
+      "file": "backend/routes/chat_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_quarantine_status",
+      "file": "backend/routes/quarantine.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/history",
+      "function": "get_quarantine_history",
+      "file": "backend/routes/quarantine.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "function": "get_quarantine_config",
+      "file": "backend/routes/quarantine.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/chat",
+      "function": "ai_chat",
+      "file": "backend/routes/ai_chat.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/chat/history",
+      "function": "get_chat_history",
+      "file": "backend/routes/ai_chat.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/chat/clear",
+      "function": "clear_chat_history_post",
+      "file": "backend/routes/ai_chat.py",
+      "auth_required": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/chat/history",
+      "function": "clear_chat_history",
+      "file": "backend/routes/ai_chat.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/chat/greeting",
+      "function": "get_daily_greeting",
+      "file": "backend/routes/ai_chat.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/action/execute",
+      "function": "execute_ai_action",
+      "file": "backend/routes/ai_chat.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/whale-flow/summary",
+      "function": "whale_flow_summary_alias",
+      "file": "backend/routes/dashboard_aliases.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/whale-flow/{coin}",
+      "function": "whale_flow_coin_alias",
+      "file": "backend/routes/dashboard_aliases.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/decision-trace/latest",
+      "function": "get_decision_trace_latest",
+      "file": "backend/routes/dashboard_aliases.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/metrics/summary",
+      "function": "get_metrics_summary",
+      "file": "backend/routes/dashboard_aliases.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ping",
+      "function": "system_ping",
+      "file": "backend/routes/system.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/platforms",
+      "function": "get_platforms",
+      "file": "backend/routes/system.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/emergency-stop",
+      "function": "activate_emergency_stop",
+      "file": "backend/routes/emergency_stop_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/emergency-stop/disable",
+      "function": "deactivate_emergency_stop",
+      "file": "backend/routes/emergency_stop_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/emergency-resume",
+      "function": "emergency_resume",
+      "file": "backend/routes/emergency_stop_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/emergency-stop/status",
+      "function": "get_emergency_stop_status",
+      "file": "backend/routes/emergency_stop_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "function": "get_system_status",
+      "file": "backend/routes/emergency_stop_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/overview",
+      "function": "get_overview",
+      "file": "backend/routes/trading.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/system/mode/toggle",
+      "function": "toggle_system_mode",
+      "file": "backend/routes/trading.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/realtime-smoke",
+      "function": "realtime_smoke_test",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/system-health",
+      "function": "system_health_check",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/autopilot-check",
+      "function": "autopilot_functionality_check",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/paper-status",
+      "function": "get_paper_trading_status",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/auto-spawn",
+      "function": "get_auto_spawn_status",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/realtime",
+      "function": "get_realtime_status",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/wallet-status",
+      "function": "get_wallet_status",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/transfers",
+      "function": "get_transfer_diagnostics",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/regime",
+      "function": "get_market_regime",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/health-detail",
+      "function": "get_health_detail",
+      "file": "backend/routes/diagnostics.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ping",
+      "function": "trades_ping",
+      "file": "backend/routes/trades.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "function": "get_trade_metrics",
+      "file": "backend/routes/trades.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/recent",
+      "function": "get_recent_trades",
+      "file": "backend/routes/trades.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/stats",
+      "function": "get_trade_stats",
+      "file": "backend/routes/trades.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/live",
+      "function": "get_live_trades",
+      "file": "backend/routes/trades.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/ai/health",
+      "function": "ai_health_check",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/ai/analyze-trade",
+      "function": "analyze_trade_opportunity",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/ai/market-insight",
+      "function": "generate_market_insight",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/ai/strategy-analysis/{bot_id}",
+      "function": "deep_strategy_analysis",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "GET",
+      "path": "/learning/analyze/{bot_id}",
+      "function": "analyze_bot_performance",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/learning/generate-adjustments/{bot_id}",
+      "function": "generate_bot_adjustments",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/learning/apply-adjustments/{bot_id}",
+      "function": "apply_bot_adjustments",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    },
+    {
+      "method": "POST",
+      "path": "/learning/run-cycle",
+      "function": "run_learning_cycle",
+      "file": "backend/routes/phase6_endpoints.py",
+      "auth_required": true
+    }
+  ],
+  "frontend_api_calls": [],
+  "todos": [
+    {
+      "type": "TODO",
+      "file": "backend/services/email_service.py",
+      "line": 91,
+      "text": "# TODO: Actually send email via SMTP"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/services/email_service.py",
+      "line": 190,
+      "text": "# TODO: Actually send email via SMTP"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 69,
+      "text": "# TODO: Load historical data"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 70,
+      "text": "# TODO: Apply strategy DNA"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 71,
+      "text": "# TODO: Simulate trades"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 72,
+      "text": "# TODO: Calculate performance metrics"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 112,
+      "text": "# TODO: Implement walk-forward analysis"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 113,
+      "text": "# TODO: Split data into periods"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 114,
+      "text": "# TODO: Train on training period"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 115,
+      "text": "# TODO: Test on testing period"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 116,
+      "text": "# TODO: Move window forward and repeat"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 117,
+      "text": "# TODO: Aggregate results"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 159,
+      "text": "# TODO: Load trade history"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 160,
+      "text": "# TODO: Run random variations"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 161,
+      "text": "# TODO: Calculate distribution of outcomes"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 162,
+      "text": "# TODO: Compute risk metrics (VaR, CVaR, etc.)"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 270,
+      "text": "# TODO: Define parameter grid"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 271,
+      "text": "# TODO: Run backtest for each combination"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 272,
+      "text": "# TODO: Find optimal parameters"
+    },
+    {
+      "type": "TODO",
+      "file": "backend/routes/backtesting.py",
+      "line": 273,
+      "text": "# TODO: Return best configuration"
+    },
+    {
+      "type": "XXX",
+      "file": "backend/routes/websocket.py",
+      "line": 57,
+      "text": "- Query parameter: /api/ws?token=xxx"
+    },
+    {
+      "type": "XXX",
+      "file": "backend/routes/websocket.py",
+      "line": 58,
+      "text": "- Header: Authorization: Bearer xxx"
+    },
+    {
+      "type": "XXX",
+      "file": "backend/routes/websocket.py",
+      "line": 61,
+      "text": "- Query parameter: /api/ws?token=xxx&last_event_id=123"
+    },
+    {
+      "type": "HACK",
+      "file": "backend/engines/sentiment_analyzer.py",
+      "line": 98,
+      "text": "'ban', 'hack', 'scandal', 'investigation', 'fraud',"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/trading_scheduler.py",
+      "line": 49,
+      "text": "logger.debug(f\"Scheduler tick skipped: {gate_reason}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/trading_scheduler.py",
+      "line": 61,
+      "text": "logger.debug(\"No active bots found\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/trading_scheduler.py",
+      "line": 111,
+      "text": "logger.debug(\"No bots on supported exchanges\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/trading_scheduler.py",
+      "line": 413,
+      "text": "logger.debug(\"\ud83d\udc93 Heartbeat emitted\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/trading_scheduler.py",
+      "line": 415,
+      "text": "logger.debug(f\"Failed to emit heartbeat: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/server.py",
+      "line": 1703,
+      "text": "logger.debug(f\"Could not check API keys: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/server.py",
+      "line": 1749,
+      "text": "logger.debug(f\"OHLCV failed for {pair}: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/server.py",
+      "line": 1780,
+      "text": "logger.debug(f\"Ticker failed for {pair}: {e2}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/server.py",
+      "line": 2577,
+      "text": "logger.debug(f\"Price fetch error for {pair}: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/websocket_manager.py",
+      "line": 149,
+      "text": "logger.debug(f\"Ping send error: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/rate_limiter.py",
+      "line": 74,
+      "text": "logger.debug(f\"Rate limiter: {exchange} orders today: {self.orders_today[exchange]}, burst: {self.orders_per_10_seconds[exchange]['count']}/10\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/ai_service.py",
+      "line": 77,
+      "text": "# Log for debugging"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/realtime_events.py",
+      "line": 20,
+      "text": "logger.debug(f\"Subscribed to event: {event_type}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/realtime_events.py",
+      "line": 26,
+      "text": "logger.debug(f\"Unsubscribed from event: {event_type}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/realtime_events.py",
+      "line": 346,
+      "text": "logger.debug(f\"\ud83d\udce1 Real-time: metrics_updated for user {user_id[:8]}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/realtime_events.py",
+      "line": 356,
+      "text": "logger.debug(f\"\ud83d\udce1 Real-time: overview_updated for user {user_id[:8]}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/performance_ranker.py",
+      "line": 128,
+      "text": "logger.debug(f\"Trade time parsing error: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/performance_ranker.py",
+      "line": 196,
+      "text": "logger.debug(f\"Regime bonus calculation skipped: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/paper_trading_engine.py",
+      "line": 426,
+      "text": "logger.debug(f\"Price fetch for {symbol} on {exchange}: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/paper_trading_engine.py",
+      "line": 571,
+      "text": "logger.debug(f\"Bot {bot_id[:8]} using authenticated data from {exchange}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/paper_trading_engine.py",
+      "line": 573,
+      "text": "logger.debug(f\"Bot {bot_id[:8]} using public data (no verified API keys)\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/paper_trading_engine.py",
+      "line": 575,
+      "text": "logger.debug(f\"Could not check API keys for {exchange}: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/paper_trading_engine.py",
+      "line": 648,
+      "text": "logger.debug(f\"Trade quality filter: Skipping low-confidence trade (sources: {confidence_sources}, avg: {total_confidence/max(confidence_sources,1):.2%})\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/utils/trading_gates.py",
+      "line": 159,
+      "text": "logger.debug(\"\u2705 Paper trading gate passed\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/utils/trading_gates.py",
+      "line": 168,
+      "text": "logger.debug(\"\u2705 Live trading gate passed\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/utils/trading_gates.py",
+      "line": 178,
+      "text": "logger.debug(f\"\u2705 Trading gates passed: mode={reason}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/chandelier_exits.py",
+      "line": 93,
+      "text": "logger.debug(f\"Insufficient data for ATR: {len(history)} < {self.atr_period + 1}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/chandelier_exits.py",
+      "line": 146,
+      "text": "logger.debug(f\"Insufficient data for Chandelier: {len(history)} < {self.lookback_period}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/regime_detector.py",
+      "line": 286,
+      "text": "logger.debug(f\"Insufficient data for {symbol}: {len(history)} points\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/risk_management.py",
+      "line": 102,
+      "text": "logger.debug(f\"\ud83d\udcc8 Trailing stop updated for bot {bot_id}: R{new_trailing_price:.2f}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/risk_management.py",
+      "line": 121,
+      "text": "logger.debug(f\"Position closed for bot {bot_id}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/fractional_kelly.py",
+      "line": 138,
+      "text": "logger.debug("
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/uagents_framework.py",
+      "line": 100,
+      "text": "ctx.logger.debug(f\"Regime signal: {symbol} -> {regime_data['regime']}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/uagents_framework.py",
+      "line": 118,
+      "text": "ctx.logger.debug(f\"Market data received: {msg.symbol} @ ${msg.price}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/uagents_framework.py",
+      "line": 337,
+      "text": "ctx.logger.debug(f\"Health check from {sender}: {msg.component} is {msg.status}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/order_flow_imbalance.py",
+      "line": 250,
+      "text": "logger.debug("
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/trade_staggerer.py",
+      "line": 81,
+      "text": "logger.debug(f\"\ud83d\udcca Trade started: {bot_id[:8]} on {exchange} (concurrent: {current + 1})\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/trade_staggerer.py",
+      "line": 95,
+      "text": "logger.debug(f\"\u2705 Trade completed: {bot_id[:8]} on {exchange} (concurrent: {current - 1})\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/trading_engine_production.py",
+      "line": 35,
+      "text": "logger.debug(f\"Bot {bot.get('name')} cannot trade: {reason}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/trading_engine_production.py",
+      "line": 144,
+      "text": "logger.debug(\"No active bots to trade\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/engines/trade_budget_manager.py",
+      "line": 113,
+      "text": "logger.debug(f\"Bot {bot_id[:8]} on {exchange}: {per_bot_budget} trades/day \""
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/price_fallback_service.py",
+      "line": 126,
+      "text": "logger.debug(f\"Cache hit for {cache_key}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/price_fallback_service.py",
+      "line": 147,
+      "text": "logger.debug(f\"Fetched price for {cache_key}: {price}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/price_fallback_service.py",
+      "line": 154,
+      "text": "logger.debug(f\"Error fetching price for {cache_key}: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/price_fallback_service.py",
+      "line": 180,
+      "text": "logger.debug(f\"Error in batch fetch for {key}: {price}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/safe_audit_logger.py",
+      "line": 68,
+      "text": "logger.debug(f\"Audit log: {user_id[:8]} \u2192 {action}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/safe_audit_logger.py",
+      "line": 119,
+      "text": "logger.debug(f\"Admin audit log: {admin_id[:8]} \u2192 {action} on {target_type} {target_id[:8]}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/safe_audit_logger.py",
+      "line": 148,
+      "text": "logger.debug(f\"System event logged: {event}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/ledger_service.py",
+      "line": 217,
+      "text": "logger.debug(f\"Equity calculation for {target_field}={target_id}: starting={starting_capital}, realized={realized_pnl}, unrealized={unrealized_pnl}, fees={fees_paid}, total={equity}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/services/ledger_service.py",
+      "line": 388,
+      "text": "logger.debug(f\"Open position: {symbol} qty={qty} entry={entry_price} mark={current_price} unrealized_pnl={pnl}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/migrations/migrate_production_update.py",
+      "line": 63,
+      "text": "logger.debug(f\"Updated bot {bot_id}: {list(updates.keys())}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/migrations/migrate_production_update.py",
+      "line": 131,
+      "text": "logger.debug(f\"Updated trade {trade_id}: {list(updates.keys())}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/realtime.py",
+      "line": 109,
+      "text": "logger.debug(f\"SSE connection closed for user {user_id[:8]}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "line": 63,
+      "text": "logger.debug(f\"Could not fetch regime data: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "line": 76,
+      "text": "logger.debug(f\"Could not fetch sentiment data: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "line": 93,
+      "text": "logger.debug(f\"Could not fetch decision data: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "line": 117,
+      "text": "logger.debug(f\"Could not determine system health: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/compatibility_endpoints.py",
+      "line": 341,
+      "text": "logger.debug(f\"Could not fetch from decision_trace: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/routes/api_key_management.py",
+      "line": 112,
+      "text": "logger.debug(f\"Decryption failed (likely plaintext): {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/jobs/wallet_balance_monitor.py",
+      "line": 52,
+      "text": "logger.debug(f\"\u2705 Updated balances for {len(users)} users\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/jobs/wallet_balance_monitor.py",
+      "line": 98,
+      "text": "logger.debug(f\"WebSocket emission error: {ws_error}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/jobs/wallet_balance_monitor.py",
+      "line": 101,
+      "text": "logger.debug(f\"Update user balance error for {user_id[:8]}: {e}\")"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/tests/test_comprehensive_features.py",
+      "line": 294,
+      "text": "# Log details for debugging"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/config/settings.py",
+      "line": 76,
+      "text": "DEBUG = env_bool('DEBUG', False)"
+    },
+    {
+      "type": "BUG",
+      "file": "backend/config/settings.py",
+      "line": 137,
+      "text": "'debug': DEBUG,"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/pages/Dashboard.js",
+      "line": 711,
+      "text": "// Rate-limited debug logging for unknown message types"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/pages/Dashboard.js",
+      "line": 719,
+      "text": "console.debug('Unknown real-time update:', data);"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/pages/Dashboard.js",
+      "line": 722,
+      "text": "console.debug('Unknown message types rate limit reached. Suppressing further logs for 1 minute.');"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/pages/Dashboard.js",
+      "line": 1600,
+      "text": "// Handle 500 errors with detailed debug information"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/pages/Dashboard.js",
+      "line": 1615,
+      "text": "// Add a \"Copy debug info\" button via toast with longer duration"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/pages/Dashboard.js",
+      "line": 1617,
+      "text": "console.error('Debug Info (copy this):', JSON.stringify(errorData, null, 2));"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/components/ErrorBoundary.js",
+      "line": 24,
+      "text": "// Log error to console for debugging"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/components/ErrorBoundary.js",
+      "line": 63,
+      "text": "{process.env.NODE_ENV === 'development' && process.env.REACT_APP_DEBUG?.toLowerCase() === 'true' && this.state.error && ("
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/components/ErrorBoundary.js",
+      "line": 74,
+      "text": "Error Details (Debug Mode Only)"
+    },
+    {
+      "type": "BUG",
+      "file": "frontend/src/lib/apiClient.js",
+      "line": 138,
+      "text": "// Attach original error for debugging"
+    }
+  ],
+  "blockers": [
+    {
+      "type": "VALR_OVEX_PRESENT",
+      "severity": "HIGH",
+      "message": "Found 283 VALR/OVEX references"
+    },
+    {
+      "type": "REMOVED_FEATURES_PRESENT",
+      "severity": "MEDIUM",
+      "message": "Found 1 references to removed features"
+    },
+    {
+      "type": "TOS_VIOLATIONS",
+      "severity": "HIGH",
+      "message": "Found 5 potential ToS violations"
+    }
+  ],
+  "valr_ovex_references": [
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 112,
+      "text": "Found 286 VALR/OVEX references"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 121,
+      "text": "## VALR/OVEX References (Must Be Removed)"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 125,
+      "text": "- `docs/CURRENT_STATE.md:112` - Found 286 VALR/OVEX references"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 126,
+      "text": "- `docs/CURRENT_STATE.md:121` - ## VALR/OVEX References (Must Be Removed)"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 128,
+      "text": "- `docs/CURRENT_STATE.md:127` - - `docs/api_keys.md:15` - | **valr** | Exchange | `api_key`, `api_se"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 129,
+      "text": "- `docs/CURRENT_STATE.md:128` - - `docs/api_keys.md:16` - | **ovex** | Exchange | `api_key`, `api_se"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 130,
+      "text": "- `docs/CURRENT_STATE.md:129` - - `docs/api_keys.md:169` - - Provider must be recognized (openai, lu"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 131,
+      "text": "- `docs/CURRENT_STATE.md:130` - - `docs/api_keys.md:319` - ### VALR"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 132,
+      "text": "- `docs/CURRENT_STATE.md:131` - - `docs/api_keys.md:332` - ### OVEX"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 133,
+      "text": "- `docs/CURRENT_STATE.md:132` - - `docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md:92` - \u274c **REMOVED:** OVEX"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 134,
+      "text": "- `docs/CURRENT_STATE.md:133` - - `docs/COMPLETE_FEATURE_LIST.md:15` - - \u2705 **OVEX** - South African "
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 135,
+      "text": "- `docs/CURRENT_STATE.md:134` - - `docs/COMPLETE_FEATURE_LIST.md:16` - - \u2705 **VALR** - Local ZAR trad"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 136,
+      "text": "- `docs/CURRENT_STATE.md:135` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:120` - \"ovex\": 10,     # 10 "
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 137,
+      "text": "- `docs/CURRENT_STATE.md:136` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:121` - \"valr\": 10      # 10 "
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 138,
+      "text": "- `docs/CURRENT_STATE.md:137` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:153` - **OVEX:**"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 139,
+      "text": "- `docs/CURRENT_STATE.md:138` - - `docs/SYSTEM_RULES_AND_AI_LEARNING.md:162` - **VALR:**"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 140,
+      "text": "- `docs/CURRENT_STATE.md:139` - - `docs/WORLD_CLASS_GAP_ANALYSIS.md:130` - - \u2705 5 exchanges (Luno, Bi"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 141,
+      "text": "- `docs/CURRENT_STATE.md:140` - - `docs/DEPLOYMENT_GUIDE.md:411` - - Bots: 45 per user (5 Luno + 10 "
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 142,
+      "text": "- `docs/CURRENT_STATE.md:141` - - `docs/AI_LEARNING_SUMMARY.md:97` - \u251c\u2500 OVEX: 10 bots"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 143,
+      "text": "- `docs/CURRENT_STATE.md:142` - - `docs/AI_LEARNING_SUMMARY.md:98` - \u2514\u2500 VALR: 10 bots"
+    },
+    {
+      "file": "docs/CURRENT_STATE.md",
+      "line": 144,
+      "text": "- `docs/CURRENT_STATE.md:143` - - `docs/AI_LEARNING_SUMMARY.md:114` - OVEX:    Maker 0.1%,  Taker 0."
+    },
+    {
+      "file": "docs/api_keys.md",
+      "line": 5,
+      "text": "The Amarktai Network securely manages API keys for multiple service providers including AI services "
+    },
+    {
+      "file": "docs/DEPLOYMENT_CHECKLIST.md",
+      "line": 135,
+      "text": "- **Disabled by default:** ovex, valr"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 14,
+      "text": "- **5 platforms** implemented (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 38,
+      "text": "**Requirement**: \"total 6 platforms. Kraken must be replaced with OVEX\""
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 43,
+      "text": "- **5 platforms defined**: Luno, Binance, KuCoin, OVEX, VALR"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 52,
+      "text": "| `backend/config.py` | Exchange config | \u2705 Has OVEX, no Kraken |"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 53,
+      "text": "| `frontend/src/config/exchanges.js` | Frontend config | \u2705 Has OVEX, no Kraken |"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 96,
+      "text": "- \u2705 OVEX: supports both modes, requires api_key + api_secret"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 97,
+      "text": "- \u2705 VALR: supports both modes, requires api_key + api_secret"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 340,
+      "text": "1. \u2705 Platform standardization (OVEX present, Kraken removed)"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 393,
+      "text": "4. **\u2753 CLARIFY PLATFORM COUNT**: Comment says \"6 platforms\" but lists same 5 (Luno, Binance, KuCoin,"
+    },
+    {
+      "file": "docs/archive/AUDIT_REPORT.md",
+      "line": 477,
+      "text": "2. **5e5a40e** - Replace Kraken with OVEX"
+    },
+    {
+      "file": "docs/archive/REMAINING_TASKS.md",
+      "line": 15,
+      "text": "- [x] **API Keys Routes** - Standardized to `/api/keys/{provider}` for all 6 providers (openai, luno"
+    },
+    {
+      "file": "docs/archive/IMPLEMENTATION_COMPLETE.md",
+      "line": 16,
+      "text": "- **Result**: All 5 exchanges (Luno, Binance, KuCoin, OVEX, VALR) now show as fully supported"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 16,
+      "text": "- **5 Platforms**: Luno (5), Binance (10), KuCoin (10), OVEX (10), VALR (10) = 45 bots total"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 39,
+      "text": "- [x] Exactly 5 platforms defined (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 319,
+      "text": "- [x] Supports all 5 platforms (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 365,
+      "text": "for platform in luno binance kucoin ovex valr; do"
+    },
+    {
+      "file": "docs/archive/FINAL_PRODUCTION_AUDIT.md",
+      "line": 659,
+      "text": "- [x] **5 Platforms**: Luno, Binance, KuCoin, OVEX, VALR (45 bots total)"
+    },
+    {
+      "file": "docs/archive/PR_SUMMARY.md",
+      "line": 39,
+      "text": "- Exchange validation (5 platforms: Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 22,
+      "text": "### 1. \u2705 VALR & OVEX Support (COMPLETE)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 25,
+      "text": "- Added VALR and OVEX exchange initialization in paper_trading_engine.py"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 28,
+      "text": "- Updated get_available_pairs() to support valr and ovex"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 29,
+      "text": "- Updated get_real_price() to support valr and ovex"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 30,
+      "text": "- OVEX automatically falls back to Luno for ZAR pairs"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 31,
+      "text": "- Updated close_exchanges() to clean up valr and ovex"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 35,
+      "text": "# Test VALR price fetching"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 36,
+      "text": "curl -X GET \"http://localhost:8000/api/prices/valr/BTC-ZAR\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 38,
+      "text": "# Test OVEX price fetching (falls back to Luno)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 39,
+      "text": "curl -X GET \"http://localhost:8000/api/prices/ovex/BTC-ZAR\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 41,
+      "text": "# Test paper trading on VALR"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 42,
+      "text": "# Create bot with exchange=\"valr\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 45,
+      "text": "# Test paper trading on OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 46,
+      "text": "# Create bot with exchange=\"ovex\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 51,
+      "text": "- VALR prices fetched successfully"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 52,
+      "text": "- OVEX prices fetched (via Luno fallback)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 53,
+      "text": "- Paper trades execute on VALR"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 54,
+      "text": "- Paper trades execute on OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 256,
+      "text": "- Supports: Luno, Binance, KuCoin, VALR, OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 259,
+      "text": "- OVEX fallback to Luno"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 269,
+      "text": "price = await price_fallback_service.get_price('valr', 'BTC/ZAR')"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 270,
+      "text": "print(f\"VALR BTC/ZAR: {price}\")"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 272,
+      "text": "price = await price_fallback_service.get_price('ovex', 'BTC/ZAR')"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 273,
+      "text": "print(f\"OVEX BTC/ZAR (via Luno): {price}\")"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 278,
+      "text": "('valr', 'BTC/ZAR'),"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 281,
+      "text": "('ovex', 'ETH/ZAR')"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 294,
+      "text": "- OVEX uses Luno prices for ZAR pairs"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 323,
+      "text": "-d '{\"from_exchange\":\"luno\",\"to_exchange\":\"valr\",\"amount\":1000,\"currency\":\"ZAR\"}' \\"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 386,
+      "text": "- [ ] VALR paper trading executes"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 387,
+      "text": "- [ ] OVEX paper trading executes"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_LAUNCH_VERIFICATION.md",
+      "line": 468,
+      "text": "- VALR & OVEX fully supported"
+    },
+    {
+      "file": "docs/archive/ADMIN_PANEL_IMPLEMENTATION.md",
+      "line": 51,
+      "text": "\"valr\": false,"
+    },
+    {
+      "file": "docs/archive/ADMIN_PANEL_IMPLEMENTATION.md",
+      "line": 52,
+      "text": "\"ovex\": false"
+    },
+    {
+      "file": "docs/archive/ADMIN_PANEL_IMPLEMENTATION.md",
+      "line": 339,
+      "text": "\"exchange\": \"luno|binance|kucoin|valr|ovex\""
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 31,
+      "text": "- **VALR**: 10 bots max, 1,500 trades/bot/day, 15,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 32,
+      "text": "- **OVEX**: 10 bots max, 500 trades/bot/day, 5,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 53,
+      "text": "\"valr\": {\"max_bots\": 10, \"trades_per_bot_day\": 1500, \"total_trades_day\": 15000},"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 54,
+      "text": "\"ovex\": {\"max_bots\": 10, \"trades_per_bot_day\": 500, \"total_trades_day\": 5000}"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPDATE_COMPLETE.md",
+      "line": 136,
+      "text": "- Services supported: `openai`, `luno`, `binance`, `kucoin`, `valr`, `ovex`, `smtp`"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 27,
+      "text": "- VALR: 10 bots, 1,500 trades/bot/day, 15,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 28,
+      "text": "- OVEX: 10 bots, 500 trades/bot/day, 5,000 total/day"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 125,
+      "text": "### 12. VALR & OVEX Exchange Support"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 131,
+      "text": "- [ ] Add VALR/OVEX exchange initialization in paper_trading_engine"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 132,
+      "text": "- [ ] Add VALR/OVEX pairs to available pairs list"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 133,
+      "text": "- [ ] Add VALR/OVEX price feed support"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 135,
+      "text": "- [ ] Test paper trading on VALR/OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 136,
+      "text": "- [ ] Add VALR/OVEX to ccxt exchange initialization"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 145,
+      "text": "self.valr_exchange = ccxt.valr({'enableRateLimit': True})"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 146,
+      "text": "self.ovex_exchange = ccxt.ovex({'enableRateLimit': True})"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 207,
+      "text": "- [ ] Accept keys for VALR, OVEX"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 246,
+      "text": "- [ ] VALR/OVEX bots can trade in paper mode"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 254,
+      "text": "- [ ] VALR/OVEX quarantine removed (needs implementation)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 264,
+      "text": "### Priority 1: Complete VALR/OVEX Support"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 268,
+      "text": "1. Add VALR/OVEX exchange initialization"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 322,
+      "text": "- VALR/OVEX need full implementation"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 343,
+      "text": "- \u26a0\ufe0f VALR/OVEX support incomplete (needs implementation)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FIXES_STATUS.md",
+      "line": 358,
+      "text": "- \u26a0\ufe0f VALR/OVEX need testing"
+    },
+    {
+      "file": "docs/archive/CLEAN_REPO_RULES.md",
+      "line": 112,
+      "text": "- AUTHORITATIVE: `backend/config/platforms.py` (5 platforms: luno, binance, kucoin, ovex, valr)"
+    },
+    {
+      "file": "docs/archive/CLEAN_REPO_RULES.md",
+      "line": 133,
+      "text": "4. ovex (OVEX - South Africa)"
+    },
+    {
+      "file": "docs/archive/CLEAN_REPO_RULES.md",
+      "line": 134,
+      "text": "5. valr (VALR - South Africa)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 16,
+      "text": "4. **OVEX** (South Africa) - 10 bots capacity"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 17,
+      "text": "5. **VALR** (South Africa) - 10 bots capacity"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 50,
+      "text": "- \u2705 Exchange-specific fee simulation (Luno: 0.1%, Binance: 0.1%, KuCoin: 0.1%, OVEX: 0.2%, VALR: 0.0"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_READY_SUMMARY.md",
+      "line": 328,
+      "text": "\u2705 **All 5 platforms operational** (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/IMPLEMENTATION_SUMMARY.md",
+      "line": 16,
+      "text": "- \u2705 Verified no VALR/OVEX in active code"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 26,
+      "text": "1. \u2705 **VALR & OVEX Exchange Support**"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 97,
+      "text": "1. `backend/paper_trading_engine.py` - VALR/OVEX support"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 143,
+      "text": "| VALR | \u274c Quarantined | \u2705 Fully Supported | **FIXED** |"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 144,
+      "text": "| OVEX | \u274c Quarantined | \u2705 Fully Supported | **FIXED** |"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 255,
+      "text": "- [ ] Test VALR paper trading"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 256,
+      "text": "- [ ] Test OVEX paper trading"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 350,
+      "text": "- VALR fully supported"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 351,
+      "text": "- OVEX fully supported"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 367,
+      "text": "- VALR/OVEX: \u274c Quarantined"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_SUMMARY.md",
+      "line": 373,
+      "text": "- VALR/OVEX: \u2705 Fully supported"
+    },
+    {
+      "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
+      "line": 13,
+      "text": "- \u2705 `backend/config/platforms.py` - All 5 platforms (Luno, Binance, KuCoin, OVEX, VALR)"
+    },
+    {
+      "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
+      "line": 26,
+      "text": "- \u2705 OVEX and VALR marked as `supports_paper=true, supports_live=false` until adapters ready"
+    },
+    {
+      "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
+      "line": 41,
+      "text": "- \u2705 Supports 8 providers: OpenAI, Flokx, FetchAI, Luno, Binance, KuCoin, OVEX, VALR"
+    },
+    {
+      "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
+      "line": 94,
+      "text": "- OVEX/VALR bot validation"
+    },
+    {
+      "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
+      "line": 234,
+      "text": "# Must return 5 platforms: luno, binance, kucoin, ovex, valr"
+    },
+    {
+      "file": "docs/archive/FINAL_DEPLOYMENT_GUIDE.md",
+      "line": 323,
+      "text": "1. **OVEX/VALR Live Trading**: Not yet implemented"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_GUIDE.md",
+      "line": 119,
+      "text": "4. **OVEX** - South African exchange"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_GUIDE.md",
+      "line": 120,
+      "text": "5. **VALR** - South African exchange"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_GUIDE.md",
+      "line": 127,
+      "text": "- Platforms: luno, binance, kucoin, ovex, valr"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_GO_LIVE_CHECKLIST.md",
+      "line": 225,
+      "text": "# Verify ovex/valr bots are paused"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_GO_LIVE_CHECKLIST.md",
+      "line": 228,
+      "text": "exchange: {\\$in: ['ovex', 'valr']},"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 48,
+      "text": "'ovex': {'max_trades_per_bot_per_day': 100}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 49,
+      "text": "'valr': {'max_trades_per_bot_per_day': 100}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 57,
+      "text": "'ovex': {'max_orders_per_bot_per_day': 50}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 58,
+      "text": "'valr': {'max_orders_per_bot_per_day': 50}"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 117,
+      "text": "OVEX: Max orders per bot per day: 50"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 118,
+      "text": "VALR: Max orders per bot per day: 50"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 126,
+      "text": "OVEX: 100"
+    },
+    {
+      "file": "docs/archive/RULE_CONFLICTS_ANALYSIS.md",
+      "line": 127,
+      "text": "VALR: 100"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPGRADE_SUMMARY.md",
+      "line": 87,
+      "text": "| VALR     | 1500        | South African |"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_UPGRADE_SUMMARY.md",
+      "line": 88,
+      "text": "| OVEX     | 500         | Moderate |"
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 25,
+      "text": "- \u2705 **VALR/OVEX**: Not found in active code (only in `_archive/`)"
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 463,
+      "text": "grep -r \"VALR\\|OVEX\" . --include=\"*.js\" --include=\"*.jsx\""
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 611,
+      "text": "- \u2705 VALR exchange (only in `_archive/`)"
+    },
+    {
+      "file": "docs/archive/PR_STATUS_REPORT.md",
+      "line": 612,
+      "text": "- \u2705 OVEX exchange (only in `_archive/`)"
+    },
+    {
+      "file": "docs/archive/FINAL_IMPLEMENTATION_SUMMARY.md",
+      "line": 23,
+      "text": "- VALR (ZAR exchange)"
+    },
+    {
+      "file": "docs/archive/FINAL_IMPLEMENTATION_SUMMARY.md",
+      "line": 24,
+      "text": "- OVEX (ZAR exchange)"
+    },
+    {
+      "file": "docs/archive/FINAL_IMPLEMENTATION_SUMMARY.md",
+      "line": 77,
+      "text": "- Options: Binance, Luno, KuCoin, VALR, OVEX"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_VERIFICATION.md",
+      "line": 516,
+      "text": "# Expected: {\"luno\":X,\"binance\":Y,\"kucoin\":Z,\"ovex\":A,\"valr\":B}"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_VERIFICATION.md",
+      "line": 517,
+      "text": "# Also verify: \".all_exchanges\" shows [\"luno\",\"binance\",\"kucoin\",\"ovex\",\"valr\"]"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_SUMMARY.md",
+      "line": 18,
+      "text": "- \u2705 All 5 platforms enabled for live trading: luno, binance, kucoin, ovex, valr"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_SUMMARY.md",
+      "line": 22,
+      "text": "- `backend/config/platforms.py` - Enabled live trading for ovex & valr"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_SUMMARY.md",
+      "line": 82,
+      "text": "- luno, binance, kucoin, ovex, valr (all 5)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_SUMMARY.md",
+      "line": 323,
+      "text": "\u2713 Platform 'ovex' present"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_SUMMARY.md",
+      "line": 324,
+      "text": "\u2713 Platform 'valr' present"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 3,
+      "text": "## Migration Complete: OVEX+VALR Removed, Bybit+Kraken+Bitget+Gate Added"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 6,
+      "text": "**Branch:** copilot/update-repo-remove-ovex-valr"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 23,
+      "text": "- \u274c OVEX (South African) - Not in CCXT"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 24,
+      "text": "- \u274c VALR (South African) - Not reliable in CCXT"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 186,
+      "text": "- \u2705 Removed OVEX/VALR positive tests"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 187,
+      "text": "- \u2705 Added assertions that OVEX/VALR are NOT supported"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 194,
+      "text": "- \u2705 **0 references** to ovex/valr in production code (only test assertions)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 234,
+      "text": "git pull origin copilot/update-repo-remove-ovex-valr"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 272,
+      "text": "- OVEX is NOT available in CCXT (reason for removal)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_MIGRATION_SUMMARY.md",
+      "line": 273,
+      "text": "- VALR may have limited CCXT support (reason for removal)"
+    },
+    {
+      "file": "docs/archive/ADMIN_API_QUICK_REFERENCE.md",
+      "line": 37,
+      "text": "\"valr\": false,"
+    },
+    {
+      "file": "docs/archive/ADMIN_API_QUICK_REFERENCE.md",
+      "line": 38,
+      "text": "\"ovex\": false"
+    },
+    {
+      "file": "docs/archive/ADMIN_API_QUICK_REFERENCE.md",
+      "line": 334,
+      "text": "- Valid exchanges: luno, binance, kucoin, valr, ovex"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_AUDIT_REPORT.md",
+      "line": 193,
+      "text": "- OVEX: 10 bots"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_AUDIT_REPORT.md",
+      "line": 194,
+      "text": "- VALR: 10 bots"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 42,
+      "text": "| paper_trading_engine.py | \u2705 Complete | VALR/OVEX added, all 5 exchanges |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 55,
+      "text": "| VALR | \u2705 3 pairs | \u2705 Yes | \u2705 ccxt + fallback | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 56,
+      "text": "| OVEX | \u2705 2 pairs | \u2705 Yes | \u2705 Luno fallback | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 64,
+      "text": "self.valr_exchange = ccxt.valr()  # Line 142"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 65,
+      "text": "self.ovex_exchange = ccxt.luno()  # Line 143 (OVEX uses Luno API)"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 181,
+      "text": "\"valr\": {\"status\": \"connected\", \"keys\": true},"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 182,
+      "text": "\"ovex\": {\"status\": \"connected\", \"keys\": true}"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 279,
+      "text": "| VALR | \u2705 ccxt public | \u2705 60s | \u2705 Yes | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 280,
+      "text": "| OVEX | \u2705 Luno fallback | \u2705 60s | \u2705 Yes | \u2705 Complete |"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 287,
+      "text": "- \u2705 OVEX fallback to Luno for ZAR pairs"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 438,
+      "text": "- [ ] Test VALR paper trading"
+    },
+    {
+      "file": "docs/archive/COMPREHENSIVE_PRODUCTION_AUDIT.md",
+      "line": 439,
+      "text": "- [ ] Test OVEX paper trading"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_COMPLETION_REPORT.md",
+      "line": 58,
+      "text": "- Exchanges: luno, binance, kucoin, ovex, valr"
+    },
+    {
+      "file": "docs/archive/DEPLOYMENT_COMPLETION_REPORT.md",
+      "line": 176,
+      "text": "**Supported Platforms:** luno, binance, kucoin, ovex, valr"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FEATURES_IMPLEMENTATION.md",
+      "line": 18,
+      "text": "- \ud83d\udfe0 OVEX (South Africa)"
+    },
+    {
+      "file": "docs/archive/PRODUCTION_FEATURES_IMPLEMENTATION.md",
+      "line": 19,
+      "text": "- \ud83d\udd35 VALR (South Africa)"
+    },
+    {
+      "file": "docs/archive/DASHBOARD_AUDIT_REPORT.md",
+      "line": 283,
+      "text": "- OVEX (South Africa)"
+    },
+    {
+      "file": "docs/archive/DASHBOARD_AUDIT_REPORT.md",
+      "line": 284,
+      "text": "- VALR (South Africa)"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 361,
+      "text": "- VALR: 10 bots max"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 362,
+      "text": "- OVEX: 10 bots max"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 506,
+      "text": "- [x] VALR key management works"
+    },
+    {
+      "file": "docs/archive/PREMERGE_REPORT.md",
+      "line": 507,
+      "text": "- [x] OVEX key management works"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 6,
+      "text": "**REMOVED**: ovex, valr"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 91,
+      "text": "- Removed OVEX and VALR"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 104,
+      "text": "- Removed OVEX/VALR, added new platforms"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 119,
+      "text": "- \u274c All references to 'ovex' removed (except test assertions)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 120,
+      "text": "- \u274c All references to 'valr' removed (except test assertions)"
+    },
+    {
+      "file": "docs/archive/PLATFORM_UPDATE_SUMMARY.md",
+      "line": 145,
+      "text": "- [x] No references to ovex or valr anywhere in production code"
+    },
+    {
+      "file": "docs/archive/GO_LIVE.md",
+      "line": 434,
+      "text": "- 5 supported platforms: Luno, Binance, KuCoin, OVEX, VALR"
+    },
+    {
+      "file": "docs/archive/IMPLEMENTATION_STATUS.md",
+      "line": 120,
+      "text": "- [x] Exchange drill-down (Luno, Binance, KuCoin, VALR, OVEX)"
+    },
+    {
+      "file": "docs/archive/IMPLEMENTATION_STATUS.md",
+      "line": 188,
+      "text": "- [ ] Display for all 6 providers (openai, luno, binance, kucoin, valr, ovex)"
+    },
+    {
+      "file": "docs/archive/README_OLD.md",
+      "line": 869,
+      "text": "- **Multi-Exchange**: Support for LUNO, Binance, KuCoin, Kraken, VALR"
+    },
+    {
+      "file": "docs/archive/README_OLD.md",
+      "line": 1659,
+      "text": "- VALR"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 137,
+      "text": "2. **Location 2 (Line 2271):** Hardcoded `<select>` with 5 platforms (Luno, Binance, KuCoin, Kraken,"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 138,
+      "text": "3. **Location 3 (Line 2212):** Bot creation form showing 5 exchanges including unsupported Kraken/VA"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 151,
+      "text": "2. `frontend/src/lib/platforms.js` (marked Kraken/VALR as \"Coming Soon\")"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 172,
+      "text": "// BEFORE: 5 exchanges (Luno, Binance, KuCoin, Kraken, VALR)"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 193,
+      "text": "valr: {"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 194,
+      "text": "id: 'valr',"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 195,
+      "text": "displayName: 'VALR (Coming Soon)',"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 228,
+      "text": "Live Trades section only showed 3 platform cards (Luno, Binance, KuCoin) instead of 5, and Kraken/VA"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 246,
+      "text": "{ id: 'valr', name: 'VALR', icon: '\ud83d\udd35', supported: false }"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 275,
+      "text": "4. **Verify unsupported platforms:** Kraken and VALR show \"\ud83d\udea7 Coming Soon\" message with dimmed stylin"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 279,
+      "text": "- \u2705 5 platform cards visible (Luno, Binance, KuCoin, Kraken, VALR)"
+    },
+    {
+      "file": "docs/archive/reports/fix-pack-2026-01-14.md",
+      "line": 280,
+      "text": "- \u2705 Kraken and VALR marked as \"Coming Soon\" with orange badge"
+    },
+    {
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY.md",
+      "line": 54,
+      "text": "- Consolidated: OpenAI, Luno, Binance, KuCoin, Kraken, VALR, Flokx, FetchAI"
+    },
+    {
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
+      "line": 30,
+      "text": "- Returns all 5 enabled platforms (luno, binance, kucoin, kraken, valr)"
+    },
+    {
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
+      "line": 126,
+      "text": "5. **VALR** \ud83d\udc8e - Bot limit: 10"
+    },
+    {
+      "file": "docs/archive/_reports/IMPLEMENTATION_SUMMARY_OLD.md",
+      "line": 214,
+      "text": "- valr \u2705"
+    },
+    {
+      "file": "docs/archive/_reports/reports/ENDPOINTS.md",
+      "line": 330,
+      "text": "- **VALR**: 120 requests/minute"
+    },
+    {
+      "file": "docs/archive/_reports/reports/LEDGER_IMPLEMENTATION_SUMMARY.md",
+      "line": 60,
+      "text": "- VALR: 15 bps maker / 15 bps taker"
+    },
+    {
+      "file": "docs/archive/_reports/reports/PER_USER_API_KEYS.md",
+      "line": 17,
+      "text": "- **Supported Exchanges:** Binance, KuCoin, Kraken, VALR, Luno, Bitfinex, etc."
+    },
+    {
+      "file": "docs/archive/_reports/reports/VERIFICATION_REPORT.md",
+      "line": 128,
+      "text": "\"valr\": {\"maker\": 15.0, \"taker\": 15.0}"
+    },
+    {
+      "file": "docs/archive/_reports/reports/DEPLOYMENT.md",
+      "line": 246,
+      "text": "- **VALR**: 100 requests/10s"
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 166,
+      "text": "# Check if OVEX is in the test logic"
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 168,
+      "text": "fail \"OVEX not in API key test logic\""
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 449,
+      "text": "if grep -q \"OVEX\" \"$MAIN_JS\"; then"
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 450,
+      "text": "pass \"Bundle contains 'OVEX'\""
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 452,
+      "text": "fail \"Bundle missing 'OVEX' string\""
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 507,
+      "text": "PLATFORM_COUNT=$(grep -o \"'luno'\\|'binance'\\|'kucoin'\\|'ovex'\\|'valr'\" frontend/src/constants/platfo"
+    },
+    {
+      "file": "scripts/verify_go_live.sh",
+      "line": 524,
+      "text": "BACKEND_PLATFORM_COUNT=$(grep -o \"'luno'\\|'binance'\\|'kucoin'\\|'ovex'\\|'valr'\" backend/platform_cons"
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 232,
+      "text": "\"\"\"Check for VALR and OVEX references\"\"\""
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 233,
+      "text": "print(\"\ud83d\udd0d Auditing VALR/OVEX references...\")"
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 260,
+      "text": "print(f\"  Found {len(self.audit_data['valr_ovex_references'])} VALR/OVEX references\")"
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 347,
+      "text": "# Check for VALR/OVEX"
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 352,
+      "text": "\"message\": f\"Found {len(self.audit_data['valr_ovex_references'])} VALR/OVEX references\""
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 456,
+      "text": "## VALR/OVEX References (Must Be Removed)"
+    },
+    {
+      "file": "scripts/audit_repo.py",
+      "line": 604,
+      "text": "print(f\"  - VALR/OVEX References: {len(self.audit_data['valr_ovex_references'])}\")"
+    },
+    {
+      "file": "scripts/comprehensive_audit.sh",
+      "line": 132,
+      "text": "test_fail \"OVEX pairs NOT defined\""
+    },
+    {
+      "file": "scripts/comprehensive_audit.sh",
+      "line": 136,
+      "text": "test_pass \"VALR exchange initialization found\""
+    },
+    {
+      "file": "scripts/comprehensive_audit.sh",
+      "line": 138,
+      "text": "test_fail \"VALR exchange initialization NOT found\""
+    },
+    {
+      "file": "scripts/comprehensive_audit.sh",
+      "line": 142,
+      "text": "test_pass \"OVEX exchange initialization found\""
+    },
+    {
+      "file": "scripts/comprehensive_audit.sh",
+      "line": 144,
+      "text": "test_fail \"OVEX exchange initialization NOT found\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 2,
+      "text": "# Script to remove all VALR and OVEX references from the repository"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 10,
+      "text": "echo \"\ud83e\uddf9 Removing VALR and OVEX References\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 16,
+      "text": "git branch backup-before-valr-ovex-removal || true"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 19,
+      "text": "echo \"Step 1: Removing/Archiving docs with VALR/OVEX references...\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 56,
+      "text": "echo \"Step 2: Removing VALR/OVEX from remaining active docs...\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 62,
+      "text": "# Remove VALR/OVEX lines"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 63,
+      "text": "sed -i '/[\"\\x27]valr[\"\\x27]/d' docs/admin_panel.md"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 64,
+      "text": "sed -i '/[\"\\x27]ovex[\"\\x27]/d' docs/admin_panel.md"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 66,
+      "text": "sed -i 's/`\"luno\"`, `\"binance\"`, `\"kucoin\"`, `\"valr\"`, `\"ovex\"`/`\"luno\"`, `\"binance\"`, `\"kucoin\"`, `"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 77,
+      "text": "sed -i 's/luno binance kucoin ovex valr/luno binance kucoin bybit kraken bitget gateio/g' scripts/go"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 78,
+      "text": "# Remove OVEX/VALR specific tests"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 79,
+      "text": "sed -i '/Test 5: Bot validation with OVEX\\/VALR/,/^fi$/d' scripts/go_live_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 80,
+      "text": "sed -i '/OVEX\\/VALR bots found/d' scripts/go_live_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 81,
+      "text": "sed -i '/No OVEX\\/VALR bots found/d' scripts/go_live_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 86,
+      "text": "# Remove OVEX/VALR verification tests"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 87,
+      "text": "sed -i '/TEST 1: Platform Standardization - OVEX present/,/^fi$/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 88,
+      "text": "sed -i '/OVEX present, Kraken removed/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 89,
+      "text": "sed -i '/grep -q.*ovex/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 90,
+      "text": "sed -i '/grep -q.*valr/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 91,
+      "text": "sed -i '/OVEX not found/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 92,
+      "text": "sed -i '/OVEX included/d' scripts/verify_go_live.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 93,
+      "text": "sed -i \"s/Luno(5), Binance(10), KuCoin(10), OVEX(10), VALR(10) = 45/Luno(5), Binance(10), KuCoin(10)"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 98,
+      "text": "# Remove VALR/OVEX tests"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 99,
+      "text": "sed -i '/run_test \"VALR Limits Present\"/,/^$/d' scripts/premerge_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 100,
+      "text": "sed -i '/run_test \"OVEX Limits Present\"/,/^$/d' scripts/premerge_smoke.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 105,
+      "text": "# Remove VALR/OVEX checks"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 106,
+      "text": "sed -i '/Check VALR and OVEX/,/^fi$/d' scripts/comprehensive_audit.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 107,
+      "text": "sed -i '/VALR pairs defined/d' scripts/comprehensive_audit.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 108,
+      "text": "sed -i '/OVEX pairs defined/d' scripts/comprehensive_audit.sh"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 117,
+      "text": "# Remove OVEX/VALR assertions"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 118,
+      "text": "sed -i \"/assert.*ovex.*not in PAPER_SUPPORTED_EXCHANGES/d\" backend/tests/test_critical_fixes.py"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 119,
+      "text": "sed -i \"/assert.*valr.*not in PAPER_SUPPORTED_EXCHANGES/d\" backend/tests/test_critical_fixes.py"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 123,
+      "text": "echo \"Step 5: Update CURRENT_STATE.md to remove VALR/OVEX section...\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 127,
+      "text": "# Remove the VALR/OVEX references section"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 128,
+      "text": "sed -i '/## VALR\\/OVEX References (Must Be Removed)/,/## Removed Features/d' docs/CURRENT_STATE.md"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 129,
+      "text": "# Update blocker about VALR/OVEX"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 139,
+      "text": "sed -i 's/# OVEX and VALR removed - only Luno, Binance, KuCoin supported/# Supported exchanges: Luno"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 153,
+      "text": "sed -i 's/Luno, Binance, KuCoin, OVEX, VALR/Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO/g' "
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 154,
+      "text": "sed -i 's/Luno, Binance, KuCoin, OVEX and VALR/Luno, Binance, KuCoin, Bybit, Kraken, Bitget, and Gat"
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 156,
+      "text": "sed -i 's/, OVEX//g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 157,
+      "text": "sed -i 's/, VALR//g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 158,
+      "text": "sed -i 's/OVEX, //g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 159,
+      "text": "sed -i 's/VALR, //g' \"$doc\""
+    },
+    {
+      "file": "scripts/remove_valr_ovex.sh",
+      "line": 168,
+      "text": "echo \"\u2705 VALR/OVEX Removal Complete\""
+    }
+  ],
+  "removed_features": [
+    {
+      "feature": "Advanced Backtesting",
+      "file": "backend/routes/backtesting.py",
+      "pattern": "\\bwalk.*forward\\b"
+    }
+  ],
+  "tos_violations": [
+    {
+      "type": "proxy_rotation",
+      "file": "backend/utils/edge_gate.py",
+      "line": 5,
+      "text": "NO proxy rotation, IP masking, fingerprint obfuscation, noise trades, wash trades,"
+    },
+    {
+      "type": "proxy_rotation",
+      "file": "backend/utils/edge_gate.py",
+      "line": 5,
+      "text": "NO proxy rotation, IP masking, fingerprint obfuscation, noise trades, wash trades,"
+    },
+    {
+      "type": "fingerprint",
+      "file": "backend/utils/edge_gate.py",
+      "line": 5,
+      "text": "NO proxy rotation, IP masking, fingerprint obfuscation, noise trades, wash trades,"
+    },
+    {
+      "type": "wash_trading",
+      "file": "backend/utils/edge_gate.py",
+      "line": 5,
+      "text": "NO proxy rotation, IP masking, fingerprint obfuscation, noise trades, wash trades,"
+    },
+    {
+      "type": "wash_trading",
+      "file": "backend/utils/edge_gate.py",
+      "line": 5,
+      "text": "NO proxy rotation, IP masking, fingerprint obfuscation, noise trades, wash trades,"
+    }
+  ]
+}

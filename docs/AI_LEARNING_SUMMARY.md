@@ -90,12 +90,14 @@ db.alerts_collection.find({type: "learning"}).sort({timestamp: -1})
 
 **Global Bot Allocation:**
 ```
-TOTAL BOTS: 45 maximum
+TOTAL BOTS: 65 maximum
 ├─ Luno: 5 bots
 ├─ Binance: 10 bots
 ├─ KuCoin: 10 bots
-├─ OVEX: 10 bots
-└─ VALR: 10 bots
+├─ Bybit: 10 bots
+├─ Kraken: 10 bots
+├─ Bitget: 10 bots
+└─ GateIO: 10 bots
 ```
 
 **Trading Limits (Per Exchange):**
@@ -111,8 +113,10 @@ Burst (10 seconds): 10 orders max
 Luno:    Maker 0.2%,  Taker 0.25%
 Binance: Maker 0.1%,  Taker 0.1%
 KuCoin:  Maker 0.1%,  Taker 0.1%
-OVEX:    Maker 0.1%,  Taker 0.15%
-VALR:    Maker 0.07%, Taker 0.075%
+Bybit:   Maker 0.1%,  Taker 0.1%
+Kraken:  Maker 0.16%, Taker 0.26%
+Bitget:  Maker 0.1%,  Taker 0.1%
+GateIO:  Maker 0.2%,  Taker 0.2%
 ```
 
 ### Risk Engine Rules ✅

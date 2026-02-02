@@ -117,8 +117,10 @@ BOT_ALLOCATION = {
     "luno": 5,      # 5 bots max
     "binance": 10,  # 10 bots max
     "kucoin": 10,   # 10 bots max
-    "ovex": 10,     # 10 bots max
-    "valr": 10      # 10 bots max
+    "bybit": 10,    # 10 bots max
+    "kraken": 10,   # 10 bots max
+    "bitget": 10,   # 10 bots max
+    "gate": 10      # 10 bots max (GateIO)
 }
 ```
 
@@ -150,23 +152,41 @@ BOT_ALLOCATION = {
 - Fee (maker): 0.1%
 - Fee (taker): 0.1%
 
-**OVEX:**
+**BYBIT:**
 - Max bots: 10
 - Max orders per day: 500
 - Max orders per minute: 60
 - Max orders per 10 seconds: 10
 - Max orders per bot per day: 50
 - Fee (maker): 0.1%
-- Fee (taker): 0.15%
+- Fee (taker): 0.1%
 
-**VALR:**
+**KRAKEN:**
 - Max bots: 10
 - Max orders per day: 500
 - Max orders per minute: 60
 - Max orders per 10 seconds: 10
 - Max orders per bot per day: 50
-- Fee (maker): 0.07%
-- Fee (taker): 0.075%
+- Fee (maker): 0.16%
+- Fee (taker): 0.26%
+
+**BITGET:**
+- Max bots: 10
+- Max orders per day: 500
+- Max orders per minute: 60
+- Max orders per 10 seconds: 10
+- Max orders per bot per day: 50
+- Fee (maker): 0.1%
+- Fee (taker): 0.1%
+
+**GATEIO:**
+- Max bots: 10
+- Max orders per day: 500
+- Max orders per minute: 60
+- Max orders per 10 seconds: 10
+- Max orders per bot per day: 50
+- Fee (maker): 0.2%
+- Fee (taker): 0.2%
 
 **Safety Margin:** All limits are **100x below** exchange API limits for safety
 
@@ -325,7 +345,7 @@ PAPER_SUPPORTED_EXCHANGES = {'luno', 'binance', 'kucoin'}
 ```python
 REINVEST_THRESHOLD_ZAR = 500    # Reinvest every R500 profit
 NEW_BOT_CAPITAL = 1000          # R1000 per new bot
-MAX_TOTAL_BOTS = 45             # Maximum 45 bots total (matches global limit)
+MAX_TOTAL_BOTS = 45             # Maximum 65 bots total (matches global limit)
 TOP_PERFORMERS_COUNT = 5        # Top 5 bots tracked
 ```
 
