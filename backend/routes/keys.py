@@ -13,6 +13,7 @@ from auth import get_current_user, is_admin
 from routes.api_key_management import encrypt_api_key, decrypt_api_key
 from services.provider_registry import (
     list_providers,
+    list_providers_ids,
     get_provider,
     test_provider,
     ProviderStatus
@@ -150,23 +151,6 @@ async def list_user_keys(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{provider}")
-async def save_key_provider_path(
-    provider: str,
-    data: APIKeySaveRequest,
-    user_id: str = Depends(get_current_user)
-):
-    """Save API key with encryption (path parameter version)
-    
-    Validates provider exists and required fields are provided
-    Encrypts key before storage
-    Emits realtime event on success
-    """
-    # Override provider from path parameter
-    data.provider = provider
-    return await save_key(data, user_id)
-
-
 @router.post("/save")
 async def save_key(
     data: APIKeySaveRequest,
@@ -186,7 +170,7 @@ async def save_key(
         if not provider_def:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown provider: {provider_id}. Valid providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, bitget"
+                detail=f"Unknown provider: {provider_id}. Valid providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate"
             )
         
         # Build credentials dict
@@ -285,9 +269,11 @@ async def test_key(
         # Validate provider exists
         provider_def = get_provider(provider_id)
         if not provider_def:
+            # Get list of valid providers for error message
+            valid_providers = ", ".join(sorted(list_providers_ids()))
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown provider: {provider_id}"
+                detail=f"Unknown provider: {provider_id}. Valid providers: {valid_providers}"
             )
         
         # Get credentials - either from request or from database
@@ -366,6 +352,24 @@ async def test_key(
     except Exception as e:
         logger.error(f"Test key error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{provider}")
+async def save_key_provider_path(
+    provider: str,
+    data: APIKeySaveRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Save API key with encryption (path parameter version)
+    
+    Legacy endpoint for backward compatibility.
+    Validates provider exists and required fields are provided
+    Encrypts key before storage
+    Emits realtime event on success
+    """
+    # Override provider from path parameter
+    data.provider = provider
+    return await save_key(data, user_id)
 
 
 @router.get("/{provider}")

@@ -380,6 +380,11 @@ def get_provider(provider_id: str) -> Optional[ProviderDefinition]:
     return PROVIDERS.get(provider_id)
 
 
+def list_providers_ids() -> List[str]:
+    """List all provider IDs"""
+    return list(PROVIDERS.keys())
+
+
 def list_providers() -> List[Dict[str, Any]]:
     """List all providers with metadata"""
     return [
