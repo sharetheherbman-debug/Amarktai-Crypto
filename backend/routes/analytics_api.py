@@ -209,9 +209,10 @@ async def get_exchange_comparison(
         
         # Group by exchange
         exchange_data = {}
-        supported_exchanges = ["luno", "binance", "kucoin", "bybit", "bitget"]
+        # Import supported exchanges from canonical source
+        from config.platforms import SUPPORTED_PLATFORMS
         
-        for exchange in supported_exchanges:
+        for exchange in SUPPORTED_PLATFORMS:
             exchange_trades = [t for t in trades if t.get('exchange', '').lower() == exchange]
             
             if not exchange_trades:

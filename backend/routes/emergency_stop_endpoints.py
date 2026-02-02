@@ -172,10 +172,13 @@ async def get_emergency_stop_status(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/status")
-async def get_system_status(user_id: str = Depends(get_current_user)):
+@router.get("/emergency-gates")
+async def get_emergency_gates_status(user_id: str = Depends(get_current_user)):
     """
-    Get comprehensive system status including all safety gates
+    Get comprehensive emergency gates status including all safety gates
+    
+    NOTE: This endpoint is distinct from GET /api/system/status (in system_status.py)
+    This endpoint focuses specifically on emergency stop gates and trading permissions
     
     Returns:
         emergency_stop: Whether emergency stop is active

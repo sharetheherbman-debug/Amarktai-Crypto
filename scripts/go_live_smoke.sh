@@ -96,11 +96,11 @@ platforms_body=$(echo "$platforms_response" | head -n-1)
 
 if [ "$platforms_http_code" = "200" ]; then
     platform_count=$(echo "$platforms_body" | grep -o '"total_count":[0-9]*' | cut -d':' -f2)
-    if [ "$platform_count" = "5" ]; then
-        pass "Platform registry returns 5 platforms"
+    if [ "$platform_count" = "7" ]; then
+        pass "Platform registry returns 7 exchanges"
         
-        # Check for each platform
-        for platform in luno binance kucoin bybit kraken bitget gateio; do
+        # Check for each exchange (note: gate.io in CCXT is 'gateio', but our ID is 'gate')
+        for platform in luno binance kucoin bybit kraken bitget gate; do
             if echo "$platforms_body" | grep -q "\"id\":\"$platform\""; then
                 echo "  ✓ $platform found"
             else

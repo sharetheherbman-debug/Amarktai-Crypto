@@ -4,7 +4,7 @@
 #
 # This script validates all critical functionality before go-live:
 # 1. Health check
-# 2. Platform registry (5 platforms)
+# 2. Platform registry (7 exchanges)
 # 3. Auth (register/login with invite code + name mapping)
 # 4. API key management
 # 5. Realtime connectivity
@@ -130,7 +130,7 @@ fi
 # Test 2: Platform Registry
 # ----------------------------------------------------------------------------
 log_section "2. Platform Registry"
-log_test "GET /api/platforms returns exactly 5 platforms"
+log_test "GET /api/platforms returns exactly 7 exchanges"
 
 RESPONSE=$(api_call GET "/api/platforms" "" "")
 STATUS=$(extract_status "$RESPONSE")
@@ -140,10 +140,10 @@ if [ "$STATUS" = "200" ]; then
     # Check platform count
     PLATFORM_COUNT=$(echo "$BODY" | grep -o '"id"' | wc -l)
     
-    if [ "$PLATFORM_COUNT" = "5" ]; then
-        log_success "Platform registry returns exactly 5 platforms"
+    if [ "$PLATFORM_COUNT" = "7" ]; then
+        log_success "Platform registry returns exactly 7 exchanges"
     else
-        log_error "Platform registry returns $PLATFORM_COUNT platforms (expected 7)"
+        log_error "Platform registry returns $PLATFORM_COUNT exchanges (expected 7)"
     fi
     
     # Verify all 7 supported exchanges are present

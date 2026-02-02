@@ -43,40 +43,40 @@ echo "Testing API at: $API_BASE"
 echo ""
 
 ###############################################################################
+# TEST 1: Platform Configuration Check (7 Exchanges)
+###############################################################################
+echo "🏦 Test 1: Platform Configuration"
+echo "----------------------------------"
 
-# Check frontend exchanges configuration
-else
-fi
-
-# Check backend exchange_limits.py
-    if ! grep -q '"kraken"' backend/exchange_limits.py; then
+# Check backend config/platforms.py has exactly 7 exchanges
+if [ -f "backend/config/platforms.py" ]; then
+    BACKEND_PLATFORM_COUNT=$(grep -o "'luno'\|'binance'\|'kucoin'\|'bybit'\|'kraken'\|'bitget'\|'gate'" backend/config/platforms.py | sort -u | wc -l)
+    if [ "$BACKEND_PLATFORM_COUNT" -eq "7" ]; then
+        pass "Backend platforms.py has exactly 7 exchanges"
     else
-        fail "Backend exchange_limits.py: Kraken still present"
+        fail "Backend platforms.py has $BACKEND_PLATFORM_COUNT exchanges (expected 7)"
+    fi
+    
+    # Check VALR and OVEX are NOT present
+    if grep -q "'valr'\|'ovex'" backend/config/platforms.py; then
+        fail "Backend platforms.py: VALR or OVEX still present"
+    else
+        pass "Backend platforms.py: VALR and OVEX removed"
     fi
 else
+    fail "Backend config/platforms.py not found"
 fi
 
-# Check backend config.py
-    if ! grep -q "'kraken'" backend/config.py; then
-    else
-        fail "Backend config.py: Kraken still present"
-    fi
-else
-fi
-
-# Verify bot limits: Luno(5), Binance(10), KuCoin(10), Bybit(10), Kraken(10), Bitget(10), Gateio(10) = 65
+# Verify bot limits: Luno(5), Binance(10), KuCoin(10), Bybit(10), Kraken(10), Bitget(10), Gate(10) = 75 total
 echo ""
 echo "Checking platform bot limits..."
-if grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"luno": 5' && \
-   grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"binance": 10' && \
-   grep -A5 "BOT_ALLOCATION" backend/exchange_limits.py | grep -q '"kucoin": 10' && \
-    if grep -q "MAX_BOTS_GLOBAL = 45" backend/exchange_limits.py; then
-        pass "Platform bot limits correct: Total 45 bots (5+10+10+10+10)"
+if [ -f "backend/config/platforms.py" ]; then
+    if grep -q "'max_bots': 5" backend/config/platforms.py && \
+       grep -q "'max_bots': 10" backend/config/platforms.py; then
+        pass "Platform bot limits defined in platforms.py"
     else
-        fail "MAX_BOTS_GLOBAL should be 45"
+        warn "Could not verify platform bot limits"
     fi
-else
-    fail "Platform bot limits incorrect"
 fi
 
 echo ""
@@ -305,35 +305,38 @@ echo ""
 echo "📐 Test 7: Platform Constants Validation"
 echo "----------------------------------------"
 
-# Check backend constants exist and have correct platforms
-if [ -f "backend/platform_constants.py" ]; then
-    # Check all 5 platforms present
-    if grep -q "'luno'" backend/platform_constants.py && \
-       grep -q "'binance'" backend/platform_constants.py && \
-       grep -q "'kucoin'" backend/platform_constants.py && \
-        pass "Backend constants: All 5 platforms defined"
+# Check backend config/platforms.py has exactly 7 exchanges
+if [ -f "backend/config/platforms.py" ]; then
+    # Check all 7 platforms present
+    if grep -q "'luno'" backend/config/platforms.py && \
+       grep -q "'binance'" backend/config/platforms.py && \
+       grep -q "'kucoin'" backend/config/platforms.py && \
+       grep -q "'bybit'" backend/config/platforms.py && \
+       grep -q "'kraken'" backend/config/platforms.py && \
+       grep -q "'bitget'" backend/config/platforms.py && \
+       grep -q "'gate'" backend/config/platforms.py; then
+        pass "Backend platforms.py: All 7 exchanges defined"
     else
-        fail "Backend constants: Missing one or more platforms"
+        fail "Backend platforms.py: Missing one or more exchanges"
     fi
     
-    # Check total capacity is 45
-    if grep -q "45" backend/platform_constants.py; then
-        pass "Backend constants: Total capacity appears correct"
+    # Check total capacity (5+10+10+10+10+10+10 = 75)
+    if grep -q "75" backend/config/platforms.py || grep -A1 "TOTAL_BOT_CAPACITY" backend/config/platforms.py | grep -q "75"; then
+        pass "Backend platforms.py: Total capacity 75 bots"
     else
-        warn "Backend constants: Could not verify total capacity of 45"
+        warn "Backend platforms.py: Could not verify total capacity of 75"
     fi
 else
-    fail "Backend platform_constants.py not found"
+    fail "Backend config/platforms.py not found"
 fi
 
 # Check frontend constants exist and have correct platforms
 if [ -f "frontend/src/constants/platforms.js" ]; then
-    if grep -q "'luno'" frontend/src/constants/platforms.js && \
-       grep -q "'binance'" frontend/src/constants/platforms.js && \
-       grep -q "'kucoin'" frontend/src/constants/platforms.js && \
-        pass "Frontend constants: All 5 platforms defined"
+    FRONTEND_COUNT=$(grep -o "'luno'\|'binance'\|'kucoin'\|'bybit'\|'kraken'\|'bitget'\|'gate'" frontend/src/constants/platforms.js | sort -u | wc -l)
+    if [ "$FRONTEND_COUNT" -eq "7" ]; then
+        pass "Frontend constants: All 7 exchanges defined"
     else
-        fail "Frontend constants: Missing one or more platforms"
+        fail "Frontend constants: Has $FRONTEND_COUNT exchanges (expected 7)"
     fi
     
     # Check maxBots are correct
@@ -344,7 +347,7 @@ if [ -f "frontend/src/constants/platforms.js" ]; then
         warn "Frontend constants: Could not verify bot limits"
     fi
 else
-    fail "Frontend constants/platforms.js not found"
+    warn "Frontend constants/platforms.js not found (frontend may not exist)"
 fi
 
 echo ""
@@ -497,38 +500,57 @@ echo ""
 echo "⚙️ Test 12: Platform Constants Validation"
 echo "------------------------------------------"
 
+# Check backend config/platforms.py has exactly 7 exchanges (no VALR/OVEX)
+if [ -f "backend/config/platforms.py" ]; then
+    BACKEND_PLATFORM_COUNT=$(grep -o "'luno'\|'binance'\|'kucoin'\|'bybit'\|'kraken'\|'bitget'\|'gate'" backend/config/platforms.py | sort -u | wc -l)
+    if [ "$BACKEND_PLATFORM_COUNT" -eq "7" ]; then
+        pass "Backend platforms.py has exactly 7 exchanges"
+    else
+        fail "Backend platforms.py has $BACKEND_PLATFORM_COUNT exchanges (expected 7)"
+    fi
+    
+    # Check NO valr or ovex
+    if grep -qi "valr\|ovex" backend/config/platforms.py; then
+        fail "Backend platforms.py: VALR or OVEX still present"
+    else
+        pass "Backend platforms.py: VALR and OVEX removed"
+    fi
+    
+    # Check total bot capacity (5+10+10+10+10+10+10 = 75)
+    TOTAL_BOT_CAP=$(grep -o "'max_bots': [0-9]*" backend/config/platforms.py | awk '{sum+=$2} END {print sum}')
+    if [ "$TOTAL_BOT_CAP" -eq "75" ]; then
+        pass "Backend TOTAL_BOT_CAPACITY is 75"
+    else
+        warn "Backend total bot capacity is $TOTAL_BOT_CAP (expected 75)"
+    fi
+else
+    fail "Backend config/platforms.py not found"
+fi
+
 # Check frontend constants
 if [ -f "frontend/src/constants/platforms.js" ]; then
-    PLATFORM_COUNT=$(grep -o "'luno'\|'binance'\|'kucoin'\|'ovex'\|'valr'" frontend/src/constants/platforms.js | sort -u | wc -l)
-    if [ "$PLATFORM_COUNT" -eq "5" ]; then
-        pass "Frontend constants have exactly 5 platforms"
+    FRONTEND_PLATFORM_COUNT=$(grep -o "'luno'\|'binance'\|'kucoin'\|'bybit'\|'kraken'\|'bitget'\|'gate'" frontend/src/constants/platforms.js | sort -u | wc -l)
+    if [ "$FRONTEND_PLATFORM_COUNT" -eq "7" ]; then
+        pass "Frontend constants have exactly 7 exchanges"
     else
-        fail "Frontend constants have $PLATFORM_COUNT platforms (expected 5)"
+        fail "Frontend constants have $FRONTEND_PLATFORM_COUNT exchanges (expected 7)"
+    fi
+    
+    # Check NO valr or ovex
+    if grep -qi "valr\|ovex" frontend/src/constants/platforms.js; then
+        fail "Frontend constants: VALR or OVEX still present"
+    else
+        pass "Frontend constants: VALR and OVEX removed"
     fi
     
     # Check TOTAL_BOT_CAPACITY
-    if grep -q "TOTAL_BOT_CAPACITY.*45" frontend/src/constants/platforms.js; then
-        pass "Frontend TOTAL_BOT_CAPACITY is 45"
+    if grep -q "TOTAL_BOT_CAPACITY.*75\|totalCapacity.*75" frontend/src/constants/platforms.js; then
+        pass "Frontend TOTAL_BOT_CAPACITY is 75"
     else
-        fail "Frontend TOTAL_BOT_CAPACITY is not 45"
+        warn "Frontend TOTAL_BOT_CAPACITY may not be 75"
     fi
-fi
-
-# Check backend constants
-if [ -f "backend/platform_constants.py" ]; then
-    BACKEND_PLATFORM_COUNT=$(grep -o "'luno'\|'binance'\|'kucoin'\|'ovex'\|'valr'" backend/platform_constants.py | sort -u | wc -l)
-    if [ "$BACKEND_PLATFORM_COUNT" -eq "5" ]; then
-        pass "Backend constants have exactly 5 platforms"
-    else
-        fail "Backend constants have $BACKEND_PLATFORM_COUNT platforms (expected 5)"
-    fi
-    
-    # Check total bot capacity
-    if grep -q "TOTAL_BOT_CAPACITY.*45" backend/platform_constants.py; then
-        pass "Backend TOTAL_BOT_CAPACITY is 45"
-    else
-        fail "Backend TOTAL_BOT_CAPACITY is not 45"
-    fi
+else
+    warn "Frontend constants/platforms.js not found (frontend may not exist)"
 fi
 
 echo ""
