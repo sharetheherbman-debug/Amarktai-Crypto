@@ -84,19 +84,28 @@ This document is the **authoritative reference** for Amarktai Network deployment
 
 ### Supported Exchanges
 
-**ONLY** the following exchanges are supported:
-- **Luno** (South African exchange, primary)
-- **Binance** (International)
-- **KuCoin** (International)
+**ONLY** the following 7 exchanges are supported (as defined in `backend/config/platforms.py`):
+- **Luno** (South African exchange, primary, 5 bots max)
+- **Binance** (International, 10 bots max)
+- **KuCoin** (International, 10 bots max)
+- **Bybit** (Derivatives and spot, 10 bots max)
+- **Kraken** (US-based regulated, 10 bots max)
+- **Bitget** (Global crypto and derivatives, 10 bots max)
+- **Gate.io** (Altcoin specialist, 10 bots max)
 
+**Total Bot Capacity:** 65 bots (5+10+10+10+10+10+10)
 
 ### Bot Distribution
 
-- Maximum total bots: **45**
+- Maximum total bots: **65**
 - Per exchange distribution:
-  - Luno: 15 bots
-  - Binance: 15 bots
-  - KuCoin: 15 bots
+  - Luno: 5 bots
+  - Binance: 10 bots
+  - KuCoin: 10 bots
+  - Bybit: 10 bots
+  - Kraken: 10 bots
+  - Bitget: 10 bots
+  - Gate.io: 10 bots
 
 ---
 

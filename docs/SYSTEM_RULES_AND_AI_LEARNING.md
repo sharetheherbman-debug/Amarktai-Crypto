@@ -108,7 +108,7 @@
 
 #### Global Limits
 ```python
-MAX_BOTS_GLOBAL = 45  # Total bots across all exchanges
+MAX_BOTS_GLOBAL = 65  # Total bots across all 7 exchanges
 ```
 
 #### Per-Exchange Bot Allocation
@@ -122,6 +122,7 @@ BOT_ALLOCATION = {
     "bitget": 10,   # 10 bots max
     "gate": 10      # 10 bots max (GateIO)
 }
+# TOTAL: 65 bots maximum across all 7 exchanges
 ```
 
 #### Trading Limits (Per Exchange)
@@ -345,7 +346,7 @@ PAPER_SUPPORTED_EXCHANGES = {'luno', 'binance', 'kucoin'}
 ```python
 REINVEST_THRESHOLD_ZAR = 500    # Reinvest every R500 profit
 NEW_BOT_CAPITAL = 1000          # R1000 per new bot
-MAX_TOTAL_BOTS = 45             # Maximum 65 bots total (matches global limit)
+MAX_TOTAL_BOTS = 65             # Maximum 65 bots total (matches global limit)
 TOP_PERFORMERS_COUNT = 5        # Top 5 bots tracked
 ```
 
@@ -662,7 +663,7 @@ db.alerts_collection.find({user_id: "your_id", type: "learning"})
 - All learning data stored and accessible
 
 **Hard-Coded Rules Status:** ✅ **ACTIVE & ENFORCED**
-- 45 bot limit across 5 exchanges
+- 65 bot limit across 7 exchanges
 - Comprehensive rate limiting
 - Multi-layer risk management
 - Capital protection rules
