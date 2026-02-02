@@ -147,7 +147,8 @@ class EmailService:
             # Wait before retry (exponential backoff)
             if attempt < retries - 1:
                 import time
-                time.sleep(2 ** attempt)
+                wait_time = 2 ** attempt
+                time.sleep(wait_time)
         
         # All retries failed
         logger.error(f"Failed to send email to {to_email} after {retries} attempts: {last_error}")

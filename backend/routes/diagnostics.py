@@ -990,18 +990,19 @@ async def get_wallet_status(user_id: str = Depends(get_current_user)):
                 sort=[("timestamp", -1)]
             )
             
-            # Get reserved funds
-            reserved_funds_doc = await db.db["reserved_funds"].find_one({
+            # Get reserved funds from wallet_balances_collection
+            wallet_balance = await db.wallet_balances_collection.find_one({
                 "user_id": user_id,
                 "exchange": exchange
             })
+            reserved_total = wallet_balance.get("reserved", 0) if wallet_balance else 0
             
             wallet_status["exchanges"][exchange] = {
                 "has_keys": bool(api_key),
                 "keys_connected": api_key.get("connected", False) if api_key else False,
                 "last_balance_sync": balance_snapshot.get("timestamp") if balance_snapshot else None,
                 "balance_sync_status": "synced" if balance_snapshot else "never_synced",
-                "reserved_funds_total": reserved_funds_doc.get("amount", 0) if reserved_funds_doc else 0
+                "reserved_funds_total": reserved_total
             }
         
         return wallet_status
