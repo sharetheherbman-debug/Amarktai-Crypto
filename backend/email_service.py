@@ -13,15 +13,39 @@ from typing import List
 
 class EmailService:
     def __init__(self):
-        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        # Load SMTP configuration from environment variables
+        self.smtp_server = os.getenv('SMTP_HOST', os.getenv('SMTP_SERVER', 'smtp.gmail.com'))
         self.smtp_port = int(os.getenv('SMTP_PORT', 587))
-        self.smtp_user = os.getenv('SMTP_USER', 'amarktainetwork@gmail.com')
-        self.smtp_password = os.getenv('SMTP_PASSWORD', 'nplqlufxqwihqnpg')
-        self.from_email = os.getenv('FROM_EMAIL', 'amarktainetwork@gmail.com')
+        self.smtp_user = os.getenv('SMTP_USER', '')
+        self.smtp_password = os.getenv('SMTP_PASSWORD', '')
+        self.from_email = os.getenv('FROM_EMAIL', self.smtp_user)
         self.from_name = os.getenv('FROM_NAME', 'Amarktai Network')
+        
+        # Validate configuration on startup
+        self.enabled = self._validate_config()
+        
+        if not self.enabled:
+            logger.warning("⚠️  Email service disabled: Missing SMTP configuration (SMTP_HOST, SMTP_USER, SMTP_PASSWORD)")
+            logger.warning("⚠️  Set SMTP environment variables to enable email notifications")
+    
+    def _validate_config(self) -> bool:
+        """Validate SMTP configuration and return whether email is enabled"""
+        if not self.smtp_user or not self.smtp_password:
+            return False
+        
+        if not self.smtp_server:
+            logger.error("SMTP_HOST is required but not set")
+            return False
+        
+        logger.info(f"✅ Email service enabled: {self.smtp_server}:{self.smtp_port}")
+        return True
     
     async def send_email(self, to_email: str, subject: str, body: str, html: bool = False) -> bool:
         """Send single email"""
+        if not self.enabled:
+            logger.debug(f"Email disabled, skipping: {subject} to {to_email}")
+            return False
+        
         try:
             msg = MIMEMultipart('alternative')
             msg['From'] = f"{self.from_name} <{self.from_email}>"

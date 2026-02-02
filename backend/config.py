@@ -136,7 +136,7 @@ LIVE_MIN_TRAINING_HOURS = int(os.getenv('LIVE_MIN_TRAINING_HOURS', '24'))  # Def
 # Autopilot settings (configurable via env vars)
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold for more frequent reinvestment
 NEW_BOT_CAPITAL = int(os.getenv('NEW_BOT_CAPITAL', '500'))  # Lower capital requirement for new bots
-MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '45'))  # MUST match MAX_BOTS_GLOBAL in exchange_limits.py (5+10+10+10+10)
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # MUST match MAX_BOTS_GLOBAL in exchange_limits.py (5+10+10+10+10+10+10)
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation rate for genetic evolution
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% performance threshold
