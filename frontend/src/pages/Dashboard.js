@@ -799,12 +799,14 @@ export default function Dashboard() {
 
   const loadApiStatuses = async () => {
     try {
-      const res = await axios.get(`${API}/api-keys`, axiosConfig);
+      const res = await axios.get(`${API}/api/keys/list`, axiosConfig);
       const statuses = {};
-      (res.data || []).forEach(key => {
+      // New API returns { success: true, keys: [...] }
+      const keys = res.data?.keys || res.data || [];
+      keys.forEach(key => {
         statuses[key.provider.toLowerCase()] = {
-          status: key.connected ? 'verified' : 'saved',
-          connected: key.connected
+          status: key.status === 'test_ok' ? 'verified' : key.status === 'saved_untested' ? 'saved' : key.status,
+          connected: key.status === 'test_ok'
         };
       });
       setApiKeys(statuses);
@@ -1653,7 +1655,7 @@ export default function Dashboard() {
     if (!window.confirm(`Remove ${provider} API keys?`)) return;
     
     try {
-      await axios.delete(`${API}/api-keys/${provider}`, axiosConfig);
+      await axios.delete(`${API}/api/keys/${provider}`, axiosConfig);
       
       // Immediately clear from state
       setApiKeys(prev => {

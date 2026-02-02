@@ -84,9 +84,11 @@ export const useDashboardData = (token) => {
 
   const loadApiStatuses = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/api-keys`, axiosConfig);
+      const res = await axios.get(`${API}/api/keys/list`, axiosConfig);
       const keysMap = {};
-      (res.data || []).forEach(key => {
+      // New API returns { success: true, keys: [...] }
+      const keys = res.data?.keys || res.data || [];
+      keys.forEach(key => {
         keysMap[key.provider] = key;
       });
       setApiKeys(keysMap);
