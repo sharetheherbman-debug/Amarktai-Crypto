@@ -1,7 +1,6 @@
 """
 Production Autopilot Engine - Complete Implementation
-- R500 profit reinvestment logic
-- Auto-spawn new bots when capital available
+- Auto-spawn new bots when profit threshold reached
 - Intelligent capital rebalancing
 - Real-time WebSocket notifications
 """
@@ -10,11 +9,16 @@ from datetime import datetime, timezone
 import database as db
 from engines.bot_manager import bot_manager
 from logger_config import logger
-from config import NEW_BOT_CAPITAL, MAX_TOTAL_BOTS, EXCHANGE_BOT_LIMITS
+from config import (
+    NEW_BOT_SEED_CAPITAL_ZAR,
+    BOT_SPAWN_PROFIT_THRESHOLD_ZAR,
+    MAX_TOTAL_BOTS,
+    EXCHANGE_BOT_LIMITS
+)
 
 # Autopilot Configuration
-REINVEST_THRESHOLD = 500  # R500 as per user requirement
-MIN_BOT_CAPITAL = 1000  # Minimum capital for new bot
+REINVEST_THRESHOLD = BOT_SPAWN_PROFIT_THRESHOLD_ZAR  # When to spawn new bot
+MIN_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Capital for new bot
 REBALANCE_INTERVAL = 3600  # 1 hour
 CHECK_INTERVAL = 300  # 5 minutes
 
@@ -37,9 +41,10 @@ class ProductionAutopilot:
     
     async def reinvest_profits(self, user_id: str) -> dict:
         """
-        R500 Reinvestment Logic:
-        - Every R500 profit → Create new bot OR reinvest in top performers
+        Bot Spawning Logic:
+        - Every BOT_SPAWN_PROFIT_THRESHOLD_ZAR profit → Create new bot OR reinvest in top performers
         - Prioritize creating new bots until limit reached
+        - New bots get NEW_BOT_SEED_CAPITAL_ZAR capital
         - Then reinvest in top 5 performing bots
         """
         try:
@@ -49,10 +54,10 @@ class ProductionAutopilot:
                 return {
                     "reinvested": 0,
                     "action": "none",
-                    "message": f"Profit R{total_profit:.2f} below R{REINVEST_THRESHOLD} threshold"
+                    "message": f"Profit R{total_profit:.2f} below R{REINVEST_THRESHOLD} spawn threshold"
                 }
             
-            # Calculate how many R500 chunks we have
+            # Calculate how many spawn thresholds we've reached
             reinvest_chunks = int(total_profit / REINVEST_THRESHOLD)
             total_to_reinvest = reinvest_chunks * REINVEST_THRESHOLD
             
