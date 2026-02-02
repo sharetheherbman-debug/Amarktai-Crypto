@@ -205,6 +205,24 @@ if [ -f "backend/exchange_limits.py" ]; then
     else
         echo -e "${GREEN}✓${NC} No VALR/OVEX references (correct)"
     fi
+    
+    # Check MAX_TOTAL_BOTS configuration
+    MAX_BOTS_GLOBAL=$(grep "MAX_BOTS_GLOBAL.*=" backend/exchange_limits.py | grep -o "[0-9]\+" | head -1)
+    MAX_TOTAL_BOTS=$(grep "MAX_TOTAL_BOTS.*=" backend/config.py | grep -o "[0-9]\+" | head -1)
+    
+    if [ "$MAX_BOTS_GLOBAL" = "65" ]; then
+        echo -e "${GREEN}✓${NC} MAX_BOTS_GLOBAL correctly set to 65"
+    else
+        echo -e "${RED}✗${NC} MAX_BOTS_GLOBAL is $MAX_BOTS_GLOBAL, should be 65"
+        ((ERRORS++))
+    fi
+    
+    if [ "$MAX_TOTAL_BOTS" = "65" ]; then
+        echo -e "${GREEN}✓${NC} MAX_TOTAL_BOTS correctly set to 65"
+    else
+        echo -e "${RED}✗${NC} MAX_TOTAL_BOTS is $MAX_TOTAL_BOTS, should be 65"
+        ((ERRORS++))
+    fi
 else
     echo -e "${RED}✗${NC} Exchange limits file (exchange_limits.py) not found"
     ((ERRORS++))
