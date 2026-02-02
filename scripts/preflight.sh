@@ -315,6 +315,31 @@ else
 fi
 echo ""
 
+# 12. Check frontend API endpoint usage
+echo "12. Checking frontend API endpoints..."
+if [ -d "frontend/src" ]; then
+    # Check for legacy /api-keys or /api/api-keys usage (should NOT exist)
+    if grep -r "api-keys\|/api/api-keys" frontend/src --include="*.js" --include="*.jsx" 2>/dev/null | grep -v "node_modules" > /dev/null; then
+        echo -e "${RED}✗${NC} Found legacy /api-keys or /api/api-keys endpoint usage in frontend"
+        echo -e "    Frontend should use /api/keys/* endpoints instead"
+        ((ERRORS++))
+    else
+        echo -e "${GREEN}✓${NC} Frontend uses correct /api/keys/* endpoints"
+    fi
+    
+    # Check for correct /api/keys/* usage
+    if grep -r "/api/keys/" frontend/src --include="*.js" --include="*.jsx" 2>/dev/null | grep -v "node_modules" > /dev/null; then
+        echo -e "${GREEN}✓${NC} Found correct /api/keys/* endpoint usage"
+    else
+        echo -e "${YELLOW}⚠${NC}  No /api/keys/* usage found (may not be using API keys)"
+        ((WARNINGS++))
+    fi
+else
+    echo -e "${YELLOW}⚠${NC}  frontend/src directory not found"
+    ((WARNINGS++))
+fi
+echo ""
+
 # Summary
 echo "========================================="
 echo "Preflight Check Summary"
