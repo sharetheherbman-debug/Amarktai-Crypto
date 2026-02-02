@@ -1,3 +1,13 @@
+---
+**⚠️ ARCHIVED DOCUMENT - DO NOT TRUST**
+
+This document is archived and may contain outdated information.
+It references VALR and OVEX which are NO LONGER supported.
+
+Current supported exchanges (7): luno, binance, kucoin, bybit, kraken, bitget, gate
+
+---
+
 # Production Go-Live Summary
 
 ## Mission Accomplished ✅
