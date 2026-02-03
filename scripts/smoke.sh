@@ -109,13 +109,23 @@ echo "============================================"
 echo ""
 
 # Test 7: Auth login (get token)
-TOKEN_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/auth/login" \
+echo "Testing authentication..."
+TOKEN_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$BASE_URL/api/auth/login" \
     -H "Content-Type: application/json" \
-    -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null || echo "{}")
+    -d "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null)
 
-ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+# Extract HTTP status and body
+HTTP_STATUS=$(echo "$TOKEN_RESPONSE" | grep "HTTP_STATUS:" | cut -d':' -f2)
+RESPONSE_BODY=$(echo "$TOKEN_RESPONSE" | sed '/HTTP_STATUS:/d')
 
-if [ -n "$ACCESS_TOKEN" ]; then
+# Log the response for debugging
+if [ -n "$RESPONSE_BODY" ] && [ "$RESPONSE_BODY" != "{}" ]; then
+    echo "Login response: $RESPONSE_BODY" > /tmp/login_response.txt
+fi
+
+ACCESS_TOKEN=$(echo "$RESPONSE_BODY" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+if [ -n "$ACCESS_TOKEN" ] && [ "$HTTP_STATUS" = "200" ]; then
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     PASSED_TESTS=$((PASSED_TESTS + 1))
     printf "%-60s${GREEN}✅ PASS${NC}\n" "Auth login returns token"
@@ -123,7 +133,8 @@ else
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     FAILED_TESTS=$((FAILED_TESTS + 1))
     printf "%-60s${RED}❌ FAIL${NC}\n" "Auth login returns token"
-    echo "Could not get access token. Response: $TOKEN_RESPONSE"
+    echo "Could not get access token. HTTP Status: $HTTP_STATUS"
+    echo "Response: $RESPONSE_BODY"
     echo "Note: Remaining tests require authentication and will be skipped."
     ACCESS_TOKEN=""
 fi

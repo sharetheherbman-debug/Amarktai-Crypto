@@ -291,10 +291,18 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  // PHASE 12: Load chat history from backend (30 days)
+  // PHASE 12: Load chat history from backend (30 days) - DISABLED BY DEFAULT
+  // Chat history is NOT auto-loaded; user must click "Load History" button
+  // Default behavior: show fresh greeting only
   useEffect(() => {
-    loadChatHistory();
-  }, []);
+    // Initialize with welcome message (no auto-load of history)
+    if (user && chatMessages.length === 0) {
+      setChatMessages([{
+        role: 'assistant',
+        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+      }]);
+    }
+  }, [user]);
 
   const loadChatHistory = async () => {
     try {
@@ -321,6 +329,27 @@ export default function Dashboard() {
           content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
+    }
+  };
+
+  const handleClearChatHistory = async () => {
+    if (!window.confirm('Clear all chat history? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await post('/ai/chat/clear', {});
+      // Reset to fresh greeting
+      if (user) {
+        setChatMessages([{
+          role: 'assistant',
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        }]);
+      }
+      showNotification('Chat history cleared successfully', 'success');
+    } catch (error) {
+      console.error('Failed to clear chat history:', error);
+      showNotification('Failed to clear chat history', 'error');
     }
   };
 
@@ -981,19 +1010,14 @@ export default function Dashboard() {
         });
         setLivePrices(backendPrices);
       } else {
-        // Use fallback public data
-        const fallbackPrices = await marketDataFallback.getPrices();
-        setLivePrices(fallbackPrices);
+        // PRODUCTION: Do NOT use fallback - show error instead
+        console.warn('No valid prices from backend, showing empty state');
+        setLivePrices({});
       }
     } catch (err) {
-      console.error('Live prices fetch error, using public fallback:', err);
-      // On error, use fallback
-      try {
-        const fallbackPrices = await marketDataFallback.getPrices();
-        setLivePrices(fallbackPrices);
-      } catch (fallbackErr) {
-        console.error('Fallback prices also failed:', fallbackErr);
-      }
+      console.error('Live prices fetch error from backend:', err);
+      // PRODUCTION: Do NOT use fallback - rely only on backend
+      setLivePrices({});
     }
   };
 
@@ -1245,7 +1269,7 @@ export default function Dashboard() {
 
     // Send all other messages to AI backend
     try {
-      const res = await axios.post(`${API}/chat`, { content: originalInput }, axiosConfig);
+      const res = await axios.post(`${API}/ai/chat`, { content: originalInput }, axiosConfig);
       const reply = typeof res.data === 'string' ? res.data : (res.data.response || res.data.reply || res.data.message || 'No response');
       const assistantMsg = { role: 'assistant', content: reply };
       setChatMessages(prev => [...prev, assistantMsg]);
@@ -1300,25 +1324,32 @@ export default function Dashboard() {
     const newValue = !systemModes[mode];
     
     // Paper and Live trading are mutually exclusive
-    if (mode === 'paperTrading' && newValue) {
-      setSystemModes(prev => ({ ...prev, paperTrading: true, liveTrading: false }));
-      showNotification('Paper Trading activated. Live Trading disabled.');
-    } else if (mode === 'liveTrading' && newValue) {
+    if (mode === 'liveTrading' && newValue) {
       if (!window.confirm('⚠️ WARNING: This will enable REAL trading with REAL money. Are you sure?')) {
         return;
       }
-      setSystemModes(prev => ({ ...prev, liveTrading: true, paperTrading: false }));
-      showNotification('Live Trading activated. Paper Trading disabled.');
-    } else {
-      setSystemModes(prev => ({ ...prev, [mode]: newValue }));
-      showNotification(`${mode} ${newValue ? 'activated' : 'deactivated'}`);
     }
     
     try {
+      // Send update to backend FIRST (single source of truth)
       await axios.put(`${API}/system/mode`, { mode, enabled: newValue }, axiosConfig);
+      
+      // Fetch fresh state from backend to ensure sync
+      await loadSystemModes();
+      
+      // Show appropriate notification
+      if (mode === 'paperTrading' && newValue) {
+        showNotification('Paper Trading activated. Live Trading disabled.');
+      } else if (mode === 'liveTrading' && newValue) {
+        showNotification('Live Trading activated. Paper Trading disabled.');
+      } else {
+        showNotification(`${mode} ${newValue ? 'activated' : 'deactivated'}`);
+      }
     } catch (err) {
       console.error('Mode toggle error:', err);
       showNotification('Failed to update mode', 'error');
+      // Reload state to revert UI to actual backend state
+      loadSystemModes();
     }
   };
 
@@ -1548,19 +1579,19 @@ export default function Dashboard() {
     if (!form) return;
 
     const inputs = form.querySelectorAll('input');
-    const data = { exchange: provider.toLowerCase() }; // Backend expects 'exchange' field
+    const data = { provider: provider.toLowerCase() }; // Backend expects 'provider' field
     let hasValidInput = false;
     
     inputs.forEach(input => {
       const value = input.value.trim();
       if (value) {
-        // Map field names correctly for backend contract
+        // Map field names correctly for backend contract (snake_case)
         if (input.name === 'api_token') {
-          data['apiKey'] = value;  // Use apiKey for consistency
+          data['api_key'] = value;  // Use snake_case api_key
         } else if (input.name === 'api_key') {
-          data['apiKey'] = value;
+          data['api_key'] = value;
         } else if (input.name === 'api_secret') {
-          data['apiSecret'] = value;
+          data['api_secret'] = value;
         } else if (input.name === 'passphrase') {
           data['passphrase'] = value; // KuCoin requires passphrase
         } else if (input.name === 'sandbox' || input.name === 'paper') {
@@ -1573,26 +1604,26 @@ export default function Dashboard() {
     });
 
     // Validate that at least the primary API key is provided
-    if (!hasValidInput || !data.apiKey) {
+    if (!hasValidInput || !data.api_key) {
       showNotification('Please enter a valid API key', 'error');
       return;
     }
 
     // Special validation for OpenAI
-    if (provider === 'openai' && data.apiKey && !data.apiKey.startsWith('sk-')) {
+    if (provider === 'openai' && data.api_key && !data.api_key.startsWith('sk-')) {
       showNotification('Invalid OpenAI API key format (must start with sk-)', 'error');
       return;
     }
 
     // Validate exchange keys have secrets (except for some exchanges)
     const exchangesNeedingSecret = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
-    if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.apiSecret) {
+    if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.api_secret) {
       showNotification(`${provider.toUpperCase()} requires both API key and secret`, 'error');
       return;
     }
 
     try {
-      const response = await axios.post(`${API}/keys/save`, data, axiosConfig);
+      const response = await axios.post(`${API}/api/keys/save`, data, axiosConfig);
       showNotification(`✅ ${provider.toUpperCase()} API key saved!`);
       loadApiStatuses();
       
@@ -1603,7 +1634,7 @@ export default function Dashboard() {
       if (err.response?.status === 500) {
         const errorData = {
           endpoint: '/api/keys/save',
-          exchange: provider,
+          provider: provider,
           statusCode: 500,
           message: err.response?.data?.detail || 'Internal server error',
           requestId: err.response?.headers?.['x-request-id'] || 'N/A'
@@ -1631,9 +1662,9 @@ export default function Dashboard() {
 
   const handleTestApiKey = async (provider) => {
     try {
-      // Backend expects exchange field, not provider
-      const response = await axios.post(`${API}/keys/test`, { 
-        exchange: provider.toLowerCase() 
+      // Backend expects provider field (not exchange)
+      const response = await axios.post(`${API}/api/keys/test`, { 
+        provider: provider.toLowerCase() 
       }, axiosConfig);
       
       showNotification(`✅ ${provider.toUpperCase()} connection verified!`);
@@ -2313,6 +2344,38 @@ export default function Dashboard() {
         )}
         
         <div className="amk-chat">
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
+            <button
+              onClick={loadChatHistory}
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                background: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              📜 Load History
+            </button>
+            <button
+              onClick={handleClearChatHistory}
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                background: '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              🗑️ Clear History
+            </button>
+          </div>
           <div className="amk-chat-box">
             {chatMessages.map((msg, idx) => (
               <div key={idx} className={`msg ${msg.role}`}>
@@ -3360,7 +3423,7 @@ export default function Dashboard() {
           {/* User Management Table - Interactive */}
           <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
-              <h3 style={{margin: 0, color: 'var(--accent)'}}>👥 User Management</h3>
+              <h3 style={{margin: 0, color: '#ffffff', fontWeight: 'bold'}}>👥 User Management</h3>
               <button
                 onClick={loadAdminUsers}
                 disabled={loadingUsers}
@@ -3520,7 +3583,7 @@ export default function Dashboard() {
           {/* Bot Override Panel - Interactive */}
           <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
-              <h3 style={{margin: 0, color: 'var(--accent)'}}>🤖 Bot Control Panel</h3>
+              <h3 style={{margin: 0, color: '#ffffff', fontWeight: 'bold'}}>🤖 Bot Control Panel</h3>
               <button
                 onClick={loadAdminBots}
                 disabled={loadingBots}
@@ -3542,11 +3605,11 @@ export default function Dashboard() {
             
             {/* User and Bot Selection */}
             <div style={{marginBottom: '20px', padding: '16px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--accent)'}}>
-              <h4 style={{margin: '0 0 12px 0', color: 'var(--accent)', fontSize: '0.9rem'}}>🎯 Select Target</h4>
+              <h4 style={{margin: '0 0 12px 0', color: '#ffffff', fontSize: '0.9rem', fontWeight: 'bold'}}>🎯 Select Target</h4>
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px'}}>
                 {/* User Selection */}
                 <div>
-                  <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px', fontWeight: 600}}>
+                  <label style={{display: 'block', fontSize: '0.85rem', color: '#e0e0e0', marginBottom: '6px', fontWeight: 600}}>
                     Select User
                   </label>
                   <select
@@ -3575,7 +3638,7 @@ export default function Dashboard() {
                 
                 {/* Bot Selection */}
                 <div>
-                  <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px', fontWeight: 600}}>
+                  <label style={{display: 'block', fontSize: '0.85rem', color: '#e0e0e0', marginBottom: '6px', fontWeight: 600}}>
                     Select Bot
                   </label>
                   <select

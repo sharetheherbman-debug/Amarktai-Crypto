@@ -244,6 +244,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Add validation error handler for better debugging
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Custom handler for validation errors to log details and return consistent error shape
+    """
+    # Log validation error details for debugging
+    logger.error(f"Validation error on {request.method} {request.url.path}")
+    logger.error(f"Body keys present: {list((await request.body()).decode('utf-8', errors='ignore'))[:200]}")
+    logger.error(f"Validation detail: {exc.errors()}")
+    
+    # Return consistent error shape
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "body": exc.body if hasattr(exc, 'body') else None,
+            "message": "Validation error - check request payload format"
+        }
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
