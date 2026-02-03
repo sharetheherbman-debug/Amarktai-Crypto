@@ -1,21 +1,21 @@
 [Unit]
 Description=Amarktai Network API Server
-After=network.target
+After=network.target mongod.service
 Wants=network.target
 
 [Service]
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/var/amarktai/app/backend
-Environment="PATH=/var/amarktai/app/backend/.venv/bin"
+WorkingDirectory=/var/amarktai/app/Amarktai-Network---Deployment/backend
+Environment="PATH=/var/amarktai/app/Amarktai-Network---Deployment/backend/.venv/bin"
 Environment="PYTHONDONTWRITEBYTECODE=1"
-EnvironmentFile=/var/amarktai/app/backend/.env
-ExecStart=/var/amarktai/app/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
+EnvironmentFile=/etc/amarktai/amarktai.env
+ExecStart=/var/amarktai/app/Amarktai-Network---Deployment/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000 --log-config /var/amarktai/app/Amarktai-Network---Deployment/backend/logger_config.py
 Restart=always
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:/var/log/amarktai/backend.log
+StandardError=append:/var/log/amarktai/backend.log
 SyslogIdentifier=amarktai-api
 
 # Resource limits
