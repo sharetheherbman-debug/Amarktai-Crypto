@@ -989,19 +989,14 @@ export default function Dashboard() {
         });
         setLivePrices(backendPrices);
       } else {
-        // Use fallback public data
-        const fallbackPrices = await marketDataFallback.getPrices();
-        setLivePrices(fallbackPrices);
+        // PRODUCTION: Do NOT use fallback - show error instead
+        console.warn('No valid prices from backend, showing empty state');
+        setLivePrices({});
       }
     } catch (err) {
-      console.error('Live prices fetch error, using public fallback:', err);
-      // On error, use fallback
-      try {
-        const fallbackPrices = await marketDataFallback.getPrices();
-        setLivePrices(fallbackPrices);
-      } catch (fallbackErr) {
-        console.error('Fallback prices also failed:', fallbackErr);
-      }
+      console.error('Live prices fetch error from backend:', err);
+      // PRODUCTION: Do NOT use fallback - rely only on backend
+      setLivePrices({});
     }
   };
 
