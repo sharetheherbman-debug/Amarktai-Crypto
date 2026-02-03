@@ -118,47 +118,92 @@ test_endpoint GET "/api/system/mode" "" "200" "System mode"
 test_endpoint GET "/api/system/platforms" "" "200" "Platforms list"
 echo ""
 
-echo "🔑 Step 4: Platform Health"
+echo "🔑 Step 4: API Keys Management"
+echo "==============================="
+test_endpoint GET "/api/keys/providers" "" "200" "List providers"
+echo -n "Testing: POST /api/keys/test (OpenAI provider)... "
+test_response=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/api/keys/test" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"provider":"openai"}' 2>&1)
+test_code=$(echo "$test_response" | tail -n1)
+test_body=$(echo "$test_response" | sed '$d')
+# Accept 200 (key exists and works), 400 (key not configured), or 404 (key not found) - just not 422
+if [ "$test_code" != "422" ]; then
+    echo -e "${GREEN}✓ PASS${NC} (HTTP $test_code, NOT 422)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (Got 422 - schema validation error)"
+    echo "Response: $test_body"
+    FAILED=$((FAILED + 1))
+fi
+echo ""
+
+echo "🔄 Step 5: System Mode Switching"
+echo "================================="
+echo -n "Testing: POST /api/system/mode/switch (paper mode)... "
+mode_response=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/api/system/mode/switch" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"mode":"paper"}' 2>&1)
+mode_code=$(echo "$mode_response" | tail -n1)
+mode_body=$(echo "$mode_response" | sed '$d')
+# Accept 200 (success) or 403 (not admin) - just not 422
+if [ "$mode_code" = "200" ] || [ "$mode_code" = "403" ]; then
+    echo -e "${GREEN}✓ PASS${NC} (HTTP $mode_code, NOT 422)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (Expected 200 or 403, got $mode_code)"
+    echo "Response: $mode_body"
+    FAILED=$((FAILED + 1))
+fi
+echo ""
+
+echo "📍 Step 6: Platform Health"
 echo "==========================="
 test_endpoint GET "/api/platforms/health" "" "200" "Platform health"
 test_endpoint GET "/api/platforms/readiness" "" "200" "Platform readiness"
 echo ""
 
-echo "💬 Step 5: Chat Endpoints"
+echo "💬 Step 7: Chat Endpoints"
 echo "=========================="
 test_endpoint POST "/api/chat/message" '{"message":"Hello"}' "200" "Chat message"
 test_endpoint POST "/api/ai/chat" '{"content":"Status check"}' "200" "AI chat"
 echo ""
 
-echo "🤖 Step 6: Bot Management"
+echo "🤖 Step 8: Bot Management"
 echo "=========================="
 test_endpoint GET "/api/bots" "" "200" "List bots"
 echo ""
 
-echo "📈 Step 7: Metrics & Analytics"
+echo "📈 Step 9: Metrics & Analytics"
 echo "==============================="
 test_endpoint GET "/api/metrics" "" "200" "Get metrics"
 test_endpoint GET "/api/trades" "" "200" "Get trades"
 echo ""
 
-echo "💰 Step 8: Wallet Endpoints"
+echo "💰 Step 10: Wallet Endpoints"
 echo "============================"
 test_endpoint GET "/api/wallet/transfers" "" "200" "Get transfers"
 test_endpoint GET "/api/wallet/balance/summary" "" "200" "Balance summary"
 echo ""
 
-echo "⚡ Step 9: Realtime Connection Test"
+echo "⚡ Step 11: Realtime Connection Test"
 echo "===================================="
-echo -n "Testing SSE connection... "
-# Test SSE endpoint (just check if it connects, don't wait for events)
-sse_response=$(timeout 2 curl -s -N "$API_BASE/api/realtime/events" \
+echo -n "Testing SSE /api/realtime/events for heartbeat... "
+# Test SSE endpoint and look for heartbeat within 10 seconds
+sse_response=$(timeout 10 curl -s -N "$API_BASE/api/realtime/events" \
     -H "Authorization: Bearer $TOKEN" 2>&1 || true)
 
-if echo "$sse_response" | grep -q "event:"; then
-    echo -e "${GREEN}✓ PASS${NC} (SSE stream active)"
+if echo "$sse_response" | grep -q "heartbeat"; then
+    echo -e "${GREEN}✓ PASS${NC} (Heartbeat received)"
+    PASSED=$((PASSED + 1))
+elif echo "$sse_response" | grep -q "event:"; then
+    echo -e "${YELLOW}⚠ PARTIAL${NC} (SSE active but no heartbeat in 10s)"
     PASSED=$((PASSED + 1))
 else
-    echo -e "${YELLOW}⚠ SKIP${NC} (SSE connection timeout - may be working)"
+    echo -e "${RED}✗ FAIL${NC} (No SSE response)"
+    FAILED=$((FAILED + 1))
 fi
 echo ""
 
