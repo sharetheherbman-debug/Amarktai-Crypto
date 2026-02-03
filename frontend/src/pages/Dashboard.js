@@ -28,7 +28,7 @@ import { post, get } from '../lib/apiClient';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
-// import VersionBadge from '../components/VersionBadge';
+import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
   CategoryScale,
@@ -3096,14 +3096,14 @@ export default function Dashboard() {
           {/* VPS Resource Summary */}
           {systemStats?.vps_resources && (
             <div style={{marginBottom: '24px'}}>
-              <h3 style={{marginBottom: '12px', color: 'var(--accent)'}}>🖥️ VPS Resources</h3>
+              <h3 style={{marginBottom: '12px', color: '#ffffff'}}>🖥️ VPS Resources</h3>
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px'}}>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
-                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px'}}>CPU Usage</div>
+                  <div style={{fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px'}}>CPU Usage</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: systemStats.vps_resources.cpu.usage_percent > 80 ? 'var(--error)' : 'var(--success)'}}>
                     {systemStats.vps_resources.cpu.usage_percent}%
                   </div>
-                  <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>
+                  <div style={{fontSize: '0.7rem', color: '#cccccc', marginTop: '4px'}}>
                     {systemStats.vps_resources.cpu.count} cores
                     {systemStats.vps_resources.cpu.load_average && 
                       ` • Load: ${systemStats.vps_resources.cpu.load_average['1min']}`
@@ -3111,20 +3111,20 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
-                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px'}}>RAM Usage</div>
+                  <div style={{fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px'}}>RAM Usage</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: systemStats.vps_resources.memory.usage_percent > 85 ? 'var(--error)' : 'var(--success)'}}>
                     {systemStats.vps_resources.memory.usage_percent}%
                   </div>
-                  <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>
+                  <div style={{fontSize: '0.7rem', color: '#cccccc', marginTop: '4px'}}>
                     {systemStats.vps_resources.memory.used_gb} / {systemStats.vps_resources.memory.total_gb} GB used
                   </div>
                 </div>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
-                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px'}}>Disk Usage</div>
+                  <div style={{fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px'}}>Disk Usage</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: systemStats.vps_resources.disk.usage_percent > 85 ? 'var(--error)' : 'var(--success)'}}>
                     {systemStats.vps_resources.disk.usage_percent}%
                   </div>
-                  <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>
+                  <div style={{fontSize: '0.7rem', color: '#cccccc', marginTop: '4px'}}>
                     {systemStats.vps_resources.disk.free_gb} GB free
                   </div>
                 </div>
@@ -3137,19 +3137,19 @@ export default function Dashboard() {
             <div style={{marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px'}}>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
                 <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{systemStats.users?.total || 0}</div>
-                <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>Total Users</div>
+                <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Users</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
                 <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{systemStats.bots?.active || 0}</div>
-                <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>Active Bots</div>
+                <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Active Bots</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
                 <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{systemStats.trades?.total || 0}</div>
-                <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>Total Trades</div>
+                <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Trades</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
                 <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>R{systemStats.profit?.total?.toFixed(2) || '0.00'}</div>
-                <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>Total Profit</div>
+                <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Profit</div>
               </div>
             </div>
           )}
@@ -3158,8 +3158,8 @@ export default function Dashboard() {
           {storageData && (
             <div style={{marginBottom: '24px', padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
-                <h3 style={{margin: 0, color: 'var(--accent)'}}>💾 User Storage Usage</h3>
-                <div style={{fontSize: '0.9rem', color: 'var(--muted)'}}>
+                <h3 style={{margin: 0, color: '#ffffff'}}>💾 User Storage Usage</h3>
+                <div style={{fontSize: '0.9rem', color: '#cccccc'}}>
                   Total: {storageData.total_storage_mb} MB ({storageData.total_storage_gb} GB)
                 </div>
               </div>
@@ -3176,8 +3176,8 @@ export default function Dashboard() {
                       alignItems: 'center'
                     }}>
                       <div style={{flex: 1}}>
-                        <div style={{fontWeight: 600, fontSize: '0.9rem'}}>{userStorage.name || 'Unknown'}</div>
-                        <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{userStorage.email}</div>
+                        <div style={{fontWeight: 600, fontSize: '0.9rem', color: '#ffffff'}}>{userStorage.name || 'Unknown'}</div>
+                        <div style={{fontSize: '0.75rem', color: '#cccccc'}}>{userStorage.email}</div>
                       </div>
                       <div style={{fontWeight: 700, fontSize: '0.95rem', color: userStorage.storage_mb > 100 ? 'var(--error)' : 'var(--success)'}}>
                         {userStorage.storage_mb} MB
@@ -3185,7 +3185,7 @@ export default function Dashboard() {
                     </div>
                   ))
                 ) : (
-                  <div style={{textAlign: 'center', padding: '20px', color: 'var(--muted)'}}>
+                  <div style={{textAlign: 'center', padding: '20px', color: '#cccccc'}}>
                     No storage data available
                   </div>
                 )}
@@ -3198,26 +3198,26 @@ export default function Dashboard() {
             <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem'}}>
               <thead>
                 <tr style={{borderBottom: '2px solid var(--line)'}}>
-                  <th style={{padding: '12px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600}}>User</th>
-                  <th style={{padding: '12px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600}}>Email</th>
-                  <th style={{padding: '12px', textAlign: 'center', color: 'var(--muted)', fontWeight: 600}}>Bots</th>
-                  <th style={{padding: '12px', textAlign: 'center', color: 'var(--muted)', fontWeight: 600}}>Status</th>
-                  <th style={{padding: '12px', textAlign: 'center', color: 'var(--muted)', fontWeight: 600}}>Actions</th>
+                  <th style={{padding: '12px', textAlign: 'left', color: '#ffffff', fontWeight: 600}}>User</th>
+                  <th style={{padding: '12px', textAlign: 'left', color: '#ffffff', fontWeight: 600}}>Email</th>
+                  <th style={{padding: '12px', textAlign: 'center', color: '#ffffff', fontWeight: 600}}>Bots</th>
+                  <th style={{padding: '12px', textAlign: 'center', color: '#ffffff', fontWeight: 600}}>Status</th>
+                  <th style={{padding: '12px', textAlign: 'center', color: '#ffffff', fontWeight: 600}}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {allUsers.length === 0 ? (
                   <tr>
-                    <td colSpan="5" style={{padding: '40px', textAlign: 'center', color: 'var(--muted)'}}>
+                    <td colSpan="5" style={{padding: '40px', textAlign: 'center', color: '#cccccc'}}>
                       No users found
                     </td>
                   </tr>
                 ) : (
                   allUsers.map(usr => (
                     <tr key={usr.id} style={{borderBottom: '1px solid var(--line)'}}>
-                      <td style={{padding: '12px'}}>{usr.first_name || 'N/A'}</td>
-                      <td style={{padding: '12px'}}>{usr.email}</td>
-                      <td style={{padding: '12px', textAlign: 'center'}}>
+                      <td style={{padding: '12px', color: '#ffffff'}}>{usr.first_name || 'N/A'}</td>
+                      <td style={{padding: '12px', color: '#ffffff'}}>{usr.email}</td>
+                      <td style={{padding: '12px', textAlign: 'center', color: '#ffffff'}}>
                         {usr.stats?.total_bots || 0}
                       </td>
                       <td style={{padding: '12px', textAlign: 'center'}}>
@@ -6037,7 +6037,7 @@ export default function Dashboard() {
       <footer className="footer">
         <div>&copy; 2026 Amarktai Network. For personal use only.</div>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-          {/* <VersionBadge position="footer" /> */}
+          <VersionBadge position="footer" />
           <span>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></span>
         </div>
       </footer>

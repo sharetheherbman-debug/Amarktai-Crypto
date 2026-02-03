@@ -37,17 +37,33 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
             "enable_ccxt": env_bool('ENABLE_CCXT', True)
         }
         
-        # Check scheduler status
+        # Check scheduler status - Safe handling like system_health.py
         scheduler_status = {}
         try:
             from trading_scheduler import trading_scheduler
+            
+            # Safe check for is_running (could be callable, boolean, or missing)
+            if hasattr(trading_scheduler, 'is_running'):
+                is_running = trading_scheduler.is_running
+                # Handle if it's a callable
+                if callable(is_running):
+                    running_status = "running" if is_running() else "stopped"
+                else:
+                    # It's a boolean attribute
+                    running_status = "running" if is_running else "stopped"
+            else:
+                running_status = "unknown"
+                
             scheduler_status["trading_scheduler"] = {
-                "running": trading_scheduler.is_running() if hasattr(trading_scheduler, 'is_running') else "unknown",
+                "running": running_status,
                 "enabled": feature_flags["enable_trading"]
             }
         except Exception as e:
             logger.warning(f"Could not check trading_scheduler status: {e}")
-            scheduler_status["trading_scheduler"] = {"running": "unknown", "error": str(e)}
+            scheduler_status["trading_scheduler"] = {
+                "running": "unknown",
+                "enabled": feature_flags["enable_trading"]
+            }
         
         # Get last trade time for user
         last_trade = None

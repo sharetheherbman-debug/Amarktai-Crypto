@@ -1671,3 +1671,131 @@ async def get_user_resource_usage(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+
+@router.get("/bots/reconcile")
+async def reconcile_bots(
+    fix: bool = False,
+    admin_user_id: str = Depends(verify_admin)
+):
+    """
+    Reconcile bot user_id fields and find orphaned bots
+    
+    Args:
+        fix: If True, quarantines orphaned bots. If False, just reports.
+    
+    Returns:
+        Report of bot status and any issues found
+    """
+    try:
+        logger.info(f"Admin {admin_user_id[:8]} initiated bot reconciliation (fix={fix})")
+        
+        # Find all bots
+        all_bots = await db.bots_collection.find(
+            {},
+            {"_id": 0, "id": 1, "user_id": 1, "name": 1, "status": 1}
+        ).to_list(10000)
+        
+        # Issues tracking
+        issues = {
+            "missing_user_id": [],
+            "empty_user_id": [],
+            "orphaned": []
+        }
+        
+        user_counts = {}
+        
+        for bot in all_bots:
+            bot_id = bot.get("id", "unknown")
+            bot_name = bot.get("name", "unnamed")
+            status = bot.get("status", "unknown")
+            
+            # Check for missing user_id field
+            if "user_id" not in bot:
+                issues["missing_user_id"].append({
+                    "id": bot_id,
+                    "name": bot_name,
+                    "status": status
+                })
+                continue
+            
+            # Check for empty user_id
+            user_id = bot.get("user_id")
+            if not user_id or user_id == "" or user_id == "ORPHANED":
+                issues["empty_user_id"].append({
+                    "id": bot_id,
+                    "name": bot_name,
+                    "status": status
+                })
+                continue
+            
+            # Count bots by user
+            if user_id not in user_counts:
+                user_counts[user_id] = {"total": 0, "active": 0, "paused": 0, "stopped": 0}
+            
+            user_counts[user_id]["total"] += 1
+            if status == "active":
+                user_counts[user_id]["active"] += 1
+            elif status == "paused":
+                user_counts[user_id]["paused"] += 1
+            elif status in ["stopped", "deleted", "quarantined"]:
+                user_counts[user_id]["stopped"] += 1
+        
+        # If fix=True, quarantine orphaned bots
+        quarantined_count = 0
+        if fix:
+            # Quarantine bots with missing user_id
+            for bot in issues["missing_user_id"]:
+                result = await db.bots_collection.update_one(
+                    {"id": bot["id"]},
+                    {
+                        "$set": {
+                            "status": "quarantined",
+                            "trading_enabled": False,
+                            "quarantine_reason": "Missing user_id field",
+                            "user_id": "ORPHANED"
+                        }
+                    }
+                )
+                if result.modified_count > 0:
+                    quarantined_count += 1
+            
+            # Quarantine bots with empty user_id
+            for bot in issues["empty_user_id"]:
+                result = await db.bots_collection.update_one(
+                    {"id": bot["id"]},
+                    {
+                        "$set": {
+                            "status": "quarantined",
+                            "trading_enabled": False,
+                            "quarantine_reason": "Empty or ORPHANED user_id",
+                            "user_id": "ORPHANED"
+                        }
+                    }
+                )
+                if result.modified_count > 0:
+                    quarantined_count += 1
+            
+            logger.info(f"✅ Quarantined {quarantined_count} orphaned bots")
+        
+        total_issues = len(issues["missing_user_id"]) + len(issues["empty_user_id"])
+        
+        return {
+            "success": True,
+            "total_bots": len(all_bots),
+            "issues": {
+                "missing_user_id": len(issues["missing_user_id"]),
+                "empty_user_id": len(issues["empty_user_id"]),
+                "total": total_issues
+            },
+            "orphaned_bots": issues["missing_user_id"] + issues["empty_user_id"],
+            "user_counts": user_counts,
+            "quarantined": quarantined_count if fix else 0,
+            "fix_applied": fix,
+            "message": f"Found {total_issues} orphaned bots. {'Quarantined ' + str(quarantined_count) + ' bots.' if fix else 'Use fix=true to quarantine.'}",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Bot reconciliation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
