@@ -233,16 +233,20 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   flex-direction: column; 
   flex: 1; 
   gap: 8px; 
+  max-height: 70vh; /* Limit total chat height */
+  overflow: hidden; /* Prevent overflow outside section */
 }
 
 .amk-chat-box { 
   flex: 1; 
-  max-height: 65vh; 
+  max-height: 100%; /* Use available space */
+  min-height: 200px; /* Minimum height for usability */
   background: var(--panel); 
   border: 1px solid var(--line); 
   border-radius: 6px; 
   padding: 12px; 
-  overflow-y: auto; 
+  overflow-y: auto; /* Scroll within box */
+  overflow-x: hidden; /* No horizontal scroll */
 }
 
 .amk-chat .msg { 
@@ -274,6 +278,11 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   display: flex; 
   gap: 6px; 
   align-items: center; 
+  flex-shrink: 0; /* Keep input row pinned at bottom */
+  position: sticky; /* Pin to bottom of chat container */
+  bottom: 0;
+  background: var(--bg); /* Match background */
+  padding: 4px 0; /* Add some padding */
 }
 
 .amk-chat input[type="text"] { 
@@ -530,6 +539,29 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   color: var(--text); 
   font-size: 0.85rem; 
   font-family: Inter, system-ui, sans-serif; 
+}
+
+/* Style file input to match other inputs */
+.bot-form-grid input[type="file"] {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.bot-form-grid input[type="file"]::file-selector-button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: var(--accent2);
+  color: var(--text);
+  border: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-right: 10px;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.bot-form-grid input[type="file"]::file-selector-button:hover {
+  opacity: 0.9;
 }
 
 .bot-form-grid textarea { 
