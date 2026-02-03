@@ -110,6 +110,70 @@ Amarktai Network
         """
         
         return await self.send_email(user_email, subject, body)
+    
+    async def send_luno_deposit_required(self, user_email: str, required_amount: float = None) -> bool:
+        """Send Luno deposit requirement email"""
+        subject = "Luno Deposit Required for Live Trading - Amarktai Network"
+        
+        amount_text = f"R{required_amount:,.2f}" if required_amount else "sufficient funds"
+        
+        body = f"""
+Hello,
+
+You attempted to enable live trading, but your Luno account has insufficient funds.
+
+To enable live trading, please deposit {amount_text} to your Luno account:
+
+1. Log in to your Luno account at https://www.luno.com
+2. Navigate to Wallet > Deposit
+3. Deposit funds via bank transfer or card
+4. Once funds are available, return to Amarktai and enable live trading
+
+Your account has been automatically reverted to paper trading mode until funds are available.
+
+Why Luno?
+- Primary fiat on-ramp for ZAR (South African Rand)
+- Secure and regulated platform
+- Fast deposits and withdrawals
+
+Need help? Contact us at amarktainetwork@gmail.com
+
+---
+Amarktai Network
+Trading System
+        """
+        
+        logger.info(f"Sending Luno deposit required email to {user_email}")
+        return await self.send_email(user_email, subject, body)
+    
+    async def send_live_mode_reverted(self, user_email: str, reason: str) -> bool:
+        """Send notification that live mode was reverted to paper"""
+        subject = "Live Trading Automatically Disabled - Amarktai Network"
+        
+        body = f"""
+Hello,
+
+Your live trading mode has been automatically disabled and reverted to paper trading.
+
+Reason: {reason}
+
+Your bots will continue trading in paper mode (simulated) until the issue is resolved.
+
+Action Required:
+1. Check your exchange account balances
+2. Verify API keys are valid and have sufficient permissions
+3. Ensure you have adequate funds for live trading
+4. Re-enable live trading once ready
+
+If you need assistance, please contact us at amarktainetwork@gmail.com
+
+---
+Amarktai Network
+Trading System
+        """
+        
+        logger.info(f"Sending live mode reverted email to {user_email}: {reason}")
+        return await self.send_email(user_email, subject, body)
 
 
 email_service = EmailService()

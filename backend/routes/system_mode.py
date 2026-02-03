@@ -101,19 +101,132 @@ async def set_system_mode(mode: str, user_id: str) -> dict:
     return new_state
 
 
-async def check_live_readiness() -> tuple[bool, list[str]]:
-    """Check if system is ready for live trading
+async def check_luno_balance(user_id: str) -> tuple[bool, float]:
+    """Check if user has sufficient Luno balance for live trading
+    
+    Args:
+        user_id: User ID
+        
+    Returns:
+        (has_sufficient_balance: bool, current_balance: float)
+    """
+    try:
+        # Get Luno API keys for user
+        luno_key = await db.api_keys_collection.find_one({
+            "user_id": user_id,
+            "provider": "luno"
+        })
+        
+        if not luno_key:
+            return False, 0.0
+        
+        # Check if keys are tested
+        if not luno_key.get("last_test_ok"):
+            return False, 0.0
+        
+        # Try to get balance from ccxt_service
+        try:
+            from ccxt_service import ccxt_service
+            from routes.api_key_management import decrypt_api_key
+            
+            # Get decrypted keys
+            api_key = decrypt_api_key(luno_key["api_key_encrypted"])
+            api_secret = decrypt_api_key(luno_key["api_secret_encrypted"]) if luno_key.get("api_secret_encrypted") else None
+            
+            # Initialize Luno exchange
+            exchange = await ccxt_service.get_exchange_instance(
+                "luno",
+                api_key,
+                api_secret
+            )
+            
+            if exchange:
+                balance = await exchange.fetch_balance()
+                # Get ZAR balance
+                zar_balance = balance.get('ZAR', {}).get('free', 0.0)
+                
+                # Require minimum R500 for live trading
+                MIN_LUNO_BALANCE = 500.0
+                
+                return zar_balance >= MIN_LUNO_BALANCE, zar_balance
+            
+        except Exception as e:
+            logger.error(f"Error fetching Luno balance: {e}")
+            return False, 0.0
+        
+        return False, 0.0
+        
+    except Exception as e:
+        logger.error(f"Check Luno balance error: {e}")
+        return False, 0.0
+
+
+async def revert_to_paper_and_notify(user_id: str, reason: str):
+    """Revert user to paper trading and send email notification
+    
+    Args:
+        user_id: User ID
+        reason: Reason for reversion
+    """
+    try:
+        # Update system mode to paper
+        await db.system_modes_collection.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "paperTrading": True,
+                    "liveTrading": False,
+                    "reverted_at": datetime.now(timezone.utc).isoformat(),
+                    "revert_reason": reason
+                }
+            },
+            upsert=True
+        )
+        
+        # Get user email
+        user = await db.users_collection.find_one({"id": user_id})
+        if user and user.get('email'):
+            from email_service import email_service
+            
+            # Send notification email
+            if "Luno" in reason or "deposit" in reason.lower():
+                await email_service.send_luno_deposit_required(user['email'])
+            else:
+                await email_service.send_live_mode_reverted(user['email'], reason)
+        
+        logger.warning(f"User {user_id[:8]} reverted to paper trading: {reason}")
+        
+    except Exception as e:
+        logger.error(f"Revert to paper error: {e}")
+
+
+async def check_live_readiness(user_id: str = None) -> tuple[bool, list[str]]:
+    """Check if system/user is ready for live trading
+    
+    Args:
+        user_id: Optional user ID to check user-specific requirements
     
     Returns:
         (ready: bool, errors: list[str])
     """
     errors = []
     
+    # User-specific checks if user_id provided
+    if user_id:
+        from routes.live_trading_gate import check_user_live_eligibility
+        
+        # Check 7-day paper trading requirement and criteria
+        eligibility = await check_user_live_eligibility(user_id)
+        
+        if not eligibility['eligible']:
+            errors.extend(eligibility.get('reasons', ['Live trading requirements not met']))
+    
     # Check 1: At least one exchange key configured and tested
-    keys_cursor = db.api_keys_collection.find(
-        {"provider": {"$in": ["luno", "binance", "kucoin", "bybit", "bitget"]}},
-        {"_id": 0}
-    )
+    query = {"provider": {"$in": ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]}}
+    if user_id:
+        query["user_id"] = user_id
+    
+    keys_cursor = db.api_keys_collection.find(query, {"_id": 0})
     exchange_keys = await keys_cursor.to_list(100)
     
     tested_keys = [k for k in exchange_keys if k.get("last_test_ok") is True]
@@ -122,9 +235,12 @@ async def check_live_readiness() -> tuple[bool, list[str]]:
         errors.append("No exchange API keys tested successfully. At least one exchange must be configured.")
     
     # Check 2: No active runtime errors (check recent trades for errors)
-    # This is a simplified check - in production, check logs or metrics
+    trade_query = {"status": "error"}
+    if user_id:
+        trade_query["user_id"] = user_id
+    
     recent_trades = await db.trades_collection.find(
-        {"status": "error"},
+        trade_query,
         {"_id": 0}
     ).sort("timestamp", -1).limit(10).to_list(10)
     
@@ -222,12 +338,25 @@ async def toggle_mode(
             new_state["liveTrading"] = enabled
             if enabled:
                 new_state["paperTrading"] = False  # Mutually exclusive
-                # Check readiness for live trading
-                ready, errors = await check_live_readiness()
+                # Check readiness for live trading (including 7-day requirement)
+                ready, errors = await check_live_readiness(user_id)
                 if not ready:
                     raise HTTPException(
                         status_code=400,
                         detail=f"Cannot enable live trading: {'; '.join(errors)}"
+                    )
+                
+                # Check Luno balance (primary fiat on-ramp)
+                has_balance, zar_balance = await check_luno_balance(user_id)
+                if not has_balance:
+                    # Revert to paper and notify user
+                    await revert_to_paper_and_notify(
+                        user_id,
+                        f"Insufficient Luno balance (R{zar_balance:.2f}). Minimum R500 required."
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Insufficient Luno balance: R{zar_balance:.2f}. Please deposit funds. Email sent with instructions."
                     )
         elif mode_name == "autopilot":
             new_state["autopilot"] = enabled

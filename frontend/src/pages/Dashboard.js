@@ -332,6 +332,27 @@ export default function Dashboard() {
     }
   };
 
+  const handleClearChatHistory = async () => {
+    if (!window.confirm('Clear all chat history? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await post('/ai/chat/clear', {});
+      // Reset to fresh greeting
+      if (user) {
+        setChatMessages([{
+          role: 'assistant',
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        }]);
+      }
+      showNotification('Chat history cleared successfully', 'success');
+    } catch (error) {
+      console.error('Failed to clear chat history:', error);
+      showNotification('Failed to clear chat history', 'error');
+    }
+  };
+
   // PHASE 10: Subscribe to real-time AI task updates
   useRealtimeEvent('ai_tasks', useCallback((task) => {
     console.log('AI Task update:', task);
@@ -2323,6 +2344,38 @@ export default function Dashboard() {
         )}
         
         <div className="amk-chat">
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
+            <button
+              onClick={loadChatHistory}
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                background: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              📜 Load History
+            </button>
+            <button
+              onClick={handleClearChatHistory}
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                background: '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              🗑️ Clear History
+            </button>
+          </div>
           <div className="amk-chat-box">
             {chatMessages.map((msg, idx) => (
               <div key={idx} className={`msg ${msg.role}`}>
