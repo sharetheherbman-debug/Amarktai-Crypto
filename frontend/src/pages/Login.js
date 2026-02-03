@@ -35,8 +35,14 @@ export default function Login() {
       const response = await axios.post(`${API}/auth/login`, formData);
       console.log('Login response:', response.data);
       
+      // Clear all previous session data including chat
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Set new session data
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
+      
       toast.success('Welcome back!');
       navigate('/dashboard');
     } catch (error) {
