@@ -176,6 +176,102 @@ async def get_mode(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ModeToggleRequest(BaseModel):
+    """Request to toggle a specific mode on/off"""
+    mode: str  # 'paperTrading', 'liveTrading', or 'autopilot'
+    enabled: bool
+
+
+@router.put("/mode")
+async def toggle_mode(
+    data: ModeToggleRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Toggle a specific mode on or off (used by frontend toggles)
+    
+    This endpoint provides a simpler interface for the frontend toggle switches.
+    Paper and live modes are mutually exclusive.
+    
+    Args:
+        data: Mode toggle request with mode name and enabled state
+        user_id: Current user ID
+        
+    Returns:
+        Updated mode configuration
+    """
+    try:
+        mode_name = data.mode
+        enabled = data.enabled
+        
+        # Get current state
+        current_mode = await get_system_mode()
+        
+        # Determine new state based on toggle
+        new_state = {
+            "paperTrading": current_mode.get("paperTrading", False),
+            "liveTrading": current_mode.get("liveTrading", False),
+            "autopilot": current_mode.get("autopilot", False)
+        }
+        
+        # Apply the toggle
+        if mode_name == "paperTrading":
+            new_state["paperTrading"] = enabled
+            if enabled:
+                new_state["liveTrading"] = False  # Mutually exclusive
+        elif mode_name == "liveTrading":
+            new_state["liveTrading"] = enabled
+            if enabled:
+                new_state["paperTrading"] = False  # Mutually exclusive
+                # Check readiness for live trading
+                ready, errors = await check_live_readiness()
+                if not ready:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot enable live trading: {'; '.join(errors)}"
+                    )
+        elif mode_name == "autopilot":
+            new_state["autopilot"] = enabled
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid mode: {mode_name}"
+            )
+        
+        # Update with timestamp
+        new_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        new_state["updated_by"] = user_id
+        
+        # Persist to database
+        await db.system_modes_collection.update_one(
+            {},
+            {"$set": new_state},
+            upsert=True
+        )
+        
+        logger.info(f"📊 Mode {mode_name} toggled to {enabled} by user {user_id[:8]}")
+        
+        # Emit realtime event
+        try:
+            await rt_events.mode_switched(user_id, mode_name, new_state)
+        except Exception as e:
+            logger.warning(f"Failed to emit mode_switched event: {e}")
+        
+        return {
+            "success": True,
+            "message": f"{mode_name} {'enabled' if enabled else 'disabled'}",
+            "paperTrading": new_state["paperTrading"],
+            "liveTrading": new_state["liveTrading"],
+            "autopilot": new_state["autopilot"],
+            "updated_at": new_state["updated_at"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Toggle mode error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/mode/switch")
 async def switch_mode(
     data: ModeSwitchRequest,

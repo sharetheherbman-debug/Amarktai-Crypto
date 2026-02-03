@@ -1303,25 +1303,32 @@ export default function Dashboard() {
     const newValue = !systemModes[mode];
     
     // Paper and Live trading are mutually exclusive
-    if (mode === 'paperTrading' && newValue) {
-      setSystemModes(prev => ({ ...prev, paperTrading: true, liveTrading: false }));
-      showNotification('Paper Trading activated. Live Trading disabled.');
-    } else if (mode === 'liveTrading' && newValue) {
+    if (mode === 'liveTrading' && newValue) {
       if (!window.confirm('⚠️ WARNING: This will enable REAL trading with REAL money. Are you sure?')) {
         return;
       }
-      setSystemModes(prev => ({ ...prev, liveTrading: true, paperTrading: false }));
-      showNotification('Live Trading activated. Paper Trading disabled.');
-    } else {
-      setSystemModes(prev => ({ ...prev, [mode]: newValue }));
-      showNotification(`${mode} ${newValue ? 'activated' : 'deactivated'}`);
     }
     
     try {
+      // Send update to backend FIRST (single source of truth)
       await axios.put(`${API}/system/mode`, { mode, enabled: newValue }, axiosConfig);
+      
+      // Fetch fresh state from backend to ensure sync
+      await loadSystemModes();
+      
+      // Show appropriate notification
+      if (mode === 'paperTrading' && newValue) {
+        showNotification('Paper Trading activated. Live Trading disabled.');
+      } else if (mode === 'liveTrading' && newValue) {
+        showNotification('Live Trading activated. Paper Trading disabled.');
+      } else {
+        showNotification(`${mode} ${newValue ? 'activated' : 'deactivated'}`);
+      }
     } catch (err) {
       console.error('Mode toggle error:', err);
       showNotification('Failed to update mode', 'error');
+      // Reload state to revert UI to actual backend state
+      loadSystemModes();
     }
   };
 
