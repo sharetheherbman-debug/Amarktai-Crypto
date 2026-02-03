@@ -31,12 +31,17 @@ class ModeSwitchRequest(BaseModel):
     confirmation_token: Optional[str] = None  # Required for switching to live
 
 
-async def get_system_mode() -> dict:
+async def get_system_mode(user_id: str = None) -> dict:
     """Get current system mode from database
+    
+    Args:
+        user_id: Optional user ID for per-user mode (if None, returns global mode)
     
     Returns default mode if not set: paper=True, live=False, autopilot=False
     """
-    mode_doc = await db.system_modes_collection.find_one({}, {"_id": 0})
+    # Use per-user mode if user_id provided, otherwise global singleton
+    query = {"user_id": user_id} if user_id else {}
+    mode_doc = await db.system_modes_collection.find_one(query, {"_id": 0})
     
     if not mode_doc:
         # Initialize with safe defaults
@@ -45,8 +50,10 @@ async def get_system_mode() -> dict:
             "liveTrading": False,
             "autopilot": False,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "updated_by": "system"
+            "updated_by": user_id or "system"
         }
+        if user_id:
+            default_mode["user_id"] = user_id
         await db.system_modes_collection.insert_one(default_mode)
         return default_mode
     
@@ -85,13 +92,14 @@ async def set_system_mode(mode: str, user_id: str) -> dict:
     else:
         raise ValueError(f"Invalid mode: {mode}. Must be 'paper', 'live', or 'autopilot'")
     
-    # Update with timestamp
+    # Update with timestamp and user_id
     new_state["updated_at"] = datetime.now(timezone.utc).isoformat()
     new_state["updated_by"] = user_id
+    new_state["user_id"] = user_id
     
-    # Upsert mode document
+    # Upsert mode document per user
     await db.system_modes_collection.update_one(
-        {},  # Match any document (there should only be one)
+        {"user_id": user_id},
         {"$set": new_state},
         upsert=True
     )
@@ -265,7 +273,7 @@ async def get_mode(user_id: str = Depends(get_current_user)):
         Current mode configuration with paper/live/autopilot flags
     """
     try:
-        mode = await get_system_mode()
+        mode = await get_system_mode(user_id)
         
         # Determine active mode string
         if mode.get("paperTrading"):
@@ -320,7 +328,7 @@ async def toggle_mode(
         enabled = data.enabled
         
         # Get current state
-        current_mode = await get_system_mode()
+        current_mode = await get_system_mode(user_id)
         
         # Determine new state based on toggle
         new_state = {
@@ -366,13 +374,14 @@ async def toggle_mode(
                 detail=f"Invalid mode: {mode_name}"
             )
         
-        # Update with timestamp
+        # Update with timestamp and user_id
         new_state["updated_at"] = datetime.now(timezone.utc).isoformat()
         new_state["updated_by"] = user_id
+        new_state["user_id"] = user_id
         
-        # Persist to database
+        # Persist to database per user
         await db.system_modes_collection.update_one(
-            {},
+            {"user_id": user_id},
             {"$set": new_state},
             upsert=True
         )
@@ -463,7 +472,7 @@ async def switch_mode(
                 )
         
         # Get current mode
-        current_mode = await get_system_mode()
+        current_mode = await get_system_mode(user_id)
         
         if current_mode.get("paperTrading") and mode == "paper":
             return {
