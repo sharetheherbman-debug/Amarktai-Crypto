@@ -96,7 +96,7 @@ export const ChatSection = ({
 
     // Send to AI
     try {
-      const res = await axios.post(`${API}/chat`, { content: originalInput }, axiosConfig);
+      const res = await axios.post(`${API}/ai/chat`, { content: originalInput }, axiosConfig);
       const reply = typeof res.data === 'string' 
         ? res.data 
         : (res.data.response || res.data.reply || res.data.message || 'No response');

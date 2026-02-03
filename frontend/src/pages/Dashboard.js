@@ -291,10 +291,18 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  // PHASE 12: Load chat history from backend (30 days)
+  // PHASE 12: Load chat history from backend (30 days) - DISABLED BY DEFAULT
+  // Chat history is NOT auto-loaded; user must click "Load History" button
+  // Default behavior: show fresh greeting only
   useEffect(() => {
-    loadChatHistory();
-  }, []);
+    // Initialize with welcome message (no auto-load of history)
+    if (user && chatMessages.length === 0) {
+      setChatMessages([{
+        role: 'assistant',
+        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+      }]);
+    }
+  }, [user]);
 
   const loadChatHistory = async () => {
     try {
@@ -1245,7 +1253,7 @@ export default function Dashboard() {
 
     // Send all other messages to AI backend
     try {
-      const res = await axios.post(`${API}/chat`, { content: originalInput }, axiosConfig);
+      const res = await axios.post(`${API}/ai/chat`, { content: originalInput }, axiosConfig);
       const reply = typeof res.data === 'string' ? res.data : (res.data.response || res.data.reply || res.data.message || 'No response');
       const assistantMsg = { role: 'assistant', content: reply };
       setChatMessages(prev => [...prev, assistantMsg]);
@@ -1548,19 +1556,19 @@ export default function Dashboard() {
     if (!form) return;
 
     const inputs = form.querySelectorAll('input');
-    const data = { exchange: provider.toLowerCase() }; // Backend expects 'exchange' field
+    const data = { provider: provider.toLowerCase() }; // Backend expects 'provider' field
     let hasValidInput = false;
     
     inputs.forEach(input => {
       const value = input.value.trim();
       if (value) {
-        // Map field names correctly for backend contract
+        // Map field names correctly for backend contract (snake_case)
         if (input.name === 'api_token') {
-          data['apiKey'] = value;  // Use apiKey for consistency
+          data['api_key'] = value;  // Use snake_case api_key
         } else if (input.name === 'api_key') {
-          data['apiKey'] = value;
+          data['api_key'] = value;
         } else if (input.name === 'api_secret') {
-          data['apiSecret'] = value;
+          data['api_secret'] = value;
         } else if (input.name === 'passphrase') {
           data['passphrase'] = value; // KuCoin requires passphrase
         } else if (input.name === 'sandbox' || input.name === 'paper') {
@@ -1573,26 +1581,26 @@ export default function Dashboard() {
     });
 
     // Validate that at least the primary API key is provided
-    if (!hasValidInput || !data.apiKey) {
+    if (!hasValidInput || !data.api_key) {
       showNotification('Please enter a valid API key', 'error');
       return;
     }
 
     // Special validation for OpenAI
-    if (provider === 'openai' && data.apiKey && !data.apiKey.startsWith('sk-')) {
+    if (provider === 'openai' && data.api_key && !data.api_key.startsWith('sk-')) {
       showNotification('Invalid OpenAI API key format (must start with sk-)', 'error');
       return;
     }
 
     // Validate exchange keys have secrets (except for some exchanges)
     const exchangesNeedingSecret = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
-    if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.apiSecret) {
+    if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.api_secret) {
       showNotification(`${provider.toUpperCase()} requires both API key and secret`, 'error');
       return;
     }
 
     try {
-      const response = await axios.post(`${API}/keys/save`, data, axiosConfig);
+      const response = await axios.post(`${API}/api/keys/save`, data, axiosConfig);
       showNotification(`✅ ${provider.toUpperCase()} API key saved!`);
       loadApiStatuses();
       
@@ -1603,7 +1611,7 @@ export default function Dashboard() {
       if (err.response?.status === 500) {
         const errorData = {
           endpoint: '/api/keys/save',
-          exchange: provider,
+          provider: provider,
           statusCode: 500,
           message: err.response?.data?.detail || 'Internal server error',
           requestId: err.response?.headers?.['x-request-id'] || 'N/A'
@@ -1631,9 +1639,9 @@ export default function Dashboard() {
 
   const handleTestApiKey = async (provider) => {
     try {
-      // Backend expects exchange field, not provider
-      const response = await axios.post(`${API}/keys/test`, { 
-        exchange: provider.toLowerCase() 
+      // Backend expects provider field (not exchange)
+      const response = await axios.post(`${API}/api/keys/test`, { 
+        provider: provider.toLowerCase() 
       }, axiosConfig);
       
       showNotification(`✅ ${provider.toUpperCase()} connection verified!`);
