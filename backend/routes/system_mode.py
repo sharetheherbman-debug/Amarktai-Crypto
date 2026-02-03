@@ -404,8 +404,7 @@ async def toggle_mode(
 @router.post("/mode/switch")
 async def switch_mode(
     data: ModeSwitchRequest,
-    user_id: str = Depends(get_current_user),
-    admin: bool = Depends(is_admin)
+    user_id: str = Depends(get_current_user)
 ):
     """Switch system mode
     
@@ -416,8 +415,7 @@ async def switch_mode(
     
     Args:
         data: Mode switch request with mode and confirmation token
-        user_id: Current user ID
-        admin: Whether user is admin
+        user_id: Current user ID (extracted from JWT)
         
     Returns:
         New mode configuration
@@ -432,6 +430,7 @@ async def switch_mode(
             )
         
         # Check admin for live/autopilot
+        admin = await is_admin(user_id)
         if mode in ["live", "autopilot"] and not admin:
             raise HTTPException(
                 status_code=403,
@@ -514,8 +513,7 @@ async def switch_mode(
 
 @router.get("/mode/readiness")
 async def check_readiness(
-    user_id: str = Depends(get_current_user),
-    admin: bool = Depends(is_admin)
+    user_id: str = Depends(get_current_user)
 ):
     """Check if system is ready for live trading
     
@@ -523,6 +521,7 @@ async def check_readiness(
         Readiness status with list of checks and any errors
     """
     try:
+        admin = await is_admin(user_id)
         if not admin:
             raise HTTPException(
                 status_code=403,

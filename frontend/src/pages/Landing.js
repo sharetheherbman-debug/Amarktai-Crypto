@@ -144,7 +144,7 @@ export default function Landing() {
       {/* Footer */}
       <div className="footer">
         <p>
-          © 2025 Amarktai Network. All rights reserved. |{' '}
+          © 2026 Amarktai Network. All rights reserved. |{' '}
           <a href="mailto:amarktainetwork@gmail.com">Support</a>
         </p>
       </div>

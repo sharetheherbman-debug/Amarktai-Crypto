@@ -3423,7 +3423,7 @@ export default function Dashboard() {
           {/* User Management Table - Interactive */}
           <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
-              <h3 style={{margin: 0, color: '#ffffff', fontWeight: 'bold'}}>👥 User Management</h3>
+              <h3 style={{margin: 0, color: 'var(--accent)', fontWeight: 'bold'}}>👥 User Management</h3>
               <button
                 onClick={loadAdminUsers}
                 disabled={loadingUsers}
@@ -3583,7 +3583,7 @@ export default function Dashboard() {
           {/* Bot Override Panel - Interactive */}
           <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
-              <h3 style={{margin: 0, color: '#ffffff', fontWeight: 'bold'}}>🤖 Bot Control Panel</h3>
+              <h3 style={{margin: 0, color: 'var(--accent)', fontWeight: 'bold'}}>🤖 Bot Control Panel</h3>
               <button
                 onClick={loadAdminBots}
                 disabled={loadingBots}
@@ -3605,11 +3605,11 @@ export default function Dashboard() {
             
             {/* User and Bot Selection */}
             <div style={{marginBottom: '20px', padding: '16px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--accent)'}}>
-              <h4 style={{margin: '0 0 12px 0', color: '#ffffff', fontSize: '0.9rem', fontWeight: 'bold'}}>🎯 Select Target</h4>
+              <h4 style={{margin: '0 0 12px 0', color: 'var(--accent)', fontSize: '0.9rem', fontWeight: 'bold'}}>🎯 Select Target</h4>
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px'}}>
                 {/* User Selection */}
                 <div>
-                  <label style={{display: 'block', fontSize: '0.85rem', color: '#e0e0e0', marginBottom: '6px', fontWeight: 600}}>
+                  <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text)', marginBottom: '6px', fontWeight: 600}}>
                     Select User
                   </label>
                   <select
@@ -3638,7 +3638,7 @@ export default function Dashboard() {
                 
                 {/* Bot Selection */}
                 <div>
-                  <label style={{display: 'block', fontSize: '0.85rem', color: '#e0e0e0', marginBottom: '6px', fontWeight: 600}}>
+                  <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--text)', marginBottom: '6px', fontWeight: 600}}>
                     Select Bot
                   </label>
                   <select
@@ -6035,7 +6035,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="footer">
-        <div>&copy; 2025 Amarktai Network. For personal use only.</div>
+        <div>&copy; 2026 Amarktai Network. For personal use only.</div>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
           {/* <VersionBadge position="footer" /> */}
           <span>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></span>
