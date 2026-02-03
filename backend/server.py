@@ -688,69 +688,10 @@ async def health_check():
 # ============================================================================
 
 # NOTE: Removed duplicate GET /system/mode - canonical in routes/system_mode.py
-
-@api_router.put("/system/mode")
-async def update_system_mode(data: dict, user_id: str = Depends(get_current_user)):
-    """Update system mode - NOW ACTUALLY CONTROLS TRADING"""
-    try:
-        mode = data.get('mode')
-        enabled = data.get('enabled', False)
-        
-        logger.info(f"System mode update: {mode} = {enabled} for user {user_id}")
-        
-        # Get current modes
-        current_modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
-        
-        if not current_modes:
-            current_modes = {
-                "user_id": user_id,
-                "paperTrading": False,
-                "liveTrading": False,
-                "autopilot": False
-            }
-        
-        # Update mode
-        current_modes[mode] = enabled
-        current_modes['updated_at'] = datetime.now(timezone.utc).isoformat()
-        
-        # Mutually exclusive: paper vs live
-        if mode == 'paperTrading' and enabled:
-            current_modes['liveTrading'] = False
-        elif mode == 'liveTrading' and enabled:
-            current_modes['paperTrading'] = False
-            
-            # When switching to live mode, check for eligible bot promotions
-            from bot_lifecycle import bot_lifecycle
-            promoted_count = await bot_lifecycle.check_promotions()
-            if promoted_count > 0:
-                logger.info(f"🎉 Promoted {promoted_count} bots to live trading with reset capital")
-        
-        # Save to database
-        await db.system_modes_collection.update_one(
-            {"user_id": user_id},
-            {"$set": current_modes},
-            upsert=True
-        )
-        
-        # NOTE: Trading scheduler runs globally but checks each user's modes
-        # The scheduler respects autopilot/paperTrading settings per user
-        # No need to stop/start the global scheduler
-        logger.info(f"📊 System mode updated: {mode}={enabled} for user {user_id}")
-        
-        # Send real-time update via WebSocket
-        await manager.send_message(user_id, {
-            "type": "system_mode_update",
-            "modes": current_modes
-        })
-        
-        return {
-            "message": f"{mode} {'enabled' if enabled else 'disabled'}",
-            "modes": current_modes
-        }
-    
-    except Exception as e:
-        logger.error(f"System mode update error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# NOTE: Removed duplicate PUT /system/mode - canonical in routes/system_mode.py
+#       The canonical endpoint in routes/system_mode.py provides comprehensive
+#       mode switching with live readiness checks, Luno balance validation,
+#       and proper real-time event broadcasting via rt_events.mode_switched()
 
 # NOTE: Removed duplicate GET /system/status - canonical in routes/system_status.py
 
