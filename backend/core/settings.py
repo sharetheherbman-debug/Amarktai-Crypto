@@ -6,7 +6,6 @@ All modules MUST import from this module only.
 
 import os
 from typing import Dict, List, Optional, Set
-from pydantic import BaseSettings, Field, validator
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -198,105 +197,111 @@ class FeatureFlags:
         }
 
 
-class SystemSettings(BaseSettings):
+class SystemSettings:
     """
     System-wide settings loaded from environment variables.
-    Uses Pydantic for validation and type safety.
+    Simple wrapper around os.getenv with type conversion and defaults.
     """
     
-    # Database
-    MONGO_URL: str = Field(default='mongodb://localhost:27017', env='MONGO_URL')
-    DB_NAME: str = Field(default='amarktai_trading', env='DB_NAME')
-    
-    # Security
-    JWT_SECRET: str = Field(default='your-secret-key-change-in-production', env='JWT_SECRET')
-    ENCRYPTION_KEY: str = Field(default='', env='ENCRYPTION_KEY')
-    AMARKTAI_FERNET_KEY: str = Field(default='', env='AMARKTAI_FERNET_KEY')
-    FERNET_KEY: str = Field(default='', env='FERNET_KEY')
-    
-    # AI / OpenAI
-    OPENAI_API_KEY: str = Field(default='', env='OPENAI_API_KEY')
-    OPENAI_MODEL: str = Field(default='gpt-4o', env='OPENAI_MODEL')
-    
-    # Email (SMTP)
-    SMTP_HOST: str = Field(default='smtp.gmail.com', env='SMTP_HOST')
-    SMTP_PORT: int = Field(default=587, env='SMTP_PORT')
-    SMTP_USER: str = Field(default='', env='SMTP_USER')
-    SMTP_PASSWORD: str = Field(default='', env='SMTP_PASSWORD')
-    FROM_EMAIL: str = Field(default='', env='FROM_EMAIL')
-    FROM_NAME: str = Field(default='Amarktai Network', env='FROM_NAME')
-    
-    # Optional Integrations
-    FETCHAI_API_KEY: str = Field(default='', env='FETCHAI_API_KEY')
-    FLOKX_API_KEY: str = Field(default='', env='FLOKX_API_KEY')
-    
-    # Trading Limits
-    MAX_TRADES_PER_BOT_PER_DAY: int = Field(default=1000, env='MAX_TRADES_PER_BOT_PER_DAY')
-    MAX_TRADES_PER_USER_PER_DAY: int = Field(default=3000, env='MAX_TRADES_PER_USER_PER_DAY')
-    MIN_TRADE_PROFIT_THRESHOLD_ZAR: float = Field(default=2.0)
-    
-    # Paper → Live Promotion Criteria
-    PAPER_TRAINING_DAYS: int = Field(default=7, env='PAPER_TRAINING_DAYS')
-    MIN_WIN_RATE: float = Field(default=0.52)
-    MIN_PROFIT_PERCENT: float = Field(default=0.03)
-    MIN_TRADES_FOR_PROMOTION: int = Field(default=25)
-    
-    # Live Training Bay
-    LIVE_MIN_TRAINING_HOURS: int = Field(default=24, env='LIVE_MIN_TRAINING_HOURS')
-    
-    # Autopilot Settings - Bot Spawning & Reinvestment
-    BOT_SPAWN_PROFIT_ZAR: int = Field(default=1000, env='BOT_SPAWN_PROFIT_ZAR')
-    NEW_BOT_SEED_CAPITAL_ZAR: int = Field(default=500, env='NEW_BOT_SEED_CAPITAL_ZAR')
-    REINVEST_THRESHOLD_ZAR: int = Field(default=300, env='REINVEST_THRESHOLD_ZAR')
-    MAX_TOTAL_BOTS: int = Field(default=65, env='MAX_TOTAL_BOTS')
-    TOP_PERFORMERS_COUNT: int = Field(default=3, env='TOP_PERFORMERS_COUNT')
-    EVOLUTION_MUTATION_RATE: float = Field(default=0.25, env='EVOLUTION_MUTATION_RATE')
-    QUARANTINE_THRESHOLD: float = Field(default=-0.05, env='QUARANTINE_THRESHOLD')
-    
-    # Per-exchange bot spawning
-    ENABLE_PER_EXCHANGE_BOT_SPAWN: bool = Field(default=True, env='ENABLE_PER_EXCHANGE_BOT_SPAWN')
-    ENABLE_OVERALL_PROFIT_THRESHOLD: bool = Field(default=False, env='ENABLE_OVERALL_PROFIT_THRESHOLD')
-    OVERALL_PROFIT_THRESHOLD_ZAR: int = Field(default=5000, env='OVERALL_PROFIT_THRESHOLD_ZAR')
-    
-    # Risk Management
-    STOP_LOSS_SAFE: float = Field(default=0.05)
-    STOP_LOSS_BALANCED: float = Field(default=0.10)
-    STOP_LOSS_AGGRESSIVE: float = Field(default=0.15)
-    MAX_HOURLY_LOSS_PERCENT: float = Field(default=0.15)
-    MAX_DAILY_LOSS_PERCENT: float = Field(default=0.15, env='MAX_DAILY_LOSS_PERCENT')
-    MAX_DRAWDOWN_PERCENT: float = Field(default=0.25, env='MAX_DRAWDOWN_PERCENT')
-    MIN_POSITION_SIZE_PERCENT: float = Field(default=0.02)
-    MAX_POSITION_SIZE_PERCENT: float = Field(default=0.05)
-    
-    # Self-healing
-    MAX_ERRORS_PER_HOUR: int = Field(default=20, env='MAX_ERRORS_PER_HOUR')
-    
-    # Wallet Transfer Limits & Security
-    DAILY_WITHDRAWAL_LIMIT_USD: float = Field(default=10000, env='DAILY_WITHDRAWAL_LIMIT_USD')
-    MONTHLY_WITHDRAWAL_LIMIT_USD: float = Field(default=100000, env='MONTHLY_WITHDRAWAL_LIMIT_USD')
-    MAX_SINGLE_WITHDRAWAL_USD: float = Field(default=5000, env='MAX_SINGLE_WITHDRAWAL_USD')
-    REQUIRE_EMAIL_CONFIRMATION: bool = Field(default=True, env='REQUIRE_EMAIL_CONFIRMATION')
-    EMAIL_CONFIRMATION_TIMEOUT_HOURS: int = Field(default=24, env='EMAIL_CONFIRMATION_TIMEOUT_HOURS')
-    REQUIRE_WHITELISTED_ADDRESS: bool = Field(default=True, env='REQUIRE_WHITELISTED_ADDRESS')
-    MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR: int = Field(default=5, env='MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR')
-    REQUIRE_2FA_FOR_WITHDRAWALS: bool = Field(default=False, env='REQUIRE_2FA_FOR_WITHDRAWALS')
-    REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR: float = Field(default=100000, env='REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR')
-    WALLET_MAX_TRANSFER_ZAR_PER_TX: float = Field(default=50000, env='WALLET_MAX_TRANSFER_ZAR_PER_TX')
-    WALLET_MAX_TRANSFER_ZAR_PER_DAY: float = Field(default=200000, env='WALLET_MAX_TRANSFER_ZAR_PER_DAY')
-    WALLET_MAX_TRANSFER_ZAR_PER_MONTH: float = Field(default=2000000, env='WALLET_MAX_TRANSFER_ZAR_PER_MONTH')
-    REQUIRE_ADDRESS_WHITELIST: bool = Field(default=True, env='REQUIRE_ADDRESS_WHITELIST')
-    MIN_RESERVE_LUNO_ZAR: float = Field(default=10000, env='MIN_RESERVE_LUNO_ZAR')
-    MIN_RESERVE_PER_EXCHANGE_ZAR: float = Field(default=5000, env='MIN_RESERVE_PER_EXCHANGE_ZAR')
-    
-    # Live Trading Gate Requirements
-    REQUIRE_WALLET_FUNDED: bool = Field(default=True, env='REQUIRE_WALLET_FUNDED')
-    REQUIRE_API_KEYS_FOR_LIVE: bool = Field(default=True, env='REQUIRE_API_KEYS_FOR_LIVE')
-    
-    # AI Models Configuration
-    AI_MODEL_SYSTEM_BRAIN: str = Field(default='gpt-4o', env='AI_MODEL_SYSTEM_BRAIN')
-    AI_MODEL_TRADE_DECISION: str = Field(default='gpt-4o', env='AI_MODEL_TRADE_DECISION')
-    AI_MODEL_REPORTING: str = Field(default='gpt-4', env='AI_MODEL_REPORTING')
-    AI_MODEL_CHATOPS: str = Field(default='gpt-4o', env='AI_MODEL_CHATOPS')
+    def __init__(self):
+        # Database
+        self.MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
+        self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+        
+        # Security
+        self.JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
+        self.ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', '')
+        self.AMARKTAI_FERNET_KEY = os.getenv('AMARKTAI_FERNET_KEY', '')
+        self.FERNET_KEY = os.getenv('FERNET_KEY', '')
+        
+        # AI / OpenAI
+        self.OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+        self.OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
+        
+        # Email (SMTP)
+        self.SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+        self.SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+        self.SMTP_USER = os.getenv('SMTP_USER', '')
+        self.SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+        self.FROM_EMAIL = os.getenv('FROM_EMAIL', '')
+        self.FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Network')
+        
+        # Optional Integrations
+        self.FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')
+        self.FLOKX_API_KEY = os.getenv('FLOKX_API_KEY', '')
+        
+        # Trading Limits
+        self.MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))
+        self.MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '3000'))
+        self.MIN_TRADE_PROFIT_THRESHOLD_ZAR = float(os.getenv('MIN_TRADE_PROFIT_THRESHOLD_ZAR', '2.0'))
+        
+        # Paper → Live Promotion Criteria
+        self.PAPER_TRAINING_DAYS = int(os.getenv('PAPER_TRAINING_DAYS', '7'))
+        self.MIN_WIN_RATE = float(os.getenv('MIN_WIN_RATE', '0.52'))
+        self.MIN_PROFIT_PERCENT = float(os.getenv('MIN_PROFIT_PERCENT', '0.03'))
+        self.MIN_TRADES_FOR_PROMOTION = int(os.getenv('MIN_TRADES_FOR_PROMOTION', '25'))
+        
+        # Live Training Bay
+        self.LIVE_MIN_TRAINING_HOURS = int(os.getenv('LIVE_MIN_TRAINING_HOURS', '24'))
+        
+        # Autopilot Settings - Bot Spawning & Reinvestment
+        self.BOT_SPAWN_PROFIT_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_ZAR', '1000'))
+        self.NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '500'))
+        self.REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))
+        self.MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))
+        self.TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '3'))
+        self.EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))
+        self.QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))
+        
+        # Per-exchange bot spawning
+        self.ENABLE_PER_EXCHANGE_BOT_SPAWN = os.getenv('ENABLE_PER_EXCHANGE_BOT_SPAWN', 'true').lower() == 'true'
+        self.ENABLE_OVERALL_PROFIT_THRESHOLD = os.getenv('ENABLE_OVERALL_PROFIT_THRESHOLD', 'false').lower() == 'true'
+        self.OVERALL_PROFIT_THRESHOLD_ZAR = int(os.getenv('OVERALL_PROFIT_THRESHOLD_ZAR', '5000'))
+        
+        # Risk Management
+        self.STOP_LOSS_SAFE = float(os.getenv('STOP_LOSS_SAFE', '0.05'))
+        self.STOP_LOSS_BALANCED = float(os.getenv('STOP_LOSS_BALANCED', '0.10'))
+        self.STOP_LOSS_AGGRESSIVE = float(os.getenv('STOP_LOSS_AGGRESSIVE', '0.15'))
+        self.MAX_HOURLY_LOSS_PERCENT = float(os.getenv('MAX_HOURLY_LOSS_PERCENT', '0.15'))
+        self.MAX_DAILY_LOSS_PERCENT = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15'))
+        self.MAX_DRAWDOWN_PERCENT = float(os.getenv('MAX_DRAWDOWN_PERCENT', '0.25'))
+        self.MIN_POSITION_SIZE_PERCENT = float(os.getenv('MIN_POSITION_SIZE_PERCENT', '0.02'))
+        self.MAX_POSITION_SIZE_PERCENT = float(os.getenv('MAX_POSITION_SIZE_PERCENT', '0.05'))
+        
+        # Self-healing
+        self.MAX_ERRORS_PER_HOUR = int(os.getenv('MAX_ERRORS_PER_HOUR', '20'))
+        
+        # Wallet Transfer Limits & Security
+        self.DAILY_WITHDRAWAL_LIMIT_USD = float(os.getenv('DAILY_WITHDRAWAL_LIMIT_USD', '10000'))
+        self.MONTHLY_WITHDRAWAL_LIMIT_USD = float(os.getenv('MONTHLY_WITHDRAWAL_LIMIT_USD', '100000'))
+        self.MAX_SINGLE_WITHDRAWAL_USD = float(os.getenv('MAX_SINGLE_WITHDRAWAL_USD', '5000'))
+        self.REQUIRE_EMAIL_CONFIRMATION = os.getenv('REQUIRE_EMAIL_CONFIRMATION', 'true').lower() == 'true'
+        self.EMAIL_CONFIRMATION_TIMEOUT_HOURS = int(os.getenv('EMAIL_CONFIRMATION_TIMEOUT_HOURS', '24'))
+        self.REQUIRE_WHITELISTED_ADDRESS = os.getenv('REQUIRE_WHITELISTED_ADDRESS', 'true').lower() == 'true'
+        self.MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR = int(os.getenv('MAX_WITHDRAWAL_ATTEMPTS_PER_HOUR', '5'))
+        self.REQUIRE_2FA_FOR_WITHDRAWALS = os.getenv('REQUIRE_2FA_FOR_WITHDRAWALS', 'false').lower() == 'true'
+        self.REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR = float(os.getenv('REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR', '100000'))
+        self.WALLET_MAX_TRANSFER_ZAR_PER_TX = float(os.getenv('WALLET_MAX_TRANSFER_ZAR_PER_TX', '50000'))
+        self.WALLET_MAX_TRANSFER_ZAR_PER_DAY = float(os.getenv('WALLET_MAX_TRANSFER_ZAR_PER_DAY', '200000'))
+        self.WALLET_MAX_TRANSFER_ZAR_PER_MONTH = float(os.getenv('WALLET_MAX_TRANSFER_ZAR_PER_MONTH', '2000000'))
+        self.REQUIRE_ADDRESS_WHITELIST = os.getenv('REQUIRE_ADDRESS_WHITELIST', 'true').lower() == 'true'
+        self.MIN_RESERVE_LUNO_ZAR = float(os.getenv('MIN_RESERVE_LUNO_ZAR', '10000'))
+        self.MIN_RESERVE_PER_EXCHANGE_ZAR = float(os.getenv('MIN_RESERVE_PER_EXCHANGE_ZAR', '5000'))
+        
+        # Live Trading Gate Requirements
+        self.REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 'true'
+        self.REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'
+        
+        # AI Models Configuration
+        self.AI_MODEL_SYSTEM_BRAIN = os.getenv('AI_MODEL_SYSTEM_BRAIN', 'gpt-4o')
+        self.AI_MODEL_TRADE_DECISION = os.getenv('AI_MODEL_TRADE_DECISION', 'gpt-4o')
+        self.AI_MODEL_REPORTING = os.getenv('AI_MODEL_REPORTING', 'gpt-4')
+        self.AI_MODEL_CHATOPS = os.getenv('AI_MODEL_CHATOPS', 'gpt-4o')
+        
+        # Validate bot limit
+        expected = sum(ExchangeLimits.BOT_ALLOCATION.values())
+        if self.MAX_TOTAL_BOTS != expected:
+            raise ValueError(f"MAX_TOTAL_BOTS must equal {expected} (sum of exchange allocations)")
     
     @property
     def active_encryption_key(self) -> str:
@@ -317,18 +322,6 @@ class SystemSettings(BaseSettings):
             'reporting': self.AI_MODEL_REPORTING,
             'chatops': self.AI_MODEL_CHATOPS,
         }
-    
-    @validator('MAX_TOTAL_BOTS')
-    def validate_bot_limit(cls, v):
-        """Ensure MAX_TOTAL_BOTS matches sum of exchange allocations"""
-        expected = sum(ExchangeLimits.BOT_ALLOCATION.values())
-        if v != expected:
-            raise ValueError(f"MAX_TOTAL_BOTS must equal {expected} (sum of exchange allocations)")
-        return v
-    
-    class Config:
-        env_file = '.env'
-        case_sensitive = True
 
 
 # Singleton instance
