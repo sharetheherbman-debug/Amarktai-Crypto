@@ -530,6 +530,23 @@ export default function Register() {
           }
         }
       `}</style>
+
+      {/* Footer */}
+      <footer style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        textAlign: 'center',
+        padding: '12px',
+        color: '#8a9bb0',
+        fontSize: '0.85rem',
+        zIndex: 10,
+        background: 'rgba(0, 0, 0, 0.7)',
+        backdropFilter: 'blur(8px)'
+      }}>
+        © 2026 Amarktai Crypto. All rights reserved. | Part of Amarktai Network
+      </footer>
     </div>
   );
 }
