@@ -27,15 +27,20 @@ router = APIRouter(prefix="/api/keys", tags=["API Keys"])
 
 
 class APIKeySaveRequest(BaseModel):
-    """Request to save API key"""
+    """Request to save API key - strict schema, no additional properties"""
+    model_config = {"extra": "forbid"}  # Strict: no additional properties allowed
+    
     provider: str = Field(..., description="Provider ID (e.g., 'openai', 'binance')")
     api_key: str = Field(..., description="API key")
     api_secret: Optional[str] = Field(None, description="API secret (required for exchanges)")
     passphrase: Optional[str] = Field(None, description="Passphrase (required for KuCoin)")
+    name: Optional[str] = Field(None, description="Optional friendly name for this key")
 
 
 class APIKeyTestRequest(BaseModel):
-    """Request to test API key"""
+    """Request to test API key - strict schema"""
+    model_config = {"extra": "forbid"}  # Strict: no additional properties allowed
+    
     provider: str = Field(..., description="Provider ID")
     api_key: Optional[str] = Field(None, description="API key to test (if not saved)")
     api_secret: Optional[str] = Field(None, description="API secret (if not saved)")
@@ -133,7 +138,10 @@ async def list_user_keys(user_id: str = Depends(get_current_user)):
                     "status_display": status_display,
                     "icon": provider_info['icon'],
                     "required_fields": provider_info['required_fields'],
+                    "key_preview": "****" + saved_key.get("api_key_encrypted", "")[-4:] if saved_key.get("api_key_encrypted") else None,  # Masked preview
+                    "name": saved_key.get("name"),  # Friendly name if provided
                     "created_at": saved_key.get("created_at"),
+                    "updated_at": saved_key.get("updated_at"),
                     "last_tested_at": last_tested_at,
                     "last_test_error": last_test_error if last_test_ok is False else None
                 }
@@ -160,18 +168,32 @@ async def save_key(
     
     Validates provider exists and required fields are provided
     Encrypts key before storage
+    Implements read-after-write verification
     Emits realtime event on success
     """
     try:
-        provider_id = data.provider
+        # Normalize provider ID to lowercase and validate
+        provider_id = data.provider.lower().strip()
         
-        # Validate provider exists
+        # Strict normalization to the 7 supported exchange IDs + AI providers
+        VALID_PROVIDERS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'openai', 'flokx', 'fetchai']
+        
+        if provider_id not in VALID_PROVIDERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid provider: {data.provider}. Valid providers: {', '.join(VALID_PROVIDERS)}"
+            )
+        
+        # Validate provider exists in registry
         provider_def = get_provider(provider_id)
         if not provider_def:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown provider: {provider_id}. Valid providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate"
+                detail=f"Unknown provider: {provider_id}. Valid providers: {', '.join(VALID_PROVIDERS)}"
             )
+        
+        # Log save attempt (no secrets)
+        logger.info(f"🔑 Saving API key for user {user_id[:8]}, provider: {provider_id}")
         
         # Build credentials dict
         credentials = {
@@ -209,6 +231,7 @@ async def save_key(
             "api_key_encrypted": encrypted_payload["api_key"],
             "api_secret_encrypted": encrypted_payload["api_secret"],
             "passphrase_encrypted": encrypted_payload["passphrase"],
+            "name": data.name,  # Optional friendly name
             "created_at": existing.get("created_at") if existing else timestamp,
             "updated_at": timestamp,
             "last_tested_at": None,  # Reset test status when key changes
@@ -219,17 +242,40 @@ async def save_key(
         
         if existing:
             # Update
-            await db.api_keys_collection.update_one(
+            result = await db.api_keys_collection.update_one(
                 {"user_id": str(user_id), "provider": provider_id},
                 {"$set": key_doc}
             )
             message = f"Updated {provider_def.display_name} API key"
+            
+            if result.modified_count == 0:
+                logger.warning(f"Update returned 0 modified for user {user_id[:8]}, provider {provider_id}")
         else:
             # Insert
-            await db.api_keys_collection.insert_one(key_doc)
+            insert_result = await db.api_keys_collection.insert_one(key_doc)
             message = f"Saved {provider_def.display_name} API key"
+            
+            if not insert_result.inserted_id:
+                logger.error(f"Insert failed for user {user_id[:8]}, provider {provider_id}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to save key: insert returned no ID"
+                )
         
-        logger.info(f"✅ {message} for user {user_id[:8]}")
+        # READ-AFTER-WRITE VERIFICATION
+        verification = await db.api_keys_collection.find_one({
+            "user_id": str(user_id),
+            "provider": provider_id
+        })
+        
+        if not verification:
+            logger.error(f"Read-after-write verification failed for user {user_id[:8]}, provider {provider_id}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save key: verification failed (key not found after save)"
+            )
+        
+        logger.info(f"✅ {message} for user {user_id[:8]}, provider: {provider_id} (verified)")
         
         # Emit realtime event
         try:
@@ -242,13 +288,14 @@ async def save_key(
             "message": message,
             "provider": provider_id,
             "status": ProviderStatus.SAVED_UNTESTED.value,
-            "status_display": "Saved (untested)"
+            "status_display": "Saved (untested)",
+            "updated_at": timestamp
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Save key error: {e}")
+        logger.error(f"Save key error for user {user_id[:8]}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -264,7 +311,11 @@ async def test_key(
     Emits realtime event with result
     """
     try:
-        provider_id = data.provider
+        # Normalize provider ID
+        provider_id = data.provider.lower().strip()
+        
+        # Log test attempt (no secrets)
+        logger.info(f"🔑 Testing API key for user {user_id[:8]}, provider: {provider_id}")
         
         # Validate provider exists
         provider_def = get_provider(provider_id)
@@ -329,7 +380,7 @@ async def test_key(
             logger.warning(f"Failed to emit key_tested event: {e}")
         
         if success:
-            logger.info(f"✅ {provider_def.display_name} key test passed for user {user_id[:8]}")
+            logger.info(f"✅ {provider_def.display_name} key test passed for user {user_id[:8]}, provider: {provider_id}")
             return {
                 "success": True,
                 "message": f"{provider_def.display_name} key is valid",
@@ -338,7 +389,7 @@ async def test_key(
                 "status_display": "Test OK ✅"
             }
         else:
-            logger.warning(f"❌ {provider_def.display_name} key test failed for user {user_id[:8]}: {error_message}")
+            logger.warning(f"❌ {provider_def.display_name} key test failed for user {user_id[:8]}, provider: {provider_id}: {error_message}")
             return {
                 "success": False,
                 "message": f"Test failed: {error_message}",
