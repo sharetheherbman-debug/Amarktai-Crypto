@@ -65,6 +65,19 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Amarktai Network...")
     
     # =========================================================================
+    # STEP 0: Validate configuration (ONE TRUTH enforcement)
+    # =========================================================================
+    try:
+        from core.settings import startup_self_check
+        startup_self_check()
+        logger.info("✅ Configuration validation passed")
+    except Exception as config_error:
+        logger.error(f"❌ FATAL: Configuration validation failed: {config_error}", exc_info=True)
+        import sys
+        print(f"FATAL ERROR: Configuration validation failed: {config_error}", file=sys.stderr)
+        raise  # Fail fast on configuration errors
+    
+    # =========================================================================
     # STEP 1: Connect to database FIRST (before any other services)
     # =========================================================================
     try:
@@ -2946,6 +2959,7 @@ routers_to_mount = [
     ("routes.user_countdowns", "User Countdowns"),  # Custom user financial goals
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
+    ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
 ]
 
 # Mount realtime router only if enabled via feature flag

@@ -70,6 +70,28 @@ async def register(request: Request, user: UserRegister):
     await db.users_collection.insert_one(user_dict)
     user_dict.pop("_id", None)
 
+    # Send welcome email (non-blocking, best effort)
+    # Note: User already has password from registration, so welcome email
+    # provides a set-password link as an OPTIONAL way to change their password.
+    # This is a convenience feature for users who want to reset immediately.
+    try:
+        from services.enhanced_email_service import enhanced_email_service
+        from core.settings import FeatureFlags
+        
+        if FeatureFlags.ENABLE_EMAIL_REPORTS and enhanced_email_service.enabled:
+            # Generate a password setup token for the welcome email
+            # This is optional - user can login with their existing password
+            # or use the link to set a new one
+            import asyncio
+            asyncio.create_task(enhanced_email_service.send_welcome_email(
+                normalized_email,
+                set_password_token=None  # Will generate internally and link to /set-password
+            ))
+            logger.info(f"📧 Welcome email queued for {normalized_email}")
+    except Exception as email_error:
+        # Don't fail registration if email fails
+        logger.warning(f"Failed to send welcome email to {normalized_email}: {email_error}")
+
     # Create token
     access_token = create_access_token({"user_id": user_id})
     
