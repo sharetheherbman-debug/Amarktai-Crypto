@@ -141,6 +141,8 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             )
         
         # 2. Check trading mode is enabled (Paper or Live)
+        # Validate that the bot's trading mode (paper/live) is enabled in environment config
+        # This prevents starting bots in modes that are disabled system-wide
         paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
         live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
         
