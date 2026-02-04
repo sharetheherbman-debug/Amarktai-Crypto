@@ -127,6 +127,50 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "bot": bot
             }
         
+        # PREFLIGHT VALIDATION: Check requirements before starting bot
+        trading_mode = bot.get('trading_mode', 'paper')
+        
+        # 1. Check wallet balance is available
+        current_capital = bot.get('current_capital', 0)
+        initial_capital = bot.get('initial_capital', 0)
+        if current_capital <= 0 and initial_capital <= 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot start bot '{bot['name']}': No wallet balance available. Please allocate capital to this bot."
+            )
+        
+        # 2. Check trading mode is enabled (Paper or Live)
+        import os
+        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
+        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        
+        if trading_mode == 'paper' and not paper_trading_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot start bot '{bot['name']}': Paper trading is disabled. Set PAPER_TRADING=1 in environment."
+            )
+        elif trading_mode == 'live' and not live_trading_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot start bot '{bot['name']}': Live trading is disabled. Set LIVE_TRADING=1 in environment."
+            )
+        elif not paper_trading_enabled and not live_trading_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot start bot: Both paper and live trading are disabled. Enable at least one trading mode."
+            )
+        
+        # 3. Check ledger collection is accessible
+        try:
+            # Verify ledger collection exists and is accessible
+            await db.ledger_collection.find_one({}, {"_id": 1})
+        except Exception as e:
+            logger.error(f"Ledger collection check failed: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Cannot start bot '{bot['name']}': Ledger collection is not accessible. Please contact admin."
+            )
+        
         # Start the bot
         started_at = datetime.now(timezone.utc).isoformat()
         
