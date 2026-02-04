@@ -5,7 +5,6 @@ Phase 4A, 4B, 4C implementation tests
 
 import pytest
 import asyncio
-from datetime import datetime, timezone
 from services.paper_wallet_ledger import paper_wallet_ledger
 from services.trading_mode_validator import trading_mode_validator
 import database as db

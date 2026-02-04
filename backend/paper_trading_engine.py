@@ -1120,10 +1120,11 @@ class PaperTradingEngine:
             from uuid import uuid4
             trade_id = str(uuid4())[:8]
             
-            # Extract values for legacy fields
+            # Extract values for legacy fields - needed for trade document
             entry_price = trade_result.get('entry_price', 0)
             fees = trade_result.get('fees', 0)
             gross_profit = trade_result.get('gross_profit', 0)
+            # Note: slippage_rate and fee_rate extracted from trade_result for ledger fields below
             slippage_rate = trade_result.get('slippage_rate', 0)
             fee_rate = trade_result.get('fee_rate', 0)
             
