@@ -2985,6 +2985,7 @@ routers_to_mount = [
     ("routes.quarantine", "Bot Quarantine"),  # CRITICAL - Quarantine system
     ("routes.decision_trace", "Decision Trace"),
     ("routes.compatibility_endpoints", "Compatibility"),
+    ("routes.compat", "Compatibility Layer - Legacy Frontend"),  # NEW - Legacy frontend API compatibility
     # REMOVED: routes.bots - duplicate of bot_lifecycle
     ("routes.chat_endpoints", "Chat Message Endpoint"),  # Frontend compatibility
     # REMOVED: routes.wallet_transfers - duplicate of wallet_transfers_enhanced (GET /api/wallet/transfers collision)

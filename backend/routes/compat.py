@@ -280,8 +280,108 @@ async def compat_layer_status():
                 "path": "GET /api/limits",
                 "canonical": "GET /api/limits/user or /api/limits/system",
                 "status": "active"
+            },
+            {
+                "path": "* /api/api-keys/*",
+                "canonical": "* /api/keys/*",
+                "status": "active"
             }
         ],
         "note": "These endpoints log warnings when used. Migrate to canonical endpoints.",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+
+
+# ============================================================================
+# API KEYS COMPATIBILITY - /api/api-keys/* => /api/keys/*
+# ============================================================================
+
+@router.get("/api-keys/list")
+async def compat_api_keys_list(user_id: str = Depends(get_current_user)):
+    """
+    COMPAT: GET /api/api-keys/list
+    
+    ⚠️ DEPRECATED: Use GET /api/keys/list instead
+    """
+    logger.warning(
+        f"[COMPAT] /api/api-keys/list called by user {user_id} - "
+        "migrate to /api/keys/list"
+    )
+    
+    try:
+        from routes.keys import list_user_keys
+        return await list_user_keys(user_id=user_id)
+    except Exception as e:
+        logger.error(f"[COMPAT] API keys list error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api-keys/save")
+async def compat_api_keys_save(
+    data: dict,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    COMPAT: POST /api/api-keys/save
+    
+    ⚠️ DEPRECATED: Use POST /api/keys/save instead
+    """
+    logger.warning(
+        f"[COMPAT] /api/api-keys/save called by user {user_id} - "
+        "migrate to /api/keys/save"
+    )
+    
+    try:
+        from routes.keys import save_key, APIKeySaveRequest
+        request = APIKeySaveRequest(**data)
+        return await save_key(data=request, user_id=user_id)
+    except Exception as e:
+        logger.error(f"[COMPAT] API keys save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api-keys/test")
+async def compat_api_keys_test(
+    data: dict,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    COMPAT: POST /api/api-keys/test
+    
+    ⚠️ DEPRECATED: Use POST /api/keys/test instead
+    """
+    logger.warning(
+        f"[COMPAT] /api/api-keys/test called by user {user_id} - "
+        "migrate to /api/keys/test"
+    )
+    
+    try:
+        from routes.keys import test_key, APIKeyTestRequest
+        request = APIKeyTestRequest(**data)
+        return await test_key(data=request, user_id=user_id)
+    except Exception as e:
+        logger.error(f"[COMPAT] API keys test error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api-keys/{provider}")
+async def compat_api_keys_delete(
+    provider: str,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    COMPAT: DELETE /api/api-keys/{provider}
+    
+    ⚠️ DEPRECATED: Use DELETE /api/keys/{provider} instead
+    """
+    logger.warning(
+        f"[COMPAT] /api/api-keys/{provider} DELETE called by user {user_id} - "
+        "migrate to /api/keys/{provider}"
+    )
+    
+    try:
+        from routes.keys import delete_key
+        return await delete_key(provider=provider, user_id=user_id)
+    except Exception as e:
+        logger.error(f"[COMPAT] API keys delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

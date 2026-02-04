@@ -2588,57 +2588,6 @@ export default function Dashboard() {
           </div>
         )}
         
-        {/* Realtime Connection Status Indicator */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 16px',
-          background: 'var(--glass)',
-          border: '1px solid var(--line)',
-          borderRadius: '8px',
-          marginBottom: '20px'
-        }}>
-          <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-            <span style={{fontSize: '0.9rem', fontWeight: 600, color: 'var(--muted)'}}>
-              🔄 Realtime Connection
-            </span>
-            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-              <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                <div style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: connectionStatus.ws === 'Connected' ? '#10b981' : '#ef4444',
-                  boxShadow: connectionStatus.ws === 'Connected' 
-                    ? '0 0 8px rgba(16, 185, 129, 0.6)' 
-                    : '0 0 8px rgba(239, 68, 68, 0.6)'
-                }}></div>
-                <span style={{fontSize: '0.85rem', color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
-                  WebSocket
-                </span>
-              </div>
-              <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                <div style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: connectionStatus.sse === 'Connected' ? '#10b981' : '#ef4444',
-                  boxShadow: connectionStatus.sse === 'Connected' 
-                    ? '0 0 8px rgba(16, 185, 129, 0.6)' 
-                    : '0 0 8px rgba(239, 68, 68, 0.6)'
-                }}></div>
-                <span style={{fontSize: '0.85rem', color: connectionStatus.sse === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
-                  SSE
-                </span>
-              </div>
-            </div>
-          </div>
-          <div style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
-            RTT: {wsRtt}
-          </div>
-        </div>
-        
         {/* Overview Container with Image and Enhanced Metrics Panel */}
         <div className="overview-container">
           <div className="overview-image"></div>
