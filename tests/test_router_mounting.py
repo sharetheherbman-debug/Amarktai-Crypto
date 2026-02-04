@@ -12,7 +12,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 
 def test_all_routers_can_import():
-    """Test that all routers in the routes directory can be imported successfully."""
+    """Test that all routers in the routes directory can be imported successfully.
+    
+    Note: This list should be kept in sync with routers_to_mount in server.py.
+    Any router added to server.py should also be added here to ensure CI catches
+    import failures before deployment.
+    """
     
     # List of all router modules that should be importable
     # This matches the routers_to_mount list in server.py

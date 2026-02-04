@@ -129,6 +129,8 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/api/he
 
 echo "  - HTTP Status: $HTTP_CODE"
 
+# Both 200 (healthy) and 503 (unhealthy but responding) are acceptable for smoke test
+# 503 may occur if DB is not connected, but server is running and can respond
 if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "503" ]; then
     echo "  ❌ FAIL: Unexpected HTTP status code: $HTTP_CODE"
     echo "  Response: $RESPONSE"

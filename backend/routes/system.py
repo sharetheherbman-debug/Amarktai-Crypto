@@ -94,6 +94,8 @@ async def get_system_gates() -> dict:
     This endpoint shows the live state of all trading gates and explains why they are
     enabled or disabled. Used for go-live readiness checks and troubleshooting.
     
+    Dynamically discovers all ENABLE_* flags from config module.
+    
     Returns:
         gates: Dict of gate names to their current state (True/False)
         reasons: Dict of gate names to explanation strings
@@ -101,17 +103,11 @@ async def get_system_gates() -> dict:
         warnings: List of warnings about disabled gates
     """
     try:
-        # Get current gate states from config
-        gates = {
-            "ENABLE_TRADING": config.ENABLE_TRADING,
-            "ENABLE_PAPER_TRADING": config.ENABLE_PAPER_TRADING,
-            "ENABLE_LIVE_TRADING": config.ENABLE_LIVE_TRADING,
-            "ENABLE_AUTOPILOT": config.ENABLE_AUTOPILOT,
-            "ENABLE_SCHEDULERS": config.ENABLE_SCHEDULERS,
-            "ENABLE_BODYGUARD": config.ENABLE_BODYGUARD,
-            "ENABLE_REALTIME": config.ENABLE_REALTIME,
-            "ENABLE_CCXT": config.ENABLE_CCXT,
-        }
+        # Dynamically discover all ENABLE_* attributes from config
+        gates = {}
+        for attr_name in dir(config):
+            if attr_name.startswith('ENABLE_'):
+                gates[attr_name] = getattr(config, attr_name, False)
         
         # Explain each gate's status
         reasons = {}

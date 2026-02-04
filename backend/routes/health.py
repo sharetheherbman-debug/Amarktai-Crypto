@@ -33,27 +33,42 @@ def set_bind_ok(status: bool = True):
     _bind_ok = status
 
 
+# Module-level build hash cache (computed once at import time)
+_BUILD_HASH_CACHE = None
+
+
 def get_build_hash() -> str:
-    """Get current git commit SHA for build identification."""
+    """Get current git commit SHA for build identification (cached)."""
+    global _BUILD_HASH_CACHE
+    
+    # Return cached value if available
+    if _BUILD_HASH_CACHE is not None:
+        return _BUILD_HASH_CACHE
+    
     try:
         # First try BUILD_SHA environment variable
         build_sha = os.environ.get("BUILD_SHA")
         if build_sha:
+            _BUILD_HASH_CACHE = build_sha
             return build_sha
         
-        # Fall back to git command
+        # Fall back to git command (with restricted scope and timeout)
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             timeout=5,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            check=False  # Don't raise on non-zero exit
         )
         if result.returncode == 0:
-            return result.stdout.strip()
+            _BUILD_HASH_CACHE = result.stdout.strip()
+            return _BUILD_HASH_CACHE
     except Exception as e:
         logger.debug(f"Could not get build hash: {e}")
     
+    # Cache the unknown value to avoid repeated failures
+    _BUILD_HASH_CACHE = "unknown"
     return "unknown"
 
 
