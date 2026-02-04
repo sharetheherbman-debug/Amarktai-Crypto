@@ -24,6 +24,8 @@ REALISM FEATURES (95% Live Accuracy):
 ✅ Execution delay (±0.05% price movement during 50-200ms latency)
 ✅ 4-Source AI Intelligence (Market Regime, ML Predictor, Flokx, Fetch.ai)
 ✅ Centralized order validation (precision, min notional, exchange rules)
+✅ Paper wallet ledger with reserve/debit/credit system (NO FREE MONEY)
+✅ Capital enforcement - trades blocked if insufficient funds
 
 EXPECTED RESULTS: 
 - Daily: Higher profit potential with 65 bots across 7 exchanges
@@ -43,6 +45,8 @@ from rate_limiter import rate_limiter
 from risk_engine import risk_engine
 from services.order_validation import order_validator
 from utils.trading_gates import enforce_trading_gates, TradingGateError
+from services.paper_wallet_ledger import paper_wallet_ledger
+from services.trading_mode_validator import trading_mode_validator
 
 logger = logging.getLogger(__name__)
 
@@ -768,8 +772,42 @@ class PaperTradingEngine:
             elif ai_agreement >= 2:
                 confidence_boost = 1.1
             
+            # PHASE 4A: Check paper wallet balance BEFORE calculating trade amount
+            bot_id_val = bot_data.get('id')
+            can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
+            
+            if not can_afford:
+                logger.warning(f"❌ {bot_data['name'][:15]} - No paper wallet: {wallet_msg}")
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "error": f"Paper wallet not found: {wallet_msg}"
+                }
+            
+            # Use paper wallet balance instead of bot capital
+            paper_capital = balance
+            
+            if paper_capital <= 0:
+                logger.warning(f"❌ {bot_data['name'][:15]} - Insufficient paper funds: R{paper_capital:.2f}")
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "error": f"Insufficient paper funds: R{paper_capital:.2f}"
+                }
+            
             final_position_size = min(base_position_size * confidence_boost, 0.60)  # Cap at 60%
-            trade_amount = current_capital * final_position_size
+            trade_amount = paper_capital * final_position_size
+            
+            # PHASE 4A: Verify paper wallet can afford this trade
+            can_execute, wallet_check_msg = await paper_wallet_ledger.can_trade(bot_id_val, trade_amount)
+            
+            if not can_execute:
+                logger.warning(f"❌ {bot_data['name'][:15]} - {wallet_check_msg}")
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "error": wallet_check_msg
+                }
             
             # 2. CHECK RISK ENGINE
             risk_ok, risk_reason = await risk_engine.check_trade_risk(

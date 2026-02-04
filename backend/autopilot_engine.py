@@ -95,9 +95,25 @@ class AutopilotEngine:
             # Don't raise - let server continue
         
     async def hourly_reinvestment_cycle(self):
-        """Hourly profit reinvestment - LEDGER-BASED (changed from daily)"""
+        """
+        Hourly profit reinvestment - LEDGER-BASED (changed from daily)
+        
+        PHASE 4A: NO bypasses - respects paper wallet ledger
+        PHASE 4B: Respects live trading gates
+        """
         try:
             logger.info("💰 Starting hourly reinvestment cycle (ledger-based)...")
+            
+            # PHASE 4B/4C: Check if trading can run at all
+            from services.trading_mode_validator import trading_mode_validator
+            global_ok, global_reason = await trading_mode_validator.validate_global_trading_gates()
+            
+            if not global_ok:
+                logger.warning(f"⛔ Autopilot reinvestment skipped: {global_reason}")
+                return
+            
+            # AUTOPILOT SAFETY: Must not bypass trading mode gates
+            logger.info("✅ Global trading gates passed for autopilot reinvestment")
             
             # Get all users with autopilot enabled
             users = await self.db.users.find({'autopilot_enabled': True}).to_list(1000)

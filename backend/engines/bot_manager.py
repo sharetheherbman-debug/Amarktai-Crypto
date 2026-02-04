@@ -37,6 +37,7 @@ class BotManager:
         """Create a new bot with all validations"""
         try:
             from services.reserved_funds_service import reserved_funds_service
+            from bot_lifecycle import bot_lifecycle
             
             # Check limits
             can_create, message = await self.can_create_bot(user_id, exchange)
@@ -46,6 +47,13 @@ class BotManager:
             # Validate capital
             if capital is None:
                 capital = NEW_BOT_CAPITAL
+            
+            # PHASE 4A: Paper bots MUST have initial_capital > 0
+            if capital <= 0:
+                return {
+                    "success": False,
+                    "message": f"❌ Paper bots require initial_capital > 0. Minimum: R{NEW_BOT_CAPITAL}"
+                }
             
             # Check available funds (includes reserved funds)
             has_funds, available = await reserved_funds_service.check_available_funds(
@@ -120,6 +128,9 @@ class BotManager:
                 await reserved_funds_service.release_funds(user_id, exchange.lower(), "ZAR", capital, bot_id)
                 return {"success": False, "message": f"❌ Capital allocation failed: {alloc_msg}"}
             
+            # Tag bot and reserve paper wallet funds (PHASE 4A)
+            await bot_lifecycle.tag_new_bot(bot_id, origin="user", initial_capital=capital)
+            
             logger.info(f"✅ Created bot: {name} on {exchange} for user {user_id[:8]} with R{capital:,.2f} allocated")
             
             # Remove _id before returning (MongoDB adds it automatically)
@@ -139,6 +150,7 @@ class BotManager:
         """Delete a bot"""
         try:
             from services.reserved_funds_service import reserved_funds_service
+            from services.paper_wallet_ledger import paper_wallet_ledger
             
             query = {"user_id": user_id}
             if bot_id:
@@ -157,6 +169,9 @@ class BotManager:
             bot_id_to_release = bot.get("id")
             if bot_id_to_release:
                 await capital_validator.release_capital_from_bot(user_id, bot_id_to_release)
+                
+                # Release paper wallet funds (PHASE 4A)
+                await paper_wallet_ledger.release_funds(bot_id_to_release)
             
             # Release reserved funds
             exchange = bot.get("exchange", "unknown")
