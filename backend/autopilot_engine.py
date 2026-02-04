@@ -140,8 +140,12 @@ class AutopilotEngine:
                     logger.info(f"User {user_id}: Negative profit after fees, skipping reinvestment")
                     continue
                 
-                # Get bot count
-                bots = await self.db.bots.find({'user_id': user_id}).to_list(1000)
+                # Get bot count (exclude deleted bots)
+                bots = await self.db.bots.find({
+                    'user_id': user_id,
+                    'status': {'$ne': 'deleted'},
+                    'deleted_at': {'$exists': False}
+                }).to_list(1000)
                 bot_count = len(bots)
                 
                 # Import config to get MAX_TOTAL_BOTS
@@ -220,8 +224,12 @@ class AutopilotEngine:
                     "required": seed_amount
                 }
             
-            # Step 3: Check bot caps
-            bots = await self.db.bots.find({'user_id': user_id}).to_list(1000)
+            # Step 3: Check bot caps (exclude deleted bots)
+            bots = await self.db.bots.find({
+                'user_id': user_id,
+                'status': {'$ne': 'deleted'},
+                'deleted_at': {'$exists': False}
+            }).to_list(1000)
             bot_count = len(bots)
             
             # Import config to get MAX_TOTAL_BOTS

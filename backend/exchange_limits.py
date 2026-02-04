@@ -39,6 +39,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 5,
         "trades_per_bot_day": 400,
         "total_trades_day": 2000,  # 5 bots × 400
+        "max_orders_per_day": 2000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 400,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.002,  # 0.2%
@@ -48,6 +50,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 10,
         "trades_per_bot_day": 500,
         "total_trades_day": 5000,  # 10 bots × 500
+        "max_orders_per_day": 5000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 500,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.001,  # 0.1%
@@ -57,6 +61,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 10,
         "trades_per_bot_day": 1000,
         "total_trades_day": 10000,  # 10 bots × 1,000
+        "max_orders_per_day": 10000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 1000,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.001,  # 0.1%
@@ -66,6 +72,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 10,
         "trades_per_bot_day": 800,
         "total_trades_day": 8000,  # 10 bots × 800
+        "max_orders_per_day": 8000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 800,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.001,  # 0.1%
@@ -75,6 +83,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 10,
         "trades_per_bot_day": 800,
         "total_trades_day": 8000,  # 10 bots × 800
+        "max_orders_per_day": 8000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 800,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.001,  # 0.1%
@@ -84,6 +94,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 10,
         "trades_per_bot_day": 800,
         "total_trades_day": 8000,  # 10 bots × 800
+        "max_orders_per_day": 8000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 800,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.0016,  # 0.16%
@@ -93,6 +105,8 @@ EXCHANGE_LIMITS = {
         "max_bots": 10,
         "trades_per_bot_day": 800,
         "total_trades_day": 8000,  # 10 bots × 800
+        "max_orders_per_day": 8000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 800,  # Alias for trades_per_bot_day
         "max_orders_per_minute": 60,
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.002,  # 0.2%
@@ -101,8 +115,21 @@ EXCHANGE_LIMITS = {
 }
 
 def get_exchange_limits(exchange: str) -> dict:
-    """Get limits for an exchange"""
-    return EXCHANGE_LIMITS.get(exchange.lower(), EXCHANGE_LIMITS["luno"])
+    """Get limits for an exchange with safe defaults"""
+    limits = EXCHANGE_LIMITS.get(exchange.lower(), EXCHANGE_LIMITS["luno"])
+    
+    # Ensure all required keys exist with safe defaults
+    defaults = {
+        "max_orders_per_day": 2000,
+        "max_orders_per_bot_per_day": 400,
+        "max_orders_per_minute": 60,
+        "max_orders_per_10_seconds": 10,
+        "fee_maker": 0.001,
+        "fee_taker": 0.001,
+    }
+    
+    # Merge defaults with existing limits (existing values take precedence)
+    return {**defaults, **limits}
 
 def get_fee_rate(exchange: str, order_type: str = "taker") -> float:
     """Get fee rate for exchange"""
