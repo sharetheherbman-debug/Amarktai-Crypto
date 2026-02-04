@@ -6564,7 +6564,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="footer">
-        <div>© 2026 Amarktai Crypto. All rights reserved. | Part of Amarktai Network</div>
+        <div>© 2026 Amarktai Crypto — Part of Amarktai Network</div>
       </footer>
 
       {/* Bot Promotion Modal */}

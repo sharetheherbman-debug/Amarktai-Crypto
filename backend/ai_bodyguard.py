@@ -206,8 +206,13 @@ class AIBodyguard:
     async def check_system_health(self, user_id: str):
         """Check overall system health for user"""
         try:
-            # Check daily loss limit
-            max_daily_loss = float(os.getenv('MAX_DAILY_LOSS_PERCENT', 5))
+            # Check daily loss limit - support MAX_DAILY_LOSS_PERCENT env var
+            # MAX_DAILY_LOSS_PERCENT can be either decimal (0.15 = 15%) or percentage (15 = 15%)
+            max_daily_loss_env = os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15')
+            max_daily_loss = float(max_daily_loss_env)
+            # If value is < 1, treat as decimal (0.15 = 15%), otherwise treat as percentage (15 = 15%)
+            if max_daily_loss < 1:
+                max_daily_loss = max_daily_loss * 100  # Convert decimal to percentage
             
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
             
@@ -237,7 +242,12 @@ class AIBodyguard:
                             user_id,
                             None,
                             'critical',
-                            f"🚨 DAILY LOSS LIMIT REACHED: {daily_loss_percent:.1f}% loss today. All bots paused for protection."
+                            f"🚨 DAILY LOSS LIMIT TRIGGERED\n\n"
+                            f"Limit: Daily loss exceeds {max_daily_loss:.1f}%\n"
+                            f"Current Daily P&L: {daily_pnl:.2f} ZAR ({daily_loss_percent:.1f}%)\n"
+                            f"Daily Loss Threshold: {max_daily_loss:.1f}% of total capital\n\n"
+                            f"Action Taken: All bots have been paused for protection.\n"
+                            f"Next Steps: Contact admin to review trading strategy and reset lock."
                         )
                         logger.critical(f"User {user_id}: Daily loss limit triggered")
                         

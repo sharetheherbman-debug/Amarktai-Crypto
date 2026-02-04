@@ -43,10 +43,10 @@ async def start_fresh(
     
     Requires:
         - Admin privileges
-        - Confirmation phrase: "DELETE_ALL_PAPER_DATA"
+        - Confirmation phrase: "DELETE ALL TRADING DATA"
         
     Args:
-        confirm_phrase: Must be "DELETE_ALL_PAPER_DATA"
+        confirm_phrase: Must be "DELETE ALL TRADING DATA"
         scope: "paper_only" (default) or "paper_and_bots"
         also_reset_risk_locks: Whether to reset risk locks (default: true)
         
@@ -69,10 +69,10 @@ async def start_fresh(
             )
         
         # Verify confirmation phrase
-        if request.confirm_phrase != "DELETE_ALL_PAPER_DATA":
+        if request.confirm_phrase != "DELETE ALL TRADING DATA":
             raise HTTPException(
                 status_code=400,
-                detail="Invalid confirmation phrase. Must be 'DELETE_ALL_PAPER_DATA'"
+                detail="Invalid confirmation phrase. Must be 'DELETE ALL TRADING DATA'"
             )
         
         summary = {

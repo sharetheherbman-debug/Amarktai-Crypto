@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 import logging
+import os
 
 from auth import get_current_user
 import database as db
@@ -126,6 +127,51 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "message": f"Bot '{bot['name']}' is already active",
                 "bot": bot
             }
+        
+        # PREFLIGHT VALIDATION: Check requirements before starting bot
+        trading_mode = bot.get('trading_mode', 'paper')
+        
+        # 1. Check wallet balance is available
+        current_capital = bot.get('current_capital', 0)
+        initial_capital = bot.get('initial_capital', 0)
+        if current_capital <= 0 and initial_capital <= 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot start bot '{bot['name']}': No wallet balance available. Please allocate capital to this bot."
+            )
+        
+        # 2. Check trading mode is enabled (Paper or Live)
+        # Validate that the bot's trading mode (paper/live) is enabled in environment config
+        # This prevents starting bots in modes that are disabled system-wide
+        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
+        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        
+        if trading_mode == 'paper' and not paper_trading_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot start bot '{bot['name']}': Paper trading is disabled. Set PAPER_TRADING=1 in environment."
+            )
+        elif trading_mode == 'live' and not live_trading_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot start bot '{bot['name']}': Live trading is disabled. Set LIVE_TRADING=1 in environment."
+            )
+        elif not paper_trading_enabled and not live_trading_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot start bot: Both paper and live trading are disabled. Enable at least one trading mode."
+            )
+        
+        # 3. Check ledger collection is accessible
+        try:
+            # Verify ledger collection exists and is accessible
+            await db.ledger_collection.find_one({}, {"_id": 1})
+        except Exception as e:
+            logger.error(f"Ledger collection check failed: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Cannot start bot '{bot['name']}': Ledger collection is not accessible. Please contact admin."
+            )
         
         # Start the bot
         started_at = datetime.now(timezone.utc).isoformat()
@@ -599,51 +645,6 @@ async def pause_all_bots(data: Optional[Dict] = None, user_id: str = Depends(get
         
     except Exception as e:
         logger.error(f"Pause all bots error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/resume-all")
-async def resume_all_bots(user_id: str = Depends(get_current_user)):
-    """Resume all paused bots for a user
-    
-    Args:
-        user_id: Current user ID (from auth)
-        
-    Returns:
-        Summary of resumed bots
-    """
-    try:
-        resumed_at = datetime.now(timezone.utc).isoformat()
-        
-        # Resume all paused bots (only those paused by user, not system)
-        result = await db.bots_collection.update_many(
-            {"user_id": user_id, "status": "paused", "paused_by_user": True},
-            {
-                "$set": {
-                    "status": "active",
-                    "resumed_at": resumed_at
-                },
-                "$unset": {
-                    "paused_at": "",
-                    "pause_reason": "",
-                    "paused_by_user": ""
-                }
-            }
-        )
-        
-        # Send real-time notification
-        await rt_events.force_refresh(user_id, f"Resumed {result.modified_count} bots")
-        
-        logger.info(f"✅ Resumed {result.modified_count} bots for user {user_id[:8]}")
-        
-        return {
-            "success": True,
-            "message": f"Resumed {result.modified_count} bot(s)",
-            "resumed_count": result.modified_count
-        }
-        
-    except Exception as e:
-        logger.error(f"Resume all bots error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
