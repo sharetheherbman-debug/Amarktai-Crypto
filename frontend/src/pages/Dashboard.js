@@ -22,6 +22,7 @@ import PlatformSelector from '../components/PlatformSelector';
 import ErrorBoundary from '../components/ErrorBoundary';
 import BotQuarantineSection from '../components/Dashboard/BotQuarantineSection';
 import BotTrainingSection from '../components/Dashboard/BotTrainingSection';
+import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantineSection';
 import { API_BASE, wsUrl } from '../lib/api.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
@@ -2587,82 +2588,124 @@ export default function Dashboard() {
           </div>
         )}
         
-        {/* Real-Time Overview Metrics */}
+        {/* Realtime Connection Status Indicator */}
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '16px',
-          marginBottom: '24px'
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          background: 'var(--glass)',
+          border: '1px solid var(--line)',
+          borderRadius: '8px',
+          marginBottom: '20px'
         }}>
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Total Profit</div>
-            <div style={{fontSize: '1.5rem', fontWeight: 700, color: overviewData.totalProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
-              R{overviewData.totalProfit.toFixed(2)}
+          <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
+            <span style={{fontSize: '0.9rem', fontWeight: 600, color: 'var(--muted)'}}>
+              🔄 Realtime Connection
+            </span>
+            <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: connectionStatus.ws === 'Connected' ? '#10b981' : '#ef4444',
+                  boxShadow: connectionStatus.ws === 'Connected' 
+                    ? '0 0 8px rgba(16, 185, 129, 0.6)' 
+                    : '0 0 8px rgba(239, 68, 68, 0.6)'
+                }}></div>
+                <span style={{fontSize: '0.85rem', color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
+                  WebSocket
+                </span>
+              </div>
+              <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: connectionStatus.sse === 'Connected' ? '#10b981' : '#ef4444',
+                  boxShadow: connectionStatus.sse === 'Connected' 
+                    ? '0 0 8px rgba(16, 185, 129, 0.6)' 
+                    : '0 0 8px rgba(239, 68, 68, 0.6)'
+                }}></div>
+                <span style={{fontSize: '0.85rem', color: connectionStatus.sse === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
+                  SSE
+                </span>
+              </div>
             </div>
           </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Today's Profit</div>
-            <div style={{fontSize: '1.5rem', fontWeight: 700, color: overviewData.todaysProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
-              R{overviewData.todaysProfit.toFixed(2)}
-            </div>
-          </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Total Trades</div>
-            <div style={{fontSize: '1.5rem', fontWeight: 700}}>{overviewData.totalTrades}</div>
-          </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Win Rate</div>
-            <div style={{fontSize: '1.5rem', fontWeight: 700}}>{overviewData.winRate.toFixed(1)}%</div>
-          </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Bot Status</div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700}}>
-              <span style={{color: 'var(--success)'}}>{overviewData.activeBots} Active</span>
-              {' / '}
-              <span style={{color: 'var(--error)'}}>{overviewData.pausedBots} Paused</span>
-            </div>
-          </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>System Mode</div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700, textTransform: 'uppercase'}}>
-              {overviewData.systemMode === 'live' && '🔴 LIVE'}
-              {overviewData.systemMode === 'autonomous' && '🤖 AUTONOMOUS'}
-              {overviewData.systemMode === 'paper' && '📄 PAPER'}
-            </div>
-          </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Last Trade</div>
-            <div style={{fontSize: '0.9rem', fontWeight: 600}}>
-              {overviewData.lastTradeTime ? new Date(overviewData.lastTradeTime).toLocaleString() : 'No trades yet'}
-            </div>
-          </div>
-          
-          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Bodyguard Lock</div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700}}>
-              {bodyguardStatus?.locked ? (
-                <span style={{color: 'var(--error)'}}>🔒 LOCKED</span>
-              ) : (
-                <span style={{color: 'var(--success)'}}>✅ CLEAR</span>
-              )}
-            </div>
+          <div style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+            RTT: {wsRtt}
           </div>
         </div>
         
-        <div className="overview-container">
+        {/* Overview Container with Image and Enhanced Metrics Panel */}
           <div className="overview-image"></div>
           <div className="overview-metrics">
             <div className="status-list">
+              {/* System Status Metrics */}
               <div className="status-item">
                 <strong>Total Profit</strong>
-                <div className="led-row"><span>{metrics.totalProfit}</span></div>
+                <div className="led-row">
+                  <span style={{color: overviewData.totalProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                    R{overviewData.totalProfit.toFixed(2)}
+                  </span>
+                </div>
               </div>
+              <div className="status-item">
+                <strong>Today's Profit</strong>
+                <div className="led-row">
+                  <span style={{color: overviewData.todaysProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                    R{overviewData.todaysProfit.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+              <div className="status-item">
+                <strong>Total Trades</strong>
+                <div className="led-row"><span>{overviewData.totalTrades}</span></div>
+              </div>
+              <div className="status-item">
+                <strong>Win Rate</strong>
+                <div className="led-row"><span>{overviewData.winRate.toFixed(1)}%</span></div>
+              </div>
+              <div className="status-item">
+                <strong>Bot Status</strong>
+                <div className="led-row">
+                  <span style={{color: 'var(--success)'}}>{overviewData.activeBots} Active</span>
+                  <span style={{color: 'var(--muted)', margin: '0 4px'}}>/</span>
+                  <span style={{color: 'var(--error)'}}>{overviewData.pausedBots} Paused</span>
+                </div>
+              </div>
+              <div className="status-item">
+                <strong>System Mode</strong>
+                <div className="led-row">
+                  <span style={{textTransform: 'uppercase', fontWeight: 700}}>
+                    {overviewData.systemMode === 'live' && '🔴 LIVE'}
+                    {overviewData.systemMode === 'autonomous' && '🤖 AUTONOMOUS'}
+                    {overviewData.systemMode === 'paper' && '📄 PAPER'}
+                  </span>
+                </div>
+              </div>
+              <div className="status-item">
+                <strong>Last Trade</strong>
+                <div className="led-row">
+                  <span style={{fontSize: '0.85rem'}}>
+                    {overviewData.lastTradeTime ? new Date(overviewData.lastTradeTime).toLocaleString() : 'No trades yet'}
+                  </span>
+                </div>
+              </div>
+              <div className="status-item">
+                <strong>Bodyguard Status</strong>
+                <div className="led-row">
+                  {bodyguardStatus?.locked ? (
+                    <span style={{color: 'var(--error)', fontWeight: 700}}>🔒 LOCKED</span>
+                  ) : (
+                    <span style={{color: 'var(--success)', fontWeight: 700}}>✅ CLEAR</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Existing metrics */}
               <div className="status-item">
                 <strong>Active Bots</strong>
                 <div className="led-row"><span>{metrics.activeBots}</span></div>
@@ -2922,38 +2965,21 @@ export default function Dashboard() {
               🤖 uAgents (Fetch.ai)
             </button>
             <button 
-              onClick={() => setBotManagementTab('training')}
+              onClick={() => setBotManagementTab('training_quarantine')}
               style={{
                 padding: '10px 20px',
-                background: botManagementTab === 'training' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'training' ? '#4a90e2' : 'var(--line)'),
+                background: botManagementTab === 'training_quarantine' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
+                border: '2px solid ' + (botManagementTab === 'training_quarantine' ? '#4a90e2' : 'var(--line)'),
                 borderRadius: '8px',
-                color: botManagementTab === 'training' ? '#fff' : 'var(--text)',
+                color: botManagementTab === 'training_quarantine' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
                 fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'training' ? '700' : '600',
+                fontWeight: botManagementTab === 'training_quarantine' ? '700' : '600',
                 transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'training' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
+                boxShadow: botManagementTab === 'training_quarantine' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
               }}
             >
-              🎓 Bot Training
-            </button>
-            <button 
-              onClick={() => setBotManagementTab('quarantine')}
-              style={{
-                padding: '10px 20px',
-                background: botManagementTab === 'quarantine' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'quarantine' ? '#4a90e2' : 'var(--line)'),
-                borderRadius: '8px',
-                color: botManagementTab === 'quarantine' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'quarantine' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'quarantine' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
-              🔒 Quarantine
+              🎓 Training & Quarantine
             </button>
           </div>
           
@@ -3329,14 +3355,9 @@ export default function Dashboard() {
             </div>
           )}
           
-          {/* Training Tab */}
-          {botManagementTab === 'training' && (
-            <BotTrainingSection />
-          )}
-          
-          {/* Quarantine Tab */}
-          {botManagementTab === 'quarantine' && (
-            <BotQuarantineSection />
+          {/* Training & Quarantine Unified Tab */}
+          {botManagementTab === 'training_quarantine' && (
+            <TrainingQuarantineSection />
           )}
           </>
         </div>
