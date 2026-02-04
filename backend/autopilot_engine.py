@@ -182,12 +182,14 @@ class AutopilotEngine:
         except Exception as e:
             logger.error(f"Hourly reinvestment error: {e}")
     
-    async def spawn_bot_if_profit_allows(self, user_id: str, seed_amount: float = 1000.0) -> dict:
+    async def spawn_bot_if_profit_allows(self, user_id: str, seed_amount: float = 1000.0, target_exchange: str = None) -> dict:
         """
-        Bot spawning gate with profit verification
+        Bot spawning gate with profit verification - Enhanced for per-exchange thresholds
         
         REQUIREMENTS:
         - Computes available_profit_pool = realized_profit_net_fees - reserved_profit
+        - Checks per-exchange profit thresholds if ENABLE_PER_EXCHANGE_BOT_SPAWN is True
+        - Checks overall profit threshold if ENABLE_OVERALL_PROFIT_THRESHOLD is True
         - Atomically reserves seed_amount via ledger reservation event
         - Returns PROFIT_INSUFFICIENT error if insufficient profit
         - Enforces bot caps (max bots, exchange distribution)
@@ -195,12 +197,14 @@ class AutopilotEngine:
         Args:
             user_id: User ID
             seed_amount: Amount of capital to allocate (default 1000 ZAR)
+            target_exchange: Specific exchange to spawn bot on (if None, auto-select)
             
         Returns:
             dict with success/error status and details
         """
         try:
             from services.ledger_service import get_ledger_service
+            import config
             
             # Step 1: Compute available profit pool
             ledger = get_ledger_service(self.db)
@@ -214,15 +218,17 @@ class AutopilotEngine:
             
             logger.info(f"User {user_id}: PnL={realized_pnl:.2f}, Fees={fees_paid:.2f}, Net={net_profit:.2f}, Reserved={reserved:.2f}, Available={available_profit:.2f}")
             
-            # Step 2: Check if sufficient profit
-            if available_profit < seed_amount:
-                return {
-                    "success": False,
-                    "error": "PROFIT_INSUFFICIENT",
-                    "message": f"Insufficient profit pool. Available: R{available_profit:.2f}, Required: R{seed_amount:.2f}",
-                    "available_profit": available_profit,
-                    "required": seed_amount
-                }
+            # Step 2: Check overall profit threshold (if enabled)
+            if config.ENABLE_OVERALL_PROFIT_THRESHOLD:
+                overall_threshold = config.OVERALL_PROFIT_THRESHOLD_ZAR
+                if net_profit < overall_threshold:
+                    return {
+                        "success": False,
+                        "error": "OVERALL_PROFIT_INSUFFICIENT",
+                        "message": f"Overall profit threshold not met. Required: R{overall_threshold:.2f}, Current: R{net_profit:.2f}",
+                        "current_profit": net_profit,
+                        "required": overall_threshold
+                    }
             
             # Step 3: Check bot caps (exclude deleted bots)
             bots = await self.db.bots.find({
@@ -232,8 +238,6 @@ class AutopilotEngine:
             }).to_list(1000)
             bot_count = len(bots)
             
-            # Import config to get MAX_TOTAL_BOTS
-            import config
             max_bots = config.MAX_TOTAL_BOTS
             
             if bot_count >= max_bots:
@@ -245,38 +249,46 @@ class AutopilotEngine:
                     "max_bots": max_bots
                 }
             
-            # Step 4: Check exchange distribution
-            # Supported exchanges: Luno, Binance, KuCoin only
-            EXCHANGE_LIMITS = {
-                'luno': 15,
-                'binance': 15,
-                'kucoin': 15
-            }
-            
-            # Count bots per exchange
-            exchange_counts = {}
-            for bot in bots:
-                exchange = bot.get('exchange', '').lower()
-                exchange_counts[exchange] = exchange_counts.get(exchange, 0) + 1
-            
-            # Find exchange with available slots
-            target_exchange = None
-            for exchange, limit in EXCHANGE_LIMITS.items():
-                current = exchange_counts.get(exchange, 0)
-                if current < limit:
-                    target_exchange = exchange
-                    break
-            
+            # Step 4: Determine target exchange and check per-exchange profit (if enabled)
             if not target_exchange:
+                # Find exchange with available slots and check per-exchange profit
+                target_exchange = await self._find_best_exchange_for_spawn(
+                    user_id, bots, seed_amount
+                )
+                
+                if not target_exchange:
+                    return {
+                        "success": False,
+                        "error": "NO_AVAILABLE_EXCHANGE",
+                        "message": "No exchange available for spawning (limits reached or insufficient per-exchange profit)"
+                    }
+            
+            # Check per-exchange profit threshold (if enabled)
+            if config.ENABLE_PER_EXCHANGE_BOT_SPAWN:
+                exchange_profit = await self._get_exchange_profit(user_id, target_exchange)
+                spawn_threshold = config.BOT_SPAWN_PROFIT_ZAR
+                
+                if exchange_profit < spawn_threshold:
+                    return {
+                        "success": False,
+                        "error": "EXCHANGE_PROFIT_INSUFFICIENT",
+                        "message": f"Insufficient profit on {target_exchange}. Required: R{spawn_threshold:.2f}, Current: R{exchange_profit:.2f}",
+                        "exchange": target_exchange,
+                        "current_profit": exchange_profit,
+                        "required": spawn_threshold
+                    }
+            
+            # Step 5: Check if sufficient available profit
+            if available_profit < seed_amount:
                 return {
                     "success": False,
-                    "error": "EXCHANGE_LIMIT_REACHED",
-                    "message": "All exchanges at capacity",
-                    "exchange_counts": exchange_counts,
-                    "limits": EXCHANGE_LIMITS
+                    "error": "PROFIT_INSUFFICIENT",
+                    "message": f"Insufficient profit pool. Available: R{available_profit:.2f}, Required: R{seed_amount:.2f}",
+                    "available_profit": available_profit,
+                    "required": seed_amount
                 }
             
-            # Step 5: Atomically reserve profit via ledger
+            # Step 6: Atomically reserve profit via ledger
             import uuid
             reservation_id = f"bot_spawn_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}_{uuid.uuid4().hex[:8]}"
             await ledger.record_event({
@@ -285,10 +297,11 @@ class AutopilotEngine:
                 "amount": seed_amount,
                 "reservation_id": reservation_id,
                 "reason": "bot_spawning",
+                "exchange": target_exchange,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
             
-            # Step 6: Create bot
+            # Step 7: Create bot
             bot_result = await self.create_autonomous_bot(user_id, seed_amount, target_exchange)
             
             return {
@@ -562,6 +575,94 @@ class AutopilotEngine:
             
         except Exception as e:
             logger.error(f"Evolution cycle error: {e}")
+    
+    async def _find_best_exchange_for_spawn(self, user_id: str, bots: list, seed_amount: float) -> str:
+        """Find the best exchange to spawn a new bot on, considering limits and per-exchange profit"""
+        try:
+            import config
+            
+            # Exchange limits from bot_spawner
+            EXCHANGE_LIMITS = {
+                'luno': 5,
+                'binance': 10,
+                'kucoin': 10,
+                'bybit': 10,
+                'kraken': 10,
+                'bitget': 10,
+                'gate': 10,
+            }
+            
+            # Count bots per exchange
+            exchange_counts = {}
+            for bot in bots:
+                exchange = bot.get('exchange', '').lower()
+                exchange_counts[exchange] = exchange_counts.get(exchange, 0) + 1
+            
+            # Find exchanges with available slots
+            available_exchanges = []
+            for exchange, limit in EXCHANGE_LIMITS.items():
+                current = exchange_counts.get(exchange, 0)
+                if current < limit:
+                    available_exchanges.append(exchange)
+            
+            if not available_exchanges:
+                return None
+            
+            # If per-exchange profit check is enabled, filter by profit threshold
+            if config.ENABLE_PER_EXCHANGE_BOT_SPAWN:
+                spawn_threshold = config.BOT_SPAWN_PROFIT_ZAR
+                exchanges_with_profit = []
+                
+                for exchange in available_exchanges:
+                    exchange_profit = await self._get_exchange_profit(user_id, exchange)
+                    if exchange_profit >= spawn_threshold:
+                        exchanges_with_profit.append((exchange, exchange_profit))
+                
+                if not exchanges_with_profit:
+                    return None
+                
+                # Return exchange with highest profit
+                exchanges_with_profit.sort(key=lambda x: x[1], reverse=True)
+                return exchanges_with_profit[0][0]
+            
+            # If no per-exchange check, just return first available
+            return available_exchanges[0]
+            
+        except Exception as e:
+            logger.error(f"Find best exchange error: {e}")
+            return None
+    
+    async def _get_exchange_profit(self, user_id: str, exchange: str) -> float:
+        """Calculate realized profit for a specific exchange"""
+        try:
+            # Get all bots on this exchange
+            bots = await self.db.bots.find({
+                'user_id': user_id,
+                'exchange': exchange,
+                'status': {'$ne': 'deleted'},
+                'deleted_at': {'$exists': False}
+            }).to_list(1000)
+            
+            # Sum up profits from all bots on this exchange
+            total_profit = 0
+            for bot in bots:
+                # Only count realized profit (closed positions)
+                bot_profit = bot.get('total_profit', 0)
+                total_profit += bot_profit
+            
+            # Estimate fees (0.1% per trade typical)
+            total_trades = sum(bot.get('trades_count', 0) for bot in bots)
+            total_capital = sum(bot.get('current_capital', 0) for bot in bots)
+            estimated_fees = total_trades * 0.002 * (total_capital / max(len(bots), 1))
+            
+            net_profit = total_profit - estimated_fees
+            
+            logger.info(f"Exchange {exchange} profit: R{net_profit:.2f} (gross: R{total_profit:.2f}, fees: R{estimated_fees:.2f})")
+            return net_profit
+            
+        except Exception as e:
+            logger.error(f"Get exchange profit error for {exchange}: {e}")
+            return 0.0
             
     async def stop(self):
         """Stop the autopilot engine - async, never raises"""
