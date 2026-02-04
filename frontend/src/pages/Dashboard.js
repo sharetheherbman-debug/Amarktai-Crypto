@@ -2640,6 +2640,7 @@ export default function Dashboard() {
         </div>
         
         {/* Overview Container with Image and Enhanced Metrics Panel */}
+        <div className="overview-container">
           <div className="overview-image"></div>
           <div className="overview-metrics">
             <div className="status-list">
