@@ -3,10 +3,14 @@ Email Templates for Amarktai Network
 Dark blue theme with inline CSS for email client compatibility
 """
 
+from .logo_base64 import AMARKTAI_LOGO_BASE64
+
+
 def get_base_template(content: str, title: str = "Amarktai Network") -> str:
     """
     Base HTML email template with dark blue theme and Amarktai branding.
     Uses inline CSS for maximum email client compatibility.
+    Includes embedded Amarktai logo.
     """
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -21,9 +25,13 @@ def get_base_template(content: str, title: str = "Amarktai Network") -> str:
             <td style="padding: 40px 20px;">
                 <!-- Main Container -->
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #131b3a; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);">
-                    <!-- Header -->
+                    <!-- Header with Logo -->
                     <tr>
                         <td style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); padding: 30px 40px; text-align: center;">
+                            <!-- Amarktai Logo -->
+                            <div style="margin-bottom: 16px;">
+                                <img src="data:image/png;base64,{AMARKTAI_LOGO_BASE64}" alt="Amarktai Logo" style="width: 80px; height: 80px; display: inline-block;" />
+                            </div>
                             <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; letter-spacing: -0.5px;">
                                 <span style="color: #60a5fa;">Amarktai</span> Network
                             </h1>
