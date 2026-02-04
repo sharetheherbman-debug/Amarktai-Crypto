@@ -1873,3 +1873,79 @@ async def migrate_api_keys_encryption(
     except Exception as e:
         logger.error(f"API key migration error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# FRONTEND COMPATIBILITY ROUTES (PUT versions of POST endpoints)
+# ============================================================================
+
+@router.put("/users/{user_id}/block")
+async def block_user_put(
+    user_id: str,
+    request: BlockUserRequest,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Block/unblock user (PUT version for frontend compatibility)"""
+    if request.blocked:
+        # Block the user
+        return await block_user(user_id, request, admin_id, req)
+    else:
+        # Unblock the user
+        return await unblock_user(user_id, admin_id, req)
+
+
+@router.put("/users/{user_id}/password")
+async def reset_user_password_put(
+    user_id: str,
+    request: Dict[str, Any],
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Reset user password with custom password (PUT version for frontend compatibility)"""
+    try:
+        new_password = request.get("new_password")
+        if not new_password or len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        
+        # Hash new password
+        from auth import get_password_hash
+        hashed = get_password_hash(new_password)
+        
+        result = await db.users_collection.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "password_hash": hashed,
+                    "password": hashed,  # Legacy support
+                    "password_reset_by_admin": True,
+                    "password_reset_at": datetime.now(timezone.utc).isoformat(),
+                    "must_change_password": False  # Admin set specific password
+                }
+            }
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Log action
+        await log_admin_action(
+            admin_id=admin_id,
+            action="change_password",
+            target_type="user",
+            target_id=user_id,
+            details={"changed_by": admin_id},
+            request=req
+        )
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "message": "Password changed successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Change password error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
