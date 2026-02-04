@@ -19,7 +19,12 @@ DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
 
 # Security
 JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
+# Encryption key priority: AMARKTAI_FERNET_KEY > FERNET_KEY > ENCRYPTION_KEY
+AMARKTAI_FERNET_KEY = os.getenv('AMARKTAI_FERNET_KEY', '')
+FERNET_KEY = os.getenv('FERNET_KEY', '')
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', '')  # Required for encrypting API keys
+# Use first available key
+ACTIVE_ENCRYPTION_KEY = AMARKTAI_FERNET_KEY or FERNET_KEY or ENCRYPTION_KEY
 
 # AI / OpenAI
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
@@ -123,8 +128,30 @@ EXCHANGE_TRADE_LIMITS = {
 }
 
 # Global limits
-MAX_TRADES_PER_USER_PER_DAY = 3000  # Total across all bots
+MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))  # Per-bot daily trade cap
+MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '3000'))  # Total across all bots
 MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0  # Minimum net profit target (ignore 30c wins)
+
+# Per-exchange trade limits (optional overrides)
+LUNO_MAX_TRADES_PER_DAY = int(os.getenv('LUNO_MAX_TRADES_PER_DAY', '20000'))
+BINANCE_MAX_TRADES_PER_DAY = int(os.getenv('BINANCE_MAX_TRADES_PER_DAY', '50000'))
+KUCOIN_MAX_TRADES_PER_DAY = int(os.getenv('KUCOIN_MAX_TRADES_PER_DAY', '100000'))
+BYBIT_MAX_TRADES_PER_DAY = int(os.getenv('BYBIT_MAX_TRADES_PER_DAY', '100000'))
+KRAKEN_MAX_TRADES_PER_DAY = int(os.getenv('KRAKEN_MAX_TRADES_PER_DAY', '50000'))
+BITGET_MAX_TRADES_PER_DAY = int(os.getenv('BITGET_MAX_TRADES_PER_DAY', '80000'))
+GATEIO_MAX_TRADES_PER_DAY = int(os.getenv('GATEIO_MAX_TRADES_PER_DAY', '80000'))
+
+# Map exchange names to their trade limits
+EXCHANGE_DAILY_TRADE_LIMITS = {
+    'luno': LUNO_MAX_TRADES_PER_DAY,
+    'binance': BINANCE_MAX_TRADES_PER_DAY,
+    'kucoin': KUCOIN_MAX_TRADES_PER_DAY,
+    'bybit': BYBIT_MAX_TRADES_PER_DAY,
+    'kraken': KRAKEN_MAX_TRADES_PER_DAY,
+    'bitget': BITGET_MAX_TRADES_PER_DAY,
+    'gateio': GATEIO_MAX_TRADES_PER_DAY,
+    'gate': GATEIO_MAX_TRADES_PER_DAY,  # Alias
+}
 
 # Paper → Live promotion criteria
 PAPER_TRAINING_DAYS = int(os.getenv('PAPER_TRAINING_DAYS', '7'))  # Must be 7 days minimum
@@ -137,7 +164,8 @@ LIVE_MIN_TRAINING_HOURS = int(os.getenv('LIVE_MIN_TRAINING_HOURS', '24'))  # Def
 
 # Autopilot settings (configurable via env vars)
 # Bot Spawning Logic - SEPARATED THRESHOLDS for clarity
-BOT_SPAWN_PROFIT_THRESHOLD_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_THRESHOLD_ZAR', '1000'))  # Spawn new bot when profit reaches this
+BOT_SPAWN_PROFIT_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_ZAR', '1000'))  # Spawn new bot when profit reaches this
+BOT_SPAWN_PROFIT_THRESHOLD_ZAR = BOT_SPAWN_PROFIT_ZAR  # Backward compatibility alias
 NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '500'))  # Capital to give new bot
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold for more frequent reinvestment
 NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
@@ -145,6 +173,11 @@ MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # MUST match MAX_BOTS_G
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation rate for genetic evolution
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% performance threshold
+
+# Per-exchange bot spawning configuration
+ENABLE_PER_EXCHANGE_BOT_SPAWN = os.getenv('ENABLE_PER_EXCHANGE_BOT_SPAWN', 'true').lower() == 'true'
+ENABLE_OVERALL_PROFIT_THRESHOLD = os.getenv('ENABLE_OVERALL_PROFIT_THRESHOLD', 'false').lower() == 'true'
+OVERALL_PROFIT_THRESHOLD_ZAR = int(os.getenv('OVERALL_PROFIT_THRESHOLD_ZAR', '5000'))
 
 # AI Models
 AI_MODELS = {
