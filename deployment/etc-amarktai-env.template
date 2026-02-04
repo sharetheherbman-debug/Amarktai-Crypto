@@ -1,0 +1,100 @@
+# Amarktai Network - System Environment Configuration
+# Template for /etc/amarktai/amarktai.env
+# Copy this file to /etc/amarktai/amarktai.env and configure with production values
+# File permissions should be 600 (read/write for owner only)
+
+# ============================================================================
+# CRITICAL SECURITY KEYS (REQUIRED FOR PRODUCTION)
+# ============================================================================
+
+# JWT secret for token signing (MUST be changed in production!)
+# Generate with: openssl rand -hex 32
+JWT_SECRET=CHANGE_ME_$(openssl rand -hex 32)
+
+# API Key Encryption Key (for encrypting exchange API keys in database)
+# Generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# CRITICAL: Store securely (e.g., AWS Secrets Manager, HashiCorp Vault)
+AMARKTAI_FERNET_KEY=CHANGE_ME_$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+# ============================================================================
+# DATABASE CONFIGURATION
+# ============================================================================
+
+# MongoDB connection string
+MONGO_URL=mongodb://localhost:27017
+
+# Database name
+DB_NAME=amarktai_trading
+
+# ============================================================================
+# TRADING MODE GATES (CRITICAL - Controls All Trading Activity)
+# ============================================================================
+
+# Paper Trading Mode (default: 0 for safety)
+PAPER_TRADING=0
+
+# Live Trading Mode (default: 0 for safety)  
+LIVE_TRADING=0
+
+# Autopilot Mode (default: 0 for safety)
+AUTOPILOT_ENABLED=0
+
+# ============================================================================
+# TRADE LIMITS
+# ============================================================================
+
+# Maximum trades per bot per day (default: 1000)
+MAX_TRADES_PER_BOT_PER_DAY=1000
+
+# Per-Exchange Trade Limits (Optional)
+LUNO_MAX_TRADES_PER_DAY=20000
+BINANCE_MAX_TRADES_PER_DAY=50000
+KUCOIN_MAX_TRADES_PER_DAY=100000
+
+# ============================================================================
+# BOT SPAWNING
+# ============================================================================
+
+# Bot spawning profit threshold in ZAR (default: 1000)
+BOT_SPAWN_PROFIT_ZAR=1000
+
+# Enable per-exchange profit threshold for bot spawning
+ENABLE_PER_EXCHANGE_BOT_SPAWN=true
+
+# ============================================================================
+# EMAIL CONFIGURATION (Optional but recommended)
+# ============================================================================
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+FROM_EMAIL=
+
+# ============================================================================
+# FEATURE FLAGS
+# ============================================================================
+
+ENABLE_REALTIME=true
+ENABLE_CCXT=true
+ENABLE_SCHEDULERS=true
+
+# ============================================================================
+# DEPLOYMENT INSTRUCTIONS
+# ============================================================================
+
+# 1. Copy this file to /etc/amarktai/amarktai.env
+#    sudo mkdir -p /etc/amarktai
+#    sudo cp deployment/etc-amarktai-env.template /etc/amarktai/amarktai.env
+#
+# 2. Set correct permissions (600)
+#    sudo chmod 600 /etc/amarktai/amarktai.env
+#    sudo chown amarktai:amarktai /etc/amarktai/amarktai.env
+#
+# 3. Generate secure keys
+#    Replace CHANGE_ME_ placeholders with actual generated values
+#
+# 4. Configure MongoDB, SMTP, and other services
+#
+# 5. Update systemd service to use this file
+#    EnvironmentFile=/etc/amarktai/amarktai.env
