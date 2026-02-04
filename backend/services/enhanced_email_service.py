@@ -283,6 +283,25 @@ From: {self.from_name} <{self.from_email}>
         if success:
             logger.info(f"✅ Test email sent to {to_email}")
         
+        # Audit log the test email send
+        try:
+            from services.safe_audit_logger import SafeAuditLogger
+            audit_logger = SafeAuditLogger()
+            
+            await audit_logger.log_action(
+                user_id="system",  # System action
+                action="test_email_sent" if success else "test_email_failed",
+                target_type="email",
+                target_id=to_email,
+                details={
+                    "smtp_server": self.smtp_server,
+                    "smtp_port": self.smtp_port,
+                    "success": success
+                }
+            )
+        except Exception as audit_err:
+            logger.debug(f"Audit logging failed (non-fatal): {audit_err}")
+        
         return success
     
     async def send_bulk_daily_reports(self, 
