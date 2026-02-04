@@ -1799,3 +1799,77 @@ async def reconcile_bots(
     except Exception as e:
         logger.error(f"Bot reconciliation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/migrate-api-keys")
+async def migrate_api_keys_encryption(
+    user_id_target: Optional[str] = None,
+    current_user: str = Depends(get_current_user),
+    request: Request = None
+):
+    """
+    Migrate API keys from old derived encryption to new dedicated AMARKTAI_FERNET_KEY
+    
+    ADMIN ONLY endpoint for migrating encrypted API keys when transitioning
+    from JWT_SECRET-derived encryption to dedicated AMARKTAI_FERNET_KEY.
+    
+    Args:
+        user_id_target: Optional specific user ID to migrate (if None, migrates all)
+        
+    Returns:
+        Migration results with counts
+        
+    Requires:
+        - Admin privileges
+        - AMARKTAI_FERNET_KEY must be set in environment
+    """
+    try:
+        # Verify admin
+        admin_user = await db.users_collection.find_one({"id": current_user}, {"_id": 0})
+        if not admin_user or not admin_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        
+        # Import migration utility
+        from utils.key_migration import migrate_user_keys, migrate_all_keys
+        
+        # Check if AMARKTAI_FERNET_KEY is set
+        if not os.getenv("AMARKTAI_FERNET_KEY") and not os.getenv("FERNET_KEY"):
+            raise HTTPException(
+                status_code=400,
+                detail="AMARKTAI_FERNET_KEY or FERNET_KEY must be set before migration"
+            )
+        
+        # Perform migration
+        if user_id_target:
+            # Migrate specific user
+            result = await migrate_user_keys(user_id_target)
+            message = f"Migration for user {user_id_target[:8]}..."
+        else:
+            # Migrate all users
+            result = await migrate_all_keys()
+            message = "Migration for all users"
+        
+        # Log admin action
+        await log_admin_action(
+            admin_id=current_user,
+            action="migrate_api_keys",
+            target_type="api_keys",
+            target_id=user_id_target or "all_users",
+            details=result,
+            request=request
+        )
+        
+        logger.info(f"✅ API key migration completed: {message}")
+        
+        return {
+            "success": True,
+            "message": message,
+            "results": result,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"API key migration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

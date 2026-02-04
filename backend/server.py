@@ -2907,6 +2907,7 @@ routers_to_mount = [
     ("routes.admin_enhanced", "Admin Enhanced"),  # NEW - User dropdown, bot profit/loss
     ("routes.admin_start_fresh", "Admin Start Fresh"),  # NEW - Start Fresh wipe endpoint
     ("routes.risk_management", "Risk Management"),  # NEW - Daily loss lock control
+    ("routes.dashboard_overview", "Dashboard Overview"),  # NEW - Consolidated overview stats
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
     ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
     ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
