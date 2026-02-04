@@ -1,6 +1,7 @@
 """
 Email Scheduler - Send automated daily reports
 Runs twice daily: 8 AM and 6 PM
+Uses enhanced email service with professional templates
 """
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -8,7 +9,8 @@ from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
-from email_service import email_service
+from services.enhanced_email_service import enhanced_email_service
+from core.settings import FeatureFlags
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,7 @@ class EmailScheduler:
                     best_bot = bot_doc.get('name', 'Unknown')
             
             return {
+                'user_id': user_id,
                 'total_trades': total_trades,
                 'winning_trades': winning_trades,
                 'losing_trades': losing_trades,
@@ -156,6 +159,7 @@ class EmailScheduler:
         except Exception as e:
             logger.error(f"Error calculating stats for {user_id}: {e}")
             return {
+                'user_id': user_id,
                 'total_trades': 0,
                 'winning_trades': 0,
                 'losing_trades': 0,
@@ -169,137 +173,136 @@ class EmailScheduler:
             }
             
     async def send_daily_report_email(self, to_email: str, first_name: str, stats: dict, period: str):
-        """Send comprehensive daily report email"""
+        """Send comprehensive daily report email using enhanced email service"""
         
-        # Determine subject and greeting based on time of day
-        if period == 'morning':
-            subject = f"☀️ Good Morning {first_name} - Your Trading Summary"
-            greeting = "Good Morning"
-            time_context = "Here's your overnight trading summary"
-        else:
-            subject = f"🌙 Good Evening {first_name} - Today's Results"
-            greeting = "Good Evening"
-            time_context = "Here's your full day trading summary"
+        # Check if email reports are enabled
+        if not FeatureFlags.ENABLE_EMAIL_REPORTS:
+            logger.debug(f"Email reports disabled, skipping report for {to_email}")
+            return False
         
-        profit = stats['total_profit']
-        profit_color = '#10b981' if profit >= 0 else '#ef4444'
-        profit_symbol = '+' if profit >= 0 else ''
-        profit_text = 'Profit' if profit >= 0 else 'Loss'
+        if not enhanced_email_service.enabled:
+            logger.warning(f"Enhanced email service not configured, skipping report for {to_email}")
+            return False
         
-        html_body = f"""
-        <html>
-        <head>
-            <style>
-                body {{ margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; }}
-                .container {{ max-width: 650px; margin: 0 auto; background: #ffffff; }}
-                .header {{ background: linear-gradient(135deg, #002b57 0%, #10b981 100%); padding: 40px 30px; text-align: center; color: #ffffff; }}
-                .header h1 {{ margin: 0 0 10px 0; font-size: 28px; }}
-                .content {{ padding: 30px; background: #ffffff; }}
-                .profit-banner {{ background: linear-gradient(135deg, {profit_color}15 0%, {profit_color}05 100%); border: 2px solid {profit_color}; border-radius: 12px; padding: 30px; text-align: center; margin: 20px 0; }}
-                .profit-amount {{ font-size: 48px; font-weight: 700; color: {profit_color}; margin: 10px 0; }}
-                .profit-label {{ color: #666; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }}
-                .stats-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 25px 0; }}
-                .stat-card {{ background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; text-align: center; }}
-                .stat-label {{ color: #666; font-size: 12px; text-transform: uppercase; margin-bottom: 8px; }}
-                .stat-value {{ font-size: 24px; font-weight: 700; color: #002b57; }}
-                .highlight {{ background: linear-gradient(135deg, #10b98120 0%, #10b98110 100%); border-left: 4px solid #10b981; padding: 15px 20px; border-radius: 4px; margin: 20px 0; }}
-                .bot-performance {{ background: #002b5710; border-radius: 8px; padding: 20px; margin: 20px 0; }}
-                .footer {{ background: #f8f9fa; padding: 30px; text-align: center; color: #666; font-size: 12px; border-top: 1px solid #e0e0e0; }}
-                .btn {{ display: inline-block; background: #10b981; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: 600; margin: 20px 0; }}
-                .win-rate {{ display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #10b98120; color: #10b981; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🚀 Amarktai Network</h1>
-                    <p style="margin: 0; opacity: 0.9;">{greeting}, {first_name}!</p>
-                </div>
-                
-                <div class="content">
-                    <p style="font-size: 16px; color: #333;">{time_context}</p>
-                    
-                    <div class="profit-banner">
-                        <div class="profit-label">Today's {profit_text}</div>
-                        <div class="profit-amount">{profit_symbol}R{abs(profit):.2f}</div>
-                        <div class="win-rate">Win Rate: {stats['win_rate']:.1f}%</div>
-                    </div>
-                    
-                    <h3 style="color: #002b57; margin-top: 30px;">📊 Trading Statistics</h3>
-                    
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-label">Total Trades</div>
-                            <div class="stat-value">{stats['total_trades']}</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">Win Rate</div>
-                            <div class="stat-value">{stats['win_rate']:.1f}%</div>
-                        </div>
-                        <div class="stat-card" style="border-left: 3px solid #10b981;">
-                            <div class="stat-label">Winning Trades</div>
-                            <div class="stat-value" style="color: #10b981;">{stats['winning_trades']}</div>
-                        </div>
-                        <div class="stat-card" style="border-left: 3px solid #ef4444;">
-                            <div class="stat-label">Losing Trades</div>
-                            <div class="stat-value" style="color: #ef4444;">{stats['losing_trades']}</div>
-                        </div>
-                    </div>
-                    
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-label">Total Volume</div>
-                            <div class="stat-value">R{stats['total_volume']:.0f}</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">Active Bots</div>
-                            <div class="stat-value">{stats['active_bots']}/{stats['total_bots']}</div>
-                        </div>
-                    </div>
-                    
-                    {f'''
-                    <div class="bot-performance">
-                        <h4 style="margin: 0 0 10px 0; color: #002b57;">🏆 Best Performing Bot</h4>
-                        <p style="margin: 5px 0;"><strong>{stats['best_bot']}</strong></p>
-                        <p style="margin: 5px 0; color: {profit_color}; font-size: 20px; font-weight: 700;">
-                            {profit_symbol}R{abs(stats['best_bot_profit']):.2f}
-                        </p>
-                    </div>
-                    ''' if stats['best_bot'] else ''}
-                    
-                    <div class="highlight">
-                        <strong>🤖 AI System Status:</strong> Your autonomous trading system is actively monitoring markets and optimizing strategies 24/7.
-                    </div>
-                    
-                    <div style="text-align: center;">
-                        <a href="https://amarktai.online/dashboard" class="btn">View Full Dashboard</a>
-                    </div>
-                </div>
-                
-                <div class="footer">
-                    <p style="margin: 0 0 10px 0;"><strong>Amarktai Network</strong></p>
-                    <p style="margin: 0;">Autonomous AI-Powered Crypto Trading</p>
-                    <p style="margin: 15px 0 0 0;">Growing Your Wealth 24/7</p>
-                    <p style="margin: 10px 0 0 0;">📧 amarktainetwork@gmail.com</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+        # Get exchange breakdown (calculate per-exchange stats)
+        exchange_breakdown = await self.calculate_exchange_breakdown(stats.get('user_id', ''))
+        
+        # Get top performers
+        top_performers = await self.get_top_performers(stats.get('user_id', ''))
+        
+        # Calculate weekly and monthly profits
+        weekly_profit = await self.calculate_period_profit(stats.get('user_id', ''), days=7)
+        monthly_profit = await self.calculate_period_profit(stats.get('user_id', ''), days=30)
+        
+        # Prepare report data for enhanced template
+        report_data = {
+            'date': datetime.now(timezone.utc).strftime('%B %d, %Y'),
+            'total_profit': stats.get('cumulative_profit', stats.get('total_profit', 0)),
+            'daily_profit': stats.get('total_profit', 0),
+            'weekly_profit': weekly_profit,
+            'monthly_profit': monthly_profit,
+            'trades_today': stats.get('total_trades', 0),
+            'win_rate': stats.get('win_rate', 0),
+            'active_bots': stats.get('active_bots', 0),
+            'exchange_breakdown': exchange_breakdown,
+            'top_performers': top_performers
+        }
         
         try:
-            success = await email_service.send_email(
-                to_email=to_email,
-                subject=subject,
-                body=html_body,
-                html=True
-            )
+            success = await enhanced_email_service.send_daily_report(to_email, report_data)
             if success:
-                logger.info(f"✅ Daily report sent to {to_email}")
+                logger.info(f"✅ Enhanced daily report sent to {to_email}")
             return success
         except Exception as e:
-            logger.error(f"Failed to send daily report to {to_email}: {e}")
+            logger.error(f"Failed to send enhanced daily report to {to_email}: {e}")
             return False
+    
+    async def calculate_exchange_breakdown(self, user_id: str) -> dict:
+        """Calculate per-exchange trading stats"""
+        try:
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
+            
+            trades = await self.db.trades.find({
+                'user_id': user_id,
+                'timestamp': {'$gte': today_start}
+            }).to_list(10000)
+            
+            breakdown = {}
+            for trade in trades:
+                exchange = trade.get('exchange', 'unknown').lower()
+                if exchange not in breakdown:
+                    breakdown[exchange] = {'profit': 0, 'trades': 0}
+                
+                breakdown[exchange]['profit'] += trade.get('profit_loss', 0)
+                breakdown[exchange]['trades'] += 1
+            
+            return breakdown
+        except Exception as e:
+            logger.error(f"Error calculating exchange breakdown: {e}")
+            return {}
+    
+    async def get_top_performers(self, user_id: str, limit: int = 3) -> list:
+        """Get top performing bots"""
+        try:
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
+            
+            trades = await self.db.trades.find({
+                'user_id': user_id,
+                'timestamp': {'$gte': today_start}
+            }).to_list(10000)
+            
+            # Calculate per-bot profits
+            bot_stats = {}
+            for trade in trades:
+                bot_id = trade.get('bot_id')
+                if not bot_id:
+                    continue
+                
+                if bot_id not in bot_stats:
+                    bot_stats[bot_id] = {
+                        'profit': 0,
+                        'trades': 0,
+                        'wins': 0
+                    }
+                
+                profit = trade.get('profit_loss', 0)
+                bot_stats[bot_id]['profit'] += profit
+                bot_stats[bot_id]['trades'] += 1
+                if profit > 0:
+                    bot_stats[bot_id]['wins'] += 1
+            
+            # Get bot details and calculate win rates
+            top_bots = []
+            for bot_id, stats in sorted(bot_stats.items(), key=lambda x: x[1]['profit'], reverse=True)[:limit]:
+                bot_doc = await self.db.bots.find_one({'id': bot_id}, {'_id': 0})
+                if bot_doc:
+                    win_rate = (stats['wins'] / stats['trades'] * 100) if stats['trades'] > 0 else 0
+                    top_bots.append({
+                        'name': bot_doc.get('name', 'Unknown'),
+                        'profit': stats['profit'],
+                        'exchange': bot_doc.get('exchange', 'unknown'),
+                        'win_rate': win_rate
+                    })
+            
+            return top_bots
+        except Exception as e:
+            logger.error(f"Error getting top performers: {e}")
+            return []
+    
+    async def calculate_period_profit(self, user_id: str, days: int) -> float:
+        """Calculate profit for a specific period"""
+        try:
+            start_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+            
+            trades = await self.db.trades.find({
+                'user_id': user_id,
+                'timestamp': {'$gte': start_date}
+            }).to_list(10000)
+            
+            return sum(t.get('profit_loss', 0) for t in trades)
+        except Exception as e:
+            logger.error(f"Error calculating period profit: {e}")
+            return 0.0
             
     def stop(self):
         """Stop the scheduler"""
