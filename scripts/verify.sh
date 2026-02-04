@@ -173,6 +173,56 @@ fi
 
 echo ""
 
+echo "11. Trade Limit Validation"
+echo "--------------------------"
+# Check if trade limits are properly configured
+if [ -f ".env" ]; then
+    source .env
+    
+    # Check MAX_TRADES_PER_BOT_PER_DAY
+    if [ ! -z "$MAX_TRADES_PER_BOT_PER_DAY" ]; then
+        if [ "$MAX_TRADES_PER_BOT_PER_DAY" -eq 1000 ] || [ "$MAX_TRADES_PER_BOT_PER_DAY" -le 2000 ]; then
+            echo -e "${GREEN}✓${NC} MAX_TRADES_PER_BOT_PER_DAY is set to $MAX_TRADES_PER_BOT_PER_DAY (valid)"
+            ((TESTS_PASSED++))
+        else
+            echo -e "${YELLOW}⚠${NC}  MAX_TRADES_PER_BOT_PER_DAY is $MAX_TRADES_PER_BOT_PER_DAY (unusually high)"
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC}  MAX_TRADES_PER_BOT_PER_DAY not set (will use default: 1000)"
+    fi
+    
+    # Check per-exchange limits
+    for exchange in LUNO BINANCE KUCOIN BYBIT KRAKEN BITGET GATEIO; do
+        var_name="${exchange}_MAX_TRADES_PER_DAY"
+        if [ ! -z "${!var_name}" ]; then
+            echo -e "${GREEN}✓${NC} $var_name is set to ${!var_name}"
+        fi
+    done
+    
+    # Check bot spawning configuration
+    if [ ! -z "$BOT_SPAWN_PROFIT_ZAR" ]; then
+        echo -e "${GREEN}✓${NC} BOT_SPAWN_PROFIT_ZAR is set to $BOT_SPAWN_PROFIT_ZAR"
+        ((TESTS_PASSED++))
+    else
+        echo -e "${YELLOW}⚠${NC}  BOT_SPAWN_PROFIT_ZAR not set (will use default: 1000)"
+    fi
+    
+    # Check per-exchange bot spawning flag
+    if [ "$ENABLE_PER_EXCHANGE_BOT_SPAWN" = "true" ]; then
+        echo -e "${GREEN}✓${NC} Per-exchange bot spawning is ENABLED"
+        ((TESTS_PASSED++))
+    elif [ "$ENABLE_PER_EXCHANGE_BOT_SPAWN" = "false" ]; then
+        echo -e "${YELLOW}⚠${NC}  Per-exchange bot spawning is DISABLED"
+    else
+        echo -e "${YELLOW}⚠${NC}  ENABLE_PER_EXCHANGE_BOT_SPAWN not set (will use default: true)"
+    fi
+else
+    echo -e "${RED}✗${NC} .env file not found - cannot verify trade limits"
+    ((TESTS_FAILED++))
+fi
+
+echo ""
+
 # Summary
 echo ""
 echo "========================================="
