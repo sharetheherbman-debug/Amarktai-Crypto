@@ -70,6 +70,25 @@ async def register(request: Request, user: UserRegister):
     await db.users_collection.insert_one(user_dict)
     user_dict.pop("_id", None)
 
+    # Send welcome email (non-blocking, best effort)
+    try:
+        from services.enhanced_email_service import enhanced_email_service
+        from core.settings import FeatureFlags
+        
+        if FeatureFlags.ENABLE_EMAIL_REPORTS and enhanced_email_service.enabled:
+            # Generate a password setup token for the welcome email
+            # Note: User already has password, but we still send welcome email with login link
+            # For now, we'll just send them to the login page
+            import asyncio
+            asyncio.create_task(enhanced_email_service.send_welcome_email(
+                normalized_email,
+                set_password_token=None  # Will generate internally and link to /set-password
+            ))
+            logger.info(f"📧 Welcome email queued for {normalized_email}")
+    except Exception as email_error:
+        # Don't fail registration if email fails
+        logger.warning(f"Failed to send welcome email to {normalized_email}: {email_error}")
+
     # Create token
     access_token = create_access_token({"user_id": user_id})
     

@@ -2959,6 +2959,7 @@ routers_to_mount = [
     ("routes.user_countdowns", "User Countdowns"),  # Custom user financial goals
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
+    ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
 ]
 
 # Mount realtime router only if enabled via feature flag
