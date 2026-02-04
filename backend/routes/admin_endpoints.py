@@ -1799,3 +1799,153 @@ async def reconcile_bots(
     except Exception as e:
         logger.error(f"Bot reconciliation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/migrate-api-keys")
+async def migrate_api_keys_encryption(
+    user_id_target: Optional[str] = None,
+    current_user: str = Depends(get_current_user),
+    request: Request = None
+):
+    """
+    Migrate API keys from old derived encryption to new dedicated AMARKTAI_FERNET_KEY
+    
+    ADMIN ONLY endpoint for migrating encrypted API keys when transitioning
+    from JWT_SECRET-derived encryption to dedicated AMARKTAI_FERNET_KEY.
+    
+    Args:
+        user_id_target: Optional specific user ID to migrate (if None, migrates all)
+        
+    Returns:
+        Migration results with counts
+        
+    Requires:
+        - Admin privileges
+        - AMARKTAI_FERNET_KEY must be set in environment
+    """
+    try:
+        # Verify admin
+        admin_user = await db.users_collection.find_one({"id": current_user}, {"_id": 0})
+        if not admin_user or not admin_user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        
+        # Import migration utility
+        from utils.key_migration import migrate_user_keys, migrate_all_keys
+        
+        # Check if AMARKTAI_FERNET_KEY is set
+        if not os.getenv("AMARKTAI_FERNET_KEY") and not os.getenv("FERNET_KEY"):
+            raise HTTPException(
+                status_code=400,
+                detail="AMARKTAI_FERNET_KEY or FERNET_KEY must be set before migration"
+            )
+        
+        # Perform migration
+        if user_id_target:
+            # Migrate specific user
+            result = await migrate_user_keys(user_id_target)
+            message = f"Migration for user {user_id_target[:8]}..."
+        else:
+            # Migrate all users
+            result = await migrate_all_keys()
+            message = "Migration for all users"
+        
+        # Log admin action
+        await log_admin_action(
+            admin_id=current_user,
+            action="migrate_api_keys",
+            target_type="api_keys",
+            target_id=user_id_target or "all_users",
+            details=result,
+            request=request
+        )
+        
+        logger.info(f"✅ API key migration completed: {message}")
+        
+        return {
+            "success": True,
+            "message": message,
+            "results": result,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"API key migration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# FRONTEND COMPATIBILITY ROUTES (PUT versions of POST endpoints)
+# ============================================================================
+
+@router.put("/users/{user_id}/block")
+async def block_user_put(
+    user_id: str,
+    request: BlockUserRequest,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Block/unblock user (PUT version for frontend compatibility)"""
+    if request.blocked:
+        # Block the user
+        return await block_user(user_id, request, admin_id, req)
+    else:
+        # Unblock the user
+        return await unblock_user(user_id, admin_id, req)
+
+
+@router.put("/users/{user_id}/password")
+async def reset_user_password_put(
+    user_id: str,
+    request: Dict[str, Any],
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Reset user password with custom password (PUT version for frontend compatibility)"""
+    try:
+        new_password = request.get("new_password")
+        if not new_password or len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        
+        # Hash new password
+        from auth import get_password_hash
+        hashed = get_password_hash(new_password)
+        
+        result = await db.users_collection.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "password_hash": hashed,
+                    "password": hashed,  # Legacy support
+                    "password_reset_by_admin": True,
+                    "password_reset_at": datetime.now(timezone.utc).isoformat(),
+                    "must_change_password": False  # Admin set specific password
+                }
+            }
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Log action
+        await log_admin_action(
+            admin_id=admin_id,
+            action="change_password",
+            target_type="user",
+            target_id=user_id,
+            details={"changed_by": admin_id},
+            request=req
+        )
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "message": "Password changed successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Change password error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

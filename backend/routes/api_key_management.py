@@ -24,10 +24,13 @@ def get_encryption_key() -> bytes:
     Priority:
     1. AMARKTAI_FERNET_KEY environment variable (base64-encoded Fernet key)
     2. FERNET_KEY environment variable (base64-encoded Fernet key)
-    3. Fallback: derived from JWT_SECRET (dev only)
+    3. FAIL in production / Generate for dev with warning
     
     Returns:
         bytes: Fernet encryption key (base64-encoded 32-byte key)
+    
+    Raises:
+        RuntimeError: If no key is configured in production mode
     """
     global _cached_fernet_key
     
@@ -50,16 +53,29 @@ def get_encryption_key() -> bytes:
                 raise ValueError(f"Fernet key must be exactly 32 bytes when decoded, got {len(decoded)} bytes")
             # Return the base64-encoded bytes for Fernet constructor
             _cached_fernet_key = key_bytes
+            logger.info("✅ Using AMARKTAI_FERNET_KEY for API key encryption")
             return _cached_fernet_key
         except Exception as e:
-            logger.warning(f"Invalid FERNET_KEY format: {e}, falling back to derived key")
+            logger.error(f"❌ Invalid FERNET_KEY format: {e}")
+            raise RuntimeError(f"Invalid FERNET_KEY configuration: {e}")
     
-    # Generate a deterministic key from JWT secret (NOT recommended for production)
+    # Check if we're in production mode
+    is_production = os.getenv("ENVIRONMENT", "development").lower() in ["production", "prod"]
+    enable_dangerous_admin = os.getenv("ENABLE_DANGEROUS_ADMIN", "false").lower() == "true"
+    
+    if is_production and not enable_dangerous_admin:
+        # In production, refuse to start without a proper key
+        logger.critical("❌ CRITICAL: AMARKTAI_FERNET_KEY or FERNET_KEY must be set in production!")
+        logger.critical("Generate a key with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
+        raise RuntimeError("Missing AMARKTAI_FERNET_KEY in production mode. Server cannot start.")
+    
+    # Development fallback: Generate a deterministic key from JWT secret
     jwt_secret = os.getenv("JWT_SECRET", "default-dev-secret-change-in-production")
     key_material = hashlib.sha256(jwt_secret.encode()).digest()
     _cached_fernet_key = base64.urlsafe_b64encode(key_material)
     
-    logger.warning("Using derived Fernet key from JWT_SECRET. Set AMARKTAI_FERNET_KEY or FERNET_KEY for production!")
+    logger.warning("⚠️ WARNING: Using derived Fernet key from JWT_SECRET (DEV ONLY!)")
+    logger.warning("⚠️ Set AMARKTAI_FERNET_KEY for production: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
     return _cached_fernet_key
 
 

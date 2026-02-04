@@ -63,10 +63,14 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 "exchange": bot.get('exchange', 'unknown'),
                 "state": state,
                 "status": status,  # Keep original for compatibility
-                "paused_reason": bot.get('pause_reason'),
+                "paused_reason": bot.get('paused_reason') or bot.get('pause_reason'),  # Canonical field (support legacy)
                 "paused_by_user": bot.get('paused_by_user', False),
                 "paused_by_system": bot.get('paused_by_system', False),
+                "quarantine_reason": bot.get('quarantine_reason'),
+                "quarantine_until": bot.get('quarantine_until'),
+                "training_state": bot.get('training_state'),
                 "trading_mode": bot.get('trading_mode', 'paper'),
+                "risk_mode": bot.get('risk_mode', 'balanced'),
                 "current_capital": bot.get('current_capital', 0),
                 "total_profit": bot.get('total_profit', 0),
                 "trades_count": bot.get('trades_count', 0),
@@ -79,9 +83,9 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
             }
             enriched_bots.append(enriched_bot)
         
-        # Count by exchange to ensure all 5 are represented
+        # Count by exchange to ensure all 7 are represented
         exchange_counts = {}
-        all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
+        all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
         for exchange in all_exchanges:
             exchange_counts[exchange] = len([b for b in enriched_bots if b.get('exchange') == exchange])
         

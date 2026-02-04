@@ -131,6 +131,17 @@ export default function Dashboard() {
     uptime: '—',
     lastCheck: '—'
   });
+  const [overviewData, setOverviewData] = useState({
+    totalProfit: 0,
+    todaysProfit: 0,
+    totalTrades: 0,
+    winRate: 0,
+    activeBots: 0,
+    pausedBots: 0,
+    lastTradeTime: null,
+    systemMode: 'paper'
+  });
+  const [botControlLoading, setBotControlLoading] = useState({});
   const [recentTrades, setRecentTrades] = useState([]);
   const [bodyguardStatus, setBodyguardStatus] = useState(null);
   const [storageData, setStorageData] = useState(null);
@@ -176,6 +187,8 @@ export default function Dashboard() {
     loadCountdown();
     loadCustomCountdowns();
     loadSystemHealth();
+    loadOverviewData();
+    loadRiskStatus();
     
     // Setup real-time connections ONCE
     if (!wsInitializedRef.current) {
@@ -199,7 +212,7 @@ export default function Dashboard() {
     // Add personalized welcome message
     setChatMessages([{
       role: 'assist',
-      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
+      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
     }]);
     
     return () => {
@@ -233,6 +246,18 @@ export default function Dashboard() {
         // Don't close WebSocket here, it's managed by the first useEffect
       };
     }
+  }, [token, user]);
+
+  // Poll overview and risk data every 10 seconds
+  useEffect(() => {
+    if (!token || !user) return;
+    
+    const interval = setInterval(() => {
+      loadOverviewData();
+      loadRiskStatus();
+    }, 10000);
+    
+    return () => clearInterval(interval);
   }, [token, user]);
 
   useEffect(() => {
@@ -299,7 +324,7 @@ export default function Dashboard() {
     if (user && chatMessages.length === 0) {
       setChatMessages([{
         role: 'assistant',
-        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
       }]);
     }
   }, [user]);
@@ -316,7 +341,7 @@ export default function Dashboard() {
         if (user) {
           setChatMessages([{
             role: 'assistant',
-            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
           }]);
         }
       }
@@ -326,7 +351,7 @@ export default function Dashboard() {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
     }
@@ -343,7 +368,7 @@ export default function Dashboard() {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
       showNotification('Chat history cleared successfully', 'success');
@@ -785,6 +810,103 @@ export default function Dashboard() {
       setBots(res.data || []);
     } catch (err) {
       console.error('Bots fetch error:', err);
+    }
+  };
+
+  const loadOverviewData = async () => {
+    try {
+      // Fetch bot status for counts
+      const botsRes = await get('/bots/status');
+      const activeBots = botsRes?.active || 0;
+      const pausedBots = botsRes?.paused || 0;
+      
+      // Fetch portfolio summary for profit data
+      const portfolioRes = await get('/portfolio/summary');
+      const totalProfit = portfolioRes?.net_pnl || 0;
+      const todaysProfit = portfolioRes?.todays_pnl || 0;
+      
+      // Fetch analytics for trade stats
+      const analyticsRes = await get('/analytics/performance');
+      const totalTrades = analyticsRes?.total_trades || 0;
+      const winRate = analyticsRes?.win_rate || 0;
+      
+      // Fetch system mode
+      const modeRes = await get('/system/mode');
+      const systemMode = modeRes?.liveTrading ? 'live' : modeRes?.autopilot ? 'autonomous' : 'paper';
+      
+      // Get last trade time
+      const tradesRes = await get('/trades/recent?limit=1');
+      const lastTradeTime = tradesRes?.trades?.[0]?.timestamp || null;
+      
+      setOverviewData({
+        totalProfit,
+        todaysProfit,
+        totalTrades,
+        winRate,
+        activeBots,
+        pausedBots,
+        lastTradeTime,
+        systemMode
+      });
+    } catch (err) {
+      console.error('Overview data fetch error:', err);
+    }
+  };
+
+  const loadRiskStatus = async () => {
+    try {
+      const res = await get('/risk/daily-loss-lock');
+      setBodyguardStatus(res);
+    } catch (err) {
+      console.error('Risk status fetch error:', err);
+    }
+  };
+
+  const handleResumeBot = async (botId) => {
+    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
+    try {
+      await post(`/bots/${botId}/resume`, {});
+      toast.success('Bot resumed successfully');
+      await loadBots();
+      await loadOverviewData();
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to resume bot';
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    } finally {
+      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
+    }
+  };
+
+  const handleResumeAllBots = async () => {
+    setBotControlLoading(prev => ({ ...prev, 'all': true }));
+    try {
+      await post('/bots/resume-all', {});
+      toast.success('All bots resumed successfully');
+      await loadBots();
+      await loadOverviewData();
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to resume all bots';
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    } finally {
+      setBotControlLoading(prev => ({ ...prev, 'all': false }));
+    }
+  };
+
+  const handleResetDailyLossLock = async () => {
+    const confirmText = window.prompt('Type "RESET_RISK_LOCK" to confirm resetting the daily loss lock:');
+    if (confirmText !== 'RESET_RISK_LOCK') {
+      toast.error('Reset cancelled - confirmation text did not match');
+      return;
+    }
+    
+    try {
+      await post('/risk/reset-daily-loss-lock', {});
+      toast.success('Daily loss lock has been reset');
+      await loadRiskStatus();
+      await loadOverviewData();
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to reset lock';
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
     }
   };
 
@@ -2403,6 +2525,136 @@ export default function Dashboard() {
     <section className="section active">
       <div className="card">
         <h2>System Overview</h2>
+        
+        {/* Risk Status Banner */}
+        {bodyguardStatus?.locked && (
+          <div style={{
+            padding: '16px',
+            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+            border: '2px solid #dc2626',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            color: 'white'
+          }}>
+            <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
+              🛡️ Daily Loss Lock Active — Bots Paused for Protection
+            </div>
+            <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
+              <strong>Reason:</strong> {bodyguardStatus.reason || 'Risk threshold exceeded'}
+            </div>
+            <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
+              Locked at: {bodyguardStatus.locked_at ? new Date(bodyguardStatus.locked_at).toLocaleString() : 'Unknown'}
+            </div>
+            {user?.is_admin && (
+              <div style={{marginTop: '12px', display: 'flex', gap: '10px'}}>
+                <button
+                  onClick={handleResetDailyLossLock}
+                  style={{
+                    padding: '10px 16px',
+                    background: 'white',
+                    color: '#dc2626',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔓 Reset Daily Loss Lock
+                </button>
+                <button
+                  onClick={handleResumeAllBots}
+                  disabled={botControlLoading['all']}
+                  style={{
+                    padding: '10px 16px',
+                    background: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    border: '1px solid white',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    cursor: botControlLoading['all'] ? 'wait' : 'pointer',
+                    opacity: botControlLoading['all'] ? 0.6 : 1
+                  }}
+                >
+                  {botControlLoading['all'] ? '⏳ Resuming...' : '▶️ Resume All Bots'}
+                </button>
+              </div>
+            )}
+            {!user?.is_admin && (
+              <div style={{marginTop: '12px', fontSize: '0.85rem', fontStyle: 'italic'}}>
+                Admin access required to reset risk lock
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Real-Time Overview Metrics */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px'
+        }}>
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Total Profit</div>
+            <div style={{fontSize: '1.5rem', fontWeight: 700, color: overviewData.totalProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
+              R{overviewData.totalProfit.toFixed(2)}
+            </div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Today's Profit</div>
+            <div style={{fontSize: '1.5rem', fontWeight: 700, color: overviewData.todaysProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
+              R{overviewData.todaysProfit.toFixed(2)}
+            </div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Total Trades</div>
+            <div style={{fontSize: '1.5rem', fontWeight: 700}}>{overviewData.totalTrades}</div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Win Rate</div>
+            <div style={{fontSize: '1.5rem', fontWeight: 700}}>{overviewData.winRate.toFixed(1)}%</div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Bot Status</div>
+            <div style={{fontSize: '1.2rem', fontWeight: 700}}>
+              <span style={{color: 'var(--success)'}}>{overviewData.activeBots} Active</span>
+              {' / '}
+              <span style={{color: 'var(--error)'}}>{overviewData.pausedBots} Paused</span>
+            </div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>System Mode</div>
+            <div style={{fontSize: '1.2rem', fontWeight: 700, textTransform: 'uppercase'}}>
+              {overviewData.systemMode === 'live' && '🔴 LIVE'}
+              {overviewData.systemMode === 'autonomous' && '🤖 AUTONOMOUS'}
+              {overviewData.systemMode === 'paper' && '📄 PAPER'}
+            </div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Last Trade</div>
+            <div style={{fontSize: '0.9rem', fontWeight: 600}}>
+              {overviewData.lastTradeTime ? new Date(overviewData.lastTradeTime).toLocaleString() : 'No trades yet'}
+            </div>
+          </div>
+          
+          <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Bodyguard Lock</div>
+            <div style={{fontSize: '1.2rem', fontWeight: 700}}>
+              {bodyguardStatus?.locked ? (
+                <span style={{color: 'var(--error)'}}>🔒 LOCKED</span>
+              ) : (
+                <span style={{color: 'var(--success)'}}>✅ CLEAR</span>
+              )}
+            </div>
+          </div>
+        </div>
+        
         <div className="overview-container">
           <div className="overview-image"></div>
           <div className="overview-metrics">
@@ -2770,13 +3022,32 @@ export default function Dashboard() {
               </div>
             </div>
           <div className="bot-right">
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px'}}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
               <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
-              <PlatformSelector 
-                value={platformFilter} 
-                onChange={setPlatformFilter}
-                includeAll={true}
-              />
+              <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+                <button
+                  onClick={handleResumeAllBots}
+                  disabled={botControlLoading['all']}
+                  style={{
+                    padding: '8px 14px',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
+                    cursor: botControlLoading['all'] ? 'wait' : 'pointer',
+                    opacity: botControlLoading['all'] ? 0.6 : 1
+                  }}
+                >
+                  {botControlLoading['all'] ? '⏳ Resuming...' : '▶️ Resume All Bots'}
+                </button>
+                <PlatformSelector 
+                  value={platformFilter} 
+                  onChange={setPlatformFilter}
+                  includeAll={true}
+                />
+              </div>
             </div>
             
             <div className="bot-list">
@@ -2864,6 +3135,43 @@ export default function Dashboard() {
                         
                         {isExpanded && (
                           <div className="bot-details active">
+                            {/* Bot Status Information */}
+                            <div style={{marginBottom: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px'}}>
+                              <div style={{fontSize: '0.9rem', fontWeight: 600, marginBottom: '8px'}}>Bot Status</div>
+                              <div style={{display: 'grid', gap: '6px', fontSize: '0.85rem'}}>
+                                {bot.paused && (
+                                  <div>
+                                    <strong>Status:</strong> <span style={{color: 'var(--error)'}}>⏸️ PAUSED</span>
+                                  </div>
+                                )}
+                                {bot.paused_reason && (
+                                  <div>
+                                    <strong>Pause Reason:</strong> {bot.paused_reason}
+                                  </div>
+                                )}
+                                {bot.paused_by_system && (
+                                  <div>
+                                    <span style={{color: 'var(--paper)'}}>⚠️ Paused by System</span>
+                                  </div>
+                                )}
+                                {bot.paused_by_user && (
+                                  <div>
+                                    <span style={{color: 'var(--muted)'}}>👤 Paused by User</span>
+                                  </div>
+                                )}
+                                {bot.in_quarantine && (
+                                  <div>
+                                    <span style={{color: 'var(--error)'}}>🔒 In Quarantine</span>
+                                  </div>
+                                )}
+                                {bot.in_training && (
+                                  <div>
+                                    <span style={{color: 'var(--accent)'}}>🎓 In Training</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            
                             <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '12px'}}>
                               <div>
                                 <label style={{fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '4px'}}>
@@ -2931,11 +3239,46 @@ export default function Dashboard() {
                               </div>
                             </div>
                             
-                            <div className="buttons">
+                            <div className="buttons" style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px'}}>
+                              {bot.paused && !bot.active && (
+                                <button 
+                                  onClick={() => handleResumeBot(bot.id)}
+                                  disabled={botControlLoading[bot.id]}
+                                  style={{
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    fontWeight: 600,
+                                    cursor: botControlLoading[bot.id] ? 'wait' : 'pointer',
+                                    opacity: botControlLoading[bot.id] ? 0.6 : 1
+                                  }}
+                                >
+                                  {botControlLoading[bot.id] ? '⏳ Starting...' : '▶️ Resume Bot'}
+                                </button>
+                              )}
+                              {!bot.active && !bot.paused && (
+                                <button 
+                                  onClick={() => handleResumeBot(bot.id)}
+                                  disabled={botControlLoading[bot.id]}
+                                  style={{
+                                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '10px',
+                                    borderRadius: '6px',
+                                    fontWeight: 600,
+                                    cursor: botControlLoading[bot.id] ? 'wait' : 'pointer',
+                                    opacity: botControlLoading[bot.id] ? 0.6 : 1
+                                  }}
+                                >
+                                  {botControlLoading[bot.id] ? '⏳ Starting...' : '🚀 Start Bot'}
+                                </button>
+                              )}
                               <button 
                                 className="danger" 
                                 onClick={() => handleDeleteBot(bot.id)}
-                                style={{width: '100%'}}
                               >
                                 🗑️ Delete Bot
                               </button>
@@ -3084,6 +3427,89 @@ export default function Dashboard() {
         </div>
       </section>
     );
+  };
+
+  // Handle Start Fresh - Wipe paper data
+  const handleStartFresh = async () => {
+    const confirmPhrase = window.prompt(
+      'WARNING: This will delete all paper trading data!\n\n' +
+      'This includes:\n' +
+      '- All paper trading bots\n' +
+      '- All paper trades history\n' +
+      '- Bot telemetry data\n' +
+      '- Risk lock states\n\n' +
+      'Type "DELETE_ALL_PAPER_DATA" to confirm:'
+    );
+
+    if (confirmPhrase !== 'DELETE_ALL_PAPER_DATA') {
+      if (confirmPhrase !== null) {
+        showNotification('Incorrect confirmation phrase', 'error');
+      }
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${API}/admin/start-fresh`,
+        {
+          confirm_phrase: 'DELETE_ALL_PAPER_DATA',
+          scope: 'paper_only',
+          also_reset_risk_locks: true
+        },
+        axiosConfig
+      );
+
+      if (response.data.success) {
+        const summary = response.data.summary;
+        showNotification(
+          `Start Fresh completed! Deleted: ${summary.bots_deleted} bots, ${summary.trades_deleted} trades`,
+          'success'
+        );
+        
+        // Refresh data
+        loadBots();
+        loadSystemStats();
+        loadAdminUsers();
+      }
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      showNotification(`Start Fresh failed: ${errorMsg}`, 'error');
+      console.error('Start Fresh error:', err);
+    }
+  };
+
+  // Handle API Key Migration
+  const handleMigrateApiKeys = async () => {
+    if (!window.confirm(
+      'Migrate API keys from old JWT_SECRET-derived encryption to AMARKTAI_FERNET_KEY?\n\n' +
+      'This will:\n' +
+      '- Decrypt existing keys with old method\n' +
+      '- Re-encrypt with new dedicated key\n' +
+      '- Update all keys in database\n\n' +
+      'Continue?'
+    )) {
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${API}/admin/migrate-api-keys`,
+        {},
+        axiosConfig
+      );
+
+      if (response.data.success) {
+        const results = response.data.results;
+        showNotification(
+          `Migration completed! Migrated: ${results.migrated}, Failed: ${results.failed}, Skipped: ${results.skipped}`,
+          results.failed > 0 ? 'warning' : 'success'
+        );
+      }
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      showNotification(`API Key migration failed: ${errorMsg}`, 'error');
+      console.error('API Key migration error:', err);
+    }
   };
 
   const renderAdmin = () => {
@@ -3896,6 +4322,109 @@ export default function Dashboard() {
             <p style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '12px', lineHeight: '1.5'}}>
               Monitor system health, send notifications, and check backend services in real-time
             </p>
+          </div>
+          
+          {/* Danger Zone - Admin Only Destructive Actions */}
+          <div style={{
+            marginTop: '24px', 
+            padding: '20px', 
+            background: 'rgba(239, 68, 68, 0.1)', 
+            borderRadius: '8px', 
+            border: '2px solid var(--error)'
+          }}>
+            <h3 style={{marginBottom: '16px', color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              ⚠️ Danger Zone
+              <span style={{fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--muted)'}}>
+                (Admin Only - Destructive Actions)
+              </span>
+            </h3>
+            
+            <div style={{display: 'grid', gap: '12px'}}>
+              {/* Start Fresh Button */}
+              <div style={{
+                padding: '16px',
+                background: 'var(--panel)',
+                borderRadius: '6px',
+                border: '1px solid var(--error)'
+              }}>
+                <div style={{marginBottom: '12px'}}>
+                  <h4 style={{margin: '0 0 8px 0', color: 'var(--text)', fontSize: '1rem'}}>
+                    🗑️ Start Fresh (Wipe Paper Data)
+                  </h4>
+                  <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: 0, lineHeight: '1.5'}}>
+                    Delete all paper trading bots, trades, and telemetry. Resets risk locks. 
+                    <strong style={{color: 'var(--error)'}}>Cannot be undone!</strong>
+                  </p>
+                </div>
+                <button
+                  onClick={handleStartFresh}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'var(--error)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  🗑️ Start Fresh (Delete Paper Data)
+                </button>
+              </div>
+
+              {/* API Key Migration Button */}
+              <div style={{
+                padding: '16px',
+                background: 'var(--panel)',
+                borderRadius: '6px',
+                border: '1px solid #f59e0b'
+              }}>
+                <div style={{marginBottom: '12px'}}>
+                  <h4 style={{margin: '0 0 8px 0', color: 'var(--text)', fontSize: '1rem'}}>
+                    🔐 Migrate API Key Encryption
+                  </h4>
+                  <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: 0, lineHeight: '1.5'}}>
+                    Migrate API keys from JWT_SECRET-derived encryption to dedicated AMARKTAI_FERNET_KEY.
+                    Required when upgrading encryption method.
+                  </p>
+                </div>
+                <button
+                  onClick={handleMigrateApiKeys}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  🔐 Migrate API Keys
+                </button>
+              </div>
+            </div>
+            
+            <div style={{
+              marginTop: '16px',
+              padding: '12px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              borderRadius: '4px',
+              fontSize: '0.75rem',
+              color: 'var(--error)',
+              lineHeight: '1.5'
+            }}>
+              <strong>⚠️ Warning:</strong> These actions are irreversible and will affect system data.
+              All actions are logged in the audit trail. Use with extreme caution.
+            </div>
           </div>
           
           <div style={{marginTop: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--error)', fontSize: '0.85rem'}}>
@@ -5976,7 +6505,7 @@ export default function Dashboard() {
       {/* Topbar - Desktop */}
       {!isMobile && (
         <header className="topbar">
-          <h1>Amarktai Network</h1>
+          <h1>Amarktai Crypto</h1>
           <div className="top-actions">
             <div className="status-indicator" style={{padding: '4px 12px', background: systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? 'var(--success)' : 'var(--error)', borderRadius: '6px', fontWeight: 600}}>
               <span>{systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? '✓ System Healthy' : '⚠ System Issues'}</span>
@@ -6035,11 +6564,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="footer">
-        <div>&copy; 2026 Amarktai Network. For personal use only.</div>
-        <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-          <VersionBadge position="footer" />
-          <span>Need help? <a href="mailto:amarktainetwork@gmail.com">Contact us</a></span>
-        </div>
+        <div>© 2026 Amarktai Crypto. All rights reserved. | Part of Amarktai Network</div>
       </footer>
 
       {/* Bot Promotion Modal */}

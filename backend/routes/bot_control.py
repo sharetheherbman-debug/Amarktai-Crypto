@@ -58,6 +58,9 @@ async def pause_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                     "status": "paused",
                     "paused_at": datetime.now(timezone.utc).isoformat(),
                     "paused_by": "user",
+                    "paused_reason": "user_requested",  # Canonical field
+                    "paused_by_system": False,
+                    "paused_by_user": True,
                     "last_status_change": datetime.now(timezone.utc).isoformat()
                 }
             }
