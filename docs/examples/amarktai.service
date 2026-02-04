@@ -23,6 +23,7 @@ StartLimitBurst=3
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateNetwork=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/amarktai /var/amarktai /var/log/amarktai

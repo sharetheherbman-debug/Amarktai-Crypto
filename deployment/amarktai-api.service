@@ -17,6 +17,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=amarktai-api
 
+# Security
+PrivateNetwork=false
+
 # Resource Limits
 MemoryMax=2G
 CPUQuota=150%

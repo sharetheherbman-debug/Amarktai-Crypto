@@ -91,6 +91,15 @@ if [ -f ".env" ]; then
         echo -e "${GREEN}✓${NC} JWT_SECRET is set"
     fi
     
+    # Check AMARKTAI_FERNET_KEY or FERNET_KEY
+    if [ -z "$AMARKTAI_FERNET_KEY" ] && [ -z "$FERNET_KEY" ]; then
+        echo -e "${YELLOW}⚠${NC}  Neither AMARKTAI_FERNET_KEY nor FERNET_KEY is set (SECURITY RISK)"
+        echo "      Generate with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        ((WARNINGS++))
+    else
+        echo -e "${GREEN}✓${NC} Encryption key is set (AMARKTAI_FERNET_KEY or FERNET_KEY)"
+    fi
+    
     # Check MONGO_URL
     if [ -z "$MONGO_URL" ]; then
         echo -e "${RED}✗${NC} MONGO_URL not set"
@@ -105,6 +114,29 @@ if [ -f ".env" ]; then
         ((ERRORS++))
     else
         echo -e "${GREEN}✓${NC} DB_NAME is set: $DB_NAME"
+    fi
+    
+    # Check trade limits
+    if [ ! -z "$MAX_TRADES_PER_BOT_PER_DAY" ]; then
+        echo -e "${GREEN}✓${NC} MAX_TRADES_PER_BOT_PER_DAY is set: $MAX_TRADES_PER_BOT_PER_DAY"
+    else
+        echo -e "${YELLOW}⚠${NC}  MAX_TRADES_PER_BOT_PER_DAY not set (will use default: 1000)"
+        ((WARNINGS++))
+    fi
+    
+    # Check bot spawning configuration
+    if [ ! -z "$BOT_SPAWN_PROFIT_ZAR" ]; then
+        echo -e "${GREEN}✓${NC} BOT_SPAWN_PROFIT_ZAR is set: $BOT_SPAWN_PROFIT_ZAR"
+    else
+        echo -e "${YELLOW}⚠${NC}  BOT_SPAWN_PROFIT_ZAR not set (will use default: 1000)"
+        ((WARNINGS++))
+    fi
+    
+    # Check per-exchange bot spawning
+    if [ ! -z "$ENABLE_PER_EXCHANGE_BOT_SPAWN" ]; then
+        echo -e "${GREEN}✓${NC} ENABLE_PER_EXCHANGE_BOT_SPAWN is set: $ENABLE_PER_EXCHANGE_BOT_SPAWN"
+    else
+        echo -e "${YELLOW}⚠${NC}  ENABLE_PER_EXCHANGE_BOT_SPAWN not set (will use default: true)"
     fi
     
 else

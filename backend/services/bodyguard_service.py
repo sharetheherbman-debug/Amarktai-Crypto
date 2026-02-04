@@ -34,6 +34,16 @@ PROFITABLE_WIN_RATE_THRESHOLD = 50.0  # 50%+ win rate considered profitable
 PROFITABLE_NET_PNL_THRESHOLD = 0.0  # Positive net PnL
 MAX_ACCEPTABLE_LOSS_WITH_GOOD_WIN_RATE = 50.0  # Max loss (in currency) acceptable with >50% win rate
 
+# Trade frequency monitoring
+MAX_TRADES_PER_HOUR = 50  # Maximum trades per hour per bot
+TRADE_FREQUENCY_WINDOW_MINUTES = 60
+
+# Stop-loss cooldown
+STOP_LOSS_COOLDOWN_MINUTES = 60  # Cooldown after stop-loss event
+
+# Rate limit monitoring
+MAX_RATE_LIMIT_ERRORS_PER_HOUR = 5  # Maximum rate limit errors before pause
+
 
 class BodyguardService:
     """Enhanced bodyguard service with win-aware logic and quarantine integration"""
@@ -511,6 +521,226 @@ class BodyguardService:
                 "checked": 0,
                 "paused": 0,
                 "resumed": 0,
+                "error": str(e)
+            }
+    
+    async def check_trade_frequency(self, bot_id: str) -> Tuple[bool, Optional[str]]:
+        """Monitor trade frequency and pause bot if trading too frequently
+        
+        Args:
+            bot_id: Bot ID to check
+            
+        Returns:
+            Tuple of (action_taken, description)
+        """
+        try:
+            # Get recent trades in the last hour
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(minutes=TRADE_FREQUENCY_WINDOW_MINUTES)
+            
+            recent_trades_count = await db.trades_collection.count_documents({
+                "bot_id": bot_id,
+                "timestamp": {"$gte": one_hour_ago.isoformat()}
+            })
+            
+            if recent_trades_count > MAX_TRADES_PER_HOUR:
+                # Get bot data
+                bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                if not bot:
+                    return False, None
+                
+                user_id = bot.get('user_id')
+                bot_name = bot.get('name', 'Unknown')
+                
+                # Pause bot due to excessive trade frequency
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {
+                        "$set": {
+                            "status": "paused",
+                            "paused_at": datetime.now(timezone.utc).isoformat(),
+                            "paused_by_bodyguard": True,
+                            "pause_reason": f"Excessive trade frequency: {recent_trades_count} trades in last hour (max {MAX_TRADES_PER_HOUR})"
+                        }
+                    }
+                )
+                
+                # Broadcast realtime update
+                updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                await rt_events.bot_paused(user_id, updated_bot)
+                
+                description = f"🛡️ Bodyguard paused '{bot_name}': Excessive trade frequency ({recent_trades_count}/hour)"
+                logger.warning(description)
+                
+                return True, description
+            
+            return False, None
+            
+        except Exception as e:
+            logger.error(f"Trade frequency check error for bot {bot_id}: {e}")
+            return False, None
+    
+    async def check_rate_limit_errors(self, bot_id: str) -> Tuple[bool, Optional[str]]:
+        """Monitor rate limit errors and pause bot if too many
+        
+        Args:
+            bot_id: Bot ID to check
+            
+        Returns:
+            Tuple of (action_taken, description)
+        """
+        try:
+            # Check rate limit errors in the last hour
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+            
+            # Get bot's error log
+            error_count = await db.error_logs_collection.count_documents({
+                "bot_id": bot_id,
+                "error_type": {"$in": ["rate_limit", "429", "too_many_requests"]},
+                "timestamp": {"$gte": one_hour_ago.isoformat()}
+            })
+            
+            if error_count >= MAX_RATE_LIMIT_ERRORS_PER_HOUR:
+                # Get bot data
+                bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                if not bot:
+                    return False, None
+                
+                user_id = bot.get('user_id')
+                bot_name = bot.get('name', 'Unknown')
+                
+                # Pause bot due to rate limit errors
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {
+                        "$set": {
+                            "status": "paused",
+                            "paused_at": datetime.now(timezone.utc).isoformat(),
+                            "paused_by_bodyguard": True,
+                            "pause_reason": f"Excessive rate limit errors: {error_count} errors in last hour",
+                            "rate_limit_cooldown_until": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+                        }
+                    }
+                )
+                
+                # Broadcast realtime update
+                updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                await rt_events.bot_paused(user_id, updated_bot)
+                
+                description = f"🛡️ Bodyguard paused '{bot_name}': Rate limit errors ({error_count}/hour)"
+                logger.warning(description)
+                
+                return True, description
+            
+            return False, None
+            
+        except Exception as e:
+            logger.error(f"Rate limit check error for bot {bot_id}: {e}")
+            return False, None
+    
+    async def check_stop_loss_cooldown(self, bot_id: str) -> Tuple[bool, Optional[str]]:
+        """Enforce cooldown period after stop-loss events
+        
+        Args:
+            bot_id: Bot ID to check
+            
+        Returns:
+            Tuple of (can_trade, reason)
+        """
+        try:
+            bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+            if not bot:
+                return False, "Bot not found"
+            
+            # Check if bot has a recent stop-loss event
+            last_stop_loss = bot.get('last_stop_loss_at')
+            if not last_stop_loss:
+                return True, None
+            
+            # Parse stop-loss timestamp
+            if isinstance(last_stop_loss, str):
+                last_stop_loss_dt = datetime.fromisoformat(last_stop_loss.replace('Z', '+00:00'))
+            else:
+                last_stop_loss_dt = last_stop_loss
+            
+            # Ensure timezone-aware
+            if last_stop_loss_dt.tzinfo is None:
+                last_stop_loss_dt = last_stop_loss_dt.replace(tzinfo=timezone.utc)
+            
+            # Calculate cooldown expiry
+            cooldown_until = last_stop_loss_dt + timedelta(minutes=STOP_LOSS_COOLDOWN_MINUTES)
+            now = datetime.now(timezone.utc)
+            
+            if now < cooldown_until:
+                remaining_minutes = int((cooldown_until - now).total_seconds() / 60)
+                return False, f"Stop-loss cooldown active ({remaining_minutes} min remaining)"
+            
+            return True, None
+            
+        except Exception as e:
+            logger.error(f"Stop-loss cooldown check error for bot {bot_id}: {e}")
+            return True, None  # Allow trading on error (fail-safe)
+    
+    async def get_account_drawdown(self, user_id: str) -> Dict:
+        """Calculate per-account (user-level) drawdown across all bots
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Dict with account drawdown metrics
+        """
+        try:
+            # Get all bots for user
+            bots = await db.bots_collection.find(
+                {"user_id": user_id, "status": {"$ne": "deleted"}},
+                {"_id": 0}
+            ).to_list(100)
+            
+            if not bots:
+                return {
+                    "user_id": user_id,
+                    "account_equity_peak": 0,
+                    "current_account_equity": 0,
+                    "account_drawdown_pct": 0,
+                    "bots_count": 0
+                }
+            
+            # Calculate account-level metrics
+            total_initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
+            total_current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+            
+            # Get account equity peak (track highest total equity)
+            user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+            account_equity_peak = user_doc.get('account_equity_peak', total_initial_capital) if user_doc else total_initial_capital
+            
+            # If current equity is higher, update peak
+            if total_current_capital > account_equity_peak:
+                await db.users.update_one(
+                    {"id": user_id},
+                    {"$set": {"account_equity_peak": total_current_capital}},
+                    upsert=True
+                )
+                account_equity_peak = total_current_capital
+            
+            # Calculate account drawdown
+            if account_equity_peak > 0:
+                account_drawdown_pct = ((account_equity_peak - total_current_capital) / account_equity_peak) * 100
+            else:
+                account_drawdown_pct = 0
+            
+            return {
+                "user_id": user_id,
+                "account_equity_peak": round(account_equity_peak, 2),
+                "current_account_equity": round(total_current_capital, 2),
+                "account_drawdown_pct": round(account_drawdown_pct, 2),
+                "bots_count": len(bots),
+                "total_initial_capital": round(total_initial_capital, 2)
+            }
+            
+        except Exception as e:
+            logger.error(f"Account drawdown calculation error for user {user_id}: {e}")
+            return {
+                "user_id": user_id,
                 "error": str(e)
             }
 
