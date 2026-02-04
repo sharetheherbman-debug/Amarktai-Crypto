@@ -207,7 +207,12 @@ class AIBodyguard:
         """Check overall system health for user"""
         try:
             # Check daily loss limit - support MAX_DAILY_LOSS_PERCENT env var
-            max_daily_loss = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15')) * 100  # Convert to percentage
+            # MAX_DAILY_LOSS_PERCENT can be either decimal (0.15 = 15%) or percentage (15 = 15%)
+            max_daily_loss_env = os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15')
+            max_daily_loss = float(max_daily_loss_env)
+            # If value is < 1, treat as decimal (0.15 = 15%), otherwise treat as percentage (15 = 15%)
+            if max_daily_loss < 1:
+                max_daily_loss = max_daily_loss * 100  # Convert decimal to percentage
             
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
             

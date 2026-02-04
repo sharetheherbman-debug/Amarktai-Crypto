@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 import logging
+import os
 
 from auth import get_current_user
 import database as db
@@ -140,7 +141,6 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             )
         
         # 2. Check trading mode is enabled (Paper or Live)
-        import os
         paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
         live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
         
