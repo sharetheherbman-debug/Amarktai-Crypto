@@ -8,7 +8,7 @@ from typing import Dict
 import logging
 from datetime import datetime
 
-from auth import get_current_user
+from auth import get_current_user, resolve_current_user
 from services.enhanced_email_service import enhanced_email_service
 import database as db
 
@@ -18,15 +18,18 @@ router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 
 @router.post("/test-email")
-async def send_test_email(current_user: Dict = Depends(get_current_user)):
+async def send_test_email(current_user = Depends(get_current_user)):
     """
     Send test email to verify SMTP configuration (admin only).
     
     Requires admin privileges.
     """
     try:
+        # Normalize current_user to user_id string
+        user_id = await resolve_current_user(current_user)
+        
         # Check if user is admin
-        user = await db.users_collection.find_one({"id": current_user['id']}, {"_id": 0})
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -73,7 +76,7 @@ async def send_test_email(current_user: Dict = Depends(get_current_user)):
 @router.post("/welcome-email")
 async def send_welcome_email_manual(
     email: str,
-    current_user: Dict = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
     """
     Manually send welcome email to a user (admin only).
@@ -81,8 +84,11 @@ async def send_welcome_email_manual(
     Requires admin privileges.
     """
     try:
+        # Normalize current_user to user_id string
+        user_id = await resolve_current_user(current_user)
+        
         # Check if user is admin
-        user = await db.users_collection.find_one({"id": current_user['id']}, {"_id": 0})
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
