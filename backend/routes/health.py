@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from datetime import datetime, timezone
 import logging
 import os
+import subprocess
 import database as db
 from utils.env_utils import env_bool
 
@@ -16,6 +17,59 @@ router = APIRouter(prefix="/api/health", tags=["Health"])
 
 # Module-level state for preflight checks (populated by server.py at startup)
 _router_status = {"mounted": [], "failed": []}
+_startup_time = None
+_bind_ok = False
+
+
+def set_startup_time(timestamp: datetime):
+    """Called by server.py after successful startup."""
+    global _startup_time
+    _startup_time = timestamp
+
+
+def set_bind_ok(status: bool = True):
+    """Called by server.py after successful socket bind."""
+    global _bind_ok
+    _bind_ok = status
+
+
+# Module-level build hash cache (computed once at import time)
+_BUILD_HASH_CACHE = None
+
+
+def get_build_hash() -> str:
+    """Get current git commit SHA for build identification (cached)."""
+    global _BUILD_HASH_CACHE
+    
+    # Return cached value if available
+    if _BUILD_HASH_CACHE is not None:
+        return _BUILD_HASH_CACHE
+    
+    try:
+        # First try BUILD_SHA environment variable
+        build_sha = os.environ.get("BUILD_SHA")
+        if build_sha:
+            _BUILD_HASH_CACHE = build_sha
+            return build_sha
+        
+        # Fall back to git command (with restricted scope and timeout)
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            check=False  # Don't raise on non-zero exit
+        )
+        if result.returncode == 0:
+            _BUILD_HASH_CACHE = result.stdout.strip()
+            return _BUILD_HASH_CACHE
+    except Exception as e:
+        logger.debug(f"Could not get build hash: {e}")
+    
+    # Cache the unknown value to avoid repeated failures
+    _BUILD_HASH_CACHE = "unknown"
+    return "unknown"
 
 
 def set_router_status(mounted: list, failed: list):
@@ -181,46 +235,96 @@ async def preflight_check() -> dict:
 
 @router.get("/ping")
 async def health_ping() -> dict:
-    """Return a simple heartbeat response for health checks with database connectivity.
+    """Return a comprehensive health check response with build info and uptime.
+    
+    Enhanced endpoint that includes:
+    - Database connectivity status
+    - Build hash for deployment verification
+    - Server uptime since startup
+    - Socket bind status
     
     Returns:
         - HTTP 200 with status="healthy" when database is connected
         - HTTP 503 with status="unhealthy" when database is disconnected or error occurs
     """
     try:
+        current_time = datetime.now(timezone.utc)
+        
+        # Calculate uptime
+        uptime_seconds = None
+        if _startup_time:
+            uptime_seconds = (current_time - _startup_time).total_seconds()
+        
         # Test database connection
+        db_status = "unknown"
         if db.client is not None:
-            await db.client.admin.command('ping')
-            # Database is reachable - return 200
-            return {
-                "status": "healthy",
-                "db": "connected",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+            try:
+                await db.client.admin.command('ping')
+                db_status = "connected"
+            except Exception as e:
+                logger.error(f"Database ping failed: {e}")
+                db_status = "error"
         else:
-            # Database client not initialized - return 503
+            db_status = "disconnected"
+        
+        # Build response
+        response = {
+            "status": "healthy" if db_status == "connected" else "unhealthy",
+            "db": db_status,
+            "timestamp": current_time.isoformat(),
+            "build_hash": get_build_hash(),
+            "bind_ok": _bind_ok,
+        }
+        
+        # Add uptime if available
+        if uptime_seconds is not None:
+            response["uptime_seconds"] = round(uptime_seconds, 2)
+            response["uptime_formatted"] = format_uptime(uptime_seconds)
+        
+        # Return 503 if unhealthy
+        if db_status != "connected":
             raise HTTPException(
                 status_code=503,
-                detail={
-                    "status": "unhealthy",
-                    "db": "disconnected",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
+                detail=response
             )
+        
+        return response
+        
     except HTTPException:
         raise  # Re-raise HTTPException as-is
     except Exception as e:
-        # Database connection error - return 503
-        logger.error(f"Health check database ping failed: {e}")
+        # Unexpected error - return 503
+        logger.error(f"Health check failed: {e}")
         raise HTTPException(
             status_code=503,
             detail={
                 "status": "unhealthy",
                 "db": "error",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "error": str(e)
+                "error": str(e),
+                "build_hash": get_build_hash(),
+                "bind_ok": _bind_ok
             }
         )
+
+
+def format_uptime(seconds: float) -> str:
+    """Format uptime in human-readable format."""
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    
+    return " ".join(parts)
 
 
 @router.get("/ready")

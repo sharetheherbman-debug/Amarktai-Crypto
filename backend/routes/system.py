@@ -87,6 +87,120 @@ async def get_platforms() -> dict:
         }
 
 
+@router.get("/gates")
+async def get_system_gates() -> dict:
+    """Get current state of all system gates (feature flags).
+    
+    This endpoint shows the live state of all trading gates and explains why they are
+    enabled or disabled. Used for go-live readiness checks and troubleshooting.
+    
+    Dynamically discovers all ENABLE_* flags from config module.
+    
+    Returns:
+        gates: Dict of gate names to their current state (True/False)
+        reasons: Dict of gate names to explanation strings
+        safe_to_trade: Boolean indicating if trading is safe to enable
+        warnings: List of warnings about disabled gates
+    """
+    try:
+        # Dynamically discover all ENABLE_* attributes from config
+        gates = {}
+        for attr_name in dir(config):
+            if attr_name.startswith('ENABLE_'):
+                gates[attr_name] = getattr(config, attr_name, False)
+        
+        # Explain each gate's status
+        reasons = {}
+        warnings = []
+        
+        # ENABLE_TRADING
+        if gates["ENABLE_TRADING"]:
+            reasons["ENABLE_TRADING"] = "Trading system is enabled (required for both paper and live)"
+        else:
+            reasons["ENABLE_TRADING"] = "Trading system is DISABLED - no trading possible"
+            warnings.append("ENABLE_TRADING is OFF - trading is completely disabled")
+        
+        # ENABLE_PAPER_TRADING
+        if gates["ENABLE_PAPER_TRADING"]:
+            reasons["ENABLE_PAPER_TRADING"] = "Paper trading is enabled (simulated trades)"
+        else:
+            reasons["ENABLE_PAPER_TRADING"] = "Paper trading is DISABLED"
+            warnings.append("ENABLE_PAPER_TRADING is OFF - cannot test strategies")
+        
+        # ENABLE_LIVE_TRADING
+        if gates["ENABLE_LIVE_TRADING"]:
+            reasons["ENABLE_LIVE_TRADING"] = "Live trading is ENABLED - real money at risk"
+            warnings.append("⚠️ LIVE TRADING IS ACTIVE - using real funds")
+        else:
+            reasons["ENABLE_LIVE_TRADING"] = "Live trading is disabled (safe default)"
+        
+        # ENABLE_AUTOPILOT
+        if gates["ENABLE_AUTOPILOT"]:
+            reasons["ENABLE_AUTOPILOT"] = "Autopilot is enabled (autonomous bot management)"
+        else:
+            reasons["ENABLE_AUTOPILOT"] = "Autopilot is disabled (manual bot management only)"
+        
+        # ENABLE_SCHEDULERS
+        if gates["ENABLE_SCHEDULERS"]:
+            reasons["ENABLE_SCHEDULERS"] = "Background schedulers are enabled"
+        else:
+            reasons["ENABLE_SCHEDULERS"] = "Background schedulers are DISABLED"
+            warnings.append("ENABLE_SCHEDULERS is OFF - no automated tasks will run")
+        
+        # ENABLE_BODYGUARD
+        if gates["ENABLE_BODYGUARD"]:
+            reasons["ENABLE_BODYGUARD"] = "AI Bodyguard is enabled (extra safety checks)"
+        else:
+            reasons["ENABLE_BODYGUARD"] = "AI Bodyguard is disabled"
+        
+        # ENABLE_REALTIME
+        if gates["ENABLE_REALTIME"]:
+            reasons["ENABLE_REALTIME"] = "Real-time events (SSE/WebSocket) are enabled"
+        else:
+            reasons["ENABLE_REALTIME"] = "Real-time events are disabled"
+        
+        # ENABLE_CCXT
+        if gates["ENABLE_CCXT"]:
+            reasons["ENABLE_CCXT"] = "CCXT exchange integration is enabled"
+        else:
+            reasons["ENABLE_CCXT"] = "CCXT is DISABLED - cannot fetch prices or trade"
+            warnings.append("ENABLE_CCXT is OFF - exchange integration disabled")
+        
+        # Determine if safe to trade
+        safe_to_trade_paper = (
+            gates["ENABLE_TRADING"] and 
+            gates["ENABLE_PAPER_TRADING"] and 
+            gates["ENABLE_CCXT"]
+        )
+        
+        safe_to_trade_live = (
+            gates["ENABLE_TRADING"] and 
+            gates["ENABLE_LIVE_TRADING"] and 
+            gates["ENABLE_CCXT"]
+        )
+        
+        # Build recommended actions
+        recommended_actions = []
+        if not safe_to_trade_paper:
+            recommended_actions.append("Enable ENABLE_TRADING, ENABLE_PAPER_TRADING, and ENABLE_CCXT for paper trading")
+        if not safe_to_trade_live and gates["ENABLE_LIVE_TRADING"]:
+            recommended_actions.append("⚠️ Live trading is ON but prerequisites may not be met")
+        
+        return {
+            "gates": gates,
+            "reasons": reasons,
+            "safe_to_trade_paper": safe_to_trade_paper,
+            "safe_to_trade_live": safe_to_trade_live,
+            "warnings": warnings,
+            "recommended_actions": recommended_actions,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in get_system_gates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get system gates: {str(e)}")
+
+
 # REMOVED: Duplicate of live_trading_gate.py endpoint GET /api/system/live-eligibility
 # Use live_trading_gate.py instead
 

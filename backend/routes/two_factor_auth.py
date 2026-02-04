@@ -14,8 +14,10 @@ import base64
 
 from auth import get_current_user
 import database as db
+from services.safe_audit_logger import SafeAuditLogger
 
 logger = logging.getLogger(__name__)
+audit_logger = SafeAuditLogger()
 
 router = APIRouter(prefix="/api/auth/2fa", tags=["Two-Factor Authentication"])
 
@@ -82,6 +84,15 @@ async def enroll_2fa(user_id: str = Depends(get_current_user)):
         
         logger.info(f"2FA enrollment started for user {user_id[:8]}")
         
+        # Audit log
+        await audit_logger.log_action(
+            user_id=user_id,
+            action="2fa_enrollment_started",
+            target_type="user",
+            target_id=user_id,
+            details={"method": "TOTP"}
+        )
+        
         return {
             "success": True,
             "message": "Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.)",
@@ -142,6 +153,15 @@ async def verify_2fa_enrollment(
             )
             
             logger.info(f"2FA enabled for user {user_id[:8]}")
+            
+            # Audit log
+            await audit_logger.log_action(
+                user_id=user_id,
+                action="2fa_enabled",
+                target_type="user",
+                target_id=user_id,
+                details={"method": "TOTP", "verified": True}
+            )
             
             return {
                 "success": True,
@@ -224,6 +244,15 @@ async def disable_2fa(
         )
         
         logger.info(f"2FA disabled for user {user_id[:8]}")
+        
+        # Audit log
+        await audit_logger.log_action(
+            user_id=user_id,
+            action="2fa_disabled",
+            target_type="user",
+            target_id=user_id,
+            details={"method": "TOTP", "disabled_with_password": True}
+        )
         
         return {
             "success": True,
