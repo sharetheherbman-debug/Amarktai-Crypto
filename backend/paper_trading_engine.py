@@ -1049,7 +1049,7 @@ class PaperTradingEngine:
             return 3   # Very poor
     
     async def run_trading_cycle(self, bot_id: str, bot_data: Dict, db_collections: Dict):
-        """Run trading cycle - accurate live simulation with risk controls"""
+        """Run trading cycle - accurate live simulation with risk controls and paper wallet enforcement"""
         try:
             trade_result = await self.execute_smart_trade(bot_id, bot_data)
             
@@ -1064,8 +1064,29 @@ class PaperTradingEngine:
             if not fresh_bot:
                 return None
             
-            # Use fresh current_capital for accurate calculation
-            new_capital = fresh_bot['current_capital'] + trade_result['profit_loss']
+            # PHASE 4A: Update paper wallet ledger with trade result
+            net_profit = trade_result.get('profit_loss', 0)
+            
+            if net_profit > 0:
+                # Credit profit to paper wallet
+                success, msg = await paper_wallet_ledger.credit(bot_id, net_profit, "trade_profit")
+                if not success:
+                    logger.warning(f"Failed to credit paper wallet: {msg}")
+            else:
+                # Debit loss from paper wallet (net_profit is negative)
+                loss_amount = abs(net_profit)
+                success, msg = await paper_wallet_ledger.debit(bot_id, loss_amount, "trade_loss")
+                if not success:
+                    logger.warning(f"Failed to debit paper wallet: {msg}")
+            
+            # Get updated paper wallet balance
+            success, paper_balance, msg = await paper_wallet_ledger.get_balance(bot_id)
+            if success:
+                new_capital = paper_balance
+            else:
+                # Fallback to calculation if paper wallet fails
+                new_capital = fresh_bot['current_capital'] + net_profit
+            
             total_profit = new_capital - fresh_bot['initial_capital']
             
             # Update bot with calculated values
@@ -1099,6 +1120,13 @@ class PaperTradingEngine:
             from uuid import uuid4
             trade_id = str(uuid4())[:8]
             
+            # Extract values for legacy fields
+            entry_price = trade_result.get('entry_price', 0)
+            fees = trade_result.get('fees', 0)
+            gross_profit = trade_result.get('gross_profit', 0)
+            slippage_rate = trade_result.get('slippage_rate', 0)
+            fee_rate = trade_result.get('fee_rate', 0)
+            
             trade_doc = {
                 "id": trade_id,
                 **trade_result,
@@ -1118,7 +1146,8 @@ class PaperTradingEngine:
                 "fee_amount": round(fees, 2),  # Total fees charged
                 "gross_pnl": round(gross_profit, 2),  # PnL before fees
                 "net_pnl": round(net_profit, 2),  # PnL after fees
-                "trading_mode": "paper"  # Explicitly mark as paper trade
+                "trading_mode": "paper",  # Explicitly mark as paper trade
+                "paper_wallet_balance": round(new_capital, 2)  # Include paper wallet balance
             }
             
             # Final validation: ensure document is not empty
@@ -1127,12 +1156,13 @@ class PaperTradingEngine:
                 return None
             
             await trades_collection.insert_one(trade_doc)
-            logger.info(f"✅ Trade inserted: id={trade_id}, profit={trade_result['profit_loss']:.2f}")
+            logger.info(f"✅ Trade inserted: id={trade_id}, profit={trade_result['profit_loss']:.2f}, paper_balance=R{new_capital:.2f}")
             
             return {
                 "bot_id": bot_id,
                 "new_capital": round(new_capital, 2),
                 "total_profit": round(total_profit, 2),
+                "paper_wallet_balance": round(new_capital, 2),
                 "trade": trade_result
             }
             
