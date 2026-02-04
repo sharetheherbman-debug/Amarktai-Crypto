@@ -151,13 +151,16 @@ async def reset_daily_loss_lock(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/bots/resume-all")
-async def resume_all_bots(
+@router.post("/api/risk/resume-all")
+async def resume_all_bots_with_risk_check(
     force: bool = False,
     user_id: str = Depends(get_current_user)
 ):
     """
-    Resume all paused bots for the user
+    Resume all paused bots with risk lock check (admin-preferred endpoint)
+    
+    This endpoint includes daily loss lock protection and is the recommended
+    way to resume all bots. It respects risk management guards.
     
     Args:
         force: If true, bypass daily loss lock check (admin only)
@@ -228,6 +231,15 @@ async def resume_all_bots(
                 
                 resumed_count += 1
                 logger.info(f"Resumed bot {bot_id} as part of resume-all")
+                
+                # Send real-time update for this bot (import at top if needed)
+                try:
+                    from realtime_events import rt_events
+                    updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                    if updated_bot:
+                        await rt_events.bot_resumed(user_id, updated_bot)
+                except Exception as rt_err:
+                    logger.warning(f"Could not send real-time event for bot {bot_id}: {rt_err}")
                 
             except Exception as e:
                 errors.append({

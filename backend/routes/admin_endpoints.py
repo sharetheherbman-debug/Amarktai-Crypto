@@ -4,7 +4,7 @@ User management, system monitoring, and administrative actions
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field
 import logging
 from datetime import datetime, timezone

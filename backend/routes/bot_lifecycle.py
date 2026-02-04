@@ -602,51 +602,6 @@ async def pause_all_bots(data: Optional[Dict] = None, user_id: str = Depends(get
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/resume-all")
-async def resume_all_bots(user_id: str = Depends(get_current_user)):
-    """Resume all paused bots for a user
-    
-    Args:
-        user_id: Current user ID (from auth)
-        
-    Returns:
-        Summary of resumed bots
-    """
-    try:
-        resumed_at = datetime.now(timezone.utc).isoformat()
-        
-        # Resume all paused bots (only those paused by user, not system)
-        result = await db.bots_collection.update_many(
-            {"user_id": user_id, "status": "paused", "paused_by_user": True},
-            {
-                "$set": {
-                    "status": "active",
-                    "resumed_at": resumed_at
-                },
-                "$unset": {
-                    "paused_at": "",
-                    "pause_reason": "",
-                    "paused_by_user": ""
-                }
-            }
-        )
-        
-        # Send real-time notification
-        await rt_events.force_refresh(user_id, f"Resumed {result.modified_count} bots")
-        
-        logger.info(f"✅ Resumed {result.modified_count} bots for user {user_id[:8]}")
-        
-        return {
-            "success": True,
-            "message": f"Resumed {result.modified_count} bot(s)",
-            "resumed_count": result.modified_count
-        }
-        
-    except Exception as e:
-        logger.error(f"Resume all bots error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.put("/{bot_id}/trading-enabled")
 @router.post("/{bot_id}/trading-enabled")
 async def toggle_bot_trading(bot_id: str, data: Dict, user_id: str = Depends(get_current_user)):
