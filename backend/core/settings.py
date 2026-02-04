@@ -301,7 +301,10 @@ class SystemSettings:
         # Validate bot limit
         expected = sum(ExchangeLimits.BOT_ALLOCATION.values())
         if self.MAX_TOTAL_BOTS != expected:
-            raise ValueError(f"MAX_TOTAL_BOTS must equal {expected} (sum of exchange allocations)")
+            raise ValueError(
+                f"MAX_TOTAL_BOTS ({self.MAX_TOTAL_BOTS}) must equal {expected} "
+                f"(sum of exchange allocations: {dict(ExchangeLimits.BOT_ALLOCATION)})"
+            )
     
     @property
     def active_encryption_key(self) -> str:

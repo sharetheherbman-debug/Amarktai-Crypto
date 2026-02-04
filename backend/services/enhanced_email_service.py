@@ -286,7 +286,7 @@ From: {self.from_name} <{self.from_email}>
         return success
     
     async def send_bulk_daily_reports(self, 
-                                     user_reports: List[Dict[str, any]]) -> Dict[str, int]:
+                                     user_reports: List[Dict[str, Dict]]) -> Dict[str, int]:
         """
         Send daily reports to multiple users.
         
