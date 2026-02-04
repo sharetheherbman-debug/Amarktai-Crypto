@@ -28,6 +28,9 @@ alerts_collection = None
 sessions_collection = None
 system_config_collection = None
 
+# Paper trading wallet ledger (Phase 4A)
+paper_ledger_collection = None
+
 # System modes and chat
 system_modes_collection = None
 chat_messages_collection = None
@@ -180,6 +183,7 @@ async def setup_collections():
     global orders_collection, positions_collection, balance_snapshots_collection, performance_metrics_collection
     global user_countdowns_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
+    global paper_ledger_collection  # Phase 4A: Paper wallet ledger
     
     if db is None:
         logger.warning("⚠️ Database not connected, cannot setup collections")
@@ -193,6 +197,9 @@ async def setup_collections():
     alerts_collection = db.alerts
     sessions_collection = db.sessions
     system_config_collection = db.system_config
+    
+    # Paper trading wallet ledger (Phase 4A)
+    paper_ledger_collection = db.paper_ledger
     
     # System modes and chat
     system_modes_collection = db.system_modes

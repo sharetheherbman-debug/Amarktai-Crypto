@@ -120,6 +120,10 @@ class ConnectionManager:
         """Broadcast message to all connected users"""
         for user_id in list(self.active_connections.keys()):
             await self.broadcast_to_user(message, user_id)
+    
+    async def broadcast(self, message: dict):
+        """Alias for broadcast_to_all() - for backward compatibility"""
+        await self.broadcast_to_all(message)
             
     async def _ping_loop(self, websocket: WebSocket):
         """Send periodic pings and wait for pongs to keep connection alive"""

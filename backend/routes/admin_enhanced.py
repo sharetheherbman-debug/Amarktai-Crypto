@@ -9,26 +9,31 @@ from typing import Optional, List
 import logging
 from datetime import datetime, timezone
 
-from auth import get_current_user
+from auth import get_current_user, resolve_current_user
 import database as db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["Enhanced Admin"])
 
 
-async def require_admin(current_user: str = Depends(get_current_user)) -> str:
-    """Ensure current user is admin"""
-    user = await db.users_collection.find_one({"id": current_user}, {"_id": 0})
+async def require_admin(current_user = Depends(get_current_user)) -> str:
+    """Ensure current user is admin - handles all current_user formats"""
+    # Normalize current_user to user_id string
+    user_id = await resolve_current_user(current_user)
+    
+    # Look up user by id field
+    user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Check both is_admin flag and role field
     is_admin = user.get('is_admin', False) or user.get('role') == 'admin'
     
     if not is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    return current_user
+    return user_id
 
 
 @router.get("/users/list")

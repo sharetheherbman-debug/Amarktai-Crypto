@@ -2,6 +2,7 @@
 Trading Scheduler - CONTINUOUS STAGGERED TRADING
 Uses trade_staggerer for 24/7 distributed execution
 Actually uses live_trading_engine for live bots
+Enforces trading mode gates (paper OR live required)
 """
 
 import asyncio
@@ -16,6 +17,8 @@ from realtime_events import rt_events
 from config import PAPER_SUPPORTED_EXCHANGES
 from services.bot_quarantine import quarantine_service
 from services.system_gate import system_gate
+from services.trading_mode_validator import trading_mode_validator
+from utils.trading_gates import TradingGateError
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +203,21 @@ class TradingScheduler:
                 bot = next((b for b in active_bots if b['id'] == bot_id), None)
                 
                 if not bot:
+                    continue
+                
+                # PHASE 4B/4C: Validate trading mode gates BEFORE execution
+                try:
+                    can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(bot_id, bot)
+                    
+                    if not can_trade:
+                        logger.warning(f"⛔ {bot['name']} - Trading blocked: {reason}")
+                        # Don't execute - mark reason
+                        continue
+                    
+                    logger.debug(f"✅ Trading gates passed for {bot['name']} in {mode} mode")
+                    
+                except TradingGateError as e:
+                    logger.error(f"⛔ Trading gate error for {bot['name']}: {e}")
                     continue
                 
                 # Execute trade based on mode

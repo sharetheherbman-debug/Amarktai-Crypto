@@ -68,6 +68,63 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         )
     return user_id
 
+async def resolve_current_user(current_user) -> str:
+    """Normalize get_current_user() return value to always return user_id string
+    
+    Handles multiple formats that get_current_user() might return:
+    - string user_id (most common)
+    - dict with 'id' or 'user_id' field
+    - email string (lookup in database)
+    - ObjectId (convert to string)
+    
+    Returns: user_id as string, suitable for database lookups
+    """
+    import database as db
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    
+    # Case 1: Already a string (most common)
+    if isinstance(current_user, str):
+        # Check if it looks like an email (contains @)
+        if "@" in current_user:
+            # Look up user by email to get user_id
+            user = await db.users_collection.find_one(
+                {"email": current_user}, 
+                {"_id": 0, "id": 1}
+            )
+            if user and "id" in user:
+                return user["id"]
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found by email"
+            )
+        # Already a user_id string
+        return current_user
+    
+    # Case 2: Dict with user info
+    if isinstance(current_user, dict):
+        # Try common field names
+        if "id" in current_user:
+            return str(current_user["id"])
+        if "user_id" in current_user:
+            return str(current_user["user_id"])
+        if "_id" in current_user:
+            return str(current_user["_id"])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user dict format"
+        )
+    
+    # Case 3: ObjectId
+    if isinstance(current_user, ObjectId):
+        return str(current_user)
+    
+    # Unknown format
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unsupported current_user type: {type(current_user)}"
+    )
+
 async def verify_admin_password(password: str) -> bool:
     """Verify admin password"""
     admin_password = os.getenv("ADMIN_PASSWORD", "ashmor12@")

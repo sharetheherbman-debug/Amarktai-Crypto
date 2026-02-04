@@ -180,6 +180,60 @@ else
     warn "OpenAI test endpoint may have issues (HTTP $test_http_code)"
 fi
 
+# Test 8: Realtime Smoke Test
+echo ""
+echo "Test 8: Realtime Events System"
+realtime_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/diagnostics/realtime-smoke" \
+    -H "Authorization: Bearer $TOKEN")
+
+realtime_http_code=$(echo "$realtime_response" | tail -n1)
+realtime_body=$(echo "$realtime_response" | head -n-1)
+
+if [ "$realtime_http_code" = "200" ]; then
+    if echo "$realtime_body" | grep -q '"success".*true'; then
+        pass "Realtime events system operational"
+    else
+        fail "Realtime smoke test returned success=false"
+    fi
+else
+    fail "Realtime smoke test failed (HTTP $realtime_http_code)"
+fi
+
+# Test 9: Analytics Performance Endpoint (Frontend Critical)
+echo ""
+echo "Test 9: Analytics Performance Endpoint"
+analytics_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/analytics/performance" \
+    -H "Authorization: Bearer $TOKEN")
+
+analytics_http_code=$(echo "$analytics_response" | tail -n1)
+analytics_body=$(echo "$analytics_response" | head -n-1)
+
+if [ "$analytics_http_code" = "200" ]; then
+    if echo "$analytics_body" | grep -q '"total_trades"\|"win_rate"'; then
+        pass "Analytics performance endpoint working (no 404)"
+    else
+        warn "Analytics endpoint returned 200 but missing expected fields"
+    fi
+else
+    fail "Analytics performance endpoint failed (HTTP $analytics_http_code) - Frontend will get 404s"
+fi
+
+# Test 10: Admin Users List (if admin)
+echo ""
+echo "Test 10: Admin Endpoints"
+admin_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/admin/users/list" \
+    -H "Authorization: Bearer $TOKEN")
+
+admin_http_code=$(echo "$admin_response" | tail -n1)
+
+if [ "$admin_http_code" = "200" ]; then
+    pass "Admin users list endpoint working"
+elif [ "$admin_http_code" = "403" ]; then
+    warn "Admin access denied (expected if user is not admin)"
+else
+    warn "Admin endpoint returned unexpected status (HTTP $admin_http_code)"
+fi
+
 # Summary
 echo ""
 echo "================================"
