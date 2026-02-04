@@ -3429,6 +3429,89 @@ export default function Dashboard() {
     );
   };
 
+  // Handle Start Fresh - Wipe paper data
+  const handleStartFresh = async () => {
+    const confirmPhrase = window.prompt(
+      'WARNING: This will delete all paper trading data!\n\n' +
+      'This includes:\n' +
+      '- All paper trading bots\n' +
+      '- All paper trades history\n' +
+      '- Bot telemetry data\n' +
+      '- Risk lock states\n\n' +
+      'Type "DELETE_ALL_PAPER_DATA" to confirm:'
+    );
+
+    if (confirmPhrase !== 'DELETE_ALL_PAPER_DATA') {
+      if (confirmPhrase !== null) {
+        showNotification('Incorrect confirmation phrase', 'error');
+      }
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${API}/admin/start-fresh`,
+        {
+          confirm_phrase: 'DELETE_ALL_PAPER_DATA',
+          scope: 'paper_only',
+          also_reset_risk_locks: true
+        },
+        axiosConfig
+      );
+
+      if (response.data.success) {
+        const summary = response.data.summary;
+        showNotification(
+          `Start Fresh completed! Deleted: ${summary.bots_deleted} bots, ${summary.trades_deleted} trades`,
+          'success'
+        );
+        
+        // Refresh data
+        loadBots();
+        loadSystemStats();
+        loadAdminUsers();
+      }
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      showNotification(`Start Fresh failed: ${errorMsg}`, 'error');
+      console.error('Start Fresh error:', err);
+    }
+  };
+
+  // Handle API Key Migration
+  const handleMigrateApiKeys = async () => {
+    if (!window.confirm(
+      'Migrate API keys from old JWT_SECRET-derived encryption to AMARKTAI_FERNET_KEY?\n\n' +
+      'This will:\n' +
+      '- Decrypt existing keys with old method\n' +
+      '- Re-encrypt with new dedicated key\n' +
+      '- Update all keys in database\n\n' +
+      'Continue?'
+    )) {
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${API}/admin/migrate-api-keys`,
+        {},
+        axiosConfig
+      );
+
+      if (response.data.success) {
+        const results = response.data.results;
+        showNotification(
+          `Migration completed! Migrated: ${results.migrated}, Failed: ${results.failed}, Skipped: ${results.skipped}`,
+          results.failed > 0 ? 'warning' : 'success'
+        );
+      }
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      showNotification(`API Key migration failed: ${errorMsg}`, 'error');
+      console.error('API Key migration error:', err);
+    }
+  };
+
   const renderAdmin = () => {
     
     return (
@@ -4239,6 +4322,109 @@ export default function Dashboard() {
             <p style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '12px', lineHeight: '1.5'}}>
               Monitor system health, send notifications, and check backend services in real-time
             </p>
+          </div>
+          
+          {/* Danger Zone - Admin Only Destructive Actions */}
+          <div style={{
+            marginTop: '24px', 
+            padding: '20px', 
+            background: 'rgba(239, 68, 68, 0.1)', 
+            borderRadius: '8px', 
+            border: '2px solid var(--error)'
+          }}>
+            <h3 style={{marginBottom: '16px', color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              ⚠️ Danger Zone
+              <span style={{fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--muted)'}}>
+                (Admin Only - Destructive Actions)
+              </span>
+            </h3>
+            
+            <div style={{display: 'grid', gap: '12px'}}>
+              {/* Start Fresh Button */}
+              <div style={{
+                padding: '16px',
+                background: 'var(--panel)',
+                borderRadius: '6px',
+                border: '1px solid var(--error)'
+              }}>
+                <div style={{marginBottom: '12px'}}>
+                  <h4 style={{margin: '0 0 8px 0', color: 'var(--text)', fontSize: '1rem'}}>
+                    🗑️ Start Fresh (Wipe Paper Data)
+                  </h4>
+                  <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: 0, lineHeight: '1.5'}}>
+                    Delete all paper trading bots, trades, and telemetry. Resets risk locks. 
+                    <strong style={{color: 'var(--error)'}}>Cannot be undone!</strong>
+                  </p>
+                </div>
+                <button
+                  onClick={handleStartFresh}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'var(--error)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  🗑️ Start Fresh (Delete Paper Data)
+                </button>
+              </div>
+
+              {/* API Key Migration Button */}
+              <div style={{
+                padding: '16px',
+                background: 'var(--panel)',
+                borderRadius: '6px',
+                border: '1px solid #f59e0b'
+              }}>
+                <div style={{marginBottom: '12px'}}>
+                  <h4 style={{margin: '0 0 8px 0', color: 'var(--text)', fontSize: '1rem'}}>
+                    🔐 Migrate API Key Encryption
+                  </h4>
+                  <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: 0, lineHeight: '1.5'}}>
+                    Migrate API keys from JWT_SECRET-derived encryption to dedicated AMARKTAI_FERNET_KEY.
+                    Required when upgrading encryption method.
+                  </p>
+                </div>
+                <button
+                  onClick={handleMigrateApiKeys}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                  🔐 Migrate API Keys
+                </button>
+              </div>
+            </div>
+            
+            <div style={{
+              marginTop: '16px',
+              padding: '12px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              borderRadius: '4px',
+              fontSize: '0.75rem',
+              color: 'var(--error)',
+              lineHeight: '1.5'
+            }}>
+              <strong>⚠️ Warning:</strong> These actions are irreversible and will affect system data.
+              All actions are logged in the audit trail. Use with extreme caution.
+            </div>
           </div>
           
           <div style={{marginTop: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--error)', fontSize: '0.85rem'}}>
