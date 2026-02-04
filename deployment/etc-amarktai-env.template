@@ -9,12 +9,14 @@
 
 # JWT secret for token signing (MUST be changed in production!)
 # Generate with: openssl rand -hex 32
-JWT_SECRET=CHANGE_ME_$(openssl rand -hex 32)
+# Replace GENERATE_ME with actual generated value
+JWT_SECRET=GENERATE_ME_openssl_rand_hex_32
 
 # API Key Encryption Key (for encrypting exchange API keys in database)
 # Generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 # CRITICAL: Store securely (e.g., AWS Secrets Manager, HashiCorp Vault)
-AMARKTAI_FERNET_KEY=CHANGE_ME_$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+# Replace GENERATE_ME with actual generated value
+AMARKTAI_FERNET_KEY=GENERATE_ME_python_fernet_key
 
 # ============================================================================
 # DATABASE CONFIGURATION

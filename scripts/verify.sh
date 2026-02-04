@@ -181,11 +181,11 @@ if [ -f ".env" ]; then
     
     # Check MAX_TRADES_PER_BOT_PER_DAY
     if [ ! -z "$MAX_TRADES_PER_BOT_PER_DAY" ]; then
-        if [ "$MAX_TRADES_PER_BOT_PER_DAY" -eq 1000 ] || [ "$MAX_TRADES_PER_BOT_PER_DAY" -le 2000 ]; then
-            echo -e "${GREEN}✓${NC} MAX_TRADES_PER_BOT_PER_DAY is set to $MAX_TRADES_PER_BOT_PER_DAY (valid)"
+        if [ "$MAX_TRADES_PER_BOT_PER_DAY" -ge 500 ] && [ "$MAX_TRADES_PER_BOT_PER_DAY" -le 2000 ]; then
+            echo -e "${GREEN}✓${NC} MAX_TRADES_PER_BOT_PER_DAY is set to $MAX_TRADES_PER_BOT_PER_DAY (valid range: 500-2000)"
             ((TESTS_PASSED++))
         else
-            echo -e "${YELLOW}⚠${NC}  MAX_TRADES_PER_BOT_PER_DAY is $MAX_TRADES_PER_BOT_PER_DAY (unusually high)"
+            echo -e "${YELLOW}⚠${NC}  MAX_TRADES_PER_BOT_PER_DAY is $MAX_TRADES_PER_BOT_PER_DAY (outside recommended range: 500-2000)"
         fi
     else
         echo -e "${YELLOW}⚠${NC}  MAX_TRADES_PER_BOT_PER_DAY not set (will use default: 1000)"

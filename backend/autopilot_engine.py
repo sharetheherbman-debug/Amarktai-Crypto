@@ -577,11 +577,17 @@ class AutopilotEngine:
             logger.error(f"Evolution cycle error: {e}")
     
     async def _find_best_exchange_for_spawn(self, user_id: str, bots: list, seed_amount: float) -> str:
-        """Find the best exchange to spawn a new bot on, considering limits and per-exchange profit"""
+        """Find the best exchange to spawn a new bot on, considering limits and per-exchange profit
+        
+        Exchange limits are configured in bot_spawner.py to match production requirements:
+        - luno: 5 bots
+        - binance, kucoin, bybit, kraken, bitget, gate: 10 bots each
+        Total: 65 bots maximum across all exchanges
+        """
         try:
             import config
             
-            # Exchange limits from bot_spawner
+            # Exchange limits - matches bot_spawner distribution (5+10+10+10+10+10+10=65)
             EXCHANGE_LIMITS = {
                 'luno': 5,
                 'binance': 10,
