@@ -31,8 +31,12 @@ class EmailAlerts:
         try:
             # Get user email
             user = await db.users.find_one({"id": user_id}, {"_id": 0})
-            if not user or not user.get('email'):
-                logger.warning(f"No email found for user {user_id}")
+            if not user:
+                logger.warning(f"User not found: {user_id}")
+                return
+            
+            if not user.get('email'):
+                logger.warning(f"No email configured for user {user_id}")
                 return
             
             # Get bot info

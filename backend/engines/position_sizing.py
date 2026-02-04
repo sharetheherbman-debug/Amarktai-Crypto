@@ -61,12 +61,15 @@ class PositionSizer:
             
             # Validate inputs
             if win_prob <= 0 or win_prob >= 1:
-                logger.warning(f"Invalid win probability {win_prob}, using default 0.5")
+                logger.warning(f"Invalid win probability {win_prob} for bot {bot_id}, using conservative default 0.5")
                 win_prob = 0.5
             
             if win_ratio <= 0:
-                logger.warning(f"Invalid win ratio {win_ratio}, using default 1.5")
+                logger.warning(f"Invalid win ratio {win_ratio} for bot {bot_id}, using conservative default 1.5")
                 win_ratio = 1.5
+                
+                # Note: These defaults may indicate insufficient trading history
+                # Recommendation: Wait for more trades before using Kelly sizing
             
             # Calculate Kelly percentage
             loss_prob = 1 - win_prob
@@ -143,10 +146,10 @@ class PositionSizer:
             
             # Calculate volatility adjustment factor
             # Lower volatility = larger position, higher volatility = smaller position
-            if volatility > 0:
-                # Inverse relationship with volatility
-                base_volatility = np.std(returns) if len(returns) > 1 else volatility
-                volatility_factor = base_volatility / volatility if volatility > 0 else 1.0
+            if volatility > 0 and len(returns) > 1:
+                # Use baseline volatility (average) for comparison
+                avg_volatility = np.mean([np.std(returns[i:i+5]) for i in range(0, len(returns)-4, 5)]) if len(returns) >= 10 else volatility
+                volatility_factor = avg_volatility / volatility if volatility > 0 else 1.0
                 
                 # Clamp to reasonable bounds
                 volatility_factor = max(MIN_VOLATILITY_ADJUSTMENT, min(MAX_VOLATILITY_ADJUSTMENT, volatility_factor))

@@ -143,7 +143,8 @@ async def optimize_strategy(
             )
         
         # Run optimization (simplified - would do grid search in production)
-        # For now, return a sample optimization result
+        # TODO: Implement full grid search optimization with parameter combinations
+        # For now, return a sample optimization result based on best_params heuristic
         best_params = {
             "risk_mode": "balanced",
             "stop_loss": 0.05,

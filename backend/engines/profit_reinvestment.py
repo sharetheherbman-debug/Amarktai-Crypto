@@ -230,11 +230,13 @@ class ProfitReinvestment:
             if last_trade_profit > 0:
                 # Win: increase position size based on reinvestment percentage
                 # Higher reinvestment = more aggressive position increase
-                adjustment_factor = 1.0 + (reinvestment_pct / 100) * 0.2  # Max 20% increase
+                # Multiplier 0.2 = max 20% increase at 100% reinvestment
+                adjustment_factor = 1.0 + (reinvestment_pct / 100) * 0.2
             else:
                 # Loss: decrease position size
                 # Lower reinvestment = more conservative position decrease
-                adjustment_factor = 1.0 - (1 - reinvestment_pct / 100) * 0.15  # Max 15% decrease
+                # Multiplier 0.15 = max 15% decrease at 0% reinvestment
+                adjustment_factor = 1.0 - (1 - reinvestment_pct / 100) * 0.15
             
             # Clamp adjustment to reasonable bounds
             adjustment_factor = max(0.75, min(1.25, adjustment_factor))

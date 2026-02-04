@@ -148,21 +148,10 @@ class ATRStopLoss:
             # Calculate percentage
             stop_pct = abs(stop_distance / entry_price)
             
-            # Clamp to min/max bounds
-            if stop_pct < MIN_STOP_LOSS_PCT:
-                stop_pct = MIN_STOP_LOSS_PCT
-                stop_distance = entry_price * MIN_STOP_LOSS_PCT
-                if direction == "long":
-                    stop_loss = entry_price - stop_distance
-                else:
-                    stop_loss = entry_price + stop_distance
-            elif stop_pct > MAX_STOP_LOSS_PCT:
-                stop_pct = MAX_STOP_LOSS_PCT
-                stop_distance = entry_price * MAX_STOP_LOSS_PCT
-                if direction == "long":
-                    stop_loss = entry_price - stop_distance
-                else:
-                    stop_loss = entry_price + stop_distance
+            # Clamp to min/max bounds using helper
+            stop_pct, stop_distance, stop_loss = self._clamp_stop_loss(
+                stop_pct, stop_distance, entry_price, direction
+            )
             
             return {
                 "bot_id": bot_id,
@@ -272,6 +261,38 @@ class ATRStopLoss:
         except Exception as e:
             logger.error(f"Trailing stop update error: {e}")
             return {"error": str(e)}
+    
+    def _clamp_stop_loss(
+        self,
+        stop_pct: float,
+        stop_distance: float,
+        entry_price: float,
+        direction: str
+    ) -> tuple[float, float, float]:
+        """Helper to clamp stop-loss to min/max bounds
+        
+        Args:
+            stop_pct: Stop-loss percentage
+            stop_distance: Stop-loss distance
+            entry_price: Entry price
+            direction: "long" or "short"
+            
+        Returns:
+            Tuple of (clamped_pct, clamped_distance, stop_loss_price)
+        """
+        if stop_pct < MIN_STOP_LOSS_PCT:
+            stop_pct = MIN_STOP_LOSS_PCT
+            stop_distance = entry_price * MIN_STOP_LOSS_PCT
+        elif stop_pct > MAX_STOP_LOSS_PCT:
+            stop_pct = MAX_STOP_LOSS_PCT
+            stop_distance = entry_price * MAX_STOP_LOSS_PCT
+        
+        if direction == "long":
+            stop_loss = entry_price - stop_distance
+        else:
+            stop_loss = entry_price + stop_distance
+        
+        return stop_pct, stop_distance, stop_loss
     
     async def check_stop_loss_hit(self, trade_id: str, current_price: float) -> Dict:
         """Check if stop-loss has been hit for a trade
