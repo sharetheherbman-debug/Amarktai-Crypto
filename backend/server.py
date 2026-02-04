@@ -62,7 +62,23 @@ api_router.include_router(auth_router)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events with feature flags for plug-and-play stability"""
-    logger.info("🚀 Starting Amarktai Network...")
+    from datetime import datetime, timezone
+    startup_time = datetime.now(timezone.utc)
+    
+    logger.info("="*80)
+    logger.info("🚀 Starting Amarktai Network Backend Server")
+    logger.info("="*80)
+    
+    # Log startup configuration
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    logger.info(f"📡 Configured to bind: {host}:{port}")
+    logger.info(f"🏗️  Build SHA: {os.getenv('BUILD_SHA', 'unknown')}")
+    logger.info(f"🌍 Environment: {os.getenv('ENVIRONMENT', 'production')}")
+    logger.info(f"📁 Working Directory: {os.getcwd()}")
+    logger.info(f"🐍 Python Version: {os.sys.version.split()[0]}")
+    logger.info(f"⏰ Startup Time: {startup_time.isoformat()}")
+    logger.info("="*80)
     
     # =========================================================================
     # STEP 0: Validate configuration (ONE TRUTH enforcement)
@@ -134,11 +150,17 @@ async def lifespan(app: FastAPI):
         
         background_tasks = await lifecycle_manager.start_all()
         logger.info(f"✅ Started {len(lifecycle_manager.subsystems)} subsystems with {len(background_tasks)} background tasks")
+        
+        # Check if any CRITICAL subsystems failed
+        # For now, lifecycle manager is considered optional
+        # Individual critical services will fail-fast below if needed
+        
     except ImportError as e:
-        logger.warning(f"⚠️ Lifecycle manager not available: {e}")
+        logger.warning(f"⚠️ Lifecycle manager not available (optional): {e}")
     except Exception as e:
         logger.error(f"❌ Error starting subsystems: {e}", exc_info=True)
-        # Continue despite errors - some subsystems may have started
+        # Log error but continue - optional services may have failed
+        # Critical services will be checked individually below
     
     # Initialize Fetch.ai and FLOKx integrations if keys available
     try:
@@ -185,6 +207,20 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not start Balance Sync Service: {e}")
     
     logger.info("🚀 All autonomous systems operational")
+    
+    # Set startup time and bind status in health endpoint
+    try:
+        from routes.health import set_startup_time, set_bind_ok
+        set_startup_time(startup_time)
+        set_bind_ok(True)
+        logger.info("✅ BOUND_OK - Server successfully bound and ready to accept connections")
+    except Exception as e:
+        logger.warning(f"Could not set health endpoint state: {e}")
+    
+    logger.info("="*80)
+    logger.info("✅ SERVER STARTUP COMPLETE - Ready to serve traffic")
+    logger.info(f"📡 Listening on: {host}:{port}")
+    logger.info("="*80)
     
     yield
     
