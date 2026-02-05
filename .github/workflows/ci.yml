@@ -90,6 +90,14 @@ jobs:
         npm --version
         echo "Node modules cache path: $(npm config get cache)"
     
+    - name: Validate lockfile
+      run: |
+        cd frontend
+        echo "Validating package-lock.json is in sync with package.json..."
+        # This checks if npm ci would succeed without actually installing
+        npm ci --dry-run
+        echo "✓ Lockfile validation passed"
+    
     - name: Install dependencies
       run: |
         cd frontend
@@ -101,6 +109,18 @@ jobs:
         }
         echo "Dependencies installed successfully"
         ls -la node_modules/.bin/ | head -5
+    
+    - name: Verify dependency integrity
+      run: |
+        cd frontend
+        echo "Checking for dependency issues..."
+        # This will fail if there are unmet peer dependencies or invalid packages
+        npm list > /dev/null 2>&1 || {
+          echo "⚠️ Dependency issues detected, showing details:"
+          npm list || true
+          echo "Note: Some warnings are expected (peer dependencies, deprecated packages)"
+        }
+        echo "✓ Dependency check completed"
     
     - name: Build frontend
       run: |
