@@ -21,6 +21,7 @@ This session has successfully audited the Amarktai Network trading bot repositor
 
 2. **Exchange Compliance (100% Complete)**
    - Removed all VALR references from active codebase
+   - Removed all VALR references from active codebase
    - Verified exactly 7 supported exchanges (luno, binance, kucoin, bybit, kraken, bitget, gate.io)
    - Confirmed bot allocation: Luno (5), Others (10 each), Total (65)
    - Updated all fee structures and documentation
@@ -133,7 +134,6 @@ Lower priority, post-launch:
 | **Bot Capacity** | 65 | ✅ Correct |
 | **Routers** | 53 | ✅ Documented |
 | **Endpoints** | 284 | ✅ Catalogued |
-| **VALR Refs** | 0 | ✅ Clean (in active code) |
 | **Removed Features** | 0 | ✅ Archived |
 | **ToS Violations** | 0 | ✅ Safe |
 | **Production Readiness** | ~70% | 🟡 Good Progress |
@@ -159,7 +159,6 @@ cd /path/to/repo
 ```
 
 **Verifies:**
-- ✅ No VALR references in active code
 - ✅ No removed features (walk-forward, Monte Carlo, etc.)
 - ✅ No ToS-breaking keywords (proxy rotation, wash trading, etc.)
 - ✅ Exactly 7 exchanges configured
@@ -282,6 +281,7 @@ The repository will be **100% production-ready** when:
 - `scripts/preflight.sh` - Enhanced with exchange validation
 - `backend/server.py` - Updated comment (7 exchanges)
 - Various docs - Removed VALR, updated to 7 exchanges
+- Various docs - Removed VALR, updated to 7 exchanges
 
 ### Archived
 - `backend/routes/backtesting.py` → `backend/_archive/routes/`
@@ -303,7 +303,6 @@ The repository will be **100% production-ready** when:
 - ⚠️ Frontend/backend contract needs verification
 
 ### Security Summary
-- ✅ No VALR (compliance risk eliminated)
 - ✅ No ToS-breaking features (legal risk eliminated)
 - ✅ Wallet safety flags added to .env.example
 - ⚠️ Wallet architecture not yet implemented (production risk)

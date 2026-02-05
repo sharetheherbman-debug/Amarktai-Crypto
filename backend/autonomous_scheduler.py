@@ -114,14 +114,9 @@ class AutonomousScheduler:
                 # Check all bots for 7-day promotion eligibility
                 await auto_promotion_manager.run_daily_check()
                 
-                logger.info("Checking bot spawning needs...")
-                # Check if any users need more bots spawned
-                users = await db.users_collection.find({}, {"_id": 0, "id": 1}).to_list(100)
-                for user in users:
-                    bot_count = await db.bots_collection.count_documents({"user_id": user['id']})
-                    if bot_count < 65:
-                        logger.info(f"User {user['id'][:8]} has {bot_count}/65 bots - spawning more")
-                        # Will implement gradual spawning vs all at once
+                # Removed "spawn to 65" logic - auto-spawning is now profit-gated per exchange
+                # and enforces per-exchange bot caps (Luno: 5, others: 10)
+                # See backend/rules/bot_rules.py for details
                 
                 logger.info("✅ Daily tasks completed")
                 
