@@ -260,6 +260,7 @@ if command -v python3 &> /dev/null && [ -n "$TOKEN" ]; then
     python3 -c "
 import asyncio
 import sys
+from datetime import datetime
 try:
     import websockets
 except ImportError:
@@ -269,7 +270,8 @@ except ImportError:
 async def test_ws():
     try:
         async with websockets.connect('$WS_URL', timeout=5) as ws:
-            await ws.send('{\"type\": \"ping\", \"timestamp\": \"test\"}')
+            timestamp = datetime.utcnow().isoformat() + 'Z'
+            await ws.send('{\"type\": \"ping\", \"timestamp\": \"' + timestamp + '\"}')
             response = await asyncio.wait_for(ws.recv(), timeout=3)
             if 'pong' in response:
                 print('WebSocket test passed')
