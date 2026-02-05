@@ -260,11 +260,15 @@ class CapitalAllocator:
                 calculate_reinvestment_amount,
                 SUPPORTED_EXCHANGES
             )
+            from profit_ledger import profit_ledger
             
             logger.info(f"Processing profit reinvestment for user {user_id}")
             
             reinvested = []
             total_reinvested = 0
+            
+            # Get all profits
+            all_profits = await profit_ledger.get_all_exchange_profits(user_id)
             
             # Process each exchange separately
             for exchange in SUPPORTED_EXCHANGES:
@@ -272,7 +276,7 @@ class CapitalAllocator:
                 bot_count = await db.bots_collection.count_documents({
                     "user_id": user_id,
                     "exchange": exchange,
-                    "status": {"$ne": "deleted"}
+                    "status": {"$nin": ["deleted", "quarantined"]}
                 })
                 
                 # Check if at cap
@@ -283,22 +287,30 @@ class CapitalAllocator:
                 
                 logger.info(f"Exchange {exchange} at cap ({bot_count}/{max_bots}), checking for reinvestment")
                 
-                # Get realized profit for this exchange
-                # (This would come from ledger/profit tracking - placeholder for now)
-                realized_profit = 0  # TODO: Get from profit tracker
+                # Get realized profit for this exchange (combined paper + live)
+                exchange_profits = all_profits.get(exchange, {})
+                realized_profit = exchange_profits.get('combined', 0.0)
                 
                 if realized_profit <= 0:
+                    logger.debug(f"  No profit to reinvest for {exchange}")
                     continue
                 
-                # Get available funds
-                # (This would come from wallet manager - placeholder for now)
-                available_funds = 10000  # TODO: Get from wallet manager
+                # Get available funds from wallet manager
+                try:
+                    from engines.wallet_manager import wallet_manager
+                    wallet_data = await wallet_manager.get_master_balance(user_id)
+                    available_funds = wallet_data.get('available_zar', 0) if not wallet_data.get('error') else 0
+                except:
+                    available_funds = 1000  # Fallback minimum
                 
                 # Calculate reinvestment amount
                 reinvest_amount = calculate_reinvestment_amount(realized_profit, available_funds)
                 
                 if reinvest_amount <= 0:
+                    logger.debug(f"  No funds available to reinvest for {exchange}")
                     continue
+                
+                logger.info(f"  Reinvesting R{reinvest_amount:.2f} from R{realized_profit:.2f} profit")
                 
                 # Get top performers on this exchange
                 top_bots = await db.bots_collection.find({
@@ -308,6 +320,7 @@ class CapitalAllocator:
                 }).sort("total_profit", -1).limit(3).to_list(3)
                 
                 if not top_bots:
+                    logger.debug(f"  No active bots found for {exchange}")
                     continue
                 
                 # Distribute reinvestment across top performers
@@ -323,7 +336,8 @@ class CapitalAllocator:
                                     "timestamp": datetime.now(timezone.utc).isoformat(),
                                     "amount": amount_per_bot,
                                     "reason": "profit_reinvestment",
-                                    "exchange": exchange
+                                    "exchange": exchange,
+                                    "total_exchange_profit": realized_profit
                                 }
                             }
                         }
@@ -331,14 +345,19 @@ class CapitalAllocator:
                     
                     reinvested.append({
                         "bot_id": bot['id'],
+                        "bot_name": bot.get('name', 'unknown'),
                         "exchange": exchange,
                         "amount": round(amount_per_bot, 2)
                     })
                     
                     total_reinvested += amount_per_bot
+                    
+                    logger.info(f"    ✅ Reinvested R{amount_per_bot:.2f} into {bot.get('name', bot['id'][:8])}")
             
             if reinvested:
-                logger.info(f"Reinvested R{total_reinvested:.2f} across {len(reinvested)} bots")
+                logger.info(f"✅ Total reinvested: R{total_reinvested:.2f} across {len(reinvested)} bots")
+            else:
+                logger.info("No reinvestments made (no exchanges at cap with sufficient profit)")
             
             return {
                 "success": True,
@@ -351,102 +370,145 @@ class CapitalAllocator:
             logger.error(f"Reinvest daily profits error: {e}")
             return {"success": False, "error": str(e)}
     
-    async def auto_spawn_bot(self, user_id: str) -> Dict:
+    async def auto_spawn_bot(self, user_id: str, trading_mode: str = 'paper') -> Dict:
         """
         Auto-spawn bot with profit gating:
         - Only spawns when exchange has generated >= R1000 realized profit
         - Enforces per-exchange bot caps (Luno: 5, others: 10)
         - Requires available funds to fund the new bot
+        - Uses milestone tracking for idempotency
         - Returns appropriate reason codes on rejection
+        
+        Args:
+            user_id: User ID
+            trading_mode: 'paper' or 'live' - determines which profit to check
         """
         try:
             from rules import (
                 check_bot_cap_limit,
-                check_profit_threshold_met,
                 get_reason_message,
-                SUPPORTED_EXCHANGES
+                SUPPORTED_EXCHANGES,
+                PROFIT_THRESHOLD_ZAR
             )
+            from profit_ledger import profit_ledger
             from uuid import uuid4
             
-            logger.info(f"Checking auto-spawn eligibility for user {user_id}")
+            logger.info(f"Checking auto-spawn eligibility for user {user_id} (mode: {trading_mode})")
             
             spawned_bots = []
+            reasons = []
+            
+            # Get wallet balance
+            try:
+                from engines.wallet_manager import wallet_manager
+                wallet_data = await wallet_manager.get_master_balance(user_id)
+                available_funds = wallet_data.get('available_zar', 0) if not wallet_data.get('error') else 0
+            except:
+                available_funds = 0
+                logger.warning("Could not get wallet balance, using 0")
             
             # Check each exchange for spawn eligibility
             for exchange in SUPPORTED_EXCHANGES:
-                # Get current bot count
+                # Get current bot count (exclude deleted and quarantined)
                 bot_count = await db.bots_collection.count_documents({
                     "user_id": user_id,
                     "exchange": exchange,
-                    "status": {"$ne": "deleted"}
+                    "status": {"$nin": ["deleted", "quarantined"]}
                 })
                 
                 # Check bot cap
                 can_create, reason_code = check_bot_cap_limit(exchange, bot_count + 1, user_id)
                 if not can_create:
-                    logger.debug(f"Cannot spawn on {exchange}: {get_reason_message(reason_code)}")
+                    reasons.append({
+                        "exchange": exchange,
+                        "reason": reason_code,
+                        "message": get_reason_message(reason_code)
+                    })
+                    logger.debug(f"  {exchange}: {get_reason_message(reason_code)}")
                     continue
                 
-                # Check profit threshold
-                # (This would come from profit tracker - placeholder for now)
-                realized_profit = 0  # TODO: Get from profit tracker per exchange
-                
-                threshold_met, reason_code = check_profit_threshold_met(
-                    exchange, 
-                    realized_profit, 
-                    'paper',  # TODO: Use actual trading mode
-                    user_id
+                # Check profit milestone (idempotent spawn gating)
+                can_spawn, current_profit, milestone = await profit_ledger.check_spawn_milestone(
+                    user_id, exchange, trading_mode, PROFIT_THRESHOLD_ZAR
                 )
                 
-                if not threshold_met:
-                    logger.debug(f"Cannot spawn on {exchange}: {get_reason_message(reason_code)}")
+                if not can_spawn:
+                    reasons.append({
+                        "exchange": exchange,
+                        "reason": "INSUFFICIENT_EXCHANGE_PROFIT" if current_profit < PROFIT_THRESHOLD_ZAR else "MILESTONE_NOT_REACHED",
+                        "current_profit": round(current_profit, 2),
+                        "threshold": PROFIT_THRESHOLD_ZAR,
+                        "current_milestone": milestone
+                    })
+                    logger.debug(f"  {exchange}: Profit R{current_profit:.2f} (milestone {milestone}, need next milestone)")
                     continue
                 
-                # Check available funds
-                # (This would come from wallet manager - placeholder for now)
-                available_funds = 1000  # TODO: Get from wallet manager
-                
-                if available_funds < 500:  # Minimum R500 per bot
-                    logger.debug(f"Cannot spawn on {exchange}: Insufficient funds")
+                # Check available funds (minimum R1000 per bot)
+                min_funding = 1000
+                if available_funds < min_funding:
+                    reasons.append({
+                        "exchange": exchange,
+                        "reason": "INSUFFICIENT_FUNDS_TO_SPAWN",
+                        "available": round(available_funds, 2),
+                        "required": min_funding
+                    })
+                    logger.debug(f"  {exchange}: Insufficient funds (have R{available_funds:.2f}, need R{min_funding})")
                     continue
                 
-                # Spawn a new bot
+                # All checks passed - spawn bot!
                 bot_id = str(uuid4())
                 new_bot = {
                     'id': bot_id,
                     'user_id': user_id,
-                    'name': f'Auto-{exchange.title()}-Bot',
+                    'name': f'Auto-{exchange.title()}-{milestone}',
                     'exchange': exchange,
                     'risk_mode': 'safe',
-                    'trading_mode': 'paper',
+                    'trading_mode': trading_mode,
                     'status': 'active',
-                    'initial_capital': min(1000, available_funds),
-                    'current_capital': min(1000, available_funds),
+                    'initial_capital': min_funding,
+                    'current_capital': min_funding,
                     'total_profit': 0.0,
                     'trades_count': 0,
                     'created_at': datetime.now(timezone.utc).isoformat(),
-                    'spawned_by': 'autopilot'
+                    'spawned_by': 'autopilot',
+                    'spawn_milestone': milestone,
+                    'spawn_exchange_profit': round(current_profit, 2)
                 }
                 
                 await db.bots_collection.insert_one(new_bot)
                 
+                # Record milestone to prevent duplicate spawns
+                await profit_ledger.record_spawn_milestone(
+                    user_id, exchange, trading_mode, milestone, bot_id
+                )
+                
                 spawned_bots.append({
                     "bot_id": bot_id,
+                    "bot_name": new_bot['name'],
                     "exchange": exchange,
-                    "capital": new_bot['initial_capital']
+                    "capital": min_funding,
+                    "milestone": milestone,
+                    "exchange_profit": round(current_profit, 2)
                 })
                 
-                logger.info(f"Auto-spawned bot {bot_id} on {exchange}")
+                logger.info(f"  ✅ Spawned bot on {exchange}: {new_bot['name']} (milestone {milestone}, profit R{current_profit:.2f})")
+            
+            # Summary
+            if spawned_bots:
+                logger.info(f"✅ Auto-spawned {len(spawned_bots)} bot(s)")
+            else:
+                logger.info(f"No bots spawned ({len(reasons)} exchanges checked)")
             
             return {
                 "success": True,
                 "spawned": len(spawned_bots) > 0,
                 "bots": spawned_bots,
-                "count": len(spawned_bots)
+                "count": len(spawned_bots),
+                "reasons": reasons  # Why other exchanges didn't spawn
             }
             
         except Exception as e:
-            logger.error(f"Auto-spawn bot error: {e}")
+            logger.error(f"Auto-spawn bot error: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
 # Global instance
