@@ -966,13 +966,9 @@ async def test_api_key(provider: str, user_id: str = Depends(get_current_user)):
     
     return {"message": f"{provider} configured", "connected": True}
 
-@api_router.delete("/api-keys/{provider}")
-async def delete_api_key_by_provider(provider: str, user_id: str = Depends(get_current_user)):
-    """Delete API key by provider name"""
-    result = await db.api_keys_collection.delete_many({"provider": provider, "user_id": user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail=f"No API key found for {provider}")
-    return {"message": f"{provider} API key deleted", "deleted_count": result.deleted_count}
+# NOTE: DELETE /api/api-keys/{provider} is handled by routes/compat.py (legacy compatibility)
+# and routes/keys.py DELETE /api/keys/{provider} (canonical).
+# Removed duplicate inline definition to prevent route collision.
 
 # ============================================================================
 # AUTONOMOUS SYSTEMS
@@ -3071,14 +3067,23 @@ for route in app.routes:
         
         route_key = f"{method} {route.path}"
         
+        # Get detailed endpoint information
+        endpoint_info = "unknown"
+        if hasattr(route, 'endpoint'):
+            endpoint = route.endpoint
+            if hasattr(endpoint, '__module__') and hasattr(endpoint, '__name__'):
+                endpoint_info = f"{endpoint.__module__}:{endpoint.__name__}"
+            elif hasattr(endpoint, '__name__'):
+                endpoint_info = endpoint.__name__
+        
         if route_key in route_registry:
             logger.error(f"❌ ROUTE COLLISION DETECTED: {route_key}")
-            logger.error(f"   Previously registered at: {route_registry[route_key]}")
-            logger.error(f"   Attempting to register again")
+            logger.error(f"   Location 1: {route_registry[route_key]}")
+            logger.error(f"   Location 2: {endpoint_info}")
             collision_found = True
         else:
-            # Store route info
-            route_registry[route_key] = getattr(route, 'name', 'unknown')
+            # Store route info with module and function
+            route_registry[route_key] = endpoint_info
 
 if collision_found:
     logger.error("="*80)
