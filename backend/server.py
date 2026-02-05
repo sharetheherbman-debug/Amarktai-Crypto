@@ -460,15 +460,39 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
 
 @api_router.post("/bots/batch-create")
 async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)):
-    """Batch create bots with distribution"""
+    """Batch create bots with distribution - enforces bot caps and profit gating"""
     from uuid import uuid4
+    from rules import check_bot_cap_limit, validate_exchange, get_reason_message
+    from json_utils import serialize_list
     
     count = data.get('count', 10)
     capital_per_bot = data.get('capital_per_bot', 1000)
     safe_count = data.get('safe_count', 6)
     risky_count = data.get('risky_count', 2)
     aggressive_count = data.get('aggressive_count', 2)
-    exchange = data.get('exchange', 'luno')
+    exchange = data.get('exchange', 'luno').lower()
+    
+    # Validate exchange
+    is_valid, reason_code = validate_exchange(exchange)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=get_reason_message(reason_code))
+    
+    # Check bot cap for this exchange
+    current_bot_count = await db.bots_collection.count_documents({
+        "user_id": user_id,
+        "exchange": exchange,
+        "status": {"$ne": "deleted"}  # Don't count deleted bots
+    })
+    
+    total_bots_requested = safe_count + risky_count + aggressive_count
+    
+    # Check if adding these bots would exceed the cap
+    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id)
+    if not can_create:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}"
+        )
     
     bots_to_create = []
     bot_number = await db.bots_collection.count_documents({"user_id": user_id}) + 1
@@ -531,9 +555,12 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     if bots_to_create:
         await db.bots_collection.insert_many(bots_to_create)
     
+    # Serialize bots to ensure JSON-safe response (no ObjectId issues)
+    safe_bots = serialize_list(bots_to_create)
+    
     return {
         "message": f"{len(bots_to_create)} bots created", 
-        "bots": bots_to_create,
+        "bots": safe_bots,
         "created": len(bots_to_create)
     }
 
