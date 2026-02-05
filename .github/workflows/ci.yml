@@ -94,8 +94,8 @@ jobs:
       run: |
         cd frontend
         echo "Validating package-lock.json is in sync with package.json..."
-        # This checks if the lockfile needs updating without modifying it
-        npm install --package-lock-only --dry-run
+        # This checks if npm ci would succeed without actually installing
+        npm ci --dry-run
         echo "✓ Lockfile validation passed"
     
     - name: Install dependencies
