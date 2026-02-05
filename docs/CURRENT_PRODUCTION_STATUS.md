@@ -26,7 +26,6 @@ The Amarktai Network trading bot repository has reached **82% production-ready**
 ### Phase 2: Exchange Compliance ✅
 - Exactly 7 exchanges: luno, binance, kucoin, bybit, kraken, bitget, gate.io
 - Bot allocation: Luno (5), Others (10 each), Total (65)
-- Zero VALR in active code
 - All documentation updated
 
 ### Phase 3: Remove Out-of-Scope Features ✅
@@ -46,7 +45,6 @@ The Amarktai Network trading bot repository has reached **82% production-ready**
 - 25+ outdated docs archived
 - Clean documentation structure
 - Active docs reflect 7 exchanges only
-- No VALR in active codebase
 
 ---
 
@@ -191,7 +189,6 @@ The Amarktai Network trading bot repository has reached **82% production-ready**
 - ✅ Error tracking
 
 **Compliance:**
-- ✅ Zero VALR references
 - ✅ ToS-compliant (no evasion)
 - ✅ Exactly 7 exchanges
 - ✅ Proper bot allocation

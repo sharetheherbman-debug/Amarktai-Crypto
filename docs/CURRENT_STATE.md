@@ -110,7 +110,6 @@ Total: 99 TODO/FIXME/XXX/HACK markers
 
 ### Exchange Compliance
 - ✅ Exactly 7 supported exchanges (luno, binance, kucoin, bybit, kraken, bitget, gate.io)
-- ✅ No VALR references in active codebase
 - ✅ Bot allocation: 65 total (5+10+10+10+10+10+10)
 
 ### Code Quality

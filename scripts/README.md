@@ -277,7 +277,6 @@ For issues with these scripts:
 - Scans all backend routers and endpoints
 - Detects supported exchanges
 - Finds TODO/FIXME markers
-- Checks for VALR/OVEX references
 - Identifies removed features
 - Detects potential ToS violations
 
@@ -307,7 +306,6 @@ python3 scripts/audit_repo.py
 **Purpose:** Automated compliance verification
 
 **What it checks:**
-- ✅ No VALR/OVEX references in active code
 - ✅ No removed features (walk-forward, Monte Carlo, etc.)
 - ✅ No ToS-breaking keywords (proxy rotation, wash trading, etc.)
 - ✅ Exactly 7 exchanges configured
@@ -328,7 +326,6 @@ python3 scripts/audit_repo.py
 - Required packages installed
 - Environment variables configured
 - Exchange registry (exactly 7 exchanges)
-- No VALR/OVEX references
 - Backend Python files compile
 
 **Usage:**
