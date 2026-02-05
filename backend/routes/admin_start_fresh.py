@@ -223,3 +223,229 @@ async def start_fresh(
     except Exception as e:
         logger.error(f"Error during Start Fresh: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class ResetUserDataRequest(BaseModel):
+    """Request model for resetting specific user data"""
+    target_user_id: str
+    wipe_bots: bool = True
+    wipe_trades: bool = False
+    wipe_keys: bool = False
+
+
+@router.post("/api/admin/reset-user-data")
+async def reset_user_data(
+    request: ResetUserDataRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Reset user data - Admin only (GO-LIVE SAFETY)
+    
+    Allows admin to selectively reset user data for clean go-live monitoring.
+    Creates backup snapshot in audit logs before deletion.
+    
+    Args:
+        target_user_id: User ID to reset
+        wipe_bots: Delete all bots (default: True)
+        wipe_trades: Delete trade history (default: False)
+        wipe_keys: Delete API keys (default: False)
+        
+    Returns:
+        success: bool
+        summary: dict with deletion counts
+        backup_id: audit log ID for recovery
+        
+    Raises:
+        403: If user is not admin
+        404: If target user not found
+        500: On database errors
+    """
+    try:
+        # Verify admin privileges
+        from auth import is_admin
+        if not await is_admin(user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Admin privileges required for user data reset"
+            )
+        
+        # Verify target user exists
+        target_user = await db.users_collection.find_one(
+            {"_id": request.target_user_id},
+            {"_id": 1, "email": 1, "username": 1}
+        )
+        
+        if not target_user:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Target user not found: {request.target_user_id}"
+            )
+        
+        # Count what will be deleted (for backup and reporting)
+        counts = {
+            "bots": 0,
+            "trades": 0,
+            "keys": 0
+        }
+        
+        if request.wipe_bots:
+            counts["bots"] = await db.bots_collection.count_documents({
+                "user_id": request.target_user_id
+            })
+        
+        if request.wipe_trades:
+            counts["trades"] = await db.trades_collection.count_documents({
+                "user_id": request.target_user_id
+            })
+        
+        if request.wipe_keys:
+            counts["keys"] = await db.api_keys_collection.count_documents({
+                "user_id": request.target_user_id
+            })
+        
+        # Create backup snapshot in audit logs
+        from uuid import uuid4
+        backup_id = str(uuid4())
+        audit_entry = {
+            "id": backup_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": "admin_reset_user_data",
+            "admin_user_id": user_id,
+            "target_user_id": request.target_user_id,
+            "target_user_email": target_user.get("email", "unknown"),
+            "operations": {
+                "wipe_bots": request.wipe_bots,
+                "wipe_trades": request.wipe_trades,
+                "wipe_keys": request.wipe_keys
+            },
+            "counts_before_delete": counts
+        }
+        
+        await db.audit_logs_collection.insert_one(audit_entry)
+        
+        # Perform deletions
+        deleted_counts = {
+            "bots": 0,
+            "trades": 0,
+            "keys": 0
+        }
+        
+        if request.wipe_bots:
+            result = await db.bots_collection.delete_many({
+                "user_id": request.target_user_id
+            })
+            deleted_counts["bots"] = result.deleted_count
+            logger.info(f"Deleted {deleted_counts['bots']} bots for user {request.target_user_id}")
+        
+        if request.wipe_trades:
+            result = await db.trades_collection.delete_many({
+                "user_id": request.target_user_id
+            })
+            deleted_counts["trades"] = result.deleted_count
+            logger.info(f"Deleted {deleted_counts['trades']} trades for user {request.target_user_id}")
+        
+        if request.wipe_keys:
+            result = await db.api_keys_collection.delete_many({
+                "user_id": request.target_user_id
+            })
+            deleted_counts["keys"] = result.deleted_count
+            logger.info(f"Deleted {deleted_counts['keys']} API keys for user {request.target_user_id}")
+        
+        # Update audit log with actual deletion counts
+        await db.audit_logs_collection.update_one(
+            {"id": backup_id},
+            {"$set": {"counts_after_delete": deleted_counts}}
+        )
+        
+        logger.info(
+            f"Admin {user_id} reset data for user {request.target_user_id}: "
+            f"bots={deleted_counts['bots']}, trades={deleted_counts['trades']}, keys={deleted_counts['keys']}"
+        )
+        
+        return {
+            "success": True,
+            "message": f"User data reset completed for {request.target_user_id}",
+            "summary": deleted_counts,
+            "backup_id": backup_id,
+            "timestamp": audit_entry["timestamp"],
+            "target_user": {
+                "id": request.target_user_id,
+                "email": target_user.get("email", "unknown")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during user data reset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/bots/reset")
+async def user_self_reset_bots(
+    user_id: str = Depends(get_current_user)
+):
+    """
+    User self-reset bots (non-admin)
+    
+    Allows users to delete their own bots, but only in testing mode.
+    Provides a clean slate for users to restart their bot configurations.
+    
+    Safety: Only works in testing mode (paper trading)
+    
+    Returns:
+        success: bool
+        bots_deleted: int
+        
+    Raises:
+        403: If not in testing mode
+        500: On database errors
+    """
+    try:
+        # Check if system is in testing mode
+        from utils.env_utils import env_bool
+        paper_trading = env_bool('PAPER_TRADING', False)
+        live_trading = env_bool('LIVE_TRADING', False)
+        
+        # Only allow self-reset in paper trading mode
+        if live_trading:
+            raise HTTPException(
+                status_code=403,
+                detail="Self-reset not allowed in live trading mode. Contact admin."
+            )
+        
+        # Count bots to be deleted
+        bot_count = await db.bots_collection.count_documents({
+            "user_id": user_id
+        })
+        
+        # Delete all user's bots
+        result = await db.bots_collection.delete_many({
+            "user_id": user_id
+        })
+        
+        logger.info(f"User {user_id} self-reset: deleted {result.deleted_count} bots")
+        
+        # Create audit entry
+        audit_entry = {
+            "id": str(__import__('uuid').uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": "user_self_reset_bots",
+            "user_id": user_id,
+            "bots_deleted": result.deleted_count,
+            "system_mode": "paper_trading" if paper_trading else "testing"
+        }
+        
+        await db.audit_logs_collection.insert_one(audit_entry)
+        
+        return {
+            "success": True,
+            "message": "Your bots have been reset",
+            "bots_deleted": result.deleted_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during user self-reset: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

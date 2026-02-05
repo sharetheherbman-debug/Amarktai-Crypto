@@ -328,60 +328,16 @@ app.add_middleware(
 # ============================================================================
 # WEBSOCKET
 # ============================================================================
+# NOTE: WebSocket endpoint /api/ws is now handled by routes/websocket.py
+# This prevents route collision and maintains a single source of truth.
+# The websocket router is mounted in the routers_to_mount list below.
+# ============================================================================
 
-@app.websocket("/api/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = None):
-    """WebSocket endpoint with token authentication"""
-    user_id = None
-    try:
-        # Get token from query params
-        if not token:
-            await websocket.close(code=1008, reason="Missing token")
-            return
-        
-        # Decode token to get user_id
-        from auth import decode_token
-        try:
-            payload = decode_token(token)
-            user_id = payload.get("user_id")
-        except Exception as e:
-            logger.error(f"Token decode error: {e}")
-            await websocket.close(code=1008, reason="Invalid token")
-            return
-        
-        if not user_id:
-            await websocket.close(code=1008, reason="Invalid token")
-            return
-        
-        # Connect via manager (handles accept internally)
-        await manager.connect(websocket, user_id)
-        
-        try:
-            while True:
-                data = await websocket.receive_text()
-                # Handle ping/pong
-                if data:
-                    import json
-                    try:
-                        msg = json.loads(data)
-                        if msg.get('type') == 'ping':
-                            await websocket.send_json({
-                                'type': 'pong',
-                                'timestamp': msg.get('timestamp')
-                            })
-                    except:
-                        pass
-        except WebSocketDisconnect:
-            await manager.disconnect(websocket, user_id)
-            logger.info(f"WebSocket disconnected for user: {user_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        if user_id:
-            await manager.disconnect(websocket, user_id)
-        try:
-            await websocket.close(code=1011, reason=str(e))
-        except:
-            pass
+# REMOVED: Duplicate @app.websocket("/api/ws") endpoint (now in routes/websocket.py)
+# See routes/websocket.py for the canonical WebSocket implementation with:
+# - Token authentication via query param or header
+# - Reconnect/replay support
+# - Proper connection management via websocket_manager_redis
 
 @app.websocket("/ws/decisions")
 async def decision_trace_websocket(websocket: WebSocket):
@@ -2774,10 +2730,12 @@ CRITICAL_ROUTERS = {
     "routes.ledger_endpoints",
     "routes.analytics_api",
     "routes.training",
-    "routes.quarantine"
+    "routes.quarantine",
+    "routes.websocket"  # CRITICAL - WebSocket realtime communication
 }
 
 routers_to_mount = [
+    ("routes.websocket", "WebSocket"),  # CRITICAL - WebSocket realtime communication (/api/ws)
     ("routes.keys", "API Keys (Unified)"),  # CRITICAL - New unified keys router
     ("routes.system_mode", "System Mode"),  # CRITICAL - Mode management
     ("routes.platforms", "Platforms"),  # Platform drilldown

@@ -159,6 +159,33 @@ python -m uvicorn server:app --reload
 ./scripts/verify.sh  # Test all critical endpoints
 ```
 
+### **Production Smoke Test** 🆕
+Quick production readiness verification (<2 minutes):
+
+```bash
+# Test production deployment
+./scripts/smoke_prod.sh https://amarktai.online AMARKTAI2024
+
+# Test local deployment
+./scripts/smoke_prod.sh http://localhost:8000 AMARKTAI2024
+```
+
+**What it tests:**
+- ✅ Health check endpoint
+- ✅ User registration with invite header
+- ✅ Login and token generation
+- ✅ System status (feature flags, trading modes)
+- ✅ API keys endpoint authentication
+- ✅ WebSocket diagnostics and configuration
+- ✅ Verifies no /api/api/ double path bugs
+- ✅ Optional: Live WebSocket connection test
+
+**Exit codes:**
+- `0` - All tests passed ✅
+- `1` - One or more tests failed ❌
+
+See [`docs/GO_LIVE_GUIDE.md`](docs/GO_LIVE_GUIDE.md) for complete deployment guide.
+
 ### **Monitoring**
 ```bash
 # System health
@@ -226,6 +253,7 @@ Before production deployment:
 - `GET /api/diagnostics/system-health` - DB, collections, services
 - `GET /api/diagnostics/health-detail` - Self-healing, circuit breakers
 - `GET /api/diagnostics/realtime` - WebSocket/SSE status
+- `GET /api/diagnostics/ws` - **WebSocket configuration and readiness** 🆕
 
 ### Trading
 - `GET /api/diagnostics/paper-status` - Paper trading status

@@ -84,15 +84,33 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
     
+    - name: Verify Node.js setup
+      run: |
+        node --version
+        npm --version
+        echo "Node modules cache path: $(npm config get cache)"
+    
     - name: Install dependencies
       run: |
         cd frontend
-        npm ci
+        echo "Installing npm dependencies..."
+        npm ci --no-audit || {
+          echo "npm ci failed, trying without cache..."
+          npm cache clean --force
+          npm ci --no-audit
+        }
+        echo "Dependencies installed successfully"
+        ls -la node_modules/.bin/ | head -5
     
     - name: Build frontend
       run: |
         cd frontend
+        echo "Starting frontend build..."
         npm run build
+        echo "Build completed successfully"
+      env:
+        CI: true
+        NODE_ENV: production
     
     - name: Check build output
       run: |

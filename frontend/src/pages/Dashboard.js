@@ -951,7 +951,7 @@ export default function Dashboard() {
 
   const loadApiStatuses = async () => {
     try {
-      const res = await axios.get(`${API}/api/keys/list`, axiosConfig);
+      const res = await axios.get(`${API}/keys/list`, axiosConfig);
       const statuses = {};
       // New API returns { success: true, keys: [...] }
       const keys = res.data?.keys || res.data || [];
@@ -1746,7 +1746,7 @@ export default function Dashboard() {
     }
 
     try {
-      const response = await axios.post(`${API}/api/keys/save`, data, axiosConfig);
+      const response = await axios.post(`${API}/keys/save`, data, axiosConfig);
       showNotification(`✅ ${provider.toUpperCase()} API key saved!`);
       loadApiStatuses();
       
@@ -1786,7 +1786,7 @@ export default function Dashboard() {
   const handleTestApiKey = async (provider) => {
     try {
       // Backend expects provider field (not exchange)
-      const response = await axios.post(`${API}/api/keys/test`, { 
+      const response = await axios.post(`${API}/keys/test`, { 
         provider: provider.toLowerCase() 
       }, axiosConfig);
       
@@ -1809,7 +1809,7 @@ export default function Dashboard() {
     if (!window.confirm(`Remove ${provider} API keys?`)) return;
     
     try {
-      await axios.delete(`${API}/api/keys/${provider}`, axiosConfig);
+      await axios.delete(`${API}/keys/${provider}`, axiosConfig);
       
       // Immediately clear from state
       setApiKeys(prev => {
