@@ -162,3 +162,166 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Dashboard overview error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/overview/snapshot")
+async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
+    """
+    Enhanced overview snapshot with per-exchange bot counts and proper time boundaries
+    
+    Returns:
+        - system_mode: paper/live/autopilot flags
+        - per_exchange_bots: Bot counts per exchange with caps shown (e.g., Luno: 3/5)
+        - bots_summary: active, paused, quarantined counts
+        - profit_summary: daily/weekly/monthly with correct boundaries
+        - last_trade_timestamp: Most recent trade
+        - last_heartbeat: System heartbeat timestamp
+        - errors_warnings: Count of recent errors/warnings
+    """
+    try:
+        from rules.bot_rules import BOT_CAPS, SUPPORTED_EXCHANGES
+        
+        # Get user info for system modes
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # System mode flags
+        system_mode = {
+            "paper_trading": user.get("system_mode") in ["testing", "paper"],
+            "live_trading": user.get("system_mode") == "live_trading",
+            "autopilot": user.get("autopilot_enabled", False),
+            "bodyguard": user.get("bodyguard_enabled", True),
+            "learning": user.get("learning_enabled", True),
+            "emergency_stop": user.get("emergency_stop", False)
+        }
+        
+        # Get all user's bots (exclude deleted)
+        bots = await db.bots_collection.find({
+            "user_id": user_id,
+            "status": {"$ne": "deleted"},
+            "deleted_at": {"$exists": False}
+        }, {"_id": 0}).to_list(1000)
+        
+        # Count bots by status
+        active_count = sum(1 for b in bots if b.get("status") == "active")
+        paused_count = sum(1 for b in bots if b.get("status") == "paused")
+        quarantined_count = sum(1 for b in bots if b.get("status") in ["training", "quarantined"])
+        
+        # Count bots per exchange with caps
+        per_exchange_bots = {}
+        for exchange in SUPPORTED_EXCHANGES:
+            exchange_bots = [b for b in bots if b.get("exchange") == exchange and b.get("status") != "deleted"]
+            count = len(exchange_bots)
+            cap = BOT_CAPS.get(exchange, 10)
+            per_exchange_bots[exchange] = {
+                "count": count,
+                "cap": cap,
+                "display": f"{count}/{cap}",
+                "at_cap": count >= cap,
+                "active": sum(1 for b in exchange_bots if b.get("status") == "active"),
+                "paused": sum(1 for b in exchange_bots if b.get("status") == "paused")
+            }
+        
+        # Calculate profits with correct time boundaries
+        now = datetime.now(timezone.utc)
+        
+        # Daily: today 00:00 UTC to now
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Weekly: last Monday 00:00 UTC to now
+        days_since_monday = now.weekday()  # Monday is 0
+        week_start = (now - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Monthly: first day of current month 00:00 UTC to now
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        bot_ids = [b["id"] for b in bots]
+        
+        if bot_ids:
+            # Daily profit
+            daily_trades = await db.trades_collection.find({
+                "bot_id": {"$in": bot_ids},
+                "timestamp": {"$gte": today_start.isoformat()},
+                "status": "closed"
+            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
+            daily_profit = sum(t.get("profit_loss", 0) for t in daily_trades)
+            
+            # Weekly profit
+            weekly_trades = await db.trades_collection.find({
+                "bot_id": {"$in": bot_ids},
+                "timestamp": {"$gte": week_start.isoformat()},
+                "status": "closed"
+            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
+            weekly_profit = sum(t.get("profit_loss", 0) for t in weekly_trades)
+            
+            # Monthly profit
+            monthly_trades = await db.trades_collection.find({
+                "bot_id": {"$in": bot_ids},
+                "timestamp": {"$gte": month_start.isoformat()},
+                "status": "closed"
+            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
+            monthly_profit = sum(t.get("profit_loss", 0) for t in monthly_trades)
+            
+            # Total profit
+            total_profit = sum(b.get("total_profit", 0) for b in bots)
+            
+            # Last trade timestamp
+            last_trade = await db.trades_collection.find_one(
+                {"bot_id": {"$in": bot_ids}},
+                {"_id": 0, "timestamp": 1},
+                sort=[("timestamp", -1)]
+            )
+            last_trade_timestamp = last_trade.get("timestamp") if last_trade else None
+        else:
+            daily_profit = 0
+            weekly_profit = 0
+            monthly_profit = 0
+            total_profit = 0
+            last_trade_timestamp = None
+        
+        # Get recent errors/warnings (last 24 hours)
+        yesterday = now - timedelta(hours=24)
+        errors_count = await db.error_logs_collection.count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": yesterday.isoformat()},
+            "severity": {"$in": ["error", "warning"]}
+        }) if hasattr(db, 'error_logs_collection') else 0
+        
+        # Last heartbeat (use last bot update or current time)
+        last_heartbeat = now.isoformat()
+        
+        return {
+            "success": True,
+            "system_mode": system_mode,
+            "per_exchange_bots": per_exchange_bots,
+            "bots_summary": {
+                "total": len(bots),
+                "active": active_count,
+                "paused": paused_count,
+                "quarantined": quarantined_count
+            },
+            "profit_summary": {
+                "total": round(total_profit, 2),
+                "daily": round(daily_profit, 2),
+                "weekly": round(weekly_profit, 2),
+                "monthly": round(monthly_profit, 2),
+                "currency": user.get("currency", "ZAR")
+            },
+            "time_boundaries": {
+                "daily_start": today_start.isoformat(),
+                "weekly_start": week_start.isoformat(),
+                "monthly_start": month_start.isoformat()
+            },
+            "last_trade_timestamp": last_trade_timestamp,
+            "last_heartbeat": last_heartbeat,
+            "errors_warnings_count": errors_count,
+            "timestamp": now.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Overview snapshot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
