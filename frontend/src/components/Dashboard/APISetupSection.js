@@ -31,7 +31,7 @@ export const APISetupSection = ({ apiKeys, token, onKeysUpdate }) => {
 
   const handleSaveKey = async (provider) => {
     try {
-      const response = await axios.post(`${API}/api/keys/save`, {
+      const response = await axios.post(`${API}/keys/save`, {
         provider: provider.id,
         ...formData
       }, axiosConfig);
@@ -49,7 +49,7 @@ export const APISetupSection = ({ apiKeys, token, onKeysUpdate }) => {
 
   const handleTestConnection = async (providerId) => {
     try {
-      const res = await axios.post(`${API}/api/keys/test`, {
+      const res = await axios.post(`${API}/keys/test`, {
         provider: providerId
       }, axiosConfig);
       if (res.data.success) {
