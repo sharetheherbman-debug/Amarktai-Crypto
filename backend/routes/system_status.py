@@ -23,6 +23,7 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
     """
     Get system status including:
     - Feature flags (trading, schedulers, autopilot)
+    - Trading mode flags (paper/live)
     - Scheduler running status
     - Last trade time
     - Last tick time
@@ -35,6 +36,12 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
             "enable_schedulers": env_bool('ENABLE_SCHEDULERS', False),
             "enable_autopilot": env_bool('ENABLE_AUTOPILOT', False),
             "enable_ccxt": env_bool('ENABLE_CCXT', True)
+        }
+        
+        # Get trading mode flags (paper/live) - these are separate from feature flags
+        trading_mode_flags = {
+            "paper_trading": env_bool('PAPER_TRADING', False),
+            "live_trading": env_bool('LIVE_TRADING', False)
         }
         
         # Check scheduler status - Safe handling like system_health.py
@@ -92,7 +99,7 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
         except Exception as e:
             logger.error(f"Error counting active bots: {e}")
         
-        # Get system modes
+        # Get system modes (user-specific settings)
         system_modes = {}
         try:
             modes = await db.system_modes_collection.find_one(
@@ -112,6 +119,7 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
             "success": True,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "feature_flags": feature_flags,
+            "trading_mode_flags": trading_mode_flags,
             "scheduler_status": scheduler_status,
             "database": {
                 "connected": db_health.get("status") == "connected",
