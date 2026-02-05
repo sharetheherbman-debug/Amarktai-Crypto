@@ -217,3 +217,97 @@ else
     echo "System is ready for deployment."
     exit 0
 fi
+
+echo ""
+echo "============================================"
+echo "Bot Rules & Capacity Tests"
+echo "============================================"
+echo ""
+
+# Test: Bot rules module exists
+if [ -f "backend/rules/bot_rules.py" ]; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Bot rules module exists"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Bot rules module exists"
+fi
+
+# Test: Check for bot cap enforcement in bot_rules.py
+if grep -q "check_bot_cap_limit" backend/rules/bot_rules.py 2>/dev/null; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Bot cap enforcement function exists"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Bot cap enforcement function exists"
+fi
+
+# Test: Check for profit gating in bot_rules.py
+if grep -q "check_profit_threshold_met" backend/rules/bot_rules.py 2>/dev/null; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Profit gating function exists"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Profit gating function exists"
+fi
+
+# Test: batch-create uses json_utils serialization
+if grep -q "serialize_list" backend/server.py 2>/dev/null; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "batch-create uses JSON serialization"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "batch-create uses JSON serialization"
+fi
+
+# Test: No "spawn to 65" logic in scheduler
+if ! grep -q "has.*bots - spawning more" backend/autonomous_scheduler.py 2>/dev/null; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Scheduler has no spawn-to-65 logic"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Scheduler has no spawn-to-65 logic"
+fi
+
+echo ""
+echo "============================================"
+echo "VALR/OVEX/Emergent Cleanup Tests"
+echo "============================================"
+echo ""
+
+# Test: No VALR/OVEX in active backend code
+VALR_OVEX_COUNT=$(grep -r -i "valr\|ovex" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" 2>/dev/null | grep -v "AddressApprovalRequest" | wc -l || echo "0")
+if [ "$VALR_OVEX_COUNT" = "0" ]; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "No VALR/OVEX in active backend code"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "No VALR/OVEX in active backend code"
+    echo "Found $VALR_OVEX_COUNT references"
+fi
+
+# Test: No Emergent (except emergentintegrations package) in active code
+EMERGENT_COUNT=$(grep -r "emergent" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" 2>/dev/null | grep -v "emergentintegrations" | wc -l || echo "0")
+if [ "$EMERGENT_COUNT" = "0" ]; then
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "No Emergent refs in active backend code"
+else
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    printf "%-60s${RED}❌ FAIL${NC}\n" "No Emergent refs in active backend code"
+    echo "Found $EMERGENT_COUNT references (excluding emergentintegrations)"
+fi
+
