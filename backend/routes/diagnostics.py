@@ -1205,3 +1205,66 @@ async def transfer_path_diagnostic():
             "production_ready": False,
             "message": f"❌ Unable to determine transfer path: {str(e)}"
         }
+
+
+@router.get("/ws")
+async def websocket_diagnostics():
+    """WebSocket readiness diagnostics endpoint
+    
+    Returns WebSocket configuration and health info.
+    Used to verify WebSocket endpoint is properly configured before attempting connection.
+    
+    Returns:
+        expected_path: str - The WebSocket endpoint path
+        protocol: str - Expected protocol (ws or wss)
+        ok: bool - Whether WebSocket is ready
+        note: str - Usage instructions
+        manager_info: dict - WebSocket manager status
+    """
+    try:
+        # Get WebSocket manager info
+        manager_info = {}
+        try:
+            from websocket_manager import manager
+            
+            # Check if manager has active_connections attribute
+            if hasattr(manager, 'active_connections'):
+                connection_count = len(manager.active_connections) if manager.active_connections else 0
+            else:
+                connection_count = 0
+            
+            manager_info = {
+                "available": True,
+                "active_connections": connection_count,
+                "type": type(manager).__name__
+            }
+        except Exception as e:
+            logger.warning(f"Could not get WebSocket manager info: {e}")
+            manager_info = {
+                "available": False,
+                "error": str(e)
+            }
+        
+        return {
+            "ok": True,
+            "expected_path": "/api/ws",
+            "protocol": "wss (production) or ws (development)",
+            "note": "Use wss://<host>/api/ws?token=<jwt_token> for secure connections",
+            "usage": {
+                "query_param": "/api/ws?token=<jwt_token>",
+                "header": "Authorization: Bearer <jwt_token>",
+                "both_supported": True
+            },
+            "nginx_config": {
+                "required": True,
+                "location": "/api/ws",
+                "upgrade_header": "required",
+                "connection_header": "upgrade",
+                "timeout": "3600s recommended"
+            },
+            "manager_info": manager_info,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"WebSocket diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

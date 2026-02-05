@@ -73,7 +73,7 @@ async def websocket_endpoint(
     user_id = await get_user_id_from_token(auth_token)
     
     if not user_id:
-        logger.warning("WebSocket connection rejected: invalid or missing token")
+        logger.warning(f"❌ WebSocket connection REJECTED: invalid or missing token (client: {websocket.client})")
         await websocket.close(code=1008, reason="Authentication required")
         return
     
@@ -81,6 +81,7 @@ async def websocket_endpoint(
     from websocket_manager_redis import manager
     
     # Connect client
+    logger.info(f"✅ WebSocket connection ACCEPTED for user {user_id[:8]}... (client: {websocket.client})")
     await manager.connect(websocket, user_id, last_event_id)
     
     try:
@@ -101,8 +102,9 @@ async def websocket_endpoint(
                 await manager._replay_messages(websocket, user_id, last_seq)
                 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for user {user_id[:8]}")
+        logger.info(f"🔌 WebSocket DISCONNECTED (clean) for user {user_id[:8]}...")
     except Exception as e:
-        logger.error(f"WebSocket error for user {user_id[:8]}: {e}")
+        logger.error(f"❌ WebSocket ERROR for user {user_id[:8]}...: {e}")
     finally:
         manager.disconnect(websocket, user_id)
+        logger.info(f"🔌 WebSocket cleanup complete for user {user_id[:8]}...")
