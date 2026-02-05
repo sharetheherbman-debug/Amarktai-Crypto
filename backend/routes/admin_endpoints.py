@@ -171,10 +171,25 @@ async def unlock_admin_panel(
             )
             raise HTTPException(status_code=403, detail="Invalid admin password")
         
-        # Generate unlock token (valid for 1 hour)
-        # NOTE: Token is not stored server-side (stateless approach)
-        # For production, consider implementing Redis-based token storage
-        unlock_token = secrets.token_urlsafe(32)
+        # Update user to have is_admin flag
+        await db.users_collection.update_one(
+            {"id": current_user_id},
+            {"$set": {"is_admin": True}}
+        )
+        
+        # Generate JWT token with admin role claim
+        from auth import create_access_token
+        from datetime import timedelta
+        
+        admin_token = create_access_token(
+            data={
+                "user_id": current_user_id,
+                "sub": current_user_id,
+                "role": "admin",
+                "is_admin": True
+            },
+            expires_delta=timedelta(hours=24)
+        )
         
         # Log successful unlock
         await audit_logger.log_event(
@@ -189,8 +204,14 @@ async def unlock_admin_panel(
         return {
             "success": True,
             "message": "Admin panel unlocked",
-            "unlock_token": unlock_token,
-            "expires_in": 3600  # 1 hour in seconds
+            "admin_token": admin_token,
+            "unlock_token": secrets.token_urlsafe(32),  # Keep for backward compat
+            "expires_in": 86400,  # 24 hours in seconds
+            "user": {
+                "id": current_user_id,
+                "is_admin": True,
+                "role": "admin"
+            }
         }
         
     except HTTPException:
@@ -1948,4 +1969,312 @@ async def reset_user_password_put(
         raise
     except Exception as e:
         logger.error(f"Change password error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ADMIN OVERVIEW & SYSTEM MANAGEMENT
+# ============================================================================
+
+@router.get("/overview")
+async def get_admin_overview(admin_id: str = Depends(require_admin)):
+    """
+    Get admin dashboard overview with system counts and statistics
+    """
+    try:
+        # Count active users (not blocked, not deleted)
+        total_users = await db.users_collection.count_documents({"blocked": {"$ne": True}})
+        blocked_users = await db.users_collection.count_documents({"blocked": True})
+        
+        # Count bots by status
+        total_bots = await db.bots_collection.count_documents({})
+        active_bots = await db.bots_collection.count_documents({"status": "active"})
+        paused_bots = await db.bots_collection.count_documents({"status": "paused"})
+        stopped_bots = await db.bots_collection.count_documents({"status": "stopped"})
+        
+        # Count trades (last 24h)
+        from datetime import datetime, timedelta
+        yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_trades = await db.trades_collection.count_documents({
+            "created_at": {"$gte": yesterday.isoformat()}
+        })
+        
+        # Get system mode flags (from first admin user)
+        admin_user = await db.users_collection.find_one({"is_admin": True})
+        system_mode = {
+            "paper_trading": admin_user.get("paper_trading", True) if admin_user else True,
+            "live_trading": admin_user.get("live_trading", False) if admin_user else False,
+            "autopilot": admin_user.get("autopilot_enabled", False) if admin_user else False,
+        }
+        
+        return {
+            "success": True,
+            "stats": {
+                "users": {
+                    "total": total_users,
+                    "blocked": blocked_users,
+                    "active": total_users - blocked_users
+                },
+                "bots": {
+                    "total": total_bots,
+                    "active": active_bots,
+                    "paused": paused_bots,
+                    "stopped": stopped_bots
+                },
+                "trades": {
+                    "last_24h": recent_trades
+                },
+                "system_mode": system_mode
+            }
+        }
+    except Exception as e:
+        logger.error(f"Admin overview error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/factory-reset")
+async def factory_reset_keep_admin(
+    admin_email: str,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """
+    Factory reset system - keeps only the specified admin email
+    DANGEROUS: Deletes all users, bots, trades except admin
+    """
+    try:
+        # Verify admin is performing the reset
+        admin_user = await db.users_collection.find_one({"id": admin_id})
+        if not admin_user or not admin_user.get("is_admin"):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        # Validate admin_email matches current admin
+        if admin_user.get("email") != admin_email:
+            raise HTTPException(
+                status_code=400, 
+                detail="Admin email mismatch. Only the current admin can perform factory reset."
+            )
+        
+        # Store admin data before deletion
+        admin_data = dict(admin_user)
+        admin_user_id = admin_data.get("id")
+        
+        # Delete all non-admin users
+        users_deleted = await db.users_collection.delete_many({
+            "id": {"$ne": admin_user_id}
+        })
+        
+        # Delete all bots
+        bots_deleted = await db.bots_collection.delete_many({})
+        
+        # Delete all trades
+        trades_deleted = await db.trades_collection.delete_many({})
+        
+        # Delete all API keys except admin's
+        keys_deleted = await db.api_keys_collection.delete_many({
+            "user_id": {"$ne": admin_user_id}
+        })
+        
+        # Reset admin user to defaults (keep email, password, is_admin)
+        await db.users_collection.update_one(
+            {"id": admin_user_id},
+            {
+                "$set": {
+                    "blocked": False,
+                    "system_mode": "testing",
+                    "autopilot_enabled": False,
+                    "bodyguard_enabled": True,
+                    "learning_enabled": True,
+                    "emergency_stop": False,
+                }
+            }
+        )
+        
+        # Log action
+        await log_admin_action(
+            admin_id=admin_id,
+            action="factory_reset",
+            target_type="system",
+            target_id="global",
+            details={
+                "users_deleted": users_deleted.deleted_count,
+                "bots_deleted": bots_deleted.deleted_count,
+                "trades_deleted": trades_deleted.deleted_count,
+                "keys_deleted": keys_deleted.deleted_count,
+                "kept_admin": admin_email
+            },
+            request=req
+        )
+        
+        logger.warning(f"Factory reset completed by {admin_email}")
+        
+        return {
+            "success": True,
+            "message": "Factory reset completed. All data cleared except admin account.",
+            "deleted": {
+                "users": users_deleted.deleted_count,
+                "bots": bots_deleted.deleted_count,
+                "trades": trades_deleted.deleted_count,
+                "api_keys": keys_deleted.deleted_count
+            },
+            "kept_admin": admin_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Factory reset error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/users/{user_id}/reset")
+async def reset_user_account(
+    user_id: str,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """
+    Reset user account - deletes all their bots, trades, and API keys
+    Keeps the user account active
+    """
+    try:
+        # Verify user exists
+        user = await db.users_collection.find_one({"id": user_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Delete user's bots
+        bots_deleted = await db.bots_collection.delete_many({"user_id": user_id})
+        
+        # Delete user's trades
+        trades_deleted = await db.trades_collection.delete_many({"user_id": user_id})
+        
+        # Delete user's API keys (except admin's own keys)
+        keys_deleted = await db.api_keys_collection.delete_many({
+            "user_id": user_id,
+            "user_id": {"$ne": admin_id}  # Don't delete admin's own keys
+        })
+        
+        # Reset user settings to defaults
+        await db.users_collection.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "system_mode": "testing",
+                    "autopilot_enabled": False,
+                    "bodyguard_enabled": True,
+                    "learning_enabled": True,
+                    "emergency_stop": False,
+                    "blocked": False
+                }
+            }
+        )
+        
+        # Log action
+        await log_admin_action(
+            admin_id=admin_id,
+            action="reset_user_account",
+            target_type="user",
+            target_id=user_id,
+            details={
+                "bots_deleted": bots_deleted.deleted_count,
+                "trades_deleted": trades_deleted.deleted_count,
+                "keys_deleted": keys_deleted.deleted_count
+            },
+            request=req
+        )
+        
+        return {
+            "success": True,
+            "message": "User account reset successfully",
+            "deleted": {
+                "bots": bots_deleted.deleted_count,
+                "trades": trades_deleted.deleted_count,
+                "api_keys": keys_deleted.deleted_count
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reset user account error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bots/clamp-caps")
+async def clamp_bot_caps(admin_id: str = Depends(require_admin)):
+    """
+    Enforce bot caps across all users
+    - Pause/quarantine bots exceeding per-exchange caps
+    - Mark extras with reason='CAP_EXCEEDED'
+    """
+    try:
+        from rules.bot_rules import BOT_CAPS, SUPPORTED_EXCHANGES
+        
+        results = {
+            "users_processed": 0,
+            "bots_clamped": 0,
+            "details": []
+        }
+        
+        # Get all users
+        users = await db.users_collection.find({}).to_list(length=None)
+        
+        for user in users:
+            user_id = user.get("id")
+            if not user_id:
+                continue
+            
+            results["users_processed"] += 1
+            
+            # Check each exchange
+            for exchange in SUPPORTED_EXCHANGES:
+                max_bots = BOT_CAPS.get(exchange, 10)
+                
+                # Get user's bots on this exchange (active + paused, sorted by created_at)
+                user_bots = await db.bots_collection.find({
+                    "user_id": user_id,
+                    "exchange": exchange,
+                    "status": {"$in": ["active", "paused"]}
+                }).sort("created_at", 1).to_list(length=None)
+                
+                bot_count = len(user_bots)
+                
+                if bot_count > max_bots:
+                    # Clamp: Keep first max_bots, pause the rest
+                    bots_to_clamp = user_bots[max_bots:]
+                    
+                    for bot in bots_to_clamp:
+                        bot_id = bot.get("id")
+                        await db.bots_collection.update_one(
+                            {"id": bot_id},
+                            {
+                                "$set": {
+                                    "status": "paused",
+                                    "quarantine_reason": "CAP_EXCEEDED",
+                                    "clamped_at": datetime.now(timezone.utc).isoformat(),
+                                    "clamped_by_admin": admin_id
+                                }
+                            }
+                        )
+                        results["bots_clamped"] += 1
+                    
+                    results["details"].append({
+                        "user_id": user_id,
+                        "exchange": exchange,
+                        "had": bot_count,
+                        "cap": max_bots,
+                        "clamped": len(bots_to_clamp)
+                    })
+        
+        logger.info(f"Bot caps clamped: {results['bots_clamped']} bots across {results['users_processed']} users")
+        
+        return {
+            "success": True,
+            "message": f"Bot caps enforced. {results['bots_clamped']} bots clamped.",
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Clamp bot caps error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
