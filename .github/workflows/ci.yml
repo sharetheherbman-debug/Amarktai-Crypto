@@ -87,12 +87,17 @@ jobs:
     - name: Install dependencies
       run: |
         cd frontend
-        npm ci
+        npm ci --prefer-offline --no-audit
+      env:
+        NODE_ENV: production
     
     - name: Build frontend
       run: |
         cd frontend
         npm run build
+      env:
+        CI: true
+        NODE_ENV: production
     
     - name: Check build output
       run: |
