@@ -2,6 +2,8 @@
 
 **Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 7 major exchanges.
 
+> 📚 **[Complete Documentation →](docs/INDEX.md)**
+
 [![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 [![Real-time](https://img.shields.io/badge/realtime-WebSocket%20%2B%20SSE-blue)]()
 [![Platforms](https://img.shields.io/badge/platforms-7%20exchanges-orange)]()

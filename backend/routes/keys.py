@@ -71,6 +71,66 @@ async def get_providers_list():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+
+@router.get("/status")
+async def get_keys_status(user_id: str = Depends(get_current_user)):
+    """
+    Get status of all API keys for current user
+    
+    Returns status per provider:
+    - not_configured: No key exists
+    - configured_untested: Key saved but not tested
+    - configured_valid: Key tested successfully
+    - configured_invalid: Key test failed
+    - configured_rate_limited: Key hit rate limit (optional)
+    
+    This is a simplified, focused endpoint specifically for status checks
+    """
+    try:
+        # Get all providers
+        all_providers = list_providers()
+        provider_ids = [p.provider_id for p in all_providers]
+        
+        # Get saved keys for user
+        keys_cursor = db.api_keys_collection.find(
+            {"user_id": str(user_id)},
+            {"_id": 0, "provider": 1, "status": 1, "last_tested_at": 1, "last_test_error": 1, "updated_at": 1}
+        )
+        saved_keys = await keys_cursor.to_list(100)
+        
+        # Build status map
+        status_map = {}
+        
+        for provider_id in provider_ids:
+            # Find key for this provider
+            key = next((k for k in saved_keys if k['provider'] == provider_id), None)
+            
+            if key:
+                status_map[provider_id] = {
+                    "status": key.get("status", ProviderStatus.CONFIGURED_UNTESTED.value),
+                    "last_tested_at": key.get("last_tested_at"),
+                    "last_test_error": key.get("last_test_error"),
+                    "updated_at": key.get("updated_at")
+                }
+            else:
+                status_map[provider_id] = {
+                    "status": ProviderStatus.NOT_CONFIGURED.value,
+                    "last_tested_at": None,
+                    "last_test_error": None,
+                    "updated_at": None
+                }
+        
+        return {
+            "success": True,
+            "status_map": status_map
+        }
+        
+    except Exception as e:
+        logger.error(f"Get keys status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/list")
 async def list_user_keys(user_id: str = Depends(get_current_user)):
     """List all providers with their status for current user
@@ -127,7 +187,7 @@ async def list_user_keys(user_id: str = Depends(get_current_user)):
                     status = ProviderStatus.TEST_FAILED.value
                     status_display = f"Test Failed ❌{' - ' + last_test_error if last_test_error else ''}"
                 else:
-                    status = ProviderStatus.SAVED_UNTESTED.value
+                    status = ProviderStatus.CONFIGURED_UNTESTED.value
                     status_display = "Saved (untested)"
                 
                 status_obj = {
@@ -237,7 +297,7 @@ async def save_key(
             "last_tested_at": None,  # Reset test status when key changes
             "last_test_ok": None,
             "last_test_error": None,
-            "status": ProviderStatus.SAVED_UNTESTED.value
+            "status": ProviderStatus.CONFIGURED_UNTESTED.value
         }
         
         if existing:
@@ -287,7 +347,7 @@ async def save_key(
             "success": True,
             "message": message,
             "provider": provider_id,
-            "status": ProviderStatus.SAVED_UNTESTED.value,
+            "status": ProviderStatus.CONFIGURED_UNTESTED.value,
             "status_display": "Saved (untested)",
             "updated_at": timestamp
         }
@@ -464,7 +524,7 @@ async def get_key(
             status = ProviderStatus.TEST_FAILED.value
             status_display = f"Test Failed ❌"
         else:
-            status = ProviderStatus.SAVED_UNTESTED.value
+            status = ProviderStatus.CONFIGURED_UNTESTED.value
             status_display = "Saved (untested)"
         
         return {

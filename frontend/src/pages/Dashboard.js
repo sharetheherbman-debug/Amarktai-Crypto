@@ -1353,7 +1353,7 @@ export default function Dashboard() {
     if (msgLower === 'show admin' || msgLower === 'showadmin' || msgLower === 'show admn') {
       setAwaitingPassword(true);
       setAdminAction('show');
-      const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password (Ashmor12@):' };
+      const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to show the admin section:' };
       setChatMessages(prev => [...prev, assistantMsg]);
       
       // Save assistant message
@@ -2509,11 +2509,11 @@ export default function Dashboard() {
           </div>
           <div className="amk-row">
             <input
-              type="text"
+              type={awaitingPassword ? "password" : "text"}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Type a message or ask about AI reports..."
+              placeholder={awaitingPassword ? "Enter admin password..." : "Type a message or ask about AI reports..."}
             />
             <button className="send" onClick={handleSendMessage}>Send</button>
           </div>
