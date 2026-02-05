@@ -800,179 +800,22 @@ async def get_overview(user_id: str = Depends(get_current_user), include_wallet:
 # NOTE: Removed duplicate GET /trades/recent - canonical in routes/trades.py
 
 # ============================================================================
-# API KEYS
+# API KEYS - REMOVED INLINE ENDPOINTS
 # ============================================================================
-
-@api_router.get("/api-keys")
-async def get_api_keys(user_id: str = Depends(get_current_user)):
-    keys = await db.api_keys_collection.find({"user_id": user_id}, {"_id": 0}).to_list(100)
-    for key in keys:
-        if 'secret' in key:
-            key['secret'] = '***' + key['secret'][-4:] if len(key.get('secret', '')) > 4 else '***'
-    return keys
-
-@api_router.post("/api-keys")
-async def create_api_key(key: APIKeyCreate, user_id: str = Depends(get_current_user)):
-    """Create or update API key for a provider"""
-    from uuid import uuid4
-    
-    # Validate required fields
-    if not key.api_key or key.api_key.strip() == '':
-        raise HTTPException(status_code=400, detail="API key cannot be empty")
-    
-    # Delete existing key for this provider
-    await db.api_keys_collection.delete_many({"user_id": user_id, "provider": key.provider})
-    
-    # Create new key - SAVE ONLY, no testing during save
-    key_dict = key.model_dump()
-    key_dict['id'] = str(uuid4())
-    key_dict['user_id'] = user_id
-    key_dict['connected'] = False  # User must test manually
-    key_dict['created_at'] = datetime.now(timezone.utc).isoformat()
-    
-    await db.api_keys_collection.insert_one(key_dict)
-    
-    # Return response with success=true contract required by verify_production_ready.py
-    return {
-        "success": True,
-        "provider": key.provider,
-        "connected": key_dict.get('connected', False),
-        "updated_at": key_dict.get('created_at'),
-        "message": f"Saved {key.provider.upper()} API key"
-    }
-
-@api_router.post("/api-keys/{provider}/test")
-async def test_api_key(provider: str, user_id: str = Depends(get_current_user)):
-    """Test API key connection for a provider"""
-    # Get the API key
-    key = await db.api_keys_collection.find_one({"user_id": user_id, "provider": provider}, {"_id": 0})
-    if not key:
-        raise HTTPException(status_code=404, detail=f"No API key found for {provider}")
-    
-    # Test based on provider
-    if provider in ['luno', 'binance', 'kucoin']:
-        if not key.get('api_secret'):
-            raise HTTPException(status_code=400, detail="API secret required for exchange testing")
-        
-        try:
-            is_valid = await ccxt_service.test_connection(provider, key['api_key'], key['api_secret'])
-            
-            # Update connection status
-            await db.api_keys_collection.update_one(
-                {"id": key['id']},
-                {"$set": {"connected": is_valid}}
-            )
-            
-            # Real-time notification
-            from realtime_events import rt_events
-            await rt_events.api_key_connected(user_id, provider, "connected" if is_valid else "failed")
-            
-            if is_valid:
-                return {"message": f"{provider.upper()} connection successful", "connected": True}
-            else:
-                raise HTTPException(status_code=400, detail=f"{provider.upper()} connection failed")
-        except Exception as e:
-            logger.error(f"Test connection error for {provider}: {e}")
-            raise HTTPException(status_code=400, detail=f"Connection test failed: {str(e)}")
-    
-    elif provider == 'openai':
-        # Test OpenAI key
-        try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=key['api_key'])
-            response = await client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=10
-            )
-            
-            await db.api_keys_collection.update_one(
-                {"id": key['id']},
-                {"$set": {"connected": True}}
-            )
-            
-            return {"message": "OpenAI connection successful", "connected": True}
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"OpenAI test failed: {error_msg}")
-            await db.api_keys_collection.update_one(
-                {"id": key['id']},
-                {"$set": {"connected": False}}
-            )
-            
-            # Provide helpful error message
-            if "Incorrect API key" in error_msg or "invalid" in error_msg.lower():
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Invalid OpenAI API key. Please provide a valid key with model access."
-                )
-            elif "does not have access to model" in error_msg:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Your OpenAI API key doesn't have access to GPT models. Please upgrade your OpenAI plan."
-                )
-            else:
-                raise HTTPException(status_code=400, detail=f"OpenAI test failed: {error_msg[:200]}")
-    
-    elif provider == 'flokx':
-        # Test Flokx key
-        try:
-            from flokx_integration import flokx
-            result = await flokx.test_connection(key['api_key'])
-            
-            # Handle boolean return from test_connection
-            is_connected = bool(result)
-            
-            await db.api_keys_collection.update_one(
-                {"id": key['id']},
-                {"$set": {"connected": is_connected}}
-            )
-            
-            # Real-time notification
-            from realtime_events import rt_events
-            await rt_events.api_key_connected(user_id, provider, "connected" if is_connected else "failed")
-            
-            if is_connected:
-                return {"message": "Flokx connection successful", "connected": True}
-            else:
-                raise HTTPException(status_code=400, detail="Flokx connection failed")
-        except Exception as e:
-            logger.error(f"Flokx test failed: {e}")
-            raise HTTPException(status_code=400, detail=f"Flokx test failed: {str(e)}")
-    
-    elif provider == 'fetchai':
-        # Test Fetch.ai key
-        try:
-            from fetchai_integration import fetchai
-            result = await fetchai.test_connection(key['api_key'])
-            
-            await db.api_keys_collection.update_one(
-                {"id": key['id']},
-                {"$set": {"connected": result}}
-            )
-            
-            if result:
-                return {"message": "Fetch.ai connection successful", "connected": True}
-            else:
-                raise HTTPException(status_code=400, detail="Fetch.ai connection failed")
-        except Exception as e:
-            logger.error(f"Fetch.ai test failed: {e}")
-            raise HTTPException(status_code=400, detail=f"Fetch.ai test failed: {str(e)}")
-    
-    # Supported exchanges: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, GateIO (7 total)
-    else:
-        # Unsupported provider
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}. Supported exchanges: luno, binance, kucoin")
-    
-    return {"message": f"{provider} configured", "connected": True}
-
-@api_router.delete("/api-keys/{provider}")
-async def delete_api_key_by_provider(provider: str, user_id: str = Depends(get_current_user)):
-    """Delete API key by provider name"""
-    result = await db.api_keys_collection.delete_many({"provider": provider, "user_id": user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail=f"No API key found for {provider}")
-    return {"message": f"{provider} API key deleted", "deleted_count": result.deleted_count}
+# All API key endpoints have been moved to maintain "one truth" architecture:
+#
+# CANONICAL (new):  /api/keys/*        -> routes/keys.py
+# LEGACY (compat):  /api/api-keys/*    -> routes/compat.py (proxies to routes/keys.py)
+#
+# Previously defined here (now removed to prevent route collisions):
+#   - GET    /api-keys                      -> use GET  /api/keys/list
+#   - POST   /api-keys                      -> use POST /api/keys/save
+#   - POST   /api-keys/{provider}/test      -> use POST /api/keys/test
+#   - DELETE /api-keys/{provider}           -> use DELETE /api/keys/{provider}
+#
+# Frontend uses canonical /api/keys/* endpoints.
+# Legacy /api/api-keys/* are available via routes/compat.py for backward compatibility.
+# ============================================================================
 
 # ============================================================================
 # AUTONOMOUS SYSTEMS
@@ -3071,14 +2914,23 @@ for route in app.routes:
         
         route_key = f"{method} {route.path}"
         
+        # Get detailed endpoint information
+        endpoint_info = "unknown"
+        if hasattr(route, 'endpoint'):
+            endpoint = route.endpoint
+            if hasattr(endpoint, '__module__') and hasattr(endpoint, '__name__'):
+                endpoint_info = f"{endpoint.__module__}:{endpoint.__name__}"
+            elif hasattr(endpoint, '__name__'):
+                endpoint_info = endpoint.__name__
+        
         if route_key in route_registry:
             logger.error(f"❌ ROUTE COLLISION DETECTED: {route_key}")
-            logger.error(f"   Previously registered at: {route_registry[route_key]}")
-            logger.error(f"   Attempting to register again")
+            logger.error(f"   Location 1: {route_registry[route_key]}")
+            logger.error(f"   Location 2: {endpoint_info}")
             collision_found = True
         else:
-            # Store route info
-            route_registry[route_key] = getattr(route, 'name', 'unknown')
+            # Store route info with module and function
+            route_registry[route_key] = endpoint_info
 
 if collision_found:
     logger.error("="*80)
