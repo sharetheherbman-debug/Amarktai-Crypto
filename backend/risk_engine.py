@@ -96,7 +96,7 @@ class RiskEngine:
         return True, "Risk check passed"
     
     async def _check_daily_loss(self, user_id: str, total_equity: float):
-        """Calculate today's realized loss"""
+        """Calculate today's realized loss using REALIZED net PnL only"""
         today = datetime.now(timezone.utc).date()
         
         # Reset if new day
@@ -104,14 +104,16 @@ class RiskEngine:
             self.user_daily_loss.clear()
             self.last_reset = today
         
-        # Calculate today's loss
+        # Calculate today's REALIZED loss from closed trades only
         today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
         trades_today = await db.trades_collection.find({
             "user_id": user_id,
+            "status": "closed",  # Only closed (realized) trades
             "timestamp": {"$gte": today_start.isoformat()}
-        }, {"_id": 0}).to_list(1000)
+        }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(1000)
         
-        total_pnl = sum(t.get("profit_loss", 0) for t in trades_today)
+        # Use canonical field normalization: net_pnl → fallback profit_loss
+        total_pnl = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades_today)
         self.user_daily_loss[user_id] = total_pnl if total_pnl < 0 else 0
     
     async def record_trade_result(self, user_id: str, profit_loss: float):
