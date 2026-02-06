@@ -94,10 +94,37 @@ class APIKey(BaseModel):
 # Bot Models
 class BotCreate(BaseModel):
     name: str
-    exchange: str  # luno, binance, kucoin
+    exchange: str  # MUST be one of: luno, binance, kucoin, bybit, kraken, bitget, gate
+    platform: Optional[str] = None  # Alias for exchange, will be normalized
     risk_mode: BotRiskMode
     trading_mode: TradingMode = TradingMode.PAPER
     initial_capital: float = 0
+    
+    @model_validator(mode='after')
+    def validate_platform(self):
+        """Ensure platform/exchange is valid and normalize"""
+        from config.platforms import is_valid_platform, normalize_platform_id, SUPPORTED_PLATFORMS
+        
+        # Get platform from either exchange or platform field
+        platform = self.platform or self.exchange
+        if not platform:
+            raise ValueError("Either 'exchange' or 'platform' field is required")
+        
+        # Normalize to lowercase
+        platform = normalize_platform_id(platform)
+        
+        # Validate against supported platforms
+        if not is_valid_platform(platform):
+            raise ValueError(
+                f"Invalid platform: {platform}. "
+                f"Must be one of: {', '.join(SUPPORTED_PLATFORMS)}"
+            )
+        
+        # Set both fields to normalized value
+        self.exchange = platform
+        self.platform = platform
+        
+        return self
 
 class Bot(BaseModel):
     model_config = ConfigDict(extra="ignore")
