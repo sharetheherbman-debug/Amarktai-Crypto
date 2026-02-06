@@ -2737,6 +2737,200 @@ async def get_prometheus_metrics():
         logger.error(f"Metrics export failed: {e}")
         raise HTTPException(status_code=500, detail="Metrics export failed")
 
+# ============================================================================
+# DIAGNOSTICS ENDPOINTS
+# ============================================================================
+
+@api_router.get("/diagnostics/chat")
+async def diagnostics_chat(user_id: str = Depends(get_current_user)):
+    """Chat diagnostics endpoint - shows OpenAI key status and configuration
+    
+    Returns:
+        - openai_key_status: not_configured, saved_untested, test_ok
+        - key_source: user, system, none
+        - last_error: sanitized error message if any
+    """
+    try:
+        from services.keys_service import keys_service
+        
+        # Check user's OpenAI key
+        user_key_data = await keys_service.get_user_api_key(user_id, 'openai', decrypt=False)
+        
+        if user_key_data:
+            openai_key_status = user_key_data.get('status', 'saved_untested')
+            last_test_error = user_key_data.get('last_test_error')
+            key_source = 'user' if openai_key_status == 'test_ok' else 'system'
+        else:
+            openai_key_status = 'not_configured'
+            last_test_error = None
+            # Check if system key exists
+            system_key = os.environ.get('OPENAI_API_KEY')
+            key_source = 'system' if system_key else 'none'
+        
+        # Determine which key would be used
+        if openai_key_status == 'test_ok':
+            actual_key_source = 'user'
+            chat_available = True
+        elif key_source == 'system':
+            actual_key_source = 'system'
+            chat_available = True
+        else:
+            actual_key_source = 'none'
+            chat_available = False
+        
+        return {
+            "success": True,
+            "openai_key_status": openai_key_status,
+            "key_source_would_use": actual_key_source,
+            "chat_available": chat_available,
+            "last_error": last_test_error if last_test_error else None,
+            "recommendation": (
+                "Chat is ready!" if chat_available 
+                else "Please configure your OpenAI API key in Settings > API Keys"
+            )
+        }
+        
+    except Exception as e:
+        logger.error(f"Chat diagnostics error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "openai_key_status": "error",
+            "key_source_would_use": "error",
+            "chat_available": False
+        }
+
+
+@api_router.get("/diagnostics/go-live")
+async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin_user: bool = Depends(is_admin)):
+    """Go-live diagnostics endpoint - comprehensive system status (admin only)
+    
+    Returns PASS/FAIL report for production readiness:
+    - Health check
+    - Database connectivity  
+    - Build hash
+    - System mode flags
+    - Risk locks
+    - API keys status (openai + 7 exchanges)
+    - Chat diagnostic summary
+    - Bots scheduler state
+    - Realtime health
+    """
+    if not is_admin_user:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_status": "CHECKING",
+            "checks": {}
+        }
+        
+        # 1. Health check
+        try:
+            report["checks"]["health"] = {"status": "PASS", "message": "Server is running"}
+        except Exception as e:
+            report["checks"]["health"] = {"status": "FAIL", "error": str(e)}
+        
+        # 2. Database connectivity
+        try:
+            await db.users_collection.find_one({}, {"_id": 1})
+            report["checks"]["database"] = {"status": "PASS", "message": "MongoDB connected"}
+        except Exception as e:
+            report["checks"]["database"] = {"status": "FAIL", "error": str(e)}
+        
+        # 3. Build hash (if available)
+        build_hash = os.environ.get('BUILD_HASH', 'unknown')
+        report["checks"]["build_hash"] = {"status": "INFO", "value": build_hash}
+        
+        # 4. System modes
+        try:
+            modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+            report["checks"]["system_modes"] = {
+                "status": "INFO",
+                "paper_trading": modes.get('paperTrading', False),
+                "live_trading": modes.get('liveTrading', False),
+                "autopilot": modes.get('autopilot', False),
+                "emergency_stop": modes.get('emergencyStop', False)
+            }
+        except Exception as e:
+            report["checks"]["system_modes"] = {"status": "FAIL", "error": str(e)}
+        
+        # 5. API keys status
+        try:
+            from services.keys_service import keys_service
+            keys_status = {}
+            
+            # Check OpenAI
+            openai_key = await keys_service.get_user_api_key(user_id, 'openai')
+            keys_status['openai'] = openai_key.get('status') if openai_key else 'not_configured'
+            
+            # Check exchanges
+            for exchange in ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']:
+                exchange_key = await keys_service.get_user_api_key(user_id, exchange)
+                keys_status[exchange] = exchange_key.get('status') if exchange_key else 'not_configured'
+            
+            report["checks"]["api_keys"] = {"status": "INFO", "keys": keys_status}
+        except Exception as e:
+            report["checks"]["api_keys"] = {"status": "FAIL", "error": str(e)}
+        
+        # 6. Chat diagnostic
+        try:
+            chat_diag = await diagnostics_chat(user_id)
+            report["checks"]["chat"] = {
+                "status": "PASS" if chat_diag.get('chat_available') else "WARN",
+                "key_source": chat_diag.get('key_source_would_use'),
+                "available": chat_diag.get('chat_available')
+            }
+        except Exception as e:
+            report["checks"]["chat"] = {"status": "FAIL", "error": str(e)}
+        
+        # 7. Bots scheduler state
+        try:
+            # Check if scheduler is running
+            from engines.scheduler import trading_scheduler
+            scheduler_running = trading_scheduler.running if hasattr(trading_scheduler, 'running') else False
+            report["checks"]["scheduler"] = {
+                "status": "PASS" if scheduler_running else "WARN",
+                "running": scheduler_running
+            }
+        except Exception as e:
+            report["checks"]["scheduler"] = {"status": "WARN", "error": str(e)}
+        
+        # 8. Realtime health (WebSocket)
+        try:
+            from websocket_manager import manager as ws_manager
+            active_connections = len(ws_manager.active_connections) if hasattr(ws_manager, 'active_connections') else 0
+            report["checks"]["realtime"] = {
+                "status": "PASS",
+                "active_connections": active_connections
+            }
+        except Exception as e:
+            report["checks"]["realtime"] = {"status": "WARN", "error": str(e)}
+        
+        # Determine overall status
+        failed_checks = [k for k, v in report["checks"].items() if v.get("status") == "FAIL"]
+        if failed_checks:
+            report["overall_status"] = "FAIL"
+            report["failed_checks"] = failed_checks
+        else:
+            warn_checks = [k for k, v in report["checks"].items() if v.get("status") == "WARN"]
+            if warn_checks:
+                report["overall_status"] = "PASS_WITH_WARNINGS"
+                report["warning_checks"] = warn_checks
+            else:
+                report["overall_status"] = "PASS"
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"Go-live diagnostics error: {e}")
+        return {
+            "overall_status": "ERROR",
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
 # Mount API router (includes auth and other inline endpoints)
 app.include_router(api_router, prefix="/api")
 

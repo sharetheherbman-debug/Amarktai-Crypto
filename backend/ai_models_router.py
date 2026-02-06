@@ -10,8 +10,9 @@ import os
 
 class AIModelsRouter:
     def __init__(self):
-        self.api_key = os.environ.get('OPENAI_API_KEY')
-        self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
+        # System fallback key
+        self.system_api_key = os.environ.get('OPENAI_API_KEY')
+        self.system_client = AsyncOpenAI(api_key=self.system_api_key) if self.system_api_key else None
         # Map config model names to actual OpenAI models
         self.models = {
             'system_brain': 'gpt-4o',  # Best for strategic decisions
@@ -20,14 +21,63 @@ class AIModelsRouter:
             'chatops': 'gpt-4o'  # Best for chat
         }
     
-    async def system_brain_decision(self, prompt: str, context: dict) -> str:
+    async def get_client_for_user(self, user_id: str = None) -> AsyncOpenAI:
+        """Get OpenAI client for user - prefers per-user key, falls back to system key
+        
+        Args:
+            user_id: User ID (optional). If not provided, uses system key
+            
+        Returns:
+            AsyncOpenAI client instance
+        """
+        if not user_id:
+            # No user_id provided, use system key
+            return self.system_client
+        
+        try:
+            # Try to get user's OpenAI key
+            import database as db
+            from routes.api_key_management import decrypt_api_key
+            
+            user_key_doc = await db.api_keys_collection.find_one(
+                {"user_id": user_id, "provider": "openai"},
+                {"_id": 0, "api_key_encrypted": 1, "status": 1}
+            )
+            
+            if user_key_doc and user_key_doc.get('api_key_encrypted'):
+                # Check if key is tested and valid
+                status = user_key_doc.get('status', '')
+                if status == 'test_ok':
+                    # Use per-user key
+                    user_api_key = decrypt_api_key(user_key_doc['api_key_encrypted'])
+                    client = AsyncOpenAI(api_key=user_api_key)
+                    logger.info(f"AI Router: Using per-user OpenAI key for user {user_id[:8] if user_id else 'unknown'}")
+                    return client
+                else:
+                    logger.warning(f"AI Router: User {user_id[:8]} has OpenAI key but status is {status}, using system key")
+            
+            # Fall back to system key
+            if self.system_client:
+                logger.info(f"AI Router: Using system OpenAI key for user {user_id[:8] if user_id else 'system'}")
+                return self.system_client
+            else:
+                logger.error(f"AI Router: No OpenAI key available for user {user_id[:8] if user_id else 'unknown'}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"AI Router: Error getting client for user {user_id[:8] if user_id else 'unknown'}: {e}")
+            # Fall back to system key on error
+            return self.system_client
+    
+    async def system_brain_decision(self, prompt: str, context: dict, user_id: str = None) -> str:
         """
         GPT-4o - System Brain
         For: Autopilot decisions, risk management, strategic planning
         """
         try:
-            if not self.client:
-                return "OpenAI API key not configured"
+            client = await self.get_client_for_user(user_id)
+            if not client:
+                return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
             system_message = f"""You are the Amarktai System Brain - the highest-level AI controller.
 
@@ -51,16 +101,17 @@ Think strategically. Consider long-term growth, risk mitigation, and optimal cap
         except Exception as e:
             logger.error(f"System brain error: {e}")
             # Fallback to trade decision
-            return await self.trade_decision(prompt, context)
+            return await self.trade_decision(prompt, context, user_id)
     
-    async def trade_decision(self, prompt: str, context: dict) -> str:
+    async def trade_decision(self, prompt: str, context: dict, user_id: str = None) -> str:
         """
         GPT-4o - Trade Execution Brain
         For: Individual bot trading decisions, technical analysis
         """
         try:
-            if not self.client:
-                return "OpenAI API key not configured"
+            client = await self.get_client_for_user(user_id)
+            if not client:
+                return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
             system_message = f"""You are the Amarktai Trade Execution Brain.
 
@@ -71,7 +122,7 @@ Context:
 
 Focus on: Technical patterns, entry/exit timing, position sizing."""
 
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.models['trade_decision'],
                 messages=[
                     {"role": "system", "content": system_message},
@@ -85,14 +136,15 @@ Focus on: Technical patterns, entry/exit timing, position sizing."""
             logger.error(f"Trade decision error: {e}")
             return f"Trade decision unavailable: {str(e)}"
     
-    async def generate_report(self, prompt: str, data: dict) -> str:
+    async def generate_report(self, prompt: str, data: dict, user_id: str = None) -> str:
         """
         GPT-4 - Reporting Brain
         For: Daily summaries, performance reports, email content
         """
         try:
-            if not self.client:
-                return "OpenAI API key not configured"
+            client = await self.get_client_for_user(user_id)
+            if not client:
+                return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
             system_message = f"""You are the Amarktai Reporting Brain.
 
@@ -103,7 +155,7 @@ Data to summarize:
 
 Focus on: Key metrics, insights, actionable recommendations."""
 
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.models['reporting'],
                 messages=[
                     {"role": "system", "content": system_message},
@@ -123,8 +175,9 @@ Focus on: Key metrics, insights, actionable recommendations."""
         For: Dashboard chat, real-time commands, user interaction
         """
         try:
-            if not self.client:
-                return "OpenAI API key not configured"
+            client = await self.get_client_for_user(user_id)
+            if not client:
+                return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
             system_message = f"""You are the Amarktai ChatOps Brain - real-time assistant.
 
@@ -135,7 +188,7 @@ System context:
 
 Be: Fast, accurate, helpful. Execute commands when requested."""
 
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.models['chatops'],
                 messages=[
                     {"role": "system", "content": system_message},
