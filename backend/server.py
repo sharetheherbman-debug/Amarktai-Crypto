@@ -2793,6 +2793,7 @@ routers_to_mount = [
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
+    ("routes.metrics_api", "Metrics API"),  # Trade cadence and countdown
     ("routes.market_api", "Market API"),  # Live market prices for BTC/ZAR, ETH/ZAR, XRP/ZAR
     ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests
     ("routes.ai_chat", "AI Chat"),
