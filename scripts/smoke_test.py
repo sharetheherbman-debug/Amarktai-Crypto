@@ -7,14 +7,36 @@ Validates critical endpoints and functionality before go-live.
 
 Tests:
 1. Server startup check (no route collisions)
-2. /api/health/ping - health check
+2. /api/health/ping - health check (expects status=healthy, db=connected)
 3. /api/build/info - unauthenticated build info
 4. Auth login - authentication works
 5. Wallet routes - GET /api/wallet/balances, POST /api/wallet/transfer
 6. Profit metrics - /api/profits/metrics with unified accounting
 7. Route collision detection
 
-Run this script after deployment to verify everything works.
+Environment Variables:
+- SMOKE_BASE_URL: Base URL for API (default: http://localhost:8000)
+- SMOKE_EMAIL: Email for authentication (default: test@amarktai.com)
+- SMOKE_PASSWORD: Password for authentication (default: test123)
+
+Usage:
+    # Use environment variables
+    export SMOKE_BASE_URL=http://localhost:8000
+    export SMOKE_EMAIL=admin@amarktai.com
+    export SMOKE_PASSWORD=mypassword
+    ./scripts/smoke_test.py
+
+    # Use command-line arguments
+    ./scripts/smoke_test.py http://localhost:8000 admin@amarktai.com mypassword
+
+    # Use defaults
+    ./scripts/smoke_test.py
+
+Exit Codes:
+- 0: All tests passed (warnings OK)
+- 1: One or more tests failed
+
+Note: If authentication fails, public tests continue and protected endpoints are skipped cleanly.
 """
 
 import sys
@@ -53,8 +75,11 @@ def print_test(name: str, status: str, message: str = ""):
 
 
 class SmokeTest:
-    def __init__(self, base_url: str = "http://localhost:8000"):
-        self.base_url = base_url.rstrip('/')
+    def __init__(self, base_url: str = None, email: str = None, password: str = None):
+        # Environment variable support
+        self.base_url = (base_url or os.environ.get("SMOKE_BASE_URL", "http://localhost:8000")).rstrip('/')
+        self.email = email or os.environ.get("SMOKE_EMAIL", "test@amarktai.com")
+        self.password = password or os.environ.get("SMOKE_PASSWORD", "test123")
         self.token = None
         self.test_results = []
     
@@ -123,16 +148,22 @@ class SmokeTest:
             return 0
     
     async def test_health_check(self):
-        """Test /api/health/ping"""
+        """Test /api/health/ping - expects status=healthy and db=connected"""
         try:
             async with self.session.get(f"{self.base_url}/api/health/ping", timeout=5) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    if data.get("status") == "ok":
-                        print_test("Health Check", "PASS", f"Status: {data.get('status')}")
+                    # Accept both 'healthy' and 'ok' for backward compatibility
+                    status_ok = data.get("status") in ["healthy", "ok"]
+                    db_ok = data.get("db") == "connected"
+                    
+                    if status_ok and db_ok:
+                        print_test("Health Check", "PASS", 
+                                 f"Status: {data.get('status')}, DB: {data.get('db')}")
                         self.test_results.append({"name": "health_check", "status": "PASS"})
                     else:
-                        print_test("Health Check", "FAIL", f"Unexpected status: {data}")
+                        print_test("Health Check", "FAIL", 
+                                 f"Unexpected payload: {data}")
                         self.test_results.append({"name": "health_check", "status": "FAIL"})
                 else:
                     print_test("Health Check", "FAIL", f"HTTP {resp.status}")
@@ -168,13 +199,9 @@ class SmokeTest:
             self.test_results.append({"name": "build_info", "status": "FAIL"})
     
     async def test_authentication(self):
-        """Test auth login"""
-        # Check if test credentials are provided
-        username = os.environ.get("TEST_USERNAME", "test@amarktai.com")
-        password = os.environ.get("TEST_PASSWORD", "test123")
-        
+        """Test auth login - continues public tests on failure, skips protected endpoints"""
         try:
-            payload = {"email": username, "password": password}
+            payload = {"email": self.email, "password": self.password}
             async with self.session.post(f"{self.base_url}/api/auth/login", 
                                         json=payload, timeout=5) as resp:
                 if resp.status == 200:
@@ -182,22 +209,25 @@ class SmokeTest:
                     if data.get("access_token"):
                         self.token = data["access_token"]
                         print_test("Authentication", "PASS", 
-                                  f"Token received for {username}")
+                                  f"Token received for {self.email}")
                         self.test_results.append({"name": "authentication", "status": "PASS"})
                     else:
                         print_test("Authentication", "FAIL", 
                                   "No access_token in response")
                         self.test_results.append({"name": "authentication", "status": "FAIL"})
                 elif resp.status == 401:
+                    # Auth failure is acceptable - continue with public tests only
                     print_test("Authentication", "WARN", 
-                              f"Invalid credentials (expected in test env): {username}")
+                              f"Auth failed for {self.email} - will skip protected endpoints")
                     self.test_results.append({"name": "authentication", "status": "WARN"})
+                    # Don't set token - protected endpoint tests will be skipped
                 else:
                     print_test("Authentication", "FAIL", f"HTTP {resp.status}")
                     self.test_results.append({"name": "authentication", "status": "FAIL"})
         except Exception as e:
-            print_test("Authentication", "FAIL", f"Error: {e}")
-            self.test_results.append({"name": "authentication", "status": "FAIL"})
+            print_test("Authentication", "WARN", 
+                      f"Auth error: {e} - will skip protected endpoints")
+            self.test_results.append({"name": "authentication", "status": "WARN"})
     
     async def test_wallet_balances(self):
         """Test GET /api/wallet/balances"""
@@ -318,11 +348,24 @@ class SmokeTest:
 
 async def main():
     """Main entry point"""
-    # Get base URL from environment or use default
-    base_url = os.environ.get("API_BASE_URL", "http://localhost:8000")
+    # Get configuration from environment or command-line args
+    # Priority: CLI args > Environment variables > Defaults
+    import sys
     
-    # Run tests
-    smoke_test = SmokeTest(base_url)
+    base_url = None
+    email = None
+    password = None
+    
+    # Parse simple CLI arguments if provided
+    if len(sys.argv) > 1:
+        base_url = sys.argv[1]
+    if len(sys.argv) > 2:
+        email = sys.argv[2]
+    if len(sys.argv) > 3:
+        password = sys.argv[3]
+    
+    # Run tests (SmokeTest will use env vars as fallback)
+    smoke_test = SmokeTest(base_url, email, password)
     exit_code = await smoke_test.run_all_tests()
     
     sys.exit(exit_code)

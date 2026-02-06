@@ -151,6 +151,21 @@ python -m uvicorn server:app --reload
 
 ## 🛠️ **Scripts & Tools**
 
+### **Testing**
+```bash
+# Run all tests (prevents plugin auto-loading issues)
+./scripts/test.sh
+
+# Run specific test file
+./scripts/test.sh tests/test_bots_e2e.py
+
+# Run with pytest directly (requires PYTEST_DISABLE_PLUGIN_AUTOLOAD=1)
+export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+python -m pytest -q --maxfail=25 --disable-warnings
+```
+
+**Note:** The test runner disables third-party pytest plugin auto-loading to prevent crashes from web3/ethereum plugins.
+
 ### **Pre-Deployment**
 ```bash
 ./scripts/preflight.sh  # Check system requirements, dependencies, MongoDB
