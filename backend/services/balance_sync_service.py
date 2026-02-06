@@ -141,9 +141,12 @@ class BalanceSyncService:
                     "message": "No API keys configured"
                 }
             
-            # Create tasks for all exchanges
+            # Create tasks for all exchanges using decrypted keys
             tasks = []
             key_mapping = {}
+            
+            # Import get_decrypted_key to ensure consistent key retrieval
+            from routes.api_key_management import get_decrypted_key
             
             for key_doc in api_keys:
                 provider = key_doc.get("provider", "").lower()
@@ -152,26 +155,42 @@ class BalanceSyncService:
                 if provider not in SUPPORTED_PLATFORMS:
                     continue
                 
-                api_key = key_doc.get("api_key")
-                api_secret = key_doc.get("api_secret")
-                passphrase = key_doc.get("passphrase")
-                
-                if not api_key or not api_secret:
-                    logger.warning(f"Incomplete API key for {provider}, skipping")
+                # Use get_decrypted_key for consistent decryption
+                try:
+                    decrypted = await get_decrypted_key(user_id, provider)
+                    if not decrypted:
+                        logger.warning(f"Could not decrypt API key for {provider}, skipping")
+                        continue
+                    
+                    api_key = decrypted.get("api_key")
+                    api_secret = decrypted.get("api_secret")
+                    passphrase = key_doc.get("passphrase_encrypted")
+                    
+                    # Decrypt passphrase if present (for kucoin, bitget)
+                    if passphrase:
+                        from routes.api_key_management import decrypt_api_key
+                        try:
+                            passphrase = decrypt_api_key(passphrase)
+                        except Exception:
+                            passphrase = None  # Failed to decrypt, try without
+                    
+                    if not api_key or not api_secret:
+                        logger.warning(f"Incomplete API key for {provider}, skipping")
+                        continue
+                    
+                    task = self.fetch_exchange_balance(
+                        user_id,
+                        provider,
+                        api_key,
+                        api_secret,
+                        passphrase
+                    )
+                    tasks.append(task)
+                    key_mapping[provider] = key_doc.get("id")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing API key for {provider}: {e}")
                     continue
-                
-                # Decrypt keys if encrypted (assuming they are stored encrypted)
-                # For now, assuming they are already decrypted or using plaintext in dev
-                
-                task = self.fetch_exchange_balance(
-                    user_id,
-                    provider,
-                    api_key,
-                    api_secret,
-                    passphrase
-                )
-                tasks.append(task)
-                key_mapping[provider] = key_doc.get("id")
             
             # Fetch all balances concurrently
             results = await asyncio.gather(*tasks, return_exceptions=True)

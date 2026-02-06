@@ -73,11 +73,19 @@ async def lifespan(app: FastAPI):
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8000"))
     logger.info(f"📡 Configured to bind: {host}:{port}")
-    logger.info(f"🏗️  Build SHA: {os.getenv('BUILD_SHA', 'unknown')}")
+    logger.info(f"🏗️  Build SHA: {os.getenv('BUILD_SHA', os.getenv('GIT_COMMIT', 'unknown'))}")
     logger.info(f"🌍 Environment: {os.getenv('ENVIRONMENT', 'production')}")
     logger.info(f"📁 Working Directory: {os.getcwd()}")
     logger.info(f"🐍 Python Version: {os.sys.version.split()[0]}")
     logger.info(f"⏰ Startup Time: {startup_time.isoformat()}")
+    
+    # Log key trading mode toggles
+    paper_trading = os.getenv('ENABLE_PAPER_TRADING', 'true').lower() == 'true'
+    live_trading = os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true'
+    autopilot = os.getenv('ENABLE_AUTOPILOT', 'false').lower() == 'true'
+    logger.info(f"📊 Paper Trading: {'ON' if paper_trading else 'OFF'}")
+    logger.info(f"🔴 Live Trading: {'ON' if live_trading else 'OFF'}")
+    logger.info(f"🤖 Autopilot: {'ON' if autopilot else 'OFF'}")
     logger.info("="*80)
     
     # =========================================================================

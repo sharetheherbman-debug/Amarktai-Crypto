@@ -52,6 +52,34 @@ async def migrate_user_ids(db):
         # Don't raise - let app continue even if migration fails
 
 
+async def migrate_api_keys_repair(db):
+    """
+    Repair API keys collection
+    Adds missing id fields, ensures consistent schema
+    """
+    try:
+        # Import repair function from scripts
+        import sys
+        import os
+        scripts_path = os.path.join(os.path.dirname(__file__), '..', 'scripts')
+        if scripts_path not in sys.path:
+            sys.path.insert(0, scripts_path)
+        
+        from repair_api_keys import repair_api_keys
+        
+        logger.info("Running API keys repair migration...")
+        stats = await repair_api_keys()
+        
+        if stats.get("errors", 0) > 0:
+            logger.warning(f"✗ API keys repair completed with {stats['errors']} errors")
+        else:
+            logger.info(f"✓ API keys repair complete: {stats.get('fixed_id', 0)} keys fixed")
+        
+    except Exception as e:
+        logger.error(f"✗ API keys repair failed: {e}")
+        # Don't raise - let app continue even if repair fails
+
+
 async def run_startup_migrations(db):
     """
     Run all startup migrations
@@ -59,6 +87,7 @@ async def run_startup_migrations(db):
     """
     logger.info("Running startup migrations...")
     await migrate_user_ids(db)
+    await migrate_api_keys_repair(db)
     logger.info("Startup migrations complete")
 
 
