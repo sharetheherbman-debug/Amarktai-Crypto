@@ -19,6 +19,65 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
 
+@router.get("/required-capital")
+async def get_required_capital(user_id: str = Depends(get_current_user)):
+    """Get required capital breakdown from bot collection
+    
+    Calculates total and per-platform required capital based on all bots
+    (active, paused, training - not deleted)
+    
+    Returns:
+        - total: Total required capital across all bots
+        - by_platform: Required capital per platform (luno, binance, kucoin, etc.)
+        - bot_count: Number of bots contributing to requirements
+        - timestamp: When calculation was performed
+    """
+    try:
+        from config.platforms import SUPPORTED_PLATFORMS
+        
+        # Get all bots (exclude deleted)
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$ne": "deleted"},
+                "deleted_at": {"$exists": False}
+            },
+            {"_id": 0, "initial_capital": 1, "platform": 1, "exchange": 1, "status": 1}
+        ).to_list(1000)
+        
+        # Calculate total and per-platform
+        total_required = 0.0
+        by_platform = {platform: 0.0 for platform in SUPPORTED_PLATFORMS}
+        
+        for bot in bots:
+            capital = bot.get("initial_capital", 0)
+            platform = bot.get("platform") or bot.get("exchange", "unknown")
+            
+            # Normalize platform name
+            platform = platform.lower() if platform else "unknown"
+            
+            total_required += capital
+            
+            if platform in by_platform:
+                by_platform[platform] += capital
+            elif platform != "unknown":
+                # Platform not in supported list, add it
+                by_platform[platform] = capital
+        
+        # Remove platforms with 0 capital for cleaner response
+        by_platform = {k: round(v, 2) for k, v in by_platform.items() if v > 0}
+        
+        return {
+            "total": round(total_required, 2),
+            "by_platform": by_platform,
+            "bot_count": len(bots),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get required capital error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/balances-legacy", include_in_schema=False)
 async def get_wallet_balances_legacy(user_id: str = Depends(get_current_user)):
     """Get all wallet balances for user (LEGACY - use /api/wallet/balances from wallet_hub instead)"""
