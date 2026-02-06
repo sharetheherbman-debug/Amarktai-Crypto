@@ -19,6 +19,7 @@ const APIKeySettings = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [showKeys, setShowKeys] = useState({});
+  const [requestCounter, setRequestCounter] = useState(0); // Track request order
   
   const token = localStorage.getItem('token');
   
@@ -94,6 +95,14 @@ const APIKeySettings = () => {
   
   const testApiKey = async (providerId) => {
     setLoading(true);
+    
+    // Optimistic update: immediately show testing state
+    setProviders(prev => prev.map(p => 
+      p.provider === providerId 
+        ? { ...p, status: 'testing', status_display: 'Testing...' }
+        : p
+    ));
+    
     try {
       const response = await fetch('/api/keys/test', {
         method: 'POST',
@@ -107,14 +116,33 @@ const APIKeySettings = () => {
       const result = await response.json();
       
       if (result.success) {
+        // Optimistic update: immediately set to test_ok before refetch
+        setProviders(prev => prev.map(p => 
+          p.provider === providerId 
+            ? { ...p, status: 'test_ok', status_display: 'Test OK ✅' }
+            : p
+        ));
         showMessage('success', result.message || 'API key test passed ✅');
       } else {
+        // Immediately set to test_failed
+        setProviders(prev => prev.map(p => 
+          p.provider === providerId 
+            ? { ...p, status: 'test_failed', status_display: 'Test Failed ❌', last_test_error: result.message }
+            : p
+        ));
         showMessage('error', result.message || 'API key test failed ❌');
       }
       
-      fetchAllProviders();
+      // Increment counter and fetch to verify
+      const currentCounter = requestCounter + 1;
+      setRequestCounter(currentCounter);
+      
+      // Delayed refetch to confirm persisted state (don't overwrite optimistic update immediately)
+      setTimeout(() => fetchAllProviders(), 500);
     } catch (error) {
       showMessage('error', 'Error testing API key: ' + error.message);
+      // Revert optimistic update on error
+      fetchAllProviders();
     } finally {
       setLoading(false);
     }
@@ -126,6 +154,14 @@ const APIKeySettings = () => {
     }
     
     setLoading(true);
+    
+    // Optimistic update: immediately set to not_configured
+    setProviders(prev => prev.map(p => 
+      p.provider === providerId 
+        ? { ...p, status: 'not_configured', status_display: 'Not configured' }
+        : p
+    ));
+    
     try {
       const response = await fetch(`/api/keys/${providerId}`, {
         method: 'DELETE',
@@ -136,12 +172,17 @@ const APIKeySettings = () => {
       
       if (response.ok) {
         showMessage('success', result.message || 'API key deleted successfully');
-        fetchAllProviders();
+        // Refresh to confirm
+        setTimeout(() => fetchAllProviders(), 300);
       } else {
         showMessage('error', result.message || 'Failed to delete API key');
+        // Revert on error
+        fetchAllProviders();
       }
     } catch (error) {
       showMessage('error', 'Error deleting API key: ' + error.message);
+      // Revert on error
+      fetchAllProviders();
     } finally {
       setLoading(false);
     }
@@ -153,20 +194,32 @@ const APIKeySettings = () => {
   };
   
   const getStatusColor = (status) => {
-    switch(status) {
-      case 'test_ok': return '#22c55e';
-      case 'test_failed': return '#ef4444';
-      case 'saved_untested': return '#f59e0b';
-      default: return '#6b7280';
+    // Normalize status: handle both old and new values
+    const normalizedStatus = status?.toLowerCase();
+    
+    if (normalizedStatus === 'test_ok' || normalizedStatus === 'configured_valid') {
+      return '#22c55e'; // Green
+    } else if (normalizedStatus === 'test_failed' || normalizedStatus === 'configured_invalid') {
+      return '#ef4444'; // Red
+    } else if (normalizedStatus === 'saved_untested' || normalizedStatus === 'configured_untested') {
+      return '#f59e0b'; // Amber/Warning
+    } else {
+      return '#6b7280'; // Gray for not_configured
     }
   };
   
   const getStatusIcon = (status) => {
-    switch(status) {
-      case 'test_ok': return '✅';
-      case 'test_failed': return '❌';
-      case 'saved_untested': return '⚠️';
-      default: return '⚪';
+    // Normalize status: handle both old and new values
+    const normalizedStatus = status?.toLowerCase();
+    
+    if (normalizedStatus === 'test_ok' || normalizedStatus === 'configured_valid') {
+      return '✅';
+    } else if (normalizedStatus === 'test_failed' || normalizedStatus === 'configured_invalid') {
+      return '❌';
+    } else if (normalizedStatus === 'saved_untested' || normalizedStatus === 'configured_untested') {
+      return '⚠️';
+    } else {
+      return '⚪';
     }
   };
   

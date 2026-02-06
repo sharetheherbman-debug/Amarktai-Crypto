@@ -180,9 +180,60 @@ else
     warn "OpenAI test endpoint may have issues (HTTP $test_http_code)"
 fi
 
-# Test 8: Realtime Smoke Test
+# Test 8: Chat Diagnostics (NEW)
 echo ""
-echo "Test 8: Realtime Events System"
+echo "Test 8: Chat Diagnostics"
+chat_diag_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/diagnostics/chat" \
+    -H "Authorization: Bearer $TOKEN")
+
+chat_diag_http_code=$(echo "$chat_diag_response" | tail -n1)
+chat_diag_body=$(echo "$chat_diag_response" | head -n-1)
+
+if [ "$chat_diag_http_code" = "200" ]; then
+    if echo "$chat_diag_body" | grep -q '"chat_available":true'; then
+        pass "Chat diagnostics - chat is available"
+    elif echo "$chat_diag_body" | grep -q '"chat_available":false'; then
+        warn "Chat diagnostics - chat not available (OpenAI key not configured)"
+    else
+        fail "Chat diagnostics returned unexpected format"
+    fi
+else
+    fail "Chat diagnostics endpoint failed (HTTP $chat_diag_http_code)"
+fi
+
+# Test 9: API Keys Status (NEW)
+echo ""
+echo "Test 9: API Keys Status"
+keys_status_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/keys/status" \
+    -H "Authorization: Bearer $TOKEN")
+
+keys_status_http_code=$(echo "$keys_status_response" | tail -n1)
+keys_status_body=$(echo "$keys_status_response" | head -n-1)
+
+if [ "$keys_status_http_code" = "200" ]; then
+    # Check for required exchanges
+    all_exchanges_present=true
+    for exchange in luno binance kucoin bybit kraken bitget gate openai; do
+        if echo "$keys_status_body" | grep -q "\"$exchange\""; then
+            echo "  ✓ $exchange status present"
+        else
+            warn "$exchange status missing"
+            all_exchanges_present=false
+        fi
+    done
+    
+    if [ "$all_exchanges_present" = true ]; then
+        pass "API keys status returns all required providers"
+    else
+        warn "API keys status missing some providers"
+    fi
+else
+    fail "API keys status endpoint failed (HTTP $keys_status_http_code)"
+fi
+
+# Test 10: Realtime Smoke Test
+echo ""
+echo "Test 10: Realtime Events System"
 realtime_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/diagnostics/realtime-smoke" \
     -H "Authorization: Bearer $TOKEN")
 
@@ -199,9 +250,9 @@ else
     fail "Realtime smoke test failed (HTTP $realtime_http_code)"
 fi
 
-# Test 9: Analytics Performance Endpoint (Frontend Critical)
+# Test 11: Analytics Performance Endpoint (Frontend Critical)
 echo ""
-echo "Test 9: Analytics Performance Endpoint"
+echo "Test 11: Analytics Performance Endpoint"
 analytics_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/analytics/performance" \
     -H "Authorization: Bearer $TOKEN")
 
@@ -220,7 +271,7 @@ fi
 
 # Test 10: Admin Users List (if admin)
 echo ""
-echo "Test 10: Admin Endpoints"
+echo "Test 12: Admin Endpoints"
 admin_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/admin/users/list" \
     -H "Authorization: Bearer $TOKEN")
 
