@@ -145,12 +145,17 @@ fi
 
 # Check external endpoint (if domain is configured)
 step "Testing external endpoint (https://www.amarktai.online)"
-# Note: Using -k to skip SSL verification since this is a health check
-# In production, ensure valid SSL certificates are configured
-if curl -f -s -k https://www.amarktai.online/api/health/ping > /dev/null; then
-    success "External endpoint responding"
+# Try with SSL verification first
+if curl -f -s --max-time 5 https://www.amarktai.online/api/health/ping > /dev/null 2>&1; then
+    success "External endpoint responding (SSL verified)"
 else
-    warning "External endpoint check failed (may not be configured)"
+    # If SSL verification fails, try without (e.g., self-signed cert in staging)
+    warning "SSL verification failed, trying without verification..."
+    if curl -f -s -k --max-time 5 https://www.amarktai.online/api/health/ping > /dev/null 2>&1; then
+        warning "External endpoint responding (SSL verification skipped - configure valid certificates)"
+    else
+        warning "External endpoint check failed (may not be configured)"
+    fi
 fi
 
 # Final success message
