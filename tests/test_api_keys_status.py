@@ -39,12 +39,12 @@ class TestAPIKeysStatus:
         assert hasattr(ProviderStatus, 'CONFIGURED_INVALID')
         assert hasattr(ProviderStatus, 'CONFIGURED_RATE_LIMITED')
         
-        # Verify values
+        # Verify values use intuitive names
         assert ProviderStatus.NOT_CONFIGURED.value == 'not_configured'
-        assert ProviderStatus.CONFIGURED_UNTESTED.value == 'configured_untested'
-        assert ProviderStatus.CONFIGURED_VALID.value == 'configured_valid'
-        assert ProviderStatus.CONFIGURED_INVALID.value == 'configured_invalid'
-        assert ProviderStatus.CONFIGURED_RATE_LIMITED.value == 'configured_rate_limited'
+        assert ProviderStatus.CONFIGURED_UNTESTED.value == 'saved_untested'  # Changed to intuitive name
+        assert ProviderStatus.CONFIGURED_VALID.value == 'test_ok'  # Changed to intuitive name
+        assert ProviderStatus.CONFIGURED_INVALID.value == 'test_failed'  # Changed to intuitive name
+        assert ProviderStatus.CONFIGURED_RATE_LIMITED.value == 'rate_limited'
     
     def test_provider_status_backward_compatibility(self):
         """Verify backward compatible aliases exist"""
@@ -53,10 +53,10 @@ class TestAPIKeysStatus:
         assert hasattr(ProviderStatus, 'TEST_OK')
         assert hasattr(ProviderStatus, 'TEST_FAILED')
         
-        # They should map to new values
-        assert ProviderStatus.SAVED_UNTESTED.value == 'configured_untested'
-        assert ProviderStatus.TEST_OK.value == 'configured_valid'
-        assert ProviderStatus.TEST_FAILED.value == 'configured_invalid'
+        # They should map to intuitive values (same as primary names now)
+        assert ProviderStatus.SAVED_UNTESTED.value == 'saved_untested'
+        assert ProviderStatus.TEST_OK.value == 'test_ok'
+        assert ProviderStatus.TEST_FAILED.value == 'test_failed'
     
     def test_keys_status_endpoint_exists(self):
         """Verify /api/keys/status endpoint exists"""
@@ -100,24 +100,24 @@ class TestStatusTransitions:
         assert expected_status == 'not_configured'
     
     def test_saved_key_becomes_configured_untested(self):
-        """After saving, status should be configured_untested"""
+        """After saving, status should be saved_untested"""
         expected_status = ProviderStatus.CONFIGURED_UNTESTED.value
-        assert expected_status == 'configured_untested'
+        assert expected_status == 'saved_untested'
     
     def test_successful_test_becomes_configured_valid(self):
-        """After successful test, status should be configured_valid"""
+        """After successful test, status should be test_ok"""
         expected_status = ProviderStatus.CONFIGURED_VALID.value
-        assert expected_status == 'configured_valid'
+        assert expected_status == 'test_ok'
     
     def test_failed_test_becomes_configured_invalid(self):
-        """After failed test, status should be configured_invalid"""
+        """After failed test, status should be test_failed"""
         expected_status = ProviderStatus.CONFIGURED_INVALID.value
-        assert expected_status == 'configured_invalid'
+        assert expected_status == 'test_failed'
     
     def test_rate_limited_status_available(self):
         """Rate limited status should be available"""
         expected_status = ProviderStatus.CONFIGURED_RATE_LIMITED.value
-        assert expected_status == 'configured_rate_limited'
+        assert expected_status == 'rate_limited'
 
 
 class TestAPIKeyRoutes:

@@ -21,15 +21,15 @@ class ProviderType(str, Enum):
 class ProviderStatus(str, Enum):
     """Provider key status"""
     NOT_CONFIGURED = "not_configured"
-    CONFIGURED_UNTESTED = "configured_untested"
-    CONFIGURED_VALID = "configured_valid"
-    CONFIGURED_INVALID = "configured_invalid"
-    CONFIGURED_RATE_LIMITED = "configured_rate_limited"
+    CONFIGURED_UNTESTED = "saved_untested"  # Use intuitive name
+    CONFIGURED_VALID = "test_ok"  # Use intuitive name
+    CONFIGURED_INVALID = "test_failed"  # Use intuitive name
+    CONFIGURED_RATE_LIMITED = "rate_limited"
     
     # Aliases for backward compatibility
-    SAVED_UNTESTED = "configured_untested"
-    TEST_OK = "configured_valid"
-    TEST_FAILED = "configured_invalid"
+    SAVED_UNTESTED = "saved_untested"
+    TEST_OK = "test_ok"
+    TEST_FAILED = "test_failed"
 
 
 class ProviderDefinition:
