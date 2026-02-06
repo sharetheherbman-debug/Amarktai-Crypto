@@ -63,6 +63,82 @@ async def get_daily_loss_lock_status(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/admin/reset-risk-lock")
+async def admin_reset_risk_lock(
+    user_id: str = Depends(get_current_user)
+):
+    """Admin endpoint to reset daily loss lock (idempotent)
+    
+    Requires admin privileges
+    Resets daily loss lock for the current user
+    Idempotent - can be called multiple times safely
+    
+    Returns:
+        - success: bool
+        - message: confirmation message
+        - was_locked: whether a lock was actually present
+    """
+    try:
+        # Check if user is admin
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if not user.get("is_admin", False):
+            raise HTTPException(
+                status_code=403, 
+                detail="Admin privileges required"
+            )
+        
+        # Check if lock is currently active
+        was_locked = user.get("daily_loss_lock_active", False)
+        
+        # Reset the lock (idempotent operation)
+        result = await db.users_collection.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "daily_loss_lock_active": False,
+                    "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
+                    "daily_loss_lock_reset_by": user_id
+                },
+                "$unset": {
+                    "daily_loss_locked_at": "",
+                    "daily_loss_locked_reason": "",
+                    "daily_loss_pct": "",
+                    "daily_loss_day_key": ""
+                }
+            }
+        )
+        
+        # Emit realtime event
+        try:
+            from realtime_events import rt_events
+            await rt_events.lock_reset(user_id, "daily_loss")
+        except Exception as e:
+            logger.warning(f"Failed to emit lock_reset event: {e}")
+        
+        message = (
+            "Daily loss lock reset successfully" if was_locked 
+            else "No lock was active (idempotent reset completed)"
+        )
+        
+        logger.info(f"Admin {user_id[:8]} reset daily loss lock (was_locked={was_locked})")
+        
+        return {
+            "success": True,
+            "message": message,
+            "was_locked": was_locked,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting risk lock: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/api/risk/daily-loss-lock/reset")
 async def reset_daily_loss_lock(
     confirmation: str,

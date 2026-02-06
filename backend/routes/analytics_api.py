@@ -133,14 +133,15 @@ async def get_performance_summary(
             {"_id": 0}
         ).to_list(10000)
         
-        # Calculate statistics
+        # Calculate statistics using canonical field normalization
         total_trades = len(trades)
-        winning_trades = len([t for t in trades if t.get('profit_loss', 0) > 0])
-        losing_trades = len([t for t in trades if t.get('profit_loss', 0) < 0])
+        # Use net_pnl (primary) → fallback profit_loss
+        winning_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
+        losing_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0])
         
-        total_pnl = sum(t.get('profit_loss', 0) for t in trades)
-        gross_profit = sum(t.get('profit_loss', 0) for t in trades if t.get('profit_loss', 0) > 0)
-        gross_loss = abs(sum(t.get('profit_loss', 0) for t in trades if t.get('profit_loss', 0) < 0))
+        total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades)
+        gross_profit = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0)
+        gross_loss = abs(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0))
         
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else 0
@@ -226,10 +227,11 @@ async def get_exchange_comparison(
                 }
                 continue
             
-            # Calculate metrics
+            # Calculate metrics using canonical field normalization
             total_trades = len(exchange_trades)
-            winning = len([t for t in exchange_trades if t.get('profit_loss', 0) > 0])
-            total_pnl = sum(t.get('profit_loss', 0) for t in exchange_trades)
+            # Use net_pnl (primary) → fallback profit_loss
+            winning = len([t for t in exchange_trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
+            total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in exchange_trades)
             
             # Estimate initial capital (sum of trade sizes)
             initial_capital = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in exchange_trades) / total_trades if total_trades > 0 else 1
@@ -307,7 +309,7 @@ async def get_equity_curve(
                 "user_id": user_id,
                 "timestamp": {"$gte": start_time.isoformat()}
             },
-            {"_id": 0, "timestamp": 1, "profit_loss": 1, "fee": 1}
+            {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1, "fee_amount": 1, "fees": 1, "fee": 1}
         ).sort("timestamp", 1).to_list(10000)
         
         # Build equity curve
@@ -326,8 +328,9 @@ async def get_equity_curve(
             }]
         else:
             for trade in trades:
-                cumulative_pnl += trade.get('profit_loss', 0)
-                cumulative_fees += trade.get('fee', 0)
+                # Use canonical field normalization
+                cumulative_pnl += trade.get('net_pnl', trade.get('profit_loss', 0))
+                cumulative_fees += trade.get('fee_amount', trade.get('fees', trade.get('fee', 0)))
                 
                 equity_points.append({
                     "timestamp": trade['timestamp'],
@@ -400,7 +403,7 @@ async def get_drawdown_analysis(
                 "user_id": user_id,
                 "timestamp": {"$gte": start_time.isoformat()}
             },
-            {"_id": 0, "timestamp": 1, "profit_loss": 1}
+            {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1}
         ).sort("timestamp", 1).to_list(10000)
         
         # Calculate equity progression and drawdowns
@@ -428,7 +431,8 @@ async def get_drawdown_analysis(
             }
         
         for trade in trades:
-            cumulative_pnl += trade.get('profit_loss', 0)
+            # Use canonical field normalization
+            cumulative_pnl += trade.get('net_pnl', trade.get('profit_loss', 0))
             equity = initial_capital + cumulative_pnl
             equity_curve.append(equity)
             
@@ -531,17 +535,18 @@ async def get_win_rate_stats(
                 "timestamp": now.isoformat()
             }
         
-        # Calculate statistics
-        winning_trades = [t for t in trades if t.get('profit_loss', 0) > 0]
-        losing_trades = [t for t in trades if t.get('profit_loss', 0) < 0]
+        # Calculate statistics using canonical field normalization
+        # Use net_pnl (primary) → fallback profit_loss
+        winning_trades = [t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0]
+        losing_trades = [t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0]
         
         total_trades = len(trades)
         win_count = len(winning_trades)
         loss_count = len(losing_trades)
         
-        gross_profit = sum(t.get('profit_loss', 0) for t in winning_trades)
-        gross_loss = abs(sum(t.get('profit_loss', 0) for t in losing_trades))
-        total_pnl = sum(t.get('profit_loss', 0) for t in trades)
+        gross_profit = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in winning_trades)
+        gross_loss = abs(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in losing_trades))
+        total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades)
         
         win_rate_pct = (win_count / total_trades * 100) if total_trades > 0 else 0
         avg_win = (gross_profit / win_count) if win_count > 0 else 0
@@ -549,7 +554,7 @@ async def get_win_rate_stats(
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf') if gross_profit > 0 else 0
         
         # Find best and worst trades
-        all_pnls = [t.get('profit_loss', 0) for t in trades]
+        all_pnls = [t.get('net_pnl', t.get('profit_loss', 0)) for t in trades]
         best_trade = max(all_pnls) if all_pnls else 0
         worst_trade = min(all_pnls) if all_pnls else 0
         

@@ -354,6 +354,93 @@ class RealTimeEvents:
             "message": "📈 Overview updated"
         })
         logger.debug(f"📡 Real-time: overview_updated for user {user_id[:8]}")
+    
+    @staticmethod
+    async def trade_inserted(user_id: str, trade_data: dict):
+        """Broadcast when a new trade is inserted"""
+        await manager.send_message(user_id, {
+            "type": "trade_inserted",
+            "trade": trade_data,
+            "message": f"📊 New trade: {trade_data.get('pair', 'N/A')}"
+        })
+        logger.debug(f"📡 Real-time: trade_inserted for user {user_id[:8]}")
+    
+    @staticmethod
+    async def bot_state_changed(user_id: str, bot_id: str, old_state: str, new_state: str, reason: str = None):
+        """Broadcast when bot state changes (active/paused/training/quarantine)"""
+        await manager.send_message(user_id, {
+            "type": "bot_state_changed",
+            "bot_id": bot_id,
+            "old_state": old_state,
+            "new_state": new_state,
+            "reason": reason,
+            "message": f"🤖 Bot state: {old_state} → {new_state}"
+        })
+        logger.info(f"📡 Real-time: bot_state_changed {bot_id[:8]} {old_state}->{new_state}")
+    
+    @staticmethod
+    async def lock_triggered(user_id: str, lock_type: str, reason: str, loss_pct: float = None):
+        """Broadcast when risk lock is triggered"""
+        await manager.send_message(user_id, {
+            "type": "lock_triggered",
+            "lock_type": lock_type,
+            "reason": reason,
+            "loss_pct": loss_pct,
+            "message": f"🔒 Risk Lock: {reason}"
+        })
+        logger.warning(f"📡 Real-time: lock_triggered for user {user_id[:8]} - {reason}")
+    
+    @staticmethod
+    async def lock_reset(user_id: str, lock_type: str):
+        """Broadcast when risk lock is reset"""
+        await manager.send_message(user_id, {
+            "type": "lock_reset",
+            "lock_type": lock_type,
+            "message": f"🔓 Risk lock reset: {lock_type}"
+        })
+        logger.info(f"📡 Real-time: lock_reset for user {user_id[:8]}")
+    
+    @staticmethod
+    async def wallet_updated(user_id: str, wallet_data: dict):
+        """Broadcast wallet balance updates (alias for wallet_update)"""
+        await manager.send_message(user_id, {
+            "type": "wallet_updated",
+            "wallet": wallet_data,
+            "message": "💰 Wallet updated"
+        })
+        logger.debug(f"📡 Real-time: wallet_updated for user {user_id[:8]}")
+    
+    @staticmethod
+    async def price_update(user_id: str, prices: dict):
+        """Broadcast market price updates"""
+        await manager.send_message(user_id, {
+            "type": "price_update",
+            "prices": prices,
+            "message": "💱 Prices updated"
+        })
+        logger.debug(f"📡 Real-time: price_update for user {user_id[:8]}")
+    
+    @staticmethod
+    async def key_saved(user_id: str, provider: str, provider_name: str):
+        """Broadcast when API key is saved"""
+        await manager.send_message(user_id, {
+            "type": "key_saved",
+            "provider": provider,
+            "message": f"🔑 {provider_name} key saved"
+        })
+        logger.info(f"📡 Real-time: key_saved {provider} for user {user_id[:8]}")
+    
+    @staticmethod
+    async def key_tested(user_id: str, provider: str, provider_name: str, success: bool, error: str = None):
+        """Broadcast when API key is tested"""
+        await manager.send_message(user_id, {
+            "type": "key_tested",
+            "provider": provider,
+            "success": success,
+            "error": error,
+            "message": f"{'✅' if success else '❌'} {provider_name} key test {'passed' if success else 'failed'}"
+        })
+        logger.info(f"📡 Real-time: key_tested {provider} for user {user_id[:8]} - {'OK' if success else 'FAILED'}")
 
 # Global instance
 rt_events = RealTimeEvents()
