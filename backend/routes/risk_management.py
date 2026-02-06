@@ -119,7 +119,10 @@ async def admin_reset_risk_lock(
         except Exception as e:
             logger.warning(f"Failed to emit lock_reset event: {e}")
         
-        message = "Daily loss lock reset successfully" if was_locked else "No lock was active (idempotent reset completed)"
+        message = (
+            "Daily loss lock reset successfully" if was_locked 
+            else "No lock was active (idempotent reset completed)"
+        )
         
         logger.info(f"Admin {user_id[:8]} reset daily loss lock (was_locked={was_locked})")
         

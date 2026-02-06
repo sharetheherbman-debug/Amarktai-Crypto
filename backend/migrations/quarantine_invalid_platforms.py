@@ -76,7 +76,7 @@ async def migrate_invalid_platform_bots():
                 {"id": bot_id},
                 {
                     "$set": {
-                        "status": "quarantine",
+                        "status": "quarantined",
                         "pause_reason": "INVALID_PLATFORM",
                         "quarantine_reason": f"Invalid or missing platform: {platform}",
                         "quarantined_at": datetime.now(timezone.utc).isoformat(),
