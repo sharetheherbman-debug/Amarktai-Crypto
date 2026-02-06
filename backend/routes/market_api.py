@@ -96,8 +96,9 @@ async def _fetch_luno_ticker(pair: str, api_key: Optional[Dict] = None) -> Dict:
             
             # Calculate 24h change from rolling_24_hour_volume if available
             # Luno doesn't provide 24h change directly, so we'll use a simple heuristic
-            # In production, you'd want to store previous prices and calculate
-            change_pct = 0.0  # TODO: Implement proper 24h change tracking
+            # Future Enhancement: Store previous prices and calculate actual 24h change
+            # Non-critical for core trading - tracked in backlog (see DEPLOYMENT_NOTES.md)
+            change_pct = 0.0
             
             return {
                 "price": round(last_trade, 2),

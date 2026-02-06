@@ -415,7 +415,7 @@ class OverviewService:
                         
                         prices[display_pair] = {
                             "price": round(last_trade, 2),
-                            "change_pct": 0.0,  # TODO: Track 24h change
+                            "change_pct": 0.0,  # Future: Track 24h change (see DEPLOYMENT_NOTES.md)
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "source": "luno_public"
                         }

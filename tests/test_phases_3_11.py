@@ -106,7 +106,10 @@ class TestPhase5APIKeys:
 
 
 class TestPhase7TradeCadence:
-    """Test trade cadence and countdown system"""
+    """Test trade cadence and countdown system (Phase 7)
+    
+    Note: Phase 6 (Real-time Events) is tested in TestPhase6RealtimeEvents class below
+    """
     
     def test_countdown_requires_30_trades(self):
         """Test that countdown only activates after 30 trades"""
@@ -207,7 +210,7 @@ class TestPhase10BodyguardRiskManagement:
 
 
 class TestPhase6RealtimeEvents:
-    """Test realtime event emissions"""
+    """Test realtime event emissions (Phase 6)"""
     
     def test_required_events_exist(self):
         """Test that all required events are defined"""
