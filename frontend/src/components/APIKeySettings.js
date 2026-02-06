@@ -33,6 +33,15 @@ const APIKeySettings = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
+      if (response.status === 401 || response.status === 403) {
+        showMessage('error', 'Session expired. Please login again.');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
+      
       if (response.ok) {
         const data = await response.json();
         setProviders(data.keys || []);
@@ -77,6 +86,15 @@ const APIKeySettings = () => {
         })
       });
       
+      if (response.status === 401 || response.status === 403) {
+        showMessage('error', 'Session expired. Please login again.');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
+      
       const result = await response.json();
       
       if (response.ok) {
@@ -112,6 +130,15 @@ const APIKeySettings = () => {
         },
         body: JSON.stringify({ provider: providerId })
       });
+      
+      if (response.status === 401 || response.status === 403) {
+        showMessage('error', 'Session expired. Please login again.');
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
       
       const result = await response.json();
       

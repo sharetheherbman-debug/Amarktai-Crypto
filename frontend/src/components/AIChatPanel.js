@@ -253,6 +253,20 @@ const AIChatPanel = () => {
         })
       });
 
+      if (response.status === 401 || response.status === 403) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '⚠️ Session expired. Please login again.',
+          timestamp: new Date().toISOString(),
+          error: true
+        }]);
+        setTimeout(() => {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }, 2000);
+        return;
+      }
+
       const data = await response.json();
 
       setMessages(prev => [...prev, {
