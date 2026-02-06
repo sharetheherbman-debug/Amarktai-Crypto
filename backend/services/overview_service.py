@@ -395,16 +395,39 @@ class OverviewService:
     async def _fetch_luno_prices(self) -> Optional[Dict]:
         """Fetch live prices from Luno API
         
-        Will be implemented properly in Phase 4.
-        For now, returns None to use fallback.
+        Returns proper price data structure or None.
         """
-        # TODO: Phase 4 - Implement actual Luno API calls
-        # - Check for Luno API keys in user's saved keys
-        # - If available, use authenticated ticker
-        # - Otherwise use public ticker
-        # - Calculate 24h % change
-        # - Return proper price data
-        return None
+        try:
+            import httpx
+            
+            prices = {}
+            pairs = [("XBTZAR", "BTC/ZAR"), ("ETHZAR", "ETH/ZAR"), ("XRPZAR", "XRP/ZAR")]
+            
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                for luno_pair, display_pair in pairs:
+                    try:
+                        url = f"https://api.luno.com/api/1/ticker?pair={luno_pair}"
+                        response = await client.get(url)
+                        response.raise_for_status()
+                        
+                        data = response.json()
+                        last_trade = float(data.get("last_trade", 0))
+                        
+                        prices[display_pair] = {
+                            "price": round(last_trade, 2),
+                            "change_pct": 0.0,  # TODO: Track 24h change
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "source": "luno_public"
+                        }
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch {display_pair}: {e}")
+                        continue
+            
+            return prices if prices else None
+            
+        except Exception as e:
+            logger.error(f"Luno price fetch error: {e}")
+            return None
     
     def _empty_snapshot(self, now: datetime) -> Dict:
         """Return empty snapshot when user not found or error occurs"""
