@@ -286,7 +286,8 @@ async def save_key(
         
         timestamp = datetime.now(timezone.utc).isoformat()
         
-        # Generate id if this is a new key
+        # Generate id if this is a new key, preserve existing id for updates
+        # Note: Existing ids are preserved as-is for backward compatibility
         key_id = existing.get("id") if existing else str(uuid4())
         
         key_doc = {

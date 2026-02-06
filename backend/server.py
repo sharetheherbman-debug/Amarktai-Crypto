@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI):
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8000"))
     logger.info(f"📡 Configured to bind: {host}:{port}")
+    # BUILD_SHA is canonical, GIT_COMMIT is fallback for compatibility
     logger.info(f"🏗️  Build SHA: {os.getenv('BUILD_SHA', os.getenv('GIT_COMMIT', 'unknown'))}")
     logger.info(f"🌍 Environment: {os.getenv('ENVIRONMENT', 'production')}")
     logger.info(f"📁 Working Directory: {os.getcwd()}")

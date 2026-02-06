@@ -252,7 +252,12 @@ async def test_repair_handles_empty_collection(mock_collection):
 
 
 def test_repair_script_importable():
-    """Test that the repair script can be imported without errors"""
+    """
+    Test that the repair script can be imported without errors
+    
+    Note: This test assumes scripts directory is at backend/../scripts
+    relative to the test file location.
+    """
     try:
         import sys
         import os

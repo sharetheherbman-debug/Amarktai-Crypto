@@ -145,6 +145,8 @@ fi
 
 # Check external endpoint (if domain is configured)
 step "Testing external endpoint (https://www.amarktai.online)"
+# Note: Using -k to skip SSL verification since this is a health check
+# In production, ensure valid SSL certificates are configured
 if curl -f -s -k https://www.amarktai.online/api/health/ping > /dev/null; then
     success "External endpoint responding"
 else

@@ -146,7 +146,7 @@ class BalanceSyncService:
             key_mapping = {}
             
             # Import get_decrypted_key to ensure consistent key retrieval
-            from routes.api_key_management import get_decrypted_key
+            from routes.api_key_management import get_decrypted_key, decrypt_api_key
             
             for key_doc in api_keys:
                 provider = key_doc.get("provider", "").lower()
@@ -164,13 +164,13 @@ class BalanceSyncService:
                     
                     api_key = decrypted.get("api_key")
                     api_secret = decrypted.get("api_secret")
-                    passphrase = key_doc.get("passphrase_encrypted")
                     
-                    # Decrypt passphrase if present (for kucoin, bitget)
-                    if passphrase:
-                        from routes.api_key_management import decrypt_api_key
+                    # Handle passphrase separately (not returned by get_decrypted_key)
+                    passphrase = None
+                    passphrase_encrypted = key_doc.get("passphrase_encrypted")
+                    if passphrase_encrypted:
                         try:
-                            passphrase = decrypt_api_key(passphrase)
+                            passphrase = decrypt_api_key(passphrase_encrypted)
                         except Exception:
                             passphrase = None  # Failed to decrypt, try without
                     
