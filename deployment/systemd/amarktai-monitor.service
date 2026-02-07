@@ -1,0 +1,29 @@
+[Unit]
+Description=Amarktai Health Monitor
+After=network.target amarktai-api.service
+Wants=amarktai-api.service
+
+[Service]
+Type=simple
+User=amarktai
+Group=amarktai
+WorkingDirectory=/opt/amarktai
+Environment="API_URL=http://127.0.0.1:8000"
+Environment="LOG_FILE=/var/log/amarktai/backend.log"
+Environment="ALERT_EMAIL=amarktainetwork@gmail.com"
+Environment="HEALTH_CHECK_INTERVAL=300"
+EnvironmentFile=/opt/amarktai/.env
+
+# Run health monitor in daemon mode
+ExecStart=/opt/amarktai/venv/bin/python3 /opt/amarktai/scripts/health_monitor.py daemon
+
+# Restart on failure
+Restart=always
+RestartSec=30
+
+# Logging
+StandardOutput=append:/var/log/amarktai/monitor.log
+StandardError=append:/var/log/amarktai/monitor.log
+
+[Install]
+WantedBy=multi-user.target
