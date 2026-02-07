@@ -108,20 +108,15 @@ def test_server_imports():
     with open(server_file, 'r') as f:
         content = f.read()
     
-    # Check for is_admin import
-    if 'from auth import' in content and 'is_admin' in content:
-        # Verify it's in the import line
-        import_lines = [line for line in content.split('\n') if 'from auth import' in line]
-        has_is_admin = any('is_admin' in line for line in import_lines)
-        
-        if has_is_admin:
-            print(f"  ✅ is_admin imported in server.py")
-            return True
-        else:
-            print(f"  ❌ is_admin not found in auth import line")
-            return False
+    # Verify it's specifically in an 'from auth import' line
+    import_lines = [line for line in content.split('\n') if 'from auth import' in line]
+    has_is_admin = any('is_admin' in line for line in import_lines)
+    
+    if has_is_admin:
+        print(f"  ✅ is_admin imported in server.py")
+        return True
     else:
-        print(f"  ❌ auth import not found or is_admin missing")
+        print(f"  ❌ is_admin not found in auth import line")
         return False
 
 def main():

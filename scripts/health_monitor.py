@@ -30,7 +30,7 @@ import json
 import asyncio
 import smtplib
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -62,7 +62,7 @@ def load_state():
         try:
             with open(STATE_FILE, 'r') as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {
         'consecutive_failures': 0,
@@ -185,10 +185,13 @@ def run_check():
             # Only send alert if no alert in last hour
             should_alert = True
             if last_alert:
-                from datetime import timedelta
-                last_alert_dt = datetime.fromisoformat(last_alert)
-                if (now - last_alert_dt) < timedelta(hours=1):
-                    should_alert = False
+                try:
+                    last_alert_dt = datetime.fromisoformat(last_alert)
+                    if (now - last_alert_dt) < timedelta(hours=1):
+                        should_alert = False
+                except (ValueError, TypeError) as e:
+                    print(f"Warning: Invalid timestamp format in state: {e}")
+                    # Continue with alert if timestamp is invalid
             
             if should_alert:
                 subject = "🚨 Amarktai System Health Alert"
@@ -276,7 +279,7 @@ Amarktai Health Monitor
 def daemon_mode():
     """Run as daemon, checking every CHECK_INTERVAL seconds"""
     print(f"🚀 Starting health monitor daemon")
-    print(f"   Check interval: {CHECK_INTERVAL} seconds")
+    print(f"   Check interval: {CHECK_INTERVAL} seconds ({CHECK_INTERVAL // 60} minutes)")
     print(f"   Health endpoint: {HEALTH_ENDPOINT}")
     print(f"   Alert email: {ALERT_EMAIL}")
     print()

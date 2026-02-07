@@ -107,7 +107,7 @@ def main():
         print("  - bybit")
         print("  - kraken")
         print("  - bitget")
-        print("  - gate")
+        print("  - gate (Gate.io)")
         return 0
     else:
         print(f"\n❌ Found {len(all_violations)} VALR/OVEX references in active code:")
