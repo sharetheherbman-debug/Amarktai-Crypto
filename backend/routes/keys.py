@@ -8,6 +8,7 @@ from typing import Optional, Dict, List
 from pydantic import BaseModel, Field
 import logging
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from auth import get_current_user, is_admin
 from routes.api_key_management import encrypt_api_key, decrypt_api_key
@@ -285,7 +286,12 @@ async def save_key(
         
         timestamp = datetime.now(timezone.utc).isoformat()
         
+        # Generate id if this is a new key, preserve existing id for updates
+        # Note: Existing ids are preserved as-is for backward compatibility
+        key_id = existing.get("id") if existing else str(uuid4())
+        
         key_doc = {
+            "id": key_id,  # Always include id field
             "user_id": str(user_id),
             "provider": provider_id,
             "api_key_encrypted": encrypted_payload["api_key"],

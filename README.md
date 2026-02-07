@@ -95,9 +95,10 @@
 ### **Deployment**
 | Document | Description |
 |----------|-------------|
+| **[DEPLOY.md](DEPLOY.md)** | 🚀 Complete deployment guide (env vars, clean deploy, troubleshooting) |
 | **[Systemd Service](docs/examples/amarktai.service)** | Production systemd configuration |
 | **[Nginx Config](docs/examples/nginx.conf)** | WebSocket + SSE reverse proxy |
-| **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Detailed deployment guide |
+| **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Additional deployment notes |
 
 ### **Reference**
 | Document | Description |
