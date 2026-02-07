@@ -44,7 +44,7 @@ from models import (
     ChatMessage, BotRiskMode, ProfileUpdate
 )
 import database as db
-from auth import create_access_token, get_current_user, get_password_hash, verify_password
+from auth import create_access_token, get_current_user, get_password_hash, verify_password, is_admin
 from ai_service import ai_service
 from ccxt_service import ccxt_service
 from websocket_manager import manager
