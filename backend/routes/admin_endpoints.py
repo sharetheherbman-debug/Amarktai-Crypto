@@ -14,7 +14,7 @@ import secrets
 import string
 import random
 
-from auth import get_current_user
+from auth import get_current_user, require_admin
 import database as db
 from engines.audit_logger import audit_logger
 from json_utils import serialize_doc, serialize_list
@@ -67,33 +67,7 @@ async def log_admin_action(
 # RBAC HELPER
 # ============================================================================
 
-async def require_admin(current_user: str = Depends(get_current_user)) -> str:
-    """Ensure current user is admin"""
-    from bson import ObjectId
-    from bson.errors import InvalidId
-    
-    # Query user by id field first
-    user = await db.users_collection.find_one({"id": current_user}, {"_id": 0})
-    
-    # Fallback to ObjectId if not found and format is valid (24 hex characters)
-    if not user and len(current_user) == 24 and all(c in '0123456789abcdefABCDEF' for c in current_user):
-        try:
-            user = await db.users_collection.find_one({"_id": ObjectId(current_user)})
-        except InvalidId:
-            pass  # Invalid ObjectId despite format check
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Check if user is admin
-    is_admin = user.get('is_admin', False) or user.get('role') == 'admin'
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    return current_user
-
-
+# Use require_admin from auth.py for consistency
 # Backward compatibility alias
 verify_admin = require_admin
 
