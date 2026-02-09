@@ -219,10 +219,11 @@ def test_route_count_reasonable():
     
     route_count = len(unique_routes)
     
-    # We expect between 200-400 routes in this app
+    # We expect between 200-450 routes in this app
     # Adjust these bounds if the app legitimately grows/shrinks
+    # Updated MAX from 400 to 450 (app has grown to 405 routes as of 2026-02-09)
     MIN_EXPECTED = 200
-    MAX_EXPECTED = 400
+    MAX_EXPECTED = 450
     
     assert route_count >= MIN_EXPECTED, (
         f"Too few routes registered ({route_count}). "

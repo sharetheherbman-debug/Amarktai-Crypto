@@ -65,7 +65,9 @@ echo "---------------------------------------------"
 
 cd "$PROJECT_ROOT"
 if [ -f "$BACKEND_DIR/tests/test_route_collisions.py" ]; then
-    if pytest -xvs "$BACKEND_DIR/tests/test_route_collisions.py" 2>&1; then
+    # Disable pytest plugin autoloading to avoid web3 conflicts
+    export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+    if pytest -xvs "$BACKEND_DIR/tests/test_route_collisions.py" -p no:warnings 2>&1; then
         echo -e "${GREEN}✅ PASSED: No route collisions detected${NC}"
     else
         echo -e "${RED}❌ FAILED: Route collision tests failed${NC}"
