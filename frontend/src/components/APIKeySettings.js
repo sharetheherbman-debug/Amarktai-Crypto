@@ -276,7 +276,7 @@ const APIKeySettings = () => {
   
   return (
     <div className="api-key-settings">
-      <h2 style={{marginBottom: '20px', fontSize: '1.5rem', fontWeight: 'bold'}}>
+      <h2 style={{marginBottom: '20px', fontSize: '1.5rem', fontWeight: 'bold', color: '#ffffff'}}>
         🔑 API Key Management
       </h2>
       

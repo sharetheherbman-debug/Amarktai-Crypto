@@ -172,6 +172,30 @@ export default function Dashboard() {
   const token = localStorage.getItem('token');
   const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
 
+  // Safe date formatter - handles null/undefined gracefully
+  const formatDate = (dateStr, options = {}) => {
+    if (!dateStr) return '—';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '—';
+      
+      const { format = 'localeString' } = options;
+      switch (format) {
+        case 'localeString':
+          return date.toLocaleString();
+        case 'localeDateString':
+          return date.toLocaleDateString();
+        case 'localeTimeString':
+          return date.toLocaleTimeString();
+        default:
+          return date.toLocaleString();
+      }
+    } catch (error) {
+      console.error('Date format error:', error);
+      return '—';
+    }
+  };
+
   // Track if WebSocket has been initialized to prevent double initialization
   const wsInitializedRef = useRef(false);
 
@@ -2427,7 +2451,7 @@ export default function Dashboard() {
     <section className="section active">
       <div className="card welcome-container">
         <div className="welcome-header">
-          <h2>Welcome, {user?.first_name || 'User'}</h2>
+          <h2 style={{color: '#ffffff'}}>Welcome, {user?.first_name || 'User'}</h2>
           <p>Control your AI trading system with natural language.</p>
         </div>
         
@@ -2565,7 +2589,7 @@ export default function Dashboard() {
   const renderOverview = () => (
     <section className="section active">
       <div className="card">
-        <h2>System Overview</h2>
+        <h2 style={{color: '#ffffff'}}>System Overview</h2>
         
         {/* Risk Status Banner */}
         {bodyguardStatus?.locked && (
@@ -2584,7 +2608,7 @@ export default function Dashboard() {
               <strong>Reason:</strong> {bodyguardStatus.reason || 'Risk threshold exceeded'}
             </div>
             <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
-              Locked at: {bodyguardStatus.locked_at ? new Date(bodyguardStatus.locked_at).toLocaleString() : 'Unknown'}
+              Locked at: {formatDate(bodyguardStatus.locked_at)}
             </div>
             {user?.is_admin && (
               <div style={{marginTop: '12px', display: 'flex', gap: '10px'}}>
@@ -2680,7 +2704,7 @@ export default function Dashboard() {
                 <strong>Last Trade</strong>
                 <div className="led-row">
                   <span style={{fontSize: '0.85rem'}}>
-                    {overviewData.lastTradeTime ? new Date(overviewData.lastTradeTime).toLocaleString() : 'No trades yet'}
+                    {formatDate(overviewData.lastTradeTime) !== '—' ? formatDate(overviewData.lastTradeTime) : 'No trades yet'}
                   </span>
                 </div>
               </div>
@@ -2834,7 +2858,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2>🔑 API Setup - All Integration Keys</h2>
+          <h2 style={{color: '#ffffff'}}>🔑 API Setup - All Integration Keys</h2>
           <p style={{color: 'var(--muted)', marginBottom: '20px', fontSize: '0.9rem'}}>
             Configure all API keys and credentials for exchanges, AI services, and integrations. All keys are encrypted and stored securely per-user.
           </p>
@@ -2908,7 +2932,7 @@ export default function Dashboard() {
   const renderBots = () => (
       <section className="section active">
         <div className="card">
-          <h2 style={{marginBottom: '16px'}}>🤖 Bot Management</h2>
+          <h2 style={{marginBottom: '16px', color: '#ffffff'}}>🤖 Bot Management</h2>
           
           {/* Horizontal Sub-tabs */}
           <div style={{
@@ -3359,7 +3383,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2>Profile Settings</h2>
+          <h2 style={{color: '#ffffff'}}>Profile Settings</h2>
           <div className="profile-grid">
             <div className="field-group">
               <label>Full Name</label>
@@ -3413,7 +3437,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Member Since</div>
-                <div style={{fontWeight: 600, marginTop: '4px'}}>{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</div>
+                <div style={{fontWeight: 600, marginTop: '4px'}}>{formatDate(user?.created_at, { format: 'localeDateString' })}</div>
               </div>
               <div>
                 <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Total Bots</div>
@@ -3528,7 +3552,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2>🔧 Admin Panel (God Mode)</h2>
+          <h2 style={{color: '#ffffff'}}>🔧 Admin Panel (God Mode)</h2>
           
           {/* VPS Resource Summary */}
           {systemStats?.vps_resources && (
@@ -3787,7 +3811,7 @@ export default function Dashboard() {
               )}
               
               <div style={{marginTop: '12px', fontSize: '0.75rem', color: 'var(--muted)', textAlign: 'right'}}>
-                Last check: {new Date(bodyguardStatus.timestamp).toLocaleString()}
+                Last check: {formatDate(bodyguardStatus.timestamp)}
               </div>
             </div>
           )}
@@ -4452,7 +4476,7 @@ export default function Dashboard() {
   const renderSystemMode = () => (
     <section className="section active">
       <div className="card">
-        <h2>System Mode</h2>
+        <h2 style={{color: '#ffffff'}}>System Mode</h2>
         <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px'}}>
           <div className="system-card" onClick={() => toggleSystemMode('paperTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.paperTrading ? 'var(--success)' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
             <h3>🧪 Paper Trading</h3>
@@ -4538,7 +4562,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2>📊 Live Trades - Platform Comparison</h2>
+          <h2 style={{color: '#ffffff'}}>📊 Live Trades - Platform Comparison</h2>
           <p style={{color: 'var(--muted)', marginBottom: '20px', fontSize: '0.9rem'}}>
             Real-time trade feed showing all 7 supported platforms (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
           </p>
@@ -4760,7 +4784,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{marginBottom: '16px'}}>💹 Profits & Performance</h2>
+          <h2 style={{marginBottom: '16px', color: '#ffffff'}}>💹 Profits & Performance</h2>
           
           {/* Horizontal Sub-tabs */}
           <div style={{
