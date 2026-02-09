@@ -1529,7 +1529,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
 # LIVE PRICES - REMOVED (now handled by routes/prices.py)
 # ============================================================================
 # The /api/prices/live endpoint is now managed by routes/prices.py to avoid
-# route collision. That router is mounted at line 3001.
+# route collision. That router is included in the CRITICAL_ROUTERS section below.
 # The canonical implementation delegates to routes/market_api.py for data.
 
 @api_router.get("/wallet/deposit-address")
