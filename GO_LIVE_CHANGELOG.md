@@ -7,8 +7,8 @@ This PR implements the final changes required for tonight's go-live deployment, 
 ## Executive Summary
 
 ✅ **All critical requirements met:**
-- 7 exchanges supported (luno, binance, kucoin, bybit, kraken, bitget, gate)
-- 10 total providers (7 exchanges + openai, flokx, fetchai)
+- 7 exchanges supported (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
+- 10 total providers (7 exchanges + OpenAI, FlokX, Fetch.ai)
 - Frontend shows backend truth for API key status
 - Realtime events working via WebSocket/SSE
 - Admin panel hidden by default, unlocked via chat

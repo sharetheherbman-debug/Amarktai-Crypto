@@ -13,6 +13,7 @@
  * @param {boolean} options.includeDate - Include date in output (default: true)
  * @param {boolean} options.includeSeconds - Include seconds (default: false)
  * @param {string} options.fallback - Fallback text for invalid/null timestamps (default: "—")
+ * @param {string} options.locale - Locale for formatting (default: "en-US")
  * @returns {string} Formatted timestamp or fallback
  */
 export function formatTimestamp(timestamp, options = {}) {
@@ -20,7 +21,8 @@ export function formatTimestamp(timestamp, options = {}) {
     includeTime = true,
     includeDate = true,
     includeSeconds = false,
-    fallback = "—"
+    fallback = "—",
+    locale = "en-US"  // Consistent locale for all users
   } = options;
   
   // Handle null/undefined/empty
@@ -41,14 +43,14 @@ export function formatTimestamp(timestamp, options = {}) {
     const parts = [];
     
     if (includeDate) {
-      parts.push(date.toLocaleDateString());
+      parts.push(date.toLocaleDateString(locale));
     }
     
     if (includeTime) {
       const timeOptions = includeSeconds 
         ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
         : { hour: '2-digit', minute: '2-digit' };
-      parts.push(date.toLocaleTimeString('en-US', timeOptions));
+      parts.push(date.toLocaleTimeString(locale, timeOptions));
     }
     
     return parts.join(' ');

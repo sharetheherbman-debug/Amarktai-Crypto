@@ -5,7 +5,7 @@ User management, system monitoring, and administrative actions
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Dict, Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 import logging
 from datetime import datetime, timezone
 import bcrypt
@@ -2262,6 +2262,13 @@ class StartAllBotsRequest(BaseModel):
     """Request to start/resume all paused bots with safety guardrails"""
     confirm: bool = Field(..., description="Confirmation flag - must be true")
     force_unlock: bool = Field(False, description="Force unlock emergency stops (requires extra confirmation)")
+    
+    @validator('confirm')
+    def validate_confirm(cls, v):
+        """Ensure confirm is explicitly True"""
+        if v is not True:
+            raise ValueError("Confirmation required. Set confirm=true to proceed.")
+        return v
 
 
 @router.post("/bots/start-all")
