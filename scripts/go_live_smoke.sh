@@ -65,7 +65,7 @@ fi
 # Test 2: Login
 echo ""
 echo "Test 2: User Login"
-login_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" -X POST "$API_BASE/api/login" \
+login_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" -X POST "$API_BASE/api/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")
 
@@ -86,38 +86,67 @@ else
     exit 1
 fi
 
-# Test 3: Providers endpoint returns 10
+# Test 3: Exchange Registry (7 exchanges)
 echo ""
-echo "Test 3: Providers List (CRITICAL)"
-platforms_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/keys/providers" \
+echo "Test 3: Exchange Registry (CRITICAL)"
+exchange_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/system/platforms" \
     -H "Authorization: Bearer $TOKEN")
 
-platforms_http_code=$(echo "$platforms_response" | tail -n1)
-platforms_body=$(echo "$platforms_response" | head -n-1)
+exchange_http_code=$(echo "$exchange_response" | tail -n1)
+exchange_body=$(echo "$exchange_response" | head -n-1)
 
-if [ "$platforms_http_code" = "200" ]; then
-    platform_count=$(echo "$platforms_body" | grep -o '"id"' | wc -l)
-    if [ "$platform_count" = "10" ]; then
-        pass "Providers list returns 10 providers"
+if [ "$exchange_http_code" = "200" ]; then
+    exchange_count=$(echo "$exchange_body" | grep -o '"total_count":[0-9]*' | cut -d':' -f2)
+    if [ "$exchange_count" = "7" ]; then
+        pass "Exchange registry returns 7 exchanges"
+        
+        # Check for each exchange
+        for exchange in luno binance kucoin bybit kraken bitget gate; do
+            if echo "$exchange_body" | grep -q "\"id\":\"$exchange\""; then
+                echo "  ✓ $exchange found"
+            else
+                warn "$exchange not found in exchange list"
+            fi
+        done
+    else
+        fail "Exchange registry returns $exchange_count exchanges (expected 7)"
+    fi
+else
+    fail "Exchange registry request failed (HTTP $exchange_http_code)"
+fi
+
+# Test 4: Provider Registry (10 total providers: 7 exchanges + 3 AI)
+echo ""
+echo "Test 4: Provider Registry (CRITICAL)"
+providers_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/keys/providers" \
+    -H "Authorization: Bearer $TOKEN")
+
+providers_http_code=$(echo "$providers_response" | tail -n1)
+providers_body=$(echo "$providers_response" | head -n-1)
+
+if [ "$providers_http_code" = "200" ]; then
+    provider_count=$(echo "$providers_body" | grep -o '"id"' | wc -l)
+    if [ "$provider_count" = "10" ]; then
+        pass "Provider registry returns 10 providers (7 exchanges + 3 AI)"
         
         # Check for all providers (3 AI + 7 exchanges = 10 total)
         for provider in openai flokx fetchai luno binance kucoin bybit kraken bitget gate; do
-            if echo "$platforms_body" | grep -q "\"id\":\"$provider\""; then
+            if echo "$providers_body" | grep -q "\"id\":\"$provider\""; then
                 echo "  ✓ $provider found"
             else
                 warn "$provider not found in providers list"
             fi
         done
     else
-        fail "Providers list returns $platform_count providers (expected 10)"
+        fail "Provider registry returns $provider_count providers (expected 10)"
     fi
 else
-    fail "Providers list request failed (HTTP $platforms_http_code)"
+    fail "Provider registry request failed (HTTP $providers_http_code)"
 fi
 
-# Test 4: Overview endpoint
+# Test 5: Overview endpoint
 echo ""
-echo "Test 4: Overview Metrics"
+echo "Test 5: Overview Metrics"
 overview_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/overview" \
     -H "Authorization: Bearer $TOKEN")
 
@@ -270,7 +299,7 @@ else
     fail "Analytics performance endpoint failed (HTTP $analytics_http_code) - Frontend will get 404s"
 fi
 
-# Test 10: Admin Users List (if admin)
+# Test 12: Admin Users List (if admin)
 echo ""
 echo "Test 12: Admin Endpoints"
 admin_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/admin/users/list" \
