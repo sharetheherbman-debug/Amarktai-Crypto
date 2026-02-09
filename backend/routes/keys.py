@@ -91,7 +91,8 @@ async def get_keys_status(user_id: str = Depends(get_current_user)):
     try:
         # Get all providers
         all_providers = list_providers()
-        provider_ids = [p.provider_id for p in all_providers]
+        # Fix: list_providers() returns List[Dict], not objects. Use dict key access.
+        provider_ids = [p['id'] for p in all_providers]
         
         # Get saved keys for user
         keys_cursor = db.api_keys_collection.find(

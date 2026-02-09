@@ -3,7 +3,7 @@
 # Verifies all critical functionality before go-live
 # Uses environment variables for credentials
 
-set -e
+set -euo pipefail
 
 echo "🔥 Go-Live Smoke Test"
 echo "====================="
@@ -13,6 +13,7 @@ echo ""
 API_BASE="${API_BASE:-http://127.0.0.1:8000}"
 EMAIL="${AMK_EMAIL:-}"
 PASSWORD="${AMK_PASSWORD:-}"
+TIMEOUT="${TIMEOUT:-10}"
 
 # Colors
 RED='\033[0;31m'
@@ -51,7 +52,7 @@ echo ""
 
 # Test 1: System ping
 echo "Test 1: System Ping"
-response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/system/ping")
+response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/system/ping")
 http_code=$(echo "$response" | tail -n1)
 body=$(echo "$response" | head -n-1)
 
@@ -64,7 +65,7 @@ fi
 # Test 2: Login
 echo ""
 echo "Test 2: User Login"
-login_response=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/api/login" \
+login_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" -X POST "$API_BASE/api/auth/login" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")
 
@@ -72,7 +73,7 @@ login_http_code=$(echo "$login_response" | tail -n1)
 login_body=$(echo "$login_response" | head -n-1)
 
 if [ "$login_http_code" = "200" ]; then
-    TOKEN=$(echo "$login_body" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
+    TOKEN=$(echo "$login_body" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4 || echo "")
     if [ -n "$TOKEN" ]; then
         pass "Login successful, token obtained"
     else
@@ -85,39 +86,68 @@ else
     exit 1
 fi
 
-# Test 3: Platforms endpoint returns 5
+# Test 3: Exchange Registry (7 exchanges)
 echo ""
-echo "Test 3: Platform Registry (CRITICAL)"
-platforms_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/system/platforms" \
+echo "Test 3: Exchange Registry (CRITICAL)"
+exchange_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/system/platforms" \
     -H "Authorization: Bearer $TOKEN")
 
-platforms_http_code=$(echo "$platforms_response" | tail -n1)
-platforms_body=$(echo "$platforms_response" | head -n-1)
+exchange_http_code=$(echo "$exchange_response" | tail -n1)
+exchange_body=$(echo "$exchange_response" | head -n-1)
 
-if [ "$platforms_http_code" = "200" ]; then
-    platform_count=$(echo "$platforms_body" | grep -o '"total_count":[0-9]*' | cut -d':' -f2)
-    if [ "$platform_count" = "7" ]; then
-        pass "Platform registry returns 7 exchanges"
+if [ "$exchange_http_code" = "200" ]; then
+    exchange_count=$(echo "$exchange_body" | grep -o '"total_count":[0-9]*' | cut -d':' -f2)
+    if [ "$exchange_count" = "7" ]; then
+        pass "Exchange registry returns 7 exchanges"
         
-        # Check for each exchange (note: gate.io in CCXT is 'gateio', but our ID is 'gate')
-        for platform in luno binance kucoin bybit kraken bitget gate; do
-            if echo "$platforms_body" | grep -q "\"id\":\"$platform\""; then
-                echo "  ✓ $platform found"
+        # Check for each exchange
+        for exchange in luno binance kucoin bybit kraken bitget gate; do
+            if echo "$exchange_body" | grep -q "\"id\":\"$exchange\""; then
+                echo "  ✓ $exchange found"
             else
-                warn "$platform not found in platforms list"
+                warn "$exchange not found in exchange list"
             fi
         done
     else
-        fail "Platform registry returns $platform_count platforms (expected 5)"
+        fail "Exchange registry returns $exchange_count exchanges (expected 7)"
     fi
 else
-    fail "Platform registry request failed (HTTP $platforms_http_code)"
+    fail "Exchange registry request failed (HTTP $exchange_http_code)"
 fi
 
-# Test 4: Overview endpoint
+# Test 4: Provider Registry (10 total providers: 7 exchanges + 3 AI)
 echo ""
-echo "Test 4: Overview Metrics"
-overview_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/overview" \
+echo "Test 4: Provider Registry (CRITICAL)"
+providers_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/keys/providers" \
+    -H "Authorization: Bearer $TOKEN")
+
+providers_http_code=$(echo "$providers_response" | tail -n1)
+providers_body=$(echo "$providers_response" | head -n-1)
+
+if [ "$providers_http_code" = "200" ]; then
+    provider_count=$(echo "$providers_body" | grep -o '"id"' | wc -l)
+    if [ "$provider_count" = "10" ]; then
+        pass "Provider registry returns 10 providers (7 exchanges + 3 AI)"
+        
+        # Check for all providers (3 AI + 7 exchanges = 10 total)
+        for provider in openai flokx fetchai luno binance kucoin bybit kraken bitget gate; do
+            if echo "$providers_body" | grep -q "\"id\":\"$provider\""; then
+                echo "  ✓ $provider found"
+            else
+                warn "$provider not found in providers list"
+            fi
+        done
+    else
+        fail "Provider registry returns $provider_count providers (expected 10)"
+    fi
+else
+    fail "Provider registry request failed (HTTP $providers_http_code)"
+fi
+
+# Test 5: Overview endpoint
+echo ""
+echo "Test 5: Overview Metrics"
+overview_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/overview" \
     -H "Authorization: Bearer $TOKEN")
 
 overview_http_code=$(echo "$overview_response" | tail -n1)
@@ -150,7 +180,7 @@ fi
 # Test 6: API keys endpoint
 echo ""
 echo "Test 6: API Keys Endpoint"
-keys_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/api-keys" \
+keys_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/api-keys" \
     -H "Authorization: Bearer $TOKEN")
 
 keys_http_code=$(echo "$keys_response" | tail -n1)
@@ -166,7 +196,7 @@ fi
 echo ""
 echo "Test 7: OpenAI Key Test Endpoint"
 # Just check that the endpoint exists (don't actually test without key)
-test_response=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/api/api-keys/openai/test" \
+test_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" -X POST "$API_BASE/api/api-keys/openai/test" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"api_key":"dummy"}' || true)
@@ -183,7 +213,7 @@ fi
 # Test 8: Chat Diagnostics (NEW)
 echo ""
 echo "Test 8: Chat Diagnostics"
-chat_diag_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/diagnostics/chat" \
+chat_diag_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/diagnostics/chat" \
     -H "Authorization: Bearer $TOKEN")
 
 chat_diag_http_code=$(echo "$chat_diag_response" | tail -n1)
@@ -204,7 +234,7 @@ fi
 # Test 9: API Keys Status (NEW)
 echo ""
 echo "Test 9: API Keys Status"
-keys_status_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/keys/status" \
+keys_status_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/keys/status" \
     -H "Authorization: Bearer $TOKEN")
 
 keys_status_http_code=$(echo "$keys_status_response" | tail -n1)
@@ -234,7 +264,7 @@ fi
 # Test 10: Realtime Smoke Test
 echo ""
 echo "Test 10: Realtime Events System"
-realtime_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/diagnostics/realtime-smoke" \
+realtime_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/diagnostics/realtime-smoke" \
     -H "Authorization: Bearer $TOKEN")
 
 realtime_http_code=$(echo "$realtime_response" | tail -n1)
@@ -253,7 +283,7 @@ fi
 # Test 11: Analytics Performance Endpoint (Frontend Critical)
 echo ""
 echo "Test 11: Analytics Performance Endpoint"
-analytics_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/analytics/performance" \
+analytics_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/analytics/performance" \
     -H "Authorization: Bearer $TOKEN")
 
 analytics_http_code=$(echo "$analytics_response" | tail -n1)
@@ -269,10 +299,10 @@ else
     fail "Analytics performance endpoint failed (HTTP $analytics_http_code) - Frontend will get 404s"
 fi
 
-# Test 10: Admin Users List (if admin)
+# Test 12: Admin Users List (if admin)
 echo ""
 echo "Test 12: Admin Endpoints"
-admin_response=$(curl -s -w "\n%{http_code}" "$API_BASE/api/admin/users/list" \
+admin_response=$(curl -sf --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -w "\n%{http_code}" "$API_BASE/api/admin/users/list" \
     -H "Authorization: Bearer $TOKEN")
 
 admin_http_code=$(echo "$admin_response" | tail -n1)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './APIKeySettings.css';
 import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
+import realtimeClient from '../lib/realtime';
 
 const APIKeySettings = () => {
   // Build providers list from platform config (10 providers: 3 AI + 7 exchanges)
@@ -25,6 +26,29 @@ const APIKeySettings = () => {
   
   useEffect(() => {
     fetchAllProviders();
+    
+    // Subscribe to realtime API key events
+    const unsubscribeKeySaved = realtimeClient.on('key_saved', (data) => {
+      console.log('🔑 Realtime: Key saved', data);
+      fetchAllProviders(); // Refresh on key save
+    });
+    
+    const unsubscribeKeyTested = realtimeClient.on('key_tested', (data) => {
+      console.log('🔑 Realtime: Key tested', data);
+      fetchAllProviders(); // Refresh on key test
+    });
+    
+    const unsubscribeKeyDeleted = realtimeClient.on('key_deleted', (data) => {
+      console.log('🔑 Realtime: Key deleted', data);
+      fetchAllProviders(); // Refresh on key delete
+    });
+    
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubscribeKeySaved();
+      unsubscribeKeyTested();
+      unsubscribeKeyDeleted();
+    };
   }, []);
   
   const fetchAllProviders = async () => {
