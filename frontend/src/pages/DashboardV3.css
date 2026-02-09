@@ -192,6 +192,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   display: flex;
   justify-content: space-between;
   align-items: center;
+  color: #ffffff; /* FIXED: All section headers now white for go-live */
 }
 
 .card h2 .balances {
@@ -219,7 +220,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .welcome-header h2 { 
   font-size: 1.4rem; 
   font-weight: 700; 
-  display: inline-block; 
+  display: inline-block;
+  color: #ffffff; /* FIXED: Welcome header white for go-live */
 }
 
 .welcome-header p { 

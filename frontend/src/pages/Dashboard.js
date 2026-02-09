@@ -6600,6 +6600,7 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="footer">
         <div>© 2026 Amarktai Crypto — Part of Amarktai Network</div>
+        <VersionBadge position="footer" />
       </footer>
 
       {/* Bot Promotion Modal */}

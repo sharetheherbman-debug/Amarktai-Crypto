@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../lib/api.js';
+import { formatTimestamp } from '../lib/dateUtils.js';
 
 const API = API_BASE;
 
@@ -62,7 +63,7 @@ export const useDashboardData = (token) => {
         exposure: `${res.data.exposure?.toFixed(2) || '0'}%`,
         riskLevel: res.data.risk_level || 'Unknown',
         aiSentiment: res.data.ai_sentiment || 'Neutral',
-        lastUpdate: new Date().toLocaleTimeString()
+        lastUpdate: formatTimestamp(new Date(), { includeDate: false })
       });
     } catch (err) {
       console.error('Metrics fetch error:', err);
