@@ -2252,3 +2252,162 @@ async def clamp_bot_caps(admin_id: str = Depends(require_admin)):
     except Exception as e:
         logger.error(f"Clamp bot caps error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# BOT MANAGEMENT - START ALL BOTS (ADMIN ONLY)
+# ============================================================================
+
+class StartAllBotsRequest(BaseModel):
+    """Request to start/resume all paused bots with safety guardrails"""
+    confirm: bool = Field(..., description="Confirmation flag - must be true")
+    force_unlock: bool = Field(False, description="Force unlock emergency stops (requires extra confirmation)")
+
+
+@router.post("/bots/start-all")
+async def start_all_bots(
+    data: StartAllBotsRequest,
+    request: Request,
+    admin_user_id: str = Depends(verify_admin)
+):
+    """
+    Admin-only: Start/resume all paused bots across all users
+    
+    SAFETY GUARDRAILS:
+    - Requires admin authentication
+    - Requires explicit confirmation (confirm=true)
+    - Respects live trading mode settings
+    - Respects emergency stop locks (unless force_unlock=true)
+    - Logs detailed audit trail
+    - Does NOT start quarantined bots or bots in training
+    
+    Args:
+        data: StartAllBotsRequest with confirmation flags
+        
+    Returns:
+        Summary of bots resumed and any that were skipped
+        
+    Raises:
+        400: If confirmation not provided
+        403: If system is in emergency stop and force not specified
+        500: Internal server error
+    """
+    try:
+        if not data.confirm:
+            raise HTTPException(
+                status_code=400,
+                detail="Confirmation required. Set confirm=true to proceed."
+            )
+        
+        # Check system modes
+        system_mode_doc = await db.system_mode_collection.find_one({}) or {}
+        paper_trading = system_mode_doc.get("paperTrading", True)
+        live_trading = system_mode_doc.get("liveTrading", False)
+        emergency_stop = system_mode_doc.get("emergencyStop", False)
+        
+        # Check for emergency stop lock
+        if emergency_stop and not data.force_unlock:
+            raise HTTPException(
+                status_code=403,
+                detail="System is in EMERGENCY STOP mode. Use force_unlock=true to override (use with extreme caution)."
+            )
+        
+        # Find all paused bots (not quarantined, not in training)
+        paused_bots = await db.bots_collection.find({
+            "status": "paused",
+            "quarantine_reason": {"$exists": False}  # Exclude quarantined bots
+        }).to_list(length=None)
+        
+        resumed_count = 0
+        skipped_count = 0
+        skipped_reasons = []
+        
+        for bot in paused_bots:
+            bot_id = bot.get("id")
+            bot_name = bot.get("name", "Unknown")
+            bot_mode = bot.get("mode", "paper")
+            user_id = bot.get("user_id")
+            
+            # Safety check: If bot is in live mode but live trading is disabled, skip
+            if bot_mode == "live" and not live_trading:
+                skipped_count += 1
+                skipped_reasons.append({
+                    "bot_id": bot_id,
+                    "bot_name": bot_name,
+                    "reason": "Live trading disabled system-wide",
+                    "mode": bot_mode
+                })
+                continue
+            
+            # Resume the bot
+            try:
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {
+                        "$set": {
+                            "status": "active",
+                            "resumed_at": datetime.now(timezone.utc).isoformat(),
+                            "resumed_by_admin": admin_user_id
+                        }
+                    }
+                )
+                resumed_count += 1
+                
+                # Emit realtime event to user
+                try:
+                    from realtime_events import rt_events
+                    await rt_events.bot_resumed(user_id, bot)
+                except Exception as e:
+                    logger.warning(f"Failed to emit bot_resumed event: {e}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to resume bot {bot_id}: {e}")
+                skipped_count += 1
+                skipped_reasons.append({
+                    "bot_id": bot_id,
+                    "bot_name": bot_name,
+                    "reason": f"Error: {str(e)}"
+                })
+        
+        # Log admin action to audit trail
+        await log_admin_action(
+            admin_id=admin_user_id,
+            action="start_all_bots",
+            target_type="system",
+            target_id="all_bots",
+            details={
+                "resumed_count": resumed_count,
+                "skipped_count": skipped_count,
+                "force_unlock": data.force_unlock,
+                "emergency_stop_bypassed": emergency_stop and data.force_unlock,
+                "live_trading_enabled": live_trading,
+                "paper_trading_enabled": paper_trading,
+                "skipped_reasons": skipped_reasons[:10]  # Limit to first 10 for brevity
+            },
+            request=request
+        )
+        
+        logger.info(
+            f"Admin {admin_user_id[:8]} started all bots: "
+            f"{resumed_count} resumed, {skipped_count} skipped"
+        )
+        
+        return {
+            "success": True,
+            "message": f"Resumed {resumed_count} bots, skipped {skipped_count}",
+            "resumed_count": resumed_count,
+            "skipped_count": skipped_count,
+            "skipped_reasons": skipped_reasons,
+            "system_status": {
+                "paper_trading": paper_trading,
+                "live_trading": live_trading,
+                "emergency_stop": emergency_stop,
+                "emergency_stop_bypassed": emergency_stop and data.force_unlock
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Start all bots error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
