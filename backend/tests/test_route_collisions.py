@@ -88,6 +88,61 @@ def test_no_route_collisions():
     print(f"\n✅ No route collisions detected ({len(routes_map)} unique routes)")
 
 
+def test_api_prices_live_exactly_once():
+    """
+    Verify that GET /api/prices/live appears exactly once
+    
+    This was a critical issue (route collision) that prevented server boot.
+    This test ensures the fix persists and we never regress.
+    """
+    import server
+    app = server.app
+    
+    # Find all GET /api/prices/live routes
+    prices_live_routes = []
+    
+    for route in app.routes:
+        if not hasattr(route, 'methods'):
+            continue
+        
+        methods = route.methods or set()
+        if 'GET' not in methods:
+            continue
+        
+        path = route.path.rstrip('/')
+        if not path.startswith('/'):
+            path = '/' + path
+            
+        if path == '/api/prices/live':
+            endpoint_name = "unknown"
+            if hasattr(route, 'endpoint'):
+                endpoint = route.endpoint
+                if hasattr(endpoint, '__module__') and hasattr(endpoint, '__name__'):
+                    endpoint_name = f"{endpoint.__module__}:{endpoint.__name__}"
+                elif hasattr(endpoint, '__name__'):
+                    endpoint_name = endpoint.__name__
+            prices_live_routes.append(endpoint_name)
+    
+    # Assert exactly one route
+    if len(prices_live_routes) == 0:
+        pytest.fail(
+            "\n\n❌ CRITICAL: GET /api/prices/live route not found!\n"
+            "This endpoint is required for dashboard price display.\n"
+            "Expected location: routes.prices:get_live_prices\n"
+        )
+    elif len(prices_live_routes) > 1:
+        pytest.fail(
+            f"\n\n❌ CRITICAL: GET /api/prices/live defined {len(prices_live_routes)} times!\n"
+            f"This causes route collision and prevents server boot.\n"
+            f"Locations:\n" + 
+            "\n".join(f"  - {loc}" for loc in prices_live_routes) +
+            "\n\nKeep only ONE definition (should be routes.prices:get_live_prices)\n"
+        )
+    
+    # Success - exactly one route
+    print(f"\n✅ GET /api/prices/live registered exactly once: {prices_live_routes[0]}")
+
+
 def test_critical_routes_exist():
     """
     Verify that critical routes are properly registered
@@ -164,10 +219,11 @@ def test_route_count_reasonable():
     
     route_count = len(unique_routes)
     
-    # We expect between 200-400 routes in this app
+    # We expect between 200-450 routes in this app
     # Adjust these bounds if the app legitimately grows/shrinks
+    # Updated MAX from 400 to 450 (app has grown to 405 routes as of 2026-02-09)
     MIN_EXPECTED = 200
-    MAX_EXPECTED = 400
+    MAX_EXPECTED = 450
     
     assert route_count >= MIN_EXPECTED, (
         f"Too few routes registered ({route_count}). "
