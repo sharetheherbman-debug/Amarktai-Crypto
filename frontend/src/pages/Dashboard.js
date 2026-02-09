@@ -26,6 +26,7 @@ import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantin
 import { API_BASE, wsUrl } from '../lib/api.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
 import { post, get } from '../lib/apiClient';
+import realtimeClient from '../lib/realtime';
 import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
@@ -443,6 +444,11 @@ export default function Dashboard() {
   const setupRealTimeConnections = () => {
     console.log('✅ Initializing WebSocket connection...');
     
+    // Also connect the realtime client for API key events
+    if (token) {
+      realtimeClient.connect(token);
+    }
+    
     let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 5;
     
@@ -552,6 +558,12 @@ export default function Dashboard() {
         break;
       case 'balance':
         setBalances(prev => ({ ...prev, ...data.payload }));
+        break;
+      case 'live_prices':
+        // Real-time price update from SSE or WebSocket
+        if (data.prices) {
+          setLivePrices(data.prices);
+        }
         break;
       case 'notification':
         showNotification(data.payload.message, data.payload.type || 'info');
@@ -669,6 +681,33 @@ export default function Dashboard() {
       
       case 'api_key_update':
         // API key connected/updated
+        loadApiStatuses();
+        if (data.message) toast.success(data.message);
+        break;
+      
+      case 'key_saved':
+        // API key saved (realtime event)
+        console.log('🔑 Key saved event:', data);
+        loadApiStatuses();
+        if (data.message) toast.success(data.message);
+        break;
+      
+      case 'key_tested':
+        // API key tested (realtime event)
+        console.log('🔑 Key tested event:', data);
+        loadApiStatuses();
+        if (data.message) {
+          if (data.success) {
+            toast.success(data.message);
+          } else {
+            toast.error(data.message);
+          }
+        }
+        break;
+      
+      case 'key_deleted':
+        // API key deleted (realtime event)
+        console.log('🔑 Key deleted event:', data);
         loadApiStatuses();
         if (data.message) toast.success(data.message);
         break;
@@ -1127,9 +1166,10 @@ export default function Dashboard() {
                             Object.values(backendPrices).some(p => p.price && p.price > 0);
       
       if (hasValidPrices) {
-        // Mark as backend data
+        // Mark as backend data with timestamp
         Object.keys(backendPrices).forEach(key => {
           backendPrices[key].isFallback = false;
+          backendPrices[key].lastUpdated = new Date().toISOString();
         });
         setLivePrices(backendPrices);
       } else {
