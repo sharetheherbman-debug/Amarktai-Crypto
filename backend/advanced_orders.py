@@ -133,17 +133,25 @@ class AdvancedOrderManager:
                 return
             
             # Create trade record
-            trade = {
-                "bot_id": order['bot_id'],
-                "user_id": bot['user_id'],
-                "exchange": bot.get('exchange', 'luno'),
-                "pair": order['pair'],
-                "side": "sell",
-                "price": price,
-                "pnl": 0,  # Calculate based on position
-                "reason": reason,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            from utils.trade_utils import build_trade_record
+
+            trade = build_trade_record(
+                {
+                    "bot_id": order['bot_id'],
+                    "user_id": bot['user_id'],
+                    "exchange": bot.get('exchange', 'luno'),
+                    "pair": order['pair'],
+                    "side": "sell",
+                    "price": price,
+                    "pnl": 0,  # Calculate based on position
+                    "reason": reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "trading_mode": bot.get("trading_mode", "paper"),
+                    "is_live": bot.get("trading_mode") == "live"
+                },
+                user_id=bot['user_id'],
+                bot=bot
+            )
             
             await db.trades_collection.insert_one(trade)
             order['status'] = 'executed'

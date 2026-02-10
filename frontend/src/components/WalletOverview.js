@@ -44,9 +44,13 @@ const WalletOverview = () => {
 
   const masterWallet = balances?.master_wallet || {};
   const exchanges = requirements?.requirements || {};
+  const summary = requirements?.summary || {};
   const totalEquity = masterWallet.total_zar || 0;
-  const allocated = Object.values(exchanges).reduce((sum, ex) => sum + (ex.required || 0), 0);
-  const free = totalEquity - allocated;
+  const requiredFunds = summary.required_funds_zar ?? Object.values(exchanges).reduce((sum, ex) => sum + (ex.required || 0), 0);
+  const reservedFunds = summary.reserved_funds_zar ?? 0;
+  const availableWallet = summary.available_wallet_zar ?? totalEquity;
+  const shortfall = summary.shortfall_zar ?? Math.max(0, requiredFunds - availableWallet);
+  const free = availableWallet - requiredFunds;
 
   return (
     <div style={{ display: 'grid', gap: '16px' }}>
@@ -114,18 +118,22 @@ const WalletOverview = () => {
           background: 'var(--glass)',
           borderRadius: '6px'
         }}>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Allocated to Bots</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--accent)' }}>
-              R{allocated.toLocaleString()}
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Required Funds</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--accent)' }}>
+                R{Number(requiredFunds || 0).toLocaleString()}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Reserved: R{Number(reservedFunds || 0).toLocaleString()}</div>
             </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Free / Available</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--success)' }}>
-              R{Math.max(0, free).toLocaleString()}
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Available / Shortfall</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--success)' }}>
+                R{Math.max(0, free).toLocaleString()}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: shortfall > 0 ? 'var(--error)' : 'var(--muted)' }}>
+                Shortfall: R{Number(shortfall || 0).toLocaleString()}
+              </div>
             </div>
-          </div>
         </div>
 
         {masterWallet.error && (

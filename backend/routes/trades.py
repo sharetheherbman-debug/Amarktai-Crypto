@@ -12,7 +12,7 @@ import logging
 from auth import get_current_user
 from services.accounting import accounting_service
 import database as db
-from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp
+from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp, build_trade_record
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,6 @@ async def get_trade_metrics(
 @router.get("/recent")
 async def get_recent_trades(
     limit: int = Query(50, ge=1, le=500),
-    legacy: bool = Query(False, description="Return legacy array response"),
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -88,22 +87,32 @@ async def get_recent_trades(
             {"$project": {"_id": 0, "_sort_ts": 0}},
         ]
         trades = await db.trades_collection.aggregate(pipeline).to_list(limit)
+
+        bot_ids = list({t.get("bot_id") for t in trades if t.get("bot_id")})
+        bot_names = {}
+        if bot_ids:
+            bots = await db.bots_collection.find(
+                {"id": {"$in": bot_ids}},
+                {"_id": 0, "id": 1, "name": 1, "exchange": 1, "pair": 1, "trading_mode": 1}
+            ).to_list(1000)
+            bot_names = {b.get("id"): b for b in bots}
         
+        normalized_trades = []
         # Ensure all trades have proper date+time fields
         for trade in trades:
-            normalize_trade_timestamps(trade)
-            dt = parse_trade_timestamp(trade)
-            trade["date"] = dt.strftime("%Y-%m-%d")
-            trade["time"] = dt.strftime("%H:%M:%S")
-
-        if legacy:
-            return trades
+            bot_meta = bot_names.get(trade.get("bot_id"), {})
+            normalized = build_trade_record(trade, user_id=user_id, bot=bot_meta)
+            normalize_trade_timestamps(normalized)
+            dt = parse_trade_timestamp(normalized)
+            normalized["date"] = dt.strftime("%Y-%m-%d")
+            normalized["time"] = dt.strftime("%H:%M:%S")
+            normalized_trades.append(normalized)
 
         return {
             "success": True,
-            "trades": trades,
-            "total": len(trades),
-            "count": len(trades),
+            "trades": normalized_trades,
+            "total": len(normalized_trades),
+            "count": len(normalized_trades),
             "limit": limit,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }

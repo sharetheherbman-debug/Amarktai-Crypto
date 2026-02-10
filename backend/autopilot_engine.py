@@ -9,8 +9,6 @@ Autopilot Engine - Autonomous Bot Management
 import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, timezone, timedelta
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
 import logging
 from utils.env_utils import env_bool
 from utils.trading_gates import check_autopilot_gates
@@ -26,10 +24,11 @@ class AutopilotEngine:
         
     async def init_db(self):
         """Initialize database connection"""
-        mongo_url = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-        db_name = os.getenv('DB_NAME', 'amarktai_trading')
-        client = AsyncIOMotorClient(mongo_url)
-        self.db = client[db_name]
+        import database as database
+
+        if database.db is None:
+            await database.connect()
+        self.db = database.db
         
     async def start(self):
         """Start the autopilot engine - idempotent, respects feature flags"""

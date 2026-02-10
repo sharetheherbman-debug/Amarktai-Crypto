@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 import logging
 from datetime import datetime, timezone
+import os
 
 from auth import get_current_user, is_admin
 import database as db
@@ -228,6 +229,11 @@ async def check_live_readiness(user_id: str = None) -> tuple[bool, list[str]]:
         
         if not eligibility['eligible']:
             errors.extend(eligibility.get('reasons', ['Live trading requirements not met']))
+
+        from services.wallet_summary_service import wallet_summary_service
+        summary = await wallet_summary_service.get_summary(user_id)
+        if summary.get("shortfall_zar", 0) > 0:
+            errors.append(f"Wallet shortfall R{summary.get('shortfall_zar'):.2f}")
     
     # Check 1: At least one exchange key configured and tested
     query = {"provider": {"$in": ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]}}
@@ -304,6 +310,7 @@ class ModeToggleRequest(BaseModel):
     """Request to toggle a specific mode on/off"""
     mode: str  # 'paperTrading', 'liveTrading', or 'autopilot'
     enabled: bool
+    confirmation_token: Optional[str] = None
 
 
 @router.put("/mode")
@@ -345,6 +352,17 @@ async def toggle_mode(
         elif mode_name == "liveTrading":
             new_state["liveTrading"] = enabled
             if enabled:
+                enable_live = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+                if not enable_live:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Live trading is globally disabled. Set ENABLE_LIVE_TRADING=true"
+                    )
+                if data.confirmation_token != "CONFIRM_LIVE_TRADING":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Confirmation token required to enable live trading"
+                    )
                 new_state["paperTrading"] = False  # Mutually exclusive
                 # Check readiness for live trading (including 7-day requirement)
                 ready, errors = await check_live_readiness(user_id)
@@ -352,6 +370,13 @@ async def toggle_mode(
                     raise HTTPException(
                         status_code=400,
                         detail=f"Cannot enable live trading: {'; '.join(errors)}"
+                    )
+                from services.wallet_summary_service import wallet_summary_service
+                summary = await wallet_summary_service.get_summary(user_id)
+                if summary.get("shortfall_zar", 0) > 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Wallet shortfall R{summary.get('shortfall_zar'):.2f}. Fund wallet before going live."
                     )
                 
                 # Check Luno balance (primary fiat on-ramp)
@@ -448,6 +473,12 @@ async def switch_mode(
         
         # Switching to live requires confirmation token
         if mode == "live":
+            enable_live = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+            if not enable_live:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Live trading is globally disabled. Set ENABLE_LIVE_TRADING=true"
+                )
             if not data.confirmation_token:
                 raise HTTPException(
                     status_code=400,
@@ -463,7 +494,7 @@ async def switch_mode(
                 )
             
             # Run readiness checks
-            ready, readiness_errors = await check_live_readiness()
+            ready, readiness_errors = await check_live_readiness(user_id)
             
             if not ready:
                 raise HTTPException(

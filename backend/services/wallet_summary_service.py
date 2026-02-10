@@ -116,7 +116,11 @@ class WalletSummaryService:
             {"_id": 0}
         ).to_list(2000)
         normalized = [normalize_bot_state(bot) for bot in bots]
-        active_bots = [b for b in normalized if b.get("active")]
+        mode = await system_mode_service.get_current_mode(user_id)
+        active_bots = [
+            b for b in normalized
+            if b.get("active") and (b.get("trading_mode") or b.get("mode")) == mode
+        ]
         non_deleted = [b for b in normalized if not b.get("is_deleted")]
 
         required_funds = sum(
@@ -126,8 +130,13 @@ class WalletSummaryService:
             float(b.get("allocated_capital") or b.get("initial_capital") or 1000)
             for b in non_deleted
         )
-
-        mode = await system_mode_service.get_current_mode(user_id)
+        reserved_funds = 0.0
+        if db.wallet_balances_collection is not None:
+            reserved_docs = await db.wallet_balances_collection.find(
+                {"user_id": user_id, "reserved": {"$exists": True}},
+                {"_id": 0, "reserved": 1}
+            ).to_list(2000)
+            reserved_funds = sum(float(doc.get("reserved", 0) or 0) for doc in reserved_docs)
         available_wallet = await (
             self._get_paper_balance(user_id) if mode == "paper" else self._get_live_balance(user_id)
         )
@@ -142,6 +151,7 @@ class WalletSummaryService:
             "required_funds_zar": round(required_funds, 2),
             "allocated_funds_zar": round(allocated_funds, 2),
             "available_wallet_zar": round(available_wallet, 2),
+            "reserved_funds_zar": round(reserved_funds, 2),
             "shortfall_zar": round(shortfall, 2),
             "status": status,
             "timestamp": datetime.now(timezone.utc).isoformat()

@@ -13,8 +13,6 @@ from realtime_events import rt_events
 
 logger = logging.getLogger(__name__)
 
-# Create wallet_balances collection
-wallet_balances_collection = db.wallet_balances
 
 class WalletBalanceMonitor:
     """Background job to monitor wallet balances"""
@@ -61,7 +59,8 @@ class WalletBalanceMonitor:
             master_balance = await wallet_manager.get_master_balance(user_id)
             
             # Get all exchange balances
-            exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'bitget']
+            from config.platforms import SUPPORTED_PLATFORMS
+            exchanges = SUPPORTED_PLATFORMS
             exchange_balances = {}
             
             for exchange in exchanges:
@@ -79,7 +78,11 @@ class WalletBalanceMonitor:
             }
             
             # Upsert balance document
-            result = await wallet_balances_collection.update_one(
+            if db.wallet_balances_collection is None:
+                logger.warning("wallet_balances_collection not initialized")
+                return
+
+            result = await db.wallet_balances_collection.update_one(
                 {"user_id": user_id},
                 {"$set": balance_doc},
                 upsert=True

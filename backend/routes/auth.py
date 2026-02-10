@@ -164,6 +164,12 @@ async def login(credentials: UserLogin):
             {"$set": {"id": user_id}}
         )
         user["id"] = user_id  # Update local copy
+
+    try:
+        from services.paper_wallet_ledger import paper_wallet_ledger
+        await paper_wallet_ledger.get_user_balance(user_id)
+    except Exception as e:
+        logger.debug(f"Paper wallet init skipped on login: {e}")
     
     access_token = create_access_token({"user_id": user_id})
     
@@ -306,5 +312,4 @@ async def get_profile(user_id: str = Depends(get_current_user)):
     # Sanitize - never return sensitive fields
     sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
     return {k: v for k, v in user.items() if k not in sensitive_fields}
-
 

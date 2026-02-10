@@ -3,7 +3,8 @@ Trade utilities for timestamp normalization and parsing.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Dict
+from uuid import uuid4
 
 
 def parse_trade_timestamp(trade: dict) -> datetime:
@@ -38,3 +39,38 @@ def normalize_trade_timestamps(trade: dict) -> dict:
     trade["timestamp"] = iso_ts
     trade["created_at"] = trade.get("created_at") or iso_ts
     return trade
+
+
+def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional[Dict] = None) -> Dict:
+    """Build a canonical trade record with required fields populated."""
+    bot = bot or {}
+    record = dict(trade)
+    now = datetime.now(timezone.utc).isoformat()
+    record_user_id = user_id or record.get("user_id") or bot.get("user_id")
+    bot_id = record.get("bot_id") or bot.get("id")
+    trading_mode = record.get("trading_mode") or record.get("mode") or bot.get("trading_mode") or bot.get("mode") or "paper"
+    is_live = record.get("is_live")
+    if is_live is None:
+        is_live = trading_mode == "live" or not record.get("is_paper", True)
+
+    record.update({
+        "id": record.get("id") or record.get("trade_id") or str(uuid4()),
+        "user_id": record_user_id,
+        "bot_id": bot_id,
+        "bot_name": record.get("bot_name") or bot.get("name") or "Unknown",
+        "exchange": record.get("exchange") or bot.get("exchange") or "unknown",
+        "pair": record.get("pair") or record.get("symbol") or bot.get("pair") or "UNKNOWN",
+        "side": record.get("side") or record.get("trade_type") or "buy",
+        "price": record.get("price") or record.get("entry_price") or record.get("exit_price") or 0,
+        "qty": record.get("qty") or record.get("quantity") or record.get("amount") or 0,
+        "fee_amount": record.get("fee_amount") or record.get("fees") or record.get("fee") or 0,
+        "fee_currency": record.get("fee_currency") or record.get("fee_asset") or record.get("currency") or "ZAR",
+        "mode": record.get("mode") or trading_mode,
+        "trading_mode": trading_mode,
+        "is_live": is_live,
+        "exchange_order_id": record.get("exchange_order_id") or record.get("order_id") or record.get("orderId") or record.get("id") or "",
+        "created_at": record.get("created_at") or record.get("timestamp") or now,
+    })
+
+    normalize_trade_timestamps(record)
+    return record

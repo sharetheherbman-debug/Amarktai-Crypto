@@ -345,6 +345,24 @@ class TradingScheduler:
                     {'bots': db.bots_collection, 'trades': db.trades_collection}
                 )
             
+            from utils.trading_gates import TradingGateError, enforce_live_trading_gates
+            from services.live_gate_service import live_gate_service
+
+            try:
+                await enforce_live_trading_gates(bot['user_id'], exchange)
+            except TradingGateError as e:
+                logger.warning(f"Live trading gate blocked: {e}")
+                return None
+
+            can_place, violations = await live_gate_service.can_place_order(
+                bot['user_id'],
+                bot['id'],
+                exchange
+            )
+            if not can_place:
+                logger.warning(f"LiveGate blocked trade: {violations}")
+                return None
+
             # Execute trade via live engine
             trade_result = await live_trading_engine.execute_trade(
                 bot_id=bot['id'],
@@ -362,19 +380,28 @@ class TradingScheduler:
             
             # Record trade in database
             from uuid import uuid4
-            trade_doc = {
-                "id": str(uuid4()),
-                "bot_id": bot['id'],
-                "user_id": bot['user_id'],
-                "pair": pair,
-                "side": side,
-                "entry_price": trade_result.get('price', 0),
-                "amount": trade_result.get('amount', 0),
-                "profit_loss": trade_result.get('net_profit', 0),
-                "is_paper": False,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "exchange": exchange
-            }
+            from utils.trade_utils import build_trade_record
+
+            trade_doc = build_trade_record(
+                {
+                    "id": str(uuid4()),
+                    "bot_id": bot['id'],
+                    "user_id": bot['user_id'],
+                    "pair": pair,
+                    "side": side,
+                    "entry_price": trade_result.get('price', 0),
+                    "amount": trade_result.get('amount', 0),
+                    "profit_loss": trade_result.get('net_profit', 0),
+                    "is_paper": False,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "exchange": exchange,
+                    "trading_mode": "live",
+                    "is_live": True,
+                    "exchange_order_id": trade_result.get("order_id") or trade_result.get("id")
+                },
+                user_id=bot['user_id'],
+                bot=bot
+            )
             
             await db.trades_collection.insert_one(trade_doc)
             

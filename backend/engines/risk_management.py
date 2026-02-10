@@ -168,21 +168,29 @@ class RiskManagement:
             )
             
             # Record trade
-            trade = {
-                "id": f"{bot_id}_{int(datetime.now(timezone.utc).timestamp())}",
-                "bot_id": bot_id,
-                "bot_name": bot.get('name'),
-                "user_id": bot.get('user_id'),
-                "pair": bot.get('pair', 'BTC/ZAR'),
-                "exchange": bot.get('exchange'),
-                "side": "sell",
-                "amount": 0.01,
-                "price": exit_price,
-                "profit_loss": pnl_amount,
-                "profit_loss_pct": pnl_pct,
-                "exit_reason": reason,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
+            from utils.trade_utils import build_trade_record
+
+            trade = build_trade_record(
+                {
+                    "id": f"{bot_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                    "bot_id": bot_id,
+                    "bot_name": bot.get('name'),
+                    "user_id": bot.get('user_id'),
+                    "pair": bot.get('pair', 'BTC/ZAR'),
+                    "exchange": bot.get('exchange'),
+                    "side": "sell",
+                    "amount": 0.01,
+                    "price": exit_price,
+                    "profit_loss": pnl_amount,
+                    "profit_loss_pct": pnl_pct,
+                    "exit_reason": reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "trading_mode": bot.get("trading_mode", "paper"),
+                    "is_live": bot.get("trading_mode") == "live"
+                },
+                user_id=bot.get('user_id'),
+                bot=bot
+            )
             
             await db.trades_collection.insert_one(trade)
             

@@ -9,9 +9,8 @@ AI Bodyguard - Continuous System Monitoring
 
 import asyncio
 from datetime import datetime, timezone, timedelta
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +22,11 @@ class AIBodyguard:
         
     async def init_db(self):
         """Initialize database connection"""
-        mongo_url = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-        db_name = os.getenv('DB_NAME', 'amarktai_trading')
-        client = AsyncIOMotorClient(mongo_url)
-        self.db = client[db_name]
+        import database as database
+
+        if database.db is None:
+            await database.connect()
+        self.db = database.db
         
     async def start(self):
         """Start continuous monitoring"""

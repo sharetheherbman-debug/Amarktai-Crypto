@@ -118,7 +118,15 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
         List of bots with id, exchange, state, paused_reason, etc.
     """
     try:
-        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$ne": "deleted"},
+                "deleted": {"$ne": True},
+                "deleted_at": {"$exists": False}
+            },
+            {"_id": 0}
+        ).to_list(1000)
         
         # Enrich each bot with detailed state
         enriched_bots = []
@@ -952,6 +960,12 @@ async def delete_bot(
                 }
             }
         )
+
+        try:
+            from services.paper_wallet_ledger import paper_wallet_ledger
+            await paper_wallet_ledger.release_funds(bot_id)
+        except Exception as e:
+            logger.warning(f"Failed to release paper wallet for bot {bot_id}: {e}")
         
         # Broadcast realtime events
         from services.realtime_service import realtime_service

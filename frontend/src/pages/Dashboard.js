@@ -499,6 +499,16 @@ export default function Dashboard() {
     }
   }, [showAdmin]);
 
+  useEffect(() => {
+    if (!showAdmin) return undefined;
+    const interval = setInterval(() => {
+      loadSystemStats();
+      loadAdminUsers();
+      loadAdminBots();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [showAdmin]);
+
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
     if (selectedUserId && adminBots.length > 0) {
@@ -1555,6 +1565,26 @@ export default function Dashboard() {
     
     // Paper and Live trading are mutually exclusive
     if (mode === 'liveTrading' && newValue) {
+      try {
+        const walletRequirements = await get('/wallet/requirements');
+        const summary = walletRequirements?.summary || {};
+        const shortfall = Number(summary.shortfall_zar || 0);
+        const requiredExchanges = Object.values(walletRequirements?.requirements || {}).map(req => req.exchange);
+        const invalidKeys = requiredExchanges.filter(exchange => apiKeys?.[exchange]?.status !== 'configured_valid');
+
+        if (shortfall > 0) {
+          showNotification(`Live trading blocked: Wallet shortfall R${shortfall.toFixed(2)}. Fund wallet first.`, 'error');
+          return;
+        }
+        if (invalidKeys.length > 0) {
+          showNotification(`Live trading blocked: Configure and test API keys for ${invalidKeys.join(', ')}.`, 'error');
+          return;
+        }
+      } catch (err) {
+        console.error('Live trading precheck error:', err);
+        showNotification('Unable to verify live trading readiness. Try again.', 'error');
+        return;
+      }
       if (!window.confirm('⚠️ WARNING: This will enable REAL trading with REAL money. Are you sure?')) {
         return;
       }
@@ -1562,7 +1592,11 @@ export default function Dashboard() {
     
     try {
       // Send update to backend FIRST (single source of truth)
-      await axios.put(`${API}/system/mode`, { mode, enabled: newValue }, axiosConfig);
+      const payload = { mode, enabled: newValue };
+      if (mode === 'liveTrading' && newValue) {
+        payload.confirmation_token = 'CONFIRM_LIVE_TRADING';
+      }
+      await axios.put(`${API}/system/mode`, payload, axiosConfig);
       
       // Fetch fresh state from backend to ensure sync
       await loadSystemModes();

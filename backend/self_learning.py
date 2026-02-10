@@ -8,9 +8,7 @@ Self-Learning System - Continuous Improvement
 
 import asyncio
 from datetime import datetime, timezone, timedelta
-from motor.motor_asyncio import AsyncIOMotorClient
 from ai_service import ai_service
-import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,6 +20,8 @@ class SelfLearningSystem:
     async def init_db(self):
         """Initialize database connection"""
         import database as db
+        if db.db is None:
+            await db.connect()
         self.db = db
         self.db.trades_collection = db.trades_collection
         self.db.bots_collection = db.bots_collection

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field, validator
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import bcrypt
 import os
 import secrets
@@ -102,6 +102,10 @@ class BotModeChangeRequest(BaseModel):
 
 class BotExchangeChangeRequest(BaseModel):
     exchange: str = Field(..., description="Exchange: luno, binance, kucoin, bybit, bitget")
+
+
+class PurgeDeletedBotsRequest(BaseModel):
+    days: Optional[int] = Field(None, ge=0, description="Only purge bots deleted more than N days ago")
 
 
 @router.post("/unlock")
@@ -606,7 +610,7 @@ async def force_logout_user(
     """
     try:
         # Delete all user sessions if sessions collection exists
-        if db.sessions_collection:
+        if db.sessions_collection is not None:
             sessions_result = await db.sessions_collection.delete_many({"user_id": user_id})
             sessions_deleted = sessions_result.deleted_count
         else:
@@ -1284,6 +1288,43 @@ async def get_all_bots_admin(
         
     except Exception as e:
         logger.error(f"Get all bots admin error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bots/purge-deleted")
+async def purge_deleted_bots(
+    request: PurgeDeletedBotsRequest,
+    admin_id: str = Depends(require_admin)
+):
+    """Permanently remove soft-deleted bots (admin only)."""
+    try:
+        query = {
+            "$or": [
+                {"status": "deleted"},
+                {"deleted": True},
+                {"deleted_at": {"$exists": True}}
+            ]
+        }
+        if request.days is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=request.days)
+            query["deleted_at"] = {"$lte": cutoff.isoformat()}
+
+        bots_to_purge = await db.bots_collection.find(query, {"_id": 0, "id": 1}).to_list(10000)
+        bot_ids = [b.get("id") for b in bots_to_purge if b.get("id")]
+
+        result = await db.bots_collection.delete_many(query)
+
+        paper_result = None
+        if bot_ids and db.paper_ledger_collection is not None:
+            paper_result = await db.paper_ledger_collection.delete_many({"bot_id": {"$in": bot_ids}})
+
+        return {
+            "success": True,
+            "deleted_bots": result.deleted_count,
+            "deleted_ledgers": paper_result.deleted_count if paper_result else 0
+        }
+    except Exception as e:
+        logger.error(f"Purge deleted bots error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1983,7 +2024,9 @@ async def get_admin_overview(admin_id: str = Depends(require_admin)):
         recent_trades = await db.trades_collection.count_documents({
             "$or": [
                 {"timestamp": {"$gte": yesterday.isoformat()}},
-                {"created_at": {"$gte": yesterday.isoformat()}}
+                {"created_at": {"$gte": yesterday.isoformat()}},
+                {"timestamp": {"$gte": yesterday}},
+                {"created_at": {"$gte": yesterday}}
             ]
         })
         

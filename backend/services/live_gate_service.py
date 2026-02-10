@@ -92,7 +92,7 @@ class LiveGateService:
                 violations.append(f"Bot paused by bodyguard: {drawdown_status.get('pause_reason')}")
             
             # Check 6: Emergency stop must not be active
-            emergency = await db.emergency_stop_collection.find_one({}) if db.emergency_stop_collection else None
+            emergency = await db.emergency_stop_collection.find_one({}) if db.emergency_stop_collection is not None else None
             
             if emergency and emergency.get('enabled'):
                 violations.append(f"Emergency stop active: {emergency.get('reason')}")
