@@ -14,7 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 
 
-API_LITERAL = re.compile(r'(["\'])(/api/[^"\']+)\1')
+API_PATH_PATTERN = re.compile(r'(["\'])(/api/[^"\']+)\1')
 COMMENT_PREFIXES = ("//", "/*", "*", "*/")
 CALL_KEYWORDS = ("axios", "fetch", "EventSource", "WebSocket", "endpoint", "wsUrl", "apiClient")
 
@@ -42,7 +42,7 @@ def main() -> int:
                 continue
             if not any(keyword in line for keyword in CALL_KEYWORDS):
                 continue
-            for match in API_LITERAL.finditer(line):
+            for match in API_PATH_PATTERN.finditer(line):
                 path = match.group(2)
                 entry = (
                     path,
