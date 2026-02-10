@@ -3219,6 +3219,7 @@ export default function Dashboard() {
                     const isPaused = ['paused', 'paused_ready'].includes(botStatus);
                     const isQuarantined = botStatus === 'quarantined';
                     const isTraining = ['training', 'training_failed'].includes(botStatus) || bot.training_in_progress;
+                    const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
                     const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
                     
                     return (
@@ -3427,7 +3428,7 @@ export default function Dashboard() {
                                   {botControlLoading[bot.id] ? '⏳ Starting...' : '▶️ Resume Bot'}
                                 </button>
                               )}
-                              {!isActive && !isPaused && !isQuarantined && !isTraining && (
+                              {!isActive && !isPaused && !isQuarantined && !isTraining && canStart && (
                                 <button 
                                   onClick={() => handleStartBot(bot.id)}
                                   disabled={botControlLoading[bot.id]}

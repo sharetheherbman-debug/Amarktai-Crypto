@@ -7,7 +7,11 @@ EMAIL="${AMK_EMAIL:-}"
 PASSWORD="${AMK_PASSWORD:-}"
 ADMIN_EMAIL="${AMK_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${AMK_ADMIN_PASSWORD:-}"
-EXPECTED_EXCHANGE_IDS=(luno binance kucoin bybit kraken bitget gate)
+if [ -n "${AMK_EXCHANGES:-}" ]; then
+  IFS=',' read -r -a EXPECTED_EXCHANGE_IDS <<< "$AMK_EXCHANGES"
+else
+  EXPECTED_EXCHANGE_IDS=(luno binance kucoin bybit kraken bitget gate)
+fi
 
 fail() {
   echo "❌ $1" >&2

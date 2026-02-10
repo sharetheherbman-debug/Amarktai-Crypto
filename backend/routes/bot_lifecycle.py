@@ -27,7 +27,15 @@ def _build_block_detail(
     release_at: Optional[str] = None,
     remaining_seconds: Optional[int] = None,
 ) -> Dict:
-    """Build structured error details for bot action blockers."""
+    """Build structured error details for bot action blockers.
+
+    Args:
+        code: Machine-readable reason code.
+        message: Human-readable reason message.
+        next_action: Suggested next action for the user.
+        release_at: Optional ISO timestamp when the block clears.
+        remaining_seconds: Optional countdown in seconds.
+    """
     detail = {"code": code, "message": message}
     if next_action:
         detail["next_action"] = next_action
@@ -57,13 +65,13 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
 
     if bot.get("status") == "quarantined" or bot.get("retraining_until"):
         release_at = bot.get("retraining_until") or bot.get("quarantine_until")
-        remaining_seconds = _calculate_remaining_seconds(release_at)
+        seconds_remaining = remaining_seconds(release_at)
         return _build_block_detail(
             "quarantine",
             bot.get("quarantine_reason", "Bot is quarantined for retraining"),
             "Wait for retraining to complete",
             release_at=release_at,
-            remaining_seconds=remaining_seconds,
+            remaining_seconds=seconds_remaining,
         )
 
     if bot.get("status") in ["training", "training_failed"] or bot.get("training_in_progress"):

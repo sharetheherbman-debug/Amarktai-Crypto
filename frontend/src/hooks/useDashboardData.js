@@ -13,16 +13,18 @@ const API = API_BASE;
  * response is empty or invalid.
  */
 export const normalizeLivePrices = (data, fallback = null) => {
+  const mapPriceEntry = (price) => ({
+    price: price.price || 0,
+    change: price.change_24h || 0,
+    last_update: price.last_update,
+    source: price.source
+  });
+
   if (Array.isArray(data)) {
     const pricesMap = {};
     data.forEach((price) => {
       if (!price?.pair) return;
-      pricesMap[price.pair] = {
-        price: price.price || 0,
-        change: price.change_24h || 0,
-        last_update: price.last_update,
-        source: price.source
-      };
+      pricesMap[price.pair] = mapPriceEntry(price);
     });
     if (Object.keys(pricesMap).length > 0) {
       return pricesMap;
