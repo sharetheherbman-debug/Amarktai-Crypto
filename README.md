@@ -181,6 +181,29 @@ Quick production readiness verification (<2 minutes):
 
 See [`docs/GO_LIVE_GUIDE.md`](docs/GO_LIVE_GUIDE.md) for complete deployment guide.
 
+### **Audit & Parity Verification**
+Generate machine-checkable inventories and verify frontend/backend parity:
+
+```bash
+python3 scripts/audit_endpoints.py
+python3 scripts/audit_frontend_calls.py
+python3 scripts/verify_parity.py
+```
+
+Artifacts are written to `artifacts/`. A run is **PASS** when the script exits `0`
+and prints `PASS` in the parity report.
+
+### **VPS Smoke Tests (User/Admin/Realtime)**
+Run smoke checks against a deployed VPS (requires `jq` and backend Python deps):
+
+```bash
+./scripts/smoke_user.sh https://amarktai.online user@example.com password
+./scripts/smoke_admin.sh https://amarktai.online admin@example.com password
+./scripts/smoke_realtime.sh https://amarktai.online user@example.com password
+```
+
+Each script prints `PASS` on success and returns a non-zero exit code on failure.
+
 ### **Monitoring**
 ```bash
 # System health
