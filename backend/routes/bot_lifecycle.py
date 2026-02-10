@@ -5,7 +5,7 @@ Handles pause, resume, cooldown periods, and bot lifecycle operations
 
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, TypedDict
 import logging
 import os
 
@@ -14,10 +14,95 @@ import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
+from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
+
+class BlockDetail(TypedDict, total=False):
+    code: str
+    message: str
+    next_action: str
+    release_at: str
+    remaining_seconds: int
+
+def _build_block_detail(
+    code: str,
+    message: str,
+    next_action: Optional[str] = None,
+    release_at: Optional[str] = None,
+    remaining_seconds: Optional[int] = None,
+) -> BlockDetail:
+    """Build structured error details for bot action blockers.
+
+    Args:
+        code: Machine-readable reason code.
+        message: Human-readable reason message.
+        next_action: Suggested next action for the user.
+        release_at: Optional ISO timestamp when the block clears.
+        remaining_seconds: Optional countdown in seconds.
+    """
+    detail = {"code": code, "message": message}
+    if next_action:
+        detail["next_action"] = next_action
+    if release_at:
+        detail["release_at"] = release_at
+    if remaining_seconds is not None:
+        detail["remaining_seconds"] = remaining_seconds
+    return detail
+
+
+async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
+    user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+    if user and user.get("daily_loss_lock_active", False):
+        return _build_block_detail(
+            "daily_loss_lock",
+            user.get("daily_loss_locked_reason", "Daily loss lock is active"),
+            "Reset the daily loss lock or contact admin",
+        )
+
+    modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+    if modes and modes.get("emergencyStop", False):
+        return _build_block_detail(
+            "emergency_stop",
+            modes.get("emergency_stop_reason", "Emergency stop is active"),
+            "Disable emergency stop before resuming trading",
+        )
+
+    if bot.get("status") == "quarantined" or bot.get("retraining_until"):
+        release_at = bot.get("retraining_until") or bot.get("quarantine_until")
+        seconds_remaining = remaining_seconds(release_at)
+        return _build_block_detail(
+            "quarantine",
+            bot.get("quarantine_reason", "Bot is quarantined for retraining"),
+            "Wait for retraining to complete",
+            release_at=release_at,
+            remaining_seconds=seconds_remaining,
+        )
+
+    if bot.get("status") in ["training", "training_failed"] or bot.get("training_in_progress"):
+        return _build_block_detail(
+            "training",
+            bot.get("training_failed_reason", "Training in progress"),
+            "Complete training before resuming trading",
+        )
+
+    if bot.get("paused_by_bodyguard"):
+        try:
+            from services.bodyguard_service import bodyguard_service
+
+            bodyguard_status = await bodyguard_service.get_bot_drawdown_status(bot.get("id"))
+            if bodyguard_status and not bodyguard_status.get("can_resume", False):
+                return _build_block_detail(
+                    "bodyguard_lock",
+                    bodyguard_status.get("pause_reason", "Paused by bodyguard"),
+                    "Wait for drawdown recovery or reset bodyguard lock",
+                )
+        except Exception as e:
+            logger.warning(f"Bodyguard status check failed: {e}")
+
+    return None
 
 
 @router.get("/status")
@@ -57,6 +142,40 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 state = 'training_failed'
             else:
                 state = status
+
+            pause_reason = bot.get('paused_reason') or bot.get('pause_reason')
+            pause_reason_code = None
+            pause_reason_message = None
+            pause_next_action = None
+            quarantine_release_at = None
+            quarantine_remaining_seconds = None
+
+            if status == 'quarantined' or bot.get('retraining_until'):
+                pause_reason_code = 'quarantine'
+                pause_reason_message = bot.get('quarantine_reason') or pause_reason or 'Bot is in quarantine'
+                pause_next_action = 'Wait for retraining to complete'
+                quarantine_release_at = bot.get('retraining_until') or bot.get('quarantine_until')
+                quarantine_remaining_seconds = remaining_seconds(quarantine_release_at)
+            elif status in ['training', 'training_failed'] or bot.get('training_in_progress'):
+                pause_reason_code = 'training'
+                pause_reason_message = bot.get('training_failed_reason') or 'Training in progress'
+                pause_next_action = 'Complete training before resuming'
+            elif bot.get('paused_by_bodyguard'):
+                pause_reason_code = 'bodyguard_lock'
+                pause_reason_message = pause_reason or 'Paused by bodyguard drawdown protection'
+                pause_next_action = 'Wait for drawdown recovery or reset bodyguard lock'
+            elif bot.get('paused_by_system'):
+                pause_reason_code = 'system_pause'
+                pause_reason_message = pause_reason or 'Paused by system'
+                pause_next_action = 'Review system status and resume when cleared'
+            elif bot.get('paused_by_user'):
+                pause_reason_code = 'manual_pause'
+                pause_reason_message = pause_reason or 'Paused by user'
+                pause_next_action = 'Resume bot when ready'
+            elif status == 'paused':
+                pause_reason_code = 'paused'
+                pause_reason_message = pause_reason or 'Bot paused'
+                pause_next_action = 'Resume bot'
             
             enriched_bot = {
                 "id": bot.get('id'),
@@ -64,11 +183,17 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 "exchange": bot.get('exchange', 'unknown'),
                 "state": state,
                 "status": status,  # Keep original for compatibility
-                "paused_reason": bot.get('paused_reason') or bot.get('pause_reason'),  # Canonical field (support legacy)
+                "paused_reason": pause_reason,  # Canonical field (support legacy)
+                "paused_reason_code": pause_reason_code,
+                "paused_reason_message": pause_reason_message,
+                "paused_next_action": pause_next_action,
+                "paused_at": bot.get('paused_at') or bot.get('quarantined_at'),
                 "paused_by_user": bot.get('paused_by_user', False),
                 "paused_by_system": bot.get('paused_by_system', False),
                 "quarantine_reason": bot.get('quarantine_reason'),
                 "quarantine_until": bot.get('quarantine_until'),
+                "quarantine_release_at": quarantine_release_at,
+                "quarantine_remaining_seconds": quarantine_remaining_seconds,
                 "training_state": bot.get('training_state'),
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
@@ -77,9 +202,14 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 "trades_count": bot.get('trades_count', 0),
                 "training_complete": bot.get('training_complete', False),
                 "training_failed_reason": bot.get('training_failed_reason'),
+                "training_in_progress": bot.get('training_in_progress', False),
+                "paper_start_date": bot.get('paper_start_date'),
+                "active": status == 'active',
+                "paused": status == 'paused',
+                "in_quarantine": status == 'quarantined',
+                "in_training": status in ['training', 'training_failed'] or bot.get('training_in_progress'),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
-                "paused_at": bot.get('paused_at'),
                 "stopped_at": bot.get('stopped_at')
             }
             enriched_bots.append(enriched_bot)
@@ -127,6 +257,10 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "message": f"Bot '{bot['name']}' is already active",
                 "bot": bot
             }
+
+        blocker = await _check_bot_blockers(bot, user_id)
+        if blocker:
+            raise HTTPException(status_code=409, detail=blocker)
         
         # PREFLIGHT VALIDATION: Check requirements before starting bot
         trading_mode = bot.get('trading_mode', 'paper')
@@ -136,8 +270,12 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         initial_capital = bot.get('initial_capital', 0)
         if current_capital <= 0 and initial_capital <= 0:
             raise HTTPException(
-                status_code=400, 
-                detail=f"Cannot start bot '{bot['name']}': No wallet balance available. Please allocate capital to this bot."
+                status_code=409,
+                detail=_build_block_detail(
+                    "no_capital",
+                    f"Cannot start bot '{bot['name']}': No wallet balance available.",
+                    "Allocate capital to this bot before starting",
+                ),
             )
         
         # 2. Check trading mode is enabled (Paper or Live)
@@ -148,18 +286,30 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         
         if trading_mode == 'paper' and not paper_trading_enabled:
             raise HTTPException(
-                status_code=400,
-                detail=f"Cannot start bot '{bot['name']}': Paper trading is disabled. Set PAPER_TRADING=1 in environment."
+                status_code=409,
+                detail=_build_block_detail(
+                    "paper_trading_disabled",
+                    f"Cannot start bot '{bot['name']}': Paper trading is disabled.",
+                    "Set PAPER_TRADING=1 in environment",
+                ),
             )
         elif trading_mode == 'live' and not live_trading_enabled:
             raise HTTPException(
-                status_code=400,
-                detail=f"Cannot start bot '{bot['name']}': Live trading is disabled. Set LIVE_TRADING=1 in environment."
+                status_code=409,
+                detail=_build_block_detail(
+                    "live_trading_disabled",
+                    f"Cannot start bot '{bot['name']}': Live trading is disabled.",
+                    "Set LIVE_TRADING=1 in environment",
+                ),
             )
         elif not paper_trading_enabled and not live_trading_enabled:
             raise HTTPException(
-                status_code=400,
-                detail="Cannot start bot: Both paper and live trading are disabled. Enable at least one trading mode."
+                status_code=409,
+                detail=_build_block_detail(
+                    "trading_disabled",
+                    "Cannot start bot: Both paper and live trading are disabled.",
+                    "Enable PAPER_TRADING=1 or LIVE_TRADING=1 in environment",
+                ),
             )
         
         # 3. Check ledger collection is accessible
@@ -396,13 +546,51 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
         
+        blocker = await _check_bot_blockers(bot, user_id)
         # Check if currently paused
         if bot.get('status') != 'paused':
+            if blocker:
+                raise HTTPException(status_code=409, detail=blocker)
             return {
                 "success": False,
                 "message": f"Bot '{bot['name']}' is not paused (status: {bot.get('status', 'unknown')})",
                 "bot": bot
             }
+
+        if blocker:
+            raise HTTPException(status_code=409, detail=blocker)
+
+        trading_mode = bot.get('trading_mode', 'paper')
+        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
+        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+
+        if trading_mode == 'paper' and not paper_trading_enabled:
+            raise HTTPException(
+                status_code=409,
+                detail=_build_block_detail(
+                    "paper_trading_disabled",
+                    f"Cannot resume bot '{bot['name']}': Paper trading is disabled.",
+                    "Set PAPER_TRADING=1 in environment",
+                ),
+            )
+        if trading_mode == 'live' and not live_trading_enabled:
+            raise HTTPException(
+                status_code=409,
+                detail=_build_block_detail(
+                    "live_trading_disabled",
+                    f"Cannot resume bot '{bot['name']}': Live trading is disabled.",
+                    "Set LIVE_TRADING=1 in environment",
+                ),
+            )
+        if not paper_trading_enabled and not live_trading_enabled:
+            raise HTTPException(
+                status_code=409,
+                detail=_build_block_detail(
+                    "trading_disabled",
+                    "Cannot resume bot: Both paper and live trading are disabled.",
+                    "Enable PAPER_TRADING=1 or LIVE_TRADING=1 in environment",
+                ),
+            )
         
         # Resume the bot
         resumed_at = datetime.now(timezone.utc).isoformat()

@@ -14,6 +14,7 @@ from typing import Optional
 
 from auth import get_current_user
 import database as db
+from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -60,6 +61,95 @@ async def get_daily_loss_lock_status(user_id: str = Depends(get_current_user)):
         raise
     except Exception as e:
         logger.error(f"Error getting daily loss lock status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/status")
+async def get_risk_status(user_id: str = Depends(get_current_user)):
+    """Get consolidated risk lock status for current user."""
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": {"$ne": "deleted"}},
+            {"_id": 0, "status": 1, "quarantine_reason": 1, "retraining_until": 1, "paused_by_bodyguard": 1, "pause_reason": 1}
+        ).to_list(1000)
+
+        quarantined_bots = [bot for bot in bots if bot.get("status") == "quarantined"]
+        bodyguard_bots = [bot for bot in bots if bot.get("paused_by_bodyguard")]
+
+        earliest_release = None
+        for bot in quarantined_bots:
+            release_at = bot.get("retraining_until")
+            if release_at and (earliest_release is None or release_at < earliest_release):
+                earliest_release = release_at
+
+        quarantine_remaining_seconds = remaining_seconds(earliest_release) if earliest_release else None
+
+        daily_loss_active = user.get("daily_loss_lock_active", False)
+        daily_loss_reason = user.get("daily_loss_locked_reason", "Daily loss lock active") if daily_loss_active else None
+
+        emergency_active = modes.get("emergencyStop", False) if modes else False
+        emergency_reason = modes.get("emergency_stop_reason", "Emergency stop active") if emergency_active else None
+
+        bodyguard_reasons = sorted({
+            bot.get("pause_reason")
+            for bot in bodyguard_bots
+            if bot.get("pause_reason")
+        })
+        quarantine_reasons = sorted({
+            bot.get("quarantine_reason")
+            for bot in quarantined_bots
+            if bot.get("quarantine_reason")
+        })
+        bodyguard_reason = bodyguard_reasons[0] if bodyguard_reasons else None
+        quarantine_reason = quarantine_reasons[0] if quarantine_reasons else None
+
+        return {
+            "daily_loss_lock": {
+                "active": daily_loss_active,
+                "reason": daily_loss_reason,
+                "why": daily_loss_reason,
+                "locked_at": user.get("daily_loss_locked_at"),
+                "loss_pct": user.get("daily_loss_pct", 0),
+                "next_action": "Reset daily loss lock or contact admin" if daily_loss_active else None,
+            },
+            "emergency_stop": {
+                "active": emergency_active,
+                "reason": emergency_reason,
+                "why": emergency_reason,
+                "locked_at": modes.get("emergency_stop_at") if modes else None,
+                "next_action": "Disable emergency stop to resume trading" if emergency_active else None,
+            },
+            "bodyguard_lock": {
+                "active": len(bodyguard_bots) > 0,
+                "reason": bodyguard_reason,
+                "why": bodyguard_reason,
+                "reasons": bodyguard_reasons,
+                "bot_ids": [bot.get("id") for bot in bodyguard_bots],
+                "next_action": "Wait for drawdown recovery or reset bodyguard lock" if bodyguard_bots else None,
+            },
+            "quarantine_active": {
+                "active": len(quarantined_bots) > 0,
+                "reason": quarantine_reason,
+                "why": quarantine_reason,
+                "reasons": quarantine_reasons,
+                "release_at": earliest_release,
+                "remaining_seconds": quarantine_remaining_seconds,
+                "bot_ids": [bot.get("id") for bot in quarantined_bots],
+                "next_action": "Wait for retraining to complete" if quarantined_bots else None,
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting risk status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -254,11 +344,26 @@ async def resume_all_bots_with_risk_check(
         
         # Check for daily loss lock
         lock_active = user.get("daily_loss_lock_active", False)
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+
+        if modes and modes.get("emergencyStop"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "emergency_stop",
+                    "message": modes.get("emergency_stop_reason", "Emergency stop is active"),
+                    "next_action": "Disable emergency stop before resuming bots",
+                },
+            )
         
         if lock_active and not force:
             raise HTTPException(
-                status_code=403,
-                detail="Cannot resume bots while daily loss lock is active. Reset lock first or use force=true with admin privileges."
+                status_code=409,
+                detail={
+                    "code": "daily_loss_lock",
+                    "message": "Cannot resume bots while daily loss lock is active.",
+                    "next_action": "Reset the daily loss lock or use force=true with admin privileges",
+                },
             )
         
         # If force=true, verify admin

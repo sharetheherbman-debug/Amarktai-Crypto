@@ -475,6 +475,24 @@ else
 fi
 
 echo ""
+echo "📋 TASK I - Contract Tests"
+echo "---------------------------"
+if [ -n "${AMK_EMAIL:-}" ] && [ -n "${AMK_PASSWORD:-}" ] && [ -n "${AMK_ADMIN_EMAIL:-}" ] && [ -n "${AMK_ADMIN_PASSWORD:-}" ]; then
+    if BASE_URL="$BASE_URL" AMK_EMAIL="$AMK_EMAIL" AMK_PASSWORD="$AMK_PASSWORD" \
+        AMK_ADMIN_EMAIL="$AMK_ADMIN_EMAIL" AMK_ADMIN_PASSWORD="$AMK_ADMIN_PASSWORD" \
+        ./scripts/contract_test.sh "$BASE_URL"; then
+        echo -e "${GREEN}✅ PASS${NC} (Contract tests passed)"
+        PASSED=$((PASSED+1))
+    else
+        echo -e "${RED}❌ FAIL${NC} (Contract tests failed)"
+        FAILURES=$((FAILURES+1))
+    fi
+else
+    echo -e "${RED}❌ FAIL${NC} (AMK_EMAIL/AMK_PASSWORD/AMK_ADMIN_EMAIL/AMK_ADMIN_PASSWORD required)"
+    FAILURES=$((FAILURES+1))
+fi
+
+echo ""
 echo "=================================================="
 echo "📊 RESULTS"
 echo "=================================================="
