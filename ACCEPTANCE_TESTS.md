@@ -301,6 +301,8 @@ sudo journalctl -u amarktai-backend -n 200 | grep -i "ImportError"
 # Expected: no output
 ```
 
+Profit ledger milestone check runs without errors; no database.*_collection attribute errors in logs.
+
 **Status**: ✅ FIXED
 
 ---
