@@ -5,6 +5,31 @@ import { formatTimestamp } from '../lib/dateUtils.js';
 
 const API = API_BASE;
 
+export const normalizeLivePrices = (data, fallback = null) => {
+  if (Array.isArray(data)) {
+    const pricesMap = {};
+    data.forEach((price) => {
+      if (!price?.pair) return;
+      pricesMap[price.pair] = {
+        price: price.price || 0,
+        change: price.change_24h || 0,
+        last_update: price.last_update,
+        source: price.source
+      };
+    });
+    if (Object.keys(pricesMap).length > 0) {
+      return pricesMap;
+    }
+  } else if (data && typeof data === 'object') {
+    const entries = Object.values(data);
+    if (entries.length > 0 && entries.some(entry => entry && typeof entry === 'object')) {
+      return data;
+    }
+  }
+
+  return fallback;
+};
+
 /**
  * Custom hook for managing dashboard data fetching and state
  */
@@ -47,8 +72,9 @@ export const useDashboardData = (token) => {
 
   const loadBots = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/bots`, axiosConfig);
-      setBots(res.data || []);
+      const res = await axios.get(`${API}/bots/status`, axiosConfig);
+      const botsData = res.data?.bots || res.data || [];
+      setBots(botsData);
     } catch (err) {
       console.error('Bots fetch error:', err);
     }
@@ -85,14 +111,9 @@ export const useDashboardData = (token) => {
 
   const loadApiStatuses = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/keys/list`, axiosConfig);
-      const keysMap = {};
-      // New API returns { success: true, keys: [...] }
-      const keys = res.data?.keys || res.data || [];
-      keys.forEach(key => {
-        keysMap[key.provider] = key;
-      });
-      setApiKeys(keysMap);
+      const res = await axios.get(`${API}/keys/status`, axiosConfig);
+      const statusMap = res.data?.status_map || {};
+      setApiKeys(statusMap);
     } catch (err) {
       console.error('API keys fetch error:', err);
     }
@@ -119,16 +140,7 @@ export const useDashboardData = (token) => {
   const loadLivePrices = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/prices/live`, axiosConfig);
-      if (res.data && Array.isArray(res.data)) {
-        const pricesMap = {};
-        res.data.forEach(p => {
-          pricesMap[p.pair] = {
-            price: p.price || 0,
-            change: p.change_24h || 0
-          };
-        });
-        setLivePrices(pricesMap);
-      }
+      setLivePrices(prev => normalizeLivePrices(res.data, prev) || prev);
     } catch (err) {
       console.error('Live prices fetch error:', err);
     }

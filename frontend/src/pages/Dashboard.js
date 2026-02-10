@@ -25,9 +25,9 @@ import BotTrainingSection from '../components/Dashboard/BotTrainingSection';
 import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantineSection';
 import { API_BASE, wsUrl } from '../lib/api.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
+import { useDashboardData, normalizeLivePrices } from '../hooks/useDashboardData';
 import { post, get } from '../lib/apiClient';
 import realtimeClient from '../lib/realtime';
-import marketDataFallback from '../lib/MarketDataFallback';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 import VersionBadge from '../components/VersionBadge';
@@ -126,11 +126,6 @@ export default function Dashboard() {
     aggressive_count: 2,
     exchange: 'luno'
   });
-  const [livePrices, setLivePrices] = useState({
-    'BTC/ZAR': { price: 0, change: 0 },
-    'ETH/ZAR': { price: 0, change: 0 },
-    'XRP/ZAR': { price: 0, change: 0 }
-  });
   const [systemHealth, setSystemHealth] = useState({
     status: 'Unknown',
     errors: 0,
@@ -150,6 +145,7 @@ export default function Dashboard() {
   const [botControlLoading, setBotControlLoading] = useState({});
   const [recentTrades, setRecentTrades] = useState([]);
   const [bodyguardStatus, setBodyguardStatus] = useState(null);
+  const [riskStatus, setRiskStatus] = useState(null);
   const [storageData, setStorageData] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [customCountdowns, setCustomCountdowns] = useState([]);
@@ -175,6 +171,7 @@ export default function Dashboard() {
   
   const token = localStorage.getItem('token');
   const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
+  const { livePrices, loadLivePrices, setLivePrices } = useDashboardData(token);
 
   // Safe date formatter - handles null/undefined gracefully
   const formatDate = (dateStr, options = {}) => {
@@ -198,6 +195,39 @@ export default function Dashboard() {
       console.error('Date format error:', error);
       return '—';
     }
+  };
+
+  const formatDuration = (seconds) => {
+    if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—';
+    const totalSeconds = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
+
+  const formatActionError = (err, fallbackMessage) => {
+    const detail = err?.response?.data?.detail;
+    if (detail && typeof detail === 'object') {
+      const parts = [detail.message || detail.error || fallbackMessage];
+      if (detail.next_action) {
+        parts.push(`Next: ${detail.next_action}`);
+      }
+      if (detail.remaining_seconds !== undefined && detail.remaining_seconds !== null) {
+        parts.push(`Wait ${formatDuration(detail.remaining_seconds)}`);
+      }
+      if (detail.release_at) {
+        parts.push(`Release: ${formatDate(detail.release_at)}`);
+      }
+      return parts.filter(Boolean).join(' • ');
+    }
+    return detail || err?.message || fallbackMessage;
   };
 
   // Track if WebSocket has been initialized to prevent double initialization
@@ -258,12 +288,9 @@ export default function Dashboard() {
   
   useEffect(() => {
     if (token && user) {
-      loadBots();
-      loadApiStatuses();
+      refreshAllDashboardData();
       loadSystemStats();
-      loadSystemHealth();
       loadProfitData();
-      loadLivePrices();
       // REMOVED: Duplicate setupRealTimeConnections() call
       
       // Update live prices every 5 seconds
@@ -438,6 +465,28 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  const refreshBotState = async () => {
+    await Promise.all([loadBots(), loadOverviewData()]);
+    if (showAdmin) {
+      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats()]);
+    }
+  };
+
+  const refreshAllDashboardData = async () => {
+    await Promise.all([
+      loadBots(),
+      loadMetrics(),
+      loadSystemModes(),
+      loadApiStatuses(),
+      loadRecentTrades(),
+      loadCountdown(),
+      loadLivePrices(),
+      loadOverviewData(),
+      loadRiskStatus(),
+      loadSystemHealth()
+    ]);
+  };
+
   // Load admin data when admin panel is shown
   useEffect(() => {
     if (showAdmin) {
@@ -461,13 +510,15 @@ export default function Dashboard() {
 
   // Check Flokx status
   useEffect(() => {
-    if (apiKeys.flokx?.connected) {
+    if (apiKeys.flokx?.status === 'configured_valid') {
       setIsFlokxActive(true);
       loadFlokxAlerts();
       const interval = setInterval(loadFlokxAlerts, 30000);
       return () => clearInterval(interval);
     }
-  }, [apiKeys.flokx]);
+    setIsFlokxActive(false);
+    return undefined;
+  }, [apiKeys.flokx?.status]);
 
   const setupRealTimeConnections = () => {
     console.log('✅ Initializing WebSocket connection...');
@@ -490,6 +541,7 @@ export default function Dashboard() {
           reconnectAttempts = 0; // Reset on successful connection
           setConnectionStatus(prev => ({ ...prev, ws: 'Connected', sse: 'Connected' }));
           console.log('✅ WebSocket connected');
+          refreshAllDashboardData();
           
           const pingInterval = setInterval(() => {
             if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -558,7 +610,8 @@ export default function Dashboard() {
   const unknownMessageRateLimit = useRef({ count: 0, lastReset: Date.now() });
 
   const handleRealTimeUpdate = (data) => {
-    switch (data.type) {
+    const eventType = typeof data.type === 'string' ? data.type.toLowerCase() : '';
+    switch (eventType) {
       case 'connection':
         // Handle WebSocket connection status updates
         setConnectionStatus(prev => ({
@@ -587,12 +640,14 @@ export default function Dashboard() {
       case 'balance':
         setBalances(prev => ({ ...prev, ...data.payload }));
         break;
-      case 'live_prices':
+      case 'live_prices': {
         // Real-time price update from SSE or WebSocket
-        if (data.prices) {
-          setLivePrices(data.prices);
+        const normalizedPrices = normalizeLivePrices(data.prices || data.payload, null);
+        if (normalizedPrices) {
+          setLivePrices(prev => ({ ...prev, ...normalizedPrices }));
         }
         break;
+      }
       case 'notification':
         showNotification(data.payload.message, data.payload.type || 'info');
         break;
@@ -672,6 +727,13 @@ export default function Dashboard() {
             }));
           }
         }
+        loadOverviewData();
+        loadRiskStatus();
+        break;
+      case 'bot_status_changed':
+        refreshBotState();
+        loadMetrics();
+        if (data.message) toast.info(data.message);
         break;
       
       case 'system_mode_update':
@@ -682,7 +744,7 @@ export default function Dashboard() {
       
       case 'bot_created':
         // Reload bots and metrics immediately
-        loadBots();
+        refreshBotState();
         loadMetrics();
         if (data.message) toast.success(data.message);
         break;
@@ -693,17 +755,23 @@ export default function Dashboard() {
           bot.id === data.bot_id ? { ...bot, ...data.changes } : bot
         ));
         break;
+      case 'bot_paused':
+      case 'bot_resumed':
+        refreshBotState();
+        loadMetrics();
+        if (data.message) toast.info(data.message);
+        break;
       
       case 'bot_deleted':
         // Reload bots list
-        loadBots();
+        refreshBotState();
         loadMetrics();
         if (data.message) toast.success(data.message);
         break;
       
       case 'bot_promoted':
         // Bot promoted to live
-        loadBots();
+        refreshBotState();
         if (data.message) toast.success(data.message);
         break;
       
@@ -742,14 +810,14 @@ export default function Dashboard() {
       
       case 'autopilot_action':
         // Autopilot did something
-        loadBots();
+        refreshBotState();
         loadMetrics();
         if (data.message) toast.info(data.message);
         break;
       
       case 'self_healing':
         // Self-healing paused a bot
-        loadBots();
+        refreshBotState();
         if (data.message) toast.warning(data.message);
         break;
       
@@ -778,7 +846,7 @@ export default function Dashboard() {
       
       case 'system_update':
         // General system update from AI
-        loadBots();
+        refreshBotState();
         loadSystemModes();
         loadMetrics();
         if (data.success) {
@@ -815,12 +883,8 @@ export default function Dashboard() {
         
         // Wait a moment then reload everything
         setTimeout(() => {
-          loadBots();
-          loadSystemModes();
-          loadMetrics();
+          refreshAllDashboardData();
           loadProfitData();
-          loadCountdown();
-          loadRecentTrades();
           loadBalances();
         }, 100);
         
@@ -874,8 +938,9 @@ export default function Dashboard() {
 
   const loadBots = async () => {
     try {
-      const res = await axios.get(`${API}/bots`, axiosConfig);
-      setBots(res.data || []);
+      const res = await axios.get(`${API}/bots/status`, axiosConfig);
+      const botsData = res.data?.bots || res.data || [];
+      setBots(botsData);
     } catch (err) {
       console.error('Bots fetch error:', err);
     }
@@ -885,8 +950,9 @@ export default function Dashboard() {
     try {
       // Fetch bot status for counts
       const botsRes = await get('/bots/status');
-      const activeBots = botsRes?.active || 0;
-      const pausedBots = botsRes?.paused || 0;
+      const botsList = botsRes?.bots || [];
+      const activeBots = botsList.filter(bot => bot.status === 'active' || bot.state === 'active').length;
+      const pausedBots = botsList.filter(bot => ['paused', 'paused_ready', 'quarantined'].includes(bot.status) || ['paused', 'paused_ready', 'quarantined'].includes(bot.state)).length;
       
       // Fetch portfolio summary for profit data
       const portfolioRes = await get('/portfolio/summary');
@@ -923,8 +989,8 @@ export default function Dashboard() {
 
   const loadRiskStatus = async () => {
     try {
-      const res = await get('/risk/daily-loss-lock');
-      setBodyguardStatus(res);
+      const res = await get('/risk/status');
+      setRiskStatus(res);
     } catch (err) {
       console.error('Risk status fetch error:', err);
     }
@@ -935,10 +1001,23 @@ export default function Dashboard() {
     try {
       await post(`/bots/${botId}/resume`, {});
       toast.success('Bot resumed successfully');
-      await loadBots();
-      await loadOverviewData();
+      await refreshBotState();
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to resume bot';
+      const errorMsg = formatActionError(err, 'Failed to resume bot');
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    } finally {
+      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
+    }
+  };
+
+  const handleStartBot = async (botId) => {
+    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
+    try {
+      await post(`/bots/${botId}/start`, {});
+      toast.success('Bot started successfully');
+      await refreshBotState();
+    } catch (err) {
+      const errorMsg = formatActionError(err, 'Failed to start bot');
       toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
     } finally {
       setBotControlLoading(prev => ({ ...prev, [botId]: false }));
@@ -948,12 +1027,11 @@ export default function Dashboard() {
   const handleResumeAllBots = async () => {
     setBotControlLoading(prev => ({ ...prev, 'all': true }));
     try {
-      await post('/bots/resume-all', {});
+      await post('/risk/resume-all', {});
       toast.success('All bots resumed successfully');
-      await loadBots();
-      await loadOverviewData();
+      await refreshBotState();
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to resume all bots';
+      const errorMsg = formatActionError(err, 'Failed to resume all bots');
       toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
     } finally {
       setBotControlLoading(prev => ({ ...prev, 'all': false }));
@@ -968,10 +1046,10 @@ export default function Dashboard() {
     }
     
     try {
-      await post('/risk/reset-daily-loss-lock', {});
+      await post('/risk/daily-loss-lock/reset?confirmation=RESET_RISK_LOCK', {});
       toast.success('Daily loss lock has been reset');
       await loadRiskStatus();
-      await loadOverviewData();
+      await refreshBotState();
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to reset lock';
       toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
@@ -1018,34 +1096,9 @@ export default function Dashboard() {
 
   const loadApiStatuses = async () => {
     try {
-      const res = await axios.get(`${API}/keys/list`, axiosConfig);
-      const statuses = {};
-      // New API returns { success: true, keys: [...] }
-      const keys = res.data?.keys || res.data || [];
-      keys.forEach(key => {
-        // Normalize status: support both canonical and legacy values
-        const rawStatus = key.status || 'not_configured';
-        let normalizedStatus = rawStatus;
-        let isConnected = false;
-        
-        // Map legacy to canonical (defensive fallback)
-        if (rawStatus === 'test_ok') {
-          normalizedStatus = 'configured_valid';
-          isConnected = true;
-        } else if (rawStatus === 'test_failed') {
-          normalizedStatus = 'configured_invalid';
-        } else if (rawStatus === 'saved_untested') {
-          normalizedStatus = 'configured_untested';
-        } else if (rawStatus === 'configured_valid') {
-          isConnected = true;
-        }
-        
-        statuses[key.provider.toLowerCase()] = {
-          status: normalizedStatus,
-          connected: isConnected
-        };
-      });
-      setApiKeys(statuses);
+      const res = await axios.get(`${API}/keys/status`, axiosConfig);
+      const statusMap = res.data?.status_map || {};
+      setApiKeys(statusMap);
     } catch (err) {
       console.error('API keys fetch error:', err);
     }
@@ -1200,35 +1253,6 @@ export default function Dashboard() {
     }
   };
 
-  const loadLivePrices = async () => {
-    try {
-      const res = await axios.get(`${API}/prices/live`, axiosConfig);
-      // Backend returns prices directly, not wrapped
-      const backendPrices = res.data || {};
-      
-      // Check if we have valid backend prices
-      const hasValidPrices = Object.keys(backendPrices).length > 0 && 
-                            Object.values(backendPrices).some(p => p.price && p.price > 0);
-      
-      if (hasValidPrices) {
-        // Mark as backend data with timestamp
-        Object.keys(backendPrices).forEach(key => {
-          backendPrices[key].isFallback = false;
-          backendPrices[key].lastUpdated = new Date().toISOString();
-        });
-        setLivePrices(backendPrices);
-      } else {
-        // PRODUCTION: Do NOT use fallback - show error instead
-        console.warn('No valid prices from backend, showing empty state');
-        setLivePrices({});
-      }
-    } catch (err) {
-      console.error('Live prices fetch error from backend:', err);
-      // PRODUCTION: Do NOT use fallback - rely only on backend
-      setLivePrices({});
-    }
-  };
-
   const calculateProjection = async () => {
     // This function now fetches from countdown endpoint
     // Note: loadCountdown() is already called, so we just ensure projection state matches countdown
@@ -1342,23 +1366,19 @@ export default function Dashboard() {
         // Verify password with backend
         const result = await post('/admin/unlock', { password: originalInput });
         
-        if (adminAction === 'show') {
-          console.log('🔓 SHOWING ADMIN - Setting state to TRUE');
-          setShowAdmin(true);
-          sessionStorage.setItem('adminPanelVisible', 'true');
-          sessionStorage.setItem('adminUnlockToken', result.unlock_token);
-          
-          // Success feedback message
-          const successMsg = { role: 'assistant', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
-          setChatMessages(prev => [...prev, successMsg]);
+          if (adminAction === 'show') {
+            console.log('🔓 SHOWING ADMIN - Setting state to TRUE');
+            setShowAdmin(true);
+            
+            // Success feedback message
+            const successMsg = { role: 'assistant', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
+            setChatMessages(prev => [...prev, successMsg]);
           
           // Auto-hide after 1 hour
-          setTimeout(() => {
-            setShowAdmin(false);
-            sessionStorage.removeItem('adminPanelVisible');
-            sessionStorage.removeItem('adminUnlockToken');
-            toast.info('Admin session expired');
-          }, 3600000);
+            setTimeout(() => {
+              setShowAdmin(false);
+              toast.info('Admin session expired');
+            }, 3600000);
           
           // Auto-switch to admin section
           setTimeout(() => {
@@ -1380,11 +1400,9 @@ export default function Dashboard() {
           console.log('🔒 HIDING ADMIN - Setting state to FALSE');
           const currentlyInAdmin = activeSection === 'admin';
           
-          setShowAdmin(false);
-          sessionStorage.removeItem('adminPanelVisible');
-          sessionStorage.removeItem('adminUnlockToken');
-          
-          // If currently viewing admin, switch to welcome
+            setShowAdmin(false);
+            
+            // If currently viewing admin, switch to welcome
           if (currentlyInAdmin) {
             setActiveSection('welcome');
           }
@@ -1617,7 +1635,7 @@ export default function Dashboard() {
       
       await axios.post(`${API}/bots`, botData, axiosConfig);
       showNotification(`Bot "${name}" created! Starting 7-day learning period.`, 'success');
-      loadBots();
+      await refreshBotState();
       e.target.reset();
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -1653,7 +1671,7 @@ export default function Dashboard() {
         }
       });
       showNotification(`uAgent "${name}" deployed successfully!`);
-      loadBots();
+      await refreshBotState();
       e.target.reset();
     } catch (err) {
       showNotification('Failed to deploy uAgent', 'error');
@@ -1679,7 +1697,7 @@ export default function Dashboard() {
         type: 'flokx'
       }, axiosConfig);
       showNotification(`Flokx bot "${name}" created successfully!`);
-      loadBots();
+      await refreshBotState();
       e.target.reset();
     } catch (err) {
       showNotification('Failed to create Flokx bot', 'error');
@@ -1692,7 +1710,7 @@ export default function Dashboard() {
     try {
       await axios.delete(`${API}/bots/${botId}`, axiosConfig);
       showNotification('Bot deleted');
-      loadBots();
+      await refreshBotState();
     } catch (err) {
       showNotification('Failed to delete bot', 'error');
     }
@@ -1704,7 +1722,7 @@ export default function Dashboard() {
       showNotification('Bot name updated');
       setEditingBotId(null);
       setEditingBotName('');
-      loadBots();
+      await refreshBotState();
     } catch (err) {
       showNotification('Failed to update bot name', 'error');
     }
@@ -1714,7 +1732,7 @@ export default function Dashboard() {
     try {
       await axios.put(`${API}/bots/${botId}`, { risk_mode: newRiskMode }, axiosConfig);
       showNotification(`Risk mode changed to ${newRiskMode.toUpperCase()}`);
-      loadBots();
+      await refreshBotState();
     } catch (err) {
       showNotification('Failed to change risk mode', 'error');
     }
@@ -1732,7 +1750,7 @@ export default function Dashboard() {
     try {
       await axios.put(`${API}/bots/${botId}`, { trading_mode: newMode }, axiosConfig);
       showNotification(`✅ Bot switched to ${newMode.toUpperCase()} mode`);
-      loadBots();
+      await refreshBotState();
     } catch (err) {
       const errorMsg = err.response?.data?.detail || 'Failed to change bot mode';
       showNotification(`❌ ${errorMsg}`, 'error');
@@ -1772,7 +1790,7 @@ export default function Dashboard() {
       const res = await axios.post(`${API}/bots/batch-create`, botSetup, axiosConfig);
       const createdCount = res.data.bots?.length || res.data.created || botSetup.count;
       showNotification(`✅ Created ${createdCount} bots successfully!`, 'success');
-      loadBots();
+      await refreshBotState();
       showSection('bots');
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -1922,7 +1940,7 @@ export default function Dashboard() {
     if (!key || key.status === 'not_configured') {
       return { badge: 'missing', text: 'Not configured', dot: 'err' };
     }
-    if (key.connected || key.status === 'configured_valid') {
+    if (key.status === 'configured_valid') {
       return { badge: 'verified', text: 'Valid ✓', dot: 'ok' };
     }
     if (key.status === 'configured_invalid') {
@@ -2437,7 +2455,7 @@ export default function Dashboard() {
         axiosConfig
       );
       showNotification(`Bot mode changed to ${newMode}`, 'success');
-      loadAdminBots();
+      await refreshBotState();
     } catch (err) {
       showNotification('Failed to change bot mode', 'error');
       console.error('Change bot mode error:', err);
@@ -2454,7 +2472,7 @@ export default function Dashboard() {
     try {
       await axios.post(`${API}/admin/bots/${botId}/${action}`, {}, axiosConfig);
       showNotification(`Bot ${action}d successfully`, 'success');
-      loadAdminBots();
+      await refreshBotState();
     } catch (err) {
       showNotification(`Failed to ${action} bot`, 'error');
       console.error(`${action} bot error:`, err);
@@ -2474,7 +2492,7 @@ export default function Dashboard() {
         axiosConfig
       );
       showNotification(`Bot exchange changed to ${newExchange}`, 'success');
-      loadAdminBots();
+      await refreshBotState();
     } catch (err) {
       showNotification('Failed to change bot exchange', 'error');
       console.error('Change bot exchange error:', err);
@@ -2628,7 +2646,29 @@ export default function Dashboard() {
         <h2 style={{color: '#ffffff'}}>System Overview</h2>
         
         {/* Risk Status Banner */}
-        {bodyguardStatus?.locked && (
+        {riskStatus?.emergency_stop?.active && (
+          <div style={{
+            padding: '16px',
+            background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
+            border: '2px solid #b91c1c',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            color: 'white'
+          }}>
+            <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
+              🚨 Emergency Stop Active — Trading Disabled
+            </div>
+            <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
+              <strong>Reason:</strong> {riskStatus.emergency_stop.reason || 'Emergency stop is active'}
+            </div>
+            {riskStatus.emergency_stop.next_action && (
+              <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
+                Next action: {riskStatus.emergency_stop.next_action}
+              </div>
+            )}
+          </div>
+        )}
+        {riskStatus?.daily_loss_lock?.active && (
           <div style={{
             padding: '16px',
             background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
@@ -2636,16 +2676,21 @@ export default function Dashboard() {
             borderRadius: '8px',
             marginBottom: '20px',
             color: 'white'
-          }}>
+            }}>
             <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
               🛡️ Daily Loss Lock Active — Bots Paused for Protection
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {bodyguardStatus.reason || 'Risk threshold exceeded'}
+              <strong>Reason:</strong> {riskStatus.daily_loss_lock.reason || 'Risk threshold exceeded'}
             </div>
             <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
-              Locked at: {formatDate(bodyguardStatus.locked_at)}
+              Locked at: {formatDate(riskStatus.daily_loss_lock.locked_at)}
             </div>
+            {riskStatus.daily_loss_lock.next_action && (
+              <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
+                Next action: {riskStatus.daily_loss_lock.next_action}
+              </div>
+            )}
             {user?.is_admin && (
               <div style={{marginTop: '12px', display: 'flex', gap: '10px'}}>
                 <button
@@ -2747,7 +2792,7 @@ export default function Dashboard() {
               <div className="status-item">
                 <strong>Bodyguard Status</strong>
                 <div className="led-row">
-                  {bodyguardStatus?.locked ? (
+                  {riskStatus?.bodyguard_lock?.active ? (
                     <span style={{color: 'var(--error)', fontWeight: 700}}>🔒 LOCKED</span>
                   ) : (
                     <span style={{color: 'var(--success)', fontWeight: 700}}>✅ CLEAR</span>
@@ -2969,6 +3014,16 @@ export default function Dashboard() {
                       </button>
                       <button className="danger" onClick={() => handleDeleteApiKey(provider)}>Remove</button>
                     </div>
+                    {apiKeys[provider.toLowerCase()]?.last_test_error && (
+                      <div style={{marginTop: '8px', fontSize: '0.75rem', color: 'var(--error)'}}>
+                        Last error: {apiKeys[provider.toLowerCase()].last_test_error}
+                      </div>
+                    )}
+                    {apiKeys[provider.toLowerCase()]?.updated_at && (
+                      <div style={{marginTop: '4px', fontSize: '0.75rem', color: 'var(--muted)'}}>
+                        Updated: {formatDate(apiKeys[provider.toLowerCase()].updated_at)}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -3156,6 +3211,12 @@ export default function Dashboard() {
                       ? Math.floor((Date.now() - new Date(bot.paper_start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1
                       : 1;
                     const riskMode = bot.risk_mode || 'safe';
+                    const botStatus = bot.status || bot.state || 'unknown';
+                    const isActive = botStatus === 'active';
+                    const isPaused = ['paused', 'paused_ready'].includes(botStatus);
+                    const isQuarantined = botStatus === 'quarantined';
+                    const isTraining = ['training', 'training_failed'].includes(botStatus) || bot.training_in_progress;
+                    const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
                     
                     return (
                       <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
@@ -3229,14 +3290,29 @@ export default function Dashboard() {
                             <div style={{marginBottom: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px'}}>
                               <div style={{fontSize: '0.9rem', fontWeight: 600, marginBottom: '8px'}}>Bot Status</div>
                               <div style={{display: 'grid', gap: '6px', fontSize: '0.85rem'}}>
-                                {bot.paused && (
+                                {isPaused && (
                                   <div>
                                     <strong>Status:</strong> <span style={{color: 'var(--error)'}}>⏸️ PAUSED</span>
                                   </div>
                                 )}
-                                {bot.paused_reason && (
+                                {pauseReasonMessage && (
                                   <div>
-                                    <strong>Pause Reason:</strong> {bot.paused_reason}
+                                    <strong>Pause Reason:</strong> {pauseReasonMessage}
+                                  </div>
+                                )}
+                                {bot.paused_next_action && (
+                                  <div>
+                                    <strong>Next Action:</strong> {bot.paused_next_action}
+                                  </div>
+                                )}
+                                {bot.quarantine_remaining_seconds !== undefined && bot.quarantine_remaining_seconds !== null && (
+                                  <div>
+                                    <strong>Release In:</strong> {formatDuration(bot.quarantine_remaining_seconds)}
+                                  </div>
+                                )}
+                                {bot.quarantine_release_at && (
+                                  <div>
+                                    <strong>Release At:</strong> {formatDate(bot.quarantine_release_at)}
                                   </div>
                                 )}
                                 {bot.paused_by_system && (
@@ -3249,12 +3325,12 @@ export default function Dashboard() {
                                     <span style={{color: 'var(--muted)'}}>👤 Paused by User</span>
                                   </div>
                                 )}
-                                {bot.in_quarantine && (
+                                {isQuarantined && (
                                   <div>
                                     <span style={{color: 'var(--error)'}}>🔒 In Quarantine</span>
                                   </div>
                                 )}
-                                {bot.in_training && (
+                                {isTraining && (
                                   <div>
                                     <span style={{color: 'var(--accent)'}}>🎓 In Training</span>
                                   </div>
@@ -3330,7 +3406,7 @@ export default function Dashboard() {
                             </div>
                             
                             <div className="buttons" style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px'}}>
-                              {bot.paused && !bot.active && (
+                              {isPaused && !isActive && (
                                 <button 
                                   onClick={() => handleResumeBot(bot.id)}
                                   disabled={botControlLoading[bot.id]}
@@ -3348,9 +3424,9 @@ export default function Dashboard() {
                                   {botControlLoading[bot.id] ? '⏳ Starting...' : '▶️ Resume Bot'}
                                 </button>
                               )}
-                              {!bot.active && !bot.paused && (
+                              {!isActive && !isPaused && (
                                 <button 
-                                  onClick={() => handleResumeBot(bot.id)}
+                                  onClick={() => handleStartBot(bot.id)}
                                   disabled={botControlLoading[bot.id]}
                                   style={{
                                     background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',

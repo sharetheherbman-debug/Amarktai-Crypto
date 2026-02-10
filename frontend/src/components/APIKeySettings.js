@@ -53,7 +53,7 @@ const APIKeySettings = () => {
   
   const fetchAllProviders = async () => {
     try {
-      const response = await fetch('/api/keys/list', {
+      const response = await fetch('/api/keys/status', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -68,7 +68,20 @@ const APIKeySettings = () => {
       
       if (response.ok) {
         const data = await response.json();
-        setProviders(data.keys || []);
+        const statusMap = data.status_map || {};
+        const providerStatuses = PROVIDERS.map(provider => {
+          const statusInfo = statusMap[provider.id] || {};
+          const status = statusInfo.status || 'not_configured';
+          return {
+            provider: provider.id,
+            status,
+            status_display: getStatusDisplay(status, statusInfo.last_test_error),
+            last_test_error: statusInfo.last_test_error,
+            updated_at: statusInfo.updated_at,
+            last_tested_at: statusInfo.last_tested_at
+          };
+        });
+        setProviders(providerStatuses);
       } else {
         console.error('Failed to fetch providers');
       }
@@ -273,6 +286,33 @@ const APIKeySettings = () => {
       return '⚪';
     }
   };
+
+  const getStatusDisplay = (status, lastTestError) => {
+    const normalizedStatus = status?.toLowerCase();
+    if (normalizedStatus === 'configured_valid') {
+      return 'Valid ✅';
+    }
+    if (normalizedStatus === 'configured_invalid') {
+      return lastTestError ? `Invalid ❌ - ${lastTestError}` : 'Invalid ❌';
+    }
+    if (normalizedStatus === 'configured_untested') {
+      return 'Configured (untested)';
+    }
+    if (normalizedStatus === 'configured_rate_limited') {
+      return 'Rate limited ⏱️';
+    }
+    if (normalizedStatus === 'testing') {
+      return 'Testing...';
+    }
+    return 'Not configured';
+  };
+
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return '—';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleString();
+  };
   
   return (
     <div className="api-key-settings">
@@ -324,6 +364,16 @@ const APIKeySettings = () => {
                     }}>
                       {getStatusIcon(status)} {providerStatus?.status_display || 'Not configured'}
                     </div>
+                    {providerStatus?.last_test_error && (
+                      <div style={{fontSize: '0.7rem', color: '#ef4444', marginTop: '4px'}}>
+                        Last error: {providerStatus.last_test_error}
+                      </div>
+                    )}
+                    {providerStatus?.updated_at && (
+                      <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>
+                        Updated: {formatTimestamp(providerStatus.updated_at)}
+                      </div>
+                    )}
                   </div>
                 </div>
                 
