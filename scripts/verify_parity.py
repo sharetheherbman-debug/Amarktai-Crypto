@@ -43,9 +43,10 @@ def build_backend_patterns(endpoints):
     return patterns
 
 
-def get_context(lines, one_based_line_number, window=8):
-    start = max(one_based_line_number - 1, 0)
-    end = min(one_based_line_number - 1 + window, len(lines))
+def get_context(lines, line_number, window=8):
+    """Return context using 1-based line numbers from audit output."""
+    start = max(line_number - 1, 0)
+    end = min(line_number - 1 + window, len(lines))
     return "\n".join(lines[start:end])
 
 

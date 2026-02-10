@@ -29,7 +29,7 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-auth_header=("-H" "Authorization: Bearer $TOKEN" "-H" "Content-Type: application/json")
+auth_header=("-H" "Authorization: Bearer $TOKEN")
 
 response=$(curl -s -w "\n%{http_code}" "${auth_header[@]}" "$API_URL/api/admin/overview")
 body=$(echo "$response" | sed '$d')
