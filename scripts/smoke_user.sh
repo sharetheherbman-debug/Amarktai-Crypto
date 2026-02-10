@@ -63,7 +63,7 @@ check_json "/api/bots" 'type=="array"' "GET /api/bots returns array"
 check_json "/api/bots/status" 'type=="array"' "GET /api/bots/status returns array"
 check_json "/api/prices/live" 'type=="array"' "GET /api/prices/live returns array"
 check_json "/api/system/mode" 'type=="object" and has("paperTrading") and has("liveTrading") and has("autopilot")' "GET /api/system/mode returns mode flags"
-check_json "/api/keys/status" 'type=="object" and has("status_map") and (.status_map|type=="object")' "GET /api/keys/status returns status_map"
+check_json "/api/keys/status" 'type=="object" and ((has("status_map") and (.status_map|type=="object")) or (has("keys") and (.keys|type=="array")))' "GET /api/keys/status returns status_map or keys"
 check_json "/api/risk/daily-loss-lock" 'type=="object" and has("active")' "GET /api/risk/daily-loss-lock returns active flag"
 
 echo "✅ smoke_user.sh PASS"

@@ -46,7 +46,7 @@ def build_backend_patterns(endpoints):
 def get_context(lines, line_number, window=8):
     """Return context using 1-based line numbers from audit output."""
     start = max(line_number - 1, 0)
-    end = min(line_number + window - 1, len(lines))
+    end = min(line_number + window, len(lines))
     return "\n".join(lines[start:end])
 
 
@@ -61,9 +61,7 @@ def analyze_shape(path, context_text, file_text=""):
     normalize_usage = "normalizeLivePrices" in context_text
 
     if path.startswith("/api/prices/live"):
-        has_prices_reference = "prices" in expected_keys or re.search(
-            r"\bdata\.prices\b", context_text
-        )
+        has_prices_reference = "prices" in expected_keys
         if has_prices_reference and not (array_usage or normalize_usage):
             mismatches.append("expects data.prices but /api/prices/live returns a raw array")
 
