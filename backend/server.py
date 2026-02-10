@@ -300,7 +300,14 @@ async def lifespan(app: FastAPI):
     
     logger.info("🔴 All systems stopped gracefully")
 
-app = FastAPI(lifespan=lifespan)
+# TASK A - Fix OpenAPI routing for nginx reverse proxy
+# Nginx proxies /api/* to backend, so OpenAPI must be at /api/openapi.json
+app = FastAPI(
+    lifespan=lifespan,
+    openapi_url="/api/openapi.json",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc"
+)
 
 # Add validation error handler for better debugging
 from fastapi.exceptions import RequestValidationError
