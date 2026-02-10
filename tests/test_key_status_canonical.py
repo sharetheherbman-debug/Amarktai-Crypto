@@ -102,6 +102,8 @@ def test_no_legacy_statuses_in_keys_route_code():
             violations.append(f"Line {i}: {stripped}")
         if '"saved_untested"' in stripped and 'status' in stripped.lower():
             violations.append(f"Line {i}: {stripped}")
+        if '"test_failed"' in stripped and 'status' in stripped.lower():
+            violations.append(f"Line {i}: {stripped}")
     
     assert len(violations) == 0, (
         f"Legacy status strings found in keys.py response code:\n" +

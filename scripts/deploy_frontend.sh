@@ -22,6 +22,11 @@ echo ""
 cd "$FRONTEND_DIR"
 
 # Step 2: Clean install
+if [ ! -f "package.json" ]; then
+    echo "❌ package.json not found in $FRONTEND_DIR - wrong directory?"
+    exit 1
+fi
+
 echo "Step 1/4: Cleaning node_modules..."
 rm -rf node_modules
 echo "✅ Cleaned"
