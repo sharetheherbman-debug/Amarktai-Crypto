@@ -254,12 +254,22 @@ class CapitalAllocator:
         - Keep ledger history
         """
         try:
-            from rules import (
-                get_max_bots_for_exchange, 
-                get_reinvestment_rate,
-                calculate_reinvestment_amount,
-                SUPPORTED_EXCHANGES
-            )
+            try:
+                from rules import (
+                    get_max_bots_for_exchange, 
+                    get_reinvestment_rate,
+                    calculate_reinvestment_amount,
+                    SUPPORTED_EXCHANGES
+                )
+            except ImportError as e:
+                logger.error(
+                    f"Rules import failed for reinvestment (user {user_id}); check rules exports: {e}"
+                )
+                return {
+                    "success": False,
+                    "error": "rules_import_failed",
+                    "message": "Rules import failed; reinvestment skipped for this tick"
+                }
             from profit_ledger import profit_ledger
             
             logger.info(f"Processing profit reinvestment for user {user_id}")
@@ -384,12 +394,22 @@ class CapitalAllocator:
             trading_mode: 'paper' or 'live' - determines which profit to check
         """
         try:
-            from rules import (
-                check_bot_cap_limit,
-                get_reason_message,
-                SUPPORTED_EXCHANGES,
-                PROFIT_THRESHOLD_ZAR
-            )
+            try:
+                from rules import (
+                    check_bot_cap_limit,
+                    get_reason_message,
+                    SUPPORTED_EXCHANGES,
+                    PROFIT_THRESHOLD_ZAR
+                )
+            except ImportError as e:
+                logger.error(
+                    f"Rules import failed for auto-spawn (user {user_id}); check rules exports: {e}"
+                )
+                return {
+                    "success": False,
+                    "error": "rules_import_failed",
+                    "message": "Rules import failed; auto-spawn skipped for this tick"
+                }
             from profit_ledger import profit_ledger
             from uuid import uuid4
             

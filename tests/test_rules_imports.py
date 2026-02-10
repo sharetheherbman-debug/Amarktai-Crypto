@@ -24,6 +24,13 @@ def test_get_reason_message_importable():
     assert callable(get_reason_message)
 
 
+def test_profit_threshold_importable():
+    """PROFIT_THRESHOLD_ZAR must be importable from rules"""
+    from rules import PROFIT_THRESHOLD_ZAR
+    assert isinstance(PROFIT_THRESHOLD_ZAR, (int, float))
+    assert PROFIT_THRESHOLD_ZAR > 0
+
+
 def test_validate_exchange_importable():
     """validate_exchange must be importable from rules"""
     from rules import validate_exchange
@@ -104,6 +111,7 @@ def test_validate_exchange_logic():
 if __name__ == "__main__":
     test_calculate_reinvestment_amount_importable()
     test_get_reason_message_importable()
+    test_profit_threshold_importable()
     test_validate_exchange_importable()
     test_supported_exchanges_importable()
     test_core_rules_importable()

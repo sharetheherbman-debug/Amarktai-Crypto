@@ -1,6 +1,6 @@
 # Acceptance Tests Verification
 
-This document verifies all 7 acceptance tests from the problem statement are met.
+This document verifies all 8 acceptance tests from the problem statement are met.
 
 ## Acceptance Test 1: OpenAPI JSON Returns Valid Spec
 
@@ -282,6 +282,29 @@ grep -r "require_admin" backend/routes/admin*.py | wc -l
 
 ---
 
+## Acceptance Test 8: Auto-spawn/Reinvestment Rules Imports
+
+**Requirement**: Auto-spawn/reinvestment rules imports are stable; no `ImportError` in journald after restart.
+
+**Fix Applied**:
+- File: `backend/rules/__init__.py` exports `PROFIT_THRESHOLD_ZAR`
+- File: `backend/engines/capital_allocator.py` guards rules imports
+- File: `scripts/verify_live.sh` includes rules import check
+
+**Verification on VPS**:
+```bash
+# Verify rules imports from repo root (uses backend venv when available)
+bash scripts/verify_live.sh
+
+# Confirm no ImportError in backend logs after restart
+sudo journalctl -u amarktai-backend -n 200 | grep -i "ImportError"
+# Expected: no output
+```
+
+**Status**: ✅ FIXED
+
+---
+
 ## Summary
 
 | Test | Status | Files Changed |
@@ -293,8 +316,9 @@ grep -r "require_admin" backend/routes/admin*.py | wc -l
 | 5. Status Mapping | ✅ VERIFIED | backend/routes/keys.py |
 | 6. Footer | ✅ FIXED | frontend/src/components/VersionBadge.js, Dashboard.js |
 | 7. Admin Gating | ✅ VERIFIED | backend/routes/admin_endpoints.py |
+| 8. Rules Imports | ✅ FIXED | backend/rules/__init__.py, backend/engines/capital_allocator.py |
 
-**All 7 acceptance tests are met.**
+**All 8 acceptance tests are met.**
 
 ## Quick VPS Verification Script
 
