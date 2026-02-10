@@ -48,6 +48,10 @@ const API = API_BASE;
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
 
+// TASK D - Exchanges that require additional fields
+const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
+const EXCHANGES_NEEDING_PASSPHRASE = ['kucoin', 'bitget'];
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -1803,15 +1807,13 @@ export default function Dashboard() {
     }
 
     // Validate exchange keys have secrets (except for some exchanges)
-    const exchangesNeedingSecret = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
-    if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.api_secret) {
+    if (EXCHANGES_NEEDING_SECRET.includes(provider.toLowerCase()) && !data.api_secret) {
       showNotification(`${provider.toUpperCase()} requires both API key and secret`, 'error');
       return;
     }
 
     // Validate KuCoin and Bitget passphrase requirement
-    const exchangesNeedingPassphrase = ['kucoin', 'bitget'];
-    if (exchangesNeedingPassphrase.includes(provider.toLowerCase()) && !data.passphrase) {
+    if (EXCHANGES_NEEDING_PASSPHRASE.includes(provider.toLowerCase()) && !data.passphrase) {
       showNotification(`${provider.toUpperCase()} requires passphrase`, 'error');
       return;
     }

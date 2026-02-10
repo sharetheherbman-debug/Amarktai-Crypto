@@ -5,7 +5,11 @@
 
 set -e
 
+# Configuration
 BASE_URL="${BASE_URL:-https://www.amarktai.online}"
+MIN_OPENAPI_SIZE=50000  # Minimum expected OpenAPI JSON size (bytes)
+
+# Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -99,7 +103,7 @@ OPENAPI_RESPONSE=$(curl -fsS "$BASE_URL/api/openapi.json" 2>&1)
 OPENAPI_SIZE=$(echo -n "$OPENAPI_RESPONSE" | wc -c)
 
 if echo "$OPENAPI_RESPONSE" | jq . >/dev/null 2>&1; then
-    if [ "$OPENAPI_SIZE" -gt 50000 ]; then
+    if [ "$OPENAPI_SIZE" -gt "$MIN_OPENAPI_SIZE" ]; then
         if echo "$OPENAPI_RESPONSE" | grep -q "/api/auth/login"; then
             echo -e "${GREEN}✅ PASS${NC} (Valid JSON, ${OPENAPI_SIZE} bytes, contains /api/auth/login)"
             ((PASSED++))

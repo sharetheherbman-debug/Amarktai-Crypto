@@ -26,29 +26,29 @@ export default function VersionBadge({ position = 'footer', showBuildInfo = fals
                           process.env.REACT_APP_SHOW_BUILD_BADGE === 'true';
   
   useEffect(() => {
+    const fetchBuildInfo = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/build/info`);
+        if (response.ok) {
+          const data = await response.json();
+          setBuildInfo(data);
+        } else {
+          setError('Could not fetch build info');
+        }
+      } catch (err) {
+        console.warn('Version badge: could not fetch build info', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
     if (shouldShowBadge) {
       fetchBuildInfo();
     } else {
       setLoading(false);
     }
   }, [shouldShowBadge]);
-  
-  const fetchBuildInfo = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/build/info`);
-      if (response.ok) {
-        const data = await response.json();
-        setBuildInfo(data);
-      } else {
-        setError('Could not fetch build info');
-      }
-    } catch (err) {
-      console.warn('Version badge: could not fetch build info', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
   
   // Don't show badge if not enabled
   if (!shouldShowBadge) {
