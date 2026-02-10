@@ -376,7 +376,7 @@ fi
 echo ""
 echo "📋 TASK H - Profit Ledger Collection"
 echo "-------------------------------------"
-PROFIT_LEDGER_OUTPUT=$($PYTHON_CMD -c "import sys; sys.path.insert(0, 'backend'); import database; import profit_ledger; ok=hasattr(database, 'profit_ledger_collection'); print('profit_ledger_collection OK' if ok else 'profit_ledger_collection missing'); raise SystemExit(0 if ok else 1)" 2>&1)
+PROFIT_LEDGER_OUTPUT=$($PYTHON_CMD -c "import sys; sys.path.insert(0, 'backend'); import database; import profit_ledger as pl; has_collection=hasattr(database, 'profit_ledger_collection'); has_module=hasattr(pl, 'profit_ledger'); ok=has_collection and has_module; print('profit_ledger wiring OK' if ok else f'profit_ledger wiring missing (collection={has_collection}, module={has_module})'); raise SystemExit(0 if ok else 1)" 2>&1)
 PROFIT_LEDGER_STATUS=$?
 
 if [ "$PROFIT_LEDGER_STATUS" -eq 0 ]; then
