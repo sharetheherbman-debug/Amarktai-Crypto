@@ -7,7 +7,7 @@ EMAIL="${AMK_EMAIL:-}"
 PASSWORD="${AMK_PASSWORD:-}"
 ADMIN_EMAIL="${AMK_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${AMK_ADMIN_PASSWORD:-}"
-EXPECTED_EXCHANGES=(luno binance kucoin bybit kraken bitget gate)
+EXPECTED_EXCHANGE_IDS=(luno binance kucoin bybit kraken bitget gate)
 
 fail() {
   echo "❌ $1" >&2
@@ -36,11 +36,11 @@ login() {
   echo "$response"
 }
 
-require_jq() {
+verify_jq() {
   command -v jq >/dev/null 2>&1 || fail "jq is required for contract tests"
 }
 
-require_jq
+verify_jq
 
 login_response=$(login "$EMAIL" "$PASSWORD")
 token=$(echo "$login_response" | jq -r '.access_token // empty')
@@ -93,11 +93,11 @@ pass "/api/quarantine/status includes reason and timer"
 keys_providers=$(curl -fsS "$BASE_URL/api/keys/providers")
 provider_ids=$(echo "$keys_providers" | jq -r '.providers[].id' | sort)
 exchange_ids=$(echo "$keys_providers" | jq -c '[.providers[] | select(.type=="exchange") | .id] | sort')
-expected_exchanges_json=$(printf '%s\n' "${EXPECTED_EXCHANGES[@]}" | jq -R . | jq -s 'sort')
+expected_exchanges_json=$(printf '%s\n' "${EXPECTED_EXCHANGE_IDS[@]}" | jq -R . | jq -s 'sort')
 echo "$exchange_ids" | jq -e 'length==7' >/dev/null || fail "/api/keys/providers must include 7 exchanges"
 echo "$exchange_ids" | jq -e --argjson expected "$expected_exchanges_json" '. == $expected' >/dev/null \
   || fail "/api/keys/providers exchange list mismatch"
-for required in "${EXPECTED_EXCHANGES[@]}"; do
+for required in "${EXPECTED_EXCHANGE_IDS[@]}"; do
   echo "$exchange_ids" | jq -e --arg id "$required" 'index($id)' >/dev/null \
     || fail "Missing exchange provider: $required"
 done

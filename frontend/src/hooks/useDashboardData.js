@@ -5,6 +5,13 @@ import { formatTimestamp } from '../lib/dateUtils.js';
 
 const API = API_BASE;
 
+/**
+ * Normalize live price responses into a pair->price map.
+ *
+ * Accepts either array responses from /api/prices/live or
+ * object maps already keyed by pair. Returns fallback if the
+ * response is empty or invalid.
+ */
 export const normalizeLivePrices = (data, fallback = null) => {
   if (Array.isArray(data)) {
     const pricesMap = {};

@@ -14,27 +14,11 @@ import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
+from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
-
-def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _calculate_remaining_seconds(release_at: Optional[str]) -> Optional[int]:
-    release_dt = _parse_iso_datetime(release_at)
-    if not release_dt:
-        return None
-    now = datetime.now(timezone.utc)
-    return max(0, int((release_dt - now).total_seconds()))
-
 
 def _build_block_detail(
     code: str,
@@ -43,6 +27,7 @@ def _build_block_detail(
     release_at: Optional[str] = None,
     remaining_seconds: Optional[int] = None,
 ) -> Dict:
+    """Build structured error details for bot action blockers."""
     detail = {"code": code, "message": message}
     if next_action:
         detail["next_action"] = next_action
@@ -155,7 +140,7 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 pause_reason_message = bot.get('quarantine_reason') or pause_reason or 'Bot is in quarantine'
                 pause_next_action = 'Wait for retraining to complete'
                 quarantine_release_at = bot.get('retraining_until') or bot.get('quarantine_until')
-                quarantine_remaining_seconds = _calculate_remaining_seconds(quarantine_release_at)
+                quarantine_remaining_seconds = remaining_seconds(quarantine_release_at)
             elif status in ['training', 'training_failed'] or bot.get('training_in_progress'):
                 pause_reason_code = 'training'
                 pause_reason_message = bot.get('training_failed_reason') or 'Training in progress'

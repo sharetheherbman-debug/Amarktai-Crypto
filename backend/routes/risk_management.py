@@ -14,25 +14,10 @@ from typing import Optional
 
 from auth import get_current_user
 import database as db
+from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _remaining_seconds(release_at: Optional[str]) -> Optional[int]:
-    release_dt = _parse_iso_datetime(release_at)
-    if not release_dt:
-        return None
-    now = datetime.now(timezone.utc)
-    return max(0, int((release_dt - now).total_seconds()))
 
 
 @router.get("/api/risk/daily-loss-lock")
@@ -103,7 +88,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
             if release_at and (earliest_release is None or release_at < earliest_release):
                 earliest_release = release_at
 
-        quarantine_remaining = _remaining_seconds(earliest_release) if earliest_release else None
+        quarantine_remaining = remaining_seconds(earliest_release) if earliest_release else None
 
         daily_loss_active = user.get("daily_loss_lock_active", False)
         daily_loss_reason = user.get("daily_loss_locked_reason", "Daily loss lock active") if daily_loss_active else None

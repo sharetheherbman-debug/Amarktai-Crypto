@@ -3427,7 +3427,7 @@ export default function Dashboard() {
                                   {botControlLoading[bot.id] ? '⏳ Starting...' : '▶️ Resume Bot'}
                                 </button>
                               )}
-                              {!isActive && !isPaused && (
+                              {!isActive && !isPaused && !isQuarantined && !isTraining && (
                                 <button 
                                   onClick={() => handleStartBot(bot.id)}
                                   disabled={botControlLoading[bot.id]}
