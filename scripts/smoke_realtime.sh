@@ -52,7 +52,9 @@ import websockets
 uri = sys.argv[1]
 ssl_context = None
 if uri.startswith("wss://") and os.getenv("AMARKTAI_WS_INSECURE") == "1":
-    ssl_context = ssl._create_unverified_context()
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
 
 
 async def run():

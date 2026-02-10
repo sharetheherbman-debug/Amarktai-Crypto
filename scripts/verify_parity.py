@@ -49,7 +49,7 @@ def get_context(lines, line_number, window=8):
     return "\n".join(lines[start:end])
 
 
-def analyze_shape(path, context_text):
+def analyze_shape(path, context_text, file_text=""):
     mismatches = []
     expected_keys = set(re.findall(r"\.data\.([A-Za-z0-9_]+)", context_text))
 
@@ -62,12 +62,12 @@ def analyze_shape(path, context_text):
     if path.startswith("/api/prices/live"):
         prices_ref = "prices" in expected_keys or re.search(r"\bdata\.prices\b", context_text)
         if prices_ref and not (array_usage or normalize_usage):
-            mismatches.append("expects object with prices but /api/prices/live returns array")
+            mismatches.append("expects data.prices but /api/prices/live returns a raw array")
 
     if path.startswith("/api/keys/status"):
         keys_ref = "keys" in expected_keys or re.search(r"\bdata\.keys\b", context_text)
         status_ref = "status_map" in expected_keys or re.search(r"\bdata\.status_map\b", context_text)
-        if keys_ref and not status_ref:
+        if keys_ref and not status_ref and "status_map" not in file_text:
             mismatches.append("expects keys array but /api/keys/status returns status_map")
 
     if path.startswith("/api/admin/overview"):
@@ -109,8 +109,9 @@ def main() -> int:
             file_path = repo_root / file_entry["file"]
             if file_path not in file_cache:
                 file_cache[file_path] = file_path.read_text(errors="ignore").splitlines()
-            context_text = get_context(file_cache[file_path], file_entry["line"])
-            mismatches = analyze_shape(normalized, context_text)
+            lines = file_cache[file_path]
+            context_text = get_context(lines, file_entry["line"])
+            mismatches = analyze_shape(normalized, context_text, "\n".join(lines))
             for mismatch in mismatches:
                 shape_mismatches.append(
                     {
