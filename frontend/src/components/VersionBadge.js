@@ -7,9 +7,11 @@ import { API_BASE } from '../lib/api';
  * 
  * Displays the current build version of frontend and backend.
  * Fetches version info from /api/build/info endpoint (no auth required).
- * Shows in footer or header to verify deployment.
+ * 
+ * TASK G - Footer fix: Only show build badge when explicitly enabled
+ * or when in admin view. Default footer shows copyright only.
  */
-export default function VersionBadge({ position = 'footer' }) {
+export default function VersionBadge({ position = 'footer', showBuildInfo = false }) {
   const [buildInfo, setBuildInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -19,26 +21,39 @@ export default function VersionBadge({ position = 'footer' }) {
                            process.env.REACT_APP_GIT_SHA ||
                            'dev';
   
-  useEffect(() => {
-    fetchBuildInfo();
-  }, []);
+  // Check if build badge should be shown
+  const shouldShowBadge = showBuildInfo || 
+                          process.env.REACT_APP_SHOW_BUILD_BADGE === 'true';
   
-  const fetchBuildInfo = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/build/info`);
-      if (response.ok) {
-        const data = await response.json();
-        setBuildInfo(data);
-      } else {
-        setError('Could not fetch build info');
+  useEffect(() => {
+    const fetchBuildInfo = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/build/info`);
+        if (response.ok) {
+          const data = await response.json();
+          setBuildInfo(data);
+        } else {
+          setError('Could not fetch build info');
+        }
+      } catch (err) {
+        console.warn('Version badge: could not fetch build info', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.warn('Version badge: could not fetch build info', err);
-      setError(err.message);
-    } finally {
+    };
+    
+    if (shouldShowBadge) {
+      fetchBuildInfo();
+    } else {
       setLoading(false);
     }
-  };
+  }, [shouldShowBadge]);
+  
+  // Don't show badge if not enabled
+  if (!shouldShowBadge) {
+    return null;
+  }
   
   if (loading) {
     return null; // Don't show anything while loading
@@ -74,12 +89,6 @@ export default function VersionBadge({ position = 'footer' }) {
           <Badge variant="outline" className="text-xs opacity-60">
             FE: {FRONTEND_VERSION.substring(0, 8)}
           </Badge>
-        )}
-        
-        {buildInfo.built_at && (
-          <span className="text-xs opacity-50" title={buildInfo.built_at}>
-            {new Date(buildInfo.built_at).toLocaleDateString()}
-          </span>
         )}
       </div>
     </div>

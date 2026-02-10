@@ -48,6 +48,10 @@ const API = API_BASE;
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
 
+// TASK D - Exchanges that require additional fields
+const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
+const EXCHANGES_NEEDING_PASSPHRASE = ['kucoin', 'bitget'];
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -1803,9 +1807,14 @@ export default function Dashboard() {
     }
 
     // Validate exchange keys have secrets (except for some exchanges)
-    const exchangesNeedingSecret = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
-    if (exchangesNeedingSecret.includes(provider.toLowerCase()) && !data.api_secret) {
+    if (EXCHANGES_NEEDING_SECRET.includes(provider.toLowerCase()) && !data.api_secret) {
       showNotification(`${provider.toUpperCase()} requires both API key and secret`, 'error');
+      return;
+    }
+
+    // Validate KuCoin and Bitget passphrase requirement
+    if (EXCHANGES_NEEDING_PASSPHRASE.includes(provider.toLowerCase()) && !data.passphrase) {
+      showNotification(`${provider.toUpperCase()} requires passphrase`, 'error');
       return;
     }
 
@@ -2880,27 +2889,41 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className={`api-form ${isExpanded ? 'active' : ''}`} id={`form-${provider}`}>
+                    {/* TASK D - Config-driven field schema (no duplication) */}
                     {provider === 'openai' && (
                       <input name="api_key" placeholder="API Key (sk-...)" type="password" />
-                    )}
-                    {SUPPORTED_PLATFORMS.includes(provider) && (
-                      <>
-                        <input name="api_key" placeholder="API Key" type="text" />
-                        <input name="api_secret" placeholder="Secret" type="password" />
-                      </>
-                    )}
-                    {provider === 'kucoin' && (
-                      <>
-                        <input name="api_key" placeholder="API Key" type="text" />
-                        <input name="api_secret" placeholder="Secret Key" type="password" />
-                        <input name="passphrase" placeholder="Passphrase" type="text" />
-                      </>
                     )}
                     {provider === 'flokx' && (
                       <input name="api_token" placeholder="API Token" type="password" />
                     )}
                     {provider === 'fetchai' && (
                       <input name="api_key" placeholder="API Key" type="password" />
+                    )}
+                    {/* All exchanges require api_key + api_secret */}
+                    {SUPPORTED_PLATFORMS.includes(provider) && (
+                      <>
+                        <input 
+                          name="api_key" 
+                          placeholder="API Key" 
+                          type="text"
+                          style={{ color: '#e0e0e0', backgroundColor: 'rgba(255,255,255,0.05)' }}
+                        />
+                        <input 
+                          name="api_secret" 
+                          placeholder="Secret Key" 
+                          type="password"
+                          style={{ color: '#e0e0e0', backgroundColor: 'rgba(255,255,255,0.05)' }}
+                        />
+                        {/* KuCoin and Bitget require passphrase */}
+                        {(provider === 'kucoin' || provider === 'bitget') && (
+                          <input 
+                            name="passphrase" 
+                            placeholder="Passphrase" 
+                            type="text"
+                            style={{ color: '#e0e0e0', backgroundColor: 'rgba(255,255,255,0.05)' }}
+                          />
+                        )}
+                      </>
                     )}
                     <div className="buttons">
                       <button 
@@ -6600,7 +6623,8 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="footer">
         <div>© 2026 Amarktai Crypto — Part of Amarktai Network</div>
-        <VersionBadge position="footer" />
+        {/* TASK G - Only show build badge in admin view */}
+        {showAdmin && <VersionBadge position="footer" showBuildInfo={true} />}
       </footer>
 
       {/* Bot Promotion Modal */}

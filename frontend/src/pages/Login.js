@@ -39,8 +39,8 @@ export default function Login() {
       localStorage.clear();
       sessionStorage.clear();
       
-      // Set new session data
-      localStorage.setItem('token', response.data.token);
+      // TASK B - Use access_token from standardized auth response
+      localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
       toast.success('Welcome back!');

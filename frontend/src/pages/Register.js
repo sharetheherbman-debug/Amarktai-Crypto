@@ -71,7 +71,8 @@ export default function Register() {
         invite_code: formData.invite_code
       });
       
-      localStorage.setItem('token', response.data.token);
+      // TASK B - Use access_token from standardized auth response
+      localStorage.setItem('token', response.data.access_token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       toast.success('Account created successfully!');
       navigate('/dashboard');

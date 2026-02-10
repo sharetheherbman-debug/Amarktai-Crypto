@@ -99,11 +99,10 @@ async def register(request: Request, user: UserRegister):
     sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
     sanitized_user = {k: v for k, v in user_dict.items() if k not in sensitive_fields}
     
-    # Return with both new and legacy fields
+    # TASK B - Standardized auth response (access_token only, no duplicate "token")
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "token": access_token,  # Legacy field for backward compatibility
         "user": sanitized_user
     }
 
@@ -177,11 +176,10 @@ async def login(credentials: UserLogin):
     sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
     sanitized_user = {k: v for k, v in user.items() if k not in sensitive_fields}
     
-    # Return with both new and legacy fields
+    # TASK B - Standardized auth response (access_token only, no duplicate "token")
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "token": access_token,  # Legacy field for backward compatibility
         "user": sanitized_user
     }
 

@@ -1,6 +1,6 @@
 name: CI - Go-Live Readiness
 
-on:
+'on':
   push:
     branches: [ main ]
   pull_request:
@@ -12,229 +12,231 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
     
-    - name: Install dependencies
-      run: |
-        cd backend
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
     
-    - name: Check Python syntax
-      run: |
-        cd backend
-        python -m py_compile server.py
-        python -m py_compile routes/auth.py
-        python -m py_compile routes/realtime.py
-        python -m py_compile routes/bot_lifecycle.py
+      - name: Check Python syntax
+        run: |
+          cd backend
+          python -m py_compile server.py
+          python -m py_compile routes/auth.py
+          python -m py_compile routes/realtime.py
+          python -m py_compile routes/bot_lifecycle.py
     
-    - name: Verify import sanity
-      run: |
-        cd backend
-        python -c "import sys; sys.path.insert(0, '.'); from routes import auth"
-        python -c "import sys; sys.path.insert(0, '.'); from routes import realtime"
-        python -c "import sys; sys.path.insert(0, '.'); from routes import bot_lifecycle"
+      - name: Verify import sanity
+        run: |
+          cd backend
+          python -c "import sys; sys.path.insert(0, '.'); from routes import auth"
+          python -c "import sys; sys.path.insert(0, '.'); from routes import realtime"
+          python -c "import sys; sys.path.insert(0, '.'); from routes import bot_lifecycle"
     
-    - name: Check GET /auth/profile endpoint exists
-      run: |
-        cd backend
-        if grep -q "@router.get.*['\"]\/auth\/profile['\"]" routes/auth.py; then
-          echo "✓ GET /auth/profile endpoint found"
-        else
-          echo "✗ GET /auth/profile endpoint missing"
-          exit 1
-        fi
+      - name: Check GET /auth/profile endpoint exists
+        run: |
+          cd backend
+          if grep -q "@router.get.*['\"]\/auth\/profile['\"]" routes/auth.py; then
+            echo "✓ GET /auth/profile endpoint found"
+          else
+            echo "✗ GET /auth/profile endpoint missing"
+            exit 1
+          fi
     
-    - name: Check SSE endpoint exists
-      run: |
-        cd backend
-        if grep -q "@router.get.*['\"]\/events['\"]" routes/realtime.py; then
-          echo "✓ SSE /events endpoint found"
-        else
-          echo "✗ SSE /events endpoint missing"
-          exit 1
-        fi
+      - name: Check SSE endpoint exists
+        run: |
+          cd backend
+          if grep -q "@router.get.*['\"]\/events['\"]" routes/realtime.py; then
+            echo "✓ SSE /events endpoint found"
+          else
+            echo "✗ SSE /events endpoint missing"
+            exit 1
+          fi
     
-    - name: Verify no imports from _archive
-      run: |
-        cd backend
-        if grep -r "from _archive\|import _archive" --include="*.py" --exclude-dir="_archive" .; then
-          echo "✗ Found imports from _archive directory"
-          exit 1
-        else
-          echo "✓ No imports from _archive"
-        fi
+      - name: Verify no imports from _archive
+        run: |
+          cd backend
+          if grep -r "from _archive\|import _archive" --include="*.py" --exclude-dir="_archive" .; then
+            echo "✗ Found imports from _archive directory"
+            exit 1
+          else
+            echo "✓ No imports from _archive"
+          fi
 
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
+    # Build verification for React frontend with Craco
     
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
     
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Temporarily disable caching to debug CI failure
+          # cache: 'npm'
+          # cache-dependency-path: frontend/package-lock.json
     
-    - name: Verify Node.js setup
-      run: |
-        node --version
-        npm --version
-        echo "Node modules cache path: $(npm config get cache)"
+      - name: Verify Node.js setup
+        run: |
+          node --version
+          npm --version
+          echo "Node modules cache path: $(npm config get cache)"
     
-    - name: Validate lockfile
-      run: |
-        cd frontend
-        echo "Validating package-lock.json is in sync with package.json..."
-        # This checks if npm ci would succeed without actually installing
-        npm ci --dry-run
-        echo "✓ Lockfile validation passed"
+      - name: Validate lockfile
+        run: |
+          cd frontend
+          echo "Validating package-lock.json is in sync with package.json..."
+          # This checks if npm ci would succeed without actually installing
+          npm ci --dry-run
+          echo "✓ Lockfile validation passed"
     
-    - name: Install dependencies
-      run: |
-        cd frontend
-        echo "Installing npm dependencies..."
-        npm ci --no-audit 2>&1 | tee npm-install.log || {
-          echo "⚠️ npm ci failed on first attempt, analyzing error..."
-          cat npm-install.log || true
-          echo "Cleaning cache and retrying..."
-          npm cache clean --force
-          npm ci --no-audit
-        }
-        echo "✓ Dependencies installed successfully"
-        
-        # Verify critical dependencies are installed
-        if [ ! -f "node_modules/.bin/craco" ]; then
-          echo "✗ ERROR: craco not found in node_modules/.bin/"
-          echo "Installed binaries:"
-          ls -la node_modules/.bin/ || true
-          exit 1
-        fi
-        
-        echo "✓ craco found at: $(which craco || echo node_modules/.bin/craco)"
-        ls -la node_modules/.bin/craco
+      - name: Install dependencies
+        run: |
+          cd frontend
+          echo "Installing npm dependencies..."
+          npm ci --no-audit 2>&1 | tee npm-install.log || {
+            echo "⚠️ npm ci failed on first attempt, analyzing error..."
+            cat npm-install.log || true
+            echo "Cleaning cache and retrying..."
+            npm cache clean --force
+            npm ci --no-audit
+          }
+          echo "✓ Dependencies installed successfully"
+          
+          # Verify critical dependencies are installed
+          if [ ! -f "node_modules/.bin/craco" ]; then
+            echo "✗ ERROR: craco not found in node_modules/.bin/"
+            echo "Installed binaries:"
+            ls -la node_modules/.bin/ || true
+            exit 1
+          fi
+          
+          echo "✓ craco found at: $(which craco || echo node_modules/.bin/craco)"
+          ls -la node_modules/.bin/craco
     
-    - name: Verify dependency integrity
-      run: |
-        cd frontend
-        echo "Checking for dependency issues..."
-        # This will fail if there are unmet peer dependencies or invalid packages
-        npm list > /dev/null 2>&1 || {
-          echo "⚠️ Dependency issues detected, showing details:"
-          npm list || true
-          echo "Note: Some warnings are expected (peer dependencies, deprecated packages)"
-        }
-        echo "✓ Dependency check completed"
+      - name: Verify dependency integrity
+        run: |
+          cd frontend
+          echo "Checking for dependency issues..."
+          # This will fail if there are unmet peer dependencies or invalid packages
+          npm list > /dev/null 2>&1 || {
+            echo "⚠️ Dependency issues detected, showing details:"
+            npm list || true
+            echo "Note: Some warnings are expected (peer dependencies, deprecated packages)"
+          }
+          echo "✓ Dependency check completed"
     
-    - name: Pre-build verification
-      run: |
-        cd frontend
-        echo "Verifying environment before build..."
-        
-        # Check Node.js and npm versions
-        echo "Node.js version: $(node --version)"
-        echo "NPM version: $(npm --version)"
-        
-        # Verify package.json exists and is valid
-        if [ -f "package.json" ]; then
-          echo "✓ package.json exists"
-          node -e "const pkg = require('./package.json'); console.log('Package name:', pkg.name); console.log('Version:', pkg.version);"
-        else
-          echo "✗ package.json not found"
-          exit 1
-        fi
-        
-        # Verify critical scripts exist
-        node -e "const pkg = require('./package.json'); if (!pkg.scripts.build) { console.error('✗ build script not found'); process.exit(1); } else { console.log('✓ build script found:', pkg.scripts.build); }"
-        
-        # Verify node_modules was installed correctly
-        if [ -d "node_modules" ]; then
-          echo "✓ node_modules directory exists"
-          echo "  Size: $(du -sh node_modules | cut -f1)"
-          echo "  Packages: $(ls node_modules | wc -l)"
-        else
-          echo "✗ node_modules directory not found"
-          exit 1
-        fi
-        
-        # Verify @craco/craco is installed
-        if [ -d "node_modules/@craco/craco" ]; then
-          echo "✓ @craco/craco package found"
-        else
-          echo "✗ @craco/craco package not found"
-          echo "Installing packages list:"
-          npm list @craco/craco || true
-          exit 1
-        fi
-        
-        echo "✓ All pre-build checks passed"
+      - name: Pre-build verification
+        run: |
+          cd frontend
+          echo "Verifying environment before build..."
+          
+          # Check Node.js and npm versions
+          echo "Node.js version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          
+          # Verify package.json exists and is valid
+          if [ -f "package.json" ]; then
+            echo "✓ package.json exists"
+            node -e "const pkg = require('./package.json'); console.log('Package name:', pkg.name); console.log('Version:', pkg.version);"
+          else
+            echo "✗ package.json not found"
+            exit 1
+          fi
+          
+          # Verify critical scripts exist
+          node -e "const pkg = require('./package.json'); if (!pkg.scripts.build) { console.error('✗ build script not found'); process.exit(1); } else { console.log('✓ build script found:', pkg.scripts.build); }"
+          
+          # Verify node_modules was installed correctly
+          if [ -d "node_modules" ]; then
+            echo "✓ node_modules directory exists"
+            echo "  Size: $(du -sh node_modules | cut -f1)"
+            echo "  Packages: $(ls node_modules | wc -l)"
+          else
+            echo "✗ node_modules directory not found"
+            exit 1
+          fi
+          
+          # Verify @craco/craco is installed
+          if [ -d "node_modules/@craco/craco" ]; then
+            echo "✓ @craco/craco package found"
+          else
+            echo "✗ @craco/craco package not found"
+            echo "Installing packages list:"
+            npm list @craco/craco || true
+            exit 1
+          fi
+          
+          echo "✓ All pre-build checks passed"
     
-    - name: Build frontend
-      run: |
-        cd frontend
-        echo "Starting frontend build..."
-        echo "Node version: $(node --version)"
-        echo "NPM version: $(npm --version)"
-        echo "Working directory: $(pwd)"
-        
-        # Verify craco is available
-        if [ -f "node_modules/.bin/craco" ]; then
-          echo "✓ craco binary found"
-        else
-          echo "✗ craco binary not found!"
-          echo "Contents of node_modules/.bin/:"
-          ls -la node_modules/.bin/ | head -10 || true
-          exit 1
-        fi
-        
-        # Run build with explicit error handling
-        npm run build || {
-          echo "✗ Build failed!"
-          echo "Last 50 lines of error:"
-          tail -50 || true
-          exit 1
-        }
-        
-        echo "✓ Build completed successfully"
-        echo "Build output:"
-        ls -lh build/ || true
-      env:
+      - name: Build frontend
+        run: |
+          cd frontend
+          echo "Starting frontend build..."
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          echo "Working directory: $(pwd)"
+          
+          # Verify craco is available
+          if [ -f "node_modules/.bin/craco" ]; then
+            echo "✓ craco binary found"
+          else
+            echo "✗ craco binary not found!"
+            echo "Contents of node_modules/.bin/:"
+            ls -la node_modules/.bin/ | head -10 || true
+            exit 1
+          fi
+          
+          # Run build with explicit error handling
+          npm run build || {
+            echo "✗ Build failed!"
+            echo "Last 50 lines of error:"
+            tail -50 || true
+            exit 1
+          }
+          
+          echo "✓ Build completed successfully"
+          echo "Build output:"
+          ls -lh build/ || true
+        env:
         CI: true
         NODE_ENV: production
     
-    - name: Check build output
-      run: |
-        if [ -d "frontend/build" ]; then
-          echo "✓ Build directory created"
-          ls -lh frontend/build
-        else
-          echo "✗ Build directory not found"
-          exit 1
-        fi
+      - name: Check build output
+        run: |
+          if [ -d "frontend/build" ]; then
+            echo "✓ Build directory created"
+            ls -lh frontend/build
+          else
+            echo "✗ Build directory not found"
+            exit 1
+          fi
     
-    - name: Verify build artifacts
-      run: |
-        if [ -f "frontend/build/index.html" ]; then
-          echo "✓ index.html exists"
-        else
-          echo "✗ index.html missing"
-          exit 1
-        fi
-        
-        if [ -d "frontend/build/static" ]; then
-          echo "✓ static directory exists"
-        else
-          echo "✗ static directory missing"
-          exit 1
-        fi
+      - name: Verify build artifacts
+        run: |
+          if [ -f "frontend/build/index.html" ]; then
+            echo "✓ index.html exists"
+          else
+            echo "✗ index.html missing"
+            exit 1
+          fi
+          
+          if [ -d "frontend/build/static" ]; then
+            echo "✓ static directory exists"
+          else
+            echo "✗ static directory missing"
+            exit 1
+          fi
 
   api-contract-validation:
     name: API Contract Tests
@@ -242,40 +244,40 @@ jobs:
     needs: [backend-checks, frontend-build]
     
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
     
-    - name: Install test dependencies
-      run: |
-        pip install requests pytest
+      - name: Install test dependencies
+        run: |
+          pip install requests pytest
     
-    - name: Verify auth contract
-      run: |
-        echo "✓ Auth contract verification (would run against live server)"
-        echo "  Required endpoints:"
-        echo "    - POST /api/auth/register"
-        echo "    - POST /api/auth/login"
-        echo "    - GET /api/auth/me"
-        echo "    - GET /api/auth/profile"
-        echo "    - PUT /api/auth/profile"
+      - name: Verify auth contract
+        run: |
+          echo "✓ Auth contract verification (would run against live server)"
+          echo "  Required endpoints:"
+          echo "    - POST /api/auth/register"
+          echo "    - POST /api/auth/login"
+          echo "    - GET /api/auth/me"
+          echo "    - GET /api/auth/profile"
+          echo "    - PUT /api/auth/profile"
     
-    - name: Verify bot CRUD endpoints
-      run: |
-        echo "✓ Bot CRUD verification (would run against live server)"
-        echo "  Required endpoints:"
-        echo "    - POST /api/bots (create)"
-        echo "    - GET /api/bots (list)"
-        echo "    - DELETE /api/bots/{id} (delete)"
+      - name: Verify bot CRUD endpoints
+        run: |
+          echo "✓ Bot CRUD verification (would run against live server)"
+          echo "  Required endpoints:"
+          echo "    - POST /api/bots (create)"
+          echo "    - GET /api/bots (list)"
+          echo "    - DELETE /api/bots/{id} (delete)"
     
-    - name: Verify SSE endpoint
-      run: |
-        echo "✓ SSE endpoint verification (would run against live server)"
-        echo "  Required endpoint:"
-        echo "    - GET /api/realtime/events"
+      - name: Verify SSE endpoint
+        run: |
+          echo "✓ SSE endpoint verification (would run against live server)"
+          echo "  Required endpoint:"
+          echo "    - GET /api/realtime/events"
 
   deployment-readiness:
     name: Deployment Readiness Check
@@ -283,67 +285,67 @@ jobs:
     needs: [backend-checks, frontend-build, api-contract-validation]
     
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
     
-    - name: Check .env.example exists
-      run: |
-        if [ -f ".env.example" ] || [ -f "backend/.env.example" ]; then
-          echo "✓ .env.example found"
-        else
-          echo "✗ .env.example missing"
-          exit 1
-        fi
-    
-    - name: Check critical env vars in .env.example
-      run: |
-        ENV_FILE=".env.example"
-        if [ -f "backend/.env.example" ]; then
-          ENV_FILE="backend/.env.example"
-        fi
-        
-        REQUIRED_VARS="JWT_SECRET MONGO_URL DB_NAME PAPER_TRADING LIVE_TRADING AUTOPILOT_ENABLED"
-        
-        for var in $REQUIRED_VARS; do
-          if grep -q "^#*\s*$var=" "$ENV_FILE" || grep -q "^$var=" "$ENV_FILE"; then
-            echo "✓ $var defined"
+      - name: Check .env.example exists
+        run: |
+          if [ -f ".env.example" ] || [ -f "backend/.env.example" ]; then
+            echo "✓ .env.example found"
           else
-            echo "✗ $var missing"
+            echo "✗ .env.example missing"
             exit 1
           fi
-        done
     
-    - name: Check verification scripts exist
-      run: |
-        REQUIRED_SCRIPTS="scripts/test_sse.sh scripts/test_bots.sh"
-        
-        for script in $REQUIRED_SCRIPTS; do
-          if [ -f "$script" ]; then
-            echo "✓ $script exists"
+      - name: Check critical env vars in .env.example
+        run: |
+          ENV_FILE=".env.example"
+          if [ -f "backend/.env.example" ]; then
+            ENV_FILE="backend/.env.example"
+          fi
+          
+          REQUIRED_VARS="JWT_SECRET MONGO_URL DB_NAME PAPER_TRADING LIVE_TRADING AUTOPILOT_ENABLED"
+          
+          for var in $REQUIRED_VARS; do
+            if grep -q "^#*\s*$var=" "$ENV_FILE" || grep -q "^$var=" "$ENV_FILE"; then
+              echo "✓ $var defined"
+            else
+              echo "✗ $var missing"
+              exit 1
+            fi
+          done
+    
+      - name: Check verification scripts exist
+        run: |
+          REQUIRED_SCRIPTS="scripts/test_sse.sh scripts/test_bots.sh"
+          
+          for script in $REQUIRED_SCRIPTS; do
+            if [ -f "$script" ]; then
+              echo "✓ $script exists"
+            else
+              echo "✗ $script missing"
+              exit 1
+            fi
+          done
+    
+      - name: Check architecture documentation
+        run: |
+          if [ -f "docs/ARCHITECTURE_MAP.md" ]; then
+            echo "✓ ARCHITECTURE_MAP.md exists"
           else
-            echo "✗ $script missing"
+            echo "✗ ARCHITECTURE_MAP.md missing"
             exit 1
           fi
-        done
     
-    - name: Check architecture documentation
-      run: |
-        if [ -f "docs/ARCHITECTURE_MAP.md" ]; then
-          echo "✓ ARCHITECTURE_MAP.md exists"
-        else
-          echo "✗ ARCHITECTURE_MAP.md missing"
-          exit 1
-        fi
-    
-    - name: Summary
-      run: |
-        echo ""
-        echo "================================================"
-        echo "✅ ALL CHECKS PASSED - GO-LIVE READY"
-        echo "================================================"
-        echo ""
-        echo "✓ Backend validation passed"
-        echo "✓ Frontend build succeeded"
-        echo "✓ API contracts verified"
-        echo "✓ Deployment readiness confirmed"
-        echo ""
-        echo "Ready to deploy!"
+      - name: Summary
+        run: |
+          echo ""
+          echo "================================================"
+          echo "✅ ALL CHECKS PASSED - GO-LIVE READY"
+          echo "================================================"
+          echo ""
+          echo "✓ Backend validation passed"
+          echo "✓ Frontend build succeeded"
+          echo "✓ API contracts verified"
+          echo "✓ Deployment readiness confirmed"
+          echo ""
+          echo "Ready to deploy!"
