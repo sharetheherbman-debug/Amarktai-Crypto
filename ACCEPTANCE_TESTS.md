@@ -150,7 +150,7 @@ grep "response.data.access_token" frontend/src/pages/Register.js
 
 **Verification on VPS**:
 ```bash
-# Unauthenticated status check should be rejected
+# Unauthenticated status check should be rejected (HEAD request)
 curl -I https://www.amarktai.online/api/keys/status
 # Expected: HTTP/1.1 401 Unauthorized OR 403 Forbidden
 
