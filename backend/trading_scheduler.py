@@ -18,7 +18,8 @@ from config import PAPER_SUPPORTED_EXCHANGES
 from services.bot_quarantine import quarantine_service
 from services.system_gate import system_gate
 from services.trading_mode_validator import trading_mode_validator
-from utils.trading_gates import TradingGateError
+from services.live_gate_service import live_gate_service
+from utils.trading_gates import TradingGateError, enforce_live_trading_gates
 
 logger = logging.getLogger(__name__)
 
@@ -345,9 +346,6 @@ class TradingScheduler:
                     {'bots': db.bots_collection, 'trades': db.trades_collection}
                 )
             
-            from utils.trading_gates import TradingGateError, enforce_live_trading_gates
-            from services.live_gate_service import live_gate_service
-
             try:
                 await enforce_live_trading_gates(bot['user_id'], exchange)
             except TradingGateError as e:

@@ -227,7 +227,8 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
         
         for bot in bots:
             exchange = bot.get('exchange', 'unknown').lower()
-            capital = bot.get('initial_capital', bot.get('current_capital', 0))
+            initial_capital = bot.get('initial_capital')
+            capital = initial_capital if initial_capital is not None else bot.get('current_capital', 0)
             
             if exchange not in requirements:
                 requirements[exchange] = {

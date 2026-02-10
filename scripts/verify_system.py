@@ -34,9 +34,13 @@ def request_json(method: str, path: str, token: str = None, payload: dict | None
     return response, response.json() if response.content else {}
 
 
+def generate_test_bot_name(prefix: str) -> str:
+    return f"{prefix}-{int(datetime.now(timezone.utc).timestamp())}"
+
+
 async def verify_paper_wallet(user_id: str, bot_id: str) -> bool:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
-    import database as database
+    import database
     from services.paper_wallet_ledger import paper_wallet_ledger
 
     if database.db is None:
@@ -44,12 +48,14 @@ async def verify_paper_wallet(user_id: str, bot_id: str) -> bool:
 
     success, balance_before, msg = await paper_wallet_ledger.get_balance(bot_id)
     if not success:
-        return log_result(False, f"Paper wallet missing for bot {bot_id}: {msg}")
+        log_result(False, f"Paper wallet missing for bot {bot_id}: {msg}")
+        return False
 
     await paper_wallet_ledger.credit(bot_id, 1.0, "verify_system")
     success, balance_after, msg = await paper_wallet_ledger.get_balance(bot_id)
     if not success:
-        return log_result(False, f"Paper wallet balance not readable after credit: {msg}")
+        log_result(False, f"Paper wallet balance not readable after credit: {msg}")
+        return False
 
     wallet_doc = None
     if database.wallet_balances_collection is not None:
@@ -94,14 +100,17 @@ def main() -> int:
             field for field in required_fields
             if any(t.get(field) in (None, "") for t in trades_data["trades"])
         ]
-        log_result(len(missing) == 0, f"Recent trades include required fields ({', '.join(missing)})")
+        if missing:
+            log_result(False, f"Recent trades missing fields: {', '.join(missing)}")
+        else:
+            log_result(True, "Recent trades include required fields")
 
     bot_id = None
     if bots_ok and bots_data.get("bots"):
         bot_id = bots_data["bots"][0].get("id")
 
     if not bot_id:
-        bot_name = f"verify-bot-{int(datetime.now(timezone.utc).timestamp())}"
+        bot_name = generate_test_bot_name("verify-bot")
         resp, created = request_json(
             "POST",
             "/api/bots",
@@ -155,7 +164,7 @@ def main() -> int:
         log_result(False, "Admin overview unavailable (not admin?)")
 
     # Bot deletion/name reuse
-    bot_name = f"verify-delete-{int(datetime.now(timezone.utc).timestamp())}"
+    bot_name = generate_test_bot_name("verify-delete")
     resp, created = request_json(
         "POST",
         "/api/bots",

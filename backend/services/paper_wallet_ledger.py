@@ -7,6 +7,7 @@ NO FREE MONEY - Capital must be explicitly allocated.
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Tuple, Optional
+from pymongo import ReturnDocument
 import database as db
 from logger_config import logger
 
@@ -175,7 +176,7 @@ class PaperWalletLedger:
         try:
             await self.init_db()
             
-            result = await self.collection.update_one(
+            ledger = await self.collection.find_one_and_update(
                 {
                     "bot_id": bot_id,
                     "current_balance": {"$gte": amount}
@@ -189,13 +190,13 @@ class PaperWalletLedger:
                     "$set": {
                         "last_updated": datetime.now(timezone.utc).isoformat()
                     }
-                }
+                },
+                return_document=ReturnDocument.AFTER
             )
 
-            if result.modified_count > 0:
+            if ledger:
                 logger.debug(f"Debited R{amount:.2f} from bot {bot_id[:8]}: {reason}")
-                ledger = await self.collection.find_one({"bot_id": bot_id}, {"_id": 0, "user_id": 1})
-                if ledger and ledger.get("user_id"):
+                if ledger.get("user_id"):
                     await self.get_user_balance(ledger["user_id"])
                 return True, f"Debited R{amount:.2f}"
 
@@ -224,7 +225,7 @@ class PaperWalletLedger:
         try:
             await self.init_db()
             
-            result = await self.collection.update_one(
+            ledger = await self.collection.find_one_and_update(
                 {"bot_id": bot_id},
                 {
                     "$inc": {
@@ -234,13 +235,13 @@ class PaperWalletLedger:
                     "$set": {
                         "last_updated": datetime.now(timezone.utc).isoformat()
                     }
-                }
+                },
+                return_document=ReturnDocument.AFTER
             )
 
-            if result.modified_count > 0:
+            if ledger:
                 logger.debug(f"Credited R{amount:.2f} to bot {bot_id[:8]}: {reason}")
-                ledger = await self.collection.find_one({"bot_id": bot_id}, {"_id": 0, "user_id": 1})
-                if ledger and ledger.get("user_id"):
+                if ledger.get("user_id"):
                     await self.get_user_balance(ledger["user_id"])
                 return True, f"Credited R{amount:.2f}"
             return False, "Failed to update ledger"

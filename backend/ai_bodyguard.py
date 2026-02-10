@@ -22,7 +22,7 @@ class AIBodyguard:
         
     async def init_db(self):
         """Initialize database connection"""
-        import database as database
+        import database
 
         if database.db is None:
             await database.connect()

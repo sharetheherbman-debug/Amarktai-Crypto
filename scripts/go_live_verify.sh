@@ -72,13 +72,18 @@ if trades_data.get("trades"):
         field for field in required_fields
         if any(t.get(field) in (None, "") for t in trades_data["trades"])
     ]
-    report(len(missing) == 0, f"Recent trades have required fields ({', '.join(missing)})")
+    if missing:
+        report(False, f"Recent trades missing fields: {', '.join(missing)}")
+    else:
+        report(True, "Recent trades have required fields")
 else:
     report(True, "No recent trades to validate fields (skipped)")
 
 # 4) Admin overview correctness
 admin_password = getpass.getpass("Admin password (optional, press Enter to skip admin overview): ").strip()
 admin_token = token
+mongo = MongoClient(MONGO_URL)
+db = mongo[DB_NAME]
 if admin_password:
     resp, unlock = request_json("POST", "/api/admin/unlock", token=token, payload={"password": admin_password})
     if resp.status_code == 200:
@@ -88,8 +93,6 @@ if admin_password:
         report(False, "Admin unlock failed")
 resp, overview = request_json("GET", "/api/admin/overview", token=admin_token)
 if resp.status_code == 200 and overview.get("stats"):
-    mongo = MongoClient(MONGO_URL)
-    db = mongo[DB_NAME]
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     query = {
         "$or": [
@@ -108,8 +111,6 @@ else:
     report(False, "Admin overview unavailable (admin token missing?)")
 
 # 5) Paper wallet works
-mongo = MongoClient(MONGO_URL)
-db = mongo[DB_NAME]
 wallet_count = db.wallet_balances.count_documents({})
 report(wallet_count > 0, "wallet_balances collection has documents")
 
@@ -135,7 +136,7 @@ if not bot_id:
     bot_id = created.get("id")
 if bot_id:
     sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
-    import database as database
+    import database
     from services.paper_wallet_ledger import paper_wallet_ledger
     async def verify_wallet():
         if database.db is None:

@@ -223,7 +223,7 @@ def validate_order(exchange: str, symbol: str, quantity: float, price: float) ->
         price: Order price
     
     Returns:
-        Tuple of (is_valid, message)
+        Tuple of (is_valid, message, adjusted_params)
     """
     # Use centralized order validator
     is_valid, error_msg, adjusted_params = order_validator.validate_order(

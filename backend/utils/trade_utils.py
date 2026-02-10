@@ -3,7 +3,7 @@ Trade utilities for timestamp normalization and parsing.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Dict
+from typing import Optional, Dict, Iterable
 from uuid import uuid4
 
 
@@ -41,6 +41,14 @@ def normalize_trade_timestamps(trade: dict) -> dict:
     return trade
 
 
+def _first_non_empty_value(record: Dict, keys: Iterable[str], default=None):
+    for key in keys:
+        value = record.get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
 def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional[Dict] = None) -> Dict:
     """Build a canonical trade record with required fields populated."""
     bot = bot or {}
@@ -68,7 +76,11 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
         "mode": record.get("mode") or trading_mode,
         "trading_mode": trading_mode,
         "is_live": is_live,
-        "exchange_order_id": record.get("exchange_order_id") or record.get("order_id") or record.get("orderId") or record.get("id") or "",
+        "exchange_order_id": _first_non_empty_value(
+            record,
+            ["exchange_order_id", "order_id", "orderId", "id"],
+            ""
+        ),
         "created_at": record.get("created_at") or record.get("timestamp") or now,
     })
 

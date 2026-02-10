@@ -119,7 +119,8 @@ class WalletSummaryService:
         mode = await system_mode_service.get_current_mode(user_id)
         active_bots = [
             b for b in normalized
-            if b.get("active") and (b.get("trading_mode") or b.get("mode")) == mode
+            if b.get("active")
+            and (b.get("trading_mode") or b.get("mode") or "paper") == mode
         ]
         non_deleted = [b for b in normalized if not b.get("is_deleted")]
 

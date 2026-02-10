@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/system", tags=["System Mode"])
 
 
+def live_trading_enabled() -> bool:
+    return os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+
+
 class SystemMode(BaseModel):
     """System-wide mode configuration"""
     paperTrading: bool
@@ -352,8 +356,7 @@ async def toggle_mode(
         elif mode_name == "liveTrading":
             new_state["liveTrading"] = enabled
             if enabled:
-                enable_live = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
-                if not enable_live:
+                if not live_trading_enabled():
                     raise HTTPException(
                         status_code=403,
                         detail="Live trading is globally disabled. Set ENABLE_LIVE_TRADING=true"
@@ -473,8 +476,7 @@ async def switch_mode(
         
         # Switching to live requires confirmation token
         if mode == "live":
-            enable_live = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
-            if not enable_live:
+            if not live_trading_enabled():
                 raise HTTPException(
                     status_code=403,
                     detail="Live trading is globally disabled. Set ENABLE_LIVE_TRADING=true"

@@ -1307,7 +1307,12 @@ async def purge_deleted_bots(
         }
         if request.days is not None:
             cutoff = datetime.now(timezone.utc) - timedelta(days=request.days)
-            query["deleted_at"] = {"$lte": cutoff.isoformat()}
+            query = {
+                "$and": [
+                    query,
+                    {"deleted_at": {"$lte": cutoff.isoformat()}}
+                ]
+            }
 
         bots_to_purge = await db.bots_collection.find(query, {"_id": 0, "id": 1}).to_list(10000)
         bot_ids = [b.get("id") for b in bots_to_purge if b.get("id")]
