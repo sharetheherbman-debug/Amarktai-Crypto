@@ -145,7 +145,7 @@ check_exchange_providers() {
 
     EXPECTED_EXCHANGES=$(printf "%s\n" "${EXPECTED_EXCHANGE_IDS[@]}")
     ACTUAL_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[] | select(.type=="exchange") | .id')
-    BANNED_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[].id' | grep -i -E "^(${BANNED_EXCHANGE_PATTERN})$" || true)
+    BANNED_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[].id' | grep -E "^(${BANNED_EXCHANGE_PATTERN})$" || true)
 
     SORTED_EXPECTED=$(echo "$EXPECTED_EXCHANGES" | sort)
     SORTED_ACTUAL=$(echo "$ACTUAL_EXCHANGES" | sort)
