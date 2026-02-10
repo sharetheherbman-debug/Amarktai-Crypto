@@ -351,6 +351,28 @@ echo "--------------------------------"
 check_json "Build Info" "$BASE_URL/api/build/info" "version"
 check_endpoint "Frontend SPA" "$BASE_URL/" 200
 
+echo ""
+echo "📋 TASK G - Rules Import Health"
+echo "--------------------------------"
+PYTHON_CMD="python3"
+if [ -x "backend/.venv/bin/python" ]; then
+    PYTHON_CMD="backend/.venv/bin/python"
+elif [ -x ".venv/bin/python" ]; then
+    PYTHON_CMD=".venv/bin/python"
+fi
+
+RULES_IMPORT_OUTPUT=$($PYTHON_CMD -c "import sys; sys.path.insert(0, 'backend'); import rules; required=['PROFIT_THRESHOLD_ZAR','calculate_reinvestment_amount','get_reason_message']; missing=[name for name in required if not hasattr(rules, name)]; print('Missing rules exports: ' + ', '.join(missing) if missing else 'Rules imports OK'); raise SystemExit(1 if missing else 0)" 2>&1)
+RULES_IMPORT_STATUS=$?
+
+if [ "$RULES_IMPORT_STATUS" -eq 0 ]; then
+    echo -e "${GREEN}✅ PASS${NC} (Rules imports OK)"
+    PASSED=$((PASSED+1))
+else
+    echo -e "${RED}❌ FAIL${NC} (Rules imports missing)"
+    echo "Output: $RULES_IMPORT_OUTPUT" | head -3
+    FAILURES=$((FAILURES+1))
+fi
+
 # Note about route collision detection
 echo ""
 echo "ℹ️  Route Collision Detection:"
