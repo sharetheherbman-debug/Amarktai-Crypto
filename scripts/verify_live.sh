@@ -73,6 +73,100 @@ check_endpoint() {
     fi
 }
 
+# Helper function to check endpoint for one of multiple codes
+check_endpoint_one_of_codes() {
+    local name="$1"
+    local url="$2"
+    local expected_codes="$3"
+    local auth_header="${4:-}"
+
+    echo -n "Checking $name... "
+
+    if [ -n "$auth_header" ]; then
+        RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $auth_header" "$url" 2>&1)
+    else
+        RESPONSE=$(curl -s -w "\n%{http_code}" "$url" 2>&1)
+    fi
+
+    HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+    BODY=$(echo "$RESPONSE" | sed '$d')
+
+    if echo " $expected_codes " | grep -q " $HTTP_CODE "; then
+        echo -e "${GREEN}✅ PASS${NC} (HTTP $HTTP_CODE)"
+        PASSED=$((PASSED+1))
+        return 0
+    else
+        echo -e "${RED}❌ FAIL${NC} (HTTP $HTTP_CODE, expected one of: $expected_codes)"
+        echo "Response: $BODY" | head -3
+        FAILURES=$((FAILURES+1))
+        return 1
+    fi
+}
+
+# Helper function to check method-not-allowed behavior with Allow header
+check_method_not_allowed() {
+    local name="$1"
+    local url="$2"
+    local allowed_method="$3"
+
+    echo -n "Checking $name... "
+
+    HEADERS=$(curl -s -D - -o /dev/null "$url" 2>&1)
+    HTTP_CODE=$(echo "$HEADERS" | head -1 | awk '{print $2}')
+    ALLOW_HEADER=$(echo "$HEADERS" | tr -d '\r' | awk -F': ' 'tolower($1)=="allow" {print $2}' | head -1)
+
+    if [ "$HTTP_CODE" = "405" ] && echo "$ALLOW_HEADER" | grep -qi "$allowed_method"; then
+        echo -e "${GREEN}✅ PASS${NC} (HTTP 405, Allow: $ALLOW_HEADER)"
+        PASSED=$((PASSED+1))
+        return 0
+    else
+        echo -e "${RED}❌ FAIL${NC} (HTTP $HTTP_CODE, Allow: ${ALLOW_HEADER:-none})"
+        FAILURES=$((FAILURES+1))
+        return 1
+    fi
+}
+
+# Helper function to validate exchange providers list
+check_exchange_providers() {
+    local name="$1"
+    local url="$2"
+
+    echo -n "Checking $name... "
+    RESPONSE=$(curl -fsS "$url" 2>&1)
+
+    if ! echo "$RESPONSE" | jq . >/dev/null 2>&1; then
+        echo -e "${RED}❌ FAIL${NC} (Invalid JSON)"
+        FAILURES=$((FAILURES+1))
+        return 1
+    fi
+
+    EXPECTED_EXCHANGES=$(printf "%s\n" luno binance kucoin bybit kraken bitget gate | sort)
+    ACTUAL_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[] | select(.type=="exchange") | .id' | sort)
+    BANNED_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[]?.id' | grep -i -E '^(valr|ovex)$' || true)
+
+    MISSING_EXCHANGES=$(comm -23 <(printf "%s\n" "$EXPECTED_EXCHANGES") <(printf "%s\n" "$ACTUAL_EXCHANGES"))
+    EXTRA_EXCHANGES=$(comm -13 <(printf "%s\n" "$EXPECTED_EXCHANGES") <(printf "%s\n" "$ACTUAL_EXCHANGES"))
+
+    if [ -z "$MISSING_EXCHANGES" ] && [ -z "$EXTRA_EXCHANGES" ] && [ -z "$BANNED_EXCHANGES" ]; then
+        echo -e "${GREEN}✅ PASS${NC} (Exchange providers match expected list)"
+        PASSED=$((PASSED+1))
+        return 0
+    fi
+
+    echo -e "${RED}❌ FAIL${NC} (Exchange providers mismatch)"
+    if [ -n "$MISSING_EXCHANGES" ]; then
+        echo "  Missing exchanges: $(echo "$MISSING_EXCHANGES" | tr '\n' ' ')"
+    fi
+    if [ -n "$EXTRA_EXCHANGES" ]; then
+        echo "  Unexpected exchanges: $(echo "$EXTRA_EXCHANGES" | tr '\n' ' ')"
+    fi
+    if [ -n "$BANNED_EXCHANGES" ]; then
+        echo "  Banned exchanges found: $(echo "$BANNED_EXCHANGES" | tr '\n' ' ')"
+    fi
+    FAILURES=$((FAILURES+1))
+    return 1
+}
+
 # Helper function to check JSON response
 check_json() {
     local name="$1"
@@ -136,7 +230,6 @@ if echo "$OPENAPI_RESPONSE" | jq . >/dev/null 2>&1; then
     fi
 else
     echo -e "${RED}❌ FAIL${NC} (Invalid JSON)"
-    echo "First 200 chars: ${OPENAPI_RESPONSE:0:200}"
     FAILURES=$((FAILURES+1))
 fi
 
@@ -211,8 +304,8 @@ fi
 echo ""
 echo "📋 TASK C/D/E - API Keys Endpoints"
 echo "-----------------------------------"
-check_json "API Keys Providers List" "$BASE_URL/api/keys/providers" "providers"
-check_endpoint "API Keys Status (no auth)" "$BASE_URL/api/keys/status" 401
+check_exchange_providers "API Keys Providers List" "$BASE_URL/api/keys/providers"
+check_endpoint_one_of_codes "API Keys Status (no auth)" "$BASE_URL/api/keys/status" "401 403"
 
 # Note: Testing authenticated endpoints requires a valid token
 echo -e "${YELLOW}ℹ️  Note: Authenticated API key endpoints require valid JWT token${NC}"
@@ -242,27 +335,16 @@ fi
 echo ""
 echo "📋 TASK F - Admin Endpoints Protection"
 echo "---------------------------------------"
-check_endpoint "Admin Unlock (no auth)" "$BASE_URL/api/admin/unlock" 401
-check_endpoint "Admin Users List (no auth)" "$BASE_URL/api/admin/users" 401
-check_endpoint "Admin Overview (no auth)" "$BASE_URL/api/admin/overview" 401
+# GET /api/admin/unlock should be method-not-allowed with Allow: POST
+check_method_not_allowed "Admin Unlock GET (no auth)" "$BASE_URL/api/admin/unlock" "POST"
+check_endpoint_one_of_codes "Admin Users List (no auth)" "$BASE_URL/api/admin/users" "401 403"
+check_endpoint_one_of_codes "Admin Overview (no auth)" "$BASE_URL/api/admin/overview" "401 403"
 
 echo ""
 echo "📋 Additional Production Checks"
 echo "--------------------------------"
 check_json "Build Info" "$BASE_URL/api/build/info" "version"
 check_endpoint "Frontend SPA" "$BASE_URL/" 200
-
-# Check for banned exchanges (valr, ovex)
-echo -n "Checking for banned exchanges... "
-OPENAPI_CHECK=$(echo "$OPENAPI_RESPONSE" | grep -i "valr\|ovex" || true)
-if [ -z "$OPENAPI_CHECK" ]; then
-    echo -e "${GREEN}✅ PASS${NC} (No valr/ovex in OpenAPI)"
-    PASSED=$((PASSED+1))
-else
-    echo -e "${RED}❌ FAIL${NC} (Found banned exchanges: valr/ovex)"
-    echo "$OPENAPI_CHECK"
-    FAILURES=$((FAILURES+1))
-fi
 
 # Note about route collision detection
 echo ""

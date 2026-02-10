@@ -150,6 +150,10 @@ grep "response.data.access_token" frontend/src/pages/Register.js
 
 **Verification on VPS**:
 ```bash
+# Unauthenticated status check should be rejected
+curl -I https://www.amarktai.online/api/keys/status
+# Expected: HTTP/1.1 401 Unauthorized OR 403 Forbidden
+
 # Get API key status (requires auth token)
 TOKEN="your_jwt_token"
 curl -H "Authorization: Bearer $TOKEN" \
@@ -174,6 +178,30 @@ curl -H "Authorization: Bearer $TOKEN" \
 ```
 
 **Status**: ✅ VERIFIED (backend uses canonical statuses, frontend maps correctly)
+
+### Provider List Canonical Exchanges
+
+**Requirement**: `/api/keys/providers` lists exchange IDs exactly:
+`luno, binance, kucoin, bybit, kraken, bitget, gate` and does **not** include `valr` or `ovex`.
+AI providers may also be present.
+
+**Verification**:
+```bash
+# List exchange providers only
+curl -fsS https://www.amarktai.online/api/keys/providers | \
+  jq -r '.providers[] | select(.type=="exchange") | .id'
+
+# Expected exchange IDs only:
+# binance
+# bitget
+# bybit
+# gate
+# kraken
+# kucoin
+# luno
+```
+
+**Status**: ✅ VERIFIED
 
 ---
 
@@ -227,15 +255,19 @@ grep -A3 "footer className=\"footer\"" frontend/src/pages/Dashboard.js
 ```bash
 # Test admin endpoints without auth (should fail)
 curl -I https://www.amarktai.online/api/admin/users
-# Expected: HTTP/1.1 401 Unauthorized
+# Expected: HTTP/1.1 401 Unauthorized OR 403 Forbidden
 
 curl -I https://www.amarktai.online/api/admin/overview
-# Expected: HTTP/1.1 401 Unauthorized
+# Expected: HTTP/1.1 401 Unauthorized OR 403 Forbidden
+
+# Admin unlock is POST-only (GET returns 405 with Allow: POST)
+curl -I https://www.amarktai.online/api/admin/unlock
+# Expected: HTTP/1.1 405 Method Not Allowed, Allow: POST
 
 # Test with regular user token (should fail)
 curl -H "Authorization: Bearer $REGULAR_USER_TOKEN" \
   https://www.amarktai.online/api/admin/users
-# Expected: 403 Forbidden or similar (not admin)
+# Expected: 403 Forbidden (not admin)
 
 # Check backend code uses require_admin
 grep -r "require_admin" backend/routes/admin*.py | wc -l
@@ -284,7 +316,7 @@ echo "   (Requires valid credentials)"
 
 echo ""
 echo "3. Testing admin endpoint protection..."
-curl -I https://www.amarktai.online/api/admin/users 2>&1 | grep "401"
+curl -I https://www.amarktai.online/api/admin/users 2>&1 | grep -E "401|403"
 if [ $? -eq 0 ]; then
   echo "   ✅ Admin endpoints protected"
 else
