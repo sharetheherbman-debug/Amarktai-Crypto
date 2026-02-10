@@ -262,11 +262,13 @@ class CapitalAllocator:
                     SUPPORTED_EXCHANGES
                 )
             except ImportError as e:
-                logger.error(f"Rules import failed for reinvestment: {e}")
+                logger.error(
+                    f"Rules import failed for reinvestment (user {user_id}); check rules exports: {e}"
+                )
                 return {
                     "success": False,
                     "error": "rules_import_failed",
-                    "message": "Rules import failed; reinvestment skipped"
+                    "message": "Rules import failed; reinvestment skipped for this tick"
                 }
             from profit_ledger import profit_ledger
             
@@ -400,11 +402,13 @@ class CapitalAllocator:
                     PROFIT_THRESHOLD_ZAR
                 )
             except ImportError as e:
-                logger.error(f"Rules import failed for auto-spawn: {e}")
+                logger.error(
+                    f"Rules import failed for auto-spawn (user {user_id}); check rules exports: {e}"
+                )
                 return {
                     "success": False,
                     "error": "rules_import_failed",
-                    "message": "Rules import failed; auto-spawn skipped"
+                    "message": "Rules import failed; auto-spawn skipped for this tick"
                 }
             from profit_ledger import profit_ledger
             from uuid import uuid4
