@@ -37,6 +37,10 @@ fi
 
 WS_URL="${WS_BASE}/api/ws?token=${TOKEN}"
 
+if [ "${AMARKTAI_WS_INSECURE:-}" = "1" ]; then
+  echo "Warning: AMARKTAI_WS_INSECURE=1 disables TLS verification for tests only."
+fi
+
 python3 - "$WS_URL" <<'PY'
 import asyncio
 import os

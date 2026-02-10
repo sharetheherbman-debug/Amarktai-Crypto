@@ -48,8 +48,8 @@ def route_requires_auth(route) -> bool:
         if dependency_requires_auth(dependency):
             return True
 
-    for param in list(getattr(dependant, "header_params", [])) + list(
-        getattr(dependant, "query_params", [])
+    for param in getattr(dependant, "header_params", []) + getattr(
+        dependant, "query_params", []
     ):
         if param.name.lower() in {"authorization", "token", "access_token"}:
             return True

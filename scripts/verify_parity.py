@@ -60,9 +60,8 @@ def analyze_shape(path, context_text):
     normalize_usage = "normalizeLivePrices" in context_text
 
     if path.startswith("/api/prices/live"):
-        if ("prices" in expected_keys or re.search(r"\bdata\.prices\b", context_text)) and not (
-            array_usage or normalize_usage
-        ):
+        prices_ref = "prices" in expected_keys or re.search(r"\bdata\.prices\b", context_text)
+        if prices_ref and not (array_usage or normalize_usage):
             mismatches.append("expects object with prices but /api/prices/live returns array")
 
     if path.startswith("/api/keys/status"):

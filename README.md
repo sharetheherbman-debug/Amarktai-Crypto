@@ -203,6 +203,8 @@ Run smoke checks against a deployed VPS (requires `jq` and backend Python deps):
 ```
 
 Each script prints `PASS` on success and returns a non-zero exit code on failure.
+For test environments with self-signed certificates, set `AMARKTAI_WS_INSECURE=1`
+before running `smoke_realtime.sh` to disable TLS verification.
 
 ### **Monitoring**
 ```bash

@@ -29,7 +29,10 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 
-auth_header=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
+auth_header=(
+  "-H" "Authorization: Bearer $TOKEN"
+  "-H" "Content-Type: application/json"
+)
 
 check_json() {
   local endpoint=$1
