@@ -197,6 +197,13 @@ else
     ((FAILURES++))
 fi
 
+# Note about route collision detection
+echo ""
+echo "ℹ️  Route Collision Detection:"
+echo "   Backend server.py has built-in route collision detection at startup"
+echo "   If server starts successfully, no route collisions exist"
+echo "   Check backend logs for: '✅ Route collision check passed'"
+
 echo ""
 echo "=================================================="
 echo "📊 RESULTS"
