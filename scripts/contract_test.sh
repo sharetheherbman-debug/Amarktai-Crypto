@@ -93,7 +93,10 @@ pass "/api/quarantine/status includes reason and timer"
 keys_providers=$(curl -fsS "$BASE_URL/api/keys/providers")
 provider_ids=$(echo "$keys_providers" | jq -r '.providers[].id' | sort)
 exchange_ids=$(echo "$keys_providers" | jq -c '[.providers[] | select(.type=="exchange") | .id] | sort')
+expected_exchanges_json=$(printf '%s\n' "${EXPECTED_EXCHANGES[@]}" | jq -R . | jq -s 'sort')
 echo "$exchange_ids" | jq -e 'length==7' >/dev/null || fail "/api/keys/providers must include 7 exchanges"
+echo "$exchange_ids" | jq -e --argjson expected "$expected_exchanges_json" '. == $expected' >/dev/null \
+  || fail "/api/keys/providers exchange list mismatch"
 for required in "${EXPECTED_EXCHANGES[@]}"; do
   echo "$exchange_ids" | jq -e --arg id "$required" 'index($id)' >/dev/null \
     || fail "Missing exchange provider: $required"

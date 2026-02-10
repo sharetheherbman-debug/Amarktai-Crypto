@@ -111,8 +111,18 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         emergency_active = modes.get("emergencyStop", False) if modes else False
         emergency_reason = modes.get("emergency_stop_reason", "Emergency stop active") if emergency_active else None
 
-        bodyguard_reason = bodyguard_bots[0].get("pause_reason") if bodyguard_bots else None
-        quarantine_reason = quarantined_bots[0].get("quarantine_reason") if quarantined_bots else None
+        bodyguard_reasons = sorted({
+            bot.get("pause_reason")
+            for bot in bodyguard_bots
+            if bot.get("pause_reason")
+        })
+        quarantine_reasons = sorted({
+            bot.get("quarantine_reason")
+            for bot in quarantined_bots
+            if bot.get("quarantine_reason")
+        })
+        bodyguard_reason = bodyguard_reasons[0] if bodyguard_reasons else None
+        quarantine_reason = quarantine_reasons[0] if quarantine_reasons else None
 
         return {
             "daily_loss_lock": {
@@ -134,6 +144,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "active": len(bodyguard_bots) > 0,
                 "reason": bodyguard_reason,
                 "why": bodyguard_reason,
+                "reasons": bodyguard_reasons,
                 "bot_ids": [bot.get("id") for bot in bodyguard_bots],
                 "next_action": "Wait for drawdown recovery or reset bodyguard lock" if bodyguard_bots else None,
             },
@@ -141,6 +152,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "active": len(quarantined_bots) > 0,
                 "reason": quarantine_reason,
                 "why": quarantine_reason,
+                "reasons": quarantine_reasons,
                 "release_at": earliest_release,
                 "remaining_seconds": quarantine_remaining,
                 "bot_ids": [bot.get("id") for bot in quarantined_bots],
