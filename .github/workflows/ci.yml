@@ -1,6 +1,6 @@
 name: CI - Go-Live Readiness
 
-on:
+'on':
   push:
     branches: [ main ]
   pull_request:
