@@ -10,6 +10,7 @@ BASE_URL="${BASE_URL:-https://www.amarktai.online}"
 MIN_OPENAPI_SIZE=50000  # Minimum expected OpenAPI JSON size (bytes)
 MAX_RETRIES=3
 RETRY_DELAY=5
+EXPECTED_EXCHANGE_IDS=(luno binance kucoin bybit kraken bitget gate)
 
 # Colors
 GREEN='\033[0;32m'
@@ -140,12 +141,14 @@ check_exchange_providers() {
         return 1
     fi
 
-    EXPECTED_EXCHANGES=$(printf "%s\n" luno binance kucoin bybit kraken bitget gate | sort)
-    ACTUAL_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[] | select(.type=="exchange") | .id' | sort)
+    EXPECTED_EXCHANGES=$(printf "%s\n" "${EXPECTED_EXCHANGE_IDS[@]}")
+    ACTUAL_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[] | select(.type=="exchange") | .id')
     BANNED_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[]?.id' | grep -i -E '^(valr|ovex)$' || true)
 
-    MISSING_EXCHANGES=$(comm -23 <(printf "%s\n" "$EXPECTED_EXCHANGES") <(printf "%s\n" "$ACTUAL_EXCHANGES"))
-    EXTRA_EXCHANGES=$(comm -13 <(printf "%s\n" "$EXPECTED_EXCHANGES") <(printf "%s\n" "$ACTUAL_EXCHANGES"))
+    SORTED_EXPECTED=$(echo "$EXPECTED_EXCHANGES" | sort)
+    SORTED_ACTUAL=$(echo "$ACTUAL_EXCHANGES" | sort)
+    MISSING_EXCHANGES=$(comm -23 <(printf "%s\n" "$SORTED_EXPECTED") <(printf "%s\n" "$SORTED_ACTUAL"))
+    EXTRA_EXCHANGES=$(comm -13 <(printf "%s\n" "$SORTED_EXPECTED") <(printf "%s\n" "$SORTED_ACTUAL"))
 
     if [ -z "$MISSING_EXCHANGES" ] && [ -z "$EXTRA_EXCHANGES" ] && [ -z "$BANNED_EXCHANGES" ]; then
         echo -e "${GREEN}✅ PASS${NC} (Exchange providers match expected list)"
