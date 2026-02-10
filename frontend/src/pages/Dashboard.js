@@ -611,6 +611,9 @@ export default function Dashboard() {
 
   const handleRealTimeUpdate = (data) => {
     const eventType = typeof data.type === 'string' ? data.type.toLowerCase() : '';
+    if (!eventType) {
+      return;
+    }
     switch (eventType) {
       case 'connection':
         // Handle WebSocket connection status updates

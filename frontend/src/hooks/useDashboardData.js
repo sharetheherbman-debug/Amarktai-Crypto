@@ -140,7 +140,7 @@ export const useDashboardData = (token) => {
   const loadLivePrices = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/prices/live`, axiosConfig);
-      setLivePrices(prev => normalizeLivePrices(res.data, prev) || prev);
+      setLivePrices(prev => normalizeLivePrices(res.data, prev));
     } catch (err) {
       console.error('Live prices fetch error:', err);
     }

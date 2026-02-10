@@ -546,9 +546,9 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
         
+        blocker = await _check_bot_blockers(bot, user_id)
         # Check if currently paused
         if bot.get('status') != 'paused':
-            blocker = await _check_bot_blockers(bot, user_id)
             if blocker:
                 raise HTTPException(status_code=409, detail=blocker)
             return {
@@ -557,7 +557,6 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "bot": bot
             }
 
-        blocker = await _check_bot_blockers(bot, user_id)
         if blocker:
             raise HTTPException(status_code=409, detail=blocker)
 
