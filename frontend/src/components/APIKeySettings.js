@@ -24,7 +24,7 @@ const APIKeySettings = () => {
   
   const token = localStorage.getItem('token');
 
-  const buildStatusMap = (data) => {
+  const normalizeStatusResponse = (data) => {
     if (data?.status_map && Object.keys(data.status_map).length > 0) {
       return data.status_map;
     }
@@ -89,7 +89,7 @@ const APIKeySettings = () => {
       
       if (response.ok) {
         const data = await response.json();
-        const statusMap = buildStatusMap(data);
+        const statusMap = normalizeStatusResponse(data);
         const providerStatuses = PROVIDERS.map(provider => {
           const statusInfo = statusMap[provider.id] || {};
           const status = statusInfo.status || 'not_configured';
