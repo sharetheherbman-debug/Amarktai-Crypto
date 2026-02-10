@@ -5,7 +5,7 @@ import { Send, Bot, User, AlertTriangle, CheckCircle } from 'lucide-react';
  * AI Chat Panel Component
  * Real-time AI chat with action confirmation
  */
-const AIChatPanel = () => {
+const AIChatPanel = ({ onAdminUnlock }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -200,17 +200,40 @@ const AIChatPanel = () => {
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    // Content filter: Block admin-related queries
-    const lowerInput = input.toLowerCase();
+    const trimmedInput = input.trim();
+    const lowerInput = trimmedInput.toLowerCase();
+    
+    // TASK A - Handle "show admin" command locally (not sent to backend)
+    if (lowerInput === "show admin") {
+      // Add user message
+      setMessages(prev => [...prev, {
+        role: 'user',
+        content: trimmedInput,
+        timestamp: new Date().toISOString()
+      }]);
+      
+      // Trigger admin unlock in parent Dashboard
+      if (onAdminUnlock) {
+        onAdminUnlock();
+      }
+      
+      // Add assistant response
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '✅ Admin panel unlocked. Please enter admin password.',
+        timestamp: new Date().toISOString(),
+        is_greeting: false
+      }]);
+      
+      setInput('');
+      return;  // Don't send to backend
+    }
+
+    // Content filter: Block truly sensitive queries (but not "show admin")
     const blockedPhrases = [
       'admin password',
-      'show admin',
-      'admin panel',
-      'admin access',
       'admin credentials',
-      'admin login',
-      'unlock admin',
-      'admin unlock'
+      'admin login'
     ];
     
     const containsBlockedPhrase = blockedPhrases.some(phrase => lowerInput.includes(phrase));
@@ -218,11 +241,11 @@ const AIChatPanel = () => {
     if (containsBlockedPhrase) {
       setMessages(prev => [...prev, {
         role: 'user',
-        content: input,
+        content: trimmedInput,
         timestamp: new Date().toISOString()
       }, {
         role: 'assistant',
-        content: '⚠️ I cannot help with admin panel access or passwords. Admin features require secure authentication through the proper channels. Please contact support if you need assistance.',
+        content: '⚠️ I cannot help with admin passwords or credentials. Admin features require secure authentication through the proper channels. Please contact support if you need assistance.',
         timestamp: new Date().toISOString(),
         error: true
       }]);

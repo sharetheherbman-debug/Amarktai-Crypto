@@ -95,15 +95,10 @@ async def register(request: Request, user: UserRegister):
     # Create token
     access_token = create_access_token({"user_id": user_id})
     
-    # Sanitize user object - NEVER return sensitive fields
-    sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
-    sanitized_user = {k: v for k, v in user_dict.items() if k not in sensitive_fields}
-    
-    # TASK B - Standardized auth response (access_token only, no duplicate "token")
+    # TASK C - Standardized auth response (access_token + token_type ONLY)
     return {
         "access_token": access_token,
-        "token_type": "bearer",
-        "user": sanitized_user
+        "token_type": "bearer"
     }
 
 
@@ -172,15 +167,10 @@ async def login(credentials: UserLogin):
     
     access_token = create_access_token({"user_id": user_id})
     
-    # Sanitize user object - NEVER return sensitive fields
-    sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
-    sanitized_user = {k: v for k, v in user.items() if k not in sensitive_fields}
-    
-    # TASK B - Standardized auth response (access_token only, no duplicate "token")
+    # TASK C - Standardized auth response (access_token + token_type ONLY)
     return {
         "access_token": access_token,
-        "token_type": "bearer",
-        "user": sanitized_user
+        "token_type": "bearer"
     }
 
 

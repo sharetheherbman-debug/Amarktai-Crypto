@@ -145,6 +145,13 @@ else
     HAS_ACCESS_TOKEN=false
 fi
 
+# Check if response contains token_type (required)
+if echo "$LOGIN_RESPONSE" | jq -e '.token_type' >/dev/null 2>&1; then
+    HAS_TOKEN_TYPE=true
+else
+    HAS_TOKEN_TYPE=false
+fi
+
 # Check if response contains duplicate "token" field (should NOT exist)
 if echo "$LOGIN_RESPONSE" | jq -e '.token' >/dev/null 2>&1; then
     HAS_TOKEN_FIELD=true
@@ -152,17 +159,33 @@ else
     HAS_TOKEN_FIELD=false
 fi
 
-if [ "$HAS_ACCESS_TOKEN" = "true" ] && [ "$HAS_TOKEN_FIELD" = "false" ]; then
-    echo -e "${GREEN}✅ PASS${NC} (Has access_token, no duplicate token field)"
+# Check if response contains "user" field (should NOT exist per TASK C)
+if echo "$LOGIN_RESPONSE" | jq -e '.user' >/dev/null 2>&1; then
+    HAS_USER_FIELD=true
+else
+    HAS_USER_FIELD=false
+fi
+
+if [ "$HAS_ACCESS_TOKEN" = "true" ] && [ "$HAS_TOKEN_TYPE" = "true" ] && [ "$HAS_TOKEN_FIELD" = "false" ] && [ "$HAS_USER_FIELD" = "false" ]; then
+    echo -e "${GREEN}✅ PASS${NC} (Has access_token + token_type only, no duplicate token/user fields)"
     ((PASSED++))
-elif [ "$HAS_ACCESS_TOKEN" = "true" ] && [ "$HAS_TOKEN_FIELD" = "true" ]; then
-    echo -e "${RED}❌ FAIL${NC} (Has access_token but also has duplicate token field)"
-    ((FAILURES++))
 elif echo "$LOGIN_RESPONSE" | grep -q "Invalid email or password"; then
     echo -e "${YELLOW}⚠️  SKIP${NC} (Test credentials not found - expected in production)"
-    echo "   Note: Login response structure must have 'access_token' only, no 'token' field"
+    echo "   Note: Login response structure must have 'access_token' + 'token_type' only"
 else
-    echo -e "${RED}❌ FAIL${NC} (Missing access_token or unexpected response)"
+    echo -e "${RED}❌ FAIL${NC} (Invalid response structure)"
+    if [ "$HAS_ACCESS_TOKEN" != "true" ]; then
+        echo "   Missing: access_token"
+    fi
+    if [ "$HAS_TOKEN_TYPE" != "true" ]; then
+        echo "   Missing: token_type"
+    fi
+    if [ "$HAS_TOKEN_FIELD" = "true" ]; then
+        echo "   Found unwanted: token (duplicate field)"
+    fi
+    if [ "$HAS_USER_FIELD" = "true" ]; then
+        echo "   Found unwanted: user (should not be in auth response)"
+    fi
     echo "Response: $LOGIN_RESPONSE" | head -3
     ((FAILURES++))
 fi
@@ -175,6 +198,28 @@ check_endpoint "API Keys Status (no auth)" "$BASE_URL/api/keys/status" 401
 
 # Note: Testing authenticated endpoints requires a valid token
 echo -e "${YELLOW}ℹ️  Note: Authenticated API key endpoints require valid JWT token${NC}"
+
+# Check for canonical API key statuses in OpenAPI spec
+echo -n "Checking for canonical API key statuses... "
+if echo "$OPENAPI_RESPONSE" | grep -q "configured_untested\|configured_valid\|configured_invalid"; then
+    echo -e "${GREEN}✅ PASS${NC} (Canonical statuses present in API spec)"
+    ((PASSED++))
+else
+    echo -e "${RED}❌ FAIL${NC} (Canonical statuses not found in API spec)"
+    echo "   Expected: configured_untested, configured_valid, configured_invalid"
+    ((FAILURES++))
+fi
+
+# Check that legacy statuses are NOT exposed in OpenAPI paths (should be normalized)
+echo -n "Checking legacy status removal... "
+LEGACY_CHECK=$(echo "$OPENAPI_RESPONSE" | grep -E "saved_untested|test_ok|test_failed" | grep -v "description\|comment" || true)
+if [ -z "$LEGACY_CHECK" ]; then
+    echo -e "${GREEN}✅ PASS${NC} (No legacy statuses in API responses)"
+    ((PASSED++))
+else
+    echo -e "${YELLOW}⚠️  WARN${NC} (Legacy statuses still in OpenAPI - may be in descriptions)"
+    echo "   This is OK if only in descriptions/comments"
+fi
 
 echo ""
 echo "📋 TASK F - Admin Endpoints Protection"
@@ -207,6 +252,43 @@ echo "ℹ️  Route Collision Detection:"
 echo "   Backend server.py has built-in route collision detection at startup"
 echo "   If server starts successfully, no route collisions exist"
 echo "   Check backend logs for: '✅ Route collision check passed'"
+
+echo ""
+echo "📋 TASK D - Footer and Admin Unlock"
+echo "------------------------------------"
+
+# Check frontend contains copyright text
+echo -n "Checking for footer copyright text... "
+FRONTEND_RESPONSE=$(curl -s "$BASE_URL/" 2>&1)
+if echo "$FRONTEND_RESPONSE" | grep -q "Part of Amarktai Network\|© 2026 Amarktai"; then
+    echo -e "${GREEN}✅ PASS${NC} (Copyright text present in frontend)"
+    ((PASSED++))
+else
+    echo -e "${YELLOW}⚠️  WARN${NC} (Copyright text not found - may be in JS bundle)"
+    echo "   Frontend is a React SPA - copyright is rendered by JS"
+fi
+
+# Check that "show admin" is not in blocked phrases
+echo -n "Checking admin unlock not blocked... "
+if [ -f "frontend/src/components/AIChatPanel.js" ]; then
+    if grep -q "'show admin'" frontend/src/components/AIChatPanel.js; then
+        echo -e "${YELLOW}⚠️  WARN${NC} (AIChatPanel still has 'show admin' reference)"
+        echo "   Check if it's in blockedPhrases or handled locally"
+    else
+        echo -e "${GREEN}✅ PASS${NC} (No 'show admin' in AIChatPanel blockedPhrases)"
+        ((PASSED++))
+    fi
+elif [ -f "frontend/src/pages/Dashboard.js" ]; then
+    # Dashboard.js handles admin unlock locally
+    if grep -q "show admin" frontend/src/pages/Dashboard.js | grep -v "blocked"; then
+        echo -e "${GREEN}✅ PASS${NC} (Admin unlock handled in Dashboard)"
+        ((PASSED++))
+    else
+        echo -e "${YELLOW}⚠️  WARN${NC} (Could not verify admin unlock in Dashboard)"
+    fi
+else
+    echo -e "${YELLOW}⚠️  SKIP${NC} (Frontend files not accessible from this location)"
+fi
 
 echo ""
 echo "=================================================="

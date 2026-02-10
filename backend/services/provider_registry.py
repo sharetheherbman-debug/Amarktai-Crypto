@@ -19,14 +19,14 @@ class ProviderType(str, Enum):
 
 
 class ProviderStatus(str, Enum):
-    """Provider key status"""
+    """Provider key status - canonical values for go-live"""
     NOT_CONFIGURED = "not_configured"
-    CONFIGURED_UNTESTED = "saved_untested"  # Use intuitive name
-    CONFIGURED_VALID = "test_ok"  # Use intuitive name
-    CONFIGURED_INVALID = "test_failed"  # Use intuitive name
+    CONFIGURED_UNTESTED = "configured_untested"  # Canonical status
+    CONFIGURED_VALID = "configured_valid"  # Canonical status
+    CONFIGURED_INVALID = "configured_invalid"  # Canonical status
     CONFIGURED_RATE_LIMITED = "rate_limited"
     
-    # Aliases for backward compatibility
+    # Legacy aliases for backward compatibility (accept on read, normalize on write)
     SAVED_UNTESTED = "saved_untested"
     TEST_OK = "test_ok"
     TEST_FAILED = "test_failed"
