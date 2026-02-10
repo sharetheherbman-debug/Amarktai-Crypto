@@ -138,6 +138,56 @@ class LedgerService:
             logger.error(f"Failed to append event: {e}")
             raise
     
+    async def bootstrap_paper_capital(
+        self,
+        user_id: str,
+        amount: Optional[float] = None,
+        currency: str = "ZAR"
+    ) -> bool:
+        """
+        Bootstrap paper trading capital for a user if not already funded.
+        
+        Uses PAPER_STARTING_CAPITAL_ZAR from config if amount not specified.
+        Idempotent: only creates the funding event once per user.
+        
+        Returns: True if capital was bootstrapped, False if already existed
+        """
+        try:
+            # Check if user already has a paper funding event
+            existing = await self.ledger_events.find_one({
+                "user_id": user_id,
+                "event_type": "paper_capital_bootstrap"
+            })
+            
+            if existing:
+                logger.debug(f"Paper capital already bootstrapped for user {user_id}")
+                return False
+            
+            # Get default amount from config
+            if amount is None:
+                try:
+                    from config import PAPER_STARTING_CAPITAL_ZAR
+                    amount = PAPER_STARTING_CAPITAL_ZAR
+                except ImportError:
+                    amount = 30000.0
+            
+            # Create funding event
+            await self.append_event(
+                user_id=user_id,
+                event_type="paper_capital_bootstrap",
+                amount=amount,
+                currency=currency,
+                timestamp=datetime.utcnow(),
+                description=f"Paper trading starting capital: R{amount:,.2f}"
+            )
+            
+            logger.info(f"✅ Bootstrapped paper capital R{amount:,.2f} for user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error bootstrapping paper capital: {e}")
+            return False
+
     async def get_fills(
         self,
         user_id: Optional[str] = None,
