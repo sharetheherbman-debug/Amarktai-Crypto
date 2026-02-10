@@ -72,7 +72,8 @@ pass "/api/prices/live contains BTC/ETH/XRP ZAR prices"
 bots_status=$(curl -fsS -H "Authorization: Bearer $token" "$BASE_URL/api/bots/status")
 echo "$bots_status" | jq -e '.bots and (.total|type=="number") and .exchange_counts and .all_exchanges' >/dev/null \
   || fail "/api/bots/status missing required fields"
-echo "$bots_status" | jq -e '.all_exchanges | sort == ["binance","bitget","bybit","gate","kraken","kucoin","luno"]' >/dev/null \
+expected_exchanges_json=$(printf '%s\n' "${EXPECTED_EXCHANGE_IDS[@]}" | jq -R . | jq -s 'sort')
+echo "$bots_status" | jq -e --argjson expected "$expected_exchanges_json" '.all_exchanges | sort == $expected' >/dev/null \
   || fail "/api/bots/status all_exchanges must include exactly 7 exchanges"
 pass "/api/bots/status includes required fields and exchanges"
 
@@ -97,7 +98,6 @@ pass "/api/quarantine/status includes reason and timer"
 keys_providers=$(curl -fsS "$BASE_URL/api/keys/providers")
 provider_ids=$(echo "$keys_providers" | jq -r '.providers[].id' | sort)
 exchange_ids=$(echo "$keys_providers" | jq -c '[.providers[] | select(.type=="exchange") | .id] | sort')
-expected_exchanges_json=$(printf '%s\n' "${EXPECTED_EXCHANGE_IDS[@]}" | jq -R . | jq -s 'sort')
 echo "$exchange_ids" | jq -e 'length==7' >/dev/null || fail "/api/keys/providers must include 7 exchanges"
 echo "$exchange_ids" | jq -e --argjson expected "$expected_exchanges_json" '. == $expected' >/dev/null \
   || fail "/api/keys/providers exchange list mismatch"

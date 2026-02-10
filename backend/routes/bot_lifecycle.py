@@ -5,7 +5,7 @@ Handles pause, resume, cooldown periods, and bot lifecycle operations
 
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, TypedDict
 import logging
 import os
 
@@ -20,13 +20,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
 
+class BlockDetail(TypedDict, total=False):
+    code: str
+    message: str
+    next_action: str
+    release_at: str
+    remaining_seconds: int
+
 def _build_block_detail(
     code: str,
     message: str,
     next_action: Optional[str] = None,
     release_at: Optional[str] = None,
     remaining_seconds: Optional[int] = None,
-) -> Dict:
+) -> BlockDetail:
     """Build structured error details for bot action blockers.
 
     Args:

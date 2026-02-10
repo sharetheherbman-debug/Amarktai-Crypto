@@ -39,6 +39,8 @@ export const normalizeLivePrices = (data, fallback = null) => {
   return fallback;
 };
 
+export const getBotStatus = (bot) => bot?.status || bot?.state || 'unknown';
+
 /**
  * Custom hook for managing dashboard data fetching and state
  */

@@ -88,7 +88,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
             if release_at and (earliest_release is None or release_at < earliest_release):
                 earliest_release = release_at
 
-        quarantine_remaining = remaining_seconds(earliest_release) if earliest_release else None
+        quarantine_remaining_seconds = remaining_seconds(earliest_release) if earliest_release else None
 
         daily_loss_active = user.get("daily_loss_lock_active", False)
         daily_loss_reason = user.get("daily_loss_locked_reason", "Daily loss lock active") if daily_loss_active else None
@@ -139,7 +139,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "why": quarantine_reason,
                 "reasons": quarantine_reasons,
                 "release_at": earliest_release,
-                "remaining_seconds": quarantine_remaining,
+                "remaining_seconds": quarantine_remaining_seconds,
                 "bot_ids": [bot.get("id") for bot in quarantined_bots],
                 "next_action": "Wait for retraining to complete" if quarantined_bots else None,
             },

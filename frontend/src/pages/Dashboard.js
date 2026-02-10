@@ -25,7 +25,7 @@ import BotTrainingSection from '../components/Dashboard/BotTrainingSection';
 import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantineSection';
 import { API_BASE, wsUrl } from '../lib/api.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
-import { useDashboardData, normalizeLivePrices } from '../hooks/useDashboardData';
+import { useDashboardData, normalizeLivePrices, getBotStatus } from '../hooks/useDashboardData';
 import { post, get } from '../lib/apiClient';
 import realtimeClient from '../lib/realtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
@@ -145,6 +145,7 @@ export default function Dashboard() {
   const [botControlLoading, setBotControlLoading] = useState({});
   const [recentTrades, setRecentTrades] = useState([]);
   const [bodyguardStatus, setBodyguardStatus] = useState(null);
+  // Consolidated risk status from /api/risk/status
   const [riskStatus, setRiskStatus] = useState(null);
   const [storageData, setStorageData] = useState(null);
   const [countdown, setCountdown] = useState(null);
@@ -3214,7 +3215,7 @@ export default function Dashboard() {
                       ? Math.floor((Date.now() - new Date(bot.paper_start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1
                       : 1;
                     const riskMode = bot.risk_mode || 'safe';
-                    const botStatus = bot.status || bot.state || 'unknown';
+                    const botStatus = getBotStatus(bot);
                     const isActive = botStatus === 'active';
                     const isPaused = ['paused', 'paused_ready'].includes(botStatus);
                     const isQuarantined = botStatus === 'quarantined';
