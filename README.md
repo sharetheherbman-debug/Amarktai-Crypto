@@ -2,7 +2,7 @@
 
 **Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 7 major exchanges.
 
-> 📚 **[Complete Documentation →](docs/INDEX.md)**
+> 📚 **Companion Docs:** [DEPLOY.md](DEPLOY.md) | [VERIFICATION.md](VERIFICATION.md) | [ACCEPTANCE_TESTS.md](ACCEPTANCE_TESTS.md)
 
 [![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 [![Real-time](https://img.shields.io/badge/realtime-WebSocket%20%2B%20SSE-blue)]()
@@ -83,29 +83,6 @@
 - **Emergency Stop**: Global kill switch
 
 ---
-
-## 📖 **Documentation**
-
-### **Getting Started**
-| Document | Description |
-|----------|-------------|
-| **[INSTALL.md](docs/INSTALL.md)** | 📦 Fresh Ubuntu 24.04 installation (~30 minutes) |
-| **[DELIVERABLES.md](docs/DELIVERABLES.md)** | ✅ Production readiness checklist & verification |
-
-### **Deployment**
-| Document | Description |
-|----------|-------------|
-| **[DEPLOY.md](DEPLOY.md)** | 🚀 Complete deployment guide (env vars, clean deploy, troubleshooting) |
-| **[Systemd Service](docs/examples/amarktai.service)** | Production systemd configuration |
-| **[Nginx Config](docs/examples/nginx.conf)** | WebSocket + SSE reverse proxy |
-| **[DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Additional deployment notes |
-
-### **Reference**
-| Document | Description |
-|----------|-------------|
-| **[API Contract](docs/api_contract.md)** | Complete API documentation |
-| **[Complete Feature List](docs/COMPLETE_FEATURE_LIST.md)** | All features and capabilities |
-| **[Single Source of Truth](docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md)** | Architecture & operations |
 
 ---
 
@@ -333,141 +310,26 @@ MIT License - See LICENSE file for details
 - Comprehensive documentation
 - Automated deployment
 
-**Last Updated:** 2026-02-01
-cd /var/amarktai/app/deployment && sudo ./verify.sh
-
-# Run API smoke tests
-cd /var/amarktai/app && ./scripts/smoke_api.sh
-
-# Test SPA routing (deep links work)
-cd /var/amarktai/app && ./scripts/test_spa_routing.sh
-
-# Run complete go-live audit
-cd /var/amarktai/app && ./scripts/go_live_audit.sh
-```
-
-### Endpoint Doctor Script (Recommended)
-
-The new **endpoint_doctor.sh** script provides comprehensive API endpoint testing:
-
-```bash
-cd /var/amarktai/app/backend/scripts
-./endpoint_doctor.sh http://127.0.0.1:8000 YOUR_JWT_TOKEN
-```
-
-**What it tests:**
-- ✅ Health & ping endpoints
-- ✅ System status, mode, and since-last-login endpoint
-- ✅ API keys management (save, test, delete lifecycle)
-- ✅ Bots management (create, list, delete with soft-delete verification)
-- ✅ Trades & portfolio endpoints
-- ✅ Platform/exchange configuration (luno, binance, kucoin enabled)
-
-**Expected output**: All critical endpoints return correct status codes and JSON shapes.
-
-**Exit codes:**
-- `0` = All tests passed ✅
-- `1` = Some tests failed ❌
-- `2` = All tests skipped (no authentication)
-
-### Go-Live Audit Script
-
-The comprehensive go-live audit script validates everything:
-
-```bash
-cd /var/amarktai/app
-./scripts/go_live_audit.sh
-```
-
-This script checks:
-- ✅ Environment setup (Python, Node.js, dependencies)
-- ✅ Frontend build succeeds
-- ✅ Backend tests pass (API keys, bots, overview, chat, paper trading)
-- ✅ API endpoints respond correctly
-- ✅ SPA routing works (deep links)
-- ✅ Configuration is complete
-
-**Expected output**: All tests pass, exit code 0 = ready for go-live! 🚀
+**Last Updated:** 2026-02-10
 
 ---
 
-## ✅ **Production Readiness Checklist**
+## 📖 **Documentation**
 
-### All Features Implemented & Working
-- [x] **7 Platforms Fully Functional**: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io
-- [x] **Paper Trading**: Realistic fees, slippage, real market data
-- [x] **Live Trading**: Full API integration, order management
-- [x] **Real-Time Updates**: WebSocket + SSE working behind nginx
-- [x] **Equity Tracking**: Live P&L charts with real data
-- [x] **Drawdown Analysis**: Maximum DD, underwater periods
-- [x] **Win Rate Stats**: Comprehensive trade performance
-- [x] **Wallet Transfers**: Internal fund movement ledger
-- [x] **AI Chat**: Welcome messages, history loading, content filters
-- [x] **Custom Countdowns**: User financial goals with real-time updates
-- [x] **Admin Panel**: User/bot selection, scoped actions
-- [x] **50+ API Endpoints**: All documented and tested
+### **Deployment & Verification**
+| Document | Description |
+|----------|-------------|
+| **[DEPLOY.md](DEPLOY.md)** | 🚀 Complete deployment guide (env vars, clean deploy, troubleshooting) |
+| **[VERIFICATION.md](VERIFICATION.md)** | ✅ Post-deployment verification checks |
+| **[ACCEPTANCE_TESTS.md](ACCEPTANCE_TESTS.md)** | 🧪 Acceptance test criteria for go-live |
 
-### No Placeholders or Mock Data
-- [x] **Zero "Coming Soon" Messages**: All features implemented
-- [x] **No Mock Data**: Everything uses real database
-- [x] **All Charts Functional**: Display actual trading data
-- [x] **Complete UI**: No disabled sections or placeholders
-
-### Security & Production Features
-- [x] **Authentication**: JWT-based with 2FA support (optional)
-- [x] **Authorization**: Role-based admin access
-- [x] **Content Filters**: AI chat blocks admin hints
-- [x] **Audit Logging**: Complete trail of admin actions
-- [x] **Rate Limiting**: Configured in nginx
-- [x] **SSL/TLS**: Ready for HTTPS deployment
-- [x] **Data Isolation**: User-scoped queries everywhere
-
-### Performance & Scalability
-- [x] **Database Indexes**: Auto-created on 70+ collections
-- [x] **WebSocket Pooling**: Supports 1000+ concurrent connections
-- [x] **Lazy Loading**: Charts load on-demand
-- [x] **Pagination**: All list endpoints support pagination
-- [x] **Caching**: Static assets cached for 1 year
-
-### Documentation & Testing
-- [x] **API Contract**: Complete endpoint documentation
-- [x] **Nginx Config**: Production-ready configuration
-- [x] **Deployment Guide**: Step-by-step instructions
-- [x] **Smoke Tests**: Automated API testing script
-- [x] **README**: Comprehensive feature overview
-
----
-
-## 🎯 Key Features
-
-- ✅ **Autonomous Trading**: AI-powered bots with autopilot mode
-- ✅ **Multi-Exchange**: Luno, Binance, KuCoin support
-- ✅ **Safety First**: Paper trading, emergency stop, ledger-based accounting
-- ✅ **Production Ready**: Systemd service, Nginx config, health monitoring
-- ✅ **Single Source of Truth**: Unified autopilot, no duplicate engines
-
----
-
-## 🔒 Safety Constraints
-
-- ❌ **No automatic fund transfers** between exchanges (hard-blocked)
-- ✅ **Paper mode**: Allocation ledger (no real funds moved)
-- ✅ **Live mode**: Balance checks only (no transfers)
-- ✅ **Bot spawning**: Requires verified profit >= 1000 ZAR
-- ✅ **Emergency stop**: Halts all trading immediately
-
----
-
-## 📚 Documentation
-
-- **[Complete Deployment Guide](docs/AMARKTAI_SINGLE_SOURCE_OF_TRUTH.md)** ← START HERE
-- [Quick Start](docs/QUICK_START.md) - Basic getting started
-- [Environment Variables](.env.example) - All configuration options
-- [API Documentation](http://127.0.0.1:8000/docs) - Interactive API docs (after deployment)
-- [Production Features](docs/PRODUCTION_FEATURES_IMPLEMENTATION.md) - All implemented features
-- [Go Live Guide](docs/GO_LIVE.md) - Production launch checklist
-
-**Archived docs:** See `docs/archive/` for historical reference
+### **Additional Docs**
+| Document | Description |
+|----------|-------------|
+| **[docs/INSTALL.md](docs/INSTALL.md)** | 📦 Fresh Ubuntu 24.04 installation (~30 minutes) |
+| **[docs/DELIVERABLES.md](docs/DELIVERABLES.md)** | ✅ Production readiness checklist |
+| **[Systemd Service](docs/examples/amarktai.service)** | Production systemd configuration |
+| **[Nginx Config](docs/examples/nginx.conf)** | WebSocket + SSE reverse proxy |
 
 ---
 

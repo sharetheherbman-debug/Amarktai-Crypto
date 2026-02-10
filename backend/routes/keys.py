@@ -174,9 +174,9 @@ async def list_user_keys(user_id: str = Depends(get_current_user)):
     
     Returns status for ALL providers, even if not configured:
     - not_configured: No key saved
-    - saved_untested: Key saved but never tested
-    - test_ok: Key tested successfully
-    - test_failed: Last test failed
+    - configured_untested: Key saved but never tested
+    - configured_valid: Key tested successfully
+    - configured_invalid: Last test failed
     
     Never returns plaintext keys (only masked)
     """

@@ -8,6 +8,8 @@ set -e
 # Configuration
 BASE_URL="${BASE_URL:-https://www.amarktai.online}"
 MIN_OPENAPI_SIZE=50000  # Minimum expected OpenAPI JSON size (bytes)
+MAX_RETRIES=3
+RETRY_DELAY=5
 
 # Colors
 GREEN='\033[0;32m'
@@ -24,6 +26,22 @@ echo ""
 # Track failures
 FAILURES=0
 PASSED=0
+
+# Helper: retry a check with backoff (tolerates brief 502 during restart)
+retry_check() {
+    local name="$1"
+    shift
+    for attempt in $(seq 1 $MAX_RETRIES); do
+        if "$@" 2>/dev/null; then
+            return 0
+        fi
+        if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+            echo -e "  ${YELLOW}⏳ Retry $attempt/$MAX_RETRIES in ${RETRY_DELAY}s...${NC}"
+            sleep $RETRY_DELAY
+        fi
+    done
+    return 1
+}
 
 # Helper function to check endpoint
 check_endpoint() {
@@ -256,6 +274,48 @@ echo "   Check backend logs for: '✅ Route collision check passed'"
 echo ""
 echo "📋 TASK D - Footer and Admin Unlock"
 echo "------------------------------------"
+
+echo ""
+echo "📋 Frontend JS Bundle Verification"
+echo "-----------------------------------"
+
+echo -n "Checking index.html references /static/js/... "
+INDEX_HTML=$(curl -s --connect-timeout 10 "$BASE_URL/" 2>/dev/null || echo "")
+if echo "$INDEX_HTML" | grep -q "/static/js/"; then
+    echo -e "${GREEN}✅ PASS${NC} (index.html references /static/js/)"
+    ((PASSED++))
+    
+    # Extract JS bundle URL and verify it's accessible
+    JS_URL=$(echo "$INDEX_HTML" | grep -oP '/static/js/main\.[^"]+\.js' | head -1 || echo "")
+    if [ -n "$JS_URL" ]; then
+        echo -n "Checking JS bundle: ${JS_URL}... "
+        JS_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "$BASE_URL$JS_URL" 2>/dev/null || echo "000")
+        if [ "$JS_CODE" = "200" ]; then
+            JS_SIZE=$(curl -sI --connect-timeout 10 "$BASE_URL$JS_URL" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r' || echo "0")
+            if [ "${JS_SIZE:-0}" -gt 51200 ]; then
+                echo -e "${GREEN}✅ PASS${NC} (HTTP 200, ${JS_SIZE} bytes > 50KB)"
+                ((PASSED++))
+            else
+                echo -e "${YELLOW}⚠️  WARN${NC} (HTTP 200 but size ${JS_SIZE} bytes < 50KB)"
+            fi
+        else
+            echo -e "${RED}❌ FAIL${NC} (HTTP $JS_CODE)"
+            ((FAILURES++))
+        fi
+    fi
+    
+    # Check asset-manifest.json
+    echo -n "Checking asset-manifest.json... "
+    MANIFEST_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "$BASE_URL/asset-manifest.json" 2>/dev/null || echo "000")
+    if [ "$MANIFEST_CODE" = "200" ]; then
+        echo -e "${GREEN}✅ PASS${NC} (HTTP 200)"
+        ((PASSED++))
+    else
+        echo -e "${YELLOW}⚠️  WARN${NC} (HTTP $MANIFEST_CODE)"
+    fi
+else
+    echo -e "${YELLOW}⚠️  WARN${NC} (Could not verify - may need deploy first)"
+fi
 
 # Check frontend contains copyright text
 echo -n "Checking for footer copyright text... "

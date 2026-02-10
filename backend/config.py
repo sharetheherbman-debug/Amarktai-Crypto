@@ -155,6 +155,7 @@ EXCHANGE_DAILY_TRADE_LIMITS = {
 
 # Paper → Live promotion criteria
 PAPER_TRAINING_DAYS = int(os.getenv('PAPER_TRAINING_DAYS', '7'))  # Must be 7 days minimum
+PAPER_STARTING_CAPITAL_ZAR = float(os.getenv('PAPER_STARTING_CAPITAL_ZAR', '30000'))  # Default paper starting capital
 MIN_WIN_RATE = 0.52  # 52%
 MIN_PROFIT_PERCENT = 0.03  # 3%
 MIN_TRADES_FOR_PROMOTION = 25

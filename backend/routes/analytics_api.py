@@ -66,7 +66,9 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
                 "current_capital": 0,
                 "unrealized_pnl": 0,
                 "realized_pnl": 0,
-                "total_bots": 0
+                "total_bots": 0,
+                "no_data_yet": True,
+                "message": "No bots created yet. Create a bot to start trading."
             }
         
         # Calculate totals
@@ -135,6 +137,20 @@ async def get_performance_summary(
         
         # Calculate statistics using canonical field normalization
         total_trades = len(trades)
+        
+        if total_trades == 0:
+            return {
+                "period": period,
+                "start_time": start_time.isoformat(),
+                "end_time": now.isoformat(),
+                "trades": {"total": 0, "winning": 0, "losing": 0, "win_rate_pct": 0},
+                "pnl": {"total": 0, "gross_profit": 0, "gross_loss": 0, "profit_factor": 0},
+                "averages": {"avg_win": 0, "avg_loss": 0, "avg_trade": 0},
+                "no_data_yet": True,
+                "message": "No trades in this period. Bots need to execute trades to generate performance data.",
+                "timestamp": now.isoformat()
+            }
+        
         # Use net_pnl (primary) → fallback profit_loss
         winning_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
         losing_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0])

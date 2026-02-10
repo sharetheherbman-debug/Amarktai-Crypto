@@ -14,7 +14,7 @@ import logging
 from pydantic import BaseModel
 from typing import Optional, Literal
 
-from auth import get_current_user
+from auth import get_current_user, require_admin
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class StartFreshRequest(BaseModel):
 @router.post("/api/admin/start-fresh")
 async def start_fresh(
     request: StartFreshRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(require_admin)
 ):
     """
     Start Fresh - Admin-only data wipe (ADMIN ONLY)
@@ -56,18 +56,6 @@ async def start_fresh(
         - audit_id: ID of audit log entry
     """
     try:
-        # Check if user is admin
-        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        if not user.get("is_admin", False):
-            raise HTTPException(
-                status_code=403,
-                detail="Admin privileges required for Start Fresh operation"
-            )
-        
         # Verify confirmation phrase
         if request.confirm_phrase != "DELETE ALL TRADING DATA":
             raise HTTPException(
@@ -236,7 +224,7 @@ class ResetUserDataRequest(BaseModel):
 @router.post("/api/admin/reset-user-data")
 async def reset_user_data(
     request: ResetUserDataRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(require_admin)
 ):
     """
     Reset user data - Admin only (GO-LIVE SAFETY)
@@ -261,14 +249,6 @@ async def reset_user_data(
         500: On database errors
     """
     try:
-        # Verify admin privileges
-        from auth import is_admin
-        if not await is_admin(user_id):
-            raise HTTPException(
-                status_code=403,
-                detail="Admin privileges required for user data reset"
-            )
-        
         # Verify target user exists
         target_user = await db.users_collection.find_one(
             {"_id": request.target_user_id},
