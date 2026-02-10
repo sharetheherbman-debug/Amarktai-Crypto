@@ -167,18 +167,18 @@ const APIKeySettings = () => {
       const result = await response.json();
       
       if (result.success) {
-        // Optimistic update: immediately set to test_ok before refetch
+        // Optimistic update: immediately set to configured_valid before refetch
         setProviders(prev => prev.map(p => 
           p.provider === providerId 
-            ? { ...p, status: 'test_ok', status_display: 'Test OK ✅' }
+            ? { ...p, status: 'configured_valid', status_display: 'Valid ✅' }
             : p
         ));
         showMessage('success', result.message || 'API key test passed ✅');
       } else {
-        // Immediately set to test_failed
+        // Immediately set to configured_invalid
         setProviders(prev => prev.map(p => 
           p.provider === providerId 
-            ? { ...p, status: 'test_failed', status_display: 'Test Failed ❌', last_test_error: result.message }
+            ? { ...p, status: 'configured_invalid', status_display: 'Invalid ❌', last_test_error: result.message }
             : p
         ));
         showMessage('error', result.message || 'API key test failed ❌');

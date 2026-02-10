@@ -1023,9 +1023,26 @@ export default function Dashboard() {
       // New API returns { success: true, keys: [...] }
       const keys = res.data?.keys || res.data || [];
       keys.forEach(key => {
+        // Normalize status: support both canonical and legacy values
+        const rawStatus = key.status || 'not_configured';
+        let normalizedStatus = rawStatus;
+        let isConnected = false;
+        
+        // Map legacy to canonical (defensive fallback)
+        if (rawStatus === 'test_ok') {
+          normalizedStatus = 'configured_valid';
+          isConnected = true;
+        } else if (rawStatus === 'test_failed') {
+          normalizedStatus = 'configured_invalid';
+        } else if (rawStatus === 'saved_untested') {
+          normalizedStatus = 'configured_untested';
+        } else if (rawStatus === 'configured_valid') {
+          isConnected = true;
+        }
+        
         statuses[key.provider.toLowerCase()] = {
-          status: key.status === 'test_ok' ? 'verified' : key.status === 'saved_untested' ? 'saved' : key.status,
-          connected: key.status === 'test_ok'
+          status: normalizedStatus,
+          connected: isConnected
         };
       });
       setApiKeys(statuses);
@@ -1902,9 +1919,19 @@ export default function Dashboard() {
 
   const getApiStatus = (provider) => {
     const key = apiKeys[provider.toLowerCase()];
-    if (!key) return { badge: 'missing', text: 'Not configured', dot: 'err' };
-    if (key.connected) return { badge: 'verified', text: 'Verified ✓', dot: 'ok' };
-    return { badge: 'saved', text: 'Saved (untested)', dot: 'err' };
+    if (!key || key.status === 'not_configured') {
+      return { badge: 'missing', text: 'Not configured', dot: 'err' };
+    }
+    if (key.connected || key.status === 'configured_valid') {
+      return { badge: 'verified', text: 'Valid ✓', dot: 'ok' };
+    }
+    if (key.status === 'configured_invalid') {
+      return { badge: 'error', text: 'Invalid ✗', dot: 'err' };
+    }
+    if (key.status === 'configured_untested') {
+      return { badge: 'saved', text: 'Configured (untested)', dot: 'warn' };
+    }
+    return { badge: 'saved', text: 'Configured', dot: 'warn' };
   };
 
   const handleProfileChange = (field, value) => {
