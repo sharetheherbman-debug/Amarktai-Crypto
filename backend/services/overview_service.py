@@ -19,6 +19,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
 import database as db
 from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
+from utils.trade_utils import parse_trade_timestamp
+from utils.bot_state import normalize_bot_state, is_active_bot
 
 logger = logging.getLogger(__name__)
 
@@ -266,8 +268,8 @@ class OverviewService:
             total_fees += fee
             
             # Check if trade is from today
-            trade_time = trade.get("timestamp", "")
-            if trade_time and trade_time >= today_start.isoformat():
+            trade_time = parse_trade_timestamp(trade)
+            if trade_time >= today_start:
                 today_fees += fee
         
         return {
@@ -301,8 +303,8 @@ class OverviewService:
         
         for trade in all_trades:
             # Check if trade is from today
-            trade_time = trade.get("timestamp", "")
-            if trade_time and trade_time >= today_start.isoformat():
+            trade_time = parse_trade_timestamp(trade)
+            if trade_time >= today_start:
                 trades_today += 1
             
             # Check if trade is winning (use canonical field)
@@ -321,10 +323,11 @@ class OverviewService:
     
     def _compute_bot_metrics(self, bots: List[Dict]) -> Dict:
         """Compute bot counts by status"""
-        active = sum(1 for b in bots if b.get("status") == "active")
-        paused = sum(1 for b in bots if b.get("status") == "paused")
-        training = sum(1 for b in bots if b.get("status") == "training")
-        quarantine = sum(1 for b in bots if b.get("status") in ["quarantined", "quarantine"])
+        normalized = [normalize_bot_state(bot) for bot in bots]
+        active = sum(1 for b in normalized if b.get("active"))
+        paused = sum(1 for b in normalized if b.get("paused"))
+        training = sum(1 for b in normalized if b.get("status") == "training")
+        quarantine = sum(1 for b in normalized if b.get("status") in ["quarantined", "quarantine"])
         
         return {
             "active": active,
@@ -337,7 +340,7 @@ class OverviewService:
     def _compute_capital_metrics(self, bots: List[Dict]) -> Dict:
         """Compute equity and required capital metrics"""
         # Equity = sum of current capital across all active bots
-        equity = sum(b.get("current_capital", 0) for b in bots if b.get("status") == "active")
+        equity = sum(b.get("current_capital", 0) for b in bots if is_active_bot(b))
         
         # Required capital = sum of initial capital across all bots (not just active)
         # This is what the system expects to have allocated

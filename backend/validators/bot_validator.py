@@ -84,7 +84,10 @@ class BotValidator:
         
         existing_bot = await db.bots_collection.find_one({
             "user_id": user_id,
-            "name": name
+            "name": name,
+            "status": {"$ne": "deleted"},
+            "deleted": {"$ne": True},
+            "deleted_at": {"$exists": False}
         }, {"_id": 0})
         
         if existing_bot:
@@ -96,7 +99,10 @@ class BotValidator:
         # 5. Check exchange bot limit using canonical config
         exchange_bot_count = await db.bots_collection.count_documents({
             "user_id": user_id,
-            "exchange": exchange
+            "exchange": exchange,
+            "status": {"$ne": "deleted"},
+            "deleted": {"$ne": True},
+            "deleted_at": {"$exists": False}
         })
         
         max_for_exchange = get_max_bots(exchange)
@@ -109,7 +115,12 @@ class BotValidator:
             )
         
         # 6. Check total bot limit
-        total_bots = await db.bots_collection.count_documents({"user_id": user_id})
+        total_bots = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": {"$ne": "deleted"},
+            "deleted": {"$ne": True},
+            "deleted_at": {"$exists": False}
+        })
         if total_bots >= self.max_bots_total:
             return False, {
                 "code": "TOTAL_BOT_LIMIT_REACHED",

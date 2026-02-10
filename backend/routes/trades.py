@@ -12,6 +12,7 @@ import logging
 from auth import get_current_user
 from services.accounting import accounting_service
 import database as db
+from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ async def get_trade_metrics(
 @router.get("/recent")
 async def get_recent_trades(
     limit: int = Query(50, ge=1, le=500),
+    legacy: bool = Query(False, description="Return legacy array response"),
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -78,45 +80,29 @@ async def get_recent_trades(
         List of trades with full timestamps and metrics
     """
     try:
-        # Fetch recent trades sorted by timestamp descending
-        trades = await db.trades_collection.find(
-            {"user_id": user_id},
-            {"_id": 0}
-        ).sort("timestamp", -1).limit(limit).to_list(limit)
+        pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$addFields": {"_sort_ts": {"$ifNull": ["$timestamp", "$created_at"]}}},
+            {"$sort": {"_sort_ts": -1}},
+            {"$limit": limit},
+            {"$project": {"_id": 0, "_sort_ts": 0}},
+        ]
+        trades = await db.trades_collection.aggregate(pipeline).to_list(limit)
         
         # Ensure all trades have proper date+time fields
         for trade in trades:
-            # Ensure timestamp exists
-            if 'timestamp' not in trade or not trade['timestamp']:
-                trade['timestamp'] = datetime.now(timezone.utc).isoformat()
-            
-            # Parse timestamp to ensure it's ISO format
-            try:
-                if isinstance(trade['timestamp'], str):
-                    dt = datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00'))
-                elif isinstance(trade['timestamp'], datetime):
-                    dt = trade['timestamp']
-                else:
-                    dt = datetime.now(timezone.utc)
-                
-                # Ensure timezone-aware
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                
-                # Set formatted fields
-                trade['timestamp'] = dt.isoformat()
-                trade['date'] = dt.strftime('%Y-%m-%d')
-                trade['time'] = dt.strftime('%H:%M:%S')
-                
-            except Exception as parse_error:
-                logger.warning(f"Trade timestamp parse error: {parse_error}")
-                now = datetime.now(timezone.utc)
-                trade['timestamp'] = now.isoformat()
-                trade['date'] = now.strftime('%Y-%m-%d')
-                trade['time'] = now.strftime('%H:%M:%S')
-        
+            normalize_trade_timestamps(trade)
+            dt = parse_trade_timestamp(trade)
+            trade["date"] = dt.strftime("%Y-%m-%d")
+            trade["time"] = dt.strftime("%H:%M:%S")
+
+        if legacy:
+            return trades
+
         return {
+            "success": True,
             "trades": trades,
+            "total": len(trades),
             "count": len(trades),
             "limit": limit,
             "timestamp": datetime.now(timezone.utc).isoformat()

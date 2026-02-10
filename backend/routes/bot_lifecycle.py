@@ -945,6 +945,8 @@ async def delete_bot(
             {
                 "$set": {
                     "status": "deleted",
+                    "deleted": True,
+                    "is_deleted": True,
                     "deleted_at": datetime.now(timezone.utc).isoformat(),
                     "deleted_by": user_id
                 }
