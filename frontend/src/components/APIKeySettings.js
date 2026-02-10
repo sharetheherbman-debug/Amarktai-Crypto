@@ -23,6 +23,27 @@ const APIKeySettings = () => {
   const [requestCounter, setRequestCounter] = useState(0); // Track request order
   
   const token = localStorage.getItem('token');
+
+  const normalizeStatusResponse = (data) => {
+    if (data?.status_map && Object.keys(data.status_map).length > 0) {
+      return data.status_map;
+    }
+
+    if (Array.isArray(data?.keys)) {
+      return data.keys.reduce((acc, key) => {
+        if (!key?.provider) return acc;
+        acc[key.provider] = {
+          status: key.status,
+          last_tested_at: key.last_tested_at,
+          last_test_error: key.last_test_error,
+          updated_at: key.updated_at
+        };
+        return acc;
+      }, {});
+    }
+
+    return {};
+  };
   
   useEffect(() => {
     fetchAllProviders();
@@ -68,7 +89,7 @@ const APIKeySettings = () => {
       
       if (response.ok) {
         const data = await response.json();
-        const statusMap = data.status_map || {};
+        const statusMap = normalizeStatusResponse(data);
         const providerStatuses = PROVIDERS.map(provider => {
           const statusInfo = statusMap[provider.id] || {};
           const status = statusInfo.status || 'not_configured';

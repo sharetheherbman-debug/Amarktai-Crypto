@@ -15,6 +15,8 @@ import string
 import random
 
 from auth import get_current_user, require_admin
+from utils.bot_state import normalize_bot_state
+from services.wallet_summary_service import wallet_summary_service
 import database as db
 from engines.audit_logger import audit_logger
 from json_utils import serialize_doc, serialize_list
@@ -1960,17 +1962,29 @@ async def get_admin_overview(admin_id: str = Depends(require_admin)):
         total_users = await db.users_collection.count_documents({"blocked": {"$ne": True}})
         blocked_users = await db.users_collection.count_documents({"blocked": True})
         
-        # Count bots by status
-        total_bots = await db.bots_collection.count_documents({})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        paused_bots = await db.bots_collection.count_documents({"status": "paused"})
-        stopped_bots = await db.bots_collection.count_documents({"status": "stopped"})
+        # Count bots by status (exclude deleted)
+        bots = await db.bots_collection.find(
+            {
+                "status": {"$ne": "deleted"},
+                "deleted": {"$ne": True},
+                "deleted_at": {"$exists": False}
+            },
+            {"_id": 0, "status": 1, "paused_by_system": 1, "paused_by_user": 1, "deleted": 1, "deleted_at": 1}
+        ).to_list(5000)
+        normalized_bots = [normalize_bot_state(bot) for bot in bots]
+        total_bots = len(normalized_bots)
+        active_bots = sum(1 for b in normalized_bots if b.get("active"))
+        paused_bots = sum(1 for b in normalized_bots if b.get("paused"))
+        stopped_bots = sum(1 for b in normalized_bots if b.get("stopped"))
         
         # Count trades (last 24h)
         from datetime import datetime, timedelta
         yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
         recent_trades = await db.trades_collection.count_documents({
-            "created_at": {"$gte": yesterday.isoformat()}
+            "$or": [
+                {"timestamp": {"$gte": yesterday.isoformat()}},
+                {"created_at": {"$gte": yesterday.isoformat()}}
+            ]
         })
         
         # Get system mode flags (from first admin user)
@@ -1981,6 +1995,8 @@ async def get_admin_overview(admin_id: str = Depends(require_admin)):
             "autopilot": admin_user.get("autopilot_enabled", False) if admin_user else False,
         }
         
+        wallet_summary = await wallet_summary_service.get_summary(admin_id)
+
         return {
             "success": True,
             "stats": {
@@ -1997,6 +2013,12 @@ async def get_admin_overview(admin_id: str = Depends(require_admin)):
                 },
                 "trades": {
                     "last_24h": recent_trades
+                },
+                "wallet_funding": {
+                    "status": wallet_summary.get("status"),
+                    "required_funds_zar": wallet_summary.get("required_funds_zar"),
+                    "available_wallet_zar": wallet_summary.get("available_wallet_zar"),
+                    "shortfall_zar": wallet_summary.get("shortfall_zar")
                 },
                 "system_mode": system_mode
             }

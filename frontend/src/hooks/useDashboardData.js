@@ -124,7 +124,24 @@ export const useDashboardData = (token) => {
     try {
       const res = await axios.get(`${API}/keys/status`, axiosConfig);
       const statusMap = res.data?.status_map || {};
-      setApiKeys(statusMap);
+      if (Object.keys(statusMap).length > 0) {
+        setApiKeys(statusMap);
+        return;
+      }
+
+      const keys = Array.isArray(res.data?.keys) ? res.data.keys : [];
+      const fallbackMap = keys.reduce((acc, key) => {
+        if (key?.provider) {
+          acc[key.provider] = {
+            status: key.status,
+            last_tested_at: key.last_tested_at,
+            last_test_error: key.last_test_error,
+            updated_at: key.updated_at
+          };
+        }
+        return acc;
+      }, {});
+      setApiKeys(fallbackMap);
     } catch (err) {
       console.error('API keys fetch error:', err);
     }

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query
 from routes.auth import router as auth_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -50,6 +50,7 @@ from ccxt_service import ccxt_service
 from websocket_manager import manager
 from trading_scheduler import trading_scheduler
 from utils.env_utils import env_bool
+from utils.bot_state import normalize_bot_state
 import ccxt.async_support as ccxt
 
 api_router = APIRouter()
@@ -431,9 +432,24 @@ async def decision_trace_websocket(websocket: WebSocket):
 # BOTS MANAGEMENT
 # ============================================================================
 @api_router.get("/bots")
-async def get_bots(user_id: str = Depends(get_current_user)):
-    bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-    return bots
+async def get_bots(
+    legacy: bool = Query(False, description="Return legacy array response"),
+    user_id: str = Depends(get_current_user)
+):
+    bots = await db.bots_collection.find({
+        "user_id": user_id,
+        "status": {"$ne": "deleted"},
+        "deleted": {"$ne": True},
+        "deleted_at": {"$exists": False}
+    }, {"_id": 0}).to_list(1000)
+    normalized = [normalize_bot_state(bot) for bot in bots]
+    if legacy:
+        return normalized
+    return {
+        "success": True,
+        "bots": normalized,
+        "total": len(normalized)
+    }
 
 @api_router.post("/bots")
 async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
