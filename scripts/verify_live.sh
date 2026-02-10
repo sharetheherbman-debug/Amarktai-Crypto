@@ -373,6 +373,21 @@ else
     FAILURES=$((FAILURES+1))
 fi
 
+echo ""
+echo "📋 TASK H - Profit Ledger Collection"
+echo "-------------------------------------"
+PROFIT_LEDGER_OUTPUT=$($PYTHON_CMD -c "import sys; sys.path.insert(0, 'backend'); import database; import profit_ledger as pl; has_collection=hasattr(database, 'profit_ledger_collection'); has_module=hasattr(pl, 'profit_ledger'); ok=has_collection and has_module; print('profit_ledger wiring OK' if ok else f'profit_ledger wiring missing (collection={has_collection}, module={has_module})'); raise SystemExit(0 if ok else 1)" 2>&1)
+PROFIT_LEDGER_STATUS=$?
+
+if [ "$PROFIT_LEDGER_STATUS" -eq 0 ]; then
+    echo -e "${GREEN}✅ PASS${NC} (Profit ledger collection available)"
+    PASSED=$((PASSED+1))
+else
+    echo -e "${RED}❌ FAIL${NC} (Profit ledger collection missing)"
+    echo "Output: $PROFIT_LEDGER_OUTPUT" | head -3
+    FAILURES=$((FAILURES+1))
+fi
+
 # Note about route collision detection
 echo ""
 echo "ℹ️  Route Collision Detection:"
