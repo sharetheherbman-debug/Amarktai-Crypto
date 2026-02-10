@@ -27,6 +27,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/keys", tags=["API Keys"])
 
 
+def normalize_status(status: str) -> str:
+    """Normalize legacy status values to canonical ones
+    
+    Accepts legacy values (saved_untested, test_ok, test_failed) and
+    normalizes them to canonical values (configured_untested, configured_valid, configured_invalid)
+    for consistent API responses.
+    """
+    # Map legacy statuses to canonical ones
+    legacy_mapping = {
+        "saved_untested": ProviderStatus.CONFIGURED_UNTESTED.value,
+        "test_ok": ProviderStatus.CONFIGURED_VALID.value,
+        "test_failed": ProviderStatus.CONFIGURED_INVALID.value,
+    }
+    
+    # Return normalized status or original if already canonical
+    return legacy_mapping.get(status, status)
+
+
+def get_status_display(status: str) -> str:
+    """Get human-readable display text for canonical status"""
+    status_displays = {
+        ProviderStatus.NOT_CONFIGURED.value: "Not configured",
+        ProviderStatus.CONFIGURED_UNTESTED.value: "Configured (untested)",
+        ProviderStatus.CONFIGURED_VALID.value: "Valid ✅",
+        ProviderStatus.CONFIGURED_INVALID.value: "Invalid ❌",
+        ProviderStatus.CONFIGURED_RATE_LIMITED.value: "Rate limited ⏱️",
+    }
+    
+    return status_displays.get(status, status)
+
+
 class APIKeySaveRequest(BaseModel):
     """Request to save API key - strict schema, no additional properties"""
     model_config = {"extra": "forbid"}  # Strict: no additional properties allowed
@@ -109,8 +140,12 @@ async def get_keys_status(user_id: str = Depends(get_current_user)):
             key = next((k for k in saved_keys if k['provider'] == provider_id), None)
             
             if key:
+                # Normalize legacy status to canonical
+                raw_status = key.get("status", ProviderStatus.CONFIGURED_UNTESTED.value)
+                canonical_status = normalize_status(raw_status)
+                
                 status_map[provider_id] = {
-                    "status": key.get("status", ProviderStatus.CONFIGURED_UNTESTED.value),
+                    "status": canonical_status,
                     "last_tested_at": key.get("last_tested_at"),
                     "last_test_error": key.get("last_test_error"),
                     "updated_at": key.get("updated_at")
@@ -177,26 +212,29 @@ async def list_user_keys(user_id: str = Depends(get_current_user)):
                     "required_fields": provider_info['required_fields']
                 }
             else:
-                # Key exists, determine status
+                # Key exists, determine status based on test results
                 last_test_ok = saved_key.get("last_test_ok")
                 last_tested_at = saved_key.get("last_tested_at")
                 last_test_error = saved_key.get("last_test_error")
                 
+                # Determine canonical status
                 if last_test_ok is True:
-                    status = ProviderStatus.TEST_OK.value
-                    status_display = "Test OK ✅"
+                    status = ProviderStatus.CONFIGURED_VALID.value
                 elif last_test_ok is False:
-                    status = ProviderStatus.TEST_FAILED.value
-                    status_display = f"Test Failed ❌{' - ' + last_test_error if last_test_error else ''}"
+                    status = ProviderStatus.CONFIGURED_INVALID.value
                 else:
                     status = ProviderStatus.CONFIGURED_UNTESTED.value
-                    status_display = "Saved (untested)"
+                
+                # Get display text for canonical status
+                status_display = get_status_display(status)
+                if status == ProviderStatus.CONFIGURED_INVALID.value and last_test_error:
+                    status_display += f" - {last_test_error}"
                 
                 status_obj = {
                     "provider": provider_id,
                     "display_name": provider_info['display_name'],
                     "type": provider_info['type'],
-                    "status": status,
+                    "status": status,  # Canonical status
                     "status_display": status_display,
                     "icon": provider_info['icon'],
                     "required_fields": provider_info['required_fields'],
@@ -354,8 +392,8 @@ async def save_key(
             "success": True,
             "message": message,
             "provider": provider_id,
-            "status": ProviderStatus.CONFIGURED_UNTESTED.value,
-            "status_display": "Saved (untested)",
+            "status": ProviderStatus.CONFIGURED_UNTESTED.value,  # Canonical status
+            "status_display": get_status_display(ProviderStatus.CONFIGURED_UNTESTED.value),
             "updated_at": timestamp
         }
         
@@ -428,11 +466,13 @@ async def test_key(
         # Update database if testing saved key
         if not data.api_key:
             timestamp = datetime.now(timezone.utc).isoformat()
+            # Use canonical statuses
+            canonical_status = ProviderStatus.CONFIGURED_VALID.value if success else ProviderStatus.CONFIGURED_INVALID.value
             update_data = {
                 "last_tested_at": timestamp,
                 "last_test_ok": success,
                 "last_test_error": error_message if not success else None,
-                "status": ProviderStatus.TEST_OK.value if success else ProviderStatus.TEST_FAILED.value
+                "status": canonical_status
             }
             
             await db.api_keys_collection.update_one(
@@ -452,8 +492,8 @@ async def test_key(
                 "success": True,
                 "message": f"{provider_def.display_name} key is valid",
                 "provider": provider_id,
-                "status": ProviderStatus.TEST_OK.value,
-                "status_display": "Test OK ✅"
+                "status": ProviderStatus.CONFIGURED_VALID.value,  # Canonical status
+                "status_display": get_status_display(ProviderStatus.CONFIGURED_VALID.value)
             }
         else:
             logger.warning(f"❌ {provider_def.display_name} key test failed for user {user_id[:8]}, provider: {provider_id}: {error_message}")
@@ -461,8 +501,8 @@ async def test_key(
                 "success": False,
                 "message": f"Test failed: {error_message}",
                 "provider": provider_id,
-                "status": ProviderStatus.TEST_FAILED.value,
-                "status_display": f"Test Failed ❌"
+                "status": ProviderStatus.CONFIGURED_INVALID.value,  # Canonical status
+                "status_display": get_status_display(ProviderStatus.CONFIGURED_INVALID.value)
             }
         
     except HTTPException:
@@ -521,24 +561,23 @@ async def get_key(
                 detail=f"No API key found for {provider_def.display_name}"
             )
         
-        # Build response
+        # Build response with canonical statuses
         last_test_ok = saved_key.get("last_test_ok")
         
         if last_test_ok is True:
-            status = ProviderStatus.TEST_OK.value
-            status_display = "Test OK ✅"
+            status = ProviderStatus.CONFIGURED_VALID.value
         elif last_test_ok is False:
-            status = ProviderStatus.TEST_FAILED.value
-            status_display = f"Test Failed ❌"
+            status = ProviderStatus.CONFIGURED_INVALID.value
         else:
             status = ProviderStatus.CONFIGURED_UNTESTED.value
-            status_display = "Saved (untested)"
+        
+        status_display = get_status_display(status)
         
         return {
             "success": True,
             "provider": provider,
             "display_name": provider_def.display_name,
-            "status": status,
+            "status": status,  # Canonical status
             "status_display": status_display,
             "created_at": saved_key.get("created_at"),
             "updated_at": saved_key.get("updated_at"),
