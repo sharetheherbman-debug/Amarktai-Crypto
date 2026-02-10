@@ -3,7 +3,7 @@
 # Verifies all critical fixes for production go-live
 # Run on VPS: bash scripts/verify_live.sh
 
-set -e
+set +e
 
 # Configuration
 BASE_URL="${BASE_URL:-https://www.amarktai.online}"
@@ -63,12 +63,12 @@ check_endpoint() {
     
     if [ "$HTTP_CODE" = "$expected_code" ]; then
         echo -e "${GREEN}✅ PASS${NC} (HTTP $HTTP_CODE)"
-        ((PASSED++))
+        PASSED=$((PASSED+1))
         return 0
     else
         echo -e "${RED}❌ FAIL${NC} (HTTP $HTTP_CODE, expected $expected_code)"
         echo "Response: $BODY" | head -3
-        ((FAILURES++))
+        FAILURES=$((FAILURES+1))
         return 1
     fi
 }
@@ -91,22 +91,22 @@ check_json() {
     if echo "$RESPONSE" | jq . >/dev/null 2>&1; then
         if [ -n "$search_string" ] && echo "$RESPONSE" | grep -q "$search_string"; then
             echo -e "${GREEN}✅ PASS${NC} (Valid JSON, contains '$search_string')"
-            ((PASSED++))
+            PASSED=$((PASSED+1))
             return 0
         elif [ -z "$search_string" ]; then
             echo -e "${GREEN}✅ PASS${NC} (Valid JSON)"
-            ((PASSED++))
+            PASSED=$((PASSED+1))
             return 0
         else
             echo -e "${RED}❌ FAIL${NC} (Valid JSON but missing '$search_string')"
             echo "Response: $RESPONSE" | head -5
-            ((FAILURES++))
+            FAILURES=$((FAILURES+1))
             return 1
         fi
     else
         echo -e "${RED}❌ FAIL${NC} (Invalid JSON)"
         echo "Response: $RESPONSE" | head -5
-        ((FAILURES++))
+        FAILURES=$((FAILURES+1))
         return 1
     fi
 }
@@ -124,20 +124,20 @@ if echo "$OPENAPI_RESPONSE" | jq . >/dev/null 2>&1; then
     if [ "$OPENAPI_SIZE" -gt "$MIN_OPENAPI_SIZE" ]; then
         if echo "$OPENAPI_RESPONSE" | grep -q "/api/auth/login"; then
             echo -e "${GREEN}✅ PASS${NC} (Valid JSON, ${OPENAPI_SIZE} bytes, contains /api/auth/login)"
-            ((PASSED++))
+            PASSED=$((PASSED+1))
         else
             echo -e "${RED}❌ FAIL${NC} (Valid JSON but missing /api/auth/login)"
-            ((FAILURES++))
+            FAILURES=$((FAILURES+1))
         fi
     else
         echo -e "${RED}❌ FAIL${NC} (JSON too small: ${OPENAPI_SIZE} bytes, expected >50KB)"
         echo "This suggests React index.html is being served instead of FastAPI OpenAPI spec"
-        ((FAILURES++))
+        FAILURES=$((FAILURES+1))
     fi
 else
     echo -e "${RED}❌ FAIL${NC} (Invalid JSON)"
     echo "First 200 chars: ${OPENAPI_RESPONSE:0:200}"
-    ((FAILURES++))
+    FAILURES=$((FAILURES+1))
 fi
 
 check_endpoint "Docs UI" "$BASE_URL/api/docs" 200
@@ -186,7 +186,7 @@ fi
 
 if [ "$HAS_ACCESS_TOKEN" = "true" ] && [ "$HAS_TOKEN_TYPE" = "true" ] && [ "$HAS_TOKEN_FIELD" = "false" ] && [ "$HAS_USER_FIELD" = "false" ]; then
     echo -e "${GREEN}✅ PASS${NC} (Has access_token + token_type only, no duplicate token/user fields)"
-    ((PASSED++))
+    PASSED=$((PASSED+1))
 elif echo "$LOGIN_RESPONSE" | grep -q "Invalid email or password"; then
     echo -e "${YELLOW}⚠️  SKIP${NC} (Test credentials not found - expected in production)"
     echo "   Note: Login response structure must have 'access_token' + 'token_type' only"
@@ -205,7 +205,7 @@ else
         echo "   Found unwanted: user (should not be in auth response)"
     fi
     echo "Response: $LOGIN_RESPONSE" | head -3
-    ((FAILURES++))
+    FAILURES=$((FAILURES+1))
 fi
 
 echo ""
@@ -219,21 +219,21 @@ echo -e "${YELLOW}ℹ️  Note: Authenticated API key endpoints require valid JW
 
 # Check for canonical API key statuses in OpenAPI spec
 echo -n "Checking for canonical API key statuses... "
-if echo "$OPENAPI_RESPONSE" | grep -q "configured_untested\|configured_valid\|configured_invalid"; then
+if echo "$OPENAPI_RESPONSE" | grep -q "not_configured\|saved_untested\|test_ok\|test_failed"; then
     echo -e "${GREEN}✅ PASS${NC} (Canonical statuses present in API spec)"
-    ((PASSED++))
+    PASSED=$((PASSED+1))
 else
     echo -e "${RED}❌ FAIL${NC} (Canonical statuses not found in API spec)"
-    echo "   Expected: configured_untested, configured_valid, configured_invalid"
-    ((FAILURES++))
+    echo "   Expected: not_configured, saved_untested, test_ok, test_failed"
+    FAILURES=$((FAILURES+1))
 fi
 
 # Check that legacy statuses are NOT exposed in OpenAPI paths (should be normalized)
 echo -n "Checking legacy status removal... "
-LEGACY_CHECK=$(echo "$OPENAPI_RESPONSE" | grep -E "saved_untested|test_ok|test_failed" | grep -v "description\|comment" || true)
+LEGACY_CHECK=$(echo "$OPENAPI_RESPONSE" | grep -E "configured_untested|configured_valid|configured_invalid" | grep -v "description\|comment" || true)
 if [ -z "$LEGACY_CHECK" ]; then
     echo -e "${GREEN}✅ PASS${NC} (No legacy statuses in API responses)"
-    ((PASSED++))
+    PASSED=$((PASSED+1))
 else
     echo -e "${YELLOW}⚠️  WARN${NC} (Legacy statuses still in OpenAPI - may be in descriptions)"
     echo "   This is OK if only in descriptions/comments"
@@ -257,11 +257,11 @@ echo -n "Checking for banned exchanges... "
 OPENAPI_CHECK=$(echo "$OPENAPI_RESPONSE" | grep -i "valr\|ovex" || true)
 if [ -z "$OPENAPI_CHECK" ]; then
     echo -e "${GREEN}✅ PASS${NC} (No valr/ovex in OpenAPI)"
-    ((PASSED++))
+    PASSED=$((PASSED+1))
 else
     echo -e "${RED}❌ FAIL${NC} (Found banned exchanges: valr/ovex)"
     echo "$OPENAPI_CHECK"
-    ((FAILURES++))
+    FAILURES=$((FAILURES+1))
 fi
 
 # Note about route collision detection
@@ -283,7 +283,7 @@ echo -n "Checking index.html references /static/js/... "
 INDEX_HTML=$(curl -s --connect-timeout 10 "$BASE_URL/" 2>/dev/null || echo "")
 if echo "$INDEX_HTML" | grep -q "/static/js/"; then
     echo -e "${GREEN}✅ PASS${NC} (index.html references /static/js/)"
-    ((PASSED++))
+    PASSED=$((PASSED+1))
     
     # Extract JS bundle URL and verify it's accessible
     JS_URL=$(echo "$INDEX_HTML" | grep -oP '/static/js/main\.[^"]+\.js' | head -1 || echo "")
@@ -294,13 +294,13 @@ if echo "$INDEX_HTML" | grep -q "/static/js/"; then
             JS_SIZE=$(curl -sI --connect-timeout 10 "$BASE_URL$JS_URL" 2>/dev/null | grep -i content-length | awk '{print $2}' | tr -d '\r' || echo "0")
             if [ "${JS_SIZE:-0}" -gt 51200 ]; then
                 echo -e "${GREEN}✅ PASS${NC} (HTTP 200, ${JS_SIZE} bytes > 50KB)"
-                ((PASSED++))
+                PASSED=$((PASSED+1))
             else
                 echo -e "${YELLOW}⚠️  WARN${NC} (HTTP 200 but size ${JS_SIZE} bytes < 50KB)"
             fi
         else
             echo -e "${RED}❌ FAIL${NC} (HTTP $JS_CODE)"
-            ((FAILURES++))
+            FAILURES=$((FAILURES+1))
         fi
     fi
     
@@ -309,7 +309,7 @@ if echo "$INDEX_HTML" | grep -q "/static/js/"; then
     MANIFEST_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "$BASE_URL/asset-manifest.json" 2>/dev/null || echo "000")
     if [ "$MANIFEST_CODE" = "200" ]; then
         echo -e "${GREEN}✅ PASS${NC} (HTTP 200)"
-        ((PASSED++))
+        PASSED=$((PASSED+1))
     else
         echo -e "${YELLOW}⚠️  WARN${NC} (HTTP $MANIFEST_CODE)"
     fi
@@ -322,7 +322,7 @@ echo -n "Checking for footer copyright text... "
 FRONTEND_RESPONSE=$(curl -s "$BASE_URL/" 2>&1)
 if echo "$FRONTEND_RESPONSE" | grep -q "Part of Amarktai Network\|© 2026 Amarktai"; then
     echo -e "${GREEN}✅ PASS${NC} (Copyright text present in frontend)"
-    ((PASSED++))
+    PASSED=$((PASSED+1))
 else
     echo -e "${YELLOW}⚠️  WARN${NC} (Copyright text not found - may be in JS bundle)"
     echo "   Frontend is a React SPA - copyright is rendered by JS"
@@ -336,13 +336,13 @@ if [ -f "frontend/src/components/AIChatPanel.js" ]; then
         echo "   Check if it's in blockedPhrases or handled locally"
     else
         echo -e "${GREEN}✅ PASS${NC} (No 'show admin' in AIChatPanel blockedPhrases)"
-        ((PASSED++))
+        PASSED=$((PASSED+1))
     fi
 elif [ -f "frontend/src/pages/Dashboard.js" ]; then
     # Dashboard.js handles admin unlock locally
     if grep -q "show admin" frontend/src/pages/Dashboard.js | grep -v "blocked"; then
         echo -e "${GREEN}✅ PASS${NC} (Admin unlock handled in Dashboard)"
-        ((PASSED++))
+        PASSED=$((PASSED+1))
     else
         echo -e "${YELLOW}⚠️  WARN${NC} (Could not verify admin unlock in Dashboard)"
     fi
