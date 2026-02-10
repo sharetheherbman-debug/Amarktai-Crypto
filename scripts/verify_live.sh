@@ -11,6 +11,8 @@ MIN_OPENAPI_SIZE=50000  # Minimum expected OpenAPI JSON size (bytes)
 MAX_RETRIES=3
 RETRY_DELAY=5
 EXPECTED_EXCHANGE_IDS=(luno binance kucoin bybit kraken bitget gate)
+BANNED_EXCHANGE_IDS=(valr ovex)
+BANNED_EXCHANGE_PATTERN=$(IFS='|'; echo "${BANNED_EXCHANGE_IDS[*]}")
 
 # Colors
 GREEN='\033[0;32m'
@@ -143,7 +145,7 @@ check_exchange_providers() {
 
     EXPECTED_EXCHANGES=$(printf "%s\n" "${EXPECTED_EXCHANGE_IDS[@]}")
     ACTUAL_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[] | select(.type=="exchange") | .id')
-    BANNED_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[].id' | grep -i -E '^(valr|ovex)$' || true)
+    BANNED_EXCHANGES=$(echo "$RESPONSE" | jq -r '.providers[].id' | grep -i -E "^(${BANNED_EXCHANGE_PATTERN})$" || true)
 
     SORTED_EXPECTED=$(echo "$EXPECTED_EXCHANGES" | sort)
     SORTED_ACTUAL=$(echo "$ACTUAL_EXCHANGES" | sort)
