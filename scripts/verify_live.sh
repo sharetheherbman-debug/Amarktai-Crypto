@@ -147,8 +147,8 @@ check_exchange_providers() {
 
     SORTED_EXPECTED=$(echo "$EXPECTED_EXCHANGES" | sort)
     SORTED_ACTUAL=$(echo "$ACTUAL_EXCHANGES" | sort)
-    MISSING_EXCHANGES=$(comm -23 <(printf "%s\n" "$SORTED_EXPECTED") <(printf "%s\n" "$SORTED_ACTUAL"))
-    EXTRA_EXCHANGES=$(comm -13 <(printf "%s\n" "$SORTED_EXPECTED") <(printf "%s\n" "$SORTED_ACTUAL"))
+    MISSING_EXCHANGES=$(comm -23 <(echo "$SORTED_EXPECTED") <(echo "$SORTED_ACTUAL"))
+    EXTRA_EXCHANGES=$(comm -13 <(echo "$SORTED_EXPECTED") <(echo "$SORTED_ACTUAL"))
 
     if [ -z "$MISSING_EXCHANGES" ] && [ -z "$EXTRA_EXCHANGES" ] && [ -z "$BANNED_EXCHANGES" ]; then
         echo -e "${GREEN}✅ PASS${NC} (Exchange providers match expected list)"
