@@ -13,8 +13,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = SCRIPT_DIR.parent / 'backend'
 VENV_PY = BACKEND_DIR / '.venv' / 'bin' / 'python'
 
-if VENV_PY.exists() and Path(sys.executable).resolve() != VENV_PY.resolve() and not os.getenv("AMARKTAI_VENV_SKIP"):
-    os.environ["AMARKTAI_VENV_SKIP"] = "1"
+if VENV_PY.exists() and Path(sys.executable).resolve() != VENV_PY.resolve() and not os.getenv("AMK_VENV_SKIP"):
+    os.environ["AMK_VENV_SKIP"] = "1"
     os.execv(str(VENV_PY), [str(VENV_PY), str(Path(__file__).resolve())] + sys.argv[1:])
 
 # Add backend to path

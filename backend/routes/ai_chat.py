@@ -221,9 +221,10 @@ async def ai_chat(
         content = message.get('content', '')
         request_action = message.get('request_action', False)
         confirmation_token = message.get('confirmation_token')
+        user_tag = user_id[:8] if user_id else "unknown"
         logger.info(
             "AI chat request user=%s message_length=%d request_action=%s",
-            user_id[:8],
+            user_tag,
             len(content or ""),
             request_action
         )
@@ -338,7 +339,7 @@ async def ai_chat(
                 user_api_key, key_source = await resolve_openai_key(user_id)
                 logger.info(
                     "AI chat key lookup user=%s provider=openai found=%s source=%s",
-                    user_id[:8],
+                    user_tag,
                     bool(user_api_key),
                     key_source
                 )
@@ -356,7 +357,11 @@ async def ai_chat(
                 # Use AsyncOpenAI client (openai>=1.x) with user's key
                 from openai import AsyncOpenAI
                 
-                request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+                try:
+                    request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+                except ValueError:
+                    request_timeout = 30.0
+                    logger.warning("Invalid OPENAI_TIMEOUT_SECONDS value, defaulting to 30s")
                 
                 # Create client with user's API key
                 client = AsyncOpenAI(api_key=user_api_key, timeout=request_timeout)
@@ -433,7 +438,7 @@ Instructions:
                     try:
                         logger.info(
                             "AI chat OpenAI call user=%s model=%s",
-                            user_id[:8],
+                            user_tag,
                             test_model
                         )
                         response = await asyncio.wait_for(
@@ -445,11 +450,11 @@ Instructions:
                             ),
                             timeout=request_timeout
                         )
-                        ai_response = response.choices[0].message.content if response.choices else None
+                        ai_response = response.choices[0].message.content if response.choices else ""
                         model_used = test_model
                         logger.info(
                             "AI chat response user=%s model=%s response_length=%d",
-                            user_id[:8],
+                            user_tag,
                             model_used,
                             len(ai_response or "")
                         )
@@ -468,7 +473,7 @@ Instructions:
                             raise model_error
                         raise model_error
                 
-                if not ai_response or not str(ai_response).strip():
+                if not ai_response or not ai_response.strip():
                     # All models failed
                     return build_ai_error_response(
                         status_code=502,

@@ -2,6 +2,7 @@
 # Go-Live Smoke Test Script
 # Verifies all critical functionality before go-live
 # Uses environment variables for credentials
+# Usage: ./scripts/go_live_smoke.sh [BASE_URL] [EMAIL] [PASSWORD]
 
 set -euo pipefail
 

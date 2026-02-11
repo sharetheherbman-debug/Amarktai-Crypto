@@ -57,6 +57,11 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const resolveSystemMode = (modeRes) => {
+  if (!modeRes) return 'paper';
+  return modeRes.mode || (modeRes.liveTrading ? 'live' : modeRes.autopilot ? 'autonomous' : 'paper');
+};
+
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
   const num = Number(value);
   return Number.isFinite(num) ? num.toFixed(digits) : fallback;
@@ -990,7 +995,7 @@ export default function Dashboard() {
       
       // Fetch system mode
       const modeRes = await get('/system/mode');
-      const systemMode = modeRes?.mode || (modeRes?.liveTrading ? 'live' : modeRes?.autopilot ? 'autonomous' : 'paper');
+      const systemMode = resolveSystemMode(modeRes);
       
       // Get last trade time
       const tradesRes = await get('/trades/recent?limit=1');

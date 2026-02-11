@@ -76,13 +76,21 @@ PY
 
 print_info "Calling /api/ai/chat..."
 tmpfile=$(mktemp)
-status_code=$(curl -s -o "$tmpfile" -w "%{http_code}" -X POST "$BASE_URL/api/ai/chat" \
+curl -s -o "$tmpfile" -w "%{http_code}" -X POST "$BASE_URL/api/ai/chat" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "$chat_payload" || true)
+  -d "$chat_payload" > "${tmpfile}.code"
+curl_status=$?
+if [ "$curl_status" -ne 0 ]; then
+  rm -f "$tmpfile" "${tmpfile}.code"
+  print_fail "AI chat request failed to execute (curl exit code $curl_status)."
+  exit 1
+fi
+
+status_code=$(cat "${tmpfile}.code")
 
 response_body=$(cat "$tmpfile")
-rm -f "$tmpfile"
+rm -f "$tmpfile" "${tmpfile}.code"
 
 success=$(python3 - <<'PY'
 import json, sys
