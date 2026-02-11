@@ -75,10 +75,12 @@ class LiveTradingEngine:
         return symbol_map.get(exchange_name, {}).get(symbol, symbol)
     
     async def get_real_price(self, exchange: ccxt.Exchange, symbol: str) -> Optional[float]:
-        """Get real current price from exchange"""
+        """Get real current price from unified market data"""
         try:
-            ticker = await asyncio.to_thread(exchange.fetch_ticker, symbol)
-            return ticker.get('last') or ticker.get('close')
+            from paper_trading_engine import paper_engine
+
+            snapshot = await paper_engine.get_market_snapshot(symbol, exchange.id if exchange else "luno")
+            return snapshot.get("mid")
         except Exception as e:
             logger.error(f"Failed to fetch price for {symbol}: {e}")
             return None

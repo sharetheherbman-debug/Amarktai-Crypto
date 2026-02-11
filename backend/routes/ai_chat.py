@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
 import logging
 import json
+import os
 
 from auth import get_current_user
 import database as db
@@ -23,6 +24,34 @@ ai_brain = AISuperBrain()
 
 # Action confirmation tokens storage (in production, use Redis)
 confirmation_tokens = {}
+
+ALLOW_ENV_OPENAI_KEY = os.getenv("ALLOW_ENV_OPENAI_KEY", "false").lower() == "true"
+last_ai_error: Optional[Dict] = None
+
+
+async def resolve_openai_key(user_id: str) -> tuple[Optional[str], str]:
+    """Resolve OpenAI API key using canonical priority."""
+    from routes.api_key_management import get_decrypted_key
+
+    key_data = await get_decrypted_key(user_id, "openai")
+    if key_data and key_data.get("api_key"):
+        return key_data.get("api_key"), "user"
+
+    if ALLOW_ENV_OPENAI_KEY:
+        env_key = os.getenv("OPENAI_API_KEY")
+        if env_key:
+            return env_key, "env"
+
+    return None, "none"
+
+
+def record_ai_error(code: str, message: str) -> None:
+    global last_ai_error
+    last_ai_error = {
+        "code": code,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 class AIActionRouter:
@@ -269,37 +298,20 @@ async def ai_chat(
                 ai_response = "Invalid confirmation token or unauthorized."
         else:
             # Generate AI response with OpenAI - CANONICAL KEY RETRIEVAL + MODEL FALLBACK
+            error_code = None
             try:
-                # Import get_decrypted_key to load user's saved key
-                from routes.api_key_management import get_decrypted_key
-                import os
-                
-                # CANONICAL KEY RETRIEVAL - Priority order:
-                # 1. User-saved key from database (preferred)
-                # 2. Env/system key fallback (OPENAI_API_KEY)
-                # 3. Error with deterministic guidance
-                key_data = await get_decrypted_key(user_id, "openai")
-                user_api_key = None
-                key_source = None
-                
-                if key_data and key_data.get("api_key"):
-                    user_api_key = key_data.get("api_key")
-                    key_source = "user"
-                else:
-                    # Fallback to env key
-                    user_api_key = os.getenv("OPENAI_API_KEY")
-                    if user_api_key:
-                        key_source = "env"
+                user_api_key, key_source = await resolve_openai_key(user_id)
                 
                 if not user_api_key:
-                    # Deterministic JSON error (no random assistant text)
+                    record_ai_error("no_api_key", "OpenAI API key not configured")
                     return {
                         "role": "assistant",
                         "content": "❌ AI service not configured. Please save your OpenAI API key in Settings → API Keys.",
                         "error": "no_api_key",
                         "guidance": "Save your OpenAI API key to enable AI features.",
                         "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "system_state": system_state
+                        "system_state": system_state,
+                        "key_source": "none"
                     }
                 
                 # Use AsyncOpenAI client (openai>=1.x) with user's key
@@ -310,8 +322,11 @@ async def ai_chat(
                 
                 # MODEL FALLBACK - Same as keys/test
                 fallback_models = []
+                primary_model = os.getenv("OPENAI_MODEL")
+                if primary_model:
+                    fallback_models.append(primary_model)
                 fallback_env = os.getenv("OPENAI_FALLBACK_MODEL")
-                if fallback_env:
+                if fallback_env and fallback_env not in fallback_models:
                     fallback_models.append(fallback_env)
                 
                 # Safe ordered allowlist (prefer cheap models for chat)
@@ -319,6 +334,16 @@ async def ai_chat(
                 for m in allowlist:
                     if m not in fallback_models:
                         fallback_models.append(m)
+                if not fallback_models:
+                    record_ai_error("model_not_set", "No OpenAI model configured")
+                    return {
+                        "role": "assistant",
+                        "content": "❌ AI model not configured. Set OPENAI_MODEL in environment.",
+                        "error": "model_not_set",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "system_state": system_state,
+                        "key_source": key_source
+                    }
                 
                 # Prepare context for AI
                 context = f"""You are an AI trading assistant for the Amarktai Network.
@@ -381,12 +406,17 @@ Instructions:
                         if "404" in error_str or "model_not_found" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
                             logger.info(f"AI chat model {test_model} unavailable, trying next")
                             continue
-                        else:
-                            # Other error - don't continue fallback
+                        if "401" in error_str or "invalid_api_key" in error_str.lower():
+                            error_code = "invalid_key"
                             raise model_error
+                        if "429" in error_str:
+                            error_code = "upstream_429"
+                            raise model_error
+                        raise model_error
                 
                 if not ai_response:
                     # All models failed
+                    record_ai_error("all_models_failed", "All configured OpenAI models failed")
                     return {
                         "role": "assistant",
                         "content": "❌ AI models unavailable. Please check your OpenAI API key permissions.",
@@ -434,8 +464,16 @@ Instructions:
             
             except Exception as e:
                 logger.error(f"OpenAI API error: {e}")
+                error_str = str(e)
+                if error_code is None:
+                    if "401" in error_str or "invalid_api_key" in error_str.lower():
+                        error_code = "invalid_key"
+                    elif "429" in error_str:
+                        error_code = "upstream_429"
+                    else:
+                        error_code = "upstream_error"
+                record_ai_error(error_code, error_str)
                 ai_response = "I'm having trouble connecting to my AI services. Please try again."
-                key_source = None
                 model_used = None
         
         # Save AI response
@@ -458,6 +496,7 @@ Instructions:
             "content": ai_response,
             "key_source": key_source if 'key_source' in locals() else None,
             "model_used": model_used if 'model_used' in locals() else None,
+            "error": error_code,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "system_state": system_state
         }
@@ -659,23 +698,17 @@ async def get_daily_greeting(user_id: str = Depends(get_current_user)):
         
         # Get API key for OpenAI
         try:
-            from routes.api_key_management import get_decrypted_key
-            import os
-            
-            key_data = await get_decrypted_key(user_id, "openai")
-            user_api_key = None
-            
-            if key_data and key_data.get("api_key"):
-                user_api_key = key_data.get("api_key")
-            else:
-                user_api_key = os.getenv("OPENAI_API_KEY")
+            user_api_key, key_source = await resolve_openai_key(user_id)
             
             if not user_api_key:
+                record_ai_error("no_api_key", "OpenAI API key not configured")
                 return {
                     "role": "assistant",
                     "content": f"Good morning, {user_name}! 👋\n\nI'm your AI trading assistant, but I need an OpenAI API key to provide intelligent insights. Please save your API key in Settings → API Keys.\n\n{daily_summary}\n\nCurrent System:\n- Total Bots: {system_state['bots']['total']} (Active: {system_state['bots']['active']})\n- Total Capital: R{system_state['capital']['total']:.2f}\n- Total Profit: R{system_state['capital']['total_profit']:.2f}",
                     "timestamp": now.isoformat(),
-                    "is_greeting": True
+                    "is_greeting": True,
+                    "error": "no_api_key",
+                    "key_source": key_source
                 }
             
             # Generate greeting with OpenAI
@@ -733,6 +766,13 @@ Keep it conversational, under 150 words. Use emojis sparingly."""
         
         except Exception as e:
             logger.error(f"OpenAI greeting generation error: {e}")
+            error_str = str(e)
+            if "401" in error_str or "invalid_api_key" in error_str.lower():
+                record_ai_error("invalid_key", error_str)
+            elif "429" in error_str:
+                record_ai_error("upstream_429", error_str)
+            else:
+                record_ai_error("upstream_error", error_str)
             # Fallback greeting
             greeting_content = f"Good morning, {user_name}! 👋\n\n{daily_summary}\n\nCurrent System:\n- Total Bots: {system_state['bots']['total']} (Active: {system_state['bots']['active']})\n- Total Capital: R{system_state['capital']['total']:.2f}\n- Total Profit: R{system_state['capital']['total_profit']:.2f}\n\nHow can I assist you today?"
         
@@ -768,6 +808,25 @@ Keep it conversational, under 150 words. Use emojis sparingly."""
     
     except Exception as e:
         logger.error(f"Daily greeting error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/health")
+async def ai_health(user_id: str = Depends(get_current_user)):
+    """AI health check for current user."""
+    try:
+        key, key_source = await resolve_openai_key(user_id)
+        primary_model = os.getenv("OPENAI_MODEL")
+        fallback_model = os.getenv("OPENAI_FALLBACK_MODEL")
+        model = primary_model or fallback_model or "gpt-4o-mini"
+        return {
+            "key_present": bool(key),
+            "key_source": key_source if key else "none",
+            "model": model,
+            "last_error": last_ai_error
+        }
+    except Exception as e:
+        logger.error(f"AI health error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -7,7 +7,7 @@ const WalletOverview = () => {
   const [requirements, setRequirements] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const backendUrl = process.env.REACT_APP_API_BASE || '';
+  const backendUrl = API_BASE;
 
   useEffect(() => {
     loadWalletData();
@@ -21,8 +21,8 @@ const WalletOverview = () => {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [balancesRes, requirementsRes] = await Promise.all([
-        axios.get(`${backendUrl}/api/wallet/balances`, { headers }),
-        axios.get(`${backendUrl}/api/wallet/requirements`, { headers })
+        axios.get(`${backendUrl}/wallet/balances`, { headers }),
+        axios.get(`${backendUrl}/wallet/requirements`, { headers })
       ]);
 
       setBalances(balancesRes.data);

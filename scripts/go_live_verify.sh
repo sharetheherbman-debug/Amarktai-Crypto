@@ -71,8 +71,12 @@ resp, _ = request_json("GET", "/api/health/ping")
 report(resp.status_code == 200, "/api/health/ping returns 200")
 
 # 2) Login + JWT
-email = input("Email: ").strip()
-password = getpass.getpass("Password: ").strip()
+interactive = sys.stdin.isatty()
+email = os.getenv("AMARKTAI_EMAIL") or (input("Email: ").strip() if interactive else "")
+password = os.getenv("AMARKTAI_PASSWORD") or (getpass.getpass("Password: ").strip() if interactive else "")
+if not email or not password:
+    report(False, "Email/password required (set AMARKTAI_EMAIL and AMARKTAI_PASSWORD)")
+    sys.exit(1)
 resp, data = request_json("POST", "/api/auth/login", payload={"email": email, "password": password})
 token = data.get("access_token")
 report(resp.status_code == 200 and token, "Login returned JWT token")
@@ -103,7 +107,7 @@ else:
     report(True, "No recent trades to validate fields (skipped)")
 
 # 4) Admin overview correctness
-admin_password = getpass.getpass("Admin password (optional, press Enter to skip admin overview): ").strip()
+admin_password = os.getenv("ADMIN_PASSWORD") or os.getenv("AMARKTAI_ADMIN_PASSWORD") or (getpass.getpass("Admin password (optional, press Enter to skip admin overview): ").strip() if interactive else "")
 admin_token = token
 mongo = MongoClient(MONGO_URL)
 db = mongo[DB_NAME]
@@ -217,7 +221,7 @@ else:
 # Wallet transfer endpoints (optional simulation)
 resp, transfers = request_json("GET", "/api/wallet/transfers", token=token)
 report(resp.status_code == 200, "Wallet transfer history endpoint reachable")
-transfer_phrase = input('Type "TEST WALLET TRANSFER" to simulate a transfer (or press Enter to skip): ')
+transfer_phrase = input('Type "TEST WALLET TRANSFER" to simulate a transfer (or press Enter to skip): ') if interactive else ""
 if transfer_phrase == "TEST WALLET TRANSFER":
     payload = {
         "from_exchange": "luno",
@@ -265,7 +269,7 @@ resp, mode_data = request_json("GET", "/api/system/mode", token=token)
 mode_ok = resp.status_code == 200 and mode_data.get("paperTrading") is True
 report(mode_ok, "System mode defaults to paper")
 
-phrase = input('Type EXACT confirmation phrase to attempt live switch (or press Enter to skip): ')
+phrase = input('Type EXACT confirmation phrase to attempt live switch (or press Enter to skip): ') if interactive else ""
 if phrase == "I UNDERSTAND LIVE TRADING USES REAL FUNDS":
     resp, toggle = request_json(
         "PUT",

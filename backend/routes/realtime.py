@@ -7,11 +7,11 @@ Connected to actual database changes and system events via event bus.
 import asyncio
 import json
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 import logging
 
-from auth import get_current_user
+from auth import decode_token
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -229,7 +229,10 @@ async def _event_generator(user_id: str):
 
 
 @router.get("/events")
-async def realtime_events(user_id: str = Depends(get_current_user)) -> StreamingResponse:
+async def realtime_events(
+    request: Request,
+    token: str = Query(default=None)
+) -> StreamingResponse:
     """Server‑Sent Events endpoint for real‑time updates.
     
     Connected to actual database changes and system events.
@@ -250,6 +253,17 @@ async def realtime_events(user_id: str = Depends(get_current_user)) -> Streaming
     - performance_update: Performance metrics
     - wallet_update: Wallet balance changes
     """
+    user_id = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    if token:
+        payload = decode_token(token)
+        user_id = payload.get("sub") or payload.get("user_id")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required for realtime events")
+
     logger.info(f"SSE connection established for user {user_id[:8]}")
     return StreamingResponse(
         _event_generator(user_id), 

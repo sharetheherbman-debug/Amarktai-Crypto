@@ -6,7 +6,7 @@
  * alerts, system_health, wallet, ai_tasks
  */
 
-import { wsUrl } from './api';
+import { wsUrl, API_BASE } from './api';
 
 class RealtimeClient {
   constructor() {
@@ -209,9 +209,8 @@ class RealtimeClient {
     this.emit('connection', { status: 'connected', mode: 'sse' });
 
     try {
-      const eventSource = new EventSource('/api/realtime/events', {
-        withCredentials: true
-      });
+      const tokenParam = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
+      const eventSource = new EventSource(`${API_BASE}/realtime/events${tokenParam}`);
 
       eventSource.onopen = () => {
         console.log('✅ SSE connected');

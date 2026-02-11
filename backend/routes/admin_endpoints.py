@@ -108,6 +108,10 @@ class PurgeDeletedBotsRequest(BaseModel):
     days: Optional[int] = Field(None, ge=0, description="Only purge bots deleted more than N days ago")
 
 
+class ResetBotLocksRequest(BaseModel):
+    reason: str = Field("Admin reset locks", description="Reason for clearing safety locks")
+
+
 @router.post("/unlock")
 async def unlock_admin_panel(
     request: AdminUnlockRequest,
@@ -198,6 +202,77 @@ async def unlock_admin_panel(
         raise
     except Exception as e:
         logger.error(f"Admin unlock error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ADMIN HEALTH / STATUS
+# ============================================================================
+
+@router.get("/health")
+async def admin_health(admin_id: str = Depends(require_admin)):
+    """Admin health check including database and scheduler state."""
+    try:
+        db_status = "unknown"
+        try:
+            if db.client is not None:
+                await db.client.admin.command("ping")
+                db_status = "ok"
+            else:
+                db_status = "disconnected"
+        except Exception as e:
+            logger.warning(f"DB ping failed: {e}")
+            db_status = "error"
+
+        from trading_scheduler import trading_scheduler
+        scheduler_status = {
+            "running": trading_scheduler.is_running,
+            "last_heartbeat": trading_scheduler.last_heartbeat.isoformat() if trading_scheduler.last_heartbeat else None
+        }
+
+        return {
+            "status": "ok" if db_status == "ok" else "degraded",
+            "database": {"status": db_status},
+            "scheduler": scheduler_status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Admin health error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status")
+async def admin_status(admin_id: str = Depends(require_admin)):
+    """Admin status summary including system modes and counts."""
+    try:
+        modes = await db.system_modes_collection.find_one({"user_id": admin_id}, {"_id": 0}) or {}
+
+        total_users = await db.users_collection.count_documents({})
+        total_bots = await db.bots_collection.count_documents({"status": {"$ne": "deleted"}})
+        active_bots = await db.bots_collection.count_documents({"status": "active"})
+        paused_bots = await db.bots_collection.count_documents({"status": "paused"})
+        total_trades = await db.trades_collection.count_documents({})
+
+        from trading_scheduler import trading_scheduler
+        scheduler_status = {
+            "running": trading_scheduler.is_running,
+            "last_heartbeat": trading_scheduler.last_heartbeat.isoformat() if trading_scheduler.last_heartbeat else None
+        }
+
+        return {
+            "system_mode": modes,
+            "scheduler": scheduler_status,
+            "counts": {
+                "users": total_users,
+                "bots": total_bots,
+                "active_bots": active_bots,
+                "paused_bots": paused_bots,
+                "trades": total_trades
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Admin status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1545,6 +1620,62 @@ async def restart_bot(
         raise
     except Exception as e:
         logger.error(f"Restart bot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bots/{bot_id}/reset-locks")
+async def reset_bot_locks(
+    bot_id: str,
+    request: ResetBotLocksRequest,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Reset safety lock flags for a bot (admin-only)."""
+    try:
+        bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        await db.bots_collection.update_one(
+            {"id": bot_id},
+            {
+                "$set": {
+                    "status": "paused",
+                    "pause_reason": request.reason,
+                    "paused_at": datetime.now(timezone.utc).isoformat(),
+                    "paused_by_system": False,
+                    "paused_by_bodyguard": False,
+                    "requires_manual_reset": False
+                },
+                "$unset": {
+                    "quarantine_reason": "",
+                    "quarantined_at": "",
+                    "retraining_until": "",
+                    "bodyguard_pause_threshold": "",
+                    "bodyguard_pause_drawdown": ""
+                }
+            }
+        )
+
+        await log_admin_action(
+            admin_id=admin_id,
+            action="reset_bot_locks",
+            target_type="bot",
+            target_id=bot_id,
+            details={"reason": request.reason},
+            request=req
+        )
+
+        return {
+            "success": True,
+            "bot_id": bot_id,
+            "status": "paused",
+            "message": "Bot safety locks reset. Resume manually when ready."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reset bot locks error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
