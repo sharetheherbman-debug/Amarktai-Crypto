@@ -12,14 +12,6 @@ export const MetricsOverview = ({ metrics }) => {
       </div>
 
       <div className="metric-card">
-        <div className="metric-icon">🤖</div>
-        <div className="metric-content">
-          <div className="metric-label">Active Bots</div>
-          <div className="metric-value">{metrics.activeBots}</div>
-        </div>
-      </div>
-
-      <div className="metric-card">
         <div className="metric-icon">📊</div>
         <div className="metric-content">
           <div className="metric-label">Exposure</div>

@@ -5,6 +5,7 @@ Real-time AI chat with action confirmation and tool routing
 
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from fastapi.responses import JSONResponse
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
 import logging
@@ -355,8 +356,10 @@ async def ai_chat(
                 # Use AsyncOpenAI client (openai>=1.x) with user's key
                 from openai import AsyncOpenAI
                 
+                request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+                
                 # Create client with user's API key
-                client = AsyncOpenAI(api_key=user_api_key)
+                client = AsyncOpenAI(api_key=user_api_key, timeout=request_timeout)
                 
                 # MODEL FALLBACK - Same as keys/test
                 fallback_models = []
@@ -433,13 +436,16 @@ Instructions:
                             user_id[:8],
                             test_model
                         )
-                        response = await client.chat.completions.create(
-                            model=test_model,
-                            messages=ai_messages,
-                            max_tokens=500,
-                            temperature=0.7
+                        response = await asyncio.wait_for(
+                            client.chat.completions.create(
+                                model=test_model,
+                                messages=ai_messages,
+                                max_tokens=500,
+                                temperature=0.7
+                            ),
+                            timeout=request_timeout
                         )
-                        ai_response = response.choices[0].message.content
+                        ai_response = response.choices[0].message.content if response.choices else None
                         model_used = test_model
                         logger.info(
                             "AI chat response user=%s model=%s response_length=%d",
@@ -462,7 +468,7 @@ Instructions:
                             raise model_error
                         raise model_error
                 
-                if not ai_response:
+                if not ai_response or not str(ai_response).strip():
                     # All models failed
                     return build_ai_error_response(
                         status_code=502,
@@ -518,13 +524,27 @@ Instructions:
                         error_code = "invalid_key"
                     elif "429" in error_str:
                         error_code = "upstream_429"
+                    elif "timeout" in error_str.lower():
+                        error_code = "timeout"
                     else:
                         error_code = "upstream_error"
+                if error_code == "invalid_key":
+                    user_message = "❌ OpenAI authentication failed. Please re-save your OpenAI key."
+                    status_code = 400
+                elif error_code == "upstream_429":
+                    user_message = "❌ OpenAI rate limit reached. Please wait and try again."
+                    status_code = 429
+                elif error_code == "timeout":
+                    user_message = "❌ OpenAI request timed out. Please try again."
+                    status_code = 504
+                else:
+                    user_message = "❌ OpenAI request failed. Please try again."
+                    status_code = 502
                 return build_ai_error_response(
-                    status_code=400 if error_code == "invalid_key" else 502,
+                    status_code=status_code,
                     code=error_code,
                     message=error_str,
-                    user_message="❌ AI request failed. Please try again or check your OpenAI settings.",
+                    user_message=user_message,
                     system_state=system_state,
                     key_source=key_source
                 )

@@ -144,7 +144,7 @@ export default function Landing() {
       {/* Footer */}
       <div className="footer">
         <p>
-          © 2026 Amarktai Crypto. All rights reserved. | Part of Amarktai Network - Personal Use Only
+          © 2026 Amarktai Network. All rights reserved.
         </p>
       </div>
 

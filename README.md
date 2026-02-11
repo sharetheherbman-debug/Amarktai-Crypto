@@ -194,6 +194,21 @@ EMAIL="admin@example.com" PASSWORD="YourPassword" ./scripts/smoke_sections.sh ht
 
 Expected output: PASS/FAIL per section with a non-zero exit code if any critical check fails.
 
+### **Go Live Verification (VPS)** 🆕
+Run the go-live scripts directly on the VPS (defaults to `http://127.0.0.1:8000`):
+
+```bash
+export AMK_EMAIL="user@example.com"
+export AMK_PASSWORD="your-password"
+export AMK_ADMIN_EMAIL="admin@example.com"
+export AMK_ADMIN_PASSWORD="admin-password"
+
+./scripts/go_live_verify.sh
+./scripts/go_live_smoke.sh http://127.0.0.1:8000
+./scripts/contract_test.sh http://127.0.0.1:8000 "$AMK_EMAIL" "$AMK_PASSWORD" "$AMK_ADMIN_EMAIL" "$AMK_ADMIN_PASSWORD"
+./scripts/smoke_ai_chat.sh http://127.0.0.1:8000
+```
+
 ### **Audit & Parity Verification**
 Generate machine-checkable inventories and verify frontend/backend parity:
 
