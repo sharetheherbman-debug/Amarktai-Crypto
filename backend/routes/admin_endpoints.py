@@ -851,7 +851,13 @@ async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
 
         try:
             from trading_scheduler import trading_scheduler
-            scheduler_running = trading_scheduler.is_running() if callable(trading_scheduler.is_running) else trading_scheduler.is_running
+            is_running_attr = getattr(trading_scheduler, "is_running", None)
+            if callable(is_running_attr):
+                scheduler_running = is_running_attr()
+            elif isinstance(is_running_attr, bool):
+                scheduler_running = is_running_attr
+            else:
+                scheduler_running = False
         except Exception as e:
             logger.warning(f"Scheduler status error: {e}")
             scheduler_running = False

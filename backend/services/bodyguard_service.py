@@ -225,7 +225,7 @@ class BodyguardService:
             is_profitable, profit_reason = await self.is_bot_profitable(bot_id)
             
             # Reset breach counter if drawdown is below threshold
-            if current_drawdown_pct < threshold and bot.get('bodyguard_breach_count'):
+            if current_drawdown_pct < threshold and bot.get('bodyguard_breach_count', 0) > 0:
                 await db.bots_collection.update_one(
                     {"id": bot_id},
                     {"$set": {"bodyguard_breach_count": 0}, "$unset": {"bodyguard_last_breach_at": ""}}

@@ -5,6 +5,7 @@ Supports multi-worker deployments via Redis broadcast
 """
 
 import asyncio
+import copy
 import json
 import logging
 from typing import Dict, Set, Optional, Any
@@ -174,7 +175,7 @@ class ConnectionManager:
             user_id: User ID
             message: Message dict to send
         """
-        message = dict(message)
+        message = copy.deepcopy(message)
         self.message_sequence += 1
         message['sequence'] = self.message_sequence
         message['timestamp'] = message.get('timestamp', datetime.now(timezone.utc).isoformat())

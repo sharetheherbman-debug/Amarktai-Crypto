@@ -354,14 +354,14 @@ async def reset_bodyguard_lock(
                     "status": "paused",
                     "paused_by_bodyguard": False,
                     "paused_by_system": False,
-                    "bodyguard_breach_count": 0,
-                    "bodyguard_last_pause_at": datetime.now(timezone.utc).isoformat()
+                    "bodyguard_breach_count": 0
                 },
                 "$unset": {
                     "pause_reason": "",
                     "bodyguard_pause_threshold": "",
                     "bodyguard_pause_drawdown": "",
                     "bodyguard_last_breach_at": "",
+                    "bodyguard_last_pause_at": "",
                     "quarantine_reason": "",
                     "quarantined_at": "",
                     "retraining_until": "",
