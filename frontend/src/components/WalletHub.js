@@ -6,6 +6,10 @@ const WalletHub = ({ platformFilter = 'all' }) => {
   const [balances, setBalances] = useState(null);
   const [requirements, setRequirements] = useState(null);
   const [fundingPlans, setFundingPlans] = useState([]);
+  const [paperWallet, setPaperWallet] = useState(null);
+  const [paperDepositAmount, setPaperDepositAmount] = useState('');
+  const [paperDepositCurrency, setPaperDepositCurrency] = useState('ZAR');
+  const [paperActionLoading, setPaperActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const lastUpdate = useLastUpdate('wallet');
@@ -20,7 +24,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       setError(null);
       
       // Load balances, requirements, and funding plans in parallel with safe defaults
-      const [balancesData, requirementsData, plansData] = await Promise.all([
+      const [balancesData, requirementsData, plansData, paperWalletData] = await Promise.all([
         get('/wallet/balances').catch(err => {
           console.error('Balance fetch error:', err);
           return { master_wallet: {}, last_updated: null }; // Safe default
@@ -32,12 +36,17 @@ const WalletHub = ({ platformFilter = 'all' }) => {
         get('/wallet/funding-plans?status=awaiting_deposit').catch(err => {
           console.error('Funding plans fetch error:', err);
           return { plans: [] }; // Safe default
+        }),
+        get('/wallet/paper').catch(err => {
+          console.error('Paper wallet fetch error:', err);
+          return { balances: {}, total: 0, available: {} };
         })
       ]);
 
       setBalances(balancesData || {});
       setRequirements(requirementsData || {});
       setFundingPlans(plansData.plans || []);
+      setPaperWallet(paperWalletData || {});
       setLoading(false);
     } catch (err) {
       console.error('Wallet data load error:', err);
@@ -49,6 +58,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       setBalances({});
       setRequirements({});
       setFundingPlans([]);
+      setPaperWallet({});
     }
   };
 
@@ -93,6 +103,42 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       loadWalletData();
     } catch (err) {
       alert('Failed to cancel funding plan: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handlePaperDeposit = async () => {
+    const amount = parseFloat(paperDepositAmount);
+    if (!amount || amount <= 0) {
+      alert('Enter a valid amount');
+      return;
+    }
+    if (!window.confirm(`Add ${amount} ${paperDepositCurrency} to paper wallet?`)) {
+      return;
+    }
+    try {
+      setPaperActionLoading(true);
+      await post('/wallet/paper/deposit', { amount, currency: paperDepositCurrency });
+      setPaperDepositAmount('');
+      await loadWalletData();
+    } catch (err) {
+      alert('Failed to add fake funds: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPaperActionLoading(false);
+    }
+  };
+
+  const handlePaperReset = async () => {
+    if (!window.confirm('Reset paper wallet to 0? This cannot be undone.')) {
+      return;
+    }
+    try {
+      setPaperActionLoading(true);
+      await post('/wallet/paper/reset', { confirm: true });
+      await loadWalletData();
+    } catch (err) {
+      alert('Failed to reset paper wallet: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPaperActionLoading(false);
     }
   };
 
@@ -149,50 +195,135 @@ const WalletHub = ({ platformFilter = 'all' }) => {
   const masterWallet = balances?.master_wallet || {};
   const exchanges = requirements?.requirements || {};
   const hasAnyKeys = Object.keys(exchanges).length > 0;
-
-  if (!hasAnyKeys && !loading) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ fontSize: '3rem', marginBottom: '20px' }}>🔑</div>
-        <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>Add Exchange Keys to See Wallet Balances</h3>
-        <p style={{ color: 'var(--muted)', marginBottom: '20px', fontSize: '0.95rem' }}>
-          Configure your exchange API keys to view your wallet balances and start trading.
-        </p>
-        <button 
-          onClick={() => {
-            // Trigger navigation to API setup section
-            // Use custom event that Dashboard can listen to
-            const event = new CustomEvent('navigateToSection', { detail: { section: 'api' } });
-            window.dispatchEvent(event);
-            
-            // Also try direct DOM manipulation as fallback
-            const apiLink = document.querySelector('a[href="#"][class*="api"]');
-            if (apiLink) {
-              apiLink.click();
-            }
-          }}
-          style={{
-            padding: '12px 24px',
-            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            fontSize: '1rem'
-          }}
-        >
-          ➕ Add Exchange Keys
-        </button>
-      </div>
-    );
-  }
+  const showKeysPrompt = !hasAnyKeys && !loading;
 
   return (
     <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '30px', fontSize: '2rem', color: 'var(--text)' }}>
         💰 Wallet Hub
       </h1>
+
+      {showKeysPrompt && (
+        <div style={{ padding: '20px', textAlign: 'center', marginBottom: '24px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '12px' }}>🔑</div>
+          <h3 style={{ marginBottom: '8px', color: 'var(--text)' }}>Add Exchange Keys to See Live Wallet Balances</h3>
+          <p style={{ color: 'var(--muted)', marginBottom: '16px', fontSize: '0.9rem' }}>
+            Configure your exchange API keys to view live balances and enable live trading.
+          </p>
+          <button
+            onClick={() => {
+              const event = new CustomEvent('navigateToSection', { detail: { section: 'api' } });
+              window.dispatchEvent(event);
+              const apiLink = document.querySelector('a[href="#"][class*="api"]');
+              if (apiLink) {
+                apiLink.click();
+              }
+            }}
+            style={{
+              padding: '10px 20px',
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '0.95rem'
+            }}
+          >
+            ➕ Add Exchange Keys
+          </button>
+        </div>
+      )}
+
+      {/* Paper Wallet */}
+      <div style={{
+        background: 'var(--glass)',
+        borderRadius: '12px',
+        padding: '24px',
+        marginBottom: '30px',
+        border: '1px solid var(--line)'
+      }}>
+        <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>📝 Paper Wallet</h2>
+        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Total (All Currencies)</div>
+            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text)' }}>
+              {paperWallet?.total?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+            </div>
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+            Available: {Object.entries(paperWallet?.available || {}).map(([currency, amount]) => (
+              <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
+            ))}
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+            Allocated: {Object.entries(paperWallet?.allocated || {}).map(([currency, amount]) => (
+              <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="Amount"
+            value={paperDepositAmount}
+            onChange={(e) => setPaperDepositAmount(e.target.value)}
+            style={{
+              padding: '8px 10px',
+              borderRadius: '6px',
+              border: '1px solid var(--line)',
+              background: 'var(--panel)',
+              color: 'var(--text)'
+            }}
+          />
+          <select
+            value={paperDepositCurrency}
+            onChange={(e) => setPaperDepositCurrency(e.target.value)}
+            style={{
+              padding: '8px 10px',
+              borderRadius: '6px',
+              border: '1px solid var(--line)',
+              background: 'var(--panel)',
+              color: 'var(--text)'
+            }}
+          >
+            <option value="ZAR">ZAR</option>
+            <option value="USDT">USDT</option>
+          </select>
+          <button
+            onClick={handlePaperDeposit}
+            disabled={paperActionLoading}
+            style={{
+              padding: '8px 14px',
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 600,
+              cursor: paperActionLoading ? 'wait' : 'pointer'
+            }}
+          >
+            ➕ Add Fake Funds
+          </button>
+          <button
+            onClick={handlePaperReset}
+            disabled={paperActionLoading}
+            style={{
+              padding: '8px 14px',
+              background: 'var(--error)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 600,
+              cursor: paperActionLoading ? 'wait' : 'pointer'
+            }}
+          >
+            ♻️ Reset Paper Wallet
+          </button>
+        </div>
+      </div>
 
       {/* Master Luno Wallet */}
       <div style={{

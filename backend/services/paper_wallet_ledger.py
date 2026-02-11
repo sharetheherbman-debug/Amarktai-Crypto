@@ -10,6 +10,7 @@ from typing import Dict, Tuple, Optional
 from pymongo import ReturnDocument
 import database as db
 from logger_config import logger
+from services.paper_wallet_service import paper_wallet_service
 
 
 class PaperWalletLedger:
@@ -34,14 +35,22 @@ class PaperWalletLedger:
         if self.collection is None:
             raise RuntimeError("Paper ledger collection not initialized")
 
-    async def _update_user_wallet_balance(self, user_id: str, balance: float) -> None:
+    async def _update_user_wallet_balance(
+        self,
+        user_id: str,
+        total_balance: float,
+        available_balance: float,
+        allocated_balance: float
+    ) -> None:
         if db.wallet_balances_collection is None:
             return
         await db.wallet_balances_collection.update_one(
             {"user_id": user_id},
             {
                 "$set": {
-                    "paper_wallet_balance_zar": round(balance, 2),
+                    "paper_wallet_balance_zar": round(total_balance, 2),
+                    "paper_wallet_available_zar": round(available_balance, 2),
+                    "paper_wallet_allocated_zar": round(allocated_balance, 2),
                     "paper_wallet_updated_at": datetime.now(timezone.utc).isoformat()
                 },
                 "$setOnInsert": {"user_id": user_id}
@@ -49,7 +58,20 @@ class PaperWalletLedger:
             upsert=True
         )
     
-    async def reserve_funds(self, user_id: str, bot_id: str, amount: float) -> Tuple[bool, str]:
+    def _resolve_bot_currency(self, bot: Dict) -> str:
+        exchange = (bot.get("exchange") or "").lower()
+        pair = bot.get("pair", "")
+        if exchange == "luno" or "/ZAR" in pair:
+            return "ZAR"
+        return "USDT"
+
+    async def reserve_funds(
+        self,
+        user_id: str,
+        bot_id: str,
+        amount: float,
+        currency: str = "ZAR"
+    ) -> Tuple[bool, str]:
         """
         Reserve paper funds for a new bot.
         
@@ -67,10 +89,17 @@ class PaperWalletLedger:
             if amount <= 0:
                 return False, f"Invalid amount: R{amount}"
             
+            currency = (currency or "ZAR").upper()
+
             # Check if bot already has reserved funds
             existing = await self.collection.find_one({"bot_id": bot_id, "user_id": user_id})
             if existing:
                 return False, f"Bot {bot_id[:8]} already has reserved funds"
+
+            # Reserve from user-level paper wallet
+            reserved, reserve_msg = await paper_wallet_service.reserve_funds(user_id, amount, currency)
+            if not reserved:
+                return False, reserve_msg
             
             # Create ledger entry
             ledger_entry = {
@@ -78,6 +107,7 @@ class PaperWalletLedger:
                 "bot_id": bot_id,
                 "initial_balance": amount,
                 "current_balance": amount,
+                "currency": currency,
                 "reserved_at": datetime.now(timezone.utc).isoformat(),
                 "last_updated": datetime.now(timezone.utc).isoformat(),
                 "total_debits": 0.0,
@@ -86,7 +116,11 @@ class PaperWalletLedger:
                 "status": "active"
             }
             
-            await self.collection.insert_one(ledger_entry)
+            try:
+                await self.collection.insert_one(ledger_entry)
+            except Exception as insert_error:
+                await paper_wallet_service.release_funds(user_id, amount, currency)
+                raise insert_error
             logger.info(f"✅ Reserved R{amount:,.2f} paper funds for bot {bot_id[:8]}")
             await self.get_user_balance(user_id)
             
@@ -117,10 +151,12 @@ class PaperWalletLedger:
                     {"_id": 0, "user_id": 1, "initial_capital": 1}
                 )
                 if bot and bot.get("initial_capital", 0) > 0:
+                    currency = self._resolve_bot_currency(bot)
                     success, _ = await self.reserve_funds(
                         bot.get("user_id"),
                         bot_id,
-                        bot.get("initial_capital", 0)
+                        bot.get("initial_capital", 0),
+                        currency
                     )
                     if success:
                         ledger = await self.collection.find_one({"bot_id": bot_id})
@@ -263,9 +299,11 @@ class PaperWalletLedger:
         try:
             await self.init_db()
             
-            # Get final balance
-            success, balance, msg = await self.get_balance(bot_id)
-            
+            ledger = await self.collection.find_one({"bot_id": bot_id}, {"_id": 0})
+            if not ledger:
+                return False, "No paper wallet found for bot"
+            balance = ledger.get("current_balance", 0.0)
+
             # Mark as released
             result = await self.collection.update_one(
                 {"bot_id": bot_id},
@@ -280,8 +318,10 @@ class PaperWalletLedger:
             
             if result.modified_count > 0:
                 logger.info(f"✅ Released paper funds for bot {bot_id[:8]}: R{balance:.2f}")
-                ledger = await self.collection.find_one({"bot_id": bot_id}, {"_id": 0, "user_id": 1})
+                ledger = await self.collection.find_one({"bot_id": bot_id}, {"_id": 0, "user_id": 1, "currency": 1})
                 if ledger and ledger.get("user_id"):
+                    currency = (ledger.get("currency") or "ZAR").upper()
+                    await paper_wallet_service.release_funds(ledger["user_id"], balance, currency)
                     await self.get_user_balance(ledger["user_id"])
                 return True, f"Released R{balance:.2f}"
             return False, "Failed to release funds"
@@ -297,11 +337,14 @@ class PaperWalletLedger:
 
             pipeline = [
                 {"$match": {"user_id": user_id, "status": "active"}},
-                {"$group": {"_id": "$user_id", "total": {"$sum": "$current_balance"}}}
+                {"$group": {"_id": "$currency", "total": {"$sum": "$current_balance"}}}
             ]
-            results = await self.collection.aggregate(pipeline).to_list(1)
-            total = float(results[0]["total"]) if results else 0.0
-            await self._update_user_wallet_balance(user_id, total)
+            results = await self.collection.aggregate(pipeline).to_list(100)
+            allocated_total = sum(float(r.get("total", 0) or 0) for r in results)
+            available = await paper_wallet_service.get_balances(user_id)
+            available_total = float(available.get("total", 0) or 0)
+            total = allocated_total + available_total
+            await self._update_user_wallet_balance(user_id, total, available_total, allocated_total)
             return total
         except Exception as e:
             logger.error(f"Error getting user paper balance: {e}")

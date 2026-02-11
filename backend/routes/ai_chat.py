@@ -218,7 +218,7 @@ async def ai_chat(
         }
     """
     try:
-        content = message.get('content', '')
+        content = message.get('message') or message.get('content', '')
         request_action = message.get('request_action', False)
         confirmation_token = message.get('confirmation_token')
         user_tag = user_id[:8] if user_id else "unknown"

@@ -12,6 +12,7 @@ import logging
 import database as db
 from error_codes import ErrorCode, insufficient_funds_error
 from engines.wallet_manager import wallet_manager
+from services.paper_wallet_service import paper_wallet_service
 from config.platforms import (
     is_valid_platform,
     get_max_bots,
@@ -181,7 +182,15 @@ class BotValidator:
                     
                     return False, error
         else:
-            logger.info(f"Paper mode bot - skipping balance check for {exchange}")
+            currency = "ZAR" if exchange == "luno" else "USDT"
+            available = await paper_wallet_service.get_available_balance(user_id, currency)
+            if available < capital:
+                return False, {
+                    "code": "PAPER_WALLET_INSUFFICIENT",
+                    "message": f"Insufficient paper wallet funds ({currency}). Available: {available:.2f}, Required: {capital:.2f}",
+                    "action": "Add fake funds to your paper wallet before spawning bots.",
+                    "severity": "error"
+                }
         
         # 8. Validate risk mode
         valid_risk_modes = ['safe', 'balanced', 'risky', 'aggressive']

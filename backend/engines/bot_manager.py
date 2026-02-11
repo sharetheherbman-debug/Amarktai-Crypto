@@ -41,6 +41,7 @@ class BotManager:
         try:
             from services.reserved_funds_service import reserved_funds_service
             from bot_lifecycle import bot_lifecycle
+            from services.paper_wallet_service import paper_wallet_service
             
             # Check limits
             can_create, message = await self.can_create_bot(user_id, exchange)
@@ -78,6 +79,14 @@ class BotManager:
             
             if capital < NEW_BOT_CAPITAL:
                 return {"success": False, "message": f"❌ Minimum capital is R{NEW_BOT_CAPITAL}"}
+
+            currency = "ZAR" if exchange.lower() == "luno" else "USDT"
+            available = await paper_wallet_service.get_available_balance(user_id, currency)
+            if available < capital:
+                return {
+                    "success": False,
+                    "message": f"❌ Insufficient paper wallet funds ({currency}). Available: R{available:.2f}, Required: R{capital:.2f}"
+                }
             
             # Determine trading pair
             pair = "BTC/ZAR" if exchange.lower() == 'luno' else "BTC/USDT"
@@ -132,7 +141,12 @@ class BotManager:
                 return {"success": False, "message": f"❌ Capital allocation failed: {alloc_msg}"}
             
             # Tag bot and reserve paper wallet funds (PHASE 4A)
-            await bot_lifecycle.tag_new_bot(bot_id, origin="user", initial_capital=capital)
+            reserved, reserve_msg = await bot_lifecycle.tag_new_bot(bot_id, origin="user", initial_capital=capital)
+            if not reserved:
+                await db.bots_collection.delete_one({"id": bot_id})
+                await reserved_funds_service.release_funds(user_id, exchange.lower(), "ZAR", capital, bot_id)
+                await capital_validator.release_capital_from_bot(user_id, bot_id)
+                return {"success": False, "message": f"❌ Paper wallet reservation failed: {reserve_msg}"}
             
             logger.info(f"✅ Created bot: {name} on {exchange} for user {user_id[:8]} with R{capital:,.2f} allocated")
             

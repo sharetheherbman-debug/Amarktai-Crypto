@@ -65,6 +65,7 @@ class User(BaseModel):
     autopilot_enabled: bool = True
     bodyguard_enabled: bool = True
     learning_enabled: bool = True
+    risk_profile: str = "balanced"
     emergency_stop: bool = False
     blocked: bool = False
     is_admin: bool = False  # Admin flag (no roles, just boolean)

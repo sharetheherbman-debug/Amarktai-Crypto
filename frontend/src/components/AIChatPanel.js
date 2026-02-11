@@ -198,9 +198,9 @@ const AIChatPanel = ({ onAdminUnlock }) => {
   };
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
-
     const trimmedInput = input.trim();
+    if (!trimmedInput) return;
+
     const lowerInput = trimmedInput.toLowerCase();
     
     // TASK A - Handle "show admin" command locally (not sent to backend)
@@ -255,7 +255,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
 
     const userMessage = {
       role: 'user',
-      content: input,
+      content: trimmedInput,
       timestamp: new Date().toISOString()
     };
 
@@ -271,7 +271,8 @@ const AIChatPanel = ({ onAdminUnlock }) => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          content: input,
+          message: trimmedInput,
+          context: 'dashboard',
           request_action: true  // Allow AI to propose actions
         })
       });

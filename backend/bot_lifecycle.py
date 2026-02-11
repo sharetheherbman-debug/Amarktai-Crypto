@@ -160,7 +160,7 @@ class BotLifecycleManager:
         except Exception as e:
             logger.error(f"Bot promotion failed: {e}")
     
-    async def tag_new_bot(self, bot_id: str, origin: str = "user", initial_capital: float = 0):
+    async def tag_new_bot(self, bot_id: str, origin: str = "user", initial_capital: float = 0) -> tuple[bool, str]:
         """
         Tag a newly created bot with origin and paper end date.
         Reserves paper funds in the ledger for paper bots.
@@ -174,15 +174,19 @@ class BotLifecycleManager:
             bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
             if not bot:
                 logger.error(f"Bot {bot_id} not found for tagging")
-                return
+                return False, "Bot not found"
             
             user_id = bot.get('user_id')
             
             # Reserve paper funds in ledger
             if initial_capital > 0:
-                success, msg = await paper_wallet_ledger.reserve_funds(user_id, bot_id, initial_capital)
+                exchange = (bot.get("exchange") or "").lower()
+                pair = bot.get("pair", "")
+                currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
+                success, msg = await paper_wallet_ledger.reserve_funds(user_id, bot_id, initial_capital, currency)
                 if not success:
                     logger.warning(f"Failed to reserve paper funds for bot {bot_id}: {msg}")
+                    return False, msg
             
             await db.bots_collection.update_one(
                 {"id": bot_id},
@@ -195,9 +199,11 @@ class BotLifecycleManager:
                 }
             )
             logger.info(f"Tagged bot {bot_id} as {origin} with paper period and R{initial_capital:,.2f} reserved")
+            return True, "Tagged"
             
         except Exception as e:
             logger.error(f"Bot tagging failed: {e}")
+            return False, str(e)
 
 
 # Global instance

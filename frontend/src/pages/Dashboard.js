@@ -85,6 +85,11 @@ export default function Dashboard() {
   useEffect(() => {
     console.log('🔄 showAdmin state changed to:', showAdmin);
   }, [showAdmin]);
+  useEffect(() => {
+    if (user?.risk_profile) {
+      setRiskProfile(user.risk_profile);
+    }
+  }, [user]);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [bots, setBots] = useState([]);
@@ -164,6 +169,7 @@ export default function Dashboard() {
   const [bodyguardStatus, setBodyguardStatus] = useState(null);
   // Consolidated risk status from /api/risk/status
   const [riskStatus, setRiskStatus] = useState(null);
+  const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [storageData, setStorageData] = useState(null);
   const [storageError, setStorageError] = useState(null);
@@ -1402,11 +1408,11 @@ export default function Dashboard() {
   };
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
+    const originalInput = chatInput.trim();
+    if (!originalInput) return;
 
-    const userMsg = { role: 'user', content: chatInput };
+    const userMsg = { role: 'user', content: originalInput };
     setChatMessages(prev => [...prev, userMsg]);
-    const originalInput = chatInput.trim(); // Preserve original with whitespace removed
     const msgLower = originalInput.toLowerCase().trim(); // Case-insensitive and whitespace-trimmed for command matching
     setChatInput('');
 
@@ -1556,7 +1562,7 @@ export default function Dashboard() {
 
     // Send all other messages to AI backend
     try {
-      const res = await axios.post(`${API}/ai/chat`, { content: originalInput }, axiosConfig);
+      const res = await axios.post(`${API}/ai/chat`, { message: originalInput, context: 'dashboard' }, axiosConfig);
       const reply = typeof res.data === 'string' ? res.data : (res.data.response || res.data.reply || res.data.message || 'No response');
       const assistantMsg = { role: 'assistant', content: reply };
       setChatMessages(prev => [...prev, assistantMsg]);
@@ -1679,6 +1685,19 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Emergency stop error:', err);
       showNotification('Emergency stop failed', 'error');
+    }
+  };
+
+  const handleRiskProfileChange = async (newProfile) => {
+    try {
+      setRiskProfile(newProfile);
+      await axios.put(`${API}/auth/profile`, { risk_profile: newProfile }, axiosConfig);
+      setUser(prev => prev ? { ...prev, risk_profile: newProfile } : prev);
+      showNotification(`Risk profile set to ${newProfile.toUpperCase()}`);
+    } catch (err) {
+      console.error('Risk profile update error:', err);
+      showNotification('Failed to update risk profile', 'error');
+      setRiskProfile(user?.risk_profile || 'balanced');
     }
   };
 
@@ -2955,37 +2974,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {autoSpawnStatus && (
-                <div className="status-item" style={{gridColumn: '1 / -1'}}>
-                  <strong>Auto-Spawn Gate (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
-                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                    Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
-                  </div>
-                  <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
-                    {SUPPORTED_PLATFORMS.map(exchange => {
-                      const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
-                      const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
-                      const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
-                      const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
-                      const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
-                      return (
-                        <div key={exchange} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--glass)'}}>
-                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                            <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
-                            <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
-                              {eligible ? '✅ Eligible' : reason}
-                            </span>
-                          </div>
-                          <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                            Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              
               {/* Existing metrics */}
               <div className="status-item">
                 <strong>Exposure</strong>
@@ -3263,7 +3251,7 @@ export default function Dashboard() {
                 boxShadow: botManagementTab === 'spawn' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
               }}
             >
-              ➕ Spawn Bot
+              ➕ Spawn a Bot
             </button>
             <button 
               onClick={() => setBotManagementTab('uagents')}
@@ -3602,6 +3590,36 @@ export default function Dashboard() {
           {botManagementTab === 'spawn' && (
           <div className="bot-container">
             <div className="bot-left" style={{flex: '1 1 100%', maxWidth: '100%'}}>
+              {autoSpawnStatus && (
+                <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+                  <strong>Auto-Spawn Gate (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
+                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                    Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
+                  </div>
+                  <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
+                    {SUPPORTED_PLATFORMS.map(exchange => {
+                      const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
+                      const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
+                      const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
+                      const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
+                      const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
+                      return (
+                        <div key={exchange} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
+                            <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
+                              {eligible ? '✅ Eligible' : reason}
+                            </span>
+                          </div>
+                          <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                            Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="bot-form-card">
                 <h3>Spawn New Bot</h3>
                 <form onSubmit={handleCreateBot}>
@@ -4872,6 +4890,30 @@ export default function Dashboard() {
             <div style={{fontWeight: 600, fontSize: '1.2rem', color: systemModes.autopilot ? 'var(--success)' : 'var(--error)'}}>
               {systemModes.autopilot ? '✓ ON' : '✗ OFF'}
             </div>
+          </div>
+        </div>
+        <div style={{marginTop: '12px', padding: '16px', background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '8px'}}>
+          <div style={{fontWeight: 700, marginBottom: '8px', color: 'var(--text)'}}>🛡️ Risk Profile</div>
+          <select
+            value={riskProfile}
+            onChange={(e) => handleRiskProfileChange(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px',
+              background: 'var(--panel)',
+              border: '1px solid var(--line)',
+              borderRadius: '6px',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              maxWidth: '320px'
+            }}
+          >
+            <option value="safe">Safe (15% daily loss/drawdown)</option>
+            <option value="balanced">Balanced (20% daily loss/drawdown)</option>
+            <option value="risky">Risky (25% daily loss/drawdown)</option>
+          </select>
+          <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginTop: '8px'}}>
+            Bodyguard uses this tier to pause bots when drawdown exceeds your selected threshold.
           </div>
         </div>
         <div style={{marginTop: '24px', padding: '16px', background: 'var(--panel)', border: '2px solid var(--error)', borderRadius: '8px'}}>

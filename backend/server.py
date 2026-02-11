@@ -484,7 +484,14 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     # Ensure paper wallet reserved for new bot
     try:
         from bot_lifecycle import bot_lifecycle
-        await bot_lifecycle.tag_new_bot(result["id"], origin="user", initial_capital=result.get("initial_capital", 0))
+        reserved, reserve_msg = await bot_lifecycle.tag_new_bot(
+            result["id"],
+            origin="user",
+            initial_capital=result.get("initial_capital", 0)
+        )
+        if not reserved:
+            await db.bots_collection.delete_one({"id": result["id"]})
+            raise HTTPException(status_code=400, detail=reserve_msg)
     except Exception as e:
         logger.warning(f"Paper wallet reservation failed for bot {result.get('id')}: {e}")
     
@@ -595,15 +602,36 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         })
     
     if bots_to_create:
+        try:
+            from services.paper_wallet_service import paper_wallet_service
+            currency = "ZAR" if exchange == "luno" else "USDT"
+            total_required = len(bots_to_create) * capital_per_bot
+            available = await paper_wallet_service.get_available_balance(user_id, currency)
+            if available < total_required:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient paper wallet funds ({currency}). Available: {available:.2f}, Required: {total_required:.2f}"
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Paper wallet check failed for batch bots: {e}")
         await db.bots_collection.insert_many(bots_to_create)
         try:
             from bot_lifecycle import bot_lifecycle
+            created_bots = []
             for bot in bots_to_create:
-                await bot_lifecycle.tag_new_bot(
+                reserved, reserve_msg = await bot_lifecycle.tag_new_bot(
                     bot["id"],
                     origin="user",
                     initial_capital=bot.get("initial_capital", 0)
                 )
+                if not reserved:
+                    await db.bots_collection.delete_one({"id": bot["id"]})
+                    logger.warning(f"Skipping bot {bot['id']} - {reserve_msg}")
+                else:
+                    created_bots.append(bot)
+            bots_to_create = created_bots
         except Exception as e:
             logger.warning(f"Paper wallet reservation failed for batch bots: {e}")
     

@@ -51,6 +51,17 @@ class CapitalValidator:
                 bot.get("allocated_capital", bot.get("current_capital", 0.0))
                 for bot in active_bots
             )
+
+            # Paper wallet fallback when balance is not set
+            if balance <= 0:
+                try:
+                    from services.paper_wallet_service import paper_wallet_service
+                    paper_wallet = await paper_wallet_service.get_balances(user_id)
+                    balance = max(balance, paper_wallet.get("total", 0.0))
+                    if allocated_balance <= 0:
+                        allocated_balance = total_bot_capital
+                except Exception as e:
+                    logger.debug(f"Paper wallet fallback skipped: {e}")
             
             # Calculate available balance
             available = balance - allocated_balance - reserved_balance
