@@ -6,11 +6,23 @@ Guards all log_action calls and provides fallback.
 """
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 import database as db
 
 logger = logging.getLogger(__name__)
+
+_MISSING_AUDIT_COLLECTION_WARNING_INTERVAL = 300.0
+_last_missing_audit_collection_warning = 0.0
+
+
+def _warn_missing_audit_collection():
+    global _last_missing_audit_collection_warning
+    now = time.monotonic()
+    if now - _last_missing_audit_collection_warning >= _MISSING_AUDIT_COLLECTION_WARNING_INTERVAL:
+        logger.warning("Audit logging skipped: audit_logs_collection is not initialized")
+        _last_missing_audit_collection_warning = now
 
 
 class SafeAuditLogger:
@@ -62,7 +74,10 @@ class SafeAuditLogger:
             if ip_address:
                 audit_doc["ip_address"] = ip_address
             
-            # Insert into audit logs collection
+            # Insert into audit logs collection (best-effort)
+            if db.audit_logs_collection is None:
+                _warn_missing_audit_collection()
+                return True
             await db.audit_logs_collection.insert_one(audit_doc)
             
             logger.debug(f"Audit log: {user_id[:8]} → {action}")
@@ -114,6 +129,9 @@ class SafeAuditLogger:
             if ip_address:
                 audit_doc["ip_address"] = ip_address
             
+            if db.audit_logs_collection is None:
+                _warn_missing_audit_collection()
+                return True
             await db.audit_logs_collection.insert_one(audit_doc)
             
             logger.debug(f"Admin audit log: {admin_id[:8]} → {action} on {target_type} {target_id[:8]}")
@@ -143,6 +161,9 @@ class SafeAuditLogger:
             if details:
                 audit_doc["details"] = details
             
+            if db.audit_logs_collection is None:
+                _warn_missing_audit_collection()
+                return True
             await db.audit_logs_collection.insert_one(audit_doc)
             
             logger.debug(f"System event logged: {event}")

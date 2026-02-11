@@ -51,6 +51,7 @@ from websocket_manager import manager
 from trading_scheduler import trading_scheduler
 from utils.env_utils import env_bool
 from utils.bot_state import normalize_bot_state
+from json_utils import serialize_doc
 import ccxt.async_support as ccxt
 
 api_router = APIRouter()
@@ -1035,22 +1036,22 @@ async def get_storage_usage(user_id: str = Depends(get_current_user)):
             
             # 1. Chat messages (AI memory)
             chat_messages = await db.chat_messages_collection.find({"user_id": usr_id}, {"_id": 0}).to_list(10000)
-            chat_size = sum(sys.getsizeof(json.dumps(msg)) for msg in chat_messages)
+            chat_size = sum(sys.getsizeof(json.dumps(serialize_doc(msg))) for msg in chat_messages)
             
             # 2. Trade history
             trades = await db.trades_collection.find({"user_id": usr_id}, {"_id": 0}).to_list(10000)
-            trades_size = sum(sys.getsizeof(json.dumps(trade)) for trade in trades)
+            trades_size = sum(sys.getsizeof(json.dumps(serialize_doc(trade))) for trade in trades)
             
             # 3. Bot configurations
             bots = await db.bots_collection.find({"user_id": usr_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-            bots_size = sum(sys.getsizeof(json.dumps(bot)) for bot in bots)
+            bots_size = sum(sys.getsizeof(json.dumps(serialize_doc(bot))) for bot in bots)
             
             # 4. User data
-            user_size = sys.getsizeof(json.dumps(usr))
+            user_size = sys.getsizeof(json.dumps(serialize_doc(usr)))
             
             # 5. Alerts
             alerts = await db.alerts_collection.find({"user_id": usr_id}, {"_id": 0}).to_list(1000)
-            alerts_size = sum(sys.getsizeof(json.dumps(alert)) for alert in alerts)
+            alerts_size = sum(sys.getsizeof(json.dumps(serialize_doc(alert))) for alert in alerts)
             
             total_bytes = chat_size + trades_size + bots_size + user_size + alerts_size
             total_mb = total_bytes / (1024 * 1024)
