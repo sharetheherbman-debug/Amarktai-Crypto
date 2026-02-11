@@ -1,7 +1,30 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-python - <<'PY'
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_PY="$REPO_ROOT/backend/.venv/bin/python"
+if [[ -x "$VENV_PY" ]]; then
+  PYTHON_BIN="$VENV_PY"
+else
+  PYTHON_BIN="python3"
+  echo "FAIL: backend venv python not found at backend/.venv/bin/python. Run backend venv install first." >&2
+  exit 1
+fi
+
+echo "Using python: ${PYTHON_BIN}"
+
+"${PYTHON_BIN}" - <<'PY'
+import sys
+
+try:
+    import requests  # noqa: F401
+    import pymongo  # noqa: F401
+except Exception as exc:
+    print(f"FAIL: Missing python dependency: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+
+"${PYTHON_BIN}" - <<'PY'
 import asyncio
 import getpass
 import os
