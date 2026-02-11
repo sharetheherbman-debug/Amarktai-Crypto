@@ -106,8 +106,16 @@ class AIBodyguard:
             initial_capital = bot.get('current_capital', 1000)
             drawdown_percent = abs(total_pnl / initial_capital * 100) if initial_capital > 0 else 0
             
-            # Critical threshold: 15%
-            if drawdown_percent > 15:
+            trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
+            extreme_threshold = float(
+                os.getenv(
+                    'BODYGUARD_EXTREME_LIVE_DRAWDOWN' if trading_mode == 'live' else 'BODYGUARD_EXTREME_PAPER_DRAWDOWN',
+                    '20.0' if trading_mode == 'live' else '30.0'
+                )
+            )
+
+            # Critical threshold (configurable)
+            if drawdown_percent > extreme_threshold:
                 await self.pause_bot_with_alert(
                     user_id, 
                     bot_id, 
@@ -223,10 +231,14 @@ class AIBodyguard:
             
             if today_trades:
                 daily_pnl = sum(trade.get('profit_loss', 0) for trade in today_trades)
+                if daily_pnl >= 0:
+                    return
                 
                 # Get total capital
                 bots = await self.db.bots.find({'user_id': user_id}).to_list(1000)
                 total_capital = sum(bot.get('current_capital', 0) for bot in bots)
+                if total_capital <= 0:
+                    total_capital = sum(bot.get('initial_capital', 0) for bot in bots)
                 
                 if total_capital > 0:
                     daily_loss_percent = abs(daily_pnl / total_capital * 100)

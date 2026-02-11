@@ -7,7 +7,7 @@ Capital Allocator - Dynamic capital distribution across bots
 
 import asyncio
 from typing import Dict, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 
 import database as db
@@ -412,11 +412,26 @@ class CapitalAllocator:
                 }
             from profit_ledger import profit_ledger
             from uuid import uuid4
+            import config
+
+            def parse_datetime(value):
+                if isinstance(value, datetime):
+                    return value
+                if isinstance(value, str):
+                    try:
+                        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    except ValueError:
+                        return None
+                return None
             
             logger.info(f"Checking auto-spawn eligibility for user {user_id} (mode: {trading_mode})")
             
             spawned_bots = []
             reasons = []
+            now = datetime.now(timezone.utc)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            cooldown_minutes = getattr(config, "AUTO_SPAWN_COOLDOWN_MINUTES", 60)
+            max_spawns_per_day = getattr(config, "AUTO_SPAWN_MAX_PER_DAY", 2)
             
             # Get wallet balance
             try:
@@ -447,6 +462,50 @@ class CapitalAllocator:
                     logger.debug(f"  {exchange}: {get_reason_message(reason_code)}")
                     continue
                 
+                spawn_filter = {
+                    "user_id": user_id,
+                    "exchange": exchange,
+                    "$or": [
+                        {"auto_spawned": True},
+                        {"spawned_by": {"$in": ["autopilot", "auto_spawn"]}}
+                    ]
+                }
+                spawn_count_today = await db.bots_collection.count_documents({
+                    **spawn_filter,
+                    "created_at": {"$gte": today_start.isoformat()}
+                })
+                if spawn_count_today >= max_spawns_per_day:
+                    reasons.append({
+                        "exchange": exchange,
+                        "reason": "DAILY_SPAWN_CAP_REACHED",
+                        "max_per_day": max_spawns_per_day,
+                        "spawned_today": spawn_count_today
+                    })
+                    logger.debug(f"  {exchange}: Daily spawn cap reached ({spawn_count_today}/{max_spawns_per_day})")
+                    continue
+
+                last_spawn = await db.bots_collection.find_one(
+                    spawn_filter,
+                    {"_id": 0, "created_at": 1, "spawned_at": 1},
+                    sort=[("created_at", -1)]
+                )
+                last_spawn_time = None
+                if last_spawn:
+                    last_spawn_time = parse_datetime(last_spawn.get("created_at"))
+                    if last_spawn_time is None:
+                        last_spawn_time = parse_datetime(last_spawn.get("spawned_at"))
+                if last_spawn_time:
+                    cooldown_until = last_spawn_time + timedelta(minutes=cooldown_minutes)
+                    if now < cooldown_until:
+                        reasons.append({
+                            "exchange": exchange,
+                            "reason": "SPAWN_COOLDOWN_ACTIVE",
+                            "cooldown_minutes": cooldown_minutes,
+                            "cooldown_until": cooldown_until.isoformat()
+                        })
+                        logger.debug(f"  {exchange}: Cooldown active until {cooldown_until.isoformat()}")
+                        continue
+
                 # Check profit milestone (idempotent spawn gating)
                 can_spawn, current_profit, milestone = await profit_ledger.check_spawn_milestone(
                     user_id, exchange, trading_mode, PROFIT_THRESHOLD_ZAR

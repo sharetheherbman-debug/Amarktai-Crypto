@@ -6,6 +6,7 @@ NEVER pauses winning/profitable bots - only intervenes on persistent losses
 """
 
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, Tuple
 import database as db
@@ -15,18 +16,26 @@ from websocket_manager import manager
 logger = logging.getLogger(__name__)
 
 
-# Risk-based drawdown thresholds
-DRAWDOWN_THRESHOLDS = {
-    'safe': 15.0,       # Safe mode: pause at 15% drawdown
-    'balanced': 20.0,   # Balanced mode: pause at 20% drawdown
-    'aggressive': 25.0  # Aggressive mode: pause at 25% drawdown
+# Risk-based drawdown thresholds (configurable per mode)
+PAPER_DRAWDOWN_THRESHOLDS = {
+    'safe': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_SAFE', '30.0')),
+    'balanced': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_BALANCED', '35.0')),
+    'aggressive': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_AGGRESSIVE', '40.0'))
+}
+LIVE_DRAWDOWN_THRESHOLDS = {
+    'safe': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_SAFE', '15.0')),
+    'balanced': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_BALANCED', '20.0')),
+    'aggressive': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_AGGRESSIVE', '25.0'))
 }
 
 # Hysteresis buffer for resume (2%)
-RESUME_HYSTERESIS = 2.0
+RESUME_HYSTERESIS = float(os.getenv('BODYGUARD_RESUME_HYSTERESIS', '2.0'))
 
 # Cooldown period after pause (minutes)
-PAUSE_COOLDOWN_MINUTES = 30
+PAUSE_COOLDOWN_MINUTES = int(os.getenv('BODYGUARD_PAUSE_COOLDOWN_MINUTES', '30'))
+BREACH_CONFIRMATIONS_REQUIRED = int(os.getenv('BODYGUARD_BREACH_CONFIRMATIONS', '2'))
+BREACH_CONFIRMATION_WINDOW_MINUTES = int(os.getenv('BODYGUARD_BREACH_WINDOW_MINUTES', '15'))
+EXTREME_DRAWDOWN_MULTIPLIER = float(os.getenv('BODYGUARD_EXTREME_DRAWDOWN_MULTIPLIER', '1.5'))
 
 # Win-aware thresholds
 MIN_TRADES_FOR_WIN_CHECK = 10  # Need at least 10 trades to assess profitability
@@ -47,6 +56,20 @@ MAX_RATE_LIMIT_ERRORS_PER_HOUR = 5  # Maximum rate limit errors before pause
 
 class BodyguardService:
     """Enhanced bodyguard service with win-aware logic and quarantine integration"""
+
+    def _get_drawdown_threshold(self, trading_mode: str, risk_mode: str) -> float:
+        thresholds = PAPER_DRAWDOWN_THRESHOLDS if trading_mode == "paper" else LIVE_DRAWDOWN_THRESHOLDS
+        return thresholds.get(risk_mode, thresholds.get("balanced", 20.0))
+
+    def _parse_datetime(self, value) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
     
     async def is_bot_profitable(self, bot_id: str) -> Tuple[bool, str]:
         """Check if a bot is currently profitable (win-aware check)
@@ -138,7 +161,8 @@ class BodyguardService:
             
             # Get risk mode and threshold
             risk_mode = bot.get('risk_mode', 'balanced')
-            threshold = DRAWDOWN_THRESHOLDS.get(risk_mode, 20.0)
+            trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
+            threshold = self._get_drawdown_threshold(trading_mode, risk_mode)
 
             exchange = bot.get('exchange', '').lower()
             pair = bot.get('pair', '')
@@ -183,6 +207,8 @@ class BodyguardService:
             
             bot_status = bot.get('status', 'active')
             paused_by_bodyguard = bot.get('paused_by_bodyguard', False)
+            last_pause_at = self._parse_datetime(bot.get('bodyguard_last_pause_at'))
+            now = datetime.now(timezone.utc)
             
             # Check if we hit new equity peak (recovery)
             if current_equity >= equity_peak:
@@ -198,8 +224,56 @@ class BodyguardService:
             # WIN-AWARE CHECK: Don't pause profitable bots
             is_profitable, profit_reason = await self.is_bot_profitable(bot_id)
             
+            # Reset breach counter if drawdown is below threshold
+            if current_drawdown_pct < threshold and bot.get('bodyguard_breach_count', 0) > 0:
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {"$set": {"bodyguard_breach_count": 0}, "$unset": {"bodyguard_last_breach_at": ""}}
+                )
+
             # Check if currently active and drawdown exceeds threshold
             if bot_status == 'active' and current_drawdown_pct >= threshold:
+                if last_pause_at:
+                    cooldown_until = last_pause_at + timedelta(minutes=PAUSE_COOLDOWN_MINUTES)
+                    if now < cooldown_until:
+                        logger.info(
+                            f"🛡️ Bodyguard cooldown active for bot {bot.get('name')} until {cooldown_until.isoformat()}"
+                        )
+                        return False, None
+
+                extreme_drawdown = current_drawdown_pct >= (threshold * EXTREME_DRAWDOWN_MULTIPLIER)
+                if not extreme_drawdown:
+                    last_breach_at = self._parse_datetime(bot.get("bodyguard_last_breach_at"))
+                    breach_count = bot.get("bodyguard_breach_count", 0)
+                    if last_breach_at and (now - last_breach_at) <= timedelta(minutes=BREACH_CONFIRMATION_WINDOW_MINUTES):
+                        breach_count += 1
+                    else:
+                        breach_count = 1
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {
+                            "$set": {
+                                "bodyguard_breach_count": breach_count,
+                                "bodyguard_last_breach_at": now.isoformat()
+                            }
+                        }
+                    )
+                    if breach_count < BREACH_CONFIRMATIONS_REQUIRED:
+                        logger.info(
+                            f"🛡️ Bodyguard breach {breach_count}/{BREACH_CONFIRMATIONS_REQUIRED} for bot "
+                            f"{bot.get('name')} at {current_drawdown_pct:.1f}% drawdown"
+                        )
+                        return False, None
+                else:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {
+                            "$set": {
+                                "bodyguard_breach_count": BREACH_CONFIRMATIONS_REQUIRED,
+                                "bodyguard_last_breach_at": now.isoformat()
+                            }
+                        }
+                    )
                 # If bot is profitable, don't pause it
                 if is_profitable:
                     logger.info(f"🛡️ Bodyguard: Not pausing profitable bot {bot.get('name')} despite {current_drawdown_pct:.1f}% drawdown - {profit_reason}")
@@ -284,11 +358,13 @@ class BodyguardService:
                     "$set": {
                         "status": action,
                         "paused_at": datetime.now(timezone.utc).isoformat(),
+                        "bodyguard_last_pause_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": True,
                         "paused_by_system": True,
                         "pause_reason": f"Drawdown threshold breach: {current_drawdown_pct:.1f}% >= {threshold}%",
                         "bodyguard_pause_threshold": threshold,
-                        "bodyguard_pause_drawdown": round(current_drawdown_pct, 2)
+                        "bodyguard_pause_drawdown": round(current_drawdown_pct, 2),
+                        "bodyguard_breach_count": 0
                     }
                 }
             )
@@ -423,11 +499,13 @@ class BodyguardService:
                         "resumed_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": False,
                         "paused_by_system": False,
+                        "bodyguard_breach_count": 0
                     },
                     "$unset": {
                         "pause_reason": "",
                         "bodyguard_pause_threshold": "",
-                        "bodyguard_pause_drawdown": ""
+                        "bodyguard_pause_drawdown": "",
+                        "bodyguard_last_breach_at": ""
                     }
                 }
             )
@@ -492,7 +570,8 @@ class BodyguardService:
                 return None
             
             risk_mode = bot.get('risk_mode', 'balanced')
-            threshold = DRAWDOWN_THRESHOLDS.get(risk_mode, 20.0)
+            trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
+            threshold = self._get_drawdown_threshold(trading_mode, risk_mode)
             
             exchange = bot.get('exchange', '').lower()
             pair = bot.get('pair', '')

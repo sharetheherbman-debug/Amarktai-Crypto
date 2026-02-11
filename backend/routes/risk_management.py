@@ -317,6 +317,80 @@ async def reset_daily_loss_lock(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/risk/bodyguard/reset")
+async def reset_bodyguard_lock(
+    confirmation: str,
+    target_user_id: Optional[str] = None,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Reset bodyguard pause/quarantine locks (ADMIN ONLY)
+    Requires confirmation token: "RESET_BODYGUARD_LOCK"
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="Admin privileges required to reset bodyguard locks")
+
+        if confirmation != "RESET_BODYGUARD_LOCK":
+            raise HTTPException(status_code=400, detail="Invalid confirmation token")
+
+        reset_user_id = target_user_id or user_id
+
+        update_result = await db.bots_collection.update_many(
+            {
+                "user_id": reset_user_id,
+                "$or": [
+                    {"paused_by_bodyguard": True},
+                    {"status": "quarantined"}
+                ]
+            },
+            {
+                "$set": {
+                    "status": "paused",
+                    "paused_by_bodyguard": False,
+                    "paused_by_system": False,
+                    "bodyguard_breach_count": 0
+                },
+                "$unset": {
+                    "pause_reason": "",
+                    "bodyguard_pause_threshold": "",
+                    "bodyguard_pause_drawdown": "",
+                    "bodyguard_last_breach_at": "",
+                    "bodyguard_last_pause_at": "",
+                    "quarantine_reason": "",
+                    "quarantined_at": "",
+                    "retraining_until": "",
+                    "quarantine_count": ""
+                }
+            }
+        )
+
+        try:
+            from realtime_events import rt_events
+            await rt_events.lock_reset(reset_user_id, "bodyguard")
+        except Exception as e:
+            logger.warning(f"Failed to emit bodyguard lock reset event: {e}")
+
+        return {
+            "success": True,
+            "message": "Bodyguard locks cleared",
+            "user_id": reset_user_id,
+            "bots_reset": update_result.modified_count,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting bodyguard lock: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/risk/resume-all")
 async def resume_all_bots_with_risk_check(
     force: bool = False,

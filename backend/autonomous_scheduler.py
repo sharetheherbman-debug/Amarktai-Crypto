@@ -97,8 +97,10 @@ class AutonomousScheduler:
                     reinvest_result = await capital_allocator.reinvest_daily_profits(user_id)
                     logger.info(f"Reinvestment for {user_id}: {reinvest_result}")
                     
-                    # 3. Check for auto-spawn
-                    spawn_result = await capital_allocator.auto_spawn_bot(user_id)
+                    # 3. Check for auto-spawn (use current trading mode)
+                    modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+                    trading_mode = "live" if modes.get("liveTrading") else "paper"
+                    spawn_result = await capital_allocator.auto_spawn_bot(user_id, trading_mode=trading_mode)
                     if spawn_result.get('spawned'):
                         logger.info(f"🎉 Auto-spawned bot for {user_id}")
                 

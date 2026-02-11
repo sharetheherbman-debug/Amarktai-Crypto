@@ -10,6 +10,7 @@ import logging
 import os
 
 from auth import get_current_user
+from routes.system_mode import get_system_mode
 from utils.env_utils import env_bool
 import database as db
 
@@ -102,16 +103,12 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
         # Get system modes (user-specific settings)
         system_modes = {}
         try:
-            modes = await db.system_modes_collection.find_one(
-                {"user_id": user_id},
-                {"_id": 0}
-            )
-            if modes:
-                system_modes = {
-                    "paper_trading": modes.get("paperTrading", False),
-                    "live_trading": modes.get("liveTrading", False),
-                    "autonomous": modes.get("autonomous", False)
-                }
+            modes = await get_system_mode(user_id)
+            system_modes = {
+                "paper_trading": modes.get("paperTrading", False),
+                "live_trading": modes.get("liveTrading", False),
+                "autonomous": modes.get("autopilot", False)
+            }
         except Exception as e:
             logger.error(f"Error fetching system modes: {e}")
         

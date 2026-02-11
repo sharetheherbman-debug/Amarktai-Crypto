@@ -325,7 +325,9 @@ async def get_all_users(admin_id: str = Depends(require_admin)):
                 "binance": any(k.get("provider") == "binance" for k in api_keys),
                 "kucoin": any(k.get("provider") == "kucoin" for k in api_keys),
                 "bybit": any(k.get("provider") == "bybit" for k in api_keys),
+                "kraken": any(k.get("provider") == "kraken" for k in api_keys),
                 "bitget": any(k.get("provider") == "bitget" for k in api_keys),
+                "gate": any(k.get("provider") == "gate" for k in api_keys),
             }
             
             # Get bots summary
@@ -377,16 +379,26 @@ async def get_all_users(admin_id: str = Depends(require_admin)):
             
             # Build comprehensive user object
             enriched_user = {
+                "id": user_id,
                 "user_id": user_id,
+                "first_name": user_data.get("first_name") or user_data.get("name", "Unknown"),
                 "username": user_data.get("first_name") or user_data.get("name", "Unknown"),
                 "email": user_data.get("email", "N/A"),
                 "role": user_data.get("role", "admin" if user_data.get("is_admin") else "user"),
+                "status": "blocked" if user_data.get("blocked", False) else "active",
                 "is_active": not user_data.get("blocked", False),
                 "created_at": user_data.get("created_at", "N/A"),
                 "last_seen": user_data.get("last_seen", "N/A"),
                 "api_keys": api_keys_summary,
+                "api_keys_count": len(api_keys),
                 "bots_summary": bots_summary,
+                "bots_count": bots_summary.get("total", 0),
                 "resource_usage": resource_usage
+            }
+            enriched_user["stats"] = {
+                "total_bots": bots_summary.get("total", 0),
+                "total_trades": resource_usage.get("total_trades", 0),
+                "total_profit": round(sum(b.get('total_profit', 0) for b in bots), 2)
             }
             
             enriched_users.append(enriched_user)
@@ -757,23 +769,98 @@ async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
     
     try:
         # Get user statistics
+        from rules import SUPPORTED_EXCHANGES
+
         total_users = await db.users_collection.count_documents({})
-        active_users = await db.users_collection.count_documents({"status": "active"})
-        blocked_users = await db.users_collection.count_documents({"status": "blocked"})
-        
-        total_bots = await db.bots_collection.count_documents({})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        live_bots = await db.bots_collection.count_documents({"mode": "live"})
-        
+        blocked_users = await db.users_collection.count_documents({
+            "$or": [{"blocked": True}, {"status": "blocked"}]
+        })
+        active_users = max(total_users - blocked_users, 0)
+
+        bot_filter = {
+            "status": {"$ne": "deleted"},
+            "deleted": {"$ne": True},
+            "deleted_at": {"$exists": False}
+        }
+        total_bots = await db.bots_collection.count_documents(bot_filter)
+        active_bots = await db.bots_collection.count_documents({**bot_filter, "status": "active"})
+        paused_bots = await db.bots_collection.count_documents({**bot_filter, "status": "paused"})
+        quarantined_bots = await db.bots_collection.count_documents({**bot_filter, "status": "quarantined"})
+        live_bots = await db.bots_collection.count_documents({
+            **bot_filter,
+            "$or": [{"trading_mode": "live"}, {"mode": "live"}]
+        })
+        paper_bots = max(total_bots - live_bots, 0)
+
         total_trades = await db.trades_collection.count_documents({})
-        live_trades = await db.trades_collection.count_documents({"is_paper": False})
-        
-        # Calculate total profit across all users
-        all_bots = await db.bots_collection.find(
-            {},
-            {"_id": 0, "total_profit": 1}
-        ).to_list(10000)
-        total_profit = sum(b.get('total_profit', 0) for b in all_bots)
+        live_trades = await db.trades_collection.count_documents({
+            "$or": [{"trading_mode": "live"}, {"is_paper": False}]
+        })
+        paper_trades = max(total_trades - live_trades, 0)
+
+        last_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+        trades_24h = await db.trades_collection.count_documents({
+            "$or": [
+                {"timestamp": {"$gte": last_24h.isoformat()}},
+                {"created_at": {"$gte": last_24h.isoformat()}}
+            ]
+        })
+
+        exchange_breakdown = {
+            exchange: {"bots": 0, "trades": 0, "profit": 0.0}
+            for exchange in SUPPORTED_EXCHANGES
+        }
+        for exchange in SUPPORTED_EXCHANGES:
+            exchange_breakdown[exchange]["bots"] = await db.bots_collection.count_documents({
+                **bot_filter,
+                "exchange": exchange
+            })
+
+        trade_pipeline = [
+            {"$match": {"exchange": {"$in": SUPPORTED_EXCHANGES}}},
+            {"$project": {
+                "exchange": 1,
+                "profit": {
+                    "$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]
+                }
+            }},
+            {"$group": {
+                "_id": "$exchange",
+                "trades": {"$sum": 1},
+                "profit": {"$sum": "$profit"}
+            }}
+        ]
+        trade_groups = await db.trades_collection.aggregate(trade_pipeline).to_list(len(SUPPORTED_EXCHANGES))
+        total_profit = 0.0
+        for doc in trade_groups:
+            exchange = doc.get("_id")
+            if exchange in exchange_breakdown:
+                exchange_breakdown[exchange]["trades"] = doc.get("trades", 0)
+                exchange_breakdown[exchange]["profit"] = round(doc.get("profit", 0.0), 2)
+                total_profit += doc.get("profit", 0.0)
+
+        total_profit = round(total_profit, 2)
+
+        modes_cursor = db.system_modes_collection.find({}, {"_id": 0, "paperTrading": 1, "liveTrading": 1, "autopilot": 1})
+        modes = await modes_cursor.to_list(1000)
+        system_modes = {
+            "paper_trading": sum(1 for mode in modes if mode.get("paperTrading")),
+            "live_trading": sum(1 for mode in modes if mode.get("liveTrading")),
+            "autopilot": sum(1 for mode in modes if mode.get("autopilot"))
+        }
+
+        try:
+            from trading_scheduler import trading_scheduler
+            is_running_attr = getattr(trading_scheduler, "is_running", None)
+            if callable(is_running_attr):
+                scheduler_running = is_running_attr()
+            elif isinstance(is_running_attr, bool):
+                scheduler_running = is_running_attr
+            else:
+                scheduler_running = False
+        except Exception as e:
+            logger.warning(f"Scheduler status error: {e}")
+            scheduler_running = False
         
         # VPS Resource metrics
         # CPU usage
@@ -815,15 +902,23 @@ async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
                 "total": total_bots,
                 "active": active_bots,
                 "live": live_bots,
-                "paper": total_bots - live_bots
+                "paper": paper_bots,
+                "paused": paused_bots,
+                "quarantined": quarantined_bots
             },
             "trades": {
                 "total": total_trades,
                 "live": live_trades,
-                "paper": total_trades - live_trades
+                "paper": paper_trades,
+                "last_24h": trades_24h
             },
             "profit": {
-                "total": round(total_profit, 2)
+                "total": total_profit
+            },
+            "exchange_breakdown": exchange_breakdown,
+            "system_modes": system_modes,
+            "scheduler_status": {
+                "running": bool(scheduler_running)
             },
             "vps_resources": {
                 "cpu": {
@@ -2181,12 +2276,13 @@ async def get_admin_overview(admin_id: str = Depends(require_admin)):
             ]
         })
         
-        # Get system mode flags (from first admin user)
-        admin_user = await db.users_collection.find_one({"is_admin": True})
+        # Get system mode flags (from system modes collection)
+        from routes.system_mode import get_system_mode
+        modes = await get_system_mode(admin_id)
         system_mode = {
-            "paper_trading": admin_user.get("paper_trading", True) if admin_user else True,
-            "live_trading": admin_user.get("live_trading", False) if admin_user else False,
-            "autopilot": admin_user.get("autopilot_enabled", False) if admin_user else False,
+            "paper_trading": modes.get("paperTrading", True),
+            "live_trading": modes.get("liveTrading", False),
+            "autopilot": modes.get("autopilot", False),
         }
         
         wallet_summary = await wallet_summary_service.get_summary(admin_id)

@@ -5,15 +5,45 @@ Supports multi-worker deployments via Redis broadcast
 """
 
 import asyncio
+import copy
 import json
 import logging
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, Any
 from datetime import datetime, timezone
 import os
+
+from bson import ObjectId, Decimal128, Binary
+from bson.timestamp import Timestamp
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively sanitize data for JSON serialization.
+    Converts ObjectId to str and datetime to timezone-aware ISO string.
+    """
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, Decimal128):
+        return float(obj.to_decimal())
+    if isinstance(obj, Timestamp):
+        return datetime.fromtimestamp(obj.time, tz=timezone.utc).isoformat()
+    if isinstance(obj, (bytes, bytearray, Binary)):
+        return obj.hex()
+    if isinstance(obj, datetime):
+        if obj.tzinfo is None:
+            obj = obj.replace(tzinfo=timezone.utc)
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(item) for item in obj]
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    return str(obj)
 
 
 class ConnectionManager:
@@ -33,6 +63,8 @@ class ConnectionManager:
         self.message_sequence = 0
         self.message_history: Dict[str, list] = {}  # user_id -> last N messages
         self.history_limit = 50
+        # Last broadcast metadata for diagnostics (/api/diagnostics/realtime)
+        self.last_event: Optional[dict] = None
         
     async def init_redis(self):
         """Initialize Redis connection for pub/sub"""
@@ -144,15 +176,20 @@ class ConnectionManager:
             user_id: User ID
             message: Message dict to send
         """
-        # Add sequence number
+        message = copy.deepcopy(message)
         self.message_sequence += 1
         message['sequence'] = self.message_sequence
         message['timestamp'] = message.get('timestamp', datetime.now(timezone.utc).isoformat())
+        sanitized = sanitize_for_json(message)
+        self.last_event = {
+            "type": sanitized.get("type"),
+            "timestamp": sanitized.get("timestamp")
+        }
         
         # Store in history for replay
         if user_id not in self.message_history:
             self.message_history[user_id] = []
-        self.message_history[user_id].append(message)
+        self.message_history[user_id].append(sanitized)
         
         # Trim history
         if len(self.message_history[user_id]) > self.history_limit:
@@ -165,7 +202,7 @@ class ConnectionManager:
                     'amarktai:broadcast',
                     json.dumps({
                         'user_id': user_id,
-                        'payload': message
+                        'payload': sanitized
                     })
                 )
                 # Redis will broadcast back to us via listener
@@ -174,7 +211,15 @@ class ConnectionManager:
                 logger.error(f"Redis publish failed, falling back to local: {e}")
         
         # Fallback to local connections
-        await self._send_to_local_connections(user_id, message)
+        await self._send_to_local_connections(user_id, sanitized)
+
+    async def broadcast_to_user(self, message: dict, user_id: str):
+        """Backward compatible alias for send_message."""
+        await self.send_message(user_id, message)
+
+    async def broadcast(self, message: dict):
+        """Backward compatible alias for broadcast_all."""
+        await self.broadcast_all(message)
     
     async def _send_to_local_connections(self, user_id: str, message: dict):
         """Send message to local WebSocket connections
