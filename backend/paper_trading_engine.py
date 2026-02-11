@@ -212,7 +212,7 @@ def calculate_slippage(order_size_usd: float, daily_volume_usd: float = 10000000
     else:  # > 5% of volume
         return 0.001  # 0.1%+ slippage
 
-def validate_order(exchange: str, symbol: str, quantity: float, price: float) -> Tuple[bool, str]:
+def validate_order(exchange: str, symbol: str, quantity: float, price: float) -> Tuple[bool, str, Dict]:
     """
     Validate order against exchange rules using centralized validator
     
@@ -223,7 +223,7 @@ def validate_order(exchange: str, symbol: str, quantity: float, price: float) ->
         price: Order price
     
     Returns:
-        Tuple of (is_valid, message)
+        Tuple of (is_valid, message, adjusted_params)
     """
     # Use centralized order validator
     is_valid, error_msg, adjusted_params = order_validator.validate_order(
@@ -236,9 +236,9 @@ def validate_order(exchange: str, symbol: str, quantity: float, price: float) ->
     )
     
     if not is_valid:
-        return False, error_msg
+        return False, error_msg, adjusted_params
     
-    return True, "Valid"
+    return True, "Valid", adjusted_params
 
 def validate_trade_pnl(trade_pnl: float, bot_capital: float) -> bool:
     """
@@ -827,10 +827,15 @@ class PaperTradingEngine:
             entry_price = current_price
             
             # Validate order against exchange rules
-            is_valid, validation_msg = validate_order(exchange, symbol, crypto_amount, entry_price)
+            is_valid, validation_msg, adjusted_params = validate_order(exchange, symbol, crypto_amount, entry_price)
             if not is_valid:
                 logger.warning(f"Order validation failed: {validation_msg}")
                 return {"success": False, "bot_id": bot_id, "error": f"Order validation failed: {validation_msg}"}
+
+            if adjusted_params:
+                crypto_amount = adjusted_params.get("quantity", crypto_amount)
+                entry_price = adjusted_params.get("price", entry_price)
+                trade_amount = crypto_amount * entry_price
             
             # REALISTIC EXIT - Based on actual market volatility
             # Use real price movement simulation based on historical volatility
@@ -1128,28 +1133,34 @@ class PaperTradingEngine:
             slippage_rate = trade_result.get('slippage_rate', 0)
             fee_rate = trade_result.get('fee_rate', 0)
             
-            trade_doc = {
-                "id": trade_id,
-                **trade_result,
-                "user_id": bot_data['user_id'],
-                "bot_id": bot_id,
-                "pair": trade_result.get('symbol'),
-                "side": "BUY",  # Paper trades simulate BUY->SELL
-                "status": "closed",  # Paper trades are immediately closed
-                "new_capital": round(new_capital, 2),
-                "total_profit": round(total_profit, 2),
-                # Paper trading realism ledger fields (use from trade_result)
-                "price_source": trade_result.get('price_source', f"{bot_data.get('exchange', 'unknown').upper()}_PUBLIC"),
-                "mid_price": round(entry_price, 6),  # Mid-market price at execution
-                "spread": trade_result.get('spread', round(slippage_rate * 100, 4)),  # Bid-ask spread
-                "slippage_bps": trade_result.get('slippage_bps', round(slippage_rate * 10000, 2)),  # Slippage in bps
-                "fee_rate": round(fee_rate, 6),  # Fee rate applied
-                "fee_amount": round(fees, 2),  # Total fees charged
-                "gross_pnl": round(gross_profit, 2),  # PnL before fees
-                "net_pnl": round(net_profit, 2),  # PnL after fees
-                "trading_mode": "paper",  # Explicitly mark as paper trade
-                "paper_wallet_balance": round(new_capital, 2)  # Include paper wallet balance
-            }
+            from utils.trade_utils import build_trade_record
+
+            trade_doc = build_trade_record(
+                {
+                    "id": trade_id,
+                    **trade_result,
+                    "user_id": bot_data['user_id'],
+                    "bot_id": bot_id,
+                    "pair": trade_result.get('symbol'),
+                    "side": "BUY",  # Paper trades simulate BUY->SELL
+                    "status": "closed",  # Paper trades are immediately closed
+                    "new_capital": round(new_capital, 2),
+                    "total_profit": round(total_profit, 2),
+                    # Paper trading realism ledger fields (use from trade_result)
+                    "price_source": trade_result.get('price_source', f"{bot_data.get('exchange', 'unknown').upper()}_PUBLIC"),
+                    "mid_price": round(entry_price, 6),  # Mid-market price at execution
+                    "spread": trade_result.get('spread', round(slippage_rate * 100, 4)),  # Bid-ask spread
+                    "slippage_bps": trade_result.get('slippage_bps', round(slippage_rate * 10000, 2)),  # Slippage in bps
+                    "fee_rate": round(fee_rate, 6),  # Fee rate applied
+                    "fee_amount": round(fees, 2),  # Total fees charged
+                    "gross_pnl": round(gross_profit, 2),  # PnL before fees
+                    "net_pnl": round(net_profit, 2),  # PnL after fees
+                    "trading_mode": "paper",  # Explicitly mark as paper trade
+                    "paper_wallet_balance": round(new_capital, 2)  # Include paper wallet balance
+                },
+                user_id=bot_data['user_id'],
+                bot=fresh_bot
+            )
             
             # Final validation: ensure document is not empty
             if len(trade_doc.keys()) <= 1:

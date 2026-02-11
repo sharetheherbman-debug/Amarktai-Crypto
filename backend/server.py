@@ -443,8 +443,6 @@ async def get_bots(
         "deleted_at": {"$exists": False}
     }, {"_id": 0}).to_list(1000)
     normalized = [normalize_bot_state(bot) for bot in bots]
-    if legacy:
-        return normalized
     return {
         "success": True,
         "bots": normalized,
@@ -477,6 +475,13 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     
     # Insert validated bot
     await db.bots_collection.insert_one(result)
+
+    # Ensure paper wallet reserved for new bot
+    try:
+        from bot_lifecycle import bot_lifecycle
+        await bot_lifecycle.tag_new_bot(result["id"], origin="user", initial_capital=result.get("initial_capital", 0))
+    except Exception as e:
+        logger.warning(f"Paper wallet reservation failed for bot {result.get('id')}: {e}")
     
     # Remove MongoDB _id before returning
     result.pop('_id', None)
@@ -586,6 +591,16 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     
     if bots_to_create:
         await db.bots_collection.insert_many(bots_to_create)
+        try:
+            from bot_lifecycle import bot_lifecycle
+            for bot in bots_to_create:
+                await bot_lifecycle.tag_new_bot(
+                    bot["id"],
+                    origin="user",
+                    initial_capital=bot.get("initial_capital", 0)
+                )
+        except Exception as e:
+            logger.warning(f"Paper wallet reservation failed for batch bots: {e}")
     
     # Serialize bots to ensure JSON-safe response (no ObjectId issues)
     safe_bots = serialize_list(bots_to_create)

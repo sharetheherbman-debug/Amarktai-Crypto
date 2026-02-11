@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -171,7 +171,9 @@ export default function Dashboard() {
   const sseRef = useRef(null);
   
   const token = localStorage.getItem('token');
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
+  const axiosConfig = useMemo(() => ({
+    headers: { Authorization: `Bearer ${token}` }
+  }), [token]);
   const { livePrices, loadLivePrices, setLivePrices } = useDashboardData(token);
 
   // Safe date formatter - handles null/undefined gracefully
@@ -497,7 +499,17 @@ export default function Dashboard() {
       loadAdminUsers();
       loadAdminBots();
     }
-  }, [showAdmin]);
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots]);
+
+  useEffect(() => {
+    if (!showAdmin) return undefined;
+    const interval = setInterval(() => {
+      loadSystemStats();
+      loadAdminUsers();
+      loadAdminBots();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots]);
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -1160,14 +1172,14 @@ export default function Dashboard() {
     }
   };
 
-  const loadStorageData = async () => {
+  const loadStorageData = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/admin/storage`, axiosConfig);
       setStorageData(res.data);
     } catch (err) {
       console.error('Storage data fetch error:', err);
     }
-  };
+  }, [axiosConfig]);
 
   const checkEligibleBots = async () => {
     try {
@@ -1281,7 +1293,7 @@ export default function Dashboard() {
     }
   };
 
-  const loadAllUsers = async () => {
+  const loadAllUsers = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/admin/users`, axiosConfig);
       setAllUsers(res.data.users || []);
@@ -1289,16 +1301,16 @@ export default function Dashboard() {
       console.error('Admin users error:', err);
       setAllUsers([]);
     }
-  };
+  }, [axiosConfig]);
 
-  const loadSystemStats = async () => {
+  const loadSystemStats = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/admin/system-stats`, axiosConfig);
       setSystemStats(res.data);
     } catch (err) {
       console.error('System stats error:', err);
     }
-  };
+  }, [axiosConfig]);
 
   const loadSystemHealth = async () => {
     try {
@@ -1555,6 +1567,28 @@ export default function Dashboard() {
     
     // Paper and Live trading are mutually exclusive
     if (mode === 'liveTrading' && newValue) {
+      try {
+        const walletRequirements = await get('/wallet/requirements');
+        const summary = walletRequirements?.summary || {};
+        const shortfall = Number(summary.shortfall_zar || 0);
+        const requiredExchanges = Object.values(walletRequirements?.requirements || {}).map(req => req.exchange);
+        const exchangesWithInvalidKeys = requiredExchanges.filter(
+          exchange => apiKeys?.[exchange]?.status !== 'configured_valid'
+        );
+
+        if (shortfall > 0) {
+          showNotification(`Live trading blocked: Wallet shortfall R${shortfall.toFixed(2)}. Fund wallet first.`, 'error');
+          return;
+        }
+        if (exchangesWithInvalidKeys.length > 0) {
+          showNotification(`Live trading blocked: Configure and test API keys for ${exchangesWithInvalidKeys.join(', ')}.`, 'error');
+          return;
+        }
+      } catch (err) {
+        console.error('Live trading precheck error:', err);
+        showNotification('Unable to verify live trading readiness. Try again.', 'error');
+        return;
+      }
       if (!window.confirm('⚠️ WARNING: This will enable REAL trading with REAL money. Are you sure?')) {
         return;
       }
@@ -1562,7 +1596,11 @@ export default function Dashboard() {
     
     try {
       // Send update to backend FIRST (single source of truth)
-      await axios.put(`${API}/system/mode`, { mode, enabled: newValue }, axiosConfig);
+      const payload = { mode, enabled: newValue };
+      if (mode === 'liveTrading' && newValue) {
+        payload.confirmation_token = 'CONFIRM_LIVE_TRADING';
+      }
+      await axios.put(`${API}/system/mode`, payload, axiosConfig);
       
       // Fetch fresh state from backend to ensure sync
       await loadSystemModes();
@@ -2331,7 +2369,7 @@ export default function Dashboard() {
 
 
   // Load admin users with full details
-  const loadAdminUsers = async () => {
+  const loadAdminUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
       const res = await axios.get(`${API}/admin/users`, axiosConfig);
@@ -2342,10 +2380,10 @@ export default function Dashboard() {
     } finally {
       setLoadingUsers(false);
     }
-  };
+  }, [axiosConfig]);
 
   // Load all bots for admin control
-  const loadAdminBots = async () => {
+  const loadAdminBots = useCallback(async () => {
     setLoadingBots(true);
     try {
       const res = await axios.get(`${API}/admin/bots`, axiosConfig);
@@ -2356,7 +2394,7 @@ export default function Dashboard() {
     } finally {
       setLoadingBots(false);
     }
-  };
+  }, [axiosConfig]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {

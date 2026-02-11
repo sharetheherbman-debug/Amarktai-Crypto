@@ -20,7 +20,10 @@ class BotManager:
             # Get current bot count for this exchange
             count = await db.bots_collection.count_documents({
                 "user_id": user_id,
-                "exchange": exchange
+                "exchange": exchange,
+                "status": {"$ne": "deleted"},
+                "deleted": {"$ne": True},
+                "deleted_at": {"$exists": False}
             })
             
             limit = self.limits.get(exchange.lower(), 10)
@@ -185,10 +188,20 @@ class BotManager:
                 if not release_success:
                     logger.warning(f"Failed to release reserved funds: {release_msg}")
             
-            # Delete bot
-            result = await db.bots_collection.delete_one(query)
+            # Soft delete bot
+            result = await db.bots_collection.update_one(
+                query,
+                {
+                    "$set": {
+                        "status": "deleted",
+                        "deleted": True,
+                        "is_deleted": True,
+                        "deleted_at": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+            )
             
-            if result.deleted_count > 0:
+            if result.modified_count > 0:
                 return {"success": True, "message": "✅ Bot deleted and capital released"}
             return {"success": False, "message": "❌ Bot not found"}
         

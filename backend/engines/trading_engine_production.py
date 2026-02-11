@@ -72,21 +72,28 @@ class TradingEngineProduction:
             await trade_limiter.record_trade(bot_id)
             
             # Save trade to database
-            trade = {
-                "id": str(random.randint(100000, 999999)),
-                "bot_id": bot_id,
-                "user_id": bot['user_id'],
-                "exchange": exchange,
-                "pair": pair,
-                "side": "buy" if profit_amount > 0 else "sell",
-                "amount": abs(current_capital * 0.1),
-                "price": random.uniform(1000000, 1200000) if 'BTC' in pair else random.uniform(50000, 60000),
-                "profit_loss": net_profit,
-                "fees": fees,
-                "trading_mode": bot.get('trading_mode', 'paper'),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "status": "completed"
-            }
+            from utils.trade_utils import build_trade_record
+
+            trade = build_trade_record(
+                {
+                    "id": str(random.randint(100000, 999999)),
+                    "bot_id": bot_id,
+                    "user_id": bot['user_id'],
+                    "exchange": exchange,
+                    "pair": pair,
+                    "side": "buy" if profit_amount > 0 else "sell",
+                    "amount": abs(current_capital * 0.1),
+                    "price": random.uniform(1000000, 1200000) if 'BTC' in pair else random.uniform(50000, 60000),
+                    "profit_loss": net_profit,
+                    "fees": fees,
+                    "trading_mode": bot.get('trading_mode', 'paper'),
+                    "is_live": bot.get('trading_mode') == 'live',
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "status": "completed"
+                },
+                user_id=bot['user_id'],
+                bot=bot
+            )
             
             await db.trades_collection.insert_one(trade)
             

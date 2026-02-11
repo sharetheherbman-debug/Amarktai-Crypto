@@ -87,7 +87,9 @@ EXCHANGE_BOT_LIMITS = {
     'binance': 10,
     'kucoin': 10,
     'bybit': 10,
-    'bitget': 10
+    'kraken': 10,
+    'bitget': 10,
+    'gate': 10
 }
 
 # Trading limits - Per exchange (Safety caps per upgrade guide)

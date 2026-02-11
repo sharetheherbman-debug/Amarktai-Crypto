@@ -450,7 +450,7 @@ class ComprehensiveAPITester:
             self.log_result("Paper Trading ON", False, "Failed to enable paper trading")
         
         # Test toggling live trading ON (should turn paper trading OFF)
-        live_data = {"mode": "liveTrading", "enabled": True}
+        live_data = {"mode": "liveTrading", "enabled": True, "confirmation_token": "CONFIRM_LIVE_TRADING"}
         response = self.make_request("PUT", "/system/mode", live_data)
         if response and response.status_code == 200:
             modes = response.json().get("modes", {})
@@ -458,6 +458,8 @@ class ComprehensiveAPITester:
                 self.log_result("Live Trading ON", True, "Live trading ON, paper trading OFF (mutually exclusive)")
             else:
                 self.log_result("Live Trading ON", False, "Mutual exclusivity not working")
+        elif response and response.status_code == 403 and "globally disabled" in response.text:
+            self.log_result("Live Trading ON", True, "Live trading blocked by global gate (expected)")
         else:
             self.log_result("Live Trading ON", False, "Failed to enable live trading")
         

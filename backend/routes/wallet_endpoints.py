@@ -11,9 +11,10 @@ from datetime import datetime, timezone
 from auth import get_current_user
 from engines.wallet_manager import wallet_manager
 from engines.funding_plan_manager import funding_plan_manager
-from jobs.wallet_balance_monitor import wallet_balances_collection
 import database as db
 from config.exchange_config import get_required_fields, get_deposit_requirements
+from services.wallet_summary_service import wallet_summary_service
+from services.system_mode_service import system_mode_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ async def get_wallet_balances_legacy(user_id: str = Depends(get_current_user)):
     """Get all wallet balances for user (LEGACY - use /api/wallet/balances from wallet_hub instead)"""
     try:
         # Safe check for wallet collection initialization
-        if wallet_balances_collection is None:
+        if db.wallet_balances_collection is None:
             logger.warning("wallet_balances_collection not initialized, returning empty state")
             return {
                 "user_id": user_id,
@@ -102,7 +103,7 @@ async def get_wallet_balances_legacy(user_id: str = Depends(get_current_user)):
             }
         
         # Get cached balances
-        cached = await wallet_balances_collection.find_one(
+        cached = await db.wallet_balances_collection.find_one(
             {"user_id": user_id},
             {"_id": 0}
         )
@@ -198,9 +199,11 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
                 "note": "Collections not initialized"
             }
         
-        # Get all active bots
+        mode = await system_mode_service.get_current_mode(user_id)
+
+        # Get all active bots in current mode
         bots = await db.bots_collection.find(
-            {"user_id": user_id, "status": "active"},
+            {"user_id": user_id, "status": "active", "trading_mode": mode},
             {"_id": 0}
         ).to_list(1000)
         
@@ -224,7 +227,8 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
         
         for bot in bots:
             exchange = bot.get('exchange', 'unknown').lower()
-            capital = bot.get('current_capital', 0)
+            initial_capital = bot.get('initial_capital')
+            capital = initial_capital if initial_capital is not None else bot.get('current_capital', 0)
             
             if exchange not in requirements:
                 requirements[exchange] = {
@@ -246,8 +250,8 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
         balances = None
         
         # Get actual balances (safe check for collection)
-        if wallet_balances_collection is not None:
-            balances = await wallet_balances_collection.find_one(
+        if db.wallet_balances_collection is not None:
+            balances = await db.wallet_balances_collection.find_one(
                 {"user_id": user_id},
                 {"_id": 0}
             )
@@ -275,6 +279,8 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
         total_required = sum(req['required_capital'] for req in requirements.values())
         total_available = sum(req['available_capital'] for req in requirements.values())
         
+        wallet_summary = await wallet_summary_service.get_summary(user_id)
+
         return {
             "user_id": user_id,
             "requirements": requirements,
@@ -283,7 +289,13 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
                 "total_available": round(total_available, 2),
                 "overall_health": "healthy" if total_available >= total_required else "warning",
                 "exchanges_count": len(requirements),
-                "keys_configured": sum(1 for req in requirements.values() if req['api_key_present'])
+                "keys_configured": sum(1 for req in requirements.values() if req['api_key_present']),
+                "mode": wallet_summary.get("mode"),
+                "required_funds_zar": wallet_summary.get("required_funds_zar"),
+                "available_wallet_zar": wallet_summary.get("available_wallet_zar"),
+                "reserved_funds_zar": wallet_summary.get("reserved_funds_zar"),
+                "shortfall_zar": wallet_summary.get("shortfall_zar"),
+                "status": wallet_summary.get("status")
             },
             "timestamp": balances.get('timestamp') if balances else datetime.now(timezone.utc).isoformat()
         }
