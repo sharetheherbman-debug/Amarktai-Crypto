@@ -28,10 +28,14 @@ class RiskEngine:
         if total_equity <= 0:
             return False, "No capital available"
         
-        # 1. Check daily loss limit (5% max)
+        # 1. Check daily loss limit (risk-profile based)
         await self._check_daily_loss(user_id, total_equity)
         daily_loss = self.user_daily_loss.get(user_id, 0)
-        max_daily_loss = total_equity * 0.05
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "risk_profile": 1})
+        profile = (user or {}).get("risk_profile", "balanced")
+        profile = profile.lower()
+        max_daily_loss_pct = {"safe": 0.15, "balanced": 0.20, "risky": 0.25}.get(profile, 0.20)
+        max_daily_loss = total_equity * max_daily_loss_pct
         
         if abs(daily_loss) >= max_daily_loss:
             logger.warning(f"Daily loss limit hit for user {user_id}: {daily_loss}")

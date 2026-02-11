@@ -19,6 +19,8 @@ import database as db
 from realtime_events import manager
 from config.platforms import SUPPORTED_PLATFORMS
 from services.transfer_state_machine import transfer_state_machine
+from services.paper_wallet_service import paper_wallet_service
+from engines.wallet_manager import wallet_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
@@ -33,6 +35,15 @@ class TransferRequest(BaseModel):
     totp_code: Optional[str] = None  # Required if 2FA enabled
     withdrawal_address: Optional[str] = None  # Optional whitelisted address
     notes: Optional[str] = None
+
+
+class PaperDepositRequest(BaseModel):
+    amount: float
+    currency: str = "ZAR"
+
+
+class PaperResetRequest(BaseModel):
+    confirm: bool = False
 
 
 @router.get("/health")
@@ -95,39 +106,81 @@ async def get_wallet_health(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def get_paper_wallet_balances(user_id: str) -> Dict:
-    """Calculate paper wallet balances from bot capital"""
+async def get_paper_wallet_allocated_balances(user_id: str) -> Dict:
+    """Calculate allocated paper wallet balances from active bot ledgers"""
     try:
-        # Group bot capital by exchange
-        bots_cursor = db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "trading_mode": "paper",
-                "status": {"$nin": ["deleted"]}
-            },
-            {"_id": 0, "exchange": 1, "current_capital": 1}
-        )
-        bots = await bots_cursor.to_list(1000)
-        
-        # Sum by exchange
-        balances = {}
-        for bot in bots:
-            exchange = bot.get("exchange", "unknown")
-            capital = bot.get("current_capital", 0)
-            
-            if exchange not in balances:
-                balances[exchange] = 0
-            balances[exchange] += capital
-        
-        # Round all balances
-        for exchange in balances:
-            balances[exchange] = round(balances[exchange], 2)
-        
-        return balances
+        if db.paper_ledger_collection is None:
+            return {}
+        pipeline = [
+            {"$match": {"user_id": user_id, "status": "active"}},
+            {"$group": {"_id": "$currency", "total": {"$sum": "$current_balance"}}}
+        ]
+        results = await db.paper_ledger_collection.aggregate(pipeline).to_list(100)
+        return {r.get("_id") or "ZAR": round(float(r.get("total", 0) or 0), 2) for r in results}
         
     except Exception as e:
-        logger.error(f"Get paper wallet balances error: {e}")
+        logger.error(f"Get paper wallet allocated balances error: {e}")
         return {}
+
+
+async def get_paper_wallet_balances(user_id: str) -> Dict:
+    """Calculate total paper wallet balances (available + allocated)."""
+    available = await paper_wallet_service.get_balances(user_id)
+    allocated = await get_paper_wallet_allocated_balances(user_id)
+    totals = {}
+    for currency, amount in available.get("balances", {}).items():
+        totals[currency] = totals.get(currency, 0) + float(amount or 0)
+    for currency, amount in allocated.items():
+        totals[currency] = totals.get(currency, 0) + float(amount or 0)
+    return {currency: round(amount, 2) for currency, amount in totals.items()}
+
+
+@router.get("/paper")
+async def get_paper_wallet(user_id: str = Depends(get_current_user)):
+    """Get paper wallet balances and totals."""
+    available = await paper_wallet_service.get_balances(user_id)
+    allocated = await get_paper_wallet_allocated_balances(user_id)
+    totals = await get_paper_wallet_balances(user_id)
+    total_value = sum(float(value or 0) for value in totals.values())
+    return {
+        "user_id": user_id,
+        "available": available.get("balances", {}),
+        "allocated": allocated,
+        "balances": totals,
+        "total": round(total_value, 2),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.post("/paper/deposit")
+async def deposit_paper_wallet(
+    request: PaperDepositRequest,
+    user_id: str = Depends(get_current_user)
+):
+    if request.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    result = await paper_wallet_service.deposit(user_id, request.amount, request.currency)
+    return {
+        "success": True,
+        "balances": result.get("balances", {}),
+        "total": result.get("total", 0),
+        "currency": request.currency.upper()
+    }
+
+
+@router.post("/paper/reset")
+async def reset_paper_wallet(
+    request: PaperResetRequest,
+    user_id: str = Depends(get_current_user)
+):
+    if not request.confirm:
+        raise HTTPException(status_code=400, detail="Confirmation required")
+    result = await paper_wallet_service.reset(user_id)
+    return {
+        "success": True,
+        "balances": result.get("balances", {}),
+        "total": result.get("total", 0)
+    }
 
 
 @router.post("/transfer")
@@ -261,6 +314,7 @@ async def get_all_balances(user_id: str = Depends(get_current_user)):
     try:
         # Get paper balances
         paper_balances = await get_paper_wallet_balances(user_id)
+        allocated_balances = await get_paper_wallet_allocated_balances(user_id)
         
         # Get live balances when keys are available
         live_balances = {}
@@ -295,12 +349,48 @@ async def get_all_balances(user_id: str = Depends(get_current_user)):
             else:
                 live_balances[exchange] = 0.0
         
+        master_wallet = {}
+        try:
+            master_balance = await wallet_manager.get_master_balance(user_id)
+            if master_balance.get("error"):
+                master_wallet = {
+                    "total_zar": 0,
+                    "btc_balance": 0,
+                    "eth_balance": 0,
+                    "xrp_balance": 0,
+                    "exchange": "luno",
+                    "error": master_balance.get("error")
+                }
+            else:
+                master_wallet = {
+                    "total_zar": master_balance.get("total_zar", 0),
+                    "btc_balance": master_balance.get("btc", 0),
+                    "eth_balance": master_balance.get("eth", 0),
+                    "xrp_balance": master_balance.get("xrp", 0),
+                    "exchange": master_balance.get("exchange", "luno")
+                }
+        except Exception as e:
+            logger.warning(f"Master wallet lookup failed: {e}")
+            master_wallet = {
+                "total_zar": 0,
+                "btc_balance": 0,
+                "eth_balance": 0,
+                "xrp_balance": 0,
+                "exchange": "luno",
+                "error": str(e)
+            }
+
         return {
             "user_id": user_id,
             "paper_balances": paper_balances,
+            "paper_allocated": allocated_balances,
             "live_balances": live_balances,
             "total_paper": round(sum(paper_balances.values()), 2),
             "total_live": round(sum(live_balances.values()), 2),
+            "master_wallet": master_wallet,
+            "zar": master_wallet.get("total_zar", 0),
+            "btc": master_wallet.get("btc_balance", 0),
+            "btc_balance": master_wallet.get("btc_balance", 0),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         

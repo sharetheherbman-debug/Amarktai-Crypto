@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 
 # Risk-based drawdown thresholds (configurable per mode)
 PAPER_DRAWDOWN_THRESHOLDS = {
-    'safe': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_SAFE', '30.0')),
-    'balanced': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_BALANCED', '35.0')),
-    'aggressive': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_AGGRESSIVE', '40.0'))
+    'safe': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_SAFE', '15.0')),
+    'balanced': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_BALANCED', '20.0')),
+    'risky': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_RISKY', '25.0')),
+    'aggressive': float(os.getenv('BODYGUARD_PAPER_DRAWDOWN_AGGRESSIVE', '25.0'))
 }
 LIVE_DRAWDOWN_THRESHOLDS = {
     'safe': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_SAFE', '15.0')),
     'balanced': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_BALANCED', '20.0')),
+    'risky': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_RISKY', '25.0')),
     'aggressive': float(os.getenv('BODYGUARD_LIVE_DRAWDOWN_AGGRESSIVE', '25.0'))
 }
 
@@ -57,9 +59,19 @@ MAX_RATE_LIMIT_ERRORS_PER_HOUR = 5  # Maximum rate limit errors before pause
 class BodyguardService:
     """Enhanced bodyguard service with win-aware logic and quarantine integration"""
 
-    def _get_drawdown_threshold(self, trading_mode: str, risk_mode: str) -> float:
+    async def _get_user_risk_profile(self, user_id: str) -> str:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "risk_profile": 1})
+        profile = (user or {}).get("risk_profile", "balanced")
+        profile = profile.lower()
+        if profile == "aggressive":
+            profile = "risky"
+        if profile not in {"safe", "balanced", "risky"}:
+            profile = "balanced"
+        return profile
+
+    def _get_drawdown_threshold(self, trading_mode: str, risk_profile: str) -> float:
         thresholds = PAPER_DRAWDOWN_THRESHOLDS if trading_mode == "paper" else LIVE_DRAWDOWN_THRESHOLDS
-        return thresholds.get(risk_mode, thresholds.get("balanced", 20.0))
+        return thresholds.get(risk_profile, thresholds.get("balanced", 20.0))
 
     def _parse_datetime(self, value) -> Optional[datetime]:
         if isinstance(value, datetime):
@@ -162,7 +174,8 @@ class BodyguardService:
             # Get risk mode and threshold
             risk_mode = bot.get('risk_mode', 'balanced')
             trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
-            threshold = self._get_drawdown_threshold(trading_mode, risk_mode)
+            risk_profile = await self._get_user_risk_profile(user_id)
+            threshold = self._get_drawdown_threshold(trading_mode, risk_profile)
 
             exchange = bot.get('exchange', '').lower()
             pair = bot.get('pair', '')
@@ -299,7 +312,8 @@ class BodyguardService:
                     current_drawdown_pct,
                     threshold,
                     current_equity,
-                    daily_pnl
+                    daily_pnl,
+                    risk_profile
                 )
             
             # Check if paused by bodyguard and drawdown improved enough to resume
@@ -322,7 +336,8 @@ class BodyguardService:
         current_drawdown_pct: float,
         threshold: float,
         current_equity: float,
-        daily_pnl: float
+        daily_pnl: float,
+        risk_profile: str
     ) -> Tuple[bool, str]:
         """Pause bot due to drawdown threshold breach and place in quarantine
         
@@ -361,7 +376,7 @@ class BodyguardService:
                         "bodyguard_last_pause_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": True,
                         "paused_by_system": True,
-                        "pause_reason": f"Drawdown threshold breach: {current_drawdown_pct:.1f}% >= {threshold}%",
+                        "pause_reason": f"Drawdown threshold breach ({risk_profile}): {current_drawdown_pct:.1f}% >= {threshold}%",
                         "bodyguard_pause_threshold": threshold,
                         "bodyguard_pause_drawdown": round(current_drawdown_pct, 2),
                         "bodyguard_breach_count": 0
@@ -402,12 +417,13 @@ class BodyguardService:
             # Send additional overview update
             await manager.send_message(user_id, {
                 "type": "overview_updated",
-                "message": f"Bot {action_description} by bodyguard due to drawdown"
+                "message": f"Bot {action_description} by bodyguard ({risk_profile} tier) due to drawdown"
             })
             
             logger.warning(
-                "Bodyguard pause bot_id=%s threshold=%.2f current_drawdown=%.2f equity=%.2f daily_pnl=%.2f action=%s",
+                "Bodyguard pause bot_id=%s profile=%s threshold=%.2f current_drawdown=%.2f equity=%.2f daily_pnl=%.2f action=%s",
                 bot_id,
+                risk_profile,
                 threshold,
                 current_drawdown_pct,
                 current_equity,
@@ -417,7 +433,7 @@ class BodyguardService:
 
             description = (
                 f"🛡️ Bodyguard {action_description} '{bot_name}': Drawdown {current_drawdown_pct:.1f}% "
-                f"reached {risk_mode} threshold ({threshold}%)"
+                f"reached {risk_profile} threshold ({threshold}%)"
             )
             
             logger.warning(description)

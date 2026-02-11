@@ -214,13 +214,12 @@ class AIBodyguard:
     async def check_system_health(self, user_id: str):
         """Check overall system health for user"""
         try:
-            # Check daily loss limit - support MAX_DAILY_LOSS_PERCENT env var
-            # MAX_DAILY_LOSS_PERCENT can be either decimal (0.15 = 15%) or percentage (15 = 15%)
-            max_daily_loss_env = os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15')
-            max_daily_loss = float(max_daily_loss_env)
-            # If value is < 1, treat as decimal (0.15 = 15%), otherwise treat as percentage (15 = 15%)
-            if max_daily_loss < 1:
-                max_daily_loss = max_daily_loss * 100  # Convert decimal to percentage
+            # Check daily loss limit based on user risk profile
+            user = await self.db.users.find_one({"id": user_id}, {"_id": 0, "risk_profile": 1})
+            profile = (user or {}).get("risk_profile", "balanced")
+            profile = profile.lower()
+            thresholds = {"safe": 15.0, "balanced": 20.0, "risky": 25.0}
+            max_daily_loss = thresholds.get(profile, 20.0)
             
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
             

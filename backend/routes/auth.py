@@ -61,6 +61,7 @@ async def register(request: Request, user: UserRegister):
         "autopilot_enabled": True,
         "bodyguard_enabled": True,
         "learning_enabled": True,
+        "risk_profile": "balanced",
         "emergency_stop": False,
         "blocked": False,
         "is_admin": False,  # Default: regular user (admin must be set manually in DB)
@@ -312,4 +313,3 @@ async def get_profile(user_id: str = Depends(get_current_user)):
     # Sanitize - never return sensitive fields
     sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
     return {k: v for k, v in user.items() if k not in sensitive_fields}
-
