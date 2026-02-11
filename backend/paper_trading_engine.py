@@ -35,6 +35,7 @@ EXPECTED RESULTS:
 
 import ccxt.async_support as ccxt
 import asyncio
+import os
 import random
 from datetime import datetime, timezone
 from typing import Dict, Tuple
@@ -61,6 +62,14 @@ EXCHANGE_FEES = {
     "bitget": {"maker": 0.001, "taker": 0.001},   # 0.1% (standard tier)
     "gate": {"maker": 0.002, "taker": 0.002},     # 0.2% (standard tier)
 }
+
+# Paper execution tuning (bps = basis points, 1 bps = 0.01%)
+PAPER_SLIPPAGE_BPS = float(os.getenv("PAPER_SLIPPAGE_BPS", "8"))  # 0.08%
+PAPER_LATENCY_BPS = float(os.getenv("PAPER_LATENCY_BPS", "3"))   # 0.03%
+PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
+PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
+PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
+PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -281,6 +290,8 @@ class PaperTradingEngine:
         self.price_cache = {}
         self.preferred_exchange = 'luno'
         self.available_pairs_cache = {}  # Cache for dynamically fetched pairs
+        self.market_data_provider = None
+        self.ledger_service = None
         
         # Status tracking for monitoring
         self.is_running = False
@@ -563,6 +574,73 @@ class PaperTradingEngine:
                 'description': 'Using safe fallback price - real market data unavailable'
             }
         return fallback_price
+
+    async def get_market_snapshot(self, symbol: str, exchange: str = "luno") -> Dict:
+        """Get best bid/ask snapshot for a symbol with fallback pricing."""
+        if self.market_data_provider:
+            return await self.market_data_provider(symbol, exchange)
+
+        if not self.luno_exchange and not self.binance_exchange:
+            await self.init_exchanges()
+
+        exchange_obj = {
+            "luno": self.luno_exchange,
+            "binance": self.binance_exchange,
+            "kucoin": self.kucoin_exchange,
+            "bybit": self.bybit_exchange,
+            "bitget": self.bitget_exchange,
+        }.get(exchange, self.luno_exchange)
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+        bid = ask = mid = None
+        source = "fallback"
+
+        if exchange_obj:
+            try:
+                order_book = await exchange_obj.fetch_order_book(symbol, limit=5)
+                bids = order_book.get("bids") or []
+                asks = order_book.get("asks") or []
+                if bids and asks:
+                    bid = bids[0][0]
+                    ask = asks[0][0]
+                    mid = (bid + ask) / 2
+                    source = "order_book"
+            except Exception as e:
+                logger.debug(f"Order book fetch failed for {symbol} on {exchange}: {e}")
+
+            if mid is None:
+                try:
+                    ticker = await exchange_obj.fetch_ticker(symbol)
+                    bid = ticker.get("bid") or bid
+                    ask = ticker.get("ask") or ask
+                    last = ticker.get("last") or ticker.get("close") or bid or ask
+                    if last:
+                        mid = last
+                        source = "ticker"
+                except Exception as e:
+                    logger.debug(f"Ticker fetch failed for {symbol} on {exchange}: {e}")
+
+        if mid is None:
+            mid = await self.get_real_price(symbol, exchange)
+            source = "fallback"
+
+        if bid is None:
+            bid = mid * (1 - (PAPER_SPREAD_BPS / 20000))
+        if ask is None:
+            ask = mid * (1 + (PAPER_SPREAD_BPS / 20000))
+
+        spread = max(ask - bid, 0)
+        spread_bps = (spread / mid) * 10000 if mid else PAPER_SPREAD_BPS
+
+        return {
+            "bid": float(bid),
+            "ask": float(ask),
+            "mid": float(mid),
+            "spread": float(spread),
+            "spread_bps": float(round(spread_bps, 4)),
+            "source": source,
+            "timestamp": timestamp,
+        }
     
     async def analyze_trend(self, symbol: str, exchange: str = 'luno') -> str:
         """Analyze REAL market trend"""
@@ -669,14 +747,15 @@ class PaperTradingEngine:
             available_pairs = await self.get_available_pairs(exchange)
             symbol = random.choice(available_pairs)
             
-            # Get REAL price with safety check
-            current_price = await self.get_real_price(symbol, exchange)
+            # Get REAL market snapshot (bid/ask/mid)
+            market_snapshot = await self.get_market_snapshot(symbol, exchange)
+            current_price = market_snapshot.get("mid")
             
             # CRITICAL: Guard against None or invalid price
             if current_price is None or current_price <= 0:
                 logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
                 self.last_error = f"Invalid price: {current_price}"
-                return {"success": False, "bot_id": bot_id, "error": f"Invalid price for {symbol}"}
+                return {"success": False, "bot_id": bot_id, "error": f"Market unavailable for {symbol}"}
             
             # 2. AI INTELLIGENCE: Check market regime
             from market_regime import market_regime_detector

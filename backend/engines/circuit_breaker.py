@@ -22,21 +22,34 @@ class CircuitBreaker:
         self.max_consecutive_losses = 5  # 5 losses in a row
         self.max_errors_per_hour = 10  # 10 errors/hour
         
-    async def check_bot_drawdown_ledger(self, user_id: str, bot_id: str, ledger_service) -> Tuple[bool, str]:
+    async def check_bot_drawdown_ledger(
+        self,
+        user_id: str,
+        bot_id: str,
+        ledger_service,
+        currency: str = "USDT"
+    ) -> Tuple[bool, str, Dict]:
         """Check if bot has exceeded drawdown limits - LEDGER-BASED"""
         try:
             # Get drawdown from ledger (single source of truth)
-            current_dd, max_dd = await ledger_service.compute_drawdown(user_id, bot_id=bot_id)
+            current_dd, max_dd = await ledger_service.compute_drawdown(bot_id=bot_id, currency=currency)
             
             if current_dd > self.max_bot_drawdown:
-                return True, f"Drawdown {current_dd*100:.1f}% exceeds limit {self.max_bot_drawdown*100:.0f}%"
+                return True, (
+                    f"Drawdown {current_dd*100:.1f}% exceeds limit {self.max_bot_drawdown*100:.0f}%"
+                ), {
+                    "threshold": self.max_bot_drawdown,
+                    "current_value": current_dd,
+                    "max_drawdown": max_dd
+                }
             
-            return False, "OK"
+            return False, "OK", {"threshold": self.max_bot_drawdown, "current_value": current_dd, "max_drawdown": max_dd}
             
         except Exception as e:
             logger.error(f"Ledger-based drawdown check error: {e}")
             # Fallback to bot-based check
-            return await self._check_bot_drawdown_fallback(bot_id)
+            breach, reason = await self._check_bot_drawdown_fallback(bot_id)
+            return breach, reason, {"threshold": self.max_bot_drawdown, "current_value": None}
     
     async def _check_bot_drawdown_fallback(self, bot_id: str) -> Tuple[bool, str]:
         """Fallback to bot-based drawdown check"""
@@ -60,43 +73,59 @@ class CircuitBreaker:
             logger.error(f"Drawdown check error: {e}")
             return False, str(e)
     
-    async def check_daily_loss_ledger(self, user_id: str, bot_id: str, ledger_service) -> Tuple[bool, str]:
+    async def check_daily_loss_ledger(
+        self,
+        user_id: str,
+        bot_id: str,
+        ledger_service,
+        currency: str = "USDT"
+    ) -> Tuple[bool, str, Dict]:
         """Check if bot has exceeded daily loss limit - LEDGER-BASED"""
         try:
             # Get today's profit from ledger
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            
-            series = await ledger_service.profit_series(
-                user_id,
-                period="daily",
-                limit=1,
+
+            daily_realized = await ledger_service.compute_realized_pnl(
                 bot_id=bot_id,
                 since=today_start
             )
-            
-            if not series or not series.get("values"):
-                return False, "OK"
-            
-            daily_pnl = series["values"][0]
-            
-            # Get initial capital from ledger
-            initial_capital = await ledger_service.compute_funded_capital(user_id, bot_id=bot_id)
-            
-            if initial_capital == 0:
-                return False, "OK"
-            
+            daily_fees = await ledger_service.compute_fees_paid(
+                bot_id=bot_id,
+                since=today_start,
+                currency=currency
+            )
+            daily_pnl = daily_realized - daily_fees
+
+            initial_capital = await ledger_service.compute_funded_capital(
+                bot_id=bot_id,
+                currency=currency
+            )
+
+            if initial_capital <= 0:
+                return False, "OK", {"threshold": self.max_daily_loss_percent, "current_value": 0, "daily_pnl": daily_pnl}
+
             daily_loss_pct = abs(daily_pnl) / initial_capital if daily_pnl < 0 else 0
-            
+
             if daily_loss_pct > self.max_daily_loss_percent:
-                return True, f"Daily loss {daily_loss_pct*100:.1f}% exceeds limit {self.max_daily_loss_percent*100:.0f}%"
-            
-            return False, "OK"
+                return True, (
+                    f"Daily loss {daily_loss_pct*100:.1f}% exceeds limit {self.max_daily_loss_percent*100:.0f}%"
+                ), {
+                    "threshold": self.max_daily_loss_percent,
+                    "current_value": daily_loss_pct,
+                    "daily_pnl": daily_pnl
+                }
+
+            return False, "OK", {
+                "threshold": self.max_daily_loss_percent,
+                "current_value": daily_loss_pct,
+                "daily_pnl": daily_pnl
+            }
             
         except Exception as e:
             logger.error(f"Daily loss check error: {e}")
-            return False, str(e)
+            return False, str(e), {"threshold": self.max_daily_loss_percent, "current_value": None}
     
-    async def check_consecutive_losses_ledger(self, user_id: str, bot_id: str, ledger_service) -> Tuple[bool, str]:
+    async def check_consecutive_losses_ledger(self, user_id: str, bot_id: str, ledger_service) -> Tuple[bool, str, Dict]:
         """Check for consecutive losses - LEDGER-BASED"""
         try:
             # Get recent fills from ledger
@@ -125,15 +154,18 @@ class CircuitBreaker:
                     consecutive_losses = 0  # Reset on win
                 
                 if consecutive_losses >= self.max_consecutive_losses:
-                    return True, f"Consecutive losses: {consecutive_losses}"
+                    return True, f"Consecutive losses: {consecutive_losses}", {
+                        "threshold": self.max_consecutive_losses,
+                        "current_value": consecutive_losses
+                    }
             
-            return False, "OK"
+            return False, "OK", {"threshold": self.max_consecutive_losses, "current_value": consecutive_losses}
             
         except Exception as e:
             logger.error(f"Consecutive losses check error: {e}")
-            return False, str(e)
+            return False, str(e), {"threshold": self.max_consecutive_losses, "current_value": None}
     
-    async def check_error_rate(self, user_id: str, bot_id: str) -> Tuple[bool, str]:
+    async def check_error_rate(self, user_id: str, bot_id: str) -> Tuple[bool, str, Dict]:
         """Check error rate from alerts"""
         try:
             one_hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
@@ -146,13 +178,16 @@ class CircuitBreaker:
             })
             
             if error_count >= self.max_errors_per_hour:
-                return True, f"Error rate: {error_count}/hour exceeds limit {self.max_errors_per_hour}"
+                return True, f"Error rate: {error_count}/hour exceeds limit {self.max_errors_per_hour}", {
+                    "threshold": self.max_errors_per_hour,
+                    "current_value": error_count
+                }
             
-            return False, "OK"
+            return False, "OK", {"threshold": self.max_errors_per_hour, "current_value": error_count}
             
         except Exception as e:
             logger.error(f"Error rate check error: {e}")
-            return False, str(e)
+            return False, str(e), {"threshold": self.max_errors_per_hour, "current_value": None}
     
     async def check_global_drawdown(self, user_id: str) -> Tuple[bool, str]:
         """Check if total system drawdown exceeds limit"""
@@ -192,8 +227,10 @@ class CircuitBreaker:
                 {"$set": {
                     "status": "quarantined",
                     "quarantine_reason": f"Circuit breaker: {reason}",
+                    "pause_reason": f"Circuit breaker: {reason}",
                     "quarantined_at": datetime.now(timezone.utc).isoformat(),
-                    "requires_manual_reset": True
+                    "requires_manual_reset": True,
+                    "paused_by_system": True
                 }}
             )
             
@@ -236,8 +273,9 @@ class CircuitBreaker:
                 {"id": bot_id},
                 {"$set": {
                     "status": "paused",
-                    "paused_reason": f"Circuit breaker: {reason}",
-                    "paused_at": datetime.now(timezone.utc).isoformat()
+                    "pause_reason": f"Circuit breaker: {reason}",
+                    "paused_at": datetime.now(timezone.utc).isoformat(),
+                    "paused_by_system": True
                 }}
             )
             
@@ -321,23 +359,51 @@ class CircuitBreaker:
             
             for bot in bots:
                 bot_id = bot['id']
+                exchange = bot.get("exchange", "").lower()
+                pair = bot.get("pair", "")
+                currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
+
+                today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                daily_realized = await ledger_service.compute_realized_pnl(
+                    bot_id=bot_id,
+                    since=today_start
+                )
+                daily_fees = await ledger_service.compute_fees_paid(
+                    bot_id=bot_id,
+                    since=today_start,
+                    currency=currency
+                )
+                daily_pnl = daily_realized - daily_fees
+                equity = await ledger_service.compute_equity(bot_id=bot_id, currency=currency)
                 
                 # Run all checks (ledger-based)
                 checks = [
-                    await self.check_bot_drawdown_ledger(user_id, bot_id, ledger_service),
-                    await self.check_daily_loss_ledger(user_id, bot_id, ledger_service),
+                    await self.check_bot_drawdown_ledger(user_id, bot_id, ledger_service, currency=currency),
+                    await self.check_daily_loss_ledger(user_id, bot_id, ledger_service, currency=currency),
                     await self.check_consecutive_losses_ledger(user_id, bot_id, ledger_service),
                     await self.check_error_rate(user_id, bot_id)
                 ]
                 
                 # Check if any breached
-                for breach, reason in checks:
+                for breach, reason, details in checks:
                     if breach:
                         # Critical breaches go to quarantine
+                        action = "paused"
                         if "drawdown" in reason.lower() or "consecutive" in reason.lower():
+                            action = "quarantined"
                             await self.trigger_bot_quarantine(bot_id, reason)
                         else:
                             await self.trigger_bot_pause(bot_id, reason)
+                        logger.warning(
+                            "Circuit breaker action=%s bot_id=%s threshold=%s current_value=%s equity=%.2f daily_pnl=%.2f reason=%s",
+                            action,
+                            bot_id,
+                            details.get("threshold"),
+                            details.get("current_value"),
+                            equity,
+                            daily_pnl,
+                            reason
+                        )
                         break  # Only one action per bot
             
         except Exception as e:

@@ -267,6 +267,61 @@ class LedgerService:
         logger.debug(f"Equity calculation for {target_field}={target_id}: starting={starting_capital}, realized={realized_pnl}, unrealized={unrealized_pnl}, fees={fees_paid}, total={equity}")
         
         return equity
+
+    async def compute_funded_capital(
+        self,
+        user_id: Optional[str] = None,
+        bot_id: Optional[str] = None,
+        currency: Optional[str] = None
+    ) -> float:
+        """Compute total funded capital from ledger events."""
+        target_id = user_id or bot_id
+        target_field = "user_id" if user_id else "bot_id"
+
+        if not target_id:
+            raise ValueError("Must provide either user_id or bot_id")
+
+        query = {
+            target_field: target_id,
+            "event_type": {"$in": ["funding", "paper_capital_bootstrap"]}
+        }
+        if currency:
+            query["currency"] = currency
+
+        events = await self.ledger_events.find(query).to_list(length=1000)
+        return sum(event.get("amount", 0) for event in events)
+
+    async def ensure_bot_funding(
+        self,
+        user_id: str,
+        bot_id: str,
+        amount: float,
+        currency: str
+    ) -> bool:
+        """Ensure a funding event exists for a bot (idempotent)."""
+        if amount <= 0:
+            return False
+
+        query = {
+            "user_id": user_id,
+            "bot_id": bot_id,
+            "event_type": "funding",
+            "currency": currency
+        }
+        existing = await self.ledger_events.find_one(query)
+        if existing:
+            return False
+
+        await self.append_event(
+            user_id=user_id,
+            event_type="funding",
+            amount=amount,
+            currency=currency,
+            timestamp=datetime.utcnow(),
+            bot_id=bot_id,
+            description=f"Initial funded capital for bot {bot_id}"
+        )
+        return True
     
     async def compute_realized_pnl(
         self,
