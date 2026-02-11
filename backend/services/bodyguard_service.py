@@ -63,6 +63,8 @@ class BodyguardService:
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "risk_profile": 1})
         profile = (user or {}).get("risk_profile", "balanced")
         profile = profile.lower()
+        if profile == "aggressive":
+            profile = "risky"
         if profile not in {"safe", "balanced", "risky"}:
             profile = "balanced"
         return profile
@@ -415,7 +417,7 @@ class BodyguardService:
             # Send additional overview update
             await manager.send_message(user_id, {
                 "type": "overview_updated",
-                "message": f"Bot {action_description} by bodyguard due to drawdown"
+                "message": f"Bot {action_description} by bodyguard ({risk_profile} tier) due to drawdown"
             })
             
             logger.warning(

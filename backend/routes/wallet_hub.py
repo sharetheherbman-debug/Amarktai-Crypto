@@ -390,6 +390,7 @@ async def get_all_balances(user_id: str = Depends(get_current_user)):
             "master_wallet": master_wallet,
             "zar": master_wallet.get("total_zar", 0),
             "btc": master_wallet.get("btc_balance", 0),
+            "btc_balance": master_wallet.get("btc_balance", 0),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         

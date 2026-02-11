@@ -53,7 +53,7 @@ class PaperWalletService:
     async def get_available_balance(self, user_id: str, currency: str) -> float:
         wallet = await self._ensure_wallet(user_id)
         balances = wallet.get("balances") or {}
-        return float(balances.get(currency.upper(), 0) or 0)
+        return float(balances.get(currency.upper(), 0))
 
     async def deposit(self, user_id: str, amount: float, currency: str) -> Dict:
         await self.init_db()

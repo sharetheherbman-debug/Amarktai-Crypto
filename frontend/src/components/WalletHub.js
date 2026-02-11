@@ -252,14 +252,20 @@ const WalletHub = ({ platformFilter = 'all' }) => {
             </div>
           </div>
           <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-            Available: {Object.entries(paperWallet?.available || {}).map(([currency, amount]) => (
-              <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
-            ))}
+            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Available</div>
+            <div>
+              {Object.entries(paperWallet?.available || {}).map(([currency, amount]) => (
+                <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
+              ))}
+            </div>
           </div>
           <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-            Allocated: {Object.entries(paperWallet?.allocated || {}).map(([currency, amount]) => (
-              <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
-            ))}
+            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Allocated</div>
+            <div>
+              {Object.entries(paperWallet?.allocated || {}).map(([currency, amount]) => (
+                <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
+              ))}
+            </div>
           </div>
         </div>
         <div style={{ marginTop: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>

@@ -1413,7 +1413,7 @@ export default function Dashboard() {
 
     const userMsg = { role: 'user', content: originalInput };
     setChatMessages(prev => [...prev, userMsg]);
-    const msgLower = originalInput.toLowerCase().trim(); // Case-insensitive and whitespace-trimmed for command matching
+    const msgLower = originalInput.toLowerCase(); // Case-insensitive for command matching
     setChatInput('');
 
     // PHASE 12: Save user message to backend
