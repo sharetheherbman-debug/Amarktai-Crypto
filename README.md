@@ -35,7 +35,7 @@
 - **Paper Trading**: 7-day requirement with realistic simulation
 - **Live Trading**: Auto-promotion after criteria met (win rate, drawdown, edge gate)
 - **65 Bots Maximum**: Distributed across exchanges (5+10+10+10+10+10+10)
-- **Auto-Spawn**: New bot every R1000 realized profit
+- **Auto-Spawn**: New bot every R1000 realized profit per exchange
 
 ### 📊 **Real-Time Analytics** 
 - **Equity Tracking**: Live P&L curves with realized/unrealized profits
@@ -181,6 +181,19 @@ Quick production readiness verification (<2 minutes):
 
 See [`docs/GO_LIVE_GUIDE.md`](docs/GO_LIVE_GUIDE.md) for complete deployment guide.
 
+### **Section Smoke Test (Go-Live Gate)** 🆕
+Run section-by-section checks (auth, system, wallet, analytics, realtime, admin):
+
+```bash
+# With existing token
+./scripts/smoke_sections.sh https://amarktai.online "$TOKEN"
+
+# Or provide login credentials (optional)
+EMAIL="admin@example.com" PASSWORD="YourPassword" ./scripts/smoke_sections.sh https://amarktai.online
+```
+
+Expected output: PASS/FAIL per section with a non-zero exit code if any critical check fails.
+
 ### **Audit & Parity Verification**
 Generate machine-checkable inventories and verify frontend/backend parity:
 
@@ -198,6 +211,14 @@ The dashboard is aligned to these backend routes:
 - Bots: `GET /api/bots`, `GET /api/bots/status`
 - Admin storage: `GET /api/admin/storage`
 - AI chat: `POST /api/ai/chat`, `GET /api/ai/chat/history`, `POST /api/ai/chat/greeting`
+
+---
+
+## ✅ Go-Live Checklist
+- [ ] Run `./scripts/smoke_sections.sh <BASE_URL> <TOKEN>` and confirm all sections PASS
+- [ ] Confirm `/api/diagnostics/realtime` returns 200 and WebSocket connects to `/api/ws?token=...`
+- [ ] Verify Admin panel loads counts, system modes, scheduler status, and per-exchange breakdowns
+- [ ] Confirm Bodyguard config via `.env` (paper thresholds higher, live stricter) and reset endpoint works
 - Countdown: `GET /api/analytics/countdown-to-million`, `GET/POST/DELETE /api/countdowns`
 
 ### **VPS Smoke Tests (User/Admin/Realtime)**

@@ -163,5 +163,5 @@ class ConnectionManager:
         # This is a placeholder - actual pong handling is in the websocket endpoint
         await asyncio.sleep(0.1)
 
-# Global instance
-manager = ConnectionManager()
+# Global instance (ensure parity with /api/ws)
+from websocket_manager_redis import manager  # noqa: E402

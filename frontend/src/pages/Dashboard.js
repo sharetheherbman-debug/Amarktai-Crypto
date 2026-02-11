@@ -52,6 +52,18 @@ const APP_VERSION = '1.0.6'; // Increment this to force cache clear
 const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
 const EXCHANGES_NEEDING_PASSPHRASE = ['kucoin', 'bitget'];
 
+const safeNumber = (value, fallback = 0) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const safeToFixed = (value, digits = 2, fallback = '0.00') => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(digits) : fallback;
+};
+
+const safePercent = (value, digits = 1, fallback = '0.0') => `${safeToFixed(value, digits, fallback)}%`;
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -147,6 +159,7 @@ export default function Dashboard() {
   const [bodyguardStatus, setBodyguardStatus] = useState(null);
   // Consolidated risk status from /api/risk/status
   const [riskStatus, setRiskStatus] = useState(null);
+  const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [storageData, setStorageData] = useState(null);
   const [storageError, setStorageError] = useState(null);
   const [countdown, setCountdown] = useState(null);
@@ -481,7 +494,7 @@ export default function Dashboard() {
   }, []);
 
   const refreshBotState = async () => {
-    await Promise.all([loadBots(), loadOverviewData()]);
+    await Promise.all([loadBots(), loadOverviewData(), loadAutoSpawnStatus()]);
     if (showAdmin) {
       await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats()]);
     }
@@ -498,7 +511,8 @@ export default function Dashboard() {
       loadLivePrices(),
       loadOverviewData(),
       loadRiskStatus(),
-      loadSystemHealth()
+      loadSystemHealth(),
+      loadAutoSpawnStatus()
     ]);
   };
 
@@ -511,7 +525,7 @@ export default function Dashboard() {
       loadAdminUsers();
       loadAdminBots();
     }
-  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots]);
+  }, [showAdmin]);
 
   useEffect(() => {
     if (!showAdmin) return undefined;
@@ -521,7 +535,7 @@ export default function Dashboard() {
       loadAdminBots();
     }, 15000);
     return () => clearInterval(interval);
-  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots]);
+  }, [showAdmin]);
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -730,7 +744,7 @@ export default function Dashboard() {
         // Real-time profit update in overview
         setMetrics(prev => ({
           ...prev,
-          totalProfit: `R${data.total_profit.toFixed(2)}`
+          totalProfit: `R${safeToFixed(data.total_profit, 2)}`
         }));
         // Update countdown when profit changes
         loadCountdown();
@@ -741,9 +755,11 @@ export default function Dashboard() {
         if (data.overview) {
           setMetrics(prev => ({
             ...prev,
-            totalProfit: data.overview.portfolio_value ? `R${data.overview.portfolio_value.toFixed(2)}` : prev.totalProfit,
-            activeBots: data.overview.active_bots !== undefined ? `${data.overview.active_bots}` : prev.activeBots,
-            exposure: data.overview.exposure ? `${data.overview.exposure}%` : prev.exposure,
+            totalProfit: Number.isFinite(Number(data.overview.portfolio_value))
+              ? `R${safeToFixed(data.overview.portfolio_value, 2)}`
+              : prev.totalProfit,
+            activeBots: data.overview.active_bots !== undefined ? `${safeNumber(data.overview.active_bots, 0)}` : prev.activeBots,
+            exposure: Number.isFinite(Number(data.overview.exposure)) ? `${safeToFixed(data.overview.exposure, 1, '0.0')}%` : prev.exposure,
             riskLevel: data.overview.risk_level || prev.riskLevel
           }));
           
@@ -864,6 +880,7 @@ export default function Dashboard() {
         loadCountdown();
         loadCustomCountdowns();
         loadProfitData(graphPeriod);
+        loadAutoSpawnStatus();
         break;
       
       case 'ai_evolution':
@@ -984,13 +1001,13 @@ export default function Dashboard() {
       
       // Fetch portfolio summary for profit data
       const portfolioRes = await get('/portfolio/summary');
-      const totalProfit = portfolioRes?.net_pnl || 0;
-      const todaysProfit = portfolioRes?.todays_pnl || 0;
+      const totalProfit = safeNumber(portfolioRes?.net_pnl, 0);
+      const todaysProfit = safeNumber(portfolioRes?.todays_pnl, 0);
       
       // Fetch analytics for trade stats
-      const analyticsRes = await get('/analytics/performance');
-      const totalTrades = analyticsRes?.total_trades || 0;
-      const winRate = analyticsRes?.win_rate || 0;
+      const analyticsRes = await get('/analytics/performance_summary');
+      const totalTrades = safeNumber(analyticsRes?.total_trades, 0);
+      const winRate = safeNumber(analyticsRes?.win_rate, 0);
       
       // Fetch system mode
       const modeRes = await get('/system/mode');
@@ -1021,6 +1038,16 @@ export default function Dashboard() {
       setRiskStatus(res);
     } catch (err) {
       console.error('Risk status fetch error:', err);
+    }
+  };
+
+  const loadAutoSpawnStatus = async () => {
+    try {
+      const res = await get('/diagnostics/auto-spawn');
+      setAutoSpawnStatus(res);
+    } catch (err) {
+      console.error('Auto-spawn status fetch error:', err);
+      setAutoSpawnStatus(null);
     }
   };
 
@@ -1084,6 +1111,24 @@ export default function Dashboard() {
     }
   };
 
+  const handleResetBodyguardLock = async () => {
+    const confirmText = window.prompt('Type "RESET_BODYGUARD_LOCK" to confirm resetting bodyguard locks:');
+    if (confirmText !== 'RESET_BODYGUARD_LOCK') {
+      toast.error('Reset cancelled - confirmation text did not match');
+      return;
+    }
+
+    try {
+      await post('/risk/bodyguard/reset?confirmation=RESET_BODYGUARD_LOCK', {});
+      toast.success('Bodyguard locks have been reset');
+      await loadRiskStatus();
+      await refreshBotState();
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to reset bodyguard lock';
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    }
+  };
+
   const loadRecentTrades = async () => {
     try {
       const res = await axios.get(`${API}/trades/recent?limit=50`, axiosConfig);
@@ -1097,9 +1142,9 @@ export default function Dashboard() {
     try {
       const res = await axios.get(`${API}/portfolio/summary`, axiosConfig);
       setMetrics({
-        totalProfit: `R${res.data.net_pnl?.toFixed(2) || '0.00'}`,
-        activeBots: `${res.data.active_bots || 0} / ${res.data.total_bots || 0}`,
-        exposure: `${res.data.exposure?.toFixed(1) || 0}%`,
+        totalProfit: `R${safeToFixed(res.data.net_pnl, 2)}`,
+        activeBots: `${safeNumber(res.data.active_bots, 0)} / ${safeNumber(res.data.total_bots, 0)}`,
+        exposure: `${safeToFixed(res.data.exposure, 1, '0.0')}%`,
         riskLevel: res.data.risk_level || 'Unknown',
         aiSentiment: res.data.ai_sentiment || 'Neutral',
         lastUpdate: new Date().toLocaleTimeString() || '—'
@@ -1292,9 +1337,9 @@ export default function Dashboard() {
       setProjection({
         days_to_million: countdown.days_remaining < 9999 ? countdown.days_remaining : '∞',
         current_balance: countdown.current_capital,
-        daily_growth_rate: countdown.metrics?.daily_roi_pct?.toFixed(3) || '0.000',
-        progress_percentage: countdown.progress_pct?.toFixed(1) || '0.0',
-        projected_annual: (countdown.metrics?.avg_daily_profit * 365)?.toFixed(2) || '0.00',
+        daily_growth_rate: safeToFixed(countdown.metrics?.daily_roi_pct, 3, '0.000'),
+        progress_percentage: safeToFixed(countdown.progress_pct, 1, '0.0'),
+        projected_annual: safeToFixed(safeNumber(countdown.metrics?.avg_daily_profit, 0) * 365, 2, '0.00'),
         compound_effect: countdown.projections?.using === 'compound' ? 100 : 0
       });
     }
@@ -1593,7 +1638,7 @@ export default function Dashboard() {
         );
 
         if (shortfall > 0) {
-          showNotification(`Live trading blocked: Wallet shortfall R${shortfall.toFixed(2)}. Fund wallet first.`, 'error');
+          showNotification(`Live trading blocked: Wallet shortfall R${safeToFixed(shortfall, 2)}. Fund wallet first.`, 'error');
           return;
         }
         if (exchangesWithInvalidKeys.length > 0) {
@@ -1834,9 +1879,9 @@ export default function Dashboard() {
       return;
     }
     
-    const total_capital = count * capital_per_bot;
-    const confirm_msg = `🤖 Create ${count} bots with R${total_capital.toLocaleString()} total capital?\n\n` +
-      `💰 R${capital_per_bot.toLocaleString()} per bot\n` +
+    const total_capital = safeNumber(count, 0) * safeNumber(capital_per_bot, 0);
+    const confirm_msg = `🤖 Create ${count} bots with R${safeNumber(total_capital, 0).toLocaleString()} total capital?\n\n` +
+      `💰 R${safeNumber(capital_per_bot, 0).toLocaleString()} per bot\n` +
       `🛡️ ${safe_count} Safe bots\n` +
       `⚡ ${risky_count} Risky bots\n` +
       `🚀 ${aggressive_count} Aggressive bots\n\n` +
@@ -2790,6 +2835,53 @@ export default function Dashboard() {
             )}
           </div>
         )}
+
+        {(riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active) && (
+          <div style={{
+            padding: '16px',
+            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+            border: '2px solid #d97706',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            color: 'white'
+          }}>
+            <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
+              🛡️ Bodyguard/Quarantine Lock Active
+            </div>
+            {riskStatus?.bodyguard_lock?.active && (
+              <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
+                <strong>Bodyguard:</strong> {riskStatus.bodyguard_lock.reason || 'Bots paused by bodyguard'}
+              </div>
+            )}
+            {riskStatus?.quarantine_active?.active && (
+              <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
+                <strong>Quarantine:</strong> {riskStatus.quarantine_active.reason || 'Bots quarantined for retraining'}
+              </div>
+            )}
+            {user?.is_admin ? (
+              <div style={{marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                <button
+                  onClick={handleResetBodyguardLock}
+                  style={{
+                    padding: '10px 16px',
+                    background: 'white',
+                    color: '#d97706',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔓 Reset Bodyguard Locks
+                </button>
+              </div>
+            ) : (
+              <div style={{marginTop: '12px', fontSize: '0.85rem', fontStyle: 'italic'}}>
+                Admin access required to reset bodyguard locks
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Overview Container with Image and Enhanced Metrics Panel */}
         <div className="overview-container">
@@ -2800,33 +2892,33 @@ export default function Dashboard() {
               <div className="status-item">
                 <strong>Total Profit</strong>
                 <div className="led-row">
-                  <span style={{color: overviewData.totalProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                    R{overviewData.totalProfit.toFixed(2)}
+                  <span style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                    R{safeToFixed(overviewData.totalProfit, 2)}
                   </span>
                 </div>
               </div>
               <div className="status-item">
                 <strong>Today's Profit</strong>
                 <div className="led-row">
-                  <span style={{color: overviewData.todaysProfit >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                    R{overviewData.todaysProfit.toFixed(2)}
+                  <span style={{color: safeNumber(overviewData.todaysProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                    R{safeToFixed(overviewData.todaysProfit, 2)}
                   </span>
                 </div>
               </div>
               <div className="status-item">
                 <strong>Total Trades</strong>
-                <div className="led-row"><span>{overviewData.totalTrades}</span></div>
+                <div className="led-row"><span>{safeNumber(overviewData.totalTrades, 0)}</span></div>
               </div>
               <div className="status-item">
                 <strong>Win Rate</strong>
-                <div className="led-row"><span>{overviewData.winRate.toFixed(1)}%</span></div>
+                <div className="led-row"><span>{safeToFixed(overviewData.winRate, 1, '0.0')}%</span></div>
               </div>
               <div className="status-item">
                 <strong>Bot Status</strong>
                 <div className="led-row">
-                  <span style={{color: 'var(--success)'}}>{overviewData.activeBots} Active</span>
+                  <span style={{color: 'var(--success)'}}>{safeNumber(overviewData.activeBots, 0)} Active</span>
                   <span style={{color: 'var(--muted)', margin: '0 4px'}}>/</span>
-                  <span style={{color: 'var(--error)'}}>{overviewData.pausedBots} Paused</span>
+                  <span style={{color: 'var(--error)'}}>{safeNumber(overviewData.pausedBots, 0)} Paused</span>
                 </div>
               </div>
               <div className="status-item">
@@ -2857,6 +2949,37 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+
+              {autoSpawnStatus && (
+                <div className="status-item" style={{gridColumn: '1 / -1'}}>
+                  <strong>Auto-Spawn Gate (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
+                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                    Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
+                  </div>
+                  <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
+                    {SUPPORTED_PLATFORMS.map(exchange => {
+                      const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
+                      const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
+                      const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
+                      const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
+                      const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
+                      return (
+                        <div key={exchange} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--glass)'}}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
+                            <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
+                              {eligible ? '✅ Eligible' : reason}
+                            </span>
+                          </div>
+                          <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                            Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               
               {/* Existing metrics */}
               <div className="status-item">
@@ -2904,7 +3027,7 @@ export default function Dashboard() {
               <div className="status-item">
                 <strong>BTC/ZAR</strong>
                 <div className="led-row">
-                  <span>R{livePrices['BTC/ZAR']?.price?.toLocaleString() || '0'}</span>
+                  <span>R{safeNumber(livePrices['BTC/ZAR']?.price, 0).toLocaleString()}</span>
                   {livePrices['BTC/ZAR']?.isFallback && (
                     <span style={{
                       fontSize: '0.65rem',
@@ -2923,14 +3046,14 @@ export default function Dashboard() {
                     fontSize: '0.8rem',
                     marginLeft: '8px'
                   }}>
-                    {livePrices['BTC/ZAR']?.change >= 0 ? '+' : ''}{livePrices['BTC/ZAR']?.change?.toFixed(2) || '0.00'}%
+                    {livePrices['BTC/ZAR']?.change >= 0 ? '+' : ''}{safeToFixed(livePrices['BTC/ZAR']?.change, 2)}%
                   </span>
                 </div>
               </div>
               <div className="status-item">
                 <strong>ETH/ZAR</strong>
                 <div className="led-row">
-                  <span>R{livePrices['ETH/ZAR']?.price?.toLocaleString() || '0'}</span>
+                  <span>R{safeNumber(livePrices['ETH/ZAR']?.price, 0).toLocaleString()}</span>
                   {livePrices['ETH/ZAR']?.isFallback && (
                     <span style={{
                       fontSize: '0.65rem',
@@ -2949,14 +3072,14 @@ export default function Dashboard() {
                     fontSize: '0.8rem',
                     marginLeft: '8px'
                   }}>
-                    {livePrices['ETH/ZAR']?.change >= 0 ? '+' : ''}{livePrices['ETH/ZAR']?.change?.toFixed(2) || '0.00'}%
+                    {livePrices['ETH/ZAR']?.change >= 0 ? '+' : ''}{safeToFixed(livePrices['ETH/ZAR']?.change, 2)}%
                   </span>
                 </div>
               </div>
               <div className="status-item">
                 <strong>XRP/ZAR</strong>
                 <div className="led-row">
-                  <span>R{livePrices['XRP/ZAR']?.price?.toLocaleString() || '0'}</span>
+                  <span>R{safeNumber(livePrices['XRP/ZAR']?.price, 0).toLocaleString()}</span>
                   {livePrices['XRP/ZAR']?.isFallback && (
                     <span style={{
                       fontSize: '0.65rem',
@@ -2975,7 +3098,7 @@ export default function Dashboard() {
                     fontSize: '0.8rem',
                     marginLeft: '8px'
                   }}>
-                    {livePrices['XRP/ZAR']?.change >= 0 ? '+' : ''}{livePrices['XRP/ZAR']?.change?.toFixed(2) || '0.00'}%
+                    {livePrices['XRP/ZAR']?.change >= 0 ? '+' : ''}{safeToFixed(livePrices['XRP/ZAR']?.change, 2)}%
                   </span>
                 </div>
               </div>
@@ -3447,13 +3570,13 @@ export default function Dashboard() {
                               <div style={{textAlign: 'center'}}>
                                 <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit</div>
                                 <div style={{fontSize: '1.1rem', fontWeight: 700, color: bot.total_profit > 0 ? 'var(--success)' : 'var(--error)'}}>
-                                  R{(bot.total_profit || 0).toFixed(2)}
+                                  R{safeToFixed(bot.total_profit, 2)}
                                 </div>
                               </div>
                               <div style={{textAlign: 'center'}}>
                                 <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Capital</div>
                                 <div style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)'}}>
-                                  R{(bot.current_capital || 0).toFixed(2)}
+                                  R{safeToFixed(bot.current_capital, 2)}
                                 </div>
                               </div>
                               <div style={{textAlign: 'center'}}>
@@ -3746,11 +3869,11 @@ export default function Dashboard() {
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px'}}>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
                   <div style={{fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px'}}>CPU Usage</div>
-                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: systemStats.vps_resources.cpu.usage_percent > 80 ? 'var(--error)' : 'var(--success)'}}>
-                    {systemStats.vps_resources.cpu.usage_percent}%
+                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: safeNumber(systemStats.vps_resources.cpu.usage_percent, 0) > 80 ? 'var(--error)' : 'var(--success)'}}>
+                    {safeNumber(systemStats.vps_resources.cpu.usage_percent, 0)}%
                   </div>
                   <div style={{fontSize: '0.7rem', color: '#cccccc', marginTop: '4px'}}>
-                    {systemStats.vps_resources.cpu.count} cores
+                    {safeNumber(systemStats.vps_resources.cpu.count, 0)} cores
                     {systemStats.vps_resources.cpu.load_average && 
                       ` • Load: ${systemStats.vps_resources.cpu.load_average['1min']}`
                     }
@@ -3758,20 +3881,20 @@ export default function Dashboard() {
                 </div>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
                   <div style={{fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px'}}>RAM Usage</div>
-                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: systemStats.vps_resources.memory.usage_percent > 85 ? 'var(--error)' : 'var(--success)'}}>
-                    {systemStats.vps_resources.memory.usage_percent}%
+                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: safeNumber(systemStats.vps_resources.memory.usage_percent, 0) > 85 ? 'var(--error)' : 'var(--success)'}}>
+                    {safeNumber(systemStats.vps_resources.memory.usage_percent, 0)}%
                   </div>
                   <div style={{fontSize: '0.7rem', color: '#cccccc', marginTop: '4px'}}>
-                    {systemStats.vps_resources.memory.used_gb} / {systemStats.vps_resources.memory.total_gb} GB used
+                    {safeNumber(systemStats.vps_resources.memory.used_gb, 0)} / {safeNumber(systemStats.vps_resources.memory.total_gb, 0)} GB used
                   </div>
                 </div>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
                   <div style={{fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px'}}>Disk Usage</div>
-                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: systemStats.vps_resources.disk.usage_percent > 85 ? 'var(--error)' : 'var(--success)'}}>
-                    {systemStats.vps_resources.disk.usage_percent}%
+                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: safeNumber(systemStats.vps_resources.disk.usage_percent, 0) > 85 ? 'var(--error)' : 'var(--success)'}}>
+                    {safeNumber(systemStats.vps_resources.disk.usage_percent, 0)}%
                   </div>
                   <div style={{fontSize: '0.7rem', color: '#cccccc', marginTop: '4px'}}>
-                    {systemStats.vps_resources.disk.free_gb} GB free
+                    {safeNumber(systemStats.vps_resources.disk.free_gb, 0)} GB free
                   </div>
                 </div>
               </div>
@@ -3782,20 +3905,56 @@ export default function Dashboard() {
           {systemStats && (
             <div style={{marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px'}}>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
-                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{systemStats.users?.total || 0}</div>
+                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{safeNumber(systemStats.users?.total, 0)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Users</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
-                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{systemStats.bots?.active || 0}</div>
+                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{safeNumber(systemStats.bots?.active, 0)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Active Bots</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
-                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{systemStats.trades?.total || 0}</div>
+                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{safeNumber(systemStats.trades?.total, 0)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Trades</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
-                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>R{systemStats.profit?.total?.toFixed(2) || '0.00'}</div>
+                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>R{safeToFixed(systemStats.profit?.total, 2)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Profit</div>
+              </div>
+            </div>
+          )}
+
+          {systemStats && (
+            <div style={{marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px'}}>
+              <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
+                <div style={{fontSize: '0.85rem', color: '#ffffff', marginBottom: '8px'}}>System Modes</div>
+                <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                  Paper: {safeNumber(systemStats.system_modes?.paper_trading, 0)} • Live: {safeNumber(systemStats.system_modes?.live_trading, 0)} • Autopilot: {safeNumber(systemStats.system_modes?.autopilot, 0)}
+                </div>
+              </div>
+              <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
+                <div style={{fontSize: '0.85rem', color: '#ffffff', marginBottom: '8px'}}>Scheduler Status</div>
+                <div style={{fontSize: '0.75rem', color: systemStats.scheduler_status?.running ? 'var(--success)' : 'var(--error)'}}>
+                  {systemStats.scheduler_status?.running ? 'Running' : 'Stopped'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {systemStats?.exchange_breakdown && (
+            <div style={{marginBottom: '24px', padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+              <h3 style={{margin: 0, color: '#ffffff'}}>📊 Exchange Breakdown</h3>
+              <div style={{marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
+                {SUPPORTED_PLATFORMS.map(exchange => {
+                  const breakdown = systemStats.exchange_breakdown?.[exchange] || {};
+                  return (
+                    <div key={exchange} style={{padding: '12px', background: 'var(--glass)', borderRadius: '6px'}}>
+                      <div style={{fontWeight: 600, marginBottom: '6px'}}>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</div>
+                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Bots: {safeNumber(breakdown.bots, 0)}</div>
+                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Trades: {safeNumber(breakdown.trades, 0)}</div>
+                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit: R{safeToFixed(breakdown.profit, 2)}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -3811,7 +3970,7 @@ export default function Dashboard() {
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                 <h3 style={{margin: 0, color: '#ffffff'}}>💾 User Storage Usage</h3>
                 <div style={{fontSize: '0.9rem', color: '#cccccc'}}>
-                  Total: {storageTotals ? storageTotals.totalMb.toFixed(2) : '0.00'} MB ({storageTotals ? storageTotals.totalGb.toFixed(2) : '0.00'} GB)
+                  Total: {storageTotals ? safeToFixed(storageTotals.totalMb, 2) : '0.00'} MB ({storageTotals ? safeToFixed(storageTotals.totalGb, 2) : '0.00'} GB)
                 </div>
               </div>
               <div style={{maxHeight: '200px', overflowY: 'auto'}}>
@@ -3833,7 +3992,7 @@ export default function Dashboard() {
                           <div style={{fontSize: '0.75rem', color: '#cccccc'}}>{userStorage.email}</div>
                         </div>
                         <div style={{fontWeight: 700, fontSize: '0.95rem', color: storageMb > 100 ? 'var(--error)' : 'var(--success)'}}>
-                          {storageMb.toFixed(2)} MB
+                          {safeToFixed(storageMb, 2)} MB
                         </div>
                       </div>
                     );
@@ -4017,11 +4176,11 @@ export default function Dashboard() {
               <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                 <div>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Total System Storage</div>
-                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)'}}>{storageTotals ? storageTotals.totalMb.toFixed(2) : '0.00'} MB</div>
+                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)'}}>{storageTotals ? safeToFixed(storageTotals.totalMb, 2) : '0.00'} MB</div>
                 </div>
                 <div>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Total Users</div>
-                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent)'}}>{storageTotals ? storageTotals.totalUsers : 0}</div>
+                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent)'}}>{storageTotals ? safeNumber(storageTotals.totalUsers, 0) : 0}</div>
                 </div>
               </div>
               
@@ -4044,15 +4203,15 @@ export default function Dashboard() {
                           <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{usr.email}</div>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>
-                          <div style={{fontWeight: 600}}>{usr.storage_breakdown?.chat_messages?.size_mb?.toFixed(2)} MB</div>
+                          <div style={{fontWeight: 600}}>{safeToFixed(usr.storage_breakdown?.chat_messages?.size_mb, 2)} MB</div>
                           <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{usr.storage_breakdown?.chat_messages?.count} msgs</div>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>
-                          <div style={{fontWeight: 600}}>{usr.storage_breakdown?.trades?.size_mb?.toFixed(2)} MB</div>
+                          <div style={{fontWeight: 600}}>{safeToFixed(usr.storage_breakdown?.trades?.size_mb, 2)} MB</div>
                           <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{usr.storage_breakdown?.trades?.count} trades</div>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>
-                          <div style={{fontWeight: 600}}>{usr.storage_breakdown?.bots?.size_mb?.toFixed(2)} MB</div>
+                          <div style={{fontWeight: 600}}>{safeToFixed(usr.storage_breakdown?.bots?.size_mb, 2)} MB</div>
                           <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{usr.storage_breakdown?.bots?.count} bots</div>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>
@@ -4063,7 +4222,7 @@ export default function Dashboard() {
                             background: usr.total_storage_mb > 10 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
                             color: usr.total_storage_mb > 10 ? '#f59e0b' : 'var(--success)'
                           }}>
-                            {usr.total_storage_mb?.toFixed(2)} MB
+                            {safeToFixed(usr.total_storage_mb, 2)} MB
                           </span>
                         </td>
                       </tr>
@@ -4346,8 +4505,8 @@ export default function Dashboard() {
                     </div>
                     <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginTop: '4px'}}>
                       Mode: {selectedBot.mode === 'live' ? '💰 Live Trading' : '📝 Paper Trading'} • 
-                      Capital: R{selectedBot.current_capital?.toFixed(2) || '0.00'} • 
-                      P/L: R{selectedBot.profit_loss?.toFixed(2) || '0.00'}
+                      Capital: R{safeToFixed(selectedBot.current_capital, 2)} • 
+                      P/L: R{safeToFixed(selectedBot.profit_loss, 2)}
                     </div>
                   </div>
                   
@@ -4736,11 +4895,11 @@ export default function Dashboard() {
     const getExchangeStats = (trades) => {
       if (trades.length === 0) return { count: 0, winRate: 0, profit: 0 };
       const wins = trades.filter(t => t.is_profitable || t.profit_loss > 0).length;
-      const profit = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
+      const profit = trades.reduce((sum, t) => sum + safeNumber(t.profit_loss, 0), 0);
       return {
         count: trades.length,
-        winRate: ((wins / trades.length) * 100).toFixed(1),
-        profit: profit.toFixed(2)
+        winRate: safeToFixed((wins / trades.length) * 100, 1, '0.0'),
+        profit: safeToFixed(profit, 2)
       };
     };
     
@@ -4811,7 +4970,7 @@ export default function Dashboard() {
                                 {profitIcon} {isWin ? 'WIN' : 'LOSS'}
                               </div>
                               <div style={{fontSize: '0.85rem', color: profitColor, fontWeight: 600}}>
-                                R{trade.profit_loss?.toFixed(2) || '0.00'}
+                                R{safeToFixed(trade.profit_loss, 2)}
                               </div>
                             </div>
                           </div>
@@ -5241,7 +5400,7 @@ export default function Dashboard() {
                 }}>
                   <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Profit</div>
                   <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                    R{profitData?.total?.toFixed(2) || '0.00'}
+                    R{safeToFixed(profitData?.total, 2)}
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>ZAR</span>
                   </div>
                 </div>
@@ -5255,7 +5414,7 @@ export default function Dashboard() {
                 }}>
                   <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily</div>
                   <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                    R{profitData?.avg_daily?.toFixed(2) || '0.00'}
+                    R{safeToFixed(profitData?.avg_daily, 2)}
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{profitData?.avg_daily ? '+12%' : ''}</span>
                   </div>
                 </div>
@@ -5269,7 +5428,9 @@ export default function Dashboard() {
                 }}>
                   <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Day</div>
                   <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                    R{profitData?.best_day ? profitData.best_day.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0.00'}
+                    R{Number.isFinite(Number(profitData?.best_day))
+                      ? safeToFixed(profitData.best_day, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                      : '0.00'}
                   </div>
                 </div>
                 
@@ -5282,7 +5443,7 @@ export default function Dashboard() {
                 }}>
                   <div style={{fontSize: '0.75rem', color: '#a855f7', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Growth Rate</div>
                   <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#a855f7', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                    {profitData?.growth_rate?.toFixed(2) || '0.00'}%
+                    {safeToFixed(profitData?.growth_rate, 2)}%
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{profitData?.growth_rate > 0 ? '↑' : ''}</span>
                   </div>
                 </div>
@@ -5351,7 +5512,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Equity</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{equityData.current_equity?.toFixed(2) || '0.00'}
+                        R{safeToFixed(equityData.current_equity, 2)}
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>ZAR</span>
                       </div>
                     </div>
@@ -5365,7 +5526,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: equityData.total_pnl >= 0 ? '#10b981' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{equityData.total_pnl?.toFixed(2) || '0.00'}
+                        R{safeToFixed(equityData.total_pnl, 2)}
                       </div>
                     </div>
                     
@@ -5378,7 +5539,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Realized P&L</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{(equityData.total_pnl || 0).toFixed(2)}
+                        R{safeToFixed(equityData.total_pnl, 2)}
                       </div>
                     </div>
                     
@@ -5391,7 +5552,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#ef4444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Fees</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{equityData.total_fees?.toFixed(2) || '0.00'}
+                        R{safeToFixed(equityData.total_fees, 2)}
                       </div>
                     </div>
                   </div>
@@ -5441,7 +5602,7 @@ export default function Dashboard() {
                               titleFont: { size: 14, weight: 'bold' },
                               bodyFont: { size: 13 },
                               callbacks: {
-                                label: (context) => `Equity: R${context.parsed.y.toFixed(2)}`
+                                label: (context) => `Equity: R${safeToFixed(context.parsed.y, 2)}`
                               }
                             }
                           },
@@ -5451,7 +5612,7 @@ export default function Dashboard() {
                               ticks: { 
                                 color: '#8b8b8b',
                                 font: { size: 11 },
-                                callback: (value) => 'R' + value.toFixed(0)
+                                callback: (value) => 'R' + safeToFixed(value, 0, '0')
                               },
                               grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
                             },
@@ -5522,7 +5683,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#ef4444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Max Drawdown</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        {drawdownData.max_drawdown_pct?.toFixed(2) || '0.00'}%
+                        {safeToFixed(drawdownData.max_drawdown_pct, 2)}%
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>↓</span>
                       </div>
                     </div>
@@ -5536,7 +5697,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Drawdown</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        {drawdownData.current_drawdown_pct?.toFixed(2) || '0.00'}%
+                        {safeToFixed(drawdownData.current_drawdown_pct, 2)}%
                       </div>
                     </div>
                     
@@ -5549,7 +5710,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Peak Equity</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{drawdownData.peak_equity?.toFixed(2) || '0.00'}
+                        R{safeToFixed(drawdownData.peak_equity, 2)}
                       </div>
                     </div>
                     
@@ -5612,7 +5773,7 @@ export default function Dashboard() {
                               titleFont: { size: 14, weight: 'bold' },
                               bodyFont: { size: 13 },
                               callbacks: {
-                                label: (context) => `Drawdown: ${Math.abs(context.parsed.y).toFixed(2)}%`
+                                label: (context) => `Drawdown: ${safeToFixed(Math.abs(context.parsed.y), 2)}%`
                               }
                             }
                           },
@@ -5623,7 +5784,7 @@ export default function Dashboard() {
                               ticks: { 
                                 color: '#8b8b8b',
                                 font: { size: 11 },
-                                callback: (value) => Math.abs(value).toFixed(1) + '%'
+                                callback: (value) => safeToFixed(Math.abs(value), 1, '0.0') + '%'
                               },
                               grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
                             },
@@ -5698,7 +5859,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Win Rate</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#8b5cf6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        {winRateData.win_rate_pct?.toFixed(1) || '0.0'}%
+                        {safeToFixed(winRateData.win_rate_pct, 1, '0.0')}%
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>({winRateData.winning_trades}/{winRateData.total_trades})</span>
                       </div>
                     </div>
@@ -5712,7 +5873,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Win</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{winRateData.avg_win?.toFixed(2) || '0.00'}
+                        R{safeToFixed(winRateData.avg_win, 2)}
                       </div>
                     </div>
                     
@@ -5725,7 +5886,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#ef4444', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Loss</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{winRateData.avg_loss?.toFixed(2) || '0.00'}
+                        R{safeToFixed(winRateData.avg_loss, 2)}
                       </div>
                     </div>
                     
@@ -5738,7 +5899,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Profit Factor</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        {winRateData.profit_factor?.toFixed(2) || '0.00'}
+                        {safeToFixed(winRateData.profit_factor, 2)}
                       </div>
                     </div>
                   </div>
@@ -5767,7 +5928,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#22c55e', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Trade</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#22c55e', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{winRateData.best_trade?.toFixed(2) || '0.00'}
+                        R{safeToFixed(winRateData.best_trade, 2)}
                       </div>
                     </div>
                     
@@ -5780,7 +5941,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#dc2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Worst Trade</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#dc2626', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{winRateData.worst_trade?.toFixed(2) || '0.00'}
+                        R{safeToFixed(winRateData.worst_trade, 2)}
                       </div>
                     </div>
                     
@@ -5793,7 +5954,7 @@ export default function Dashboard() {
                     }}>
                       <div style={{fontSize: '0.75rem', color: '#a855f7', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
                       <div style={{fontSize: '1.75rem', fontWeight: 700, color: winRateData.total_pnl >= 0 ? '#10b981' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
-                        R{winRateData.total_pnl?.toFixed(2) || '0.00'}
+                        R{safeToFixed(winRateData.total_pnl, 2)}
                       </div>
                     </div>
                   </div>
@@ -5811,19 +5972,19 @@ export default function Dashboard() {
                       <div>
                         <div style={{fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '8px'}}>Winning Trades</div>
                         <div style={{fontSize: '1.5rem', fontWeight: 700, color: '#10b981'}}>
-                          {winRateData.winning_trades} ({((winRateData.winning_trades / winRateData.total_trades) * 100).toFixed(1)}%)
+                          {safeNumber(winRateData.winning_trades, 0)} ({safeToFixed((safeNumber(winRateData.winning_trades, 0) / Math.max(safeNumber(winRateData.total_trades, 0), 1)) * 100, 1, '0.0')}%)
                         </div>
                         <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>
-                          Gross Profit: R{winRateData.gross_profit?.toFixed(2) || '0.00'}
+                          Gross Profit: R{safeToFixed(winRateData.gross_profit, 2)}
                         </div>
                       </div>
                       <div>
                         <div style={{fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '8px'}}>Losing Trades</div>
                         <div style={{fontSize: '1.5rem', fontWeight: 700, color: '#ef4444'}}>
-                          {winRateData.losing_trades} ({((winRateData.losing_trades / winRateData.total_trades) * 100).toFixed(1)}%)
+                          {safeNumber(winRateData.losing_trades, 0)} ({safeToFixed((safeNumber(winRateData.losing_trades, 0) / Math.max(safeNumber(winRateData.total_trades, 0), 1)) * 100, 1, '0.0')}%)
                         </div>
                         <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>
-                          Gross Loss: R{winRateData.gross_loss?.toFixed(2) || '0.00'}
+                          Gross Loss: R{safeToFixed(winRateData.gross_loss, 2)}
                         </div>
                       </div>
                     </div>
@@ -5919,7 +6080,7 @@ export default function Dashboard() {
                 }}>
                   <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 24px rgba(16, 185, 129, 0.4)'}}>
                     <div style={{width: '140px', height: '140px', borderRadius: '50%', background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 700, color: 'var(--success)', flexDirection: 'column'}}>
-                      <div>{countdownData.progress_pct?.toFixed(1) || '0.0'}%</div>
+                      <div>{safeToFixed(countdownData.progress_pct, 1, '0.0')}%</div>
                       <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>Complete</div>
                     </div>
                   </div>
@@ -5931,28 +6092,32 @@ export default function Dashboard() {
                 <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Capital</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: 'var(--success)'}}>
-                    R{countdownData.current_capital?.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') || '0.00'}
+                    R{Number.isFinite(Number(countdownData.current_capital))
+                      ? safeToFixed(countdownData.current_capital, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                      : '0.00'}
                   </div>
                 </div>
                 
                 <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(59, 130, 246, 0.3)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Daily ROI</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: '#3b82f6'}}>
-                    {countdownData.metrics?.daily_roi_pct?.toFixed(3) || '0.000'}%
+                    {safeToFixed(countdownData.metrics?.daily_roi_pct, 3, '0.000')}%
                   </div>
                 </div>
                 
                 <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(217, 119, 6, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(245, 158, 11, 0.3)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily Profit</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: '#f59e0b'}}>
-                    R{countdownData.metrics?.avg_daily_profit?.toFixed(2) || '0.00'}
+                    R{safeToFixed(countdownData.metrics?.avg_daily_profit, 2)}
                   </div>
                 </div>
                 
                 <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(147, 51, 234, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(168, 85, 247, 0.3)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Remaining</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: '#a855f7'}}>
-                    R{countdownData.remaining ? countdownData.remaining.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '1,000,000'}
+                    R{Number.isFinite(Number(countdownData.remaining))
+                      ? safeToFixed(countdownData.remaining, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                      : '1,000,000'}
                   </div>
                 </div>
               </div>
@@ -5960,7 +6125,9 @@ export default function Dashboard() {
               {/* Progress Bar */}
               <div style={{marginBottom: '24px'}}>
                 <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '0.9rem', fontWeight: 600}}>
-                  <span style={{color: 'var(--text)'}}>R{countdownData.current_capital ? countdownData.current_capital.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0.00'}</span>
+                  <span style={{color: 'var(--text)'}}>R{Number.isFinite(Number(countdownData.current_capital))
+                    ? safeToFixed(countdownData.current_capital, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                    : '0.00'}</span>
                   <span style={{color: 'var(--success)'}}>R1,000,000</span>
                 </div>
                 <div style={{height: '20px', background: 'var(--panel)', borderRadius: '10px', overflow: 'hidden', border: '2px solid var(--line)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)'}}>
@@ -5982,7 +6149,7 @@ export default function Dashboard() {
                       color: 'white',
                       textShadow: '0 1px 2px rgba(0,0,0,0.5)'
                     }}>
-                      {countdownData.progress_pct?.toFixed(1) || '0.0'}%
+                      {safeToFixed(countdownData.progress_pct, 1, '0.0')}%
                     </div>
                   </div>
                 </div>
@@ -5993,7 +6160,7 @@ export default function Dashboard() {
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px'}}>Avg Daily Profit</div>
                   <div style={{fontSize: '1.3rem', fontWeight: 700, color: 'var(--success)'}}>
-                    R{countdownData.metrics?.avg_daily_profit?.toFixed(2) || '0.00'}
+                    R{safeToFixed(countdownData.metrics?.avg_daily_profit, 2)}
                   </div>
                 </div>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
@@ -6026,24 +6193,28 @@ export default function Dashboard() {
                     <div style={{textAlign: 'center', padding: '16px', background: 'var(--panel)', borderRadius: '8px'}}>
                       <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Projected Value</div>
                       <div style={{fontSize: '1.6rem', fontWeight: 700, color: '#3b82f6'}}>
-                        R{countdownData.projections?.twelve_month ? countdownData.projections.twelve_month.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0.00'}
+                        R{Number.isFinite(Number(countdownData.projections?.twelve_month))
+                          ? safeToFixed(countdownData.projections.twelve_month, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                          : '0.00'}
                       </div>
                     </div>
                     <div style={{textAlign: 'center', padding: '16px', background: 'var(--panel)', borderRadius: '8px'}}>
                       <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Expected Gain</div>
                       <div style={{fontSize: '1.6rem', fontWeight: 700, color: 'var(--success)'}}>
-                        +R{countdownData.projections?.twelve_month_gain ? countdownData.projections.twelve_month_gain.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0.00'}
+                        +R{Number.isFinite(Number(countdownData.projections?.twelve_month_gain))
+                          ? safeToFixed(countdownData.projections.twelve_month_gain, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                          : '0.00'}
                       </div>
                     </div>
                     <div style={{textAlign: 'center', padding: '16px', background: 'var(--panel)', borderRadius: '8px'}}>
                       <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>12-Month ROI</div>
                       <div style={{fontSize: '1.6rem', fontWeight: 700, color: '#3b82f6'}}>
-                        {countdownData.projections?.twelve_month_roi?.toFixed(1) || '0'}%
+                        {safeToFixed(countdownData.projections?.twelve_month_roi, 1, '0.0')}%
                       </div>
                     </div>
                   </div>
                   <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)', textAlign: 'center'}}>
-                    💡 Based on current {countdownData.metrics?.daily_roi_pct?.toFixed(3) || '0'}% daily ROI with compound interest over 365 days
+                    💡 Based on current {safeToFixed(countdownData.metrics?.daily_roi_pct, 3, '0')}% daily ROI with compound interest over 365 days
                   </div>
                 </div>
               )}
@@ -6055,7 +6226,9 @@ export default function Dashboard() {
               </div>
               
               <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--line)', fontSize: '0.85rem', color: 'var(--muted)'}}>
-                <p><strong>How it works:</strong> Based on your current capital (R{countdownData.current_capital ? countdownData.current_capital.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0.00'}) and daily ROI ({countdownData.metrics?.daily_roi_pct?.toFixed(3) || '0'}%), the system uses compound interest calculations to project your path to R1,000,000. Updates in real-time as you trade!</p>
+                <p><strong>How it works:</strong> Based on your current capital (R{Number.isFinite(Number(countdownData.current_capital))
+                  ? safeToFixed(countdownData.current_capital, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                  : '0.00'}) and daily ROI ({safeToFixed(countdownData.metrics?.daily_roi_pct, 3, '0')}%), the system uses compound interest calculations to project your path to R1,000,000. Updates in real-time as you trade!</p>
               </div>
             </>
           )}
@@ -6222,11 +6395,11 @@ export default function Dashboard() {
                       {/* Progress Bar */}
                       <div style={{marginBottom: '16px'}}>
                         <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem'}}>
-                          <span>R{cd.current_progress.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
+                          <span>R{safeToFixed(cd.current_progress, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
                           <span style={{color: 'var(--accent)', fontWeight: 600}}>
-                            {cd.progress_pct.toFixed(1)}%
+                            {safeToFixed(cd.progress_pct, 1, '0.0')}%
                           </span>
-                          <span>R{cd.target_amount.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
+                          <span>R{safeToFixed(cd.target_amount, 0, '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
                         </div>
                         <div style={{
                           height: '12px',
@@ -6253,7 +6426,7 @@ export default function Dashboard() {
                         color: 'var(--muted)',
                         textAlign: 'center'
                       }}>
-                        R{cd.remaining.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} remaining
+                        R{safeToFixed(cd.remaining, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} remaining
                       </div>
                     </div>
                   );
@@ -6809,7 +6982,7 @@ export default function Dashboard() {
               <h3 style={{marginBottom: '10px', fontSize: '16px'}}>Eligible Bots:</h3>
               {eligibleBots.map(bot => (
                 <div key={bot.id} style={{padding: '8px 0', borderBottom: '1px solid #333'}}>
-                  <strong>{bot.name}</strong> - Capital: R{bot.current_capital?.toFixed(2)}, Profit: R{bot.profit?.toFixed(2)}
+                  <strong>{bot.name}</strong> - Capital: R{safeToFixed(bot.current_capital, 2)}, Profit: R{safeToFixed(bot.profit, 2)}
                 </div>
               ))}
             </div>

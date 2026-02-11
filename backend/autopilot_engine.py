@@ -347,8 +347,9 @@ class AutopilotEngine:
         try:
             # Determine best exchange if not specified
             if not exchange:
+                from rules import SUPPORTED_EXCHANGES
                 api_keys = await self.db.api_keys.find({'user_id': user_id, 'connected': True}).to_list(10)
-                exchanges = [key['provider'] for key in api_keys if key['provider'] in ['luno', 'binance', 'kucoin']]
+                exchanges = [key['provider'] for key in api_keys if key['provider'] in SUPPORTED_EXCHANGES]
                 
                 if not exchanges:
                     logger.warning(f"User {user_id}: No exchange APIs connected")
@@ -656,29 +657,15 @@ class AutopilotEngine:
     async def _get_exchange_profit(self, user_id: str, exchange: str) -> float:
         """Calculate realized profit for a specific exchange"""
         try:
-            # Get all bots on this exchange
-            bots = await self.db.bots.find({
-                'user_id': user_id,
-                'exchange': exchange,
-                'status': {'$ne': 'deleted'},
-                'deleted_at': {'$exists': False}
-            }).to_list(1000)
-            
-            # Sum up profits from all bots on this exchange
-            total_profit = 0
-            for bot in bots:
-                # Only count realized profit (closed positions)
-                bot_profit = bot.get('total_profit', 0)
-                total_profit += bot_profit
-            
-            # Estimate fees (0.1% per trade typical)
-            total_trades = sum(bot.get('trades_count', 0) for bot in bots)
-            total_capital = sum(bot.get('current_capital', 0) for bot in bots)
-            estimated_fees = total_trades * 0.002 * (total_capital / max(len(bots), 1))
-            
-            net_profit = total_profit - estimated_fees
-            
-            logger.info(f"Exchange {exchange} profit: R{net_profit:.2f} (gross: R{total_profit:.2f}, fees: R{estimated_fees:.2f})")
+            from profit_ledger import profit_ledger
+
+            paper_profit = await profit_ledger.get_exchange_profit(user_id, exchange, "paper")
+            live_profit = await profit_ledger.get_exchange_profit(user_id, exchange, "live")
+            net_profit = paper_profit + live_profit
+
+            logger.info(
+                f"Exchange {exchange} realized profit: R{net_profit:.2f} (paper: R{paper_profit:.2f}, live: R{live_profit:.2f})"
+            )
             return net_profit
             
         except Exception as e:

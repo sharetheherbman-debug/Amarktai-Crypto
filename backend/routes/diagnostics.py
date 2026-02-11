@@ -4,7 +4,7 @@ Includes realtime smoke tests and system health checks
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List
 import logging
 
@@ -519,79 +519,125 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
     """
     try:
         import os
-        from services.ledger_service import get_ledger_service
-        
-        # Check if auto-spawn is enabled
+        import config
+        from rules import SUPPORTED_EXCHANGES, check_bot_cap_limit, get_reason_message, PROFIT_THRESHOLD_ZAR
+        from profit_ledger import profit_ledger
+
+        def parse_datetime(value):
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                except ValueError:
+                    return None
+            return None
+
         enabled = os.getenv('ENABLE_AUTO_SPAWN', '0') == '1' or os.getenv('AUTOPILOT_ENABLED', '0') == '1'
-        profit_threshold = float(os.getenv('AUTO_SPAWN_MIN_PROFIT_ZAR', '1000'))
-        
-        # Get user's realized profit from ledger
-        ledger_service = get_ledger_service()
-        profit_summary = await ledger_service.get_profit_summary(user_id)
-        current_profit = profit_summary.get('total_realized_profit_zar', 0)
-        
-        # Check eligibility
-        eligible = enabled and current_profit >= profit_threshold
-        reason = None
-        
-        if not enabled:
-            reason = "AUTO_SPAWN_DISABLED"
-        elif current_profit < profit_threshold:
-            reason = f"PROFIT_TOO_LOW (need {profit_threshold} ZAR, have {current_profit:.2f} ZAR)"
-        
-        # Get available capital
-        # Check wallet balances across all exchanges
+        profit_threshold = float(PROFIT_THRESHOLD_ZAR)
+        cooldown_minutes = getattr(config, "AUTO_SPAWN_COOLDOWN_MINUTES", 60)
+        max_spawns_per_day = getattr(config, "AUTO_SPAWN_MAX_PER_DAY", 2)
+
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+        trading_mode = "live" if modes.get("liveTrading") else "paper"
+
         total_available = 0
         try:
             from engines.wallet_manager import wallet_manager
-            luno_balance = await wallet_manager.get_master_balance(user_id)
-            if 'total_zar' in luno_balance:
-                total_available = luno_balance['total_zar']
-        except:
-            pass
-        
-        # Check if enough capital available
-        bot_capital_requirement = float(os.getenv('BOT_INITIAL_CAPITAL_ZAR', '500'))
-        if eligible and total_available < bot_capital_requirement:
-            eligible = False
-            reason = f"INSUFFICIENT_CAPITAL (need {bot_capital_requirement} ZAR, have {total_available:.2f} ZAR)"
-        
-        # Get last spawn time
-        last_spawn = await db.bots_collection.find_one(
-            {"user_id": user_id},
-            {"_id": 0, "created_at": 1},
-            sort=[("created_at", -1)]
-        )
-        last_spawn_time = last_spawn.get('created_at') if last_spawn else None
-        
-        # Count spawns today
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        spawn_count_today = await db.bots_collection.count_documents({
-            "user_id": user_id,
-            "created_at": {"$gte": today_start.isoformat()}
-        })
-        
-        # Calculate next eligibility
-        next_eligibility = None
-        if not eligible and reason and "PROFIT_TOO_LOW" in reason:
-            needed_profit = profit_threshold - current_profit
-            # Estimate: assuming 1% daily return, calculate days needed
-            daily_return_estimate = max(current_profit * 0.01, 10)  # At least 10 ZAR/day
-            days_needed = needed_profit / daily_return_estimate if daily_return_estimate > 0 else 999
-            next_eligibility = f"~{int(days_needed)} days (at current rate)"
-        
+            wallet_balance = await wallet_manager.get_master_balance(user_id)
+            if 'total_zar' in wallet_balance:
+                total_available = wallet_balance['total_zar']
+        except Exception as e:
+            logger.warning(f"Auto-spawn wallet balance fallback: {e}")
+
+        bot_capital_requirement = float(os.getenv('BOT_INITIAL_CAPITAL_ZAR', '1000'))
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        current_profit_per_exchange = {}
+        eligible_per_exchange = {}
+        spawn_count_today_per_exchange = {}
+        last_spawn_time_per_exchange = {}
+        reason_per_exchange = {}
+
+        for exchange in SUPPORTED_EXCHANGES:
+            current_profit = await profit_ledger.get_exchange_profit(user_id, exchange, trading_mode)
+            current_profit_per_exchange[exchange] = round(current_profit, 2)
+
+            spawn_filter = {
+                "user_id": user_id,
+                "exchange": exchange,
+                "$or": [
+                    {"auto_spawned": True},
+                    {"spawned_by": {"$in": ["autopilot", "auto_spawn"]}}
+                ]
+            }
+            spawn_count_today = await db.bots_collection.count_documents({
+                **spawn_filter,
+                "created_at": {"$gte": today_start.isoformat()}
+            })
+            spawn_count_today_per_exchange[exchange] = spawn_count_today
+
+            last_spawn = await db.bots_collection.find_one(
+                spawn_filter,
+                {"_id": 0, "created_at": 1, "spawned_at": 1},
+                sort=[("created_at", -1)]
+            )
+            last_spawn_time = parse_datetime(
+                last_spawn.get("created_at") if last_spawn else None
+            ) or parse_datetime(last_spawn.get("spawned_at") if last_spawn else None)
+            last_spawn_time_per_exchange[exchange] = last_spawn_time.isoformat() if last_spawn_time else None
+
+            eligible = True
+            reason = None
+
+            if not enabled:
+                eligible = False
+                reason = "AUTO_SPAWN_DISABLED"
+            else:
+                bot_count = await db.bots_collection.count_documents({
+                    "user_id": user_id,
+                    "exchange": exchange,
+                    "status": {"$nin": ["deleted", "quarantined"]}
+                })
+                can_create, reason_code = check_bot_cap_limit(exchange, bot_count + 1, user_id)
+                if not can_create:
+                    eligible = False
+                    reason = get_reason_message(reason_code)
+                elif spawn_count_today >= max_spawns_per_day:
+                    eligible = False
+                    reason = f"DAILY_SPAWN_CAP_REACHED ({spawn_count_today}/{max_spawns_per_day})"
+                elif last_spawn_time:
+                    cooldown_until = last_spawn_time + timedelta(minutes=cooldown_minutes)
+                    if now < cooldown_until:
+                        eligible = False
+                        reason = f"SPAWN_COOLDOWN_ACTIVE (until {cooldown_until.isoformat()})"
+                if eligible and current_profit < profit_threshold:
+                    eligible = False
+                    reason = f"PROFIT_TOO_LOW (need {profit_threshold} ZAR, have {current_profit:.2f} ZAR)"
+                if eligible and total_available < bot_capital_requirement:
+                    eligible = False
+                    reason = (
+                        f"INSUFFICIENT_CAPITAL (need {bot_capital_requirement} ZAR, have {total_available:.2f} ZAR)"
+                    )
+
+            eligible_per_exchange[exchange] = eligible
+            reason_per_exchange[exchange] = reason or "ELIGIBLE"
+
         return {
             "success": True,
             "enabled": enabled,
             "profit_threshold": profit_threshold,
-            "current_profit": current_profit,
-            "eligible": eligible,
+            "trading_mode": trading_mode,
+            "cooldown_minutes": cooldown_minutes,
+            "max_spawns_per_day": max_spawns_per_day,
             "available_capital": total_available,
             "bot_capital_requirement": bot_capital_requirement,
-            "next_eligibility": next_eligibility,
-            "last_spawn_time": last_spawn_time,
-            "spawn_count_today": spawn_count_today,
-            "reason": reason,
+            "current_profit_per_exchange": current_profit_per_exchange,
+            "eligible_per_exchange": eligible_per_exchange,
+            "spawn_count_today_per_exchange": spawn_count_today_per_exchange,
+            "last_spawn_time_per_exchange": last_spawn_time_per_exchange,
+            "reason_per_exchange": reason_per_exchange,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
@@ -623,9 +669,7 @@ async def get_realtime_status(user_id: str = Depends(get_current_user)):
         total_connections = sum(len(conns) for conns in manager.active_connections.values())
         
         # Get last event info (if tracking exists)
-        last_event = None
-        if hasattr(rt_events, 'last_event'):
-            last_event = rt_events.last_event
+        last_event = getattr(manager, "last_event", None) or getattr(rt_events, "last_event", None)
         
         # Check SSE support
         sse_supported = hasattr(manager, 'send_sse') or os.path.exists('/api/realtime/events')
