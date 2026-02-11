@@ -8,7 +8,6 @@ import database as db
 from engines.trade_limiter import trade_limiter
 from logger_config import logger
 from utils.trading_gates import enforce_trading_gates, TradingGateError
-import random
 
 
 class TradingEngineProduction:
@@ -35,102 +34,18 @@ class TradingEngineProduction:
                 logger.debug(f"Bot {bot.get('name')} cannot trade: {reason}")
                 return False
             
-            # Simulate price movement
-            pair = bot.get('pair', 'BTC/ZAR')
-            exchange = bot.get('exchange', 'luno')
-            
-            # Get current capital
-            current_capital = bot.get('current_capital', 1000)
-            
-            # Random profit/loss between -2% to +4%
-            profit_pct = random.uniform(-0.02, 0.04)
-            profit_amount = current_capital * profit_pct
-            
-            # Simulate fees (0.1%)
-            fees = abs(current_capital * 0.001)
-            net_profit = profit_amount - fees
-            
-            # Update bot capital
-            new_capital = current_capital + net_profit
-            new_total_profit = bot.get('total_profit', 0) + net_profit
-            
-            # Update bot in database
-            await db.bots_collection.update_one(
-                {"id": bot_id},
-                {
-                    "$set": {
-                        "current_capital": new_capital,
-                        "total_profit": new_total_profit
-                    },
-                    "$inc": {
-                        "win_count" if net_profit > 0 else "loss_count": 1
-                    }
-                }
-            )
-            
-            # Record trade
-            await trade_limiter.record_trade(bot_id)
-            
-            # Save trade to database
-            from utils.trade_utils import build_trade_record
+            from paper_trading_engine import paper_engine
 
-            trade = build_trade_record(
-                {
-                    "id": str(random.randint(100000, 999999)),
-                    "bot_id": bot_id,
-                    "user_id": bot['user_id'],
-                    "exchange": exchange,
-                    "pair": pair,
-                    "side": "buy" if profit_amount > 0 else "sell",
-                    "amount": abs(current_capital * 0.1),
-                    "price": random.uniform(1000000, 1200000) if 'BTC' in pair else random.uniform(50000, 60000),
-                    "profit_loss": net_profit,
-                    "fees": fees,
-                    "trading_mode": bot.get('trading_mode', 'paper'),
-                    "is_live": bot.get('trading_mode') == 'live',
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "status": "completed"
-                },
-                user_id=bot['user_id'],
-                bot=bot
+            result = await paper_engine.run_trading_cycle(
+                bot_id,
+                bot,
+                {"bots": db.bots_collection, "trades": db.trades_collection}
             )
-            
-            await db.trades_collection.insert_one(trade)
-            
-            # Log trade
-            emoji = "🟢" if net_profit > 0 else "🔴"
-            logger.info(f"{emoji} {bot.get('name')} | {pair} | P/L: R{net_profit:+.2f}")
-            
-            # Set stop loss and take profit for this position
-            try:
-                from engines.risk_management import risk_management
-                await risk_management.set_position(
-                    bot_id=bot['id'],
-                    entry_price=trade['price'],  # Use the trade price
-                    stop_loss_pct=2.0,  # 2% stop loss
-                    take_profit_pct=5.0,  # 5% take profit
-                    trailing_stop_pct=3.0  # 3% trailing stop
-                )
-            except Exception as e:
-                logger.error(f"Risk management setup error: {e}")
-            
-            # Send WebSocket notifications
-            try:
-                from websocket_manager import manager
-                from realtime_events import rt_events
-                
-                # Trade executed notification
-                await manager.send_message(bot['user_id'], {
-                    "type": "trade_executed",
-                    "trade": trade
-                })
-                
-                # Profit updated notification
-                await rt_events.profit_updated(bot['user_id'], new_total_profit, bot.get('name'))
-            except Exception as e:
-                logger.error(f"WebSocket notification error: {e}")
-            
-            return True
+
+            if result:
+                await trade_limiter.record_trade(bot_id)
+                return True
+            return False
         
         except Exception as e:
             logger.error(f"Trade execution error for bot {bot.get('name')}: {e}")

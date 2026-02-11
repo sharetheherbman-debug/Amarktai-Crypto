@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query
 from routes.auth import router as auth_router
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
@@ -309,6 +309,10 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_redirect():
+    return RedirectResponse(url="/api/openapi.json")
 
 # Add validation error handler for better debugging
 from fastapi.exceptions import RequestValidationError

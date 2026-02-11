@@ -58,7 +58,8 @@ async def pause_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                     "status": "paused",
                     "paused_at": datetime.now(timezone.utc).isoformat(),
                     "paused_by": "user",
-                    "paused_reason": "user_requested",  # Canonical field
+                    "pause_reason": "user_requested",
+                    "paused_reason": "user_requested",
                     "paused_by_system": False,
                     "paused_by_user": True,
                     "last_status_change": datetime.now(timezone.utc).isoformat()
@@ -142,6 +143,7 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "$unset": {
                     "paused_at": "",
                     "paused_by": "",
+                    "pause_reason": "",
                     "paused_reason": ""
                 }
             }
@@ -224,6 +226,7 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "$unset": {
                     "paused_at": "",
                     "paused_by": "",
+                    "pause_reason": "",
                     "paused_reason": ""
                 }
             }
@@ -266,7 +269,7 @@ async def get_bot_status(bot_id: str, user_id: str = Depends(get_current_user)):
     try:
         bot = await db.bots_collection.find_one(
             {"id": bot_id, "user_id": user_id},
-            {"_id": 0, "status": 1, "paused_at": 1, "paused_by": 1, "paused_reason": 1,
+            {"_id": 0, "status": 1, "paused_at": 1, "paused_by": 1, "pause_reason": 1,
              "quarantine_reason": 1, "last_status_change": 1, "deleted_at": 1}
         )
         
@@ -282,7 +285,7 @@ async def get_bot_status(bot_id: str, user_id: str = Depends(get_current_user)):
             "is_deleted": bot.get("status") == "deleted" or bot.get("deleted_at") is not None,
             "paused_at": bot.get("paused_at"),
             "paused_by": bot.get("paused_by"),
-            "paused_reason": bot.get("paused_reason"),
+            "pause_reason": bot.get("pause_reason") or bot.get("paused_reason"),
             "quarantine_reason": bot.get("quarantine_reason"),
             "last_status_change": bot.get("last_status_change")
         }

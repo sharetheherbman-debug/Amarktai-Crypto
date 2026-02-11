@@ -24,7 +24,7 @@ const TransferCreate = ({ onTransferCreated, onCancel }) => {
     { id: 'bybit', name: 'Bybit' },
     { id: 'kraken', name: 'Kraken' },
     { id: 'bitget', name: 'Bitget' },
-    { id: 'gateio', name: 'Gate.io' }
+    { id: 'gate', name: 'Gate.io' }
   ];
 
   const currencies = ['BTC', 'ETH', 'USDT', 'USDC', 'XRP'];

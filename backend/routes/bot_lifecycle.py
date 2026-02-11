@@ -4,6 +4,7 @@ Handles pause, resume, cooldown periods, and bot lifecycle operations
 """
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, TypedDict
 import logging
@@ -53,6 +54,38 @@ def _build_block_detail(
     return detail
 
 
+def _action_payload(
+    action: str,
+    success: bool,
+    bot: Optional[Dict],
+    message: str,
+    pause_reason: Optional[str] = None,
+    lock_reason: Optional[str] = None,
+) -> Dict:
+    return {
+        "success": success,
+        "bot": bot,
+        "message": message,
+        "pause_reason": pause_reason,
+        "lock_reason": lock_reason,
+        "action": action,
+    }
+
+
+def _blocked_response(action: str, bot: Optional[Dict], blocker: Dict) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content=_action_payload(
+            action=action,
+            success=False,
+            bot=bot,
+            message=blocker.get("message", "Action blocked"),
+            pause_reason=blocker.get("message"),
+            lock_reason=blocker.get("code"),
+        ),
+    )
+
+
 async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
     user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
     if user and user.get("daily_loss_lock_active", False):
@@ -95,8 +128,8 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
             bodyguard_status = await bodyguard_service.get_bot_drawdown_status(bot.get("id"))
             if bodyguard_status and not bodyguard_status.get("can_resume", False):
                 return _build_block_detail(
-                    "bodyguard_lock",
-                    bodyguard_status.get("pause_reason", "Paused by bodyguard"),
+                    "drawdown_lock",
+                    bodyguard_status.get("pause_reason", "Paused by drawdown protection"),
                     "Wait for drawdown recovery or reset bodyguard lock",
                 )
         except Exception as e:
@@ -151,7 +184,7 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
             else:
                 state = status
 
-            pause_reason = bot.get('paused_reason') or bot.get('pause_reason')
+            pause_reason = bot.get('pause_reason') or bot.get('paused_reason')
             pause_reason_code = None
             pause_reason_message = None
             pause_next_action = None
@@ -260,15 +293,17 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         
         # Check if already active
         if bot.get('status') == 'active':
-            return {
-                "success": False,
-                "message": f"Bot '{bot['name']}' is already active",
-                "bot": bot
-            }
+            return _action_payload(
+                action="start",
+                success=False,
+                bot=bot,
+                message=f"Bot '{bot['name']}' is already active",
+                pause_reason=bot.get("pause_reason")
+            )
 
         blocker = await _check_bot_blockers(bot, user_id)
         if blocker:
-            raise HTTPException(status_code=409, detail=blocker)
+            return _blocked_response("start", bot, blocker)
         
         # PREFLIGHT VALIDATION: Check requirements before starting bot
         trading_mode = bot.get('trading_mode', 'paper')
@@ -277,12 +312,35 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         current_capital = bot.get('current_capital', 0)
         initial_capital = bot.get('initial_capital', 0)
         if current_capital <= 0 and initial_capital <= 0:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "no_capital",
+            return _blocked_response(
+                "start",
+                bot,
+                _build_block_detail(
+                    "insufficient_funds",
                     f"Cannot start bot '{bot['name']}': No wallet balance available.",
                     "Allocate capital to this bot before starting",
+                ),
+            )
+
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+        if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
+            return _blocked_response(
+                "start",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    "Paper trading is disabled in system mode",
+                    "Enable paper trading in System Mode settings",
+                ),
+            )
+        if trading_mode == 'live' and modes and not modes.get('liveTrading', False):
+            return _blocked_response(
+                "start",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    "Live trading is disabled in system mode",
+                    "Enable live trading in System Mode settings",
                 ),
             )
         
@@ -293,32 +351,51 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
         
         if trading_mode == 'paper' and not paper_trading_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "paper_trading_disabled",
+            return _blocked_response(
+                "start",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
                     f"Cannot start bot '{bot['name']}': Paper trading is disabled.",
                     "Set PAPER_TRADING=1 in environment",
                 ),
             )
         elif trading_mode == 'live' and not live_trading_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "live_trading_disabled",
+            return _blocked_response(
+                "start",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
                     f"Cannot start bot '{bot['name']}': Live trading is disabled.",
                     "Set LIVE_TRADING=1 in environment",
                 ),
             )
         elif not paper_trading_enabled and not live_trading_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "trading_disabled",
+            return _blocked_response(
+                "start",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
                     "Cannot start bot: Both paper and live trading are disabled.",
                     "Enable PAPER_TRADING=1 or LIVE_TRADING=1 in environment",
                 ),
             )
+
+        if trading_mode == "live":
+            api_key = await db.api_keys_collection.find_one(
+                {"user_id": user_id, "provider": bot.get("exchange", "")},
+                {"_id": 0}
+            )
+            if not api_key:
+                return _blocked_response(
+                    "start",
+                    bot,
+                    _build_block_detail(
+                        "key_missing",
+                        f"Cannot start bot '{bot['name']}': API keys missing for {bot.get('exchange')}",
+                        "Add and test API keys before starting live trading",
+                    ),
+                )
         
         # 3. Check ledger collection is accessible
         try:
@@ -365,11 +442,13 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         
         logger.info(f"✅ Bot {bot['name']} started by user {user_id[:8]}")
         
-        return {
-            "success": True,
-            "message": f"Bot '{bot['name']}' started successfully",
-            "bot": updated_bot
-        }
+        return _action_payload(
+            action="start",
+            success=True,
+            bot=updated_bot,
+            message=f"Bot '{bot['name']}' started successfully",
+            pause_reason=updated_bot.get("pause_reason")
+        )
         
     except HTTPException:
         raise
@@ -398,11 +477,13 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
         
         # Check if already stopped
         if bot.get('status') == 'stopped':
-            return {
-                "success": False,
-                "message": f"Bot '{bot['name']}' is already stopped",
-                "bot": bot
-            }
+            return _action_payload(
+                action="stop",
+                success=False,
+                bot=bot,
+                message=f"Bot '{bot['name']}' is already stopped",
+                pause_reason=bot.get("pause_reason")
+            )
         
         # Stop the bot
         if data is None:
@@ -438,11 +519,13 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
         
         logger.info(f"✅ Bot {bot['name']} stopped by user {user_id[:8]}")
         
-        return {
-            "success": True,
-            "message": f"Bot '{bot['name']}' stopped successfully",
-            "bot": updated_bot
-        }
+        return _action_payload(
+            action="stop",
+            success=True,
+            bot=updated_bot,
+            message=f"Bot '{bot['name']}' stopped successfully",
+            pause_reason=updated_bot.get("pause_reason")
+        )
         
     except HTTPException:
         raise
@@ -474,11 +557,13 @@ async def pause_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Dep
         
         # Check if already paused
         if bot.get('status') == 'paused':
-            return {
-                "success": False,
-                "message": f"Bot '{bot['name']}' is already paused",
-                "bot": bot
-            }
+            return _action_payload(
+                action="pause",
+                success=False,
+                bot=bot,
+                message=f"Bot '{bot['name']}' is already paused",
+                pause_reason=bot.get("pause_reason")
+            )
         
         # Pause the bot
         if data is None:
@@ -519,11 +604,13 @@ async def pause_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Dep
         
         logger.info(f"✅ Bot {bot['name']} paused by user {user_id[:8]}")
         
-        return {
-            "success": True,
-            "message": f"Bot '{bot['name']}' paused successfully",
-            "bot": updated_bot
-        }
+        return _action_payload(
+            action="pause",
+            success=True,
+            bot=updated_bot,
+            message=f"Bot '{bot['name']}' paused successfully",
+            pause_reason=updated_bot.get("pause_reason")
+        )
         
     except HTTPException:
         raise
@@ -558,47 +645,89 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         # Check if currently paused
         if bot.get('status') != 'paused':
             if blocker:
-                raise HTTPException(status_code=409, detail=blocker)
-            return {
-                "success": False,
-                "message": f"Bot '{bot['name']}' is not paused (status: {bot.get('status', 'unknown')})",
-                "bot": bot
-            }
+                return _blocked_response("resume", bot, blocker)
+            return _action_payload(
+                action="resume",
+                success=False,
+                bot=bot,
+                message=f"Bot '{bot['name']}' is not paused (status: {bot.get('status', 'unknown')})",
+                pause_reason=bot.get("pause_reason")
+            )
 
         if blocker:
-            raise HTTPException(status_code=409, detail=blocker)
+            return _blocked_response("resume", bot, blocker)
 
         trading_mode = bot.get('trading_mode', 'paper')
         paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
         live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+        if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
+            return _blocked_response(
+                "resume",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    "Paper trading is disabled in system mode",
+                    "Enable paper trading in System Mode settings",
+                ),
+            )
+        if trading_mode == 'live' and modes and not modes.get('liveTrading', False):
+            return _blocked_response(
+                "resume",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    "Live trading is disabled in system mode",
+                    "Enable live trading in System Mode settings",
+                ),
+            )
 
         if trading_mode == 'paper' and not paper_trading_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "paper_trading_disabled",
+            return _blocked_response(
+                "resume",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
                     f"Cannot resume bot '{bot['name']}': Paper trading is disabled.",
                     "Set PAPER_TRADING=1 in environment",
                 ),
             )
         if trading_mode == 'live' and not live_trading_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "live_trading_disabled",
+            return _blocked_response(
+                "resume",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
                     f"Cannot resume bot '{bot['name']}': Live trading is disabled.",
                     "Set LIVE_TRADING=1 in environment",
                 ),
             )
         if not paper_trading_enabled and not live_trading_enabled:
-            raise HTTPException(
-                status_code=409,
-                detail=_build_block_detail(
-                    "trading_disabled",
+            return _blocked_response(
+                "resume",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
                     "Cannot resume bot: Both paper and live trading are disabled.",
                     "Enable PAPER_TRADING=1 or LIVE_TRADING=1 in environment",
                 ),
             )
+
+        if trading_mode == "live":
+            api_key = await db.api_keys_collection.find_one(
+                {"user_id": user_id, "provider": bot.get("exchange", "")},
+                {"_id": 0}
+            )
+            if not api_key:
+                return _blocked_response(
+                    "resume",
+                    bot,
+                    _build_block_detail(
+                        "key_missing",
+                        f"Cannot resume bot '{bot['name']}': API keys missing for {bot.get('exchange')}",
+                        "Add and test API keys before resuming live trading",
+                    ),
+                )
         
         # Resume the bot
         resumed_at = datetime.now(timezone.utc).isoformat()
@@ -627,16 +756,142 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         
         logger.info(f"✅ Bot {bot['name']} resumed by user {user_id[:8]}")
         
-        return {
-            "success": True,
-            "message": f"Bot '{bot['name']}' resumed successfully",
-            "bot": updated_bot
-        }
+        return _action_payload(
+            action="resume",
+            success=True,
+            bot=updated_bot,
+            message=f"Bot '{bot['name']}' resumed successfully",
+            pause_reason=updated_bot.get("pause_reason")
+        )
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Resume bot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{bot_id}/restart")
+async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
+    """Restart a bot (stop then start) with consistent response shape."""
+    try:
+        bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        blocker = await _check_bot_blockers(bot, user_id)
+        if blocker:
+            return _blocked_response("restart", bot, blocker)
+
+        current_capital = bot.get('current_capital', 0)
+        initial_capital = bot.get('initial_capital', 0)
+        if current_capital <= 0 and initial_capital <= 0:
+            return _blocked_response(
+                "restart",
+                bot,
+                _build_block_detail(
+                    "insufficient_funds",
+                    f"Cannot restart bot '{bot['name']}': No wallet balance available.",
+                    "Allocate capital to this bot before restarting",
+                ),
+            )
+
+        trading_mode = bot.get('trading_mode', 'paper')
+        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
+        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+        if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
+            return _blocked_response(
+                "restart",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    "Paper trading is disabled in system mode",
+                    "Enable paper trading in System Mode settings",
+                ),
+            )
+        if trading_mode == 'live' and modes and not modes.get('liveTrading', False):
+            return _blocked_response(
+                "restart",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    "Live trading is disabled in system mode",
+                    "Enable live trading in System Mode settings",
+                ),
+            )
+        if trading_mode == 'paper' and not paper_trading_enabled:
+            return _blocked_response(
+                "restart",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    f"Cannot restart bot '{bot['name']}': Paper trading is disabled.",
+                    "Set PAPER_TRADING=1 in environment",
+                ),
+            )
+        if trading_mode == 'live' and not live_trading_enabled:
+            return _blocked_response(
+                "restart",
+                bot,
+                _build_block_detail(
+                    "system_mode_disabled",
+                    f"Cannot restart bot '{bot['name']}': Live trading is disabled.",
+                    "Set LIVE_TRADING=1 in environment",
+                ),
+            )
+
+        if trading_mode == "live":
+            api_key = await db.api_keys_collection.find_one(
+                {"user_id": user_id, "provider": bot.get("exchange", "")},
+                {"_id": 0}
+            )
+            if not api_key:
+                return _blocked_response(
+                    "restart",
+                    bot,
+                    _build_block_detail(
+                        "key_missing",
+                        f"Cannot restart bot '{bot['name']}': API keys missing for {bot.get('exchange')}",
+                        "Add and test API keys before restarting live trading",
+                    ),
+                )
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        await db.bots_collection.update_one(
+            {"id": bot_id},
+            {
+                "$set": {
+                    "status": "active",
+                    "started_at": started_at,
+                    "resumed_at": started_at
+                },
+                "$unset": {
+                    "stopped_at": "",
+                    "paused_at": "",
+                    "pause_reason": "",
+                    "paused_by_user": "",
+                    "paused_by_system": "",
+                    "stop_reason": ""
+                }
+            }
+        )
+
+        updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+        await rt_events.bot_resumed(user_id, updated_bot)
+        logger.info(f"✅ Bot {bot.get('name')} restarted by user {user_id[:8]}")
+
+        return _action_payload(
+            action="restart",
+            success=True,
+            bot=updated_bot,
+            message=f"Bot '{bot['name']}' restarted successfully",
+            pause_reason=updated_bot.get("pause_reason")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Restart bot error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -795,6 +1050,59 @@ async def get_bot_detailed_status(bot_id: str, user_id: str = Depends(get_curren
         raise
     except Exception as e:
         logger.error(f"Get bot status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{bot_id}/risk/status")
+async def get_bot_risk_status(bot_id: str, user_id: str = Depends(get_current_user)):
+    """Get risk status metrics for a bot."""
+    try:
+        bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        exchange = bot.get("exchange", "").lower()
+        pair = bot.get("pair", "")
+        currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
+
+        current_equity = bot.get("current_capital", 0)
+        drawdown_pct = 0.0
+        daily_pnl = 0.0
+        daily_loss_pct = 0.0
+
+        ledger_db = getattr(db, "db", None)
+        if ledger_db is not None:
+            from services.ledger_service import get_ledger_service
+            ledger = get_ledger_service(ledger_db)
+            current_equity = await ledger.compute_equity(bot_id=bot_id, currency=currency)
+            current_dd, _ = await ledger.compute_drawdown(bot_id=bot_id, currency=currency)
+            drawdown_pct = current_dd * 100
+
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            realized = await ledger.compute_realized_pnl(bot_id=bot_id, since=today_start)
+            fees = await ledger.compute_fees_paid(bot_id=bot_id, since=today_start, currency=currency)
+            daily_pnl = realized - fees
+            funded = await ledger.compute_funded_capital(bot_id=bot_id, currency=currency)
+            if funded > 0 and daily_pnl < 0:
+                daily_loss_pct = (abs(daily_pnl) / funded) * 100
+
+        equity_peak = bot.get("equity_peak", current_equity)
+
+        return {
+            "bot_id": bot_id,
+            "exchange": exchange,
+            "drawdown_pct": round(drawdown_pct, 2),
+            "daily_pnl": round(daily_pnl, 2),
+            "daily_loss_pct": round(daily_loss_pct, 2),
+            "equity_peak": round(equity_peak, 2),
+            "current_equity": round(current_equity, 2),
+            "pause_reason": bot.get("pause_reason"),
+            "currency": currency
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bot risk status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -139,22 +139,39 @@ class BodyguardService:
             # Get risk mode and threshold
             risk_mode = bot.get('risk_mode', 'balanced')
             threshold = DRAWDOWN_THRESHOLDS.get(risk_mode, 20.0)
-            
-            # Calculate current drawdown
-            equity_peak = bot.get('equity_peak', bot.get('initial_capital', 1000))
+
+            exchange = bot.get('exchange', '').lower()
+            pair = bot.get('pair', '')
+            currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
+
+            # Calculate current drawdown using ledger equity where possible
             current_capital = bot.get('current_capital', bot.get('initial_capital', 1000))
+            current_equity = current_capital
+
+            try:
+                from services.ledger_service import get_ledger_service
+                if db.db is not None:
+                    ledger = get_ledger_service(db.db)
+                    current_equity = await ledger.compute_equity(bot_id=bot_id, currency=currency)
+            except Exception as e:
+                logger.warning(f"Bodyguard ledger equity fallback: {e}")
+
+            if current_equity <= 0:
+                current_equity = current_capital
+
+            equity_peak = bot.get('equity_peak', current_equity)
             
             # If no equity peak set, initialize it
             if not bot.get('equity_peak'):
                 await db.bots_collection.update_one(
                     {"id": bot_id},
-                    {"$set": {"equity_peak": current_capital}}
+                    {"$set": {"equity_peak": current_equity}}
                 )
-                equity_peak = current_capital
+                equity_peak = current_equity
             
             # Calculate drawdown percentage
             if equity_peak > 0:
-                current_drawdown_pct = ((equity_peak - current_capital) / equity_peak) * 100
+                current_drawdown_pct = ((equity_peak - current_equity) / equity_peak) * 100
             else:
                 current_drawdown_pct = 0
             
@@ -168,9 +185,9 @@ class BodyguardService:
             paused_by_bodyguard = bot.get('paused_by_bodyguard', False)
             
             # Check if we hit new equity peak (recovery)
-            if current_capital >= equity_peak:
+            if current_equity >= equity_peak:
                 # New peak! Reset drawdown tracking
-                await self._reset_drawdown_tracking(bot_id, current_capital)
+                await self._reset_drawdown_tracking(bot_id, current_equity)
                 
                 # If bot was paused by bodyguard, resume it
                 if bot_status == 'paused' and paused_by_bodyguard:
@@ -189,7 +206,27 @@ class BodyguardService:
                     return False, None
                 
                 # Bot is not profitable and exceeds drawdown - pause it
-                return await self._pause_bot(user_id, bot_id, bot, current_drawdown_pct, threshold)
+                daily_pnl = 0.0
+                try:
+                    from services.ledger_service import get_ledger_service
+                    if db.db is not None:
+                        ledger = get_ledger_service(db.db)
+                        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                        realized = await ledger.compute_realized_pnl(bot_id=bot_id, since=today_start)
+                        fees = await ledger.compute_fees_paid(bot_id=bot_id, since=today_start, currency=currency)
+                        daily_pnl = realized - fees
+                except Exception as e:
+                    logger.warning(f"Bodyguard daily pnl fallback: {e}")
+
+                return await self._pause_bot(
+                    user_id,
+                    bot_id,
+                    bot,
+                    current_drawdown_pct,
+                    threshold,
+                    current_equity,
+                    daily_pnl
+                )
             
             # Check if paused by bodyguard and drawdown improved enough to resume
             if bot_status == 'paused' and paused_by_bodyguard:
@@ -208,8 +245,10 @@ class BodyguardService:
         user_id: str, 
         bot_id: str, 
         bot: Dict, 
-        current_drawdown_pct: float, 
-        threshold: float
+        current_drawdown_pct: float,
+        threshold: float,
+        current_equity: float,
+        daily_pnl: float
     ) -> Tuple[bool, str]:
         """Pause bot due to drawdown threshold breach and place in quarantine
         
@@ -290,6 +329,16 @@ class BodyguardService:
                 "message": f"Bot {action_description} by bodyguard due to drawdown"
             })
             
+            logger.warning(
+                "Bodyguard pause bot_id=%s threshold=%.2f current_drawdown=%.2f equity=%.2f daily_pnl=%.2f action=%s",
+                bot_id,
+                threshold,
+                current_drawdown_pct,
+                current_equity,
+                daily_pnl,
+                action
+            )
+
             description = (
                 f"🛡️ Bodyguard {action_description} '{bot_name}': Drawdown {current_drawdown_pct:.1f}% "
                 f"reached {risk_mode} threshold ({threshold}%)"
@@ -373,6 +422,7 @@ class BodyguardService:
                         "status": "active",
                         "resumed_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": False,
+                        "paused_by_system": False,
                     },
                     "$unset": {
                         "pause_reason": "",
@@ -444,9 +494,28 @@ class BodyguardService:
             risk_mode = bot.get('risk_mode', 'balanced')
             threshold = DRAWDOWN_THRESHOLDS.get(risk_mode, 20.0)
             
-            equity_peak = bot.get('equity_peak', bot.get('initial_capital', 0))
+            exchange = bot.get('exchange', '').lower()
+            pair = bot.get('pair', '')
+            currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
+
             current_capital = bot.get('current_capital', 0)
-            current_drawdown_pct = bot.get('current_drawdown_pct', 0)
+            current_equity = current_capital
+            try:
+                from services.ledger_service import get_ledger_service
+                if db.db is not None:
+                    ledger = get_ledger_service(db.db)
+                    current_equity = await ledger.compute_equity(bot_id=bot_id, currency=currency)
+            except Exception as e:
+                logger.warning(f"Bodyguard status ledger fallback: {e}")
+
+            if current_equity <= 0:
+                current_equity = current_capital
+
+            equity_peak = bot.get('equity_peak', current_equity)
+            if equity_peak > 0:
+                current_drawdown_pct = ((equity_peak - current_equity) / equity_peak) * 100
+            else:
+                current_drawdown_pct = 0
             
             paused_by_bodyguard = bot.get('paused_by_bodyguard', False)
             
@@ -459,7 +528,7 @@ class BodyguardService:
                 "risk_mode": risk_mode,
                 "threshold": threshold,
                 "equity_peak": round(equity_peak, 2),
-                "current_capital": round(current_capital, 2),
+                "current_capital": round(current_equity, 2),
                 "current_drawdown_pct": round(current_drawdown_pct, 2),
                 "paused_by_bodyguard": paused_by_bodyguard,
                 "resume_threshold": resume_threshold,

@@ -27,12 +27,13 @@ const BotLifecycleControls = ({ bot, onAction, compact = false }) => {
 
       const data = await response.json();
 
-      if (data.success) {
+      if (response.ok && data.success) {
         if (onAction) {
           onAction(action, data);
         }
       } else {
-        setError(data.message || `Failed to ${action} bot`);
+        const detailMessage = data?.detail?.message || data?.detail?.message || data?.detail;
+        setError(data.message || detailMessage || `Failed to ${action} bot`);
       }
     } catch (err) {
       setError(`Error: ${err.message}`);
