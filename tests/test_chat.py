@@ -6,6 +6,7 @@ Tests server-side memory, login greeting, and admin panel (TASK E)
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, MagicMock
+from types import SimpleNamespace
 import sys
 import os
 
@@ -40,6 +41,64 @@ def mock_db():
 
 class TestAIChatMemory:
     """Test server-side chat memory (TASK E)"""
+    
+    def test_login_then_chat_returns_response(self):
+        """Login and send chat message with mocked OpenAI response"""
+        test_email = "chatuser@example.com"
+        test_password = "password123"
+        user_doc = {
+            "email": test_email,
+            "hashed_password": "hashed",
+            "id": "user-chat-001"
+        }
+        with patch('database.users_collection') as mock_users, \
+             patch('auth.verify_password', return_value=True):
+            mock_users.find_one = AsyncMock(return_value=user_doc)
+            mock_users.update_one = AsyncMock()
+            login_resp = client.post("/api/auth/login", json={
+                "email": test_email,
+                "password": test_password
+            })
+        assert login_resp.status_code == 200
+        token = login_resp.json().get("access_token")
+        assert token
+        
+        mock_cursor = MagicMock()
+        mock_cursor.sort.return_value = mock_cursor
+        mock_cursor.limit.return_value = mock_cursor
+        mock_cursor.to_list = AsyncMock(return_value=[])
+        
+        openai_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Hello from AI"))]
+        )
+        
+        with patch('routes.ai_chat.db.chat_messages_collection') as mock_chat, \
+             patch('routes.ai_chat.action_router.get_system_state', new=AsyncMock(return_value={
+                 "bots": {"total": 0, "active": 0, "paused": 0, "stopped": 0},
+                 "capital": {"total": 0, "total_profit": 0},
+                 "recent_performance": {"recent_trades_count": 0, "recent_pnl": 0}
+             })), \
+             patch('routes.api_key_management.get_decrypted_key', new=AsyncMock(return_value={
+                 "api_key": "sk-test"
+             })), \
+             patch('routes.ai_chat.manager.send_message', new=AsyncMock()), \
+             patch('openai.AsyncOpenAI') as mock_openai:
+            
+            mock_chat.insert_one = AsyncMock()
+            mock_chat.find.return_value = mock_cursor
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=openai_response)
+            mock_openai.return_value = mock_client
+            
+            chat_resp = client.post(
+                "/api/ai/chat",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"content": "Hello"}
+            )
+        
+        assert chat_resp.status_code == 200
+        payload = chat_resp.json()
+        assert payload.get("content")
     
     def test_chat_endpoint_exists(self, mock_auth):
         """Test that chat endpoint exists"""

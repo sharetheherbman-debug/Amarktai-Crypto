@@ -35,6 +35,8 @@ else
     exit 1
 fi
 
+export PYTHONPATH="$BACKEND_DIR:${PYTHONPATH:-}"
+
 # Test 1: Import server.py without crashes
 echo ""
 echo "📋 Test 1: Import server.py (detect collisions at import time)"
@@ -49,7 +51,7 @@ try:
     import server
     print("✅ Server imported successfully")
 except ModuleNotFoundError as exc:
-    print(f"❌ Missing dependency: {exc.name}. Install backend requirements.", file=sys.stderr)
+    print(f"❌ Wrong venv / missing deps: {exc.name}. Install backend requirements.", file=sys.stderr)
     sys.exit(2)
 except Exception as exc:
     print(f"❌ Server import failed: {exc}", file=sys.stderr)
@@ -61,7 +63,7 @@ then
 else
     exit_code=$?
     if [ "$exit_code" -eq 2 ]; then
-        echo -e "${RED}❌ FAILED: Missing dependency (install backend requirements)${NC}"
+        echo -e "${RED}❌ FAILED: Wrong venv / missing deps (install backend requirements)${NC}"
     else
         echo -e "${RED}❌ FAILED: Server import failed${NC}"
     fi
