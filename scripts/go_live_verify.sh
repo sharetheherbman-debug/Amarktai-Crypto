@@ -251,6 +251,12 @@ if ai_ok:
     except Exception as e:
         print(f"[WARN] OpenAI key check skipped: {e}")
 
+resp, ai_health = request_json("GET", "/api/ai/health", token=token)
+report(resp.status_code == 200, "/api/ai/health returned 200")
+if resp.status_code == 200:
+    report("key_present" in ai_health, "AI health includes key_present")
+    report("key_source" in ai_health, "AI health includes key_source")
+
 # 8) WebSocket handshake (optional)
 try:
     import websockets

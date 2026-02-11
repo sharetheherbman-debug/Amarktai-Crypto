@@ -48,4 +48,25 @@ if ! echo "$body" | jq -e 'type=="object" and has("success") and has("stats") an
 fi
 
 echo "PASS: GET /api/admin/overview returns expected stats"
+
+health_response=$(curl -s -w "\n%{http_code}" "${auth_header[@]}" "$API_URL/api/admin/health")
+health_body=$(echo "$health_response" | sed '$d')
+health_code=$(echo "$health_response" | tail -n1)
+
+if [ "$health_code" != "200" ]; then
+  echo "FAIL: GET /api/admin/health (HTTP $health_code)"
+  echo "$health_body"
+  exit 1
+fi
+
+status_response=$(curl -s -w "\n%{http_code}" "${auth_header[@]}" "$API_URL/api/admin/status")
+status_body=$(echo "$status_response" | sed '$d')
+status_code=$(echo "$status_response" | tail -n1)
+
+if [ "$status_code" != "200" ]; then
+  echo "FAIL: GET /api/admin/status (HTTP $status_code)"
+  echo "$status_body"
+  exit 1
+fi
+
 echo "✅ smoke_admin.sh PASS"
