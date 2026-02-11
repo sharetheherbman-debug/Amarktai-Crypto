@@ -63,6 +63,7 @@ class ConnectionManager:
         self.message_sequence = 0
         self.message_history: Dict[str, list] = {}  # user_id -> last N messages
         self.history_limit = 50
+        # Last broadcast metadata for diagnostics (/api/diagnostics/realtime)
         self.last_event: Optional[dict] = None
         
     async def init_redis(self):

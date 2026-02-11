@@ -516,27 +516,6 @@ export default function Dashboard() {
     ]);
   };
 
-  // Load admin data when admin panel is shown
-  useEffect(() => {
-    if (showAdmin) {
-      loadAllUsers();
-      loadSystemStats();
-      loadStorageData();
-      loadAdminUsers();
-      loadAdminBots();
-    }
-  }, [showAdmin]);
-
-  useEffect(() => {
-    if (!showAdmin) return undefined;
-    const interval = setInterval(() => {
-      loadSystemStats();
-      loadAdminUsers();
-      loadAdminBots();
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [showAdmin]);
-
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
     if (selectedUserId && adminBots.length > 0) {
@@ -2456,6 +2435,27 @@ export default function Dashboard() {
       setLoadingBots(false);
     }
   }, [axiosConfig]);
+
+  // Load admin data when admin panel is shown
+  useEffect(() => {
+    if (showAdmin) {
+      loadAllUsers();
+      loadSystemStats();
+      loadStorageData();
+      loadAdminUsers();
+      loadAdminBots();
+    }
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots]);
+
+  useEffect(() => {
+    if (!showAdmin) return undefined;
+    const interval = setInterval(() => {
+      loadSystemStats();
+      loadAdminUsers();
+      loadAdminBots();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {
