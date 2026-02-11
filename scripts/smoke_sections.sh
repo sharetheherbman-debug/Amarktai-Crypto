@@ -66,9 +66,14 @@ login_if_needed() {
 
   if [ -n "$EMAIL" ] && [ -n "$PASSWORD" ]; then
     print_info "Logging in to obtain token..."
-    login_payload=$(python3 - <<PY
+    login_payload=$(EMAIL="$EMAIL" PASSWORD="$PASSWORD" python3 - <<'PY'
 import json
-print(json.dumps({"email": "$EMAIL", "password": "$PASSWORD"}))
+import os
+
+print(json.dumps({
+    "email": os.environ.get("EMAIL", ""),
+    "password": os.environ.get("PASSWORD", "")
+}))
 PY
 )
     response=$(curl -s -X POST "$BASE_URL/api/auth/login" -H "Content-Type: application/json" -d "$login_payload")
@@ -221,16 +226,18 @@ else
   rm -f "$tmp" "${tmp}.code"
 
   print_test "WebSocket handshake"
-  if python3 - <<PY
+  if TOKEN="$TOKEN" BASE_URL="$BASE_URL" python3 - <<'PY'
 import asyncio
 import sys
 import os
 import ssl
 import websockets
+import urllib.parse
 
-base_url = "$BASE_URL"
-token = "$TOKEN"
-ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://") + f"/api/ws?token={token}"
+base_url = os.environ.get("BASE_URL", "")
+token = os.environ.get("TOKEN", "")
+encoded_token = urllib.parse.quote(token, safe="")
+ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://") + f"/api/ws?token={encoded_token}"
 
 ssl_context = None
 if ws_url.startswith("wss://") and os.getenv("AMARKTAI_WS_INSECURE") == "1":

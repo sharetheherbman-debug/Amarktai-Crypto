@@ -11,7 +11,8 @@ from typing import Dict, Set, Optional, Any
 from datetime import datetime, timezone
 import os
 
-from bson import ObjectId
+from bson import ObjectId, Decimal128, Binary
+from bson.timestamp import Timestamp
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -25,6 +26,12 @@ def sanitize_for_json(obj: Any) -> Any:
     """
     if isinstance(obj, ObjectId):
         return str(obj)
+    if isinstance(obj, Decimal128):
+        return float(obj.to_decimal())
+    if isinstance(obj, Timestamp):
+        return datetime.fromtimestamp(obj.time, tz=timezone.utc).isoformat()
+    if isinstance(obj, (bytes, bytearray, Binary)):
+        return obj.hex()
     if isinstance(obj, datetime):
         if obj.tzinfo is None:
             obj = obj.replace(tzinfo=timezone.utc)

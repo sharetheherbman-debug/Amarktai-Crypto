@@ -583,9 +583,11 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
                 {"_id": 0, "created_at": 1, "spawned_at": 1},
                 sort=[("created_at", -1)]
             )
-            last_spawn_time = parse_datetime(
-                last_spawn.get("created_at") if last_spawn else None
-            ) or parse_datetime(last_spawn.get("spawned_at") if last_spawn else None)
+            last_spawn_time = None
+            if last_spawn:
+                last_spawn_time = parse_datetime(last_spawn.get("created_at"))
+                if last_spawn_time is None:
+                    last_spawn_time = parse_datetime(last_spawn.get("spawned_at"))
             last_spawn_time_per_exchange[exchange] = last_spawn_time.isoformat() if last_spawn_time else None
 
             eligible = True

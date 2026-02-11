@@ -489,9 +489,11 @@ class CapitalAllocator:
                     {"_id": 0, "created_at": 1, "spawned_at": 1},
                     sort=[("created_at", -1)]
                 )
-                last_spawn_time = parse_datetime(
-                    last_spawn.get("created_at") if last_spawn else None
-                ) or parse_datetime(last_spawn.get("spawned_at") if last_spawn else None)
+                last_spawn_time = None
+                if last_spawn:
+                    last_spawn_time = parse_datetime(last_spawn.get("created_at"))
+                    if last_spawn_time is None:
+                        last_spawn_time = parse_datetime(last_spawn.get("spawned_at"))
                 if last_spawn_time:
                     cooldown_until = last_spawn_time + timedelta(minutes=cooldown_minutes)
                     if now < cooldown_until:

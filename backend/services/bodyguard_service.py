@@ -207,7 +207,7 @@ class BodyguardService:
             
             bot_status = bot.get('status', 'active')
             paused_by_bodyguard = bot.get('paused_by_bodyguard', False)
-            last_pause_at = self._parse_datetime(bot.get('bodyguard_last_pause_at') or bot.get('paused_at'))
+            last_pause_at = self._parse_datetime(bot.get('bodyguard_last_pause_at'))
             now = datetime.now(timezone.utc)
             
             # Check if we hit new equity peak (recovery)
