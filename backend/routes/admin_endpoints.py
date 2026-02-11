@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field, validator
 import logging
+import time
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import os
@@ -24,6 +25,17 @@ from json_utils import serialize_doc, serialize_list
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Dashboard"])
+
+_AUDIT_COLLECTION_WARNING_INTERVAL = 300
+_last_missing_audit_collection_warning = 0.0
+
+
+def _warn_missing_audit_collection():
+    global _last_missing_audit_collection_warning
+    now = time.monotonic()
+    if now - _last_missing_audit_collection_warning >= _AUDIT_COLLECTION_WARNING_INTERVAL:
+        logger.warning("Audit logging skipped: audit_logs_collection is not initialized")
+        _last_missing_audit_collection_warning = now
 
 
 # ============================================================================
@@ -59,6 +71,9 @@ async def log_admin_action(
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "ip_address": ip_address,
         }
+        if db.audit_logs_collection is None:
+            _warn_missing_audit_collection()
+            return
         await db.audit_logs_collection.insert_one(audit_doc)
         logger.info(f"Admin action logged: {admin_id[:8]} → {action} on {target_type} {target_id[:8]}")
     except Exception as e:

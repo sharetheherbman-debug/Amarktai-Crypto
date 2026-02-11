@@ -148,6 +148,7 @@ export default function Dashboard() {
   // Consolidated risk status from /api/risk/status
   const [riskStatus, setRiskStatus] = useState(null);
   const [storageData, setStorageData] = useState(null);
+  const [storageError, setStorageError] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [customCountdowns, setCustomCountdowns] = useState([]);
   const [showAddCountdown, setShowAddCountdown] = useState(false);
@@ -175,6 +176,17 @@ export default function Dashboard() {
     headers: { Authorization: `Bearer ${token}` }
   }), [token]);
   const { livePrices, loadLivePrices, setLivePrices } = useDashboardData(token);
+  const storageTotals = useMemo(() => {
+    if (!storageData) {
+      return null;
+    }
+    const totalMb = storageData.total_system_storage_mb ?? storageData.total_storage_mb ?? 0;
+    return {
+      totalMb,
+      totalGb: totalMb / 1024,
+      totalUsers: storageData.total_users ?? storageData.user_count ?? 0
+    };
+  }, [storageData]);
 
   // Safe date formatter - handles null/undefined gracefully
   const formatDate = (dateStr, options = {}) => {
@@ -1176,8 +1188,12 @@ export default function Dashboard() {
     try {
       const res = await axios.get(`${API}/admin/storage`, axiosConfig);
       setStorageData(res.data);
+      setStorageError(null);
     } catch (err) {
+      const message = err.response?.data?.detail || 'Failed to load storage data';
       console.error('Storage data fetch error:', err);
+      setStorageError(message);
+      toast.error(message);
     }
   }, [axiosConfig]);
 
@@ -3785,35 +3801,43 @@ export default function Dashboard() {
           )}
           
           {/* Per-User Storage Usage */}
+          {storageError && (
+            <div style={{marginBottom: '24px', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--error)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)'}}>
+              ⚠️ Unable to load storage data: {storageError}
+            </div>
+          )}
           {storageData && (
             <div style={{marginBottom: '24px', padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                 <h3 style={{margin: 0, color: '#ffffff'}}>💾 User Storage Usage</h3>
                 <div style={{fontSize: '0.9rem', color: '#cccccc'}}>
-                  Total: {storageData.total_storage_mb} MB ({storageData.total_storage_gb} GB)
+                  Total: {storageTotals ? storageTotals.totalMb.toFixed(2) : '0.00'} MB ({storageTotals ? storageTotals.totalGb.toFixed(2) : '0.00'} GB)
                 </div>
               </div>
               <div style={{maxHeight: '200px', overflowY: 'auto'}}>
                 {storageData.users && storageData.users.length > 0 ? (
-                  storageData.users.map((userStorage) => (
-                    <div key={userStorage.user_id} style={{
-                      padding: '8px 12px',
-                      marginBottom: '6px',
-                      background: 'var(--glass)',
-                      borderRadius: '4px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}>
-                      <div style={{flex: 1}}>
+                  storageData.users.map((userStorage) => {
+                    const storageMb = userStorage.total_storage_mb ?? userStorage.storage_mb ?? 0;
+                    return (
+                      <div key={userStorage.user_id} style={{
+                        padding: '8px 12px',
+                        marginBottom: '6px',
+                        background: 'var(--glass)',
+                        borderRadius: '4px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <div style={{flex: 1}}>
                         <div style={{fontWeight: 600, fontSize: '0.9rem', color: '#ffffff'}}>{userStorage.name || 'Unknown'}</div>
-                        <div style={{fontSize: '0.75rem', color: '#cccccc'}}>{userStorage.email}</div>
+                          <div style={{fontSize: '0.75rem', color: '#cccccc'}}>{userStorage.email}</div>
+                        </div>
+                        <div style={{fontWeight: 700, fontSize: '0.95rem', color: storageMb > 100 ? 'var(--error)' : 'var(--success)'}}>
+                          {storageMb.toFixed(2)} MB
+                        </div>
                       </div>
-                      <div style={{fontWeight: 700, fontSize: '0.95rem', color: userStorage.storage_mb > 100 ? 'var(--error)' : 'var(--success)'}}>
-                        {userStorage.storage_mb} MB
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div style={{textAlign: 'center', padding: '20px', color: '#cccccc'}}>
                     No storage data available
@@ -3993,11 +4017,11 @@ export default function Dashboard() {
               <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                 <div>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Total System Storage</div>
-                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)'}}>{storageData.total_system_storage_mb?.toFixed(2)} MB</div>
+                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)'}}>{storageTotals ? storageTotals.totalMb.toFixed(2) : '0.00'} MB</div>
                 </div>
                 <div>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Total Users</div>
-                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent)'}}>{storageData.total_users}</div>
+                  <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent)'}}>{storageTotals ? storageTotals.totalUsers : 0}</div>
                 </div>
               </div>
               
@@ -4016,7 +4040,7 @@ export default function Dashboard() {
                     {storageData.users?.map((usr, idx) => (
                       <tr key={idx} style={{borderBottom: '1px solid var(--line)'}}>
                         <td style={{padding: '12px'}}>
-                          <div>{usr.first_name}</div>
+                          <div>{usr.name || 'Unknown'}</div>
                           <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{usr.email}</div>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>

@@ -193,6 +193,13 @@ python3 scripts/verify_parity.py
 Artifacts are written to `artifacts/`. A run is **PASS** when the script exits `0`
 and prints `PASS` in the parity report.
 
+### **Canonical Frontend Endpoints**
+The dashboard is aligned to these backend routes:
+- Bots: `GET /api/bots`, `GET /api/bots/status`
+- Admin storage: `GET /api/admin/storage`
+- AI chat: `POST /api/ai/chat`, `GET /api/ai/chat/history`, `POST /api/ai/chat/greeting`
+- Countdown: `GET /api/analytics/countdown-to-million`, `GET/POST/DELETE /api/countdowns`
+
 ### **VPS Smoke Tests (User/Admin/Realtime)**
 Run smoke checks against a deployed VPS (requires `jq` and backend Python deps):
 

@@ -7,6 +7,7 @@ Audit Logger - Production-grade audit trail
 """
 
 import asyncio
+import time
 from typing import Dict, List, Optional
 from datetime import datetime, timezone, timedelta
 import logging
@@ -15,8 +16,21 @@ import database as db
 
 logger = logging.getLogger(__name__)
 
-# Create audit_logs collection reference
-audit_logs_collection = db.audit_logs
+_AUDIT_COLLECTION_WARNING_INTERVAL = 300
+_last_missing_audit_collection_warning = 0.0
+
+
+def _get_audit_logs_collection():
+    """Return audit log collection with backward-compatible fallback."""
+    return db.audit_logs_collection or db.audit_logs
+
+
+def _warn_missing_audit_collection():
+    global _last_missing_audit_collection_warning
+    now = time.monotonic()
+    if now - _last_missing_audit_collection_warning >= _AUDIT_COLLECTION_WARNING_INTERVAL:
+        logger.warning("Audit logging skipped: audit_logs_collection is not initialized")
+        _last_missing_audit_collection_warning = now
 
 class AuditLogger:
     def __init__(self):
@@ -58,8 +72,12 @@ class AuditLogger:
             # Add criticality flag
             audit_entry['is_critical'] = event_type in self.critical_events
             
-            # Insert into audit log
-            await audit_logs_collection.insert_one(audit_entry)
+            # Insert into audit log (best-effort)
+            collection = _get_audit_logs_collection()
+            if collection is None:
+                _warn_missing_audit_collection()
+                return True
+            await collection.insert_one(audit_entry)
             
             # Log critical events to system logger too
             if audit_entry['is_critical']:
