@@ -292,6 +292,20 @@ const AIChatPanel = ({ onAdminUnlock }) => {
 
       const data = await response.json();
 
+      if (!response.ok || data?.success === false || data?.error) {
+        const errorContent = data?.content || data?.error || data?.detail || 'AI chat error. Please try again.';
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: errorContent,
+          timestamp: data?.timestamp || new Date().toISOString(),
+          error: true
+        }]);
+        if (data?.system_state) {
+          setSystemState(data.system_state);
+        }
+        return;
+      }
+
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.content,

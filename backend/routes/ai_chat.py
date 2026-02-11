@@ -4,6 +4,7 @@ Real-time AI chat with action confirmation and tool routing
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Body, Query
+from fastapi.responses import JSONResponse
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
 import logging
@@ -52,6 +53,31 @@ def record_ai_error(code: str, message: str) -> None:
         "message": message,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def build_ai_error_response(
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+    user_message: str,
+    system_state: Optional[Dict] = None,
+    key_source: Optional[str] = None
+) -> JSONResponse:
+    record_ai_error(code, message)
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "success": False,
+            "error": message,
+            "code": code,
+            "role": "assistant",
+            "content": user_message,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "system_state": system_state,
+            "key_source": key_source
+        }
+    )
 
 
 class AIActionRouter:
@@ -194,6 +220,12 @@ async def ai_chat(
         content = message.get('content', '')
         request_action = message.get('request_action', False)
         confirmation_token = message.get('confirmation_token')
+        logger.info(
+            "AI chat request user=%s message_length=%d request_action=%s",
+            user_id[:8],
+            len(content or ""),
+            request_action
+        )
         
         # Content filter: Block admin-related queries
         content_lower = content.lower()
@@ -224,6 +256,7 @@ async def ai_chat(
                 **admin_response
             })
             
+            admin_response["success"] = True
             return admin_response
         
         # Block admin credential/password requests
@@ -249,6 +282,7 @@ async def ai_chat(
                 **filtered_response
             })
             
+            filtered_response["success"] = True
             return filtered_response
         
         # Save user message
@@ -301,18 +335,22 @@ async def ai_chat(
             error_code = None
             try:
                 user_api_key, key_source = await resolve_openai_key(user_id)
+                logger.info(
+                    "AI chat key lookup user=%s provider=openai found=%s source=%s",
+                    user_id[:8],
+                    bool(user_api_key),
+                    key_source
+                )
                 
                 if not user_api_key:
-                    record_ai_error("no_api_key", "OpenAI API key not configured")
-                    return {
-                        "role": "assistant",
-                        "content": "❌ AI service not configured. Please save your OpenAI API key in Settings → API Keys.",
-                        "error": "no_api_key",
-                        "guidance": "Save your OpenAI API key to enable AI features.",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "system_state": system_state,
-                        "key_source": "none"
-                    }
+                    return build_ai_error_response(
+                        status_code=409,
+                        code="no_api_key",
+                        message="OpenAI key not configured",
+                        user_message="❌ OpenAI key not configured. Please save your OpenAI API key in Settings → API Keys.",
+                        system_state=system_state,
+                        key_source="none"
+                    )
                 
                 # Use AsyncOpenAI client (openai>=1.x) with user's key
                 from openai import AsyncOpenAI
@@ -335,15 +373,14 @@ async def ai_chat(
                     if m not in fallback_models:
                         fallback_models.append(m)
                 if not fallback_models:
-                    record_ai_error("model_not_set", "No OpenAI model configured")
-                    return {
-                        "role": "assistant",
-                        "content": "❌ AI model not configured. Set OPENAI_MODEL in environment.",
-                        "error": "model_not_set",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "system_state": system_state,
-                        "key_source": key_source
-                    }
+                    return build_ai_error_response(
+                        status_code=500,
+                        code="model_not_set",
+                        message="No OpenAI model configured",
+                        user_message="❌ AI model not configured. Set OPENAI_MODEL in environment.",
+                        system_state=system_state,
+                        key_source=key_source
+                    )
                 
                 # Prepare context for AI
                 context = f"""You are an AI trading assistant for the Amarktai Network.
@@ -391,6 +428,11 @@ Instructions:
                 
                 for test_model in fallback_models:
                     try:
+                        logger.info(
+                            "AI chat OpenAI call user=%s model=%s",
+                            user_id[:8],
+                            test_model
+                        )
                         response = await client.chat.completions.create(
                             model=test_model,
                             messages=ai_messages,
@@ -399,6 +441,12 @@ Instructions:
                         )
                         ai_response = response.choices[0].message.content
                         model_used = test_model
+                        logger.info(
+                            "AI chat response user=%s model=%s response_length=%d",
+                            user_id[:8],
+                            model_used,
+                            len(ai_response or "")
+                        )
                         break  # Success!
                     except Exception as model_error:
                         error_str = str(model_error)
@@ -416,14 +464,14 @@ Instructions:
                 
                 if not ai_response:
                     # All models failed
-                    record_ai_error("all_models_failed", "All configured OpenAI models failed")
-                    return {
-                        "role": "assistant",
-                        "content": "❌ AI models unavailable. Please check your OpenAI API key permissions.",
-                        "error": "all_models_failed",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "system_state": system_state
-                    }
+                    return build_ai_error_response(
+                        status_code=502,
+                        code="all_models_failed",
+                        message="All configured OpenAI models failed",
+                        user_message="❌ AI models unavailable. Please check your OpenAI API key permissions.",
+                        system_state=system_state,
+                        key_source=key_source
+                    )
                 
                 # Success - add metadata
                 logger.info(f"AI chat used model: {model_used}, key_source: {key_source}")
@@ -472,9 +520,14 @@ Instructions:
                         error_code = "upstream_429"
                     else:
                         error_code = "upstream_error"
-                record_ai_error(error_code, error_str)
-                ai_response = "I'm having trouble connecting to my AI services. Please try again."
-                model_used = None
+                return build_ai_error_response(
+                    status_code=400 if error_code == "invalid_key" else 502,
+                    code=error_code,
+                    message=error_str,
+                    user_message="❌ AI request failed. Please try again or check your OpenAI settings.",
+                    system_state=system_state,
+                    key_source=key_source
+                )
         
         # Save AI response
         ai_msg = {
@@ -492,6 +545,7 @@ Instructions:
         })
         
         return {
+            "success": True,
             "role": "assistant",
             "content": ai_response,
             "key_source": key_source if 'key_source' in locals() else None,
@@ -503,7 +557,13 @@ Instructions:
     
     except Exception as e:
         logger.error(f"AI chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return build_ai_error_response(
+            status_code=500,
+            code="internal_error",
+            message=str(e),
+            user_message="❌ AI service encountered an unexpected error.",
+            system_state=None
+        )
 
 
 @router.get("/chat/history")

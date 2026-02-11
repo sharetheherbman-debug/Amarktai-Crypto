@@ -4,6 +4,7 @@ Provides POST /api/chat/message as an alias to /api/ai/chat
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
 from typing import Dict
 import logging
@@ -49,8 +50,10 @@ async def chat_message(
         response = await ai_chat(ai_payload, user_id)
         
         # Ensure response format includes success flag
+        if isinstance(response, JSONResponse):
+            return response
         if isinstance(response, dict):
-            response['success'] = True
+            response.setdefault('success', True)
             return response
         else:
             return {

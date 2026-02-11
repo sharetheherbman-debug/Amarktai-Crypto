@@ -990,7 +990,7 @@ export default function Dashboard() {
       
       // Fetch system mode
       const modeRes = await get('/system/mode');
-      const systemMode = modeRes?.liveTrading ? 'live' : modeRes?.autopilot ? 'autonomous' : 'paper';
+      const systemMode = modeRes?.mode || (modeRes?.liveTrading ? 'live' : modeRes?.autopilot ? 'autonomous' : 'paper');
       
       // Get last trade time
       const tradesRes = await get('/trades/recent?limit=1');
