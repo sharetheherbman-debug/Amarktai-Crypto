@@ -3,20 +3,25 @@ Test admin storage endpoint serialization.
 """
 
 import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 import os
 import sys
 
-# Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
-
-from server import app, get_current_user
+backend_path = os.path.join(os.path.dirname(__file__), '..', 'backend')
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
 
 
 @pytest.fixture
 def client():
+    pytest.importorskip("fastapi")
+    TestClient = pytest.importorskip("fastapi.testclient").TestClient
+    try:
+        from server import app, get_current_user
+    except ImportError as exc:
+        pytest.skip(f"Server dependencies not available: {exc}")
+
     app.dependency_overrides[get_current_user] = lambda: "admin-user"
     with TestClient(app) as test_client:
         yield test_client

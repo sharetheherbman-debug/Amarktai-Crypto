@@ -4,6 +4,14 @@ Audit logger guard tests for missing collection handles.
 
 import pytest
 from unittest.mock import patch
+import os
+import sys
+
+backend_path = os.path.join(os.path.dirname(__file__), '..')
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
+pytest.importorskip("motor")
 
 import database as db
 from engines.audit_logger import audit_logger
