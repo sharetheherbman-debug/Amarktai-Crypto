@@ -13,14 +13,14 @@ import database as db
 
 logger = logging.getLogger(__name__)
 
-_MISSING_AUDIT_COLLECTION_WARNING_INTERVAL = 300.0
+_AUDIT_COLLECTION_WARNING_INTERVAL = 300
 _last_missing_audit_collection_warning = 0.0
 
 
 def _warn_missing_audit_collection():
     global _last_missing_audit_collection_warning
     now = time.monotonic()
-    if now - _last_missing_audit_collection_warning >= _MISSING_AUDIT_COLLECTION_WARNING_INTERVAL:
+    if now - _last_missing_audit_collection_warning >= _AUDIT_COLLECTION_WARNING_INTERVAL:
         logger.warning("Audit logging skipped: audit_logs_collection is not initialized")
         _last_missing_audit_collection_warning = now
 

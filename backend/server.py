@@ -1059,6 +1059,7 @@ async def get_storage_usage(user_id: str = Depends(get_current_user)):
             storage_data.append({
                 "user_id": usr_id,
                 "email": usr.get('email', 'N/A'),
+                "name": usr.get('first_name', 'N/A'),
                 "first_name": usr.get('first_name', 'N/A'),
                 "storage_breakdown": {
                     "chat_messages": {

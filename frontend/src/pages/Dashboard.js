@@ -3802,7 +3802,7 @@ export default function Dashboard() {
           
           {/* Per-User Storage Usage */}
           {storageError && (
-            <div style={{marginBottom: '24px', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(248, 113, 113, 0.6)', background: 'rgba(248, 113, 113, 0.1)', color: '#fca5a5'}}>
+            <div style={{marginBottom: '24px', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--error)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)'}}>
               ⚠️ Unable to load storage data: {storageError}
             </div>
           )}
@@ -3829,7 +3829,7 @@ export default function Dashboard() {
                         alignItems: 'center'
                       }}>
                         <div style={{flex: 1}}>
-                          <div style={{fontWeight: 600, fontSize: '0.9rem', color: '#ffffff'}}>{userStorage.name || userStorage.first_name || 'Unknown'}</div>
+                        <div style={{fontWeight: 600, fontSize: '0.9rem', color: '#ffffff'}}>{userStorage.name || 'Unknown'}</div>
                           <div style={{fontSize: '0.75rem', color: '#cccccc'}}>{userStorage.email}</div>
                         </div>
                         <div style={{fontWeight: 700, fontSize: '0.95rem', color: storageMb > 100 ? 'var(--error)' : 'var(--success)'}}>
@@ -4040,7 +4040,7 @@ export default function Dashboard() {
                     {storageData.users?.map((usr, idx) => (
                       <tr key={idx} style={{borderBottom: '1px solid var(--line)'}}>
                         <td style={{padding: '12px'}}>
-                          <div>{usr.first_name}</div>
+                          <div>{usr.name || 'Unknown'}</div>
                           <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{usr.email}</div>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>

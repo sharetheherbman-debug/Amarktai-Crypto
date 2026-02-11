@@ -39,10 +39,10 @@ def make_collection(return_list):
 def test_admin_storage_returns_json(client):
     now = datetime.now(timezone.utc)
     users_collection = MagicMock()
-    users_collection.find_one = AsyncMock(return_value={"id": "admin-user", "email": "admin@example.com"})
+    users_collection.find_one = AsyncMock(return_value={"_id": "admin-user", "id": "admin-user", "email": "admin@example.com"})
     users_find = MagicMock()
     users_find.to_list = AsyncMock(return_value=[
-        {"id": "user-1", "email": "user@example.com", "first_name": "Test", "created_at": now}
+        {"_id": "user-1", "id": "user-1", "email": "user@example.com", "first_name": "Test", "created_at": now}
     ])
     users_collection.find.return_value = users_find
 
