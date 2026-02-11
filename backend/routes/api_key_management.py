@@ -152,6 +152,13 @@ async def get_decrypted_key(user_id: str, provider: str) -> Optional[Dict]:
             "provider": provider
         })
         
+        if not key_doc:
+            # Case-insensitive provider fallback
+            key_doc = await db.api_keys_collection.find_one({
+                "user_id": user_id,
+                "provider": {"$regex": f"^{provider}$", "$options": "i"}
+            })
+        
         # If not found and user_id looks like ObjectId (24 hex chars), try ObjectId lookup
         if not key_doc and len(user_id) == 24 and all(c in '0123456789abcdefABCDEF' for c in user_id):
             from bson import ObjectId
@@ -175,13 +182,13 @@ async def get_decrypted_key(user_id: str, provider: str) -> Optional[Dict]:
         api_secret_field = None
         
         # Check for API key field variants (in priority order)
-        for field in ["api_key_encrypted", "apiKeyEncrypted", "api_key_ciphertext", "key_encrypted"]:
+        for field in ["api_key_encrypted", "apiKeyEncrypted", "api_key_ciphertext", "key_encrypted", "api_key"]:
             if field in key_doc:
                 api_key_field = field
                 break
         
         # Check for API secret field variants (in priority order)
-        for field in ["api_secret_encrypted", "apiSecretEncrypted", "api_secret_ciphertext", "secret_encrypted"]:
+        for field in ["api_secret_encrypted", "apiSecretEncrypted", "api_secret_ciphertext", "secret_encrypted", "api_secret"]:
             if field in key_doc:
                 api_secret_field = field
                 break

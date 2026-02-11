@@ -546,7 +546,7 @@ export default function Register() {
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)'
       }}>
-        © 2026 Amarktai Crypto. All rights reserved. | Part of Amarktai Network
+        © 2026 Amarktai Network. All rights reserved.
       </footer>
     </div>
   );

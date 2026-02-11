@@ -38,8 +38,8 @@ class TestAPIKeyContractUnification:
     
     def test_save_api_key_canonical_format(self, mock_auth, mock_db):
         """Test saving API key with canonical format (provider, api_key, api_secret)"""
-        mock_db.find_one = AsyncMock(return_value=None)
-        mock_db.insert_one = AsyncMock(return_value=MagicMock())
+        mock_db.find_one = AsyncMock(side_effect=[None, {"provider": "binance", "api_key_encrypted": "encrypted"}])
+        mock_db.insert_one = AsyncMock(return_value=MagicMock(inserted_id="key-id"))
         
         payload = {
             "provider": "binance",
@@ -47,7 +47,7 @@ class TestAPIKeyContractUnification:
             "api_secret": "test_secret_67890"
         }
         
-        response = client.post("/api/api-keys", json=payload)
+        response = client.post("/api/keys/save", json=payload)
         
         # Should accept canonical format
         assert response.status_code in [200, 201]
@@ -56,9 +56,9 @@ class TestAPIKeyContractUnification:
         assert "binance" in data.get("message", "").lower()
     
     def test_save_api_key_legacy_exchange_field(self, mock_auth, mock_db):
-        """Test saving API key with legacy 'exchange' field instead of 'provider'"""
+        """Legacy payloads should be rejected for canonical /api/keys/save"""
         mock_db.find_one = AsyncMock(return_value=None)
-        mock_db.insert_one = AsyncMock(return_value=MagicMock())
+        mock_db.insert_one = AsyncMock(return_value=MagicMock(inserted_id="key-id"))
         
         # Legacy format: uses 'exchange' instead of 'provider'
         payload = {
@@ -67,17 +67,16 @@ class TestAPIKeyContractUnification:
             "api_secret": "test_secret_67890"
         }
         
-        # The backend should accept this and map exchange -> provider
-        # This tests backward compatibility
-        response = client.post("/api/api-keys", json=payload)
+        # Legacy payload should be rejected for canonical endpoint
+        response = client.post("/api/keys/save", json=payload)
         
-        # Should either accept or return clear error (not 422)
-        assert response.status_code != 422
+        # Legacy payload should be rejected
+        assert response.status_code == 422
     
     def test_save_api_key_legacy_camelcase(self, mock_auth, mock_db):
-        """Test saving API key with legacy camelCase fields"""
+        """Legacy camelCase fields should be rejected for canonical /api/keys/save"""
         mock_db.find_one = AsyncMock(return_value=None)
-        mock_db.insert_one = AsyncMock(return_value=MagicMock())
+        mock_db.insert_one = AsyncMock(return_value=MagicMock(inserted_id="key-id"))
         
         # Legacy format: camelCase
         payload = {
@@ -86,10 +85,10 @@ class TestAPIKeyContractUnification:
             "apiSecret": "test_secret_67890"
         }
         
-        response = client.post("/api/api-keys", json=payload)
+        response = client.post("/api/keys/save", json=payload)
         
-        # Should handle camelCase fields  
-        assert response.status_code != 422
+        # Legacy camelCase should be rejected
+        assert response.status_code == 422
     
     def test_test_api_key_with_api_key_field(self, mock_auth, mock_db):
         """Test API key test endpoint with 'api_key' field"""
@@ -97,55 +96,44 @@ class TestAPIKeyContractUnification:
         mock_db.update_one = AsyncMock(return_value=MagicMock())
         
         payload = {
+            "provider": "binance",
             "api_key": "test_key_12345",
             "api_secret": "test_secret_67890"
         }
         
-        with patch('services.keys_service.keys_service.test_api_key', 
-                   new_callable=AsyncMock) as mock_test:
-            mock_test.return_value = (True, {"currencies_found": 10}, None)
+        with patch('routes.keys.test_provider', new_callable=AsyncMock) as mock_test:
+            mock_test.return_value = (True, None)
             
-            response = client.post("/api/api-keys/binance/test", json=payload)
+            response = client.post("/api/keys/test", json=payload)
             
             assert response.status_code == 200
             data = response.json()
             assert data.get("success") is True or data.get("ok") is True
     
     def test_test_api_key_with_key_field(self, mock_auth, mock_db):
-        """Test API key test endpoint with legacy 'key' field"""
-        mock_db.find_one = AsyncMock(return_value={"provider": "binance"})
-        mock_db.update_one = AsyncMock(return_value=MagicMock())
-        
-        # Legacy format: 'key' instead of 'api_key'
+        """Legacy key fields should be rejected for canonical /api/keys/test"""
         payload = {
             "key": "test_key_12345",
             "secret": "test_secret_67890"
         }
         
-        with patch('services.keys_service.keys_service.test_api_key',
-                   new_callable=AsyncMock) as mock_test:
-            mock_test.return_value = (True, {"currencies_found": 10}, None)
-            
-            response = client.post("/api/api-keys/binance/test", json=payload)
-            
-            assert response.status_code == 200
-            data = response.json()
-            # Should accept legacy format
-            assert data.get("success") is True or data.get("ok") is True
+        response = client.post("/api/keys/test", json=payload)
+        
+        assert response.status_code == 422
     
     def test_test_api_key_missing_key_returns_error(self, mock_auth, mock_db):
         """Test that test endpoint returns clear error when api_key is missing"""
+        mock_db.find_one = AsyncMock(return_value=None)
         payload = {
             "provider": "binance"
             # Missing api_key intentionally
         }
         
-        response = client.post("/api/api-keys/binance/test", json=payload)
+        response = client.post("/api/keys/test", json=payload)
         
-        assert response.status_code == 200  # Should not crash
+        assert response.status_code == 404
         data = response.json()
-        assert data.get("success") is False
-        assert "api key" in data.get("error", "").lower() or "required" in data.get("error", "").lower()
+        assert "no saved key" in str(data).lower() or "provide api_key" in str(data).lower()
     
     def test_list_api_keys_returns_masked(self, mock_auth, mock_db):
         """Test that list endpoint returns masked keys, never plaintext"""
@@ -160,7 +148,7 @@ class TestAPIKeyContractUnification:
         ])
         mock_db.find.return_value = mock_cursor
         
-        response = client.get("/api/api-keys")
+        response = client.get("/api/keys/list")
         
         assert response.status_code == 200
         data = response.json()
@@ -189,7 +177,7 @@ class TestOpenAPIEndpoint:
     
     def test_docs_endpoint_exists(self):
         """Test that /docs endpoint exists"""
-        response = client.get("/docs")
+        response = client.get("/api/docs")
         
         # FastAPI automatically creates /docs
         assert response.status_code == 200
@@ -200,7 +188,7 @@ class TestKeysRouteOrder:
     
     def test_keys_test_endpoint_exists_in_openapi(self):
         """Test that POST /api/keys/test is registered in OpenAPI schema"""
-        response = client.get("/openapi.json")
+        response = client.get("/api/openapi.json")
         assert response.status_code == 200
         
         openapi = response.json()
@@ -277,4 +265,3 @@ class TestKeysRouteOrder:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -2,11 +2,11 @@
 # Contract Test Gate - Verifies critical API responses for UI parity
 set -euo pipefail
 
-BASE_URL="${1:-${BASE_URL:-http://localhost:8000}}"
-EMAIL="${AMK_EMAIL:-}"
-PASSWORD="${AMK_PASSWORD:-}"
-ADMIN_EMAIL="${AMK_ADMIN_EMAIL:-}"
-ADMIN_PASSWORD="${AMK_ADMIN_PASSWORD:-}"
+BASE_URL="${1:-${BASE_URL:-http://127.0.0.1:8000}}"
+EMAIL="${2:-${AMK_EMAIL:-}}"
+PASSWORD="${3:-${AMK_PASSWORD:-}}"
+ADMIN_EMAIL="${4:-${AMK_ADMIN_EMAIL:-}}"
+ADMIN_PASSWORD="${5:-${AMK_ADMIN_PASSWORD:-}}"
 if [ -n "${AMK_EXCHANGES:-}" ]; then
   IFS=',' read -r -a EXPECTED_EXCHANGE_IDS <<< "$AMK_EXCHANGES"
 else
@@ -23,10 +23,17 @@ pass() {
 }
 
 if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
+  echo "Usage: ./scripts/contract_test.sh <BASE_URL> <EMAIL> <PASSWORD> <ADMIN_EMAIL> <ADMIN_PASSWORD>" >&2
+  echo "Example:" >&2
+  echo "  AMK_EMAIL=user@example.com AMK_PASSWORD=secret AMK_ADMIN_EMAIL=admin@example.com AMK_ADMIN_PASSWORD=adminsecret \\" >&2
+  echo "    ./scripts/contract_test.sh http://127.0.0.1:8000" >&2
   fail "AMK_EMAIL and AMK_PASSWORD must be set for contract tests"
 fi
 
 if [ -z "$ADMIN_EMAIL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+  echo "Usage: ./scripts/contract_test.sh <BASE_URL> <EMAIL> <PASSWORD> <ADMIN_EMAIL> <ADMIN_PASSWORD>" >&2
+  echo "Example:" >&2
+  echo "  ./scripts/contract_test.sh http://127.0.0.1:8000 user@example.com secret admin@example.com adminsecret" >&2
   fail "AMK_ADMIN_EMAIL and AMK_ADMIN_PASSWORD must be set for admin checks"
 fi
 

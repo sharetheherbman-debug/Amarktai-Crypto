@@ -34,7 +34,8 @@ from datetime import datetime, timedelta, timezone
 import requests
 from pymongo import MongoClient
 
-API_BASE = os.getenv("API_BASE", "http://localhost:8000").rstrip("/")
+API_BASE = os.getenv("BASE") or os.getenv("API_BASE", "http://127.0.0.1:8000")
+API_BASE = API_BASE.rstrip("/")
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "amarktai_trading")
 
@@ -72,10 +73,10 @@ report(resp.status_code == 200, "/api/health/ping returns 200")
 
 # 2) Login + JWT
 interactive = sys.stdin.isatty()
-email = os.getenv("AMARKTAI_EMAIL") or (input("Email: ").strip() if interactive else "")
-password = os.getenv("AMARKTAI_PASSWORD") or (getpass.getpass("Password: ").strip() if interactive else "")
+email = os.getenv("AMARKTAI_EMAIL") or os.getenv("AMK_EMAIL") or (input("Email: ").strip() if interactive else "")
+password = os.getenv("AMARKTAI_PASSWORD") or os.getenv("AMK_PASSWORD") or (getpass.getpass("Password: ").strip() if interactive else "")
 if not email or not password:
-    report(False, "Email/password required (set AMARKTAI_EMAIL and AMARKTAI_PASSWORD)")
+    report(False, "Email/password required (set AMARKTAI_EMAIL/AMARKTAI_PASSWORD or AMK_EMAIL/AMK_PASSWORD)")
     sys.exit(1)
 resp, data = request_json("POST", "/api/auth/login", payload={"email": email, "password": password})
 token = data.get("access_token")

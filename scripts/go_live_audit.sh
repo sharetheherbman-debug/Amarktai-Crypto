@@ -115,6 +115,9 @@ test_item "index.html exists in build" "test -f $FRONTEND_DIR/build/index.html"
 # ======================================
 print_section "4. BACKEND UNIT TESTS"
 
+# Avoid pytest plugin auto-loading issues (web3 plugins)
+export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+
 # Run pytest with our new tests
 cd "$PROJECT_ROOT"
 test_item "API Keys tests pass" "pytest tests/test_api_keys.py -v --tb=short"

@@ -5,11 +5,30 @@ Tests all Phase 4A, 4B, 4C requirements are working correctly
 """
 
 import asyncio
-import sys
 import os
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = SCRIPT_DIR.parent / 'backend'
+VENV_PY = BACKEND_DIR / '.venv' / 'bin' / 'python'
+
+if VENV_PY.exists() and Path(sys.executable).resolve() != VENV_PY.resolve() and not os.getenv("AMK_VENV_SKIP"):
+    os.environ["AMK_VENV_SKIP"] = "1"
+    os.execv(str(VENV_PY), [str(VENV_PY), str(Path(__file__).resolve())] + sys.argv[1:])
 
 # Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+sys.path.insert(0, str(BACKEND_DIR))
+
+try:
+    import motor  # noqa: F401
+    import pymongo  # noqa: F401
+    import ccxt  # noqa: F401
+except Exception as exc:
+    print("❌ Missing dependency:", exc)
+    print("Run with backend venv:")
+    print(f"  {VENV_PY} {Path(__file__).name}")
+    sys.exit(1)
 
 
 async def verify_paper_wallet_ledger():

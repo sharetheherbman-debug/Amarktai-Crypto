@@ -38,7 +38,8 @@ def test_ai_chat_missing_openai_key_returns_clear_error(mock_auth, mock_no_opena
             with patch('os.getenv', return_value=None):
                 response = client.post("/api/ai/chat", json={"content": "Hello"})
     
-    assert response.status_code == 200
+    assert response.status_code in (400, 409)
     data = response.json()
     assert "not configured" in data["content"].lower() or "api key" in data["content"].lower()
-    assert data.get("error") == "no_api_key"
+    assert data.get("code") == "no_api_key"
+    assert data.get("success") is False

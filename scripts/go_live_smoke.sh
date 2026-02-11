@@ -2,6 +2,7 @@
 # Go-Live Smoke Test Script
 # Verifies all critical functionality before go-live
 # Uses environment variables for credentials
+# Usage: ./scripts/go_live_smoke.sh [BASE_URL] [EMAIL] [PASSWORD]
 
 set -euo pipefail
 
@@ -10,9 +11,9 @@ echo "====================="
 echo ""
 
 # Configuration
-API_BASE="${API_BASE:-http://127.0.0.1:8000}"
-EMAIL="${AMK_EMAIL:-}"
-PASSWORD="${AMK_PASSWORD:-}"
+API_BASE="${1:-${API_BASE:-http://127.0.0.1:8000}}"
+EMAIL="${2:-${AMK_EMAIL:-}}"
+PASSWORD="${3:-${AMK_PASSWORD:-}}"
 TIMEOUT="${TIMEOUT:-10}"
 
 # Colors
@@ -42,8 +43,10 @@ warn() {
 
 # Check environment
 if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
-    fail "Environment variables AMK_EMAIL and AMK_PASSWORD must be set"
-    echo "Example: AMK_EMAIL=user@example.com AMK_PASSWORD=secret ./scripts/go_live_smoke.sh"
+    fail "Missing credentials. Provide AMK_EMAIL/AMK_PASSWORD or pass email/password args."
+    echo "Example:"
+    echo "  AMK_EMAIL=user@example.com AMK_PASSWORD=secret ./scripts/go_live_smoke.sh"
+    echo "  ./scripts/go_live_smoke.sh http://127.0.0.1:8000 user@example.com secret"
     exit 1
 fi
 

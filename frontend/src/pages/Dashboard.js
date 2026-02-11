@@ -57,6 +57,11 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
+const resolveSystemMode = (modeRes) => {
+  if (!modeRes) return 'paper';
+  return modeRes.mode || (modeRes.liveTrading ? 'live' : modeRes.autopilot ? 'autonomous' : 'paper');
+};
+
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
   const num = Number(value);
   return Number.isFinite(num) ? num.toFixed(digits) : fallback;
@@ -990,7 +995,7 @@ export default function Dashboard() {
       
       // Fetch system mode
       const modeRes = await get('/system/mode');
-      const systemMode = modeRes?.liveTrading ? 'live' : modeRes?.autopilot ? 'autonomous' : 'paper';
+      const systemMode = resolveSystemMode(modeRes);
       
       // Get last trade time
       const tradesRes = await get('/trades/recent?limit=1');
@@ -2983,10 +2988,6 @@ export default function Dashboard() {
               
               {/* Existing metrics */}
               <div className="status-item">
-                <strong>Active Bots</strong>
-                <div className="led-row"><span>{metrics.activeBots}</span></div>
-              </div>
-              <div className="status-item">
                 <strong>Exposure</strong>
                 <div className="led-row"><span>{metrics.exposure}</span></div>
               </div>
@@ -3245,7 +3246,24 @@ export default function Dashboard() {
                 boxShadow: botManagementTab === 'creation' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
               }}
             >
-              🤖 Bot Creation
+              🤖 Bot Overview
+            </button>
+            <button 
+              onClick={() => setBotManagementTab('spawn')}
+              style={{
+                padding: '10px 20px',
+                background: botManagementTab === 'spawn' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
+                border: '2px solid ' + (botManagementTab === 'spawn' ? '#4a90e2' : 'var(--line)'),
+                borderRadius: '8px',
+                color: botManagementTab === 'spawn' ? '#fff' : 'var(--text)',
+                cursor: 'pointer',
+                fontSize: '0.95rem',
+                fontWeight: botManagementTab === 'spawn' ? '700' : '600',
+                transition: 'all 0.3s',
+                boxShadow: botManagementTab === 'spawn' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
+              }}
+            >
+              ➕ Spawn Bot
             </button>
             <button 
               onClick={() => setBotManagementTab('uagents')}
@@ -3287,67 +3305,7 @@ export default function Dashboard() {
           <>
           {botManagementTab === 'creation' && (
           <div className="bot-container">
-            <div className="bot-left">
-              <div className="bot-form-card">
-                <h3>Create Single Bot</h3>
-                <form onSubmit={handleCreateBot}>
-                  <div className="bot-form-grid">
-                    <div className="form-group">
-                      <label htmlFor="bot-name">Bot Name</label>
-                      <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="bot-budget">Budget (Min R1000)</label>
-                      <input 
-                        id="bot-budget" 
-                        name="bot-budget" 
-                        type="number" 
-                        min="1000" 
-                        step="100"
-                        defaultValue="1000"
-                        placeholder="1000" 
-                        required 
-                      />
-                      <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
-                        Minimum R1000 per bot
-                      </small>
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="bot-exchange">Exchange Platform</label>
-                      <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
-                        {getAllExchanges().map(exchange => (
-                          <option 
-                            key={exchange.id} 
-                            value={exchange.id}
-                            disabled={exchange.comingSoon}
-                          >
-                            {exchange.icon} {exchange.displayName}
-                          </option>
-                        ))}
-                      </select>
-                      <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
-                        ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
-                      </small>
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="bot-risk">Risk Mode</label>
-                      <select id="bot-risk" name="bot-risk">
-                        <option value="safe">🛡️ Safe</option>
-                        <option value="balanced">⚖️ Balanced</option>
-                        <option value="aggressive">⚡ Aggressive</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <button type="submit">Create Bot (7 Day Learning)</button>
-                    </div>
-                  </div>
-                  <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
-                    📝 User-created bots undergo 7-day paper trading learning period
-                  </div>
-                </form>
-              </div>
-            </div>
-          <div className="bot-right">
+          <div className="bot-right" style={{flex: '1 1 100%', maxWidth: '100%'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
               <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
               <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
@@ -3639,6 +3597,70 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+          </div>
+          )}
+          {botManagementTab === 'spawn' && (
+          <div className="bot-container">
+            <div className="bot-left" style={{flex: '1 1 100%', maxWidth: '100%'}}>
+              <div className="bot-form-card">
+                <h3>Spawn New Bot</h3>
+                <form onSubmit={handleCreateBot}>
+                  <div className="bot-form-grid">
+                    <div className="form-group">
+                      <label htmlFor="bot-name">Bot Name</label>
+                      <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                      <input 
+                        id="bot-budget" 
+                        name="bot-budget" 
+                        type="number" 
+                        min="1000" 
+                        step="100"
+                        defaultValue="1000"
+                        placeholder="1000" 
+                        required 
+                      />
+                      <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
+                        Minimum R1000 per bot
+                      </small>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="bot-exchange">Exchange Platform</label>
+                      <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                        {getAllExchanges().map(exchange => (
+                          <option 
+                            key={exchange.id} 
+                            value={exchange.id}
+                            disabled={exchange.comingSoon}
+                          >
+                            {exchange.icon} {exchange.displayName}
+                          </option>
+                        ))}
+                      </select>
+                      <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
+                        ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
+                      </small>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="bot-risk">Risk Mode</label>
+                      <select id="bot-risk" name="bot-risk">
+                        <option value="safe">🛡️ Safe</option>
+                        <option value="balanced">⚖️ Balanced</option>
+                        <option value="aggressive">⚡ Aggressive</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <button type="submit">Create Bot (7 Day Learning)</button>
+                    </div>
+                  </div>
+                  <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
+                    📝 User-created bots undergo 7-day paper trading learning period
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
           )}
           
@@ -4144,7 +4166,7 @@ export default function Dashboard() {
                       <ul style={{margin: 0, paddingLeft: '20px', fontSize: '0.85rem', color: 'var(--text)'}}>
                         {bodyguardStatus.issues.map((issue, idx) => (
                           <li key={idx} style={{marginBottom: '4px'}}>{issue}</li>
-                        ))}
+          ))}
                       </ul>
                     </div>
                   )}
@@ -6906,7 +6928,7 @@ export default function Dashboard() {
       {/* Topbar - Desktop */}
       {!isMobile && (
         <header className="topbar">
-          <h1>Amarktai Crypto</h1>
+          <h1>Amarktai Network</h1>
           <div className="top-actions">
             <div className="status-indicator" style={{padding: '4px 12px', background: systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? 'var(--success)' : 'var(--error)', borderRadius: '6px', fontWeight: 600}}>
               <span>{systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? '✓ System Healthy' : '⚠ System Issues'}</span>
@@ -6921,6 +6943,13 @@ export default function Dashboard() {
             </div>
             <div className="status-indicator">
               <span>WS</span>
+              <span style={{
+                marginLeft: '4px',
+                color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--muted)',
+                fontWeight: 600
+              }}>
+                {connectionStatus.ws === 'Connected' ? 'Connected' : 'Disconnected'}
+              </span>
               <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
             </div>
             <div className="status-indicator">
@@ -6965,7 +6994,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="footer">
-        <div>© 2026 Amarktai Crypto — Part of Amarktai Network</div>
+        <div>© 2026 Amarktai Network. All rights reserved.</div>
         {/* TASK G - Only show build badge in admin view */}
         {showAdmin && <VersionBadge position="footer" showBuildInfo={true} />}
       </footer>

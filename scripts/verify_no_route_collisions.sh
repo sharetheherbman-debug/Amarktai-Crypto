@@ -2,7 +2,7 @@
 # Verify No Route Collisions - Pre-Deployment Check
 # Ensures server boots without route collision errors
 
-set -e  # Exit on error
+set -euo pipefail  # Exit on error
 
 echo "🔍 Amarktai Network - Route Collision Check"
 echo "============================================"
@@ -20,30 +20,22 @@ BACKEND_DIR="$PROJECT_ROOT/backend"
 
 cd "$PROJECT_ROOT"
 
-# Check if venv exists, create if needed
-VENV_DIR="$PROJECT_ROOT/.venv"
-if [ ! -d "$VENV_DIR" ]; then
-    echo ""
-    echo -e "${YELLOW}⚠️  Virtual environment not found${NC}"
-    echo "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
-    echo "✅ Virtual environment created"
-    
-    echo ""
-    echo "Installing minimal dependencies..."
+VENV_DIR="$BACKEND_DIR/.venv"
+if [ -d "$VENV_DIR" ]; then
+    echo "✅ Using backend virtual environment: $VENV_DIR"
     source "$VENV_DIR/bin/activate"
-    pip install --quiet --upgrade pip
-    
-    # Install minimal test dependencies
-    if [ -f "$BACKEND_DIR/requirements.txt" ]; then
-        # Install only core dependencies needed for testing
-        pip install --quiet fastapi uvicorn motor pytest
-    fi
-    echo "✅ Test dependencies installed"
+elif [ -d "$PROJECT_ROOT/.venv" ]; then
+    VENV_DIR="$PROJECT_ROOT/.venv"
+    echo "✅ Using virtual environment: $VENV_DIR"
+    source "$VENV_DIR/bin/activate"
 else
-    echo "✅ Using existing virtual environment: $VENV_DIR"
-    source "$VENV_DIR/bin/activate"
+    echo -e "${YELLOW}⚠️  No virtual environment found.${NC}"
+    echo "Create backend/.venv first:" >&2
+    echo "  cd $BACKEND_DIR && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+    exit 1
 fi
+
+export PYTHONPATH="$BACKEND_DIR:${PYTHONPATH:-}"
 
 # Test 1: Import server.py without crashes
 echo ""
@@ -51,10 +43,30 @@ echo "📋 Test 1: Import server.py (detect collisions at import time)"
 echo "---------------------------------------------------------------"
 
 cd "$BACKEND_DIR"
-if python -c "import sys; sys.path.insert(0, '.'); import server; print('✅ Server imported successfully')" 2>&1; then
+if python - <<'PY'
+import sys
+import traceback
+sys.path.insert(0, '.')
+try:
+    import server
+    print("✅ Server imported successfully")
+except ModuleNotFoundError as exc:
+    print(f"❌ Wrong venv / missing deps: {exc.name}. Install backend requirements.", file=sys.stderr)
+    sys.exit(2)
+except Exception as exc:
+    print(f"❌ Server import failed: {exc}", file=sys.stderr)
+    traceback.print_exc()
+    sys.exit(1)
+PY
+then
     echo -e "${GREEN}✅ PASSED: Server imports without collision errors${NC}"
 else
-    echo -e "${RED}❌ FAILED: Server import failed (likely due to route collision)${NC}"
+    exit_code=$?
+    if [ "$exit_code" -eq 2 ]; then
+        echo -e "${RED}❌ FAILED: Wrong venv / missing deps (install backend requirements)${NC}"
+    else
+        echo -e "${RED}❌ FAILED: Server import failed${NC}"
+    fi
     exit 1
 fi
 
