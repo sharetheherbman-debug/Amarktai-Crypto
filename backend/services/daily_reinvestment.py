@@ -18,6 +18,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import os
+from engines.audit_logger import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,18 @@ class DailyReinvestmentService:
                     "new_capital": round(new_capital, 2),
                     "event_id": event_id
                 })
+
+                await audit_logger.log_event(
+                    "reinvestment_allocation",
+                    user_id,
+                    {
+                        "bot_id": bot_id,
+                        "bot_name": bot_name,
+                        "amount": round(allocation_per_bot, 2),
+                        "event_id": event_id,
+                        "reinvest_percentage": self.reinvest_percentage
+                    }
+                )
                 
                 logger.info(f"Allocated {allocation_per_bot:.2f} to {bot_name} (event: {event_id})")
             

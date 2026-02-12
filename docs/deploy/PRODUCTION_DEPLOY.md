@@ -110,7 +110,7 @@ REDIS_PORT=6379
 
 # Bot Rules (enforced automatically)
 PROFIT_THRESHOLD_ZAR=1000
-REINVESTMENT_RATE=0.5
+REINVEST_PERCENTAGE=80  # 80% of realized profit
 ```
 
 Generate Fernet key:

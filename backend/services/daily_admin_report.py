@@ -83,12 +83,14 @@ class DailyAdminReporter:
 
         trades = await db.trades_collection.find(
             {"user_id": user_id, "timestamp": {"$gte": today_start.isoformat()}},
-            {"_id": 0, "net_pnl": 1, "profit_loss": 1}
+            {"_id": 0, "net_pnl": 1, "profit_loss": 1, "fees_total": 1, "slippage_cost": 1}
         ).to_list(10000)
 
         wins = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
         losses = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) < 0)
         pnl = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades)
+        fees_today = sum(t.get("fees_total", 0) for t in trades)
+        slippage_today = sum(t.get("slippage_cost", 0) for t in trades)
 
         active_bots = await db.bots_collection.count_documents({"user_id": user_id, "status": "active"})
 
@@ -110,30 +112,57 @@ class DailyAdminReporter:
 
         last_learning = await db.learning_runs_collection.find_one(
             {"user_id": user_id},
-            {"_id": 0, "summary": 1, "completed_at": 1},
+            {"_id": 0, "summary": 1, "completed_at": 1, "report": 1, "strategy_version_id": 1, "run_id": 1},
             sort=[("completed_at", -1)]
         )
 
-        next_steps = "Maintain current parameters."
-        if last_learning and last_learning.get("summary"):
-            next_steps = last_learning["summary"]
+        learning_changes = []
+        if last_learning and last_learning.get("run_id"):
+            learning_changes = await db.learning_changes_collection.find(
+                {"run_id": last_learning["run_id"]},
+                {"_id": 0, "parameter": 1, "old_value": 1, "new_value": 1}
+            ).to_list(20)
+
+        user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "daily_loss_lock_active": 1})
+        quarantined = await db.bots_collection.count_documents({"user_id": user_id, "status": "quarantined"})
+        safety_status = "clear"
+        if user_doc and user_doc.get("daily_loss_lock_active"):
+            safety_status = "daily loss lock active"
+        if quarantined > 0:
+            safety_status = f"{safety_status}, {quarantined} bot(s) quarantined" if safety_status != "clear" else f"{quarantined} bot(s) quarantined"
+
+        changes_lines = ["- No parameter changes applied."] if not learning_changes else [
+            f"- {c['parameter']}: {c['old_value']} → {c['new_value']}" for c in learning_changes
+        ]
+
+        learning_summary = last_learning.get("summary") if last_learning else "No learning run recorded last night."
+        next_steps = learning_summary or "Maintain current parameters."
+        report_letter = (last_learning or {}).get("report", {}).get("letter")
 
         letter = (
             f"Good morning {name},\n\n"
             f"Here is your Amarktai daily letter:\n\n"
             f"Trades today: {len(trades)} (wins: {wins}, losses: {losses})\n"
             f"PnL today: R{pnl:.2f}\n"
+            f"Costs today: fees R{fees_today:.2f}, slippage R{slippage_today:.2f}\n"
             f"Active bots: {active_bots}\n"
             f"Errors today: {errors}\n"
         )
         if drawdown_current is not None:
             letter += f"Drawdown: {drawdown_current:.2f}% (max {drawdown_max:.2f}%)\n"
 
-        learning_summary = last_learning.get("summary") if last_learning else "No learning run recorded last night."
         letter += (
-            "\nWhat we learned last night:\n"
-            f"- {learning_summary}\n\n"
-            "What we will try next:\n"
+            "\nWhat changed overnight:\n"
+            + "\n".join(changes_lines)
+            + "\n\nWhat the system learned:\n"
+            + f"- {learning_summary}\n"
+        )
+        if report_letter:
+            letter += f"\nLearning report excerpt:\n{report_letter}\n"
+        letter += (
+            "\nSafety status:\n"
+            f"- {safety_status}\n\n"
+            "Next plan for tomorrow:\n"
             f"- {next_steps}\n\n"
             "Have a focused trading day.\n"
         )

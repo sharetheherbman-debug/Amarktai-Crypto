@@ -39,6 +39,7 @@ chat_messages_collection = None
 bot_lifecycle_collection = None
 bot_metrics_collection = None
 system_metrics_collection = None
+bot_runtime_state_collection = None
 
 # Training and quarantine
 training_jobs_collection = None
@@ -92,6 +93,9 @@ price_snapshots_collection = None
 learning_runs_collection = None
 learning_changes_collection = None
 learning_metrics_collection = None
+strategy_versions_collection = None
+bot_strategy_assignments_collection = None
+action_audit_log_collection = None
 
 # ChatOps memory and audit logs
 user_memory_collection = None
@@ -182,6 +186,7 @@ async def setup_collections():
     global api_keys_collection, alerts_collection, sessions_collection
     global system_config_collection, system_modes_collection, chat_messages_collection
     global bot_lifecycle_collection, bot_metrics_collection, system_metrics_collection
+    global bot_runtime_state_collection
     global training_jobs_collection
     global risk_profiles_collection, market_regimes_collection
     global learning_data_collection, learning_logs_collection, audit_logs_collection
@@ -197,6 +202,7 @@ async def setup_collections():
     global user_countdowns_collection
     global price_snapshots_collection
     global learning_runs_collection, learning_changes_collection, learning_metrics_collection
+    global strategy_versions_collection, bot_strategy_assignments_collection, action_audit_log_collection
     global user_memory_collection, chatops_actions_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
     global paper_ledger_collection  # Phase 4A: Paper wallet ledger
@@ -225,6 +231,7 @@ async def setup_collections():
     bot_lifecycle_collection = db.bot_lifecycle
     bot_metrics_collection = db.bot_metrics
     system_metrics_collection = db.system_metrics
+    bot_runtime_state_collection = db.bot_runtime_state
     
     # Training and quarantine
     training_jobs_collection = db.training_jobs
@@ -278,6 +285,9 @@ async def setup_collections():
     learning_runs_collection = db.learning_runs
     learning_changes_collection = db.learning_changes
     learning_metrics_collection = db.learning_metrics
+    strategy_versions_collection = db.strategy_versions
+    bot_strategy_assignments_collection = db.bot_strategy_assignments
+    action_audit_log_collection = db.action_audit_log
 
     # ChatOps memory and audit logs
     user_memory_collection = db.user_memory

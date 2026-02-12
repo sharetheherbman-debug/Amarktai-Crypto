@@ -94,33 +94,33 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
                 "bot_id": {"$in": bot_ids},
                 "timestamp": {"$gte": today_start.isoformat()},
                 "status": "closed"
-            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
-            daily_profit = sum(t.get("profit_loss", 0) for t in daily_trades)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
+            daily_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in daily_trades)
             
             # Weekly profit
             weekly_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "timestamp": {"$gte": week_start.isoformat()},
                 "status": "closed"
-            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
-            weekly_profit = sum(t.get("profit_loss", 0) for t in weekly_trades)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
+            weekly_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in weekly_trades)
             
             # Monthly profit
             monthly_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "timestamp": {"$gte": month_start.isoformat()},
                 "status": "closed"
-            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
-            monthly_profit = sum(t.get("profit_loss", 0) for t in monthly_trades)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
+            monthly_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in monthly_trades)
             
             # Total trades and win rate
             all_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "status": "closed"
-            }, {"_id": 0, "profit_loss": 1}).to_list(10000)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
             
             total_trades = len(all_trades)
-            winning_trades = sum(1 for t in all_trades if t.get("profit_loss", 0) > 0)
+            winning_trades = sum(1 for t in all_trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
             
             # Last trade time

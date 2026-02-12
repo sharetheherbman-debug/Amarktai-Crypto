@@ -120,11 +120,11 @@ async def get_platforms_summary(
             
             today_trades_cursor = db.trades_collection.find(
                 today_trades_query,
-                {"_id": 0, "profit_loss": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1}
             )
             today_trades = await today_trades_cursor.to_list(1000)
             
-            profit_today = sum(t.get("profit_loss", 0) for t in today_trades)
+            profit_today = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in today_trades)
             trades_today = len(today_trades)
             
             # Get all-time trades for these bots
@@ -135,14 +135,14 @@ async def get_platforms_summary(
             
             all_trades_cursor = db.trades_collection.find(
                 all_trades_query,
-                {"_id": 0, "profit_loss": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1}
             )
             all_trades = await all_trades_cursor.to_list(10000)
             
-            profit_total = sum(t.get("profit_loss", 0) for t in all_trades)
+            profit_total = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in all_trades)
             
             # Calculate win rate
-            winning_trades = sum(1 for t in all_trades if t.get("profit_loss", 0) > 0)
+            winning_trades = sum(1 for t in all_trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
             win_rate = (winning_trades / len(all_trades) * 100) if all_trades else 0
             
             platform_summaries.append({
@@ -233,14 +233,14 @@ async def get_platform_bots(
             
             trades_cursor = db.trades_collection.find(
                 trades_query,
-                {"_id": 0, "profit_loss": 1, "timestamp": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1, "timestamp": 1}
             )
             trades = await trades_cursor.to_list(1000)
             
             # Calculate performance
-            total_profit = sum(t.get("profit_loss", 0) for t in trades)
+            total_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades)
             total_trades = len(trades)
-            winning_trades = sum(1 for t in trades if t.get("profit_loss", 0) > 0)
+            winning_trades = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
             
             # Calculate today's profit
@@ -253,7 +253,7 @@ async def get_platform_bots(
                 if t.get("timestamp") and t["timestamp"] >= today_start.isoformat()
             ]
             
-            profit_today = sum(t.get("profit_loss", 0) for t in today_trades)
+            profit_today = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in today_trades)
             
             # Build enriched bot data
             enriched_bot = {

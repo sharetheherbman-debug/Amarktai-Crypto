@@ -34,6 +34,10 @@ if [ ! -f "package.json" ]; then
 fi
 
 echo "Step 1/4: Cleaning node_modules and build..."
+if [ -d "$BUILD_DIR" ]; then
+    sudo chown -R "$RUN_USER":"$RUN_USER" "$BUILD_DIR" 2>/dev/null || true
+    chmod -R u+rwX "$BUILD_DIR" 2>/dev/null || true
+fi
 rm -rf node_modules
 rm -rf "$BUILD_DIR"
 echo "✅ Cleaned"

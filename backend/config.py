@@ -134,6 +134,26 @@ MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000')
 MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '3000'))  # Total across all bots
 MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0  # Minimum net profit target (ignore 30c wins)
 
+# Paper trading anti-churn protections
+EDGE_BUFFER_PCT = float(os.getenv('EDGE_BUFFER_PCT', '0.15'))  # 0.15% buffer
+EDGE_GATE_PAPER = os.getenv('EDGE_GATE_PAPER', 'true').lower() == 'true'
+EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'false').lower() == 'true'
+PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35% max spread
+PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
+PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'true').lower() == 'true'
+PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
+
+# Default paper trading pair whitelist (can be overridden per bot)
+PAPER_PAIR_WHITELIST = {
+    "luno": ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR"],
+    "binance": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
+    "kucoin": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
+    "bybit": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
+    "kraken": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
+    "bitget": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
+    "gate": ["BTC/USDT", "ETH/USDT", "XRP/USDT"]
+}
+
 # Per-exchange trade limits (optional overrides)
 LUNO_MAX_TRADES_PER_DAY = int(os.getenv('LUNO_MAX_TRADES_PER_DAY', '20000'))
 BINANCE_MAX_TRADES_PER_DAY = int(os.getenv('BINANCE_MAX_TRADES_PER_DAY', '50000'))

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/metrics", tags=["Metrics"])
 async def get_trade_cadence(user_id: str = Depends(get_current_user)):
     """Get trade cadence and countdown metrics
     
-    Only starts countdown after >= 30 trades
+    Only starts countdown after >= 10 trades
     Computes rolling average trade interval from last 30 trades
     
     Returns:
@@ -27,7 +27,7 @@ async def get_trade_cadence(user_id: str = Depends(get_current_user)):
         - avg_interval_seconds: Average seconds between trades (last 30)
         - avg_interval_display: Human-readable interval (e.g., "2h 30m")
         - trades_total: Total number of closed trades
-        - countdown_active: Whether countdown is active (>= 30 trades)
+        - countdown_active: Whether countdown is active (>= 10 trades)
         - last_trade_at: Timestamp of most recent trade
     """
     try:
@@ -46,17 +46,17 @@ async def get_trade_cadence(user_id: str = Depends(get_current_user)):
         
         trades_total = len(trades)
         
-        if trades_total < 30:
+        if trades_total < 10:
             # Not enough trades for countdown
             return {
                 "countdown_active": False,
                 "trades_total": trades_total,
-                "trades_needed": 30 - trades_total,
+                "trades_needed": 10 - trades_total,
                 "next_trade_eta": None,
                 "avg_interval_seconds": None,
                 "avg_interval_display": "N/A",
                 "last_trade_at": trades[0]["timestamp"] if trades else None,
-                "message": f"Need {30 - trades_total} more trades to activate countdown"
+                "message": f"Need {10 - trades_total} more trades to activate countdown"
             }
         
         # Use last 30 trades to calculate average interval

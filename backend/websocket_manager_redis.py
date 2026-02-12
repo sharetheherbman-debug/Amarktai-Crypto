@@ -70,7 +70,11 @@ class ConnectionManager:
         """Initialize Redis connection for pub/sub"""
         try:
             redis_url = os.getenv('REDIS_URL', os.getenv('REDIS_HOST'))
-            
+            redis_flag = os.getenv('REDIS_ENABLED', 'true').lower() == 'true'
+
+            if not redis_flag:
+                logger.info("Redis disabled via REDIS_ENABLED=false")
+                return
             if not redis_url:
                 logger.info("Redis not configured, using in-memory realtime only")
                 return

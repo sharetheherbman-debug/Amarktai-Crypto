@@ -5,6 +5,7 @@ All bot-related business rules enforced across the entire system
 
 from typing import Dict, Tuple, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,52 @@ BOT_CAPS = {
 PROFIT_THRESHOLD_ZAR = 1000  # R1000 realized profit required per exchange
 
 # Reinvestment configuration
-REINVESTMENT_RATE = 0.5  # 50% of realized profit can be reinvested when at cap
+DEFAULT_REINVESTMENT_DECIMAL = 0.8  # Default 80% as decimal rate
+def _parse_float(value: Optional[str], name: str) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning("Invalid %s value '%s'; using default", name, value)
+        return None
+
+def _resolve_reinvestment_rate() -> float:
+    default_rate = DEFAULT_REINVESTMENT_DECIMAL
+    percent_value = os.getenv("REINVEST_PERCENTAGE")
+    rate_value = os.getenv("REINVESTMENT_RATE")
+
+    if percent_value:
+        parsed = _parse_float(percent_value, "REINVEST_PERCENTAGE")
+        if parsed is None:
+            return default_rate
+        if 0 <= parsed <= 100:
+            return parsed / 100
+        logger.warning("REINVEST_PERCENTAGE should be between 0 and 100; using default")
+        return default_rate
+
+    if rate_value:
+        parsed = _parse_float(rate_value, "REINVESTMENT_RATE")
+        if parsed is None:
+            return default_rate
+        if parsed < 0:
+            logger.warning("REINVESTMENT_RATE must be non-negative; using default")
+            return default_rate
+        if parsed <= 1:
+            # Expected decimal rate (0-1)
+            return parsed
+        if parsed <= 100:
+            logger.warning(
+                "REINVESTMENT_RATE value %.2f appears to be a percentage (expected 0-1); converting to rate",
+                parsed
+            )
+            return parsed / 100
+        logger.warning("REINVESTMENT_RATE percentage %.2f exceeds 100; using default", parsed)
+        return default_rate
+
+    return default_rate
+
+REINVESTMENT_RATE = _resolve_reinvestment_rate()
 
 # Reason codes for rejections
 REASON_CODES = {

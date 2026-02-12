@@ -14,6 +14,7 @@ import smtplib
 import os
 
 from auth import get_current_user, is_admin
+from database import get_database
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class DailyReportService:
             now = datetime.now(timezone.utc)
             yesterday_start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             yesterday_end = yesterday_start + timedelta(days=1)
+            max_dd = 0.0
             
             # Get all bots
             bots_cursor = db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}})
@@ -143,6 +145,7 @@ class DailyReportService:
                 # Calculate max drawdown (simplified)
                 funded_capital = user.get("funded_capital", total_equity)
                 drawdown_percent = ((funded_capital - total_equity) / funded_capital * 100) if funded_capital > 0 else 0.0
+                max_dd = drawdown_percent / 100
             
             # Get alerts/errors from yesterday
             alerts_cursor = db.alerts_collection.find({
@@ -154,6 +157,55 @@ class DailyReportService:
                 "severity": {"$in": ["error", "critical"]}
             })
             alerts = await alerts_cursor.to_list(100)
+
+            last_learning = await db.learning_runs_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "summary": 1, "report": 1, "run_id": 1},
+                sort=[("completed_at", -1)]
+            )
+            learning_changes = []
+            if last_learning and last_learning.get("run_id"):
+                learning_changes = await db.learning_changes_collection.find(
+                    {"run_id": last_learning["run_id"]},
+                    {"_id": 0, "parameter": 1, "old_value": 1, "new_value": 1}
+                ).to_list(20)
+
+            change_lines = ["- No parameter changes applied."] if not learning_changes else [
+                f"- {c['parameter']}: {c['old_value']} → {c['new_value']}" for c in learning_changes
+            ]
+            safety_notes = []
+            if drawdown_percent is not None:
+                safety_notes.append(f"Drawdown: {drawdown_percent:.2f}% (max {max_dd * 100:.2f}%)")
+            if alerts:
+                safety_notes.append(f"Alerts: {len(alerts)} critical/error")
+            safety_status = "; ".join(safety_notes) if safety_notes else "All safety checks nominal."
+
+            learning_summary = last_learning.get("summary") if last_learning else "No learning run recorded last night."
+            report_letter = (last_learning or {}).get("report", {}).get("letter")
+
+            letter = (
+                f"Good morning {user_name},\n\n"
+                "Here is your Amarktai daily letter:\n\n"
+                f"Wins/Losses yesterday: {winning_trades}/{losing_trades} across {total_trades} trades\n"
+                f"Net profit yesterday: R{net_profit:.2f}\n"
+                f"Fees paid yesterday: R{total_fees:.2f}\n"
+                f"Total equity: R{total_equity:.2f}\n"
+                f"Active bots: {len(active_bots)} (paused: {len(paused_bots)}, stopped: {len(stopped_bots)})\n\n"
+                "What changed overnight:\n"
+                + "\n".join(change_lines)
+                + "\n\nWhat the system learned:\n"
+                f"- {learning_summary}\n"
+            )
+            if report_letter:
+                letter += f"\nLearning report excerpt:\n{report_letter}\n"
+            letter += (
+                "\nSafety status:\n"
+                f"- {safety_status}\n\n"
+                "Next plan for tomorrow:\n"
+                f"- {learning_summary}\n\n"
+                "Have a focused trading day.\n"
+            )
+            return letter
             
             # Generate HTML
             html = f"""
@@ -360,9 +412,9 @@ class DailyReportService:
             msg['To'] = to_email
             msg['Subject'] = subject
             
-            # Attach HTML content
-            html_part = MIMEText(html_content, 'html')
-            msg.attach(html_part)
+            # Attach plain text content
+            text_part = MIMEText(html_content, 'plain')
+            msg.attach(text_part)
             
             # Send via SMTP
             with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:

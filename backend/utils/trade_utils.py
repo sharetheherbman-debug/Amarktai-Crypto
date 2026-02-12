@@ -84,6 +84,21 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
         "created_at": record.get("created_at") or record.get("timestamp") or now,
     })
 
+    gross_pnl = _first_non_empty_value(record, ["gross_pnl", "gross_profit"], 0)
+    fees_total = _first_non_empty_value(record, ["fees_total", "fees", "fee_paid", "fee_amount"], 0)
+    slippage_cost = _first_non_empty_value(record, ["slippage_cost", "slippage"], 0)
+    net_pnl = _first_non_empty_value(record, ["net_pnl", "net_profit", "profit_loss", "realized_pnl"], 0)
+    net_pnl_quote = _first_non_empty_value(record, ["net_pnl_quote", "net_profit_zar", "net_pnl"], net_pnl)
+
+    record.update({
+        "gross_pnl": gross_pnl,
+        "fees_total": fees_total,
+        "slippage_cost": slippage_cost,
+        "net_pnl": net_pnl,
+        "net_pnl_quote": net_pnl_quote,
+        "profit_loss": record.get("profit_loss", net_pnl),
+    })
+
     normalize_trade_timestamps(record)
     return record
 

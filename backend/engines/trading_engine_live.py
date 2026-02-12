@@ -4,6 +4,7 @@ Replaces simulated trading with actual CCXT order execution
 """
 
 import asyncio
+import os
 import ccxt
 from typing import Dict, Optional, List
 from datetime import datetime, timezone, timedelta
@@ -168,6 +169,7 @@ class LiveTradingEngine:
         try:
             user_id = bot_data['user_id']
             exchange_name = bot_data['exchange'].lower()
+            expected_move_pct = abs(float(bot_data.get("expected_move_pct", 0) or 0))
             
             # TRADING MODE GATE: Check if live trading before placing real orders
             if not paper_mode:
@@ -253,6 +255,37 @@ class LiveTradingEngine:
                         "success": False,
                         "error": f"Risk check failed: {risk_reason}"
                     }
+
+                # Optional edge gate for live trading
+                try:
+                    from config import EDGE_GATE_LIVE, EDGE_BUFFER_PCT
+                    from exchange_limits import get_fee_rate
+                    if EDGE_GATE_LIVE and expected_move_pct:
+                        from paper_trading_engine import paper_engine
+                        snapshot = await paper_engine.get_market_snapshot(normalized_symbol, exchange_name)
+                        bid = snapshot.get("bid")
+                        ask = snapshot.get("ask")
+                        if bid and ask and bid > 0:
+                            spread_pct = ((ask - bid) / ((ask + bid) / 2)) * 100
+                        else:
+                            spread_pct = 0.1
+                        fee_pct_roundtrip = get_fee_rate(exchange_name, "taker") * 2 * 100
+                        slippage_pct_roundtrip = float(os.getenv("LIVE_SLIPPAGE_PCT", "0.05")) * 2
+                        estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
+                        if expected_move_pct < estimated_cost_pct + EDGE_BUFFER_PCT:
+                            return {
+                                "success": False,
+                                "error": "Edge gate blocked trade",
+                                "skip_reason": "edge_gate",
+                                "details": {
+                                    "expected_move_pct": expected_move_pct,
+                                    "estimated_cost_pct": round(estimated_cost_pct, 4),
+                                    "edge_buffer_pct": EDGE_BUFFER_PCT,
+                                    "spread_pct": round(spread_pct, 4)
+                                }
+                            }
+                except Exception as e:
+                    logger.debug(f"Live edge gate skipped: {e}")
                 
                 # Place order
                 if price:
