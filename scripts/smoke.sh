@@ -16,6 +16,12 @@ NC='\033[0m' # No Color
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+SYSTEMD_SERVICE="${SYSTEMD_SERVICE:-amarktai-api}"
+SKIP_SYSTEMD_RESTART="${SKIP_SYSTEMD_RESTART:-false}"
+LISTEN_HOST="${LISTEN_HOST:-$(echo "$BASE_URL" | sed -E 's#^https?://([^:/]+).*#\1#')}"
+LISTEN_PORT="${LISTEN_PORT:-$(echo "$BASE_URL" | sed -E 's#^https?://[^:/]+:?([0-9]+)?/?.*#\1#')}"
+if [ -z "$LISTEN_HOST" ]; then LISTEN_HOST="127.0.0.1"; fi
+if [ -z "$LISTEN_PORT" ]; then LISTEN_PORT="8000"; fi
 
 echo "============================================"
 echo "Deployment Acceptance Tests (Smoke Tests)"
@@ -23,6 +29,27 @@ echo "============================================"
 echo ""
 echo "Target: $BASE_URL"
 echo ""
+
+if [ "$SKIP_SYSTEMD_RESTART" = "true" ]; then
+    echo -e "${YELLOW}⚠️  Skipping systemd restart (SKIP_SYSTEMD_RESTART=true)${NC}"
+else
+    if [ "$(id -u)" -ne 0 ]; then
+        echo -e "${RED}❌ systemd restart requires root. Run with sudo or set SKIP_SYSTEMD_RESTART=true.${NC}"
+        exit 1
+    fi
+    echo "Restarting systemd service: $SYSTEMD_SERVICE"
+    if ! systemctl restart "$SYSTEMD_SERVICE"; then
+        echo -e "${RED}❌ Failed to restart systemd service: $SYSTEMD_SERVICE${NC}"
+        exit 1
+    fi
+fi
+
+echo "Waiting for listener on ${LISTEN_HOST}:${LISTEN_PORT}"
+sleep 2
+if ! ss -ltn | grep -q "${LISTEN_HOST}:${LISTEN_PORT}"; then
+    echo -e "${RED}❌ Listener not detected on ${LISTEN_HOST}:${LISTEN_PORT}${NC}"
+    exit 1
+fi
 
 # Test counter
 TOTAL_TESTS=0
@@ -53,6 +80,7 @@ run_test() {
 # Test 1: Health Check
 run_test "Health check (GET /api/health/ping)" \
     "curl -sf '$BASE_URL/api/health/ping' | grep -q 'pong'"
+
 
 # Test 2: OpenAPI Schema
 run_test "OpenAPI schema exists (GET /openapi.json)" \
@@ -141,6 +169,8 @@ fi
 
 # Only run authenticated tests if we have a token
 if [ -n "$ACCESS_TOKEN" ]; then
+    run_test "System status (GET /api/system/status)" \
+        "curl -sf '$BASE_URL/api/system/status' -H 'Authorization: Bearer $ACCESS_TOKEN' | grep -q '\"system_modes\"'"
     # Test 8: Test with invalid provider returns 400 with correct error
     TEST_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/keys/test" \
         -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -310,4 +340,3 @@ else
     printf "%-60s${RED}❌ FAIL${NC}\n" "No Emergent refs in active backend code"
     echo "Found $EMERGENT_COUNT references (excluding emergentintegrations)"
 fi
-

@@ -174,6 +174,8 @@ export default function Dashboard() {
   const [riskStatus, setRiskStatus] = useState(null);
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
+  const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
+  const [autopilotReinvestStatus, setAutopilotReinvestStatus] = useState(null);
   const [realtimeFallback, setRealtimeFallback] = useState(false);
   const [spawnBotLoading, setSpawnBotLoading] = useState(false);
   const [storageData, setStorageData] = useState(null);
@@ -538,7 +540,13 @@ export default function Dashboard() {
   }, []);
 
   const refreshBotState = async () => {
-    await Promise.all([loadBots(), loadOverviewData(), loadAutoSpawnStatus()]);
+    await Promise.all([
+      loadBots(),
+      loadOverviewData(),
+      loadAutoSpawnStatus(),
+      loadAutopilotGrowthStatus(),
+      loadAutopilotReinvestStatus()
+    ]);
     if (showAdmin) {
       await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats()]);
     }
@@ -556,7 +564,9 @@ export default function Dashboard() {
       loadOverviewData(),
       loadRiskStatus(),
       loadSystemHealth(),
-      loadAutoSpawnStatus()
+      loadAutoSpawnStatus(),
+      loadAutopilotGrowthStatus(),
+      loadAutopilotReinvestStatus()
     ]);
   };
 
@@ -945,6 +955,8 @@ export default function Dashboard() {
         loadCustomCountdowns();
         loadProfitData(graphPeriod);
         loadAutoSpawnStatus();
+        loadAutopilotGrowthStatus();
+        loadAutopilotReinvestStatus();
         break;
       
       case 'ai_evolution':
@@ -1116,6 +1128,26 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Auto-spawn status fetch error:', err);
       setAutoSpawnStatus(null);
+    }
+  };
+
+  const loadAutopilotGrowthStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/autopilot/growth/status`, axiosConfig);
+      setAutopilotGrowthStatus(res.data);
+    } catch (err) {
+      console.error('Autopilot growth status fetch error:', err);
+      setAutopilotGrowthStatus(null);
+    }
+  };
+
+  const loadAutopilotReinvestStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/autopilot/reinvest/status`, axiosConfig);
+      setAutopilotReinvestStatus(res.data);
+    } catch (err) {
+      console.error('Autopilot reinvest status fetch error:', err);
+      setAutopilotReinvestStatus(null);
     }
   };
 
@@ -3054,7 +3086,9 @@ export default function Dashboard() {
         
         {/* Overview Container with Image and Enhanced Metrics Panel */}
         <div className="overview-container">
-          <div className="overview-image"></div>
+          <div className="overview-image">
+            <img src="/assets/poster.jpg" alt="Amarktai humanoid trading bot poster" />
+          </div>
           <div className="overview-metrics">
             <div className="status-list">
               {/* System Status Metrics */}
@@ -3883,6 +3917,65 @@ export default function Dashboard() {
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
                       Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {autopilotGrowthStatus && (
+          <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+              <strong>Autopilot Growth Milestones</strong>
+              <span style={{fontSize: '0.75rem', color: autopilotGrowthStatus?.enabled ? 'var(--success)' : 'var(--muted)'}}>
+                Growth Mode: {autopilotGrowthStatus?.enabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
+            <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+              Milestone size: R{safeToFixed(autopilotGrowthStatus.profit_threshold_zar, 0, '1000')} • Milestones tracked per platform
+            </div>
+            <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
+              {SUPPORTED_PLATFORMS.map(exchange => {
+                const status = autopilotGrowthStatus.platforms?.[exchange] || {};
+                const blocked = status.blocked_reasons?.length ? status.blocked_reasons.join(', ') : (status.eligible ? 'ELIGIBLE' : 'NOT_READY');
+                return (
+                  <div key={`growth-${exchange}`} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
+                      <span style={{fontSize: '0.75rem', color: status.eligible ? 'var(--success)' : 'var(--muted)'}}>
+                        {status.eligible ? '✅ Eligible' : blocked}
+                      </span>
+                    </div>
+                    <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                      Profit: R{safeToFixed(status.realized_profit_zar, 2)} • Next bot at: R{safeToFixed(status.next_threshold_zar, 0)} • Bots spawned: {safeNumber(status.milestones_spawned, 0)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {autopilotReinvestStatus && (
+          <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <strong>Daily Reinvest Status</strong>
+            <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+              Minimum reinvest: R{safeToFixed(autopilotReinvestStatus.min_reinvest_zar, 0, '100')}
+            </div>
+            <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
+              {SUPPORTED_PLATFORMS.map(exchange => {
+                const status = autopilotReinvestStatus.platforms?.[exchange] || {};
+                const blocked = status.blocked_reasons?.length ? status.blocked_reasons.join(', ') : (status.eligible ? 'ELIGIBLE' : 'NOT_READY');
+                return (
+                  <div key={`reinvest-${exchange}`} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
+                      <span style={{fontSize: '0.75rem', color: status.eligible ? 'var(--success)' : 'var(--muted)'}}>
+                        {status.eligible ? '✅ Eligible' : blocked}
+                      </span>
+                    </div>
+                    <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                      Last Reinvest: {status.last_reinvest_date || '—'} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {status.next_run ? formatDate(status.next_run) : '—'}
                     </div>
                   </div>
                 );
@@ -7254,7 +7347,7 @@ export default function Dashboard() {
       )}
 
       {/* Main Content */}
-      <main className="main">
+      <main className={`main${activeSection === 'overview' ? ' main--no-scroll' : ''}`}>
         {activeSection === 'welcome' && renderWelcome()}
         {activeSection === 'overview' && renderOverview()}
         {activeSection === 'api' && renderApiSetup()}
