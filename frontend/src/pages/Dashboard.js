@@ -3933,7 +3933,7 @@ export default function Dashboard() {
               </span>
             </div>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Next bot at R{safeToFixed(autopilotGrowthStatus.profit_threshold_zar, 0, '1000')} • Milestones tracked per platform
+              Milestone size: R{safeToFixed(autopilotGrowthStatus.profit_threshold_zar, 0, '1000')} • Milestones tracked per platform
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {

@@ -10,7 +10,7 @@ import logging
 
 import config
 import database as db
-from config.platforms import SUPPORTED_PLATFORMS
+from config.platforms import SUPPORTED_PLATFORMS, PLATFORM_CONFIG
 from engines.bot_spawner import bot_spawner
 from services.reserved_funds_service import reserved_funds_service
 from services.provider_registry import ProviderStatus
@@ -34,6 +34,10 @@ def _platform_bot_limit(platform: str) -> int:
     if config.AUTOPILOT_MAX_BOTS_PER_PLATFORM > 0:
         return config.AUTOPILOT_MAX_BOTS_PER_PLATFORM
     return config.EXCHANGE_BOT_LIMITS.get(platform, config.MAX_TOTAL_BOTS)
+
+
+def _platform_display_name(platform: str) -> str:
+    return PLATFORM_CONFIG.get(platform, {}).get("display_name", platform.capitalize())
 
 
 class AutopilotGrowthService:
@@ -98,7 +102,7 @@ class AutopilotGrowthService:
             "exchange": platform,
             "risk_mode": "safe",
             "capital": spawn_capital,
-            "name": f"Auto-{platform.title()}-{next_milestone:02d}"
+            "name": f"Auto-{_platform_display_name(platform)}-{next_milestone:02d}"
         })
 
         if not spawn_result.get("success"):

@@ -17,6 +17,7 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 SYSTEMD_SERVICE="${SYSTEMD_SERVICE:-amarktai-api}"
+SKIP_SYSTEMD_RESTART="${SKIP_SYSTEMD_RESTART:-false}"
 
 echo "============================================"
 echo "Deployment Acceptance Tests (Smoke Tests)"
@@ -25,10 +26,18 @@ echo ""
 echo "Target: $BASE_URL"
 echo ""
 
-echo "Restarting systemd service: $SYSTEMD_SERVICE"
-if ! systemctl restart "$SYSTEMD_SERVICE"; then
-    echo -e "${RED}❌ Failed to restart systemd service: $SYSTEMD_SERVICE${NC}"
-    exit 1
+if [ "$SKIP_SYSTEMD_RESTART" = "true" ]; then
+    echo -e "${YELLOW}⚠️  Skipping systemd restart (SKIP_SYSTEMD_RESTART=true)${NC}"
+else
+    if [ "$(id -u)" -ne 0 ]; then
+        echo -e "${RED}❌ systemd restart requires root. Run with sudo or set SKIP_SYSTEMD_RESTART=true.${NC}"
+        exit 1
+    fi
+    echo "Restarting systemd service: $SYSTEMD_SERVICE"
+    if ! systemctl restart "$SYSTEMD_SERVICE"; then
+        echo -e "${RED}❌ Failed to restart systemd service: $SYSTEMD_SERVICE${NC}"
+        exit 1
+    fi
 fi
 
 echo "Waiting for listener on 127.0.0.1:8000"
