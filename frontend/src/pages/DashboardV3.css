@@ -14,6 +14,11 @@
   --success: #10b981;
   --paper: #f59e0b;
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --topbar-height: 48px;
+  --mobile-topbar-height: 72px;
+  --chat-min-height: 320px;
+  --chat-box-min-height: 260px;
+  --overview-image-height: 240px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -119,7 +124,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   top: 0;
   left: 200px;
   right: 0;
-  height: 48px;
+  height: var(--topbar-height);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -173,17 +178,14 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 /* MAIN */
 .main {
   margin-left: 200px;
-  margin-top: 48px;
+  margin-top: var(--topbar-height);
   padding: 16px;
   width: calc(100% - 200px);
-  height: calc(100vh - 48px);
+  height: calc(100vh - var(--topbar-height));
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-.main--no-scroll {
-  overflow-y: auto;
-}
 
 .section { display: none; min-height: 100%; overflow: visible; }
 .section.active { display: block; }
@@ -246,14 +248,14 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   flex-direction: column; 
   flex: 1; 
   gap: 8px; 
-  min-height: 320px;
+  min-height: var(--chat-min-height);
   overflow: hidden; /* Prevent overflow outside section */
 }
 
 .amk-chat-box { 
   flex: 1; 
   max-height: none; 
-  min-height: 260px; 
+  min-height: var(--chat-box-min-height); 
   background: var(--panel); 
   border: 1px solid var(--line); 
   border-radius: 6px; 
@@ -349,7 +351,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-image {
   flex: 0 0 auto;
   width: 100%;
-  height: 240px;
+  height: var(--overview-image-height);
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -762,7 +764,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
     top: 0; 
     left: 0; 
     right: 0; 
-    height: 72px; 
+    height: var(--mobile-topbar-height); 
     background: var(--panel); 
     border-bottom: 1px solid var(--line); 
     justify-content: space-between; 
@@ -809,9 +811,9 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   .main { 
     margin-left: 0; 
     width: 100%; 
-    margin-top: 72px; 
+    margin-top: var(--mobile-topbar-height); 
     padding: 12px; 
-    height: calc(100vh - 72px); 
+    height: calc(100vh - var(--mobile-topbar-height)); 
   }
   
   .overview-container, .bot-container { 

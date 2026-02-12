@@ -267,10 +267,15 @@ async def reset_system_zero(
     admin_id: str = Depends(require_admin),
 ):
     """Admin-only reset to zero (preserves users + API keys)."""
-    if not request.confirm and request.confirm_token != "RESET_SYSTEM":
+    reset_token = os.getenv("RESET_SYSTEM_CONFIRM_TOKEN")
+    token_ok = bool(reset_token and request.confirm_token == reset_token)
+    if not (request.confirm or token_ok):
         raise HTTPException(
             status_code=400,
-            detail="Confirmation required. Set confirm=true or confirm_token=RESET_SYSTEM",
+            detail=(
+                "Confirmation required. Set confirm=true or confirm_token matching "
+                "RESET_SYSTEM_CONFIRM_TOKEN."
+            ),
         )
 
     protected = {"users_collection", "api_keys_collection"}

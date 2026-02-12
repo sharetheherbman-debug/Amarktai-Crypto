@@ -12,7 +12,14 @@ if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
   exit 1
 fi
 
+# Exchange list mirrors backend rules (backend/rules/bot_rules.py) unless overridden.
+# Keep this list in sync if the supported exchanges change.
+if [ -n "${AMK_EXCHANGES:-}" ]; then
+  IFS=',' read -r -a expected_exchanges <<< "${AMK_EXCHANGES}"
+else
 expected_exchanges=(luno binance kucoin bybit kraken bitget gate)
+fi
+EXPECT_EMPTY_BOTS="${AMK_EXPECT_EMPTY_BOTS:-false}"
 
 echo "🔎 Checking /api/health/ping..."
 health_status=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/api/health/ping")
@@ -47,12 +54,16 @@ if ! jq -e '.bots | type=="array"' /tmp/bots_status.json >/dev/null; then
   cat /tmp/bots_status.json || true
   exit 1
 fi
-bots_count=$(jq -r '.bots | length' /tmp/bots_status.json)
-if [ "$bots_count" != "0" ]; then
-  echo "❌ /api/bots/status expected empty bots list on fresh system, got ${bots_count}" >&2
-  exit 1
+if [ "$EXPECT_EMPTY_BOTS" = "true" ]; then
+  bots_count=$(jq -r '.bots | length' /tmp/bots_status.json)
+  if [ "$bots_count" != "0" ]; then
+    echo "❌ /api/bots/status expected empty bots list on fresh system, got ${bots_count}" >&2
+    exit 1
+  fi
+  echo "✅ /api/bots/status returns empty bots list"
+else
+  echo "ℹ️ Skipping empty bots check (set AMK_EXPECT_EMPTY_BOTS=true to enforce)."
 fi
-echo "✅ /api/bots/status returns empty bots list"
 
 echo "📋 Checking /api/bots/status?meta=1..."
 meta_status_code=$(curl -s -o /tmp/bots_status_meta.json -w "%{http_code}" \

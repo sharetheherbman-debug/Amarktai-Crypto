@@ -205,6 +205,7 @@ async def get_bots_status(
         bots = await collection.find(
             {
                 "user_id": user_id,
+                # Status is the canonical deletion flag; legacy deleted/is_deleted/deleted_at remain until cleanup.
                 "status": {"$nin": ["deleted", "marked_for_deletion"]},
                 "deleted": {"$ne": True},
                 "is_deleted": {"$ne": True},

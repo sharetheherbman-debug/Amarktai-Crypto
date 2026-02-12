@@ -178,7 +178,6 @@ export default function Dashboard() {
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
   const [autopilotReinvestStatus, setAutopilotReinvestStatus] = useState(null);
   const [realtimeFallback, setRealtimeFallback] = useState(false);
-  const [spawnBotLoading, setSpawnBotLoading] = useState(false);
   const [storageData, setStorageData] = useState(null);
   const [storageError, setStorageError] = useState(null);
   const [countdown, setCountdown] = useState(null);
@@ -1927,22 +1926,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleSpawnBotNow = async () => {
-    try {
-      setSpawnBotLoading(true);
-      const res = await post('/bots/spawn', {});
-      const spawnedName = res?.bot?.name || res?.bot_name || 'New Bot';
-      showNotification(`✅ Spawned ${spawnedName} immediately`, 'success');
-      await refreshBotState();
-    } catch (err) {
-      const detail = err.response?.data?.detail;
-      const errorMsg = typeof detail === 'string' ? detail : detail?.message || err.message;
-      showNotification(errorMsg || 'Failed to spawn bot', 'error');
-    } finally {
-      setSpawnBotLoading(false);
-    }
-  };
-
   const handleCreateUAgent = async (e) => {
     e.preventDefault();
     const name = e.target['uagent-name'].value;
@@ -2862,7 +2845,7 @@ export default function Dashboard() {
           </p>
           
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
-            <button 
+            <button
               onClick={handleTriggerLearning}
               disabled={aiTaskLoading === 'learning'}
               style={{padding: '12px', background: aiTaskLoading === 'learning' ? '#666' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'learning' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'learning' ? 0.7 : 1}}

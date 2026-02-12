@@ -12,9 +12,24 @@ if [ -z "$ADMIN_TOKEN" ]; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required to parse reset responses." >&2
+  exit 1
+fi
+
 echo "🔁 Resetting system at ${BASE_URL} (users + API keys preserved)..."
 
-curl -sS -X POST "${BASE_URL}/api/admin/reset-system" \
+response=$(curl -sS -w "\n%{http_code}" -X POST "${BASE_URL}/api/admin/reset-system" \
   -H "Authorization: Bearer ${ADMIN_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"confirm": true}' | jq .
+  -d '{"confirm": true}')
+body=$(echo "$response" | sed '$d')
+status=$(echo "$response" | tail -n1)
+
+if [ "$status" != "200" ]; then
+  echo "❌ Reset failed (HTTP ${status})" >&2
+  echo "$body" >&2
+  exit 1
+fi
+
+echo "$body" | jq .
