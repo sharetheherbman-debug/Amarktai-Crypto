@@ -13,6 +13,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -67,6 +68,19 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Could not validate credentials",
         )
     return user_id
+
+async def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(optional_security)) -> Optional[str]:
+    """Get user ID from JWT if available, otherwise return None."""
+    if not credentials:
+        return None
+    try:
+        payload = decode_token(credentials.credentials)
+    except HTTPException:
+        return None
+    except Exception:
+        return None
+
+    return payload.get("sub") or payload.get("user_id")
 
 async def resolve_current_user(current_user) -> str:
     """Normalize get_current_user() return value to always return user_id string

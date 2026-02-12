@@ -10,7 +10,7 @@ from typing import Optional, Dict, TypedDict
 import logging
 import os
 
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
@@ -71,6 +71,31 @@ def _action_payload(
         "pause_reason": pause_reason,
         "lock_reason": lock_reason,
         "action": action,
+    }
+
+
+def _bots_status_payload(
+    bots: Optional[list] = None,
+    exchange_counts: Optional[Dict[str, int]] = None,
+    all_exchanges: Optional[list] = None,
+) -> Dict:
+    bots = bots or []
+    exchange_counts = exchange_counts or {}
+    all_exchanges = all_exchanges or []
+    active_bots = sum(
+        1
+        for bot in bots
+        if bot.get("state") == "active" or bot.get("status") == "active"
+    )
+    return {
+        "success": True,
+        "active_bots": active_bots,
+        "bots": bots,
+        "platforms": exchange_counts,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total": len(bots),
+        "exchange_counts": exchange_counts,
+        "all_exchanges": all_exchanges,
     }
 
 
@@ -141,7 +166,7 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
 
 
 @router.get("/status")
-async def get_bots_status(user_id: str = Depends(get_current_user)):
+async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
     """Get bot status list with states for bot management
     
     Returns all bots with detailed status including training states
@@ -152,6 +177,11 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
     Returns:
         List of bots with id, exchange, state, paused_reason, etc.
     """
+    all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+    if not user_id:
+        exchange_counts = {exchange: 0 for exchange in all_exchanges}
+        return _bots_status_payload([], exchange_counts, all_exchanges)
+
     try:
         bots = await db.bots_collection.find(
             {
@@ -270,21 +300,14 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
         
         # Count by exchange to ensure all 7 are represented
         exchange_counts = {}
-        all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
         for exchange in all_exchanges:
             exchange_counts[exchange] = len([b for b in enriched_bots if b.get('exchange') == exchange])
-        
-        return {
-            "success": True,
-            "bots": enriched_bots,
-            "total": len(enriched_bots),
-            "exchange_counts": exchange_counts,
-            "all_exchanges": all_exchanges
-        }
+        return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
     except Exception as e:
         logger.error(f"Get bots status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        exchange_counts = {exchange: 0 for exchange in all_exchanges}
+        return _bots_status_payload([], exchange_counts, all_exchanges)
 
 
 @router.post("/{bot_id}/start")
