@@ -23,6 +23,7 @@ from utils.datetime_helpers import remaining_seconds
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
+bots_collection = db.bots_collection
 
 class BlockDetail(TypedDict, total=False):
     code: str
@@ -79,6 +80,8 @@ def _bots_status_payload(
     bots: Optional[list] = None,
     exchange_counts: Optional[Dict[str, int]] = None,
     all_exchanges: Optional[list] = None,
+    success: bool = True,
+    error: Optional[str] = None,
 ) -> Dict:
     """Build a safe bots status response payload."""
     bots = [] if bots is None else bots
@@ -90,7 +93,7 @@ def _bots_status_payload(
         if bot.get("state") == "active" or bot.get("status") == "active"
     )
     return {
-        "success": True,
+        "success": success,
         "active_bots": active_bots,
         "bots": bots,
         "platforms": exchange_counts,
@@ -98,6 +101,7 @@ def _bots_status_payload(
         "total": len(bots),
         "exchange_counts": exchange_counts,
         "all_exchanges": all_exchanges,
+        **({"error": error} if error else {}),
     }
 
 
@@ -180,12 +184,20 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
         List of bots with id, exchange, state, paused_reason, etc.
     """
     all_exchanges = list(SUPPORTED_EXCHANGES)
+    collection = bots_collection
+    if collection is None:
+        return _bots_status_payload(
+            [],
+            {},
+            all_exchanges,
+            success=False,
+            error="Bots collection unavailable",
+        )
     if not user_id:
-        exchange_counts = {exchange: 0 for exchange in all_exchanges}
-        return _bots_status_payload([], exchange_counts, all_exchanges)
+        return _bots_status_payload([], {}, all_exchanges)
 
     try:
-        bots = await db.bots_collection.find(
+        bots = await collection.find(
             {
                 "user_id": user_id,
                 "status": {"$ne": "deleted"},
@@ -194,6 +206,8 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
             },
             {"_id": 0}
         ).to_list(1000)
+        if not bots:
+            return _bots_status_payload([], {}, all_exchanges)
 
         runtime_states = {
             state.get("bot_id"): state
@@ -301,15 +315,21 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
             enriched_bots.append(enriched_bot)
         
         # Count by exchange to ensure all 7 are represented
-        exchange_counts = {}
-        for exchange in all_exchanges:
-            exchange_counts[exchange] = len([b for b in enriched_bots if b.get('exchange') == exchange])
+        exchange_counts = {
+            exchange: len([b for b in enriched_bots if b.get('exchange') == exchange])
+            for exchange in all_exchanges
+        } if enriched_bots else {}
         return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
     except Exception:
         logger.exception("Get bots status error for user %s", user_id)
-        exchange_counts = {exchange: 0 for exchange in all_exchanges}
-        return _bots_status_payload([], exchange_counts, all_exchanges)
+        return _bots_status_payload(
+            [],
+            {},
+            all_exchanges,
+            success=False,
+            error="Unable to load bot status",
+        )
 
 
 @router.post("/{bot_id}/start")
