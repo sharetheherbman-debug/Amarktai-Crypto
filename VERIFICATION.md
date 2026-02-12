@@ -67,6 +67,12 @@ curl -I https://www.amarktai.online/api/admin/unlock
 # Expected: HTTP/1.1 401 Unauthorized
 ```
 
+#### Admin Reset (Reset System to Zero)
+```bash
+# Requires admin JWT token (unlock first)
+bash scripts/reset_system_zero.sh https://www.amarktai.online <ADMIN_TOKEN>
+```
+
 ### 6. Frontend Verification
 ```bash
 # Check frontend loads
@@ -85,6 +91,12 @@ cd /path/to/Amarktai-Network---Deployment
 bash scripts/verify_live.sh
 
 # Expected: All checks should PASS
+```
+
+### 7b. API Contract Smoke (New)
+```bash
+# Verifies health ping, login token, bots status empty + meta exchanges
+bash scripts/smoke_api_contract.sh https://www.amarktai.online you@example.com yourpassword
 ```
 
 ### 8. Check Backend Logs for Route Collisions

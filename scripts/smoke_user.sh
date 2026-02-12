@@ -23,9 +23,9 @@ login_response=$(curl -s -X POST "$API_URL/api/auth/login" \
   -H "Content-Type: application/json" \
   -d "$login_payload")
 
-TOKEN=$(echo "$login_response" | jq -r '.token // empty')
+TOKEN=$(echo "$login_response" | jq -r '.access_token // empty')
 if [ -z "$TOKEN" ]; then
-  echo "Login failed: $login_response"
+  echo "Login failed or missing access_token: $login_response"
   exit 1
 fi
 
@@ -60,7 +60,7 @@ check_json() {
 
 check_json "/api/overview" 'type=="object"' "GET /api/overview returns object"
 check_json "/api/bots" 'type=="array"' "GET /api/bots returns array"
-check_json "/api/bots/status" 'type=="array"' "GET /api/bots/status returns array"
+check_json "/api/bots/status" 'type=="object" and (.bots|type=="array")' "GET /api/bots/status returns bots array"
 check_json "/api/prices/live" 'type=="array"' "GET /api/prices/live returns array"
 check_json "/api/system/mode" 'type=="object" and has("paperTrading") and has("liveTrading") and has("autopilot")' "GET /api/system/mode returns mode flags"
 check_json "/api/keys/status" 'type=="object" and ((has("status_map") and (.status_map|type=="object")) or (has("keys") and (.keys|type=="array")))' "GET /api/keys/status returns status_map or keys"

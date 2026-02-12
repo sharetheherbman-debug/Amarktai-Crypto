@@ -127,6 +127,11 @@ class ResetBotLocksRequest(BaseModel):
     reason: str = Field("Admin reset locks", description="Reason for clearing safety locks")
 
 
+class SystemResetRequest(BaseModel):
+    confirm: bool = Field(False, description="Confirmation flag to proceed with reset")
+    confirm_token: Optional[str] = Field(None, description="Optional confirmation token")
+
+
 @router.post("/unlock")
 async def unlock_admin_panel(
     request: AdminUnlockRequest,
@@ -254,6 +259,52 @@ async def admin_health(admin_id: str = Depends(require_admin)):
     except Exception as e:
         logger.error(f"Admin health error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reset-system")
+async def reset_system_zero(
+    request: SystemResetRequest,
+    admin_id: str = Depends(require_admin),
+):
+    """Admin-only reset to zero (preserves users + API keys)."""
+    if not request.confirm and request.confirm_token != "RESET_SYSTEM":
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation required. Set confirm=true or confirm_token=RESET_SYSTEM",
+        )
+
+    protected = {"users_collection", "api_keys_collection"}
+    cleared = []
+    skipped = []
+
+    for name, collection in vars(db).items():
+        if not name.endswith("_collection"):
+            continue
+        if name in protected:
+            skipped.append({"collection": name, "reason": "protected"})
+            continue
+        if collection is None:
+            skipped.append({"collection": name, "reason": "not_initialized"})
+            continue
+        result = await collection.delete_many({})
+        cleared.append({"collection": name, "deleted_count": result.deleted_count})
+        logger.info("Admin reset: cleared %s (%s)", name, result.deleted_count)
+
+    await log_admin_action(
+        admin_id=admin_id,
+        action="reset_system_zero",
+        target_type="system",
+        target_id="all",
+        details={"cleared": cleared, "skipped": skipped},
+    )
+
+    return {
+        "success": True,
+        "message": "System reset completed (users + API keys preserved)",
+        "cleared_collections": cleared,
+        "skipped_collections": skipped,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/status")

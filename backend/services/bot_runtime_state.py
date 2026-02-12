@@ -33,13 +33,13 @@ class BotRuntimeStateStore:
 
     async def get_state(self, bot_id: str) -> Optional[Dict]:
         collection = self._collection()
-        if not collection:
+        if collection is None:
             return None
         return await collection.find_one({"bot_id": bot_id}, {"_id": 0})
 
     async def list_states(self, user_id: str) -> List[Dict]:
         collection = self._collection()
-        if not collection:
+        if collection is None:
             return []
         return await collection.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
 
@@ -53,7 +53,7 @@ class BotRuntimeStateStore:
         details: Optional[Dict] = None,
     ) -> Dict:
         collection = self._collection()
-        if not collection:
+        if collection is None:
             logger.warning("Bot runtime store unavailable; skipping state write")
             return {
                 "bot_id": bot_id,
@@ -102,7 +102,7 @@ class BotRuntimeStateStore:
 
     async def remove(self, bot_id: str) -> None:
         collection = self._collection()
-        if not collection:
+        if collection is None:
             return
         await collection.delete_one({"bot_id": bot_id})
 
