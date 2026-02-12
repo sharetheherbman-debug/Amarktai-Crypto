@@ -352,7 +352,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   min-width: 50%;
   min-height: 100%;
   height: 100%;
-  background: #0b1025;
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);

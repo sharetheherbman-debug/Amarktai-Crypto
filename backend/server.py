@@ -195,13 +195,13 @@ async def lifespan(app: FastAPI):
     
     # Start Daily Reinvestment Scheduler (optional)
     try:
-        if not config.ENABLE_AUTOPILOT_REINVEST:
+        if config.ENABLE_AUTOPILOT_REINVEST:
+            logger.info("💰 Daily Reinvestment Scheduler skipped (autopilot reinvest enabled)")
+        else:
             from services.daily_reinvestment import get_reinvestment_service
             reinvest_service = get_reinvestment_service(db.db)
             reinvest_service.start()
             logger.info("💰 Daily Reinvestment Scheduler started")
-        else:
-            logger.info("💰 Daily Reinvestment Scheduler skipped (autopilot reinvest enabled)")
     except Exception as e:
         logger.warning(f"Could not start Reinvestment Scheduler: {e}")
 
