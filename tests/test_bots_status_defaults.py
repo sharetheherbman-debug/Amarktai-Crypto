@@ -25,7 +25,7 @@ def test_bots_status_returns_empty_when_no_bots():
     mock_collection = MagicMock()
     mock_collection.find.return_value = mock_cursor
 
-    with patch.object(bot_lifecycle, "bots_collection", mock_collection):
+    with patch.object(bot_lifecycle.db, "bots_collection", mock_collection):
         response = client.get(
             "/api/bots/status",
             headers={"Authorization": f"Bearer {token}"},
@@ -37,37 +37,53 @@ def test_bots_status_returns_empty_when_no_bots():
     assert payload.get("success") is True
     assert payload.get("active_bots") == 0
     assert payload.get("bots") == []
-    assert payload.get("platforms") == {}
+    exchange_counts = payload.get("exchange_counts")
+    assert exchange_counts
+    assert payload.get("platforms") == exchange_counts
+    assert payload.get("all_exchanges")
+    assert set(exchange_counts.keys()) == set(payload.get("all_exchanges"))
 
 
 def test_bots_status_returns_error_when_collection_missing():
-    with patch.object(bot_lifecycle, "bots_collection", None):
+    with patch.object(bot_lifecycle.db, "bots_collection", None):
         response = client.get("/api/bots/status")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     payload = response.json()
 
-    assert payload.get("success") is False
-    assert payload.get("active_bots") == 0
-    assert payload.get("bots") == []
-    assert payload.get("platforms") == {}
-    assert payload.get("error")
+    assert payload.get("detail")
 
 
 def test_bots_status_returns_error_with_auth_when_collection_missing():
     token = create_access_token({"user_id": "test-user", "sub": "test-user"})
 
-    with patch.object(bot_lifecycle, "bots_collection", None):
+    with patch.object(bot_lifecycle.db, "bots_collection", None):
         response = client.get(
             "/api/bots/status",
             headers={"Authorization": f"Bearer {token}"},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     payload = response.json()
 
-    assert payload.get("success") is False
-    assert payload.get("active_bots") == 0
-    assert payload.get("bots") == []
-    assert payload.get("platforms") == {}
-    assert payload.get("error")
+    assert payload.get("detail")
+
+
+def test_bots_status_meta_returns_exchange_counts():
+    token = create_access_token({"user_id": "test-user", "sub": "test-user"})
+    mock_cursor = MagicMock()
+    mock_cursor.to_list = AsyncMock(return_value=[])
+    mock_collection = MagicMock()
+    mock_collection.find.return_value = mock_cursor
+
+    with patch.object(bot_lifecycle.db, "bots_collection", mock_collection):
+        response = client.get(
+            "/api/bots/status?meta=1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("exchange_counts")
+    assert payload.get("all_exchanges")
+    assert set(payload["exchange_counts"].keys()) == set(payload["all_exchanges"])

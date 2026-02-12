@@ -109,7 +109,9 @@ async def register(request: Request, user: UserRegister):
 async def login(credentials: UserLogin):
     # Normalize email to lowercase for consistency
     normalized_email = credentials.email.lower().strip()
-    
+    if db.users_collection is None:
+        raise HTTPException(status_code=503, detail="Users collection unavailable")
+
     user = await db.users_collection.find_one({"email": normalized_email}, {"_id": 0})
     
     if not user:

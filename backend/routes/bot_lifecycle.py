@@ -173,7 +173,10 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
 
 
 @router.get("/status")
-async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
+async def get_bots_status(
+    user_id: Optional[str] = Depends(get_optional_user),
+    meta: Optional[int] = 0,
+):
     """Get bot status list with states for bot management
     
     Returns all bots with detailed status including training states
@@ -186,30 +189,34 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
         List of bots with id, exchange, state, paused_reason, etc.
     """
     all_exchanges = ALL_EXCHANGES
-    collection = bots_collection
+    collection = db.bots_collection
     if collection is None:
-        return _bots_status_payload(
-            [],
-            {},
-            all_exchanges,
-            success=False,
-            error="Bots collection unavailable",
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Bots collection unavailable"},
         )
+    exchange_counts = {exchange: 0 for exchange in all_exchanges}
     if not user_id:
-        return _bots_status_payload([], {}, all_exchanges)
+        if meta:
+            return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
+        return _bots_status_payload([], exchange_counts, all_exchanges)
 
     try:
         bots = await collection.find(
             {
                 "user_id": user_id,
-                "status": {"$ne": "deleted"},
+                # Status is the canonical deletion flag; legacy deleted/is_deleted/deleted_at remain until cleanup.
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
                 "deleted": {"$ne": True},
-                "deleted_at": {"$exists": False}
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
             },
-            {"_id": 0}
+            {"_id": 0},
         ).to_list(1000)
         if not bots:
-            return _bots_status_payload([], {}, all_exchanges)
+            if meta:
+                return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
+            return _bots_status_payload([], exchange_counts, all_exchanges)
 
         runtime_states = {
             state.get("bot_id"): state
@@ -322,13 +329,17 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
             exchange = bot.get('exchange')
             if exchange in exchange_counts:
                 exchange_counts[exchange] += 1
+        if meta:
+            return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
         return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
     except Exception:
         logger.exception("Get bots status error for user %s", user_id)
+        if meta:
+            return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
         return _bots_status_payload(
             [],
-            {},
+            exchange_counts,
             all_exchanges,
             success=False,
             error="Unable to load bot status",
@@ -463,7 +474,7 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             # Verify ledger collection exists and is accessible
             await db.ledger_collection.find_one({}, {"_id": 1})
         except Exception as e:
-            logger.error(f"Ledger collection check failed: {e}")
+            logger.exception("Ledger collection check failed")
             raise HTTPException(
                 status_code=500,
                 detail=f"Cannot start bot '{bot['name']}': Ledger collection is not accessible. Please contact admin."
@@ -531,7 +542,7 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Start bot error: {e}")
+        logger.exception("Start bot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -625,7 +636,7 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Stop bot error: {e}")
+        logger.exception("Stop bot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -727,7 +738,7 @@ async def pause_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Dep
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Pause bot error: {e}")
+        logger.exception("Pause bot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -896,7 +907,7 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Resume bot error: {e}")
+        logger.exception("Resume bot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1020,7 +1031,7 @@ async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Restart bot error: {e}")
+        logger.exception("Restart bot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1084,7 +1095,7 @@ async def set_bot_cooldown(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Set cooldown error: {e}")
+        logger.exception("Set cooldown error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1178,7 +1189,7 @@ async def get_bot_detailed_status(bot_id: str, user_id: str = Depends(get_curren
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Get bot status error: {e}")
+        logger.exception("Get bot status error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1231,7 +1242,7 @@ async def get_bot_risk_status(bot_id: str, user_id: str = Depends(get_current_us
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Bot risk status error: {e}")
+        logger.exception("Bot risk status error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1277,7 +1288,7 @@ async def pause_all_bots(data: Optional[Dict] = None, user_id: str = Depends(get
         }
         
     except Exception as e:
-        logger.error(f"Pause all bots error: {e}")
+        logger.exception("Pause all bots error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1347,7 +1358,7 @@ async def toggle_bot_trading(bot_id: str, data: Dict, user_id: str = Depends(get
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Toggle bot trading error: {e}")
+        logger.exception("Toggle bot trading error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1434,7 +1445,7 @@ async def delete_bot(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Delete bot error: {e}", exc_info=True)
+        logger.exception("Delete bot error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1581,7 +1592,7 @@ async def get_bot_diagnostics(bot_id: str, user_id: str = Depends(get_current_us
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Get bot diagnostics error: {e}")
+        logger.exception("Get bot diagnostics error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1664,5 +1675,5 @@ async def get_all_bots_diagnostics(user_id: str = Depends(get_current_user)):
         }
         
     except Exception as e:
-        logger.error(f"Get all bots diagnostics error: {e}")
+        logger.exception("Get all bots diagnostics error")
         raise HTTPException(status_code=500, detail=str(e))

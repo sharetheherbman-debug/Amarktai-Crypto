@@ -178,7 +178,6 @@ export default function Dashboard() {
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
   const [autopilotReinvestStatus, setAutopilotReinvestStatus] = useState(null);
   const [realtimeFallback, setRealtimeFallback] = useState(false);
-  const [spawnBotLoading, setSpawnBotLoading] = useState(false);
   const [storageData, setStorageData] = useState(null);
   const [storageError, setStorageError] = useState(null);
   const [countdown, setCountdown] = useState(null);
@@ -1927,22 +1926,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleSpawnBotNow = async () => {
-    try {
-      setSpawnBotLoading(true);
-      const res = await post('/bots/spawn', {});
-      const spawnedName = res?.bot?.name || res?.bot_name || 'New Bot';
-      showNotification(`✅ Spawned ${spawnedName} immediately`, 'success');
-      await refreshBotState();
-    } catch (err) {
-      const detail = err.response?.data?.detail;
-      const errorMsg = typeof detail === 'string' ? detail : detail?.message || err.message;
-      showNotification(errorMsg || 'Failed to spawn bot', 'error');
-    } finally {
-      setSpawnBotLoading(false);
-    }
-  };
-
   const handleCreateUAgent = async (e) => {
     e.preventDefault();
     const name = e.target['uagent-name'].value;
@@ -2862,7 +2845,7 @@ export default function Dashboard() {
           </p>
           
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
-            <button 
+            <button
               onClick={handleTriggerLearning}
               disabled={aiTaskLoading === 'learning'}
               style={{padding: '12px', background: aiTaskLoading === 'learning' ? '#666' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'learning' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'learning' ? 0.7 : 1}}
@@ -3478,7 +3461,7 @@ export default function Dashboard() {
             >
               🎓 Training & Quarantine
             </button>
-            <button
+            <button 
               onClick={() => setBotManagementTab('spawn')}
               style={{
                 padding: '10px 20px',
@@ -3493,7 +3476,7 @@ export default function Dashboard() {
                 boxShadow: botManagementTab === 'spawn' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
               }}
             >
-              🚀 Spawn Bot
+              Spawn Bot
             </button>
           </div>
           
@@ -3600,7 +3583,7 @@ export default function Dashboard() {
             <div className="bot-list">
               {bots.length === 0 ? (
                 <p style={{color: 'var(--muted)', padding: '20px', textAlign: 'center'}}>
-                  No bots yet. Create one to get started!
+                  No bots.
                 </p>
               ) : (
                 bots
@@ -3910,7 +3893,7 @@ export default function Dashboard() {
   const renderSpawnBot = () => (
     <section className="section active">
       <div className="card">
-        <h2 style={{marginBottom: '16px', color: '#ffffff'}}>🚀 Spawn Bot</h2>
+        <h2>Spawn Bot</h2>
         {autoSpawnStatus && (
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <strong>Autopilot Eligibility (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
@@ -4001,25 +3984,11 @@ export default function Dashboard() {
           </div>
         )}
         <div className="bot-form-card">
-          <h3>Spawn Bot Now</h3>
-          <p style={{color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px'}}>
-            Manual spawn creates a bot immediately using available paper wallet funds. Autopilot eligibility is shown above for reference.
+          <h3>Autonomous Spawning</h3>
+          <p style={{color: 'var(--muted)', fontSize: '0.9rem', marginBottom: 0}}>
+            Bot creation is fully automated. Autopilot will spawn new bots when eligibility,
+            risk guardrails, and exchange caps allow. Manual spawning is disabled.
           </p>
-          <button
-            onClick={handleSpawnBotNow}
-            disabled={spawnBotLoading}
-            style={{
-              padding: '12px 18px',
-              background: spawnBotLoading ? '#666' : 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: spawnBotLoading ? 'wait' : 'pointer',
-              fontWeight: 600
-            }}
-          >
-            {spawnBotLoading ? '⏳ Spawning...' : 'Spawn Bot Now'}
-          </button>
         </div>
       </div>
     </section>
@@ -7364,7 +7333,7 @@ export default function Dashboard() {
       )}
 
       {/* Main Content */}
-      <main className={`main${activeSection === 'overview' ? ' main--no-scroll' : ''}`}>
+      <main className="main"> 
         {activeSection === 'welcome' && renderWelcome()}
         {activeSection === 'overview' && renderOverview()}
         {activeSection === 'api' && renderApiSetup()}

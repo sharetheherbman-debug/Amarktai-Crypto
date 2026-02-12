@@ -22,7 +22,9 @@ _last_missing_audit_collection_warning = 0.0
 
 def _get_audit_logs_collection():
     """Return audit log collection with backward-compatible fallback."""
-    return db.audit_logs_collection or db.audit_logs
+    if db.audit_logs_collection is not None:
+        return db.audit_logs_collection
+    return db.audit_logs
 
 
 def _warn_missing_audit_collection():
