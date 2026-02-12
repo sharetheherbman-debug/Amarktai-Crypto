@@ -1098,7 +1098,7 @@ async def get_bot_detailed_status(bot_id: str, user_id: str = Depends(get_curren
             {"_id": 0}
         ).to_list(1000)
         
-        profit_today = sum(t.get('profit_loss', 0) for t in today_trades)
+        profit_today = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in today_trades)
         
         return {
             "bot": bot,

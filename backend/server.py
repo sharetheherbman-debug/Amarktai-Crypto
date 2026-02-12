@@ -3055,6 +3055,7 @@ routers_to_mount = [
     ("routes.live_trading_gate", "Live Trading Gate"),
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
     ("routes.metrics_api", "Metrics API"),  # Trade cadence and countdown
+    ("routes.learning_jobs", "Learning Jobs"),  # Nightly learning triggers
     ("routes.market_api", "Market API"),  # Live market prices for BTC/ZAR, ETH/ZAR, XRP/ZAR
     ("routes.prices", "Prices API"),  # NEW - Frontend-friendly /api/prices/live endpoint
     ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests

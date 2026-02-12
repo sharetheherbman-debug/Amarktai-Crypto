@@ -1,0 +1,14 @@
+[Unit]
+Description=Amarktai Nightly Learning Job
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/amarktai/app/backend
+EnvironmentFile=/var/amarktai/app/backend/.env
+ExecStart=/usr/bin/python3 /var/amarktai/app/backend/scripts/run_nightly_learning.py
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

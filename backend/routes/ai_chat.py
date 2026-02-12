@@ -111,10 +111,14 @@ def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[st
 
     if "overview" in content_lower:
         return {"action": "fetch_overview"}
+    if "performance" in content_lower and "summary" in content_lower:
+        return {"action": "fetch_performance"}
     if "system status" in content_lower or content_lower.strip() == "status":
         return {"action": "fetch_status"}
     if "risk" in content_lower and "reset" not in content_lower:
         return {"action": "fetch_risk"}
+    if "admin tools" in content_lower or "open admin" in content_lower:
+        return {"action": "open_admin_tools"}
     if "pause" in content_lower and "bot" in content_lower:
         return {"action": "pause_bot"}
     if ("resume" in content_lower or "start" in content_lower) and "bot" in content_lower:
@@ -250,7 +254,7 @@ class AIActionRouter:
             },
             "recent_performance": {
                 "recent_trades_count": len(recent_trades),
-                "recent_pnl": round(sum(t.get('profit_loss', 0) for t in recent_trades), 2)
+            "recent_pnl": round(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in recent_trades), 2)
             },
             "system_modes": modes or {},
             "budget_status": budget_status,
@@ -460,6 +464,10 @@ class AIActionRouter:
                 from services.overview_service import overview_service
                 overview = await overview_service.get_snapshot(user_id)
                 return {"success": True, "action": "fetch_overview", "data": overview}
+
+            elif action == "fetch_performance":
+                summary = await build_recent_summary(user_id)
+                return {"success": True, "action": "fetch_performance", "data": summary}
 
             elif action == "fetch_risk":
                 user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
@@ -713,7 +721,7 @@ async def ai_chat(
                             else:
                                 ai_response = f"Action failed: {result.get('error', 'unknown error')}."
 
-                elif action in ["fetch_overview", "fetch_status", "fetch_risk"]:
+                elif action in ["fetch_overview", "fetch_status", "fetch_risk", "fetch_performance"]:
                     tool_actions.append({"action": action, "params": params, "source": "chat"})
                     if action == "fetch_overview":
                         from services.overview_service import OverviewService
@@ -732,7 +740,7 @@ async def ai_chat(
                             f"active bots {status['trading_activity']['active_bots']}."
                         )
                         result = {"success": True, "status": status}
-                    else:
+                    elif action == "fetch_risk":
                         from routes.risk_management import get_risk_status
                         risk = await get_risk_status(user_id)
                         ai_response = (
@@ -741,6 +749,14 @@ async def ai_chat(
                             f"emergency stop {'active' if risk['emergency_stop']['active'] else 'clear'}."
                         )
                         result = {"success": True, "risk": risk}
+                    else:
+                        summary = await build_recent_summary(user_id)
+                        ai_response = (
+                            f"Performance summary: {summary['trades']} trades, "
+                            f"wins {summary['wins']}, losses {summary['losses']}, "
+                            f"net PnL R{summary['net_pnl']:.2f}."
+                        )
+                        result = {"success": True, "summary": summary}
 
                     action_results.append(result)
                     await log_chatops_action(user_id, action, params, result)
@@ -858,6 +874,16 @@ async def ai_chat(
                             "Transfers require confirmation and may need admin approval. "
                             f"Reply with token {token} and phrase: {CONFIRM_TRANSFER}."
                         )
+
+                elif action == "open_admin_tools":
+                    tool_actions.append({"action": action, "params": params, "source": "chat"})
+                    result = await action_router.execute_action(action, params, user_id)
+                    action_results.append(result)
+                    await log_chatops_action(user_id, action, params, result)
+                    if result.get("success"):
+                        ai_response = "Admin tools unlocked for this session."
+                    else:
+                        ai_response = f"Admin tools unavailable: {result.get('error', 'permission denied')}."
 
             if not handled_action:
                 # Generate AI response with OpenAI - CANONICAL KEY RETRIEVAL + MODEL FALLBACK
@@ -1052,6 +1078,33 @@ Instructions:
             stripped = ai_response.strip()
             if stripped.startswith("```") and stripped.endswith("```"):
                 ai_response = stripped.strip("`").strip()
+
+        # Tool call parsing: allow AI to return structured tool actions (JSON)
+        try:
+            payload_text = ai_response.strip() if isinstance(ai_response, str) else ""
+            candidate = payload_text
+            if candidate.startswith("```") and candidate.endswith("```"):
+                candidate = candidate.strip("`").strip()
+            if candidate.startswith("{") and candidate.endswith("}"):
+                tool_payload = json.loads(candidate)
+                tool_action_list = tool_payload.get("tool_actions") or tool_payload.get("actions")
+                if isinstance(tool_action_list, list):
+                    ai_response = tool_payload.get("response") or tool_payload.get("content") or "Tool actions processed."
+                    for action_item in tool_action_list:
+                        if not isinstance(action_item, dict):
+                            continue
+                        action_name = action_item.get("action")
+                        action_params = action_item.get("params", {})
+                        if not action_name:
+                            continue
+                        tool_actions.append({"action": action_name, "params": action_params, "source": "ai"})
+                        result = await action_router.execute_action(action_name, action_params, user_id)
+                        action_results.append(result)
+                        await log_chatops_action(user_id, action_name, action_params, result)
+                        if not result.get("success"):
+                            ai_response += f" Action failed: {result.get('error', 'unknown error')}."
+        except Exception as tool_error:
+            logger.warning(f"Tool action parsing failed: {tool_error}")
 
         # Save AI response
         ai_msg = {

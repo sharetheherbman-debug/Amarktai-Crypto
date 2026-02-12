@@ -153,9 +153,9 @@ async def get_trade_stats(
         # Calculate statistics
         total_trades = len(trades)
         total_volume = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in trades)
-        total_pnl = sum(t.get('profit_loss', 0) for t in trades)
-        winning_trades = len([t for t in trades if t.get('profit_loss', 0) > 0])
-        losing_trades = len([t for t in trades if t.get('profit_loss', 0) < 0])
+        total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades)
+        winning_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
+        losing_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0])
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
         return {

@@ -26,6 +26,16 @@
 - **Systemd Service**: [`docs/examples/amarktai.service`](docs/examples/amarktai.service)
 - **Nginx Config**: [`docs/examples/nginx.conf`](docs/examples/nginx.conf)
 
+### VPS Deployment Notes (Permissions)
+- **Frontend build ownership**: ensure `/var/amarktai/app/frontend` (and `build/`) is owned by the deploy user (e.g., `ubuntu`) with group `www-data`.
+  - Example: `sudo chown -R ubuntu:www-data /var/amarktai/app/frontend`
+  - The build script will normalize ownership before rebuilding to avoid `EACCES` on `build/assets/.gitkeep`.
+- **Nginx logs/certs**: keep root-owned, readable by the master process.
+  - Logs: `/var/log/nginx` should be `root:adm` with `640` on log files.
+  - LetsEncrypt: `/etc/letsencrypt/live` and `/etc/letsencrypt/archive` should remain `root:root` (private keys `600`).
+- **Nightly learning timer**: install `docs/examples/amarktai-nightly-learning.service` and `.timer`.
+  - Enable with `sudo systemctl enable --now amarktai-nightly-learning.timer`
+
 ---
 
 ## ✨ **Key Features - Production-Ready**

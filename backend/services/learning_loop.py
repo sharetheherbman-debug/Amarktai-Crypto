@@ -144,6 +144,7 @@ class LearningLoop:
 
         config_doc = await db.system_config_collection.find_one({"user_id": user_id}, {"_id": 0})
         learning_params = (config_doc or {}).get("learning_params", {})
+        current_strategy_version_id = (config_doc or {}).get("strategy_version_id")
 
         trade_size = float(learning_params.get("trade_size_multiplier", 1.0))
         cooldown = float(learning_params.get("cooldown_multiplier", 1.0))
@@ -156,6 +157,7 @@ class LearningLoop:
 
         max_risk = float(os.getenv("LEARNING_MAX_RISK_MULTIPLIER", "1.1"))
         min_risk = float(os.getenv("LEARNING_MIN_RISK_MULTIPLIER", "0.8"))
+        max_change_pct = float(os.getenv("LEARNING_MAX_CHANGE_PCT", "0.10"))
 
         changes: List[Dict] = []
 
@@ -163,8 +165,8 @@ class LearningLoop:
             return max(min_value, min(value, max_value))
 
         if total_trades >= 5:
-            if win_rate < 50 or net_pnl < 0:
-                new_trade_size = clamp(trade_size - 0.02, min_risk, max_risk)
+            if win_rate < 50 or net_pnl < 0 or profit_factor < 1:
+                new_trade_size = clamp(trade_size * (1 - max_change_pct), min_risk, max_risk)
                 if new_trade_size != trade_size:
                     changes.append({
                         "parameter": "trade_size_multiplier",
@@ -175,7 +177,7 @@ class LearningLoop:
                     })
                     trade_size = new_trade_size
 
-                new_cooldown = clamp(cooldown + 0.05, 0.8, 1.5)
+                new_cooldown = clamp(cooldown * (1 + max_change_pct), 0.8, 1.5)
                 if new_cooldown != cooldown:
                     changes.append({
                         "parameter": "cooldown_multiplier",
@@ -186,7 +188,7 @@ class LearningLoop:
                     })
                     cooldown = new_cooldown
 
-                new_stop = clamp(stop_loss + 0.002, 0.01, 0.05)
+                new_stop = clamp(stop_loss * (1 + max_change_pct), 0.01, 0.05)
                 if new_stop != stop_loss:
                     changes.append({
                         "parameter": "stop_loss_pct",
@@ -196,8 +198,8 @@ class LearningLoop:
                         "expected_impact": "Cap downside per trade"
                     })
                     stop_loss = new_stop
-            elif win_rate > 55 and net_pnl > 0:
-                new_trade_size = clamp(trade_size + 0.01, min_risk, max_risk)
+            elif win_rate > 55 and net_pnl > 0 and profit_factor > 1.1:
+                new_trade_size = clamp(trade_size * (1 + max_change_pct), min_risk, max_risk)
                 if new_trade_size != trade_size:
                     changes.append({
                         "parameter": "trade_size_multiplier",
@@ -210,15 +212,27 @@ class LearningLoop:
 
         last_run = await db.learning_runs_collection.find_one(
             {"user_id": user_id},
-            {"_id": 0, "metrics": 1, "applied_params": 1},
+            {"_id": 0, "metrics": 1, "applied_params": 1, "strategy_version_id": 1},
             sort=[("completed_at", -1)]
         )
         last_net_pnl = last_run.get("metrics", {}).get("net_pnl") if last_run else None
+        last_strategy_version = last_run.get("strategy_version_id") if last_run else None
         try:
             rollback_threshold = float(os.getenv("LEARNING_ROLLBACK_THRESHOLD", "0.9"))
         except ValueError:
             rollback_threshold = 0.9
         rollback = last_net_pnl is not None and net_pnl < last_net_pnl * rollback_threshold
+
+        improvement_ok = net_pnl >= 0 and win_rate >= 50 and (profit_factor >= 1.05 or profit_factor == float("inf"))
+        if last_net_pnl is not None:
+            improvement_ok = improvement_ok and net_pnl >= last_net_pnl * 1.01
+
+        sanity_check = {
+            "net_pnl": round(net_pnl, 2),
+            "win_rate": round(win_rate, 2),
+            "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else None,
+            "passes": improvement_ok
+        }
 
         summary_lines = []
         if changes:
@@ -237,13 +251,17 @@ class LearningLoop:
         }
 
         if rollback:
-            await db.system_config_collection.update_one(
-                {"user_id": user_id},
-                {"$set": {"learning_params": previous_params}},
-                upsert=True
-            )
+            if not dry_run:
+                await db.system_config_collection.update_one(
+                    {"user_id": user_id},
+                    {"$set": {
+                        "learning_params": previous_params,
+                        "strategy_version_id": last_strategy_version or current_strategy_version_id
+                    }},
+                    upsert=True
+                )
             applied_params = previous_params
-        elif changes:
+        elif changes and improvement_ok and not dry_run:
             await db.system_config_collection.update_one(
                 {"user_id": user_id},
                 {"$set": {
@@ -256,6 +274,8 @@ class LearningLoop:
                 }},
                 upsert=True
             )
+        elif changes and not improvement_ok:
+            summary_lines.append("Sanity check failed; skipped parameter updates.")
 
         for change in changes:
             await db.learning_changes_collection.insert_one({
@@ -270,20 +290,106 @@ class LearningLoop:
                 "timestamp": window_end.isoformat()
             })
 
+        strategy_version_id = current_strategy_version_id
+        previous_version_id = current_strategy_version_id or last_strategy_version
+        if not rollback and changes and improvement_ok and not dry_run and db.strategy_versions_collection is not None:
+            strategy_version_id = str(uuid4())
+            await db.strategy_versions_collection.insert_one({
+                "version_id": strategy_version_id,
+                "user_id": user_id,
+                "created_at": window_end.isoformat(),
+                "params_json": applied_params,
+                "created_by": "learning_loop",
+                "reason": "nightly_learning_update",
+                "metrics": metrics_doc
+            })
+            await db.system_config_collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"strategy_version_id": strategy_version_id}},
+                upsert=True
+            )
+
+        if rollback and previous_version_id:
+            strategy_version_id = previous_version_id
+
+        if strategy_version_id and not dry_run and db.bot_strategy_assignments_collection is not None:
+            bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0, "id": 1}).to_list(1000)
+            for bot in bots:
+                await db.bot_strategy_assignments_collection.insert_one({
+                    "bot_id": bot.get("id"),
+                    "user_id": user_id,
+                    "strategy_version_id": strategy_version_id,
+                    "assigned_at": window_end.isoformat()
+                })
+            await db.bots_collection.update_many(
+                {"user_id": user_id, "status": {"$ne": "deleted"}},
+                {"$set": {"strategy_version_id": strategy_version_id}}
+            )
+
+        report_letter = (
+            "Learning summary:\n"
+            f"- Trades analyzed: {total_trades}\n"
+            f"- Win rate: {win_rate:.1f}%\n"
+            f"- Net PnL: R{net_pnl:.2f}\n"
+        )
+        if changes:
+            report_letter += f"- Changes: {len(changes)} parameter adjustments\n"
+        if rollback:
+            report_letter += "- Rollback applied due to performance drop\n"
+
         run_doc = {
             "run_id": run_id,
             "user_id": user_id,
             "started_at": window_start.isoformat(),
             "completed_at": window_end.isoformat(),
+            "status": "rolled_back" if rollback else "applied" if changes and improvement_ok and not dry_run else "skipped",
             "trades_analyzed": total_trades,
-            "changes_applied": len(changes),
+            "changes_applied": len(changes) if changes and improvement_ok else 0,
             "rolled_back": rollback,
             "summary": " ".join(summary_lines),
             "metrics": metrics_doc,
             "previous_params": previous_params,
-            "applied_params": applied_params
+            "applied_params": applied_params,
+            "strategy_version_id": strategy_version_id,
+            "previous_strategy_version_id": previous_version_id,
+            "sanity_check": sanity_check,
+            "report": {
+                "letter": report_letter,
+                "changes": changes,
+                "metrics": metrics_doc
+            },
+            "dry_run": dry_run
         }
         await db.learning_runs_collection.insert_one(run_doc)
+
+        if db.action_audit_log_collection is not None:
+            try:
+                await db.action_audit_log_collection.insert_one({
+                    "user_id": user_id,
+                    "actor": "learning_loop",
+                    "action": "learning_run_completed",
+                    "payload": {
+                        "run_id": run_id,
+                        "strategy_version_id": strategy_version_id,
+                        "rolled_back": rollback,
+                        "dry_run": dry_run
+                    },
+                    "result": run_doc,
+                    "timestamp": window_end.isoformat()
+                })
+            except Exception:
+                pass
+
+        try:
+            from realtime_events import rt_events
+            await rt_events.learning_run_completed(user_id, {
+                "run_id": run_id,
+                "status": run_doc.get("status"),
+                "summary": run_doc.get("summary"),
+                "strategy_version_id": strategy_version_id
+            })
+        except Exception:
+            pass
 
 
 learning_loop = LearningLoop()
