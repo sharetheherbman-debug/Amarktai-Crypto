@@ -167,7 +167,11 @@ class LearningLoop:
             sort=[("completed_at", -1)]
         )
         last_net_pnl = last_run.get("metrics", {}).get("net_pnl") if last_run else None
-        rollback = last_net_pnl is not None and net_pnl < last_net_pnl * 0.9
+        try:
+            rollback_threshold = float(os.getenv("LEARNING_ROLLBACK_THRESHOLD", "0.9"))
+        except ValueError:
+            rollback_threshold = 0.9
+        rollback = last_net_pnl is not None and net_pnl < last_net_pnl * rollback_threshold
 
         summary_lines = []
         if changes:

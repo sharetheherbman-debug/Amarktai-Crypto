@@ -510,7 +510,7 @@ async def ai_chat(
             # Verify it's for this user
             if action_data['user_id'] == user_id:
                 required_phrase = action_data.get("confirmation_phrase")
-                if required_phrase and required_phrase not in phrase_source.upper():
+                if required_phrase and required_phrase.upper() not in phrase_source.upper():
                     ai_response = (
                         f"Please confirm by typing the exact phrase: {required_phrase}. "
                         f"Then resend your confirmation token."
@@ -916,7 +916,9 @@ Instructions:
                     )
         
         if ai_response and not wants_code_response(content):
-            ai_response = ai_response.replace("```", "").strip()
+            stripped = ai_response.strip()
+            if stripped.startswith("```") and stripped.endswith("```"):
+                ai_response = stripped.strip("`").strip()
 
         # Save AI response
         ai_msg = {

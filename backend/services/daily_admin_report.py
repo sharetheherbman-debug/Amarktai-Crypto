@@ -145,12 +145,25 @@ class DailyAdminReporter:
         msg["To"] = to_email
         msg["Subject"] = subject
 
-        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-            server.starttls()
-            server.login(self.smtp_user, self.smtp_password)
-            server.send_message(msg)
+        try:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
 
-        logger.info("📧 Admin daily letter sent to %s", to_email)
+            logger.info("📧 Admin daily letter sent to %s", to_email)
+        except smtplib.SMTPAuthenticationError as auth_error:
+            logger.error("SMTP authentication failed for admin report: %s", auth_error)
+            raise
+        except smtplib.SMTPConnectError as connect_error:
+            logger.error("SMTP connection failed for admin report: %s", connect_error)
+            raise
+        except smtplib.SMTPServerDisconnected as disconnect_error:
+            logger.error("SMTP disconnected while sending admin report: %s", disconnect_error)
+            raise
+        except smtplib.SMTPException as smtp_error:
+            logger.error("SMTP error sending admin report: %s", smtp_error)
+            raise
 
 
 daily_admin_reporter = DailyAdminReporter()

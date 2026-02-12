@@ -84,7 +84,8 @@ async def run():
         deadline = time.time() + 10
 
         while time.time() < deadline and not (got_heartbeat and got_prices):
-            message = await asyncio.wait_for(ws.recv(), timeout=deadline - time.time())
+            timeout = max(deadline - time.time(), 0.1)
+            message = await asyncio.wait_for(ws.recv(), timeout=timeout)
             print(message)
             data = json.loads(message)
             event_type = data.get("type")

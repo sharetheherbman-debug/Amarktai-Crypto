@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 import database as db
 
 logger = logging.getLogger(__name__)
+_LAST_CLEANUP_AT: Optional[datetime] = None
 
 
 async def record_snapshot(pair: str, price: float, timestamp: Optional[datetime] = None) -> Tuple[float, str]:
@@ -55,13 +56,16 @@ async def record_snapshot(pair: str, price: float, timestamp: Optional[datetime]
         if previous_price:
             change_pct = ((float(price) - float(previous_price)) / float(previous_price)) * 100
 
-        # Cleanup snapshots older than 48 hours (best-effort)
-        try:
-            await db.price_snapshots_collection.delete_many({
-                "timestamp": {"$lt": now - timedelta(days=2)}
-            })
-        except Exception as cleanup_error:
-            logger.debug(f"Snapshot cleanup skipped: {cleanup_error}")
+        # Cleanup snapshots older than 48 hours (best-effort, hourly)
+        global _LAST_CLEANUP_AT
+        if _LAST_CLEANUP_AT is None or (now - _LAST_CLEANUP_AT) > timedelta(hours=1):
+            try:
+                await db.price_snapshots_collection.delete_many({
+                    "timestamp": {"$lt": now - timedelta(days=2)}
+                })
+                _LAST_CLEANUP_AT = now
+            except Exception as cleanup_error:
+                logger.debug(f"Snapshot cleanup skipped: {cleanup_error}")
 
         return round(change_pct, 2), window
     except Exception as e:

@@ -729,11 +729,12 @@ export default function Dashboard() {
       case 'overview_update': {
         const overview = data.data?.overview || data.overview;
         if (overview) {
+          const totalBots = safeNumber(overview.bots_active, 0) + safeNumber(overview.bots_paused, 0) + safeNumber(overview.bots_training, 0) + safeNumber(overview.bots_quarantine, 0);
           setOverviewData(prev => ({ ...prev, ...overview }));
           setMetrics(prev => ({
             ...prev,
             totalProfit: `R${safeNumber(overview.total_profit, 0).toFixed(2)}`,
-            activeBots: `${safeNumber(overview.bots_active, 0)} / ${safeNumber(overview.bots_active, 0) + safeNumber(overview.bots_paused, 0)}`,
+            activeBots: `${safeNumber(overview.bots_active, 0)} / ${totalBots}`,
             lastUpdate: formatTimestamp(new Date(), { includeDate: false })
           }));
         }
