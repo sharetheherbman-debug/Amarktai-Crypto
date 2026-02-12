@@ -32,6 +32,22 @@ class CapitalAllocator:
             'low': 0.7,        # Bottom 25% get 0.7x
             'poor': 0.5        # Bottom 10% get 0.5x
         }
+
+    @staticmethod
+    def is_growth_phase(bot_count: int, max_bots: int) -> bool:
+        """Return True when exchange is below its bot cap (growth phase).
+
+        Returns False for invalid inputs (negative bot_count or non-positive max_bots).
+        For valid inputs, returns True when bot_count < max_bots.
+        """
+        # Log invalid inputs separately to aid diagnostics.
+        if bot_count < 0:
+            logger.warning("Invalid bot_count %s; treating as not in growth phase", bot_count)
+            return False
+        if max_bots <= 0:
+            logger.warning("Invalid max_bots %s; treating as not in growth phase", max_bots)
+            return False
+        return bot_count < max_bots
     
     async def get_bot_performance_tier(self, bot: Dict) -> str:
         """Determine performance tier for a bot"""
@@ -291,9 +307,9 @@ class CapitalAllocator:
                 
                 # Determine growth phase vs cap
                 max_bots = get_max_bots_for_exchange(exchange)
-                growth_phase = bot_count < max_bots
+                in_growth_phase = self.is_growth_phase(bot_count, max_bots)
                 
-                if growth_phase:
+                if in_growth_phase:
                     logger.info(f"Exchange {exchange} in growth phase ({bot_count}/{max_bots}), reinvesting into winners")
                 else:
                     logger.info(f"Exchange {exchange} at cap ({bot_count}/{max_bots}), reinvesting into winners")
@@ -359,7 +375,7 @@ class CapitalAllocator:
                         "bot_name": bot.get('name', 'unknown'),
                         "exchange": exchange,
                         "amount": round(amount_per_bot, 2),
-                        "growth_phase": growth_phase
+                        "growth_phase": in_growth_phase
                     })
                     
                     total_reinvested += amount_per_bot
