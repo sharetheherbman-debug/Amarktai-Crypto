@@ -5,6 +5,7 @@ All bot-related business rules enforced across the entire system
 
 from typing import Dict, Tuple, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ BOT_CAPS = {
 PROFIT_THRESHOLD_ZAR = 1000  # R1000 realized profit required per exchange
 
 # Reinvestment configuration
-REINVESTMENT_RATE = 0.5  # 50% of realized profit can be reinvested when at cap
+REINVESTMENT_RATE = float(os.getenv("REINVEST_PERCENTAGE", "80")) / 100  # Default 80%
 
 # Reason codes for rejections
 REASON_CODES = {

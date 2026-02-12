@@ -289,13 +289,14 @@ class CapitalAllocator:
                     "status": {"$nin": ["deleted", "quarantined"]}
                 })
                 
-                # Check if at cap
+                # Determine growth phase vs cap
                 max_bots = get_max_bots_for_exchange(exchange)
-                if bot_count < max_bots:
-                    # Not at cap, auto-spawn handles growth
-                    continue
+                growth_phase = bot_count < max_bots
                 
-                logger.info(f"Exchange {exchange} at cap ({bot_count}/{max_bots}), checking for reinvestment")
+                if growth_phase:
+                    logger.info(f"Exchange {exchange} in growth phase ({bot_count}/{max_bots}), reinvesting into winners")
+                else:
+                    logger.info(f"Exchange {exchange} at cap ({bot_count}/{max_bots}), reinvesting into winners")
                 
                 # Get realized profit for this exchange (combined paper + live)
                 exchange_profits = all_profits.get(exchange, {})
@@ -357,7 +358,8 @@ class CapitalAllocator:
                         "bot_id": bot['id'],
                         "bot_name": bot.get('name', 'unknown'),
                         "exchange": exchange,
-                        "amount": round(amount_per_bot, 2)
+                        "amount": round(amount_per_bot, 2),
+                        "growth_phase": growth_phase
                     })
                     
                     total_reinvested += amount_per_bot
