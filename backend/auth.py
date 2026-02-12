@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import logging
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends, Request
@@ -14,6 +15,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -77,7 +79,8 @@ async def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(
         payload = decode_token(credentials.credentials)
     except HTTPException:
         return None
-    except Exception:
+    except Exception as exc:
+        logger.debug("Optional auth decode failed: %s", exc)
         return None
 
     return payload.get("sub") or payload.get("user_id")

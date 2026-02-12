@@ -17,6 +17,7 @@ from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
 from engines.audit_logger import audit_logger
+from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
@@ -177,7 +178,7 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
     Returns:
         List of bots with id, exchange, state, paused_reason, etc.
     """
-    all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+    all_exchanges = list(SUPPORTED_EXCHANGES)
     if not user_id:
         exchange_counts = {exchange: 0 for exchange in all_exchanges}
         return _bots_status_payload([], exchange_counts, all_exchanges)

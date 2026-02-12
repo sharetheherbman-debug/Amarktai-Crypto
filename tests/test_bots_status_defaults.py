@@ -11,6 +11,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 from server import app
+from rules.bot_rules import SUPPORTED_EXCHANGES
 
 client = TestClient(app)
 
@@ -28,4 +29,4 @@ def test_bots_status_returns_defaults_without_auth():
     assert isinstance(payload.get("timestamp"), str)
     assert payload.get("exchange_counts") == payload.get("platforms")
     assert payload.get("total") == 0
-    assert payload.get("all_exchanges") == ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+    assert payload.get("all_exchanges") == SUPPORTED_EXCHANGES
