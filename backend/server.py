@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query, Body
 from routes.auth import router as auth_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
@@ -506,6 +506,61 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     logger.info(f"✅ Bot created: {result['name']} for user {user_id[:8]}")
     
     return result
+
+
+@api_router.post("/bots/spawn")
+async def spawn_bot_now(
+    payload: dict = Body(default={}),
+    user_id: str = Depends(get_current_user)
+):
+    """Spawn a bot immediately using the bot spawner."""
+    try:
+        from engines.bot_spawner import bot_spawner
+        from config.platforms import normalize_platform_id, is_valid_platform
+        from datetime import datetime, timezone
+
+        config = await bot_spawner.determine_next_bot_config(user_id)
+        if "error" in config:
+            raise HTTPException(status_code=400, detail=config.get("error"))
+
+        requested_exchange = payload.get("exchange")
+        if requested_exchange:
+            normalized = normalize_platform_id(requested_exchange)
+            if not is_valid_platform(normalized):
+                raise HTTPException(status_code=400, detail=f"Invalid exchange: {requested_exchange}")
+            config["exchange"] = normalized
+
+        requested_risk = payload.get("risk_mode")
+        if requested_risk:
+            config["risk_mode"] = requested_risk
+
+        requested_capital = payload.get("initial_capital")
+        if requested_capital:
+            config["capital"] = float(requested_capital)
+
+        requested_name = payload.get("name")
+        if requested_name:
+            config["name"] = requested_name
+
+        result = await bot_spawner.spawn_bot(user_id, config)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Spawn failed"))
+
+        await db.bots_collection.update_one(
+            {"id": result.get("bot_id")},
+            {"$set": {
+                "spawned_by": "user",
+                "spawned_at": datetime.now(timezone.utc).isoformat(),
+                "auto_spawned": False
+            }}
+        )
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Spawn bot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/bots/batch-create")
 async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)):

@@ -71,7 +71,10 @@ class BodyguardService:
 
     def _get_drawdown_threshold(self, trading_mode: str, risk_profile: str) -> float:
         thresholds = PAPER_DRAWDOWN_THRESHOLDS if trading_mode == "paper" else LIVE_DRAWDOWN_THRESHOLDS
-        return thresholds.get(risk_profile, thresholds.get("balanced", 20.0))
+        normalized = (risk_profile or "balanced").lower()
+        if normalized not in thresholds:
+            normalized = "balanced"
+        return thresholds.get(normalized, thresholds.get("balanced", 20.0))
 
     def _parse_datetime(self, value) -> Optional[datetime]:
         if isinstance(value, datetime):
@@ -172,9 +175,17 @@ class BodyguardService:
                 return False, None
             
             # Get risk mode and threshold
-            risk_mode = bot.get('risk_mode', 'balanced')
+            risk_mode = bot.get('risk_mode')
+            if not risk_mode:
+                try:
+                    risk_mode = await self._get_user_risk_profile(user_id)
+                except Exception as e:
+                    logger.warning(f"Bodyguard risk profile fallback: {e}")
+                    risk_mode = "balanced"
+            if not risk_mode:
+                risk_mode = "balanced"
             trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
-            risk_profile = await self._get_user_risk_profile(user_id)
+            risk_profile = (risk_mode or "balanced").lower()
             threshold = self._get_drawdown_threshold(trading_mode, risk_profile)
 
             exchange = bot.get('exchange', '').lower()
@@ -376,6 +387,7 @@ class BodyguardService:
                         "bodyguard_last_pause_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": True,
                         "paused_by_system": True,
+                        "paused_by": "bodyguard",
                         "pause_reason": f"Drawdown threshold breach ({risk_profile}): {current_drawdown_pct:.1f}% >= {threshold}%",
                         "bodyguard_pause_threshold": threshold,
                         "bodyguard_pause_drawdown": round(current_drawdown_pct, 2),
@@ -515,13 +527,15 @@ class BodyguardService:
                         "resumed_at": datetime.now(timezone.utc).isoformat(),
                         "paused_by_bodyguard": False,
                         "paused_by_system": False,
+                        "paused_by": "",
                         "bodyguard_breach_count": 0
                     },
                     "$unset": {
                         "pause_reason": "",
                         "bodyguard_pause_threshold": "",
                         "bodyguard_pause_drawdown": "",
-                        "bodyguard_last_breach_at": ""
+                        "bodyguard_last_breach_at": "",
+                        "paused_at": ""
                     }
                 }
             )

@@ -109,6 +109,47 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         bodyguard_reason = bodyguard_reasons[0] if bodyguard_reasons else None
         quarantine_reason = quarantine_reasons[0] if quarantine_reasons else None
 
+        from services.bodyguard_service import bodyguard_service
+        from services.ledger_service import get_ledger_service
+        bot_risk_status = []
+        for bot in bots:
+            bot_id = bot.get("id")
+            if not bot_id:
+                continue
+            drawdown_status = await bodyguard_service.get_bot_drawdown_status(bot_id)
+            if not drawdown_status:
+                continue
+            daily_pnl = 0.0
+            daily_loss_pct = 0.0
+            try:
+                if db.db is not None:
+                    ledger = get_ledger_service(db.db)
+                    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                    realized = await ledger.compute_realized_pnl(bot_id=bot_id, since=today_start)
+                    fees = await ledger.compute_fees_paid(bot_id=bot_id, since=today_start)
+                    daily_pnl = realized - fees
+                    equity = float(drawdown_status.get("current_capital") or 0)
+                    if daily_pnl < 0 and equity > 0:
+                        daily_loss_pct = abs(daily_pnl) / equity * 100
+            except Exception as e:
+                logger.warning(f"Risk status daily pnl fallback: {e}")
+
+            threshold = drawdown_status.get("threshold", 0)
+            current_drawdown = drawdown_status.get("current_drawdown_pct", 0)
+            bot_risk_status.append({
+                "bot_id": bot_id,
+                "bot_name": drawdown_status.get("bot_name"),
+                "risk_mode": drawdown_status.get("risk_mode"),
+                "drawdown_pct": current_drawdown,
+                "daily_pnl": round(daily_pnl, 2),
+                "daily_loss_pct": round(daily_loss_pct, 2),
+                "threshold": threshold,
+                "would_pause": current_drawdown >= threshold,
+                "paused_by_bodyguard": drawdown_status.get("paused_by_bodyguard", False),
+                "pause_reason": drawdown_status.get("pause_reason"),
+                "last_decision_time": bot.get("bodyguard_last_pause_at") or bot.get("bodyguard_last_breach_at")
+            })
+
         return {
             "daily_loss_lock": {
                 "active": daily_loss_active,
@@ -142,6 +183,10 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "remaining_seconds": quarantine_remaining_seconds,
                 "bot_ids": [bot.get("id") for bot in quarantined_bots],
                 "next_action": "Wait for retraining to complete" if quarantined_bots else None,
+            },
+            "bot_risk": {
+                "primary_trigger": "drawdown",
+                "bots": bot_risk_status,
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

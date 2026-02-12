@@ -100,6 +100,7 @@ class BotCreate(BaseModel):
     risk_mode: BotRiskMode
     trading_mode: TradingMode = TradingMode.PAPER
     initial_capital: float = 0
+    strategy_preset: Optional[str] = None
     
     @model_validator(mode='after')
     def validate_platform(self):
@@ -175,6 +176,10 @@ class Trade(BaseModel):
     fee_amount: Optional[float] = None  # Actual fee charged in quote currency
     gross_pnl: Optional[float] = None  # PnL before fees
     net_pnl: Optional[float] = None  # PnL after fees (same as profit_loss for compatibility)
+    fee_paid: Optional[float] = None  # Total fees paid for trade
+    slippage: Optional[float] = None  # Slippage cost applied
+    realized_pnl: Optional[float] = None  # Realized PnL after fees/slippage
+    trade_close_reason: Optional[str] = None
 
 # Learning Data Models
 class LearningData(BaseModel):

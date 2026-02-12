@@ -967,7 +967,7 @@ class PaperTradingEngine:
 
             avg_entry_price = entry_value / crypto_amount
             avg_exit_price = exit_value / crypto_amount
-            gross_profit = exit_value - entry_value
+            from utils.trade_utils import calculate_trade_pnl
             profit_pct = ((avg_exit_price - avg_entry_price) / avg_entry_price) * 100
 
             # 3. SIMULATE REAL FEES - exchange-specific rates
@@ -979,9 +979,11 @@ class PaperTradingEngine:
 
             # 4. SLIPPAGE COST ESTIMATE
             slippage_cost = (entry_value + exit_value) * slippage_rate
-
+            
             # Recalculate with realistic factors
-            net_profit = gross_profit - fees - slippage_cost
+            pnl_result = calculate_trade_pnl(entry_value, exit_value, fees, slippage_cost)
+            gross_profit = pnl_result["gross_profit"]
+            net_profit = pnl_result["net_profit"]
             
             # P&L SANITY CHECK - Validate trade is realistic
             if not validate_trade_pnl(net_profit, current_capital):
@@ -1030,11 +1032,14 @@ class PaperTradingEngine:
                 "trade_amount": round(trade_amount, 2),
                 "gross_profit": round(gross_profit, 2),
                 "fees": round(fees, 2),
+                "fee_paid": round(fees, 2),
                 "fee_currency": fee_currency,
                 "slippage_cost": round(slippage_cost, 2),
+                "slippage": round(slippage_cost, 2),
                 "profit_loss": round(net_profit, 2),  # NET profit after fees
                 "net_profit": round(net_profit, 2),  # Same as profit_loss (after fees)
                 "net_profit_zar": round(net_profit, 2),
+                "realized_pnl": round(net_profit, 2),
                 "is_paper": True,  # CRITICAL: Mark as paper trade
                 "profit_pct": round(profit_pct, 3),
                 "is_profitable": is_profitable,
@@ -1042,6 +1047,7 @@ class PaperTradingEngine:
                 "quality_score": quality_score,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trade_type": "BUY->SELL",
+                "trade_close_reason": "paper_cycle",
                 "data_source": data_source,  # Use determined data source
                 "fee_rate": round(fee_rate * 100, 3),  # Display as percentage
                 "slippage_rate": round(slippage_rate * 100, 4),  # Display slippage as percentage
@@ -1147,7 +1153,8 @@ class PaperTradingEngine:
                     entry_fills = trade_result.get("entry_fills", [])
                     exit_fills = trade_result.get("exit_fills", [])
                     fee_currency = trade_result.get("fee_currency", currency)
-                    fee_split = trade_result.get("fees", 0) / max(len(entry_fills + exit_fills), 1)
+                    fee_total = trade_result.get("fees", 0) + trade_result.get("slippage_cost", 0)
+                    cost_per_fill = fee_total / max(len(entry_fills + exit_fills), 1)
                     for idx, fill in enumerate(entry_fills):
                         await ledger.append_fill(
                             user_id=bot_data['user_id'],
@@ -1157,7 +1164,7 @@ class PaperTradingEngine:
                             side="buy",
                             qty=fill.get("qty", 0),
                             price=fill.get("price", 0),
-                            fee=fee_split,
+                            fee=cost_per_fill,
                             fee_currency=fee_currency,
                             timestamp=fill.get("timestamp"),
                             order_id=f"{trade_id}-buy-{idx}",
@@ -1178,7 +1185,7 @@ class PaperTradingEngine:
                             side="sell",
                             qty=fill.get("qty", 0),
                             price=fill.get("price", 0),
-                            fee=fee_split,
+                            fee=cost_per_fill,
                             fee_currency=fee_currency,
                             timestamp=fill.get("timestamp"),
                             order_id=f"{trade_id}-sell-{idx}",
@@ -1223,6 +1230,8 @@ class PaperTradingEngine:
             total_profit = new_capital - fresh_bot['initial_capital']
             
             # Update bot with calculated values
+            from utils.trade_utils import classify_trade_outcome
+            outcome = classify_trade_outcome(net_profit)
             await bots_collection.update_one(
                 {"id": bot_id},
                 {
@@ -1232,7 +1241,11 @@ class PaperTradingEngine:
                         "last_trade": datetime.now(timezone.utc).isoformat(),
                         "status": "active"
                     },
-                    "$inc": {"trades_count": 1}
+                    "$inc": {
+                        "trades_count": 1,
+                        "win_count": outcome["win_count"],
+                        "loss_count": outcome["loss_count"]
+                    }
                 }
             )
             
@@ -1280,6 +1293,10 @@ class PaperTradingEngine:
                     "fee_amount": round(fees, 2),  # Total fees charged
                     "gross_pnl": round(gross_profit, 2),  # PnL before fees
                     "net_pnl": round(net_profit, 2),  # PnL after fees
+                    "trade_close_reason": trade_result.get("trade_close_reason", "paper_cycle"),
+                    "realized_pnl": round(net_profit, 2),
+                    "fee_paid": round(fees, 2),
+                    "slippage": round(trade_result.get("slippage_cost", 0), 2),
                     "trading_mode": "paper",  # Explicitly mark as paper trade
                     "paper_wallet_balance": round(new_capital, 2)  # Include paper wallet balance
                 },

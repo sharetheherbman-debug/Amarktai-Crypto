@@ -380,6 +380,11 @@ class TradingScheduler:
             from uuid import uuid4
             from utils.trade_utils import build_trade_record
 
+            entry_price = trade_result.get('entry_price', trade_result.get('price', 0))
+            exit_price = trade_result.get('exit_price')
+            if exit_price is None:
+                logger.error("Live trade missing exit_price; defaulting to entry_price for bot %s", bot['id'])
+                exit_price = entry_price
             trade_doc = build_trade_record(
                 {
                     "id": str(uuid4()),
@@ -387,7 +392,8 @@ class TradingScheduler:
                     "user_id": bot['user_id'],
                     "pair": pair,
                     "side": side,
-                    "entry_price": trade_result.get('price', 0),
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
                     "amount": trade_result.get('amount', 0),
                     "profit_loss": trade_result.get('net_profit', 0),
                     "is_paper": False,
@@ -395,7 +401,10 @@ class TradingScheduler:
                     "exchange": exchange,
                     "trading_mode": "live",
                     "is_live": True,
-                    "exchange_order_id": trade_result.get("order_id") or trade_result.get("id")
+                    "exchange_order_id": trade_result.get("order_id") or trade_result.get("id"),
+                    "trade_close_reason": "live_fill",
+                    "realized_pnl": trade_result.get("net_profit", 0),
+                    "fee_paid": trade_result.get("fees", trade_result.get("fee", 0))
                 },
                 user_id=bot['user_id'],
                 bot=bot
@@ -404,8 +413,10 @@ class TradingScheduler:
             await db.trades_collection.insert_one(trade_doc)
             
             # Update bot stats
-            new_capital = capital + trade_result.get('net_profit', 0)
-            is_win = trade_result.get('net_profit', 0) > 0
+            from utils.trade_utils import classify_trade_outcome
+            net_profit = trade_result.get('net_profit', 0)
+            new_capital = capital + net_profit
+            outcome = classify_trade_outcome(net_profit)
             
             await db.bots_collection.update_one(
                 {"id": bot['id']},
@@ -415,10 +426,10 @@ class TradingScheduler:
                         "last_trade_time": datetime.now(timezone.utc).isoformat()
                     },
                     "$inc": {
-                        "total_profit": trade_result.get('net_profit', 0),
+                        "total_profit": net_profit,
                         "trades_count": 1,
-                        "win_count": 1 if is_win else 0,
-                        "loss_count": 0 if is_win else 1
+                        "win_count": outcome["win_count"],
+                        "loss_count": outcome["loss_count"]
                     }
                 }
             )

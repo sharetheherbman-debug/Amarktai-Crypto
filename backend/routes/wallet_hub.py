@@ -20,6 +20,7 @@ from realtime_events import manager
 from config.platforms import SUPPORTED_PLATFORMS
 from services.transfer_state_machine import transfer_state_machine
 from services.paper_wallet_service import paper_wallet_service
+from services.system_mode_service import system_mode_service
 from engines.wallet_manager import wallet_manager
 
 logger = logging.getLogger(__name__)
@@ -160,12 +161,33 @@ async def deposit_paper_wallet(
     if request.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     result = await paper_wallet_service.deposit(user_id, request.amount, request.currency)
+    try:
+        await db.audit_logs_collection.insert_one({
+            "user_id": user_id,
+            "action": "paper_wallet_topup",
+            "details": {
+                "amount": request.amount,
+                "currency": request.currency.upper()
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        logger.warning(f"Paper wallet topup audit failed: {e}")
     return {
         "success": True,
         "balances": result.get("balances", {}),
         "total": result.get("total", 0),
         "currency": request.currency.upper()
     }
+
+
+@router.post("/paper/topup")
+async def topup_paper_wallet(
+    request: PaperDepositRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Top up paper wallet (alias for deposit for backward compatibility)."""
+    return await deposit_paper_wallet(request, user_id)
 
 
 @router.post("/paper/reset")
@@ -180,6 +202,27 @@ async def reset_paper_wallet(
         "success": True,
         "balances": result.get("balances", {}),
         "total": result.get("total", 0)
+    }
+
+
+@router.get("/live")
+async def get_live_wallet(user_id: str = Depends(get_current_user)):
+    """Get live wallet balances when live mode is enabled."""
+    mode = await system_mode_service.get_current_mode(user_id)
+    if mode != "live":
+        raise HTTPException(
+            status_code=400,
+            detail="Live wallet unavailable while live trading is disabled. Enable live mode first."
+        )
+    master_balance = await wallet_manager.get_master_balance(user_id)
+    if master_balance.get("error"):
+        raise HTTPException(status_code=400, detail=master_balance.get("error"))
+    exchange_balances = await wallet_manager.get_all_balances(user_id)
+    return {
+        "success": True,
+        "master_wallet": master_balance,
+        "exchanges": exchange_balances,
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 

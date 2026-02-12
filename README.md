@@ -209,6 +209,17 @@ export AMK_ADMIN_PASSWORD="admin-password"
 ./scripts/smoke_ai_chat.sh http://127.0.0.1:8000
 ```
 
+### **Go Live Audit (Paper Mode)** 🆕
+Run the single-command audit (backend checks + frontend build). Requires login credentials:
+
+```bash
+export AMARKTAI_EMAIL="user@example.com"
+export AMARKTAI_PASSWORD="your-password"
+export BASE_URL="http://127.0.0.1:8000"
+
+./scripts/go_live_audit.sh
+```
+
 ### **Audit & Parity Verification**
 Generate machine-checkable inventories and verify frontend/backend parity:
 

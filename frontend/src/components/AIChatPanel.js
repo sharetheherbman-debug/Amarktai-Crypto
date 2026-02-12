@@ -307,9 +307,20 @@ const AIChatPanel = ({ onAdminUnlock }) => {
         return;
       }
 
+      const replyContent = data?.content || data?.message || data?.response || data?.reply;
+      if (!replyContent) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '⚠️ AI returned an empty response. Please try again.',
+          timestamp: data?.timestamp || new Date().toISOString(),
+          error: true
+        }]);
+        return;
+      }
+
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.content,
+        content: replyContent,
         timestamp: data.timestamp
       }]);
 
