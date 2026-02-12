@@ -306,8 +306,8 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
             exchange_counts[exchange] = len([b for b in enriched_bots if b.get('exchange') == exchange])
         return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
-    except Exception as e:
-        logger.exception("Get bots status error for user %s: %s", user_id, e)
+    except Exception:
+        logger.exception("Get bots status error for user %s", user_id)
         exchange_counts = {exchange: 0 for exchange in all_exchanges}
         return _bots_status_payload([], exchange_counts, all_exchanges)
 
