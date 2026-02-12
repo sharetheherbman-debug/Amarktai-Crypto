@@ -49,7 +49,16 @@ login_response=$(curl -fsS -X POST "$BASE_URL/api/auth/login" \
   -H "Content-Type: application/json" \
   -d "{\"email\": \"${EMAIL}\", \"password\": \"${PASSWORD}\"}")
 
-token=$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read() or "{}"); print(data.get("access_token",""))' <<<"$login_response")
+extract_json_field() {
+  python3 - <<'PY'
+import json, sys
+field = sys.argv[1]
+data = json.loads(sys.stdin.read() or "{}")
+print(data.get(field, ""))
+PY
+}
+
+token=$(extract_json_field "access_token" <<<"$login_response")
 
 if [ -z "$token" ]; then
   log_fail "Login failed (no access_token)"
@@ -88,7 +97,15 @@ done
 
 echo "Testing AI chat response..."
 ai_response=$(auth_post "/api/ai/chat" "{\"message\": \"Audit ping\", \"context\": \"audit\"}" || true)
-ai_content=$(python3 -c 'import json,sys\ntry:\n    data=json.loads(sys.stdin.read() or \"{}\")\n    print(data.get(\"content\", \"\") or data.get(\"message\", \"\") or \"\")\nexcept Exception:\n    print(\"\")' <<<"$ai_response")
+ai_content=$(python3 - <<'PY'
+import json, sys
+try:
+    data = json.loads(sys.stdin.read() or "{}")
+    print(data.get("content", "") or data.get("message", "") or "")
+except Exception:
+    print("")
+PY
+<<<"$ai_response")
 
 if [ -n "$ai_content" ]; then
   log_pass "AI chat returned content"

@@ -383,7 +383,7 @@ class TradingScheduler:
             entry_price = trade_result.get('entry_price', trade_result.get('price', 0))
             exit_price = trade_result.get('exit_price')
             if exit_price is None:
-                logger.warning("Live trade missing exit_price; defaulting to entry_price for bot %s", bot['id'])
+                logger.error("Live trade missing exit_price; defaulting to entry_price for bot %s", bot['id'])
                 exit_price = entry_price
             trade_doc = build_trade_record(
                 {

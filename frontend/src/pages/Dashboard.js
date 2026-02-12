@@ -1758,7 +1758,9 @@ export default function Dashboard() {
     const budget = parseInt(e.target['bot-budget'].value);
     const exchange = e.target['bot-exchange'].value;
     const riskMode = e.target['bot-risk'].value;
-    const strategyPreset = e.target['bot-strategy']?.value || 'adaptive';
+    const allowedPresets = ['adaptive', 'trend', 'mean_reversion', 'scalping'];
+    const selectedPreset = e.target['bot-strategy']?.value || 'adaptive';
+    const strategyPreset = allowedPresets.includes(selectedPreset) ? selectedPreset : 'adaptive';
     
     if (!name) {
       showNotification('Please enter a bot name', 'error');
