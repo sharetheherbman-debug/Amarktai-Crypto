@@ -6,7 +6,7 @@ This document provides the Nginx configuration required to properly proxy WebSoc
 
 ## WebSocket Endpoint
 
-The application exposes a WebSocket endpoint at `/api/ws` that requires special Nginx configuration to handle the WebSocket protocol upgrade.
+The application exposes a primary WebSocket endpoint at `/api/ws` and a decision-trace socket at `/ws/decisions` that require special Nginx configuration to handle the WebSocket protocol upgrade.
 
 ## Nginx Configuration
 
@@ -30,6 +30,24 @@ location /api/ws {
     proxy_send_timeout 86400s;
     
     # Disable buffering for WebSocket
+    proxy_buffering off;
+}
+```
+
+### Decision Trace WebSocket
+
+```nginx
+location /ws/ {
+    proxy_pass http://backend;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400s;
+    proxy_send_timeout 86400s;
     proxy_buffering off;
 }
 ```

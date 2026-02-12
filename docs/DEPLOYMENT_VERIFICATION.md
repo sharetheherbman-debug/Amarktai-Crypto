@@ -80,6 +80,28 @@ curl https://your-domain.com/api/overview \
 # Expected: {"data_source": "accounting_service", "net_realised_pnl_zar": ..., ...}
 ```
 
+### Step 3b: Verify Nginx Proxy Paths (local)
+
+These checks confirm Nginx proxies `/api/*` to the backend at `http://127.0.0.1:8000` and returns HTTP 200.
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"your@email.com","password":"yourpassword"}' \
+  | jq -r '.access_token')
+
+# AI chat via nginx (expects 200)
+curl -i -X POST http://127.0.0.1/api/ai/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"AI_CHAT_OK","context":"nginx"}'
+
+# Additional proxy checks (expects 200)
+curl -i http://127.0.0.1/api/system/status -H "Authorization: Bearer $TOKEN"
+curl -i http://127.0.0.1/api/keys/status -H "Authorization: Bearer $TOKEN"
+curl -i http://127.0.0.1/api/wallet/requirements -H "Authorization: Bearer $TOKEN"
+```
+
 ### Step 4: Run Automated Smoke Tests
 
 ```bash
