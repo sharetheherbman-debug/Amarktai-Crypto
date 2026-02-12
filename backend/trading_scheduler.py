@@ -411,6 +411,12 @@ class TradingScheduler:
             )
             
             await db.trades_collection.insert_one(trade_doc)
+
+            try:
+                from services.realtime_service import realtime_service
+                await realtime_service.broadcast_trade_execution(bot['user_id'], trade_doc)
+            except Exception as e:
+                logger.warning(f"Realtime trade broadcast failed: {e}")
             
             # Update bot stats
             from utils.trade_utils import classify_trade_outcome

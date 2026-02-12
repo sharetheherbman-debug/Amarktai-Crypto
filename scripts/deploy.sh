@@ -23,6 +23,11 @@ FRONTEND_DIR="./frontend"
 BUILD_DIR="$FRONTEND_DIR/build"
 WEB_ROOT="${WEB_ROOT:-/var/www/html/amarktai}"
 NGINX_SERVICE="${NGINX_SERVICE:-nginx}"
+RUN_USER="${SUDO_USER:-$(whoami)}"
+NODE_CMD_PREFIX=""
+if [ "$(id -u)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+    NODE_CMD_PREFIX="sudo -u ${RUN_USER}"
+fi
 
 echo "📋 Configuration:"
 echo "  Frontend Dir: $FRONTEND_DIR"
@@ -50,7 +55,7 @@ fi
 # Step 2: Install dependencies
 echo ""
 echo "📦 Step 2: Installing dependencies..."
-npm ci --prefer-offline --no-audit
+$NODE_CMD_PREFIX npm ci --prefer-offline --no-audit
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ FAIL: npm ci failed${NC}"
@@ -61,7 +66,7 @@ echo -e "${GREEN}✓ Dependencies installed${NC}"
 # Step 3: Build frontend
 echo ""
 echo "🔨 Step 3: Building frontend..."
-npm run build
+$NODE_CMD_PREFIX npm run build
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ FAIL: Build failed${NC}"
@@ -124,6 +129,7 @@ echo -e "${GREEN}✓ Permissions set${NC}"
 # Step 8: Reload nginx
 echo ""
 echo "🔄 Step 8: Reloading nginx..."
+sudo nginx -t
 if command -v systemctl &> /dev/null; then
     sudo systemctl reload "$NGINX_SERVICE"
     if [ $? -eq 0 ]; then

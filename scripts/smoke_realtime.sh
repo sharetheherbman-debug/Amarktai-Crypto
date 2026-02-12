@@ -37,15 +37,35 @@ fi
 
 WS_URL="${WS_BASE}/api/ws?token=${TOKEN}"
 
+echo "🔍 Checking /api/prices/live change_24h..."
+prices_response=$(curl -s "$API_URL/api/prices/live" -H "Authorization: Bearer ${TOKEN}")
+non_zero_change=$(echo "$prices_response" | jq '[.[] | .change_24h] | any(. != 0)')
+if [ "$non_zero_change" != "true" ]; then
+  echo "❌ change_24h appears to be zero for all pairs"
+  echo "$prices_response"
+  exit 1
+fi
+echo "✅ change_24h looks non-zero"
+
+echo "🔍 Checking /api/flokx/status..."
+curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/flokx/status" -H "Authorization: Bearer ${TOKEN}" | grep -q "200"
+echo "✅ /api/flokx/status OK"
+
+echo "🔍 Checking /api/diagnostics/websocket..."
+curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/diagnostics/websocket" -H "Authorization: Bearer ${TOKEN}" | grep -q "200"
+echo "✅ /api/diagnostics/websocket OK"
+
 if [ "${AMARKTAI_WS_INSECURE:-}" = "1" ]; then
   echo "Warning: AMARKTAI_WS_INSECURE=1 disables TLS verification for tests only."
 fi
 
 python3 - "$WS_URL" <<'PY'
 import asyncio
+import json
 import os
 import ssl
 import sys
+import time
 
 import websockets
 
@@ -59,8 +79,28 @@ if uri.startswith("wss://") and os.getenv("AMARKTAI_WS_INSECURE") == "1":
 
 async def run():
     async with websockets.connect(uri, open_timeout=10, ssl=ssl_context) as ws:
-        message = await asyncio.wait_for(ws.recv(), timeout=10)
-        print(message)
+        got_heartbeat = False
+        got_prices = False
+        deadline = time.time() + 10
+
+        while time.time() < deadline and not (got_heartbeat and got_prices):
+            timeout = max(deadline - time.time(), 0.1)
+            message = await asyncio.wait_for(ws.recv(), timeout=timeout)
+            print(message)
+            data = json.loads(message)
+            event_type = data.get("type")
+            if event_type in ("heartbeat", "ping"):
+                got_heartbeat = True
+            if event_type == "prices_update":
+                got_prices = True
+
+        if not got_heartbeat or not got_prices:
+            missing = []
+            if not got_heartbeat:
+                missing.append("heartbeat")
+            if not got_prices:
+                missing.append("prices_update")
+            raise RuntimeError(f"Missing realtime events: {', '.join(missing)}")
 
 
 try:

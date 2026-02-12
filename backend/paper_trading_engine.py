@@ -1311,6 +1311,12 @@ class PaperTradingEngine:
             
             await trades_collection.insert_one(trade_doc)
             logger.info(f"✅ Trade inserted: id={trade_id}, profit={trade_result['profit_loss']:.2f}, paper_balance=R{new_capital:.2f}")
+
+            try:
+                from services.realtime_service import realtime_service
+                await realtime_service.broadcast_trade_execution(bot_data['user_id'], trade_doc)
+            except Exception as e:
+                logger.warning(f"Realtime trade broadcast failed: {e}")
             
             return {
                 "bot_id": bot_id,

@@ -109,6 +109,7 @@ npm ci || error "Failed to install Node dependencies"
 success "Node dependencies installed"
 
 step "Building frontend"
+rm -rf build
 npm run build || error "Frontend build failed"
 success "Frontend built successfully"
 
@@ -129,6 +130,7 @@ fi
 success "amarktai-api service is active"
 
 step "Reloading nginx"
+sudo nginx -t
 sudo systemctl reload nginx || warning "Failed to reload nginx (may not be critical)"
 success "nginx reloaded"
 

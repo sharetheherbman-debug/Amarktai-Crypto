@@ -48,6 +48,9 @@ class LifecycleManager:
             'enable_ccxt': env_bool('ENABLE_CCXT', True),
             'enable_schedulers': env_bool('ENABLE_SCHEDULERS', False),
             'disable_ai_bodyguard': env_bool('DISABLE_AI_BODYGUARD', False),
+            'enable_realtime': env_bool('ENABLE_REALTIME', True),
+            'enable_learning_loop': env_bool('ENABLE_LEARNING_LOOP', False),
+            'enable_daily_reports': env_bool('ENABLE_DAILY_REPORTS', False),
         }
         logger.info(f"🎚️ Feature flags: {self.feature_flags}")
         
@@ -111,6 +114,30 @@ class LifecycleManager:
                 instance_name="memory_manager",
                 start_method="run_maintenance",
                 enabled_flag="enable_schedulers",
+                create_task=True
+            ),
+            # Realtime Broadcaster
+            SubsystemDefinition(
+                name="Realtime Broadcaster",
+                module_path="services.realtime_broadcaster",
+                instance_name="realtime_broadcaster",
+                enabled_flag="enable_realtime",
+                create_task=True
+            ),
+            # Learning Loop Scheduler
+            SubsystemDefinition(
+                name="Learning Loop Scheduler",
+                module_path="services.learning_loop",
+                instance_name="learning_loop",
+                enabled_flag="enable_learning_loop",
+                create_task=True
+            ),
+            # Daily Admin Reports
+            SubsystemDefinition(
+                name="Daily Admin Reports",
+                module_path="services.daily_admin_report",
+                instance_name="daily_admin_reporter",
+                enabled_flag="enable_daily_reports",
                 create_task=True
             ),
             # Trading Scheduler

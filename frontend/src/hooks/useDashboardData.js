@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../lib/api.js';
 import { formatTimestamp } from '../lib/dateUtils.js';
+import realtimeClient from '../lib/realtime';
 
 const API = API_BASE;
 
@@ -69,6 +70,7 @@ export const useDashboardData = (token) => {
     'XRP/ZAR': { price: 0, change: 0 }
   });
   const [profitData, setProfitData] = useState(null);
+  const [systemStatus, setSystemStatus] = useState(null);
 
   const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
 
@@ -117,6 +119,15 @@ export const useDashboardData = (token) => {
       });
     } catch (err) {
       console.error('System modes fetch error:', err);
+    }
+  }, [token]);
+
+  const loadSystemStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/system/status`, axiosConfig);
+      setSystemStatus(res.data);
+    } catch (err) {
+      console.error('System status fetch error:', err);
     }
   }, [token]);
 
@@ -190,7 +201,72 @@ export const useDashboardData = (token) => {
     loadRecentTrades();
     loadCountdown();
     loadLivePrices();
-  }, [loadBots, loadMetrics, loadSystemModes, loadRecentTrades, loadCountdown, loadLivePrices]);
+    loadSystemStatus();
+  }, [loadBots, loadMetrics, loadSystemModes, loadRecentTrades, loadCountdown, loadLivePrices, loadSystemStatus]);
+
+  useEffect(() => {
+    if (!token) return;
+    const intervalMs = 4000;
+    loadLivePrices();
+    loadMetrics();
+    loadSystemStatus();
+    const interval = setInterval(() => {
+      loadLivePrices();
+      loadMetrics();
+      loadSystemStatus();
+    }, intervalMs);
+    return () => clearInterval(interval);
+  }, [token, loadLivePrices, loadMetrics, loadSystemStatus]);
+
+  useEffect(() => {
+    if (!token) return;
+    realtimeClient.connect(token);
+    const unsubscribePrices = realtimeClient.on('prices_update', (payload) => {
+      const pricesPayload = payload?.prices || payload?.data?.prices || payload?.data;
+      const normalized = normalizeLivePrices(pricesPayload, null);
+      if (normalized) {
+        setLivePrices(prev => ({ ...prev, ...normalized }));
+      }
+    });
+
+    const unsubscribeOverview = realtimeClient.on('overview_update', (payload) => {
+      const overview = payload?.overview || payload?.data?.overview;
+      if (!overview) return;
+      const totalBots = (overview.bots_active || 0) + (overview.bots_paused || 0) + (overview.bots_training || 0) + (overview.bots_quarantine || 0);
+      setMetrics({
+        totalProfit: `R${overview.total_profit?.toFixed(2) || '0.00'}`,
+        activeBots: `${overview.bots_active || 0} / ${totalBots}`,
+        exposure: `${overview.exposure?.toFixed?.(2) || '0'}%`,
+        riskLevel: overview.risk_level || 'Unknown',
+        aiSentiment: overview.ai_sentiment || 'Neutral',
+        lastUpdate: formatTimestamp(new Date(), { includeDate: false })
+      });
+    });
+
+    const unsubscribeBots = realtimeClient.on('bots_update', (payload) => {
+      let botsPayload = payload?.bots || payload?.data?.bots;
+      if (!botsPayload && payload?.data?.bot) {
+        botsPayload = [payload.data.bot];
+      }
+      if (Array.isArray(botsPayload)) {
+        setBots(botsPayload);
+      }
+    });
+
+    const unsubscribeTrades = realtimeClient.on('trades_update', (payload) => {
+      const tradesPayload = payload?.trades || payload?.data?.trades;
+      if (Array.isArray(tradesPayload)) {
+        setRecentTrades(tradesPayload);
+      }
+    });
+
+    return () => {
+      unsubscribePrices();
+      unsubscribeOverview();
+      unsubscribeBots();
+      unsubscribeTrades();
+    };
+  }, [token]);
 
   return {
     user,
@@ -202,6 +278,7 @@ export const useDashboardData = (token) => {
     countdown,
     livePrices,
     profitData,
+    systemStatus,
     setUser,
     setBots,
     setMetrics,
@@ -211,6 +288,7 @@ export const useDashboardData = (token) => {
     setCountdown,
     setLivePrices,
     setProfitData,
+    setSystemStatus,
     loadUser,
     loadBots,
     loadMetrics,
@@ -220,6 +298,7 @@ export const useDashboardData = (token) => {
     loadCountdown,
     loadLivePrices,
     loadProfitData,
+    loadSystemStatus,
     refreshAll
   };
 };

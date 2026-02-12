@@ -142,14 +142,32 @@ async def get_countdown_status(
         user_id = current_user
         
         # Get current equity
-        current_equity = await ledger.compute_equity(user_id)
+        current_equity = await ledger.compute_equity(user_id, currency="ZAR")
+
+        # Total trades from ledger (paper + live)
+        stats = await ledger.get_stats(user_id)
+        trades_total = stats.get("total_fills", 0)
+
+        if trades_total < 10:
+            remaining_trades = 10 - trades_total
+            return {
+                "ready": False,
+                "message": "Need at least 10 trades",
+                "trades_remaining": remaining_trades,
+                "trades_total": trades_total,
+                "current_equity": round(current_equity, 2),
+                "target": target,
+                "remaining": round(target - current_equity, 2),
+                "progress_pct": round((current_equity / target * 100), 2) if target > 0 else 0,
+                "data_source": "ledger",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
         
         # Get 30-day profit series to calculate average
         series = await ledger.profit_series(user_id, period="daily", limit=30)
         
         # Calculate average daily profit from series
         if series:
-            # Sum net profits
             total_net_profit = sum(day.get("net_profit", 0) for day in series)
             avg_daily_profit = total_net_profit / len(series)
         else:
@@ -176,6 +194,7 @@ async def get_countdown_status(
             days_to_target_compound = None
         
         return {
+            "ready": True,
             "current_equity": round(current_equity, 2),
             "target": target,
             "remaining": round(remaining, 2),
@@ -183,6 +202,7 @@ async def get_countdown_status(
             "avg_daily_profit_30d": round(avg_daily_profit, 2),
             "days_to_target_linear": round(days_to_target_linear, 0) if days_to_target_linear else None,
             "days_to_target_compound": round(days_to_target_compound, 0) if days_to_target_compound else None,
+            "trades_total": trades_total,
             "data_source": "ledger",
             "phase": "1_read_only"
         }

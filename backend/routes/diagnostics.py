@@ -718,6 +718,47 @@ async def get_realtime_status(user_id: str = Depends(get_current_user)):
         logger.error(f"Realtime status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/websocket")
+async def websocket_diagnostics(user_id: str = Depends(get_current_user)):
+    """Get WebSocket diagnostics and configuration."""
+    try:
+        import os
+        from utils.env_utils import env_bool
+
+        public_ws = os.getenv("PUBLIC_WS_URL")
+        public_api = os.getenv("PUBLIC_API_URL")
+        ws_url = public_ws
+
+        if not ws_url and public_api:
+            if public_api.startswith("https://"):
+                ws_url = public_api.replace("https://", "wss://")
+            elif public_api.startswith("http://"):
+                ws_url = public_api.replace("http://", "ws://")
+
+        if not ws_url:
+            host = os.getenv("HOST", "127.0.0.1")
+            port = os.getenv("PORT", "8000")
+            ws_url = f"ws://{host}:{port}"
+
+        user_connections = len(manager.active_connections.get(user_id, []))
+        total_connections = sum(len(conns) for conns in manager.active_connections.values())
+        last_event = getattr(manager, "last_event", None)
+
+        return {
+            "success": True,
+            "ws_url": f"{ws_url}/api/ws",
+            "enabled": env_bool("ENABLE_REALTIME", True),
+            "connections": {
+                "user": user_connections,
+                "total": total_connections
+            },
+            "last_event_time": last_event.get("timestamp") if last_event else None,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"WebSocket diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/accounting")
 async def get_accounting_diagnostics(user_id: str = Depends(get_current_user)):

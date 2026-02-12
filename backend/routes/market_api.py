@@ -26,7 +26,8 @@ async def get_market_prices(user_id: str = Depends(get_current_user)):
     Returns:
         Dict with prices for each pair including:
         - price: Current price
-        - change_pct: 24h change percentage
+        - change_24h: 24h change percentage (fallback to most recent snapshot)
+        - change_pct: Alias for change_24h
         - timestamp: When price was fetched
         - source: "luno_authenticated", "luno_public", or "unavailable"
     """
@@ -43,12 +44,13 @@ async def get_market_prices(user_id: str = Depends(get_current_user)):
         
         for luno_pair, display_pair in zip(pairs, display_pairs):
             try:
-                price_data = await _fetch_luno_ticker(luno_pair, api_key)
+                price_data = await _fetch_luno_ticker(luno_pair, display_pair, api_key)
                 prices[display_pair] = price_data
             except Exception as e:
                 logger.warning(f"Failed to fetch {display_pair} price: {e}")
                 prices[display_pair] = {
                     "price": 0.0,
+                    "change_24h": 0.0,
                     "change_pct": 0.0,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "source": "unavailable"
@@ -64,7 +66,7 @@ async def get_market_prices(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _fetch_luno_ticker(pair: str, api_key: Optional[Dict] = None) -> Dict:
+async def _fetch_luno_ticker(pair: str, display_pair: str, api_key: Optional[Dict] = None) -> Dict:
     """Fetch ticker data from Luno API
     
     Args:
@@ -72,7 +74,7 @@ async def _fetch_luno_ticker(pair: str, api_key: Optional[Dict] = None) -> Dict:
         api_key: Optional API key dict with api_key and api_secret
         
     Returns:
-        Dict with price, change_pct, timestamp, source
+        Dict with price, change_24h, change_pct, timestamp, source
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -94,14 +96,13 @@ async def _fetch_luno_ticker(pair: str, api_key: Optional[Dict] = None) -> Dict:
             # Parse response
             last_trade = float(data.get("last_trade", 0))
             
-            # Calculate 24h change from rolling_24_hour_volume if available
-            # Luno doesn't provide 24h change directly, so we'll use a simple heuristic
-            # Future Enhancement: Store previous prices and calculate actual 24h change
-            # Non-critical for core trading - tracked in backlog (see DEPLOYMENT_NOTES.md)
-            change_pct = 0.0
+            from services.price_snapshot_service import record_snapshot
+
+            change_pct, _window = await record_snapshot(display_pair, last_trade)
             
             return {
                 "price": round(last_trade, 2),
+                "change_24h": round(change_pct, 2),
                 "change_pct": round(change_pct, 2),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": source,

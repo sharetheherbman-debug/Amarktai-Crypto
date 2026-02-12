@@ -10,6 +10,11 @@ set -euo pipefail
 
 PROJECT_ROOT=$(dirname "$(readlink -f "$0")")/..
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+RUN_USER="${SUDO_USER:-$(whoami)}"
+NODE_CMD_PREFIX=""
+if [ "$(id -u)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+  NODE_CMD_PREFIX="sudo -u ${RUN_USER}"
+fi
 
 echo "⚛️ Building frontend in $FRONTEND_DIR"
 
@@ -21,21 +26,22 @@ if [ "$NODE_VERSION" -lt 20 ]; then
 fi
 
 cd "$FRONTEND_DIR"
+rm -rf build
 
 # Install dependencies using Yarn or npm
 if [ -f yarn.lock ]; then
   echo "📦 Installing dependencies with Yarn..."
-  yarn install --frozen-lockfile
+  $NODE_CMD_PREFIX yarn install --frozen-lockfile
 else
   echo "📦 Installing dependencies with npm..."
-  npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+  $NODE_CMD_PREFIX npm ci --legacy-peer-deps || $NODE_CMD_PREFIX npm install --legacy-peer-deps
 fi
 
 # Build the project
 if [ -f yarn.lock ]; then
-  yarn build
+  $NODE_CMD_PREFIX yarn build
 else
-  npm run build
+  $NODE_CMD_PREFIX npm run build
 fi
 
 echo "✅ Frontend build complete"

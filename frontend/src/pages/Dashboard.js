@@ -129,6 +129,7 @@ export default function Dashboard() {
   const [systemStats, setSystemStats] = useState(null);
   const [flokxAlerts, setFlokxAlerts] = useState([]);
   const [isFlokxActive, setIsFlokxActive] = useState(false);
+  const [flokxStatus, setFlokxStatus] = useState({ configured: false, last_error: null, last_tested_at: null });
   const [connectionStatus, setConnectionStatus] = useState({
     api: 'Disconnected',
     sse: 'Disconnected',
@@ -188,6 +189,7 @@ export default function Dashboard() {
   const [showPromotionModal, setShowPromotionModal] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
+  const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingBots, setLoadingBots] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
@@ -570,15 +572,21 @@ export default function Dashboard() {
 
   // Check Flokx status
   useEffect(() => {
-    if (apiKeys.flokx?.status === 'configured_valid') {
-      setIsFlokxActive(true);
+    if (!token) return undefined;
+    loadFlokxStatus();
+    const interval = setInterval(loadFlokxStatus, 30000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  useEffect(() => {
+    if (isFlokxActive) {
       loadFlokxAlerts();
       const interval = setInterval(loadFlokxAlerts, 30000);
       return () => clearInterval(interval);
     }
-    setIsFlokxActive(false);
+    setFlokxAlerts([]);
     return undefined;
-  }, [apiKeys.flokx?.status]);
+  }, [isFlokxActive]);
 
   const setupRealTimeConnections = () => {
     console.log('✅ Initializing WebSocket connection...');
@@ -708,6 +716,41 @@ export default function Dashboard() {
         const normalizedPrices = normalizeLivePrices(data.prices || data.payload, null);
         if (normalizedPrices) {
           setLivePrices(prev => ({ ...prev, ...normalizedPrices }));
+        }
+        break;
+      }
+      case 'prices_update': {
+        const normalizedPrices = normalizeLivePrices(data.data?.prices || data.prices, null);
+        if (normalizedPrices) {
+          setLivePrices(prev => ({ ...prev, ...normalizedPrices }));
+        }
+        break;
+      }
+      case 'overview_update': {
+        const overview = data.data?.overview || data.overview;
+        if (overview) {
+          const totalBots = safeNumber(overview.bots_active, 0) + safeNumber(overview.bots_paused, 0) + safeNumber(overview.bots_training, 0) + safeNumber(overview.bots_quarantine, 0);
+          setOverviewData(prev => ({ ...prev, ...overview }));
+          setMetrics(prev => ({
+            ...prev,
+            totalProfit: `R${safeNumber(overview.total_profit, 0).toFixed(2)}`,
+            activeBots: `${safeNumber(overview.bots_active, 0)} / ${totalBots}`,
+            lastUpdate: formatTimestamp(new Date(), { includeDate: false })
+          }));
+        }
+        break;
+      }
+      case 'bots_update': {
+        const botsPayload = data.data?.bots || data.bots;
+        if (Array.isArray(botsPayload)) {
+          setBots(botsPayload);
+        }
+        break;
+      }
+      case 'trades_update': {
+        const tradesPayload = data.data?.trades || data.trades;
+        if (Array.isArray(tradesPayload)) {
+          setRecentTrades(tradesPayload);
         }
         break;
       }
@@ -1431,6 +1474,38 @@ export default function Dashboard() {
       });
     }
   };
+
+  const loadFlokxStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/flokx/status`, axiosConfig);
+      const status = res.data || {};
+      setFlokxStatus(status);
+      setIsFlokxActive(Boolean(status.configured));
+    } catch (err) {
+      console.error('Flokx status error:', err);
+      setFlokxStatus({ configured: false, last_error: extractErrorMessage(err, 'Unavailable'), last_tested_at: null });
+      setIsFlokxActive(false);
+    }
+  };
+
+  const loadAdminHealth = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/admin/health-check`, axiosConfig);
+      setAdminApiHealth({
+        status: res.data?.health_status || 'Healthy',
+        lastCheck: new Date().toISOString(),
+        error: null
+      });
+    } catch (err) {
+      const errorMsg = extractErrorMessage(err, 'Admin health check failed');
+      setAdminApiHealth({
+        status: 'Error',
+        lastCheck: new Date().toISOString(),
+        error: errorMsg
+      });
+      toast.error(errorMsg);
+    }
+  }, [axiosConfig]);
 
   const loadFlokxAlerts = async () => {
     try {
@@ -2531,8 +2606,9 @@ export default function Dashboard() {
       loadStorageData();
       loadAdminUsers();
       loadAdminBots();
+      loadAdminHealth();
     }
-  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots]);
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth]);
 
   useEffect(() => {
     if (!showAdmin) return undefined;
@@ -2540,9 +2616,10 @@ export default function Dashboard() {
       loadSystemStats();
       loadAdminUsers();
       loadAdminBots();
+      loadAdminHealth();
     }, 15000);
     return () => clearInterval(interval);
-  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots]);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {
@@ -3990,6 +4067,30 @@ export default function Dashboard() {
       <section className="section active">
         <div className="card">
           <h2 style={{color: '#ffffff'}}>🔧 Admin Panel (God Mode)</h2>
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px', marginBottom: '24px'}}>
+            <div style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              background: adminApiHealth.status === 'Error'
+                ? 'var(--error)'
+                : adminApiHealth.status === 'Unknown'
+                  ? 'var(--line)'
+                  : 'var(--success)',
+              color: 'white',
+              fontSize: '0.8rem',
+              fontWeight: 600
+            }}>
+              Admin API: {adminApiHealth.status}
+            </div>
+            <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+              Last check: {adminApiHealth.lastCheck ? formatDate(adminApiHealth.lastCheck) : '—'}
+            </div>
+            {adminApiHealth.error && (
+              <div style={{fontSize: '0.75rem', color: 'var(--error)'}}>
+                {adminApiHealth.error}
+              </div>
+            )}
+          </div>
           
           {/* VPS Resource Summary */}
           {systemStats?.vps_resources && (
@@ -5412,6 +5513,11 @@ export default function Dashboard() {
                               <p style={{color: 'var(--muted)', marginBottom: '12px'}}>
                                 ⚠️ Flokx alerts are not active. Configure your Flokx API key in the API Setup section to enable real-time alerts.
                               </p>
+                              {flokxStatus.last_error && (
+                                <p style={{color: 'var(--error)', marginBottom: '12px', fontSize: '0.85rem'}}>
+                                  Status check: {flokxStatus.last_error}
+                                </p>
+                              )}
                               <button 
                                 onClick={() => showSection('api')}
                                 style={{
@@ -5434,7 +5540,9 @@ export default function Dashboard() {
                               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                                 <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                                   <div style={{width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)'}}></div>
-                                  <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Flokx Connected</span>
+                                  <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
+                                    Flokx Active {flokxStatus.last_tested_at ? `• Last tested ${formatDate(flokxStatus.last_tested_at)}` : ''}
+                                  </span>
                                 </div>
                                 <button 
                                   onClick={loadFlokxAlerts} 
@@ -6804,6 +6912,11 @@ export default function Dashboard() {
                       <p style={{color: 'var(--muted)', marginBottom: '12px'}}>
                         ⚠️ Flokx alerts are not active. Configure your Flokx API key in the API Setup section to enable real-time alerts.
                       </p>
+                      {flokxStatus.last_error && (
+                        <p style={{color: 'var(--error)', marginBottom: '12px', fontSize: '0.85rem'}}>
+                          Status check: {flokxStatus.last_error}
+                        </p>
+                      )}
                       <button 
                         onClick={() => showSection('api')}
                         style={{
@@ -6826,7 +6939,9 @@ export default function Dashboard() {
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                         <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                           <div style={{width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)'}}></div>
-                          <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Flokx Connected</span>
+                          <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
+                            Flokx Active {flokxStatus.last_tested_at ? `• Last tested ${formatDate(flokxStatus.last_tested_at)}` : ''}
+                          </span>
                         </div>
                         <button 
                           onClick={loadFlokxAlerts} 
@@ -6931,6 +7046,11 @@ export default function Dashboard() {
               <p style={{color: 'var(--muted)', marginBottom: '12px'}}>
                 ⚠️ Flokx alerts are not active. Configure your Flokx API key in the API Setup section to enable real-time alerts.
               </p>
+              {flokxStatus.last_error && (
+                <p style={{color: 'var(--error)', marginBottom: '12px', fontSize: '0.85rem'}}>
+                  Status check: {flokxStatus.last_error}
+                </p>
+              )}
               <button 
                 onClick={() => showSection('api')}
                 style={{
@@ -6953,7 +7073,9 @@ export default function Dashboard() {
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                 <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                   <div style={{width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)'}}></div>
-                  <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>Flokx Connected</span>
+                  <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
+                    Flokx Active {flokxStatus.last_tested_at ? `• Last tested ${formatDate(flokxStatus.last_tested_at)}` : ''}
+                  </span>
                 </div>
                 <button 
                   onClick={loadFlokxAlerts} 

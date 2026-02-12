@@ -254,6 +254,7 @@ Run smoke checks against a deployed VPS (requires `jq` and backend Python deps):
 ./scripts/smoke_user.sh https://amarktai.online user@example.com password
 ./scripts/smoke_admin.sh https://amarktai.online admin@example.com password
 ./scripts/smoke_realtime.sh https://amarktai.online user@example.com password
+./scripts/smoke_paper_trading.sh https://amarktai.online user@example.com password
 ```
 
 Each script prints `PASS` on success and returns a non-zero exit code on failure.
