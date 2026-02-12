@@ -315,10 +315,11 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
             enriched_bots.append(enriched_bot)
         
         # Count by exchange to ensure all 7 are represented
-        exchange_counts = {
-            exchange: len([b for b in enriched_bots if b.get('exchange') == exchange])
-            for exchange in all_exchanges
-        } if enriched_bots else {}
+        exchange_counts = {exchange: 0 for exchange in all_exchanges}
+        for bot in enriched_bots:
+            exchange = bot.get('exchange')
+            if exchange in exchange_counts:
+                exchange_counts[exchange] += 1
         return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
     except Exception:
