@@ -52,3 +52,22 @@ def test_bots_status_returns_error_when_collection_missing():
     assert payload.get("bots") == []
     assert payload.get("platforms") == {}
     assert payload.get("error")
+
+
+def test_bots_status_returns_error_with_auth_when_collection_missing():
+    token = create_access_token({"user_id": "test-user", "sub": "test-user"})
+
+    with patch.object(bot_lifecycle, "bots_collection", None):
+        response = client.get(
+            "/api/bots/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload.get("success") is False
+    assert payload.get("active_bots") == 0
+    assert payload.get("bots") == []
+    assert payload.get("platforms") == {}
+    assert payload.get("error")

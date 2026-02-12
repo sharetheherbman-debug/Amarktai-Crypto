@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
 bots_collection = db.bots_collection
+ALL_EXCHANGES = list(SUPPORTED_EXCHANGES)
 
 class BlockDetail(TypedDict, total=False):
     code: str
@@ -83,7 +84,7 @@ def _bots_status_payload(
     success: bool = True,
     error: Optional[str] = None,
 ) -> Dict:
-    """Build a safe bots status response payload."""
+    """Build a safe bots status response payload (platforms kept for backward compatibility)."""
     bots = [] if bots is None else bots
     exchange_counts = {} if exchange_counts is None else exchange_counts
     all_exchanges = [] if all_exchanges is None else all_exchanges
@@ -176,6 +177,7 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
     """Get bot status list with states for bot management
     
     Returns all bots with detailed status including training states
+    Unauthenticated requests receive empty defaults.
     
     Args:
         user_id: Current user ID (from auth)
@@ -183,7 +185,7 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
     Returns:
         List of bots with id, exchange, state, paused_reason, etc.
     """
-    all_exchanges = list(SUPPORTED_EXCHANGES)
+    all_exchanges = ALL_EXCHANGES
     collection = bots_collection
     if collection is None:
         return _bots_status_payload(
