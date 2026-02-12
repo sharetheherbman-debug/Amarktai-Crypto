@@ -3975,7 +3975,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Last: {status.last_reinvest_date || '—'} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {status.next_run ? formatDate(status.next_run) : '—'}
+                      Last Reinvest: {status.last_reinvest_date || '—'} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {status.next_run ? formatDate(status.next_run) : '—'}
                     </div>
                   </div>
                 );

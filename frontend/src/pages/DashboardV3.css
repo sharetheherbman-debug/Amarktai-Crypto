@@ -185,7 +185,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   overflow: hidden;
 }
 
-.section { display: none; height: 100%; overflow: visible; }
+.section { display: none; min-height: 100%; overflow: visible; }
 .section.active { display: block; }
 
 .card { 

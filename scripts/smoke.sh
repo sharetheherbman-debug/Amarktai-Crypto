@@ -18,6 +18,10 @@ ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 SYSTEMD_SERVICE="${SYSTEMD_SERVICE:-amarktai-api}"
 SKIP_SYSTEMD_RESTART="${SKIP_SYSTEMD_RESTART:-false}"
+LISTEN_HOST="${LISTEN_HOST:-$(echo "$BASE_URL" | sed -E 's#^https?://([^:/]+).*#\\1#')}"
+LISTEN_PORT="${LISTEN_PORT:-$(echo "$BASE_URL" | sed -E 's#^https?://[^:/]+:?([0-9]+)?/?.*#\\1#')}"
+if [ -z "$LISTEN_HOST" ]; then LISTEN_HOST="127.0.0.1"; fi
+if [ -z "$LISTEN_PORT" ]; then LISTEN_PORT="8000"; fi
 
 echo "============================================"
 echo "Deployment Acceptance Tests (Smoke Tests)"
@@ -40,10 +44,10 @@ else
     fi
 fi
 
-echo "Waiting for listener on 127.0.0.1:8000"
+echo "Waiting for listener on ${LISTEN_HOST}:${LISTEN_PORT}"
 sleep 2
-if ! ss -ltn | grep -q "127.0.0.1:8000"; then
-    echo -e "${RED}❌ Listener not detected on 127.0.0.1:8000${NC}"
+if ! ss -ltn | grep -q "${LISTEN_HOST}:${LISTEN_PORT}"; then
+    echo -e "${RED}❌ Listener not detected on ${LISTEN_HOST}:${LISTEN_PORT}${NC}"
     exit 1
 fi
 

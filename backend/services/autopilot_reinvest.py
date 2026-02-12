@@ -88,7 +88,7 @@ class AutopilotReinvestService:
             return {"success": False, "blocked_reasons": ["NO_BOTS_AVAILABLE"]}
 
         bots.sort(key=lambda bot: bot.get("total_profit", 0), reverse=True)
-        top_count = max(1, int(config.TOP_PERFORMERS_COUNT))
+        top_count = max(1, config.TOP_PERFORMERS_COUNT)
         top_bots = bots[: min(top_count, len(bots))]
         allocation_per_bot = reinvest_amount / len(top_bots)
 
