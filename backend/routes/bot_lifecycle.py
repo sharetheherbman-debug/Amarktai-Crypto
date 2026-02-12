@@ -80,6 +80,7 @@ def _bots_status_payload(
     exchange_counts: Optional[Dict[str, int]] = None,
     all_exchanges: Optional[list] = None,
 ) -> Dict:
+    """Build a safe bots status response payload."""
     bots = bots or []
     exchange_counts = exchange_counts or {}
     all_exchanges = all_exchanges or []
@@ -306,7 +307,7 @@ async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
         return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
     except Exception as e:
-        logger.error("Get bots status error for user %s: %s", user_id, e)
+        logger.exception("Get bots status error for user %s: %s", user_id, e)
         exchange_counts = {exchange: 0 for exchange in all_exchanges}
         return _bots_status_payload([], exchange_counts, all_exchanges)
 
