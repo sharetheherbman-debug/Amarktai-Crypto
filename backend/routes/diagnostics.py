@@ -743,12 +743,22 @@ async def get_accounting_diagnostics(user_id: str = Depends(get_current_user)):
             }
         ).sort("timestamp", -1).to_list(5000)
 
+        used_profit_loss = False
+
         def trade_net(trade: Dict) -> float:
-            return float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
+            nonlocal used_profit_loss
+            net_value = trade.get("net_pnl")
+            if net_value is None:
+                used_profit_loss = True
+                net_value = trade.get("profit_loss", 0)
+            return float(net_value or 0)
 
         total_trades = len(trades)
         win_count = sum(1 for t in trades if trade_net(t) > 0)
         loss_count = sum(1 for t in trades if trade_net(t) < 0)
+
+        if used_profit_loss:
+            logger.warning("Accounting diagnostics: trades missing net_pnl, falling back to profit_loss")
 
         trade_by_bot: Dict[str, list] = {}
         for trade in trades:

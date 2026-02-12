@@ -110,6 +110,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         quarantine_reason = quarantine_reasons[0] if quarantine_reasons else None
 
         from services.bodyguard_service import bodyguard_service
+        from services.ledger_service import get_ledger_service
         bot_risk_status = []
         for bot in bots:
             bot_id = bot.get("id")
@@ -121,7 +122,6 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
             daily_pnl = 0.0
             daily_loss_pct = 0.0
             try:
-                from services.ledger_service import get_ledger_service
                 if db.db is not None:
                     ledger = get_ledger_service(db.db)
                     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)

@@ -380,6 +380,11 @@ class TradingScheduler:
             from uuid import uuid4
             from utils.trade_utils import build_trade_record
 
+            entry_price = trade_result.get('entry_price', trade_result.get('price', 0))
+            exit_price = trade_result.get('exit_price')
+            if exit_price is None:
+                logger.warning("Live trade missing exit_price; defaulting to entry_price for bot %s", bot['id'])
+                exit_price = entry_price
             trade_doc = build_trade_record(
                 {
                     "id": str(uuid4()),
@@ -387,8 +392,8 @@ class TradingScheduler:
                     "user_id": bot['user_id'],
                     "pair": pair,
                     "side": side,
-                    "entry_price": trade_result.get('price', 0),
-                    "exit_price": trade_result.get('price', 0),
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
                     "amount": trade_result.get('amount', 0),
                     "profit_loss": trade_result.get('net_profit', 0),
                     "is_paper": False,

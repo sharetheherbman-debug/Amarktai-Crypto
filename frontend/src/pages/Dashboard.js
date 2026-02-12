@@ -1014,12 +1014,17 @@ export default function Dashboard() {
 
   const loadOverviewData = async () => {
     try {
-      const [snapshotRes, paperWalletRes, modeRes, tradesRes] = await Promise.all([
+      const [snapshotResult, paperWalletResult, modeResult, tradesResult] = await Promise.allSettled([
         get('/overview/snapshot'),
         get('/wallet/paper'),
         get('/system/mode'),
         get('/trades/recent?limit=1')
       ]);
+
+      const snapshotRes = snapshotResult.status === 'fulfilled' ? snapshotResult.value : {};
+      const paperWalletRes = paperWalletResult.status === 'fulfilled' ? paperWalletResult.value : {};
+      const modeRes = modeResult.status === 'fulfilled' ? modeResult.value : {};
+      const tradesRes = tradesResult.status === 'fulfilled' ? tradesResult.value : {};
 
       const totalProfit = safeNumber(snapshotRes?.total_profit, 0);
       const todaysProfit = safeNumber(snapshotRes?.today_profit, 0);
@@ -1594,9 +1599,14 @@ export default function Dashboard() {
     try {
       const res = await axios.post(`${API}/ai/chat`, { message: originalInput, context: 'dashboard' }, axiosConfig);
       const payload = res.data || {};
+      if (payload?.success === false || payload?.error) {
+        const errorContent = payload?.content || payload?.error || payload?.detail || 'AI chat error.';
+        setChatMessages(prev => [...prev, { role: 'assistant', content: errorContent, error: true }]);
+        return;
+      }
       const reply = typeof payload === 'string'
         ? payload
-        : (payload.content || payload.response || payload.reply || payload.message || payload.error || 'No response');
+        : (payload.content || payload.response || payload.reply || payload.message || 'No response');
       const assistantMsg = { role: 'assistant', content: reply };
       setChatMessages(prev => [...prev, assistantMsg]);
       
@@ -1748,7 +1758,7 @@ export default function Dashboard() {
     const budget = parseInt(e.target['bot-budget'].value);
     const exchange = e.target['bot-exchange'].value;
     const riskMode = e.target['bot-risk'].value;
-    const strategyPreset = e.target['bot-strategy']?.value;
+    const strategyPreset = e.target['bot-strategy']?.value || 'adaptive';
     
     if (!name) {
       showNotification('Please enter a bot name', 'error');
@@ -1768,7 +1778,7 @@ export default function Dashboard() {
         trading_mode: 'paper', // Always start in paper for user bots
         risk_mode: riskMode,
         initial_capital: budget,
-        strategy_preset: strategyPreset || 'adaptive',
+        strategy_preset: strategyPreset,
         created_by: 'user', // Track origin
         paper_start_date: new Date().toISOString(), // Start 7-day countdown
         learning_complete: false

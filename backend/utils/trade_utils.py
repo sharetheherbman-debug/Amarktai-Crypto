@@ -3,7 +3,7 @@ Trade utilities for timestamp normalization and parsing.
 """
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, Iterable
+from typing import Optional, Dict, Iterable, Union
 from uuid import uuid4
 
 
@@ -105,8 +105,11 @@ def calculate_trade_pnl(
     }
 
 
-def classify_trade_outcome(net_profit: float) -> Dict[str, int | str]:
-    """Classify a trade outcome for win/loss counters."""
+def classify_trade_outcome(net_profit: float) -> Dict[str, Union[int, str]]:
+    """Classify a trade outcome for win/loss counters.
+
+    Returns dict with win_count, loss_count, and result keys.
+    """
     if net_profit > 0:
         return {"win_count": 1, "loss_count": 0, "result": "win"}
     if net_profit < 0:

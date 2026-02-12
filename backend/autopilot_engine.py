@@ -110,6 +110,7 @@ class AutopilotEngine:
             # Don't raise - let server continue
 
     def _mark_tick(self, job_name: str):
+        """Record last autopilot tick for diagnostics."""
         self.last_tick = {
             "job": job_name,
             "timestamp": datetime.now(timezone.utc).isoformat()

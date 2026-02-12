@@ -186,7 +186,7 @@ async def topup_paper_wallet(
     request: PaperDepositRequest,
     user_id: str = Depends(get_current_user)
 ):
-    """Top up paper wallet (alias for deposit)."""
+    """Top up paper wallet (alias for deposit for backward compatibility)."""
     return await deposit_paper_wallet(request, user_id)
 
 

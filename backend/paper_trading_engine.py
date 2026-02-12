@@ -1154,7 +1154,7 @@ class PaperTradingEngine:
                     exit_fills = trade_result.get("exit_fills", [])
                     fee_currency = trade_result.get("fee_currency", currency)
                     fee_total = trade_result.get("fees", 0) + trade_result.get("slippage_cost", 0)
-                    fee_split = fee_total / max(len(entry_fills + exit_fills), 1)
+                    cost_per_fill = fee_total / max(len(entry_fills + exit_fills), 1)
                     for idx, fill in enumerate(entry_fills):
                         await ledger.append_fill(
                             user_id=bot_data['user_id'],
@@ -1164,7 +1164,7 @@ class PaperTradingEngine:
                             side="buy",
                             qty=fill.get("qty", 0),
                             price=fill.get("price", 0),
-                            fee=fee_split,
+                            fee=cost_per_fill,
                             fee_currency=fee_currency,
                             timestamp=fill.get("timestamp"),
                             order_id=f"{trade_id}-buy-{idx}",
@@ -1185,7 +1185,7 @@ class PaperTradingEngine:
                             side="sell",
                             qty=fill.get("qty", 0),
                             price=fill.get("price", 0),
-                            fee=fee_split,
+                            fee=cost_per_fill,
                             fee_currency=fee_currency,
                             timestamp=fill.get("timestamp"),
                             order_id=f"{trade_id}-sell-{idx}",

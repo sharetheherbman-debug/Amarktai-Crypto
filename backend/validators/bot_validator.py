@@ -198,7 +198,7 @@ class BotValidator:
         if risk_mode not in valid_risk_modes:
             risk_mode = 'safe'
 
-        strategy_preset = bot_data.get("strategy_preset")
+        strategy_preset = bot_data.get("strategy_preset") or "adaptive"
         
         # All validations passed - return validated data with lifecycle fields
         validated_data = {
@@ -224,7 +224,7 @@ class BotValidator:
             "promoted_to_live_at": None,
             "user_id": user_id,
             "strategy_preset": strategy_preset,
-            "strategy": {"preset": strategy_preset} if strategy_preset else {}
+            "strategy": {"preset": strategy_preset}
         }
         
         return True, validated_data
