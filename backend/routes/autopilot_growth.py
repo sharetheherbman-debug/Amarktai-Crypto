@@ -32,8 +32,8 @@ async def growth_status(user_id: str = Depends(get_current_user)):
 
 
 @router.post("/growth/trigger")
-async def growth_trigger(user_id: str = Depends(get_current_user), is_admin_user: bool = Depends(is_admin)):
-    if not is_admin_user:
+async def growth_trigger(user_id: str = Depends(get_current_user), is_admin: bool = Depends(is_admin)):
+    if not is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     try:
         if db.db is None:
@@ -70,8 +70,8 @@ async def reinvest_status(user_id: str = Depends(get_current_user)):
 
 
 @router.post("/reinvest/run")
-async def reinvest_run(user_id: str = Depends(get_current_user), is_admin_user: bool = Depends(is_admin)):
-    if not is_admin_user:
+async def reinvest_run(user_id: str = Depends(get_current_user), is_admin: bool = Depends(is_admin)):
+    if not is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     try:
         if db.db is None:

@@ -3087,7 +3087,7 @@ export default function Dashboard() {
         {/* Overview Container with Image and Enhanced Metrics Panel */}
         <div className="overview-container">
           <div className="overview-image">
-            <img src="/assets/poster.jpg" alt="Amarktai overview" />
+            <img src="/assets/poster.jpg" alt="Amarktai humanoid trading bot poster" />
           </div>
           <div className="overview-metrics">
             <div className="status-list">

@@ -18,8 +18,8 @@ ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 SYSTEMD_SERVICE="${SYSTEMD_SERVICE:-amarktai-api}"
 SKIP_SYSTEMD_RESTART="${SKIP_SYSTEMD_RESTART:-false}"
-LISTEN_HOST="${LISTEN_HOST:-$(echo "$BASE_URL" | sed -E 's#^https?://([^:/]+).*#\\1#')}"
-LISTEN_PORT="${LISTEN_PORT:-$(echo "$BASE_URL" | sed -E 's#^https?://[^:/]+:?([0-9]+)?/?.*#\\1#')}"
+LISTEN_HOST="${LISTEN_HOST:-$(echo "$BASE_URL" | sed -E 's#^https?://([^:/]+).*#\1#')}"
+LISTEN_PORT="${LISTEN_PORT:-$(echo "$BASE_URL" | sed -E 's#^https?://[^:/]+:?([0-9]+)?/?.*#\1#')}"
 if [ -z "$LISTEN_HOST" ]; then LISTEN_HOST="127.0.0.1"; fi
 if [ -z "$LISTEN_PORT" ]; then LISTEN_PORT="8000"; fi
 

@@ -95,6 +95,7 @@ class AutopilotGrowthService:
         )
 
         if reservation.upserted_id is None:
+            logger.info(f"Milestone {next_milestone} already recorded for {self.user_id} on {platform}")
             return None
 
         spawn_capital = float(config.NEW_BOT_CAPITAL)
