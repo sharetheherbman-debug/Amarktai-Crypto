@@ -10,18 +10,21 @@ from typing import Optional, Dict, TypedDict
 import logging
 import os
 
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
 from engines.audit_logger import audit_logger
+from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
+bots_collection = db.bots_collection
+ALL_EXCHANGES = list(SUPPORTED_EXCHANGES)
 
 class BlockDetail(TypedDict, total=False):
     code: str
@@ -71,6 +74,35 @@ def _action_payload(
         "pause_reason": pause_reason,
         "lock_reason": lock_reason,
         "action": action,
+    }
+
+
+def _bots_status_payload(
+    bots: Optional[list] = None,
+    exchange_counts: Optional[Dict[str, int]] = None,
+    all_exchanges: Optional[list] = None,
+    success: bool = True,
+    error: Optional[str] = None,
+) -> Dict:
+    """Build a safe bots status response payload (platforms kept for backward compatibility)."""
+    bots = [] if bots is None else bots
+    exchange_counts = {} if exchange_counts is None else exchange_counts
+    all_exchanges = [] if all_exchanges is None else all_exchanges
+    active_bots = sum(
+        1
+        for bot in bots
+        if bot.get("state") == "active" or bot.get("status") == "active"
+    )
+    return {
+        "success": success,
+        "active_bots": active_bots,
+        "bots": bots,
+        "platforms": exchange_counts,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total": len(bots),
+        "exchange_counts": exchange_counts,
+        "all_exchanges": all_exchanges,
+        **({"error": error} if error else {}),
     }
 
 
@@ -141,10 +173,11 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
 
 
 @router.get("/status")
-async def get_bots_status(user_id: str = Depends(get_current_user)):
+async def get_bots_status(user_id: Optional[str] = Depends(get_optional_user)):
     """Get bot status list with states for bot management
     
     Returns all bots with detailed status including training states
+    Unauthenticated requests receive empty defaults.
     
     Args:
         user_id: Current user ID (from auth)
@@ -152,8 +185,21 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
     Returns:
         List of bots with id, exchange, state, paused_reason, etc.
     """
+    all_exchanges = ALL_EXCHANGES
+    collection = bots_collection
+    if collection is None:
+        return _bots_status_payload(
+            [],
+            {},
+            all_exchanges,
+            success=False,
+            error="Bots collection unavailable",
+        )
+    if not user_id:
+        return _bots_status_payload([], {}, all_exchanges)
+
     try:
-        bots = await db.bots_collection.find(
+        bots = await collection.find(
             {
                 "user_id": user_id,
                 "status": {"$ne": "deleted"},
@@ -162,6 +208,8 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
             },
             {"_id": 0}
         ).to_list(1000)
+        if not bots:
+            return _bots_status_payload([], {}, all_exchanges)
 
         runtime_states = {
             state.get("bot_id"): state
@@ -269,22 +317,22 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
             enriched_bots.append(enriched_bot)
         
         # Count by exchange to ensure all 7 are represented
-        exchange_counts = {}
-        all_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
-        for exchange in all_exchanges:
-            exchange_counts[exchange] = len([b for b in enriched_bots if b.get('exchange') == exchange])
+        exchange_counts = {exchange: 0 for exchange in all_exchanges}
+        for bot in enriched_bots:
+            exchange = bot.get('exchange')
+            if exchange in exchange_counts:
+                exchange_counts[exchange] += 1
+        return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
-        return {
-            "success": True,
-            "bots": enriched_bots,
-            "total": len(enriched_bots),
-            "exchange_counts": exchange_counts,
-            "all_exchanges": all_exchanges
-        }
-        
-    except Exception as e:
-        logger.error(f"Get bots status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Get bots status error for user %s", user_id)
+        return _bots_status_payload(
+            [],
+            {},
+            all_exchanges,
+            success=False,
+            error="Unable to load bot status",
+        )
 
 
 @router.post("/{bot_id}/start")

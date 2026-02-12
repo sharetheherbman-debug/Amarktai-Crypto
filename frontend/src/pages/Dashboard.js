@@ -24,6 +24,7 @@ import BotQuarantineSection from '../components/Dashboard/BotQuarantineSection';
 import BotTrainingSection from '../components/Dashboard/BotTrainingSection';
 import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantineSection';
 import { API_BASE, wsUrl } from '../lib/api.js';
+import { formatTimestamp } from '../utils/time.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
 import { useDashboardData, normalizeLivePrices, getBotStatus } from '../hooks/useDashboardData';
 import { post, get } from '../lib/apiClient';
@@ -202,6 +203,7 @@ export default function Dashboard() {
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
   const sseRef = useRef(null);
+  const botStatusErrorRef = useRef({ lastShown: 0 });
   
   const token = localStorage.getItem('token');
   const axiosConfig = useMemo(() => ({
@@ -1062,8 +1064,23 @@ export default function Dashboard() {
       const res = await axios.get(`${API}/bots/status`, axiosConfig);
       const botsData = res.data?.bots || res.data || [];
       setBots(botsData);
+      if (res.data?.success === false) {
+        const now = Date.now();
+        if (now - botStatusErrorRef.current.lastShown > 60000) {
+          const message = res.data?.error || res.data?.message || 'Bot status unavailable';
+          toast.error(`Bot status unavailable: ${message}`);
+          botStatusErrorRef.current.lastShown = now;
+        }
+      }
     } catch (err) {
       console.error('Bots fetch error:', err);
+      const now = Date.now();
+      if (now - botStatusErrorRef.current.lastShown > 60000) {
+        const statusLabel = err.response?.status ? ` (${err.response.status})` : '';
+        const message = extractErrorMessage(err, 'Request failed');
+        toast.error(`Bot status unavailable${statusLabel}: ${message}`);
+        botStatusErrorRef.current.lastShown = now;
+      }
     }
   };
 
