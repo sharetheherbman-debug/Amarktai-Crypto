@@ -19,6 +19,7 @@ export REACT_APP_BUILD_TIME=$BUILD_TIME
 
 # Navigate to frontend directory
 cd "$(dirname "$0")/../frontend"
+rm -rf build
 
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then

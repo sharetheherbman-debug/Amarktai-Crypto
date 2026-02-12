@@ -1495,10 +1495,16 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
     """
     try:
         from paper_trading_engine import paper_engine
+        from services.ledger_service import get_ledger_service
         
         # BACKEND TRUTH: Get system mode and wallet data from MongoDB
         system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         is_live = system_mode.get('liveTrading', False) if system_mode else False
+
+        ledger = get_ledger_service(db.db)
+        stats = await ledger.get_stats(user_id)
+        trades_total = stats.get("total_fills", 0)
+        ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
         
         # Get current balance (paper or live based on mode)
         if is_live:
@@ -1517,13 +1523,28 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         # BACKEND TRUTH: Get all bots total capital from MongoDB
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         total_bot_capital = sum(bot.get('current_capital', 0) for bot in bots)
-        total_capital = max(current_capital, total_bot_capital)
+        total_capital = max(current_capital, total_bot_capital, ledger_equity)
         
         target = 1_000_000
+
+        if trades_total < 10:
+            return {
+                "ready": False,
+                "message": "Need at least 10 trades",
+                "trades_remaining": 10 - trades_total,
+                "trades_total": trades_total,
+                "current_capital": round(total_capital, 2),
+                "target": target,
+                "remaining": round(target - total_capital, 2),
+                "progress_pct": round((total_capital / target) * 100, 2) if target > 0 else 0,
+                "mode": "Live" if is_live else "Paper",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
         
         # Check if target achieved
         if total_capital >= target:
             return {
+                "ready": True,
                 "current_capital": round(total_capital, 2),
                 "target": target,
                 "remaining": 0,
@@ -1535,21 +1556,28 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "compound_projection": None
             }
         
-        # BACKEND TRUTH: Calculate daily ROI from recent trades in MongoDB
-        thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        recent_trades = await db.trades_collection.find({
-            "user_id": user_id,
-            "timestamp": {"$gte": thirty_days_ago}
-        }).to_list(None)  # None = no limit
-        
-        # REQUIRE MINIMUM 3 DAYS OF TRADING DATA for any realistic projection
-        unique_trade_days = len(set(t.get('timestamp', '')[:10] for t in recent_trades))
+        # BACKEND TRUTH: Calculate daily ROI from ledger profit series
+        series = await ledger.profit_series(user_id, period="daily", limit=30)
+        recent_trades = []
+        unique_trade_days = len(series)
+        if not series:
+            thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+            recent_trades = await db.trades_collection.find({
+                "user_id": user_id,
+                "timestamp": {"$gte": thirty_days_ago}
+            }).to_list(None)
+            unique_trade_days = len(set(t.get('timestamp', '')[:10] for t in recent_trades))
         
         # Need at least 3 full days of trading history
-        if len(recent_trades) >= 30 and unique_trade_days >= 3:
-            total_profit = sum(trade.get('profit_loss', 0) for trade in recent_trades)
-            days_of_data = unique_trade_days
-            avg_daily_profit = total_profit / days_of_data
+        if unique_trade_days >= 3:
+            if series:
+                total_profit = sum(day.get("net_profit", 0) for day in series)
+                days_of_data = unique_trade_days
+                avg_daily_profit = total_profit / days_of_data if days_of_data else 0
+            else:
+                total_profit = sum(trade.get('profit_loss', 0) for trade in recent_trades)
+                days_of_data = unique_trade_days
+                avg_daily_profit = total_profit / days_of_data if days_of_data else 0
             
             # Calculate daily ROI percentage based on CURRENT capital
             daily_roi_pct = (avg_daily_profit / total_capital * 100) if total_capital > 0 else 0
@@ -1612,6 +1640,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             twelve_month_projection = total_capital * ((1 + (daily_roi_pct / 100)) ** 365)
         
         return {
+            "ready": True,
             "current_capital": round(total_capital, 2),
             "target": target,
             "remaining": round(remaining, 2),
@@ -1623,8 +1652,8 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             "metrics": {
                 "avg_daily_profit": round(avg_daily_profit, 2),
                 "daily_roi_pct": round(daily_roi_pct, 3),
-                "days_of_data": len(set(t.get('timestamp', '')[:10] for t in recent_trades)),
-                "total_trades": len(recent_trades)
+                "days_of_data": unique_trade_days,
+                "total_trades": trades_total
             },
             "projections": {
                 "simple": simple_days,
@@ -1634,7 +1663,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "twelve_month_gain": round(twelve_month_projection - total_capital, 2),
                 "twelve_month_roi": round(((twelve_month_projection - total_capital) / total_capital * 100), 2) if total_capital > 0 else 0
             },
-            "message": f"📈 Projected: {est_days} days to R1M at {daily_roi_pct:.2f}% daily ROI ({data_quality})" if est_days < 9999 else f"⏳ Insufficient trading data ({len(recent_trades)} trades, {unique_trade_days} days)",
+            "message": f"📈 Projected: {est_days} days to R1M at {daily_roi_pct:.2f}% daily ROI ({data_quality})" if est_days < 9999 else f"⏳ Insufficient trading data ({trades_total} trades, {unique_trade_days} days)",
             "data_quality": data_quality if est_days < 9999 else "insufficient",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
@@ -2261,6 +2290,45 @@ async def test_email_alert(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Email test error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/flokx/status")
+async def get_flokx_status(user_id: str = Depends(get_current_user)):
+    """Get FLOKx key configuration status using canonical key store."""
+    try:
+        from routes.keys import normalize_status
+        from services.provider_registry import ProviderStatus
+
+        key_doc = await db.api_keys_collection.find_one(
+            {"user_id": str(user_id), "provider": "flokx"},
+            {"_id": 0, "status": 1, "last_tested_at": 1, "last_test_error": 1}
+        )
+
+        if key_doc:
+            status = normalize_status(key_doc.get("status", ProviderStatus.CONFIGURED_UNTESTED.value))
+            configured = status != ProviderStatus.NOT_CONFIGURED.value
+            last_tested_at = key_doc.get("last_tested_at")
+            last_error = key_doc.get("last_test_error")
+        else:
+            configured = False
+            last_tested_at = None
+            last_error = None
+
+        return {
+            "success": True,
+            "configured": configured,
+            "last_tested_at": last_tested_at,
+            "last_error": last_error,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"FLOKx status error: {e}")
+        return {
+            "success": False,
+            "configured": False,
+            "last_tested_at": None,
+            "last_error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
 
 @api_router.get("/flokx/test-connection")
 async def test_flokx_connection(user_id: str = Depends(get_current_user)):

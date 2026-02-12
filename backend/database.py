@@ -85,6 +85,18 @@ performance_metrics_collection = None
 # User custom goals/countdowns
 user_countdowns_collection = None
 
+# Market data snapshots
+price_snapshots_collection = None
+
+# Learning loop audit tables
+learning_runs_collection = None
+learning_changes_collection = None
+learning_metrics_collection = None
+
+# ChatOps memory and audit logs
+user_memory_collection = None
+chatops_actions_collection = None
+
 # Aliases for backward compatibility
 wallet_balances = None  # Alias for wallet_balances_collection
 capital_injections = None  # Alias for capital_injections_collection
@@ -183,6 +195,9 @@ async def setup_collections():
     global transfer_jobs_collection, transfers_ledger_collection  # Production-safe wallet transfers
     global orders_collection, positions_collection, balance_snapshots_collection, performance_metrics_collection
     global user_countdowns_collection
+    global price_snapshots_collection
+    global learning_runs_collection, learning_changes_collection, learning_metrics_collection
+    global user_memory_collection, chatops_actions_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
     global paper_ledger_collection  # Phase 4A: Paper wallet ledger
     
@@ -255,6 +270,18 @@ async def setup_collections():
     
     # User custom goals/countdowns
     user_countdowns_collection = db.user_countdowns
+
+    # Market data snapshots
+    price_snapshots_collection = db.price_snapshots
+
+    # Learning loop audit tables
+    learning_runs_collection = db.learning_runs
+    learning_changes_collection = db.learning_changes
+    learning_metrics_collection = db.learning_metrics
+
+    # ChatOps memory and audit logs
+    user_memory_collection = db.user_memory
+    chatops_actions_collection = db.chatops_actions
     
     # Aliases for backward compatibility
     wallet_balances = wallet_balances_collection

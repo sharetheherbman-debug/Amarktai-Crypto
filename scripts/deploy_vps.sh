@@ -16,6 +16,11 @@ BACKEND_DIR="$APP_DIR/backend"
 FRONTEND_SRC_DIR="$APP_DIR/frontend"
 VENV_DIR="$APP_DIR/venv"
 SYSTEMD_SERVICE="amarktai-api"
+RUN_USER="${SUDO_USER:-$(whoami)}"
+NODE_CMD_PREFIX=""
+if [ "$(id -u)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+    NODE_CMD_PREFIX="sudo -u ${RUN_USER}"
+fi
 
 # Check if running as root or with sudo
 if [[ $EUID -ne 0 ]] && ! sudo -n true 2>/dev/null; then
@@ -56,12 +61,13 @@ cd "$FRONTEND_SRC_DIR"
 # Check if node_modules exists, install if not
 if [ ! -d "node_modules" ]; then
     echo "Installing Node.js dependencies..."
-    npm install
+    $NODE_CMD_PREFIX npm install
 fi
 
 # Build frontend
 echo "Building React app..."
-npm run build
+rm -rf build
+$NODE_CMD_PREFIX npm run build
 
 if [ ! -d "build" ]; then
     echo "❌ Frontend build failed - build directory not found"
@@ -87,6 +93,11 @@ sudo chown -R www-data:www-data "$FRONTEND_BUILD_DIR"
 sudo chmod -R 755 "$FRONTEND_BUILD_DIR"
 
 echo "✅ Frontend published to $FRONTEND_BUILD_DIR"
+
+echo ""
+echo "🔄 Reloading nginx..."
+sudo nginx -t
+sudo systemctl reload nginx
 
 # Step 4: Restart backend service
 echo ""

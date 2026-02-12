@@ -5,6 +5,8 @@ Ensures all state changes broadcast appropriate websocket events
 
 import logging
 from typing import Optional, Dict, List
+
+import database as db
 from realtime_events import rt_events
 from websocket_manager import manager
 
@@ -49,6 +51,7 @@ class RealtimeService:
             
             # Always broadcast overview update after bot action
             await self.broadcast_overview_update(user_id, f"Bot {action}: {bot_name}")
+            await self.broadcast_bots_update(user_id, action, bot_data)
             
         except Exception as e:
             logger.error(f"Error broadcasting bot action '{action}': {e}")
@@ -64,14 +67,80 @@ class RealtimeService:
             message = "Overview updated"
             if reason:
                 message = f"Overview updated: {reason}"
-            
+
             await manager.send_message(user_id, {
                 "type": "overview_updated",
                 "message": message
             })
-            
+
+            from services.overview_service import OverviewService
+            overview_service = OverviewService()
+            overview = await overview_service.get_snapshot(user_id)
+
+            await manager.send_message(user_id, {
+                "type": "overview_update",
+                "data": {"overview": overview, "reason": reason},
+                "payload": {"overview": overview, "reason": reason}
+            })
+
         except Exception as e:
             logger.error(f"Error broadcasting overview update: {e}")
+
+    async def broadcast_prices_update(self, user_id: str):
+        """Broadcast latest market prices."""
+        try:
+            from routes.prices import get_live_prices
+            prices = await get_live_prices(user_id)
+            await manager.send_message(user_id, {
+                "type": "prices_update",
+                "data": {"prices": prices},
+                "payload": {"prices": prices}
+            })
+        except Exception as e:
+            logger.error(f"Error broadcasting prices update: {e}")
+
+    async def broadcast_bots_update(self, user_id: str, action: str, bot_data: Dict):
+        """Broadcast bot status changes."""
+        try:
+            await manager.send_message(user_id, {
+                "type": "bots_update",
+                "data": {
+                    "action": action,
+                    "bot": bot_data,
+                    "status": bot_data.get("status")
+                },
+                "payload": {
+                    "action": action,
+                    "bot": bot_data,
+                    "status": bot_data.get("status")
+                }
+            })
+        except Exception as e:
+            logger.error(f"Error broadcasting bots update: {e}")
+
+    async def broadcast_trades_update(self, user_id: str, trade_data: Dict):
+        """Broadcast latest trade summary."""
+        try:
+            await manager.send_message(user_id, {
+                "type": "trades_update",
+                "data": {"trade": trade_data},
+                "payload": {"trade": trade_data}
+            })
+        except Exception as e:
+            logger.error(f"Error broadcasting trades update: {e}")
+
+    async def broadcast_countdown_update(self, user_id: str):
+        """Broadcast countdown status update."""
+        try:
+            from routes.ledger_endpoints import get_countdown_status
+            countdown = await get_countdown_status(current_user=user_id, db=db.db)
+            await manager.send_message(user_id, {
+                "type": "analytics_update",
+                "data": {"countdown": countdown},
+                "payload": {"countdown": countdown}
+            })
+        except Exception as e:
+            logger.error(f"Error broadcasting countdown update: {e}")
     
     async def broadcast_profits_update(self, user_id: str, reason: Optional[str] = None):
         """Broadcast profits/PnL update
@@ -131,6 +200,8 @@ class RealtimeService:
             # Also update profits and overview
             await self.broadcast_profits_update(user_id, "New trade executed")
             await self.broadcast_overview_update(user_id, "Trade executed")
+            await self.broadcast_trades_update(user_id, trade_data)
+            await self.broadcast_countdown_update(user_id)
             
         except Exception as e:
             logger.error(f"Error broadcasting trade execution: {e}")

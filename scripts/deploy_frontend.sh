@@ -10,6 +10,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 FRONTEND_DIR="${PROJECT_ROOT}/frontend"
+BUILD_DIR="${FRONTEND_DIR}/build"
+RUN_USER="${SUDO_USER:-$(whoami)}"
+NODE_CMD_PREFIX=""
+if [ "$(id -u)" = "0" ] && [ -n "${SUDO_USER:-}" ]; then
+    NODE_CMD_PREFIX="sudo -u ${RUN_USER}"
+fi
 DOMAIN="${1:-amarktai.com}"
 
 echo "=== Frontend Deployment ==="
@@ -27,13 +33,14 @@ if [ ! -f "package.json" ]; then
     exit 1
 fi
 
-echo "Step 1/4: Cleaning node_modules..."
+echo "Step 1/4: Cleaning node_modules and build..."
 rm -rf node_modules
+rm -rf "$BUILD_DIR"
 echo "✅ Cleaned"
 
 echo ""
 echo "Step 2/4: Installing dependencies (npm ci)..."
-npm ci
+$NODE_CMD_PREFIX npm ci
 if [ $? -ne 0 ]; then
     echo "❌ npm ci failed!"
     exit 1
@@ -43,7 +50,7 @@ echo "✅ Dependencies installed"
 # Step 3: Build
 echo ""
 echo "Step 3/4: Building frontend (npm run build)..."
-npm run build
+$NODE_CMD_PREFIX npm run build
 if [ $? -ne 0 ]; then
     echo "❌ npm run build failed!"
     exit 1
@@ -54,12 +61,12 @@ echo "✅ Build completed"
 echo ""
 echo "Step 4/4: Verifying build output..."
 
-BUILD_DIR="${FRONTEND_DIR}/build"
-
 if [ ! -d "$BUILD_DIR" ]; then
     echo "❌ Build directory not found: $BUILD_DIR"
     exit 1
 fi
+
+sudo chown -R "$RUN_USER":"$RUN_USER" "$BUILD_DIR" 2>/dev/null || true
 
 # Check index.html exists
 if [ ! -f "$BUILD_DIR/index.html" ]; then

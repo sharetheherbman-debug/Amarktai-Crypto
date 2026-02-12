@@ -378,18 +378,21 @@ class OverviewService:
             "BTC/ZAR": {
                 "price": 0.0,
                 "change_pct": 0.0,
+                "change_24h": 0.0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "unavailable"
             },
             "ETH/ZAR": {
                 "price": 0.0,
                 "change_pct": 0.0,
+                "change_24h": 0.0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "unavailable"
             },
             "XRP/ZAR": {
                 "price": 0.0,
                 "change_pct": 0.0,
+                "change_24h": 0.0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": "unavailable"
             }
@@ -416,9 +419,13 @@ class OverviewService:
                         data = response.json()
                         last_trade = float(data.get("last_trade", 0))
                         
+                        from services.price_snapshot_service import record_snapshot
+
+                        change_pct, _window = await record_snapshot(display_pair, last_trade)
                         prices[display_pair] = {
                             "price": round(last_trade, 2),
-                            "change_pct": 0.0,  # Future: Track 24h change (see DEPLOYMENT_NOTES.md)
+                            "change_pct": round(change_pct, 2),
+                            "change_24h": round(change_pct, 2),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "source": "luno_public"
                         }

@@ -41,7 +41,7 @@ async def get_live_prices(user_id: str = Depends(get_current_user)):
             result.append({
                 "pair": pair,
                 "price": data.get("price", 0.0),
-                "change_24h": data.get("change_pct", 0.0),
+                "change_24h": data.get("change_24h", data.get("change_pct", 0.0)),
                 "last_update": data.get("timestamp"),
                 "source": data.get("source", "unknown")
             })

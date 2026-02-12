@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from fastapi.responses import JSONResponse
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import logging
 import json
 import os
@@ -29,6 +29,128 @@ confirmation_tokens = {}
 
 ALLOW_ENV_OPENAI_KEY = os.getenv("ALLOW_ENV_OPENAI_KEY", "false").lower() == "true"
 last_ai_error: Optional[Dict] = None
+
+CONFIRM_RESET_RISK = "RESET RISK LOCKS"
+CONFIRM_LIVE_TRADING = "CONFIRM LIVE TRADING"
+CONFIRM_AUTOPILOT = "CONFIRM AUTOPILOT"
+CONFIRM_TRANSFER = "CONFIRM TRANSFER"
+
+
+def wants_code_response(content: str) -> bool:
+    content_lower = content.lower()
+    return any(keyword in content_lower for keyword in ["code", "snippet", "script", "example code"])
+
+
+async def get_user_memory(user_id: str) -> Dict[str, Any]:
+    memory = await db.user_memory_collection.find_one({"user_id": user_id}, {"_id": 0})
+    return memory or {}
+
+
+async def update_user_memory(user_id: str, updates: Dict[str, Any]):
+    now = datetime.now(timezone.utc).isoformat()
+    await db.user_memory_collection.update_one(
+        {"user_id": user_id},
+        {"$set": {**updates, "updated_at": now}, "$setOnInsert": {"user_id": user_id, "created_at": now}},
+        upsert=True
+    )
+
+
+async def log_chatops_action(user_id: str, action: str, params: Dict[str, Any], result: Dict[str, Any]):
+    await db.chatops_actions_collection.insert_one({
+        "user_id": user_id,
+        "action": action,
+        "params": params,
+        "result": result,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+
+
+async def build_recent_summary(user_id: str) -> Dict[str, Any]:
+    window_start = datetime.now(timezone.utc) - timedelta(days=7)
+    trades = await db.trades_collection.find(
+        {"user_id": user_id, "timestamp": {"$gte": window_start.isoformat()}},
+        {"_id": 0, "net_pnl": 1, "profit_loss": 1}
+    ).to_list(10000)
+    total = len(trades)
+    wins = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
+    losses = sum(1 for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) < 0)
+    pnl = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades)
+    return {
+        "trades": total,
+        "wins": wins,
+        "losses": losses,
+        "net_pnl": round(pnl, 2),
+        "window_start": window_start.isoformat()
+    }
+
+
+async def find_bot_match(user_id: str, content: str) -> Optional[Dict[str, Any]]:
+    bots = await db.bots_collection.find(
+        {"user_id": user_id, "status": {"$ne": "deleted"}},
+        {"_id": 0, "id": 1, "name": 1, "status": 1, "trading_mode": 1}
+    ).to_list(200)
+    content_lower = content.lower()
+    for bot in bots:
+        bot_name = (bot.get("name") or "").lower()
+        if bot_name and bot_name in content_lower:
+            return bot
+    return bots[0] if len(bots) == 1 else None
+
+
+def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[str, Any]]:
+    content_lower = content.lower()
+    commandish = request_action or content_lower.startswith(
+        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk")
+    )
+
+    if not commandish:
+        return None
+
+    if "overview" in content_lower:
+        return {"action": "fetch_overview"}
+    if "system status" in content_lower or content_lower.strip() == "status":
+        return {"action": "fetch_status"}
+    if "risk" in content_lower and "reset" not in content_lower:
+        return {"action": "fetch_risk"}
+    if "pause" in content_lower and "bot" in content_lower:
+        return {"action": "pause_bot"}
+    if ("resume" in content_lower or "start" in content_lower) and "bot" in content_lower:
+        return {"action": "resume_bot"}
+    if "stop" in content_lower and "bot" in content_lower:
+        return {"action": "stop_bot"}
+    if "reset" in content_lower and "risk" in content_lower:
+        return {"action": "reset_risk_locks"}
+    if "autopilot" in content_lower:
+        enabled = "disable" not in content_lower
+        return {"action": "toggle_autopilot", "params": {"enabled": enabled}}
+    if "live" in content_lower and ("switch" in content_lower or "enable" in content_lower):
+        return {"action": "switch_mode", "params": {"mode": "live"}}
+    if "paper" in content_lower and ("switch" in content_lower or "enable" in content_lower):
+        return {"action": "switch_mode", "params": {"mode": "paper"}}
+    if "transfer" in content_lower or "withdraw" in content_lower:
+        return {"action": "wallet_transfer"}
+
+    return None
+
+
+def parse_transfer_params(content: str) -> Dict[str, Any]:
+    supported = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+    content_lower = content.lower()
+    params: Dict[str, Any] = {}
+
+    for exchange in supported:
+        if f"from {exchange}" in content_lower:
+            params["from_exchange"] = exchange
+        if f"to {exchange}" in content_lower:
+            params["to_exchange"] = exchange
+
+    import re
+    amount_match = re.search(r"(\d+(?:\.\d+)?)\s*(zar|usdt|btc|eth|xrp)", content_lower)
+    if amount_match:
+        params["amount"] = float(amount_match.group(1))
+        params["currency"] = amount_match.group(2).upper()
+
+    return params
 
 
 async def resolve_openai_key(user_id: str) -> tuple[Optional[str], str]:
@@ -164,6 +286,14 @@ class AIActionRouter:
                     {"$set": {"status": "stopped"}}
                 )
                 return {"success": result.modified_count > 0, "action": "stop_bot", "bot_id": bot_id}
+
+            elif action == "resume_bot":
+                bot_id = params.get('bot_id')
+                result = await db.bots_collection.update_one(
+                    {"id": bot_id, "user_id": user_id},
+                    {"$set": {"status": "active"}}
+                )
+                return {"success": result.modified_count > 0, "action": "resume_bot", "bot_id": bot_id}
             
             elif action == "emergency_stop":
                 result = await db.system_modes_collection.update_one(
@@ -181,6 +311,60 @@ class AIActionRouter:
                     }}
                 )
                 return {"success": True, "action": "emergency_stop"}
+
+            elif action == "toggle_autopilot":
+                enabled = bool(params.get("enabled", False))
+                await db.system_modes_collection.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"autopilot": enabled}},
+                    upsert=True
+                )
+                return {"success": True, "action": "toggle_autopilot", "enabled": enabled}
+
+            elif action == "switch_mode":
+                from routes.system_mode import set_system_mode
+                mode = params.get("mode")
+                if mode not in ["paper", "live", "autopilot"]:
+                    return {"success": False, "error": "Invalid mode"}
+                await set_system_mode(mode, user_id)
+                return {"success": True, "action": "switch_mode", "mode": mode}
+
+            elif action == "reset_risk_locks":
+                await db.users_collection.update_one(
+                    {"id": user_id},
+                    {
+                        "$set": {
+                            "daily_loss_lock_active": False,
+                            "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
+                            "daily_loss_lock_reset_by": user_id
+                        },
+                        "$unset": {
+                            "daily_loss_locked_at": "",
+                            "daily_loss_locked_reason": "",
+                            "daily_loss_pct": "",
+                            "daily_loss_day_key": ""
+                        }
+                    }
+                )
+                try:
+                    from realtime_events import rt_events
+                    await rt_events.lock_reset(user_id, "daily_loss")
+                except Exception:
+                    pass
+                return {"success": True, "action": "reset_risk_locks"}
+
+            elif action == "wallet_transfer":
+                from services.transfer_state_machine import TransferStateMachine
+                transfer_machine = TransferStateMachine()
+                result = await transfer_machine.request_transfer(
+                    user_id=user_id,
+                    from_exchange=params.get("from_exchange"),
+                    to_exchange=params.get("to_exchange"),
+                    currency=params.get("currency"),
+                    amount=float(params.get("amount", 0)),
+                    idempotency_key=params.get("idempotency_key")
+                )
+                return {"success": True, "action": "wallet_transfer", "result": result}
             
             elif action == "get_limits":
                 limits = await trade_budget_manager.get_all_exchanges_budget_report()
@@ -305,255 +489,435 @@ async def ai_chat(
             {"_id": 0}
         ).sort("timestamp", -1).limit(30).to_list(30)
         chat_history.reverse()
+
+        # Load per-user memory and update with latest 7-day summary
+        memory = await get_user_memory(user_id)
+        recent_summary = await build_recent_summary(user_id)
+        user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "risk_profile": 1})
+        risk_profile = (user_doc or {}).get("risk_profile") or memory.get("risk_profile") or "balanced"
+        await update_user_memory(user_id, {
+            "risk_profile": risk_profile,
+            "last_7d_summary": recent_summary
+        })
+        memory = await get_user_memory(user_id)
         
         # Check if this is a confirmation for a dangerous action
         if confirmation_token and confirmation_token in confirmation_tokens:
             action_data = confirmation_tokens[confirmation_token]
+            confirmation_phrase = message.get("confirmation_phrase") or ""
+            phrase_source = confirmation_phrase or content
             
             # Verify it's for this user
             if action_data['user_id'] == user_id:
-                # Execute the confirmed action
-                result = await action_router.execute_action(
-                    action_data['action'],
-                    action_data['params'],
-                    user_id
-                )
-                
-                # Remove token
-                del confirmation_tokens[confirmation_token]
-                
-                ai_response = f"Action confirmed and executed: {action_data['action']}. Result: {result}"
-                
-                # Send WebSocket notification
-                await manager.send_message(user_id, {
-                    "type": "ai_action_executed",
-                    "action": action_data['action'],
-                    "result": result
-                })
+                required_phrase = action_data.get("confirmation_phrase")
+                if required_phrase and required_phrase not in phrase_source.upper():
+                    ai_response = (
+                        f"Please confirm by typing the exact phrase: {required_phrase}. "
+                        f"Then resend your confirmation token."
+                    )
+                else:
+                    # Execute the confirmed action
+                    result = await action_router.execute_action(
+                        action_data['action'],
+                        action_data['params'],
+                        user_id
+                    )
+                    
+                    # Remove token
+                    del confirmation_tokens[confirmation_token]
+                    
+                    ai_response = f"Confirmed. Action executed: {action_data['action']}."
+                    
+                    await log_chatops_action(user_id, action_data['action'], action_data['params'], result)
+                    await update_user_memory(user_id, {
+                        "last_commands": (memory.get("last_commands", []) + [action_data['action']])[-5:]
+                    })
+                    
+                    # Send WebSocket notification
+                    await manager.send_message(user_id, {
+                        "type": "ai_action_executed",
+                        "action": action_data['action'],
+                        "result": result
+                    })
             else:
                 ai_response = "Invalid confirmation token or unauthorized."
         else:
-            # Generate AI response with OpenAI - CANONICAL KEY RETRIEVAL + MODEL FALLBACK
-            error_code = None
-            try:
-                user_api_key, key_source = await resolve_openai_key(user_id)
-                logger.info(
-                    "AI chat key lookup user=%s provider=openai found=%s source=%s",
-                    user_tag,
-                    bool(user_api_key),
-                    key_source
-                )
-                
-                if not user_api_key:
-                    return build_ai_error_response(
-                        status_code=409,
-                        code="no_api_key",
-                        message="OpenAI key not configured",
-                        user_message="❌ OpenAI key not configured. Please save your OpenAI API key in Settings → API Keys.",
-                        system_state=system_state,
-                        key_source="none"
+            handled_action = False
+            action_request = detect_action_intent(content, request_action)
+            if action_request:
+                action = action_request["action"]
+                params = action_request.get("params", {})
+                handled_action = True
+
+                if action in ["pause_bot", "resume_bot", "stop_bot"]:
+                    bot = await find_bot_match(user_id, content)
+                    if not bot:
+                        ai_response = "Please specify the bot name you want to control."
+                    else:
+                        params["bot_id"] = bot.get("id")
+                        is_paper = bot.get("trading_mode", "paper") == "paper"
+                        requires_confirmation = (action == "stop_bot") or not is_paper
+                        if requires_confirmation:
+                            import uuid
+                            token = str(uuid.uuid4())
+                            confirmation_tokens[token] = {
+                                "user_id": user_id,
+                                "action": action,
+                                "params": params,
+                                "created_at": datetime.now(timezone.utc).isoformat()
+                            }
+                            await log_chatops_action(
+                                user_id,
+                                action,
+                                params,
+                                {"status": "confirmation_required", "token": token}
+                            )
+                            ai_response = (
+                                f"This action affects {'live' if not is_paper else 'paper'} trading and needs confirmation. "
+                                f"Reply with confirmation token: {token}"
+                            )
+                        else:
+                            result = await action_router.execute_action(action, params, user_id)
+                            await log_chatops_action(user_id, action, params, result)
+                            await update_user_memory(user_id, {
+                                "last_commands": (memory.get("last_commands", []) + [action])[-5:]
+                            })
+                            ai_response = f"Done. {action.replace('_', ' ')} executed for bot {bot.get('name')}."
+
+                elif action in ["fetch_overview", "fetch_status", "fetch_risk"]:
+                    if action == "fetch_overview":
+                        from services.overview_service import OverviewService
+                        overview = await OverviewService().get_snapshot(user_id)
+                        ai_response = (
+                            f"Overview: Profit R{overview.get('total_profit', 0):.2f}, "
+                            f"Active bots {overview.get('bots_active', 0)}, "
+                            f"Win rate {overview.get('win_rate', 0):.2f}%."
+                        )
+                        result = {"overview": overview}
+                    elif action == "fetch_status":
+                        from routes.system_status import get_system_status
+                        status = await get_system_status(user_id)
+                        ai_response = (
+                            f"System status: DB {'connected' if status['database']['connected'] else 'degraded'}, "
+                            f"active bots {status['trading_activity']['active_bots']}."
+                        )
+                        result = {"status": status}
+                    else:
+                        from routes.risk_management import get_risk_status
+                        risk = await get_risk_status(user_id)
+                        ai_response = (
+                            f"Risk status: daily loss lock "
+                            f"{'active' if risk['daily_loss_lock']['active'] else 'clear'}, "
+                            f"emergency stop {'active' if risk['emergency_stop']['active'] else 'clear'}."
+                        )
+                        result = {"risk": risk}
+
+                    await log_chatops_action(user_id, action, params, result)
+                    await update_user_memory(user_id, {
+                        "last_commands": (memory.get("last_commands", []) + [action])[-5:]
+                    })
+
+                elif action == "reset_risk_locks":
+                    user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+                    if not user_doc or not user_doc.get("is_admin", False):
+                        ai_response = "Resetting risk locks requires admin privileges."
+                    else:
+                        import uuid
+                        token = str(uuid.uuid4())
+                        confirmation_tokens[token] = {
+                            "user_id": user_id,
+                            "action": action,
+                            "params": params,
+                            "confirmation_phrase": CONFIRM_RESET_RISK,
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await log_chatops_action(
+                            user_id,
+                            action,
+                            params,
+                            {"status": "confirmation_required", "token": token}
+                        )
+                        ai_response = (
+                            f"This requires confirmation. Reply with token {token} and phrase: {CONFIRM_RESET_RISK}."
+                        )
+
+                elif action == "toggle_autopilot":
+                    import uuid
+                    token = str(uuid.uuid4())
+                    confirmation_tokens[token] = {
+                        "user_id": user_id,
+                        "action": action,
+                        "params": params,
+                        "confirmation_phrase": CONFIRM_AUTOPILOT,
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    await log_chatops_action(
+                        user_id,
+                        action,
+                        params,
+                        {"status": "confirmation_required", "token": token}
                     )
-                
-                # Use AsyncOpenAI client (openai>=1.x) with user's key
-                from openai import AsyncOpenAI
-                
+                    ai_response = (
+                        f"Autopilot change needs confirmation. Reply with token {token} and phrase: {CONFIRM_AUTOPILOT}."
+                    )
+
+                elif action == "switch_mode":
+                    mode = params.get("mode")
+                    if mode == "live":
+                        from routes.system_mode import live_trading_enabled, check_luno_balance
+                        if not live_trading_enabled():
+                            ai_response = "Live trading is disabled by configuration."
+                        else:
+                            has_balance, balance = await check_luno_balance(user_id)
+                            if not has_balance:
+                                ai_response = f"Live trading requires funded Luno wallet (current: R{balance:.2f})."
+                            else:
+                                import uuid
+                                token = str(uuid.uuid4())
+                                confirmation_tokens[token] = {
+                                    "user_id": user_id,
+                                    "action": action,
+                                    "params": params,
+                                    "confirmation_phrase": CONFIRM_LIVE_TRADING,
+                                    "created_at": datetime.now(timezone.utc).isoformat()
+                                }
+                                await log_chatops_action(
+                                    user_id,
+                                    action,
+                                    params,
+                                    {"status": "confirmation_required", "token": token}
+                                )
+                                ai_response = (
+                                    f"Switching to live trading needs confirmation. "
+                                    f"Reply with token {token} and phrase: {CONFIRM_LIVE_TRADING}."
+                                )
+                    else:
+                        result = await action_router.execute_action(action, params, user_id)
+                        await log_chatops_action(user_id, action, params, result)
+                        await update_user_memory(user_id, {
+                            "last_commands": (memory.get("last_commands", []) + [action])[-5:]
+                        })
+                        ai_response = "System switched to paper trading."
+
+                elif action == "wallet_transfer":
+                    params = {**params, **parse_transfer_params(content)}
+                    missing = [key for key in ["from_exchange", "to_exchange", "amount", "currency"] if not params.get(key)]
+                    if missing:
+                        ai_response = f"Please specify transfer details: {', '.join(missing)}."
+                    else:
+                        params["idempotency_key"] = params.get("idempotency_key") or f"chatops-{datetime.now(timezone.utc).timestamp()}"
+                        import uuid
+                        token = str(uuid.uuid4())
+                        confirmation_tokens[token] = {
+                            "user_id": user_id,
+                            "action": action,
+                            "params": params,
+                            "confirmation_phrase": CONFIRM_TRANSFER,
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await log_chatops_action(
+                            user_id,
+                            action,
+                            params,
+                            {"status": "confirmation_required", "token": token}
+                        )
+                        ai_response = (
+                            "Transfers require confirmation and may need admin approval. "
+                            f"Reply with token {token} and phrase: {CONFIRM_TRANSFER}."
+                        )
+
+            if not handled_action:
+                # Generate AI response with OpenAI - CANONICAL KEY RETRIEVAL + MODEL FALLBACK
+                error_code = None
                 try:
-                    request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
-                except ValueError:
-                    request_timeout = 30.0
-                    logger.warning("Invalid OPENAI_TIMEOUT_SECONDS value, defaulting to 30s")
-                
-                # Create client with user's API key
-                client = AsyncOpenAI(api_key=user_api_key, timeout=request_timeout)
-                
-                # MODEL FALLBACK - Same as keys/test
-                fallback_models = []
-                primary_model = os.getenv("OPENAI_MODEL")
-                if primary_model:
-                    fallback_models.append(primary_model)
-                fallback_env = os.getenv("OPENAI_FALLBACK_MODEL")
-                if fallback_env and fallback_env not in fallback_models:
-                    fallback_models.append(fallback_env)
-                
-                # Safe ordered allowlist (prefer cheap models for chat)
-                allowlist = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o", "gpt-3.5-turbo"]
-                for m in allowlist:
-                    if m not in fallback_models:
-                        fallback_models.append(m)
-                if not fallback_models:
-                    return build_ai_error_response(
-                        status_code=500,
-                        code="model_not_set",
-                        message="No OpenAI model configured",
-                        user_message="❌ AI model not configured. Set OPENAI_MODEL in environment.",
-                        system_state=system_state,
-                        key_source=key_source
+                    user_api_key, key_source = await resolve_openai_key(user_id)
+                    logger.info(
+                        "AI chat key lookup user=%s provider=openai found=%s source=%s",
+                        user_tag,
+                        bool(user_api_key),
+                        key_source
                     )
-                
-                # Prepare context for AI
-                context = f"""You are an AI trading assistant for the Amarktai Network.
-                
+                    
+                    if not user_api_key:
+                        return build_ai_error_response(
+                            status_code=409,
+                            code="no_api_key",
+                            message="OpenAI key not configured",
+                            user_message="❌ OpenAI key not configured. Please save your OpenAI API key in Settings → API Keys.",
+                            system_state=system_state,
+                            key_source="none"
+                        )
+                    
+                    # Use AsyncOpenAI client (openai>=1.x) with user's key
+                    from openai import AsyncOpenAI
+                    
+                    try:
+                        request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+                    except ValueError:
+                        request_timeout = 30.0
+                        logger.warning("Invalid OPENAI_TIMEOUT_SECONDS value, defaulting to 30s")
+                    
+                    # Create client with user's API key
+                    client = AsyncOpenAI(api_key=user_api_key, timeout=request_timeout)
+                    
+                    # MODEL FALLBACK - Same as keys/test
+                    fallback_models = []
+                    primary_model = os.getenv("OPENAI_MODEL")
+                    if primary_model:
+                        fallback_models.append(primary_model)
+                    fallback_env = os.getenv("OPENAI_FALLBACK_MODEL")
+                    if fallback_env and fallback_env not in fallback_models:
+                        fallback_models.append(fallback_env)
+                    
+                    # Safe ordered allowlist (prefer cheap models for chat)
+                    allowlist = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o", "gpt-3.5-turbo"]
+                    for m in allowlist:
+                        if m not in fallback_models:
+                            fallback_models.append(m)
+                    if not fallback_models:
+                        return build_ai_error_response(
+                            status_code=500,
+                            code="model_not_set",
+                            message="No OpenAI model configured",
+                            user_message="❌ AI model not configured. Set OPENAI_MODEL in environment.",
+                            system_state=system_state,
+                            key_source=key_source
+                        )
+                    
+                    memory_preferences = memory.get("preferences", {})
+                    memory_commands = memory.get("last_commands", [])
+                    
+                    # Prepare context for AI
+                    context = f"""You are an AI trading assistant for the Amarktai Network.
+                    
 Current System State:
 - Total Bots: {system_state['bots']['total']} (Active: {system_state['bots']['active']}, Paused: {system_state['bots']['paused']})
 - Total Capital: R{system_state['capital']['total']}
 - Total Profit: R{system_state['capital']['total_profit']}
 - Recent Performance: {system_state['recent_performance']['recent_trades_count']} trades, R{system_state['recent_performance']['recent_pnl']} PnL
 
+User Memory:
+- Preferences: {memory_preferences}
+- Risk Profile: {risk_profile}
+- Last 7-day summary: {recent_summary}
+- Last commands: {memory_commands}
+
 User Question: {content}
 
-Available Actions (if requested):
-- start_bot: Start a paused bot
-- pause_bot: Pause a running bot
-- stop_bot: Stop a bot permanently
-- emergency_stop: CRITICAL - Stop all trading immediately
-- get_limits: Show trade budget limits
-- get_performance_graph: Get performance data
-
 Instructions:
+- Respond in plain language (no code blocks unless the user asks for code)
 - Be helpful and explain the system state clearly
-- If user asks for an action, explain what it will do
-- For dangerous actions (emergency_stop, stop_bot), require explicit confirmation
-- Provide recommendations based on performance data
+- If user asks for an action, describe the safety checks
+- Provide concise next steps
 - Use conversation history for context to maintain continuity
 """
-                
-                # Build messages with history for context
-                ai_messages = [{"role": "system", "content": context}]
-                
-                # Add recent chat history for context
-                for hist_msg in chat_history[-10:]:  # Last 10 messages
-                    ai_messages.append({
-                        "role": hist_msg.get("role"),
-                        "content": hist_msg.get("content")
-                    })
-                
-                # Add current user message
-                ai_messages.append({"role": "user", "content": content})
-                
-                # Try each model in fallback order
-                model_used = None
-                ai_response = None
-                
-                for test_model in fallback_models:
-                    try:
-                        logger.info(
-                            "AI chat OpenAI call user=%s model=%s",
-                            user_tag,
-                            test_model
+                    
+                    # Build messages with history for context
+                    ai_messages = [{"role": "system", "content": context}]
+                    
+                    # Add recent chat history for context
+                    for hist_msg in chat_history[-10:]:  # Last 10 messages
+                        ai_messages.append({
+                            "role": hist_msg.get("role"),
+                            "content": hist_msg.get("content")
+                        })
+                    
+                    # Add current user message
+                    ai_messages.append({"role": "user", "content": content})
+                    
+                    # Try each model in fallback order
+                    model_used = None
+                    ai_response = None
+                    
+                    for test_model in fallback_models:
+                        try:
+                            logger.info(
+                                "AI chat OpenAI call user=%s model=%s",
+                                user_tag,
+                                test_model
+                            )
+                            response = await asyncio.wait_for(
+                                client.chat.completions.create(
+                                    model=test_model,
+                                    messages=ai_messages,
+                                    max_tokens=500,
+                                    temperature=0.7
+                                ),
+                                timeout=request_timeout
+                            )
+                            ai_response = response.choices[0].message.content if response.choices else ""
+                            model_used = test_model
+                            logger.info(
+                                "AI chat response user=%s model=%s response_length=%d",
+                                user_tag,
+                                model_used,
+                                len(ai_response or "")
+                            )
+                            break  # Success!
+                        except Exception as model_error:
+                            error_str = str(model_error)
+                            # Try next model on 403/404
+                            if "404" in error_str or "model_not_found" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+                                logger.info(f"AI chat model {test_model} unavailable, trying next")
+                                continue
+                            if "401" in error_str or "invalid_api_key" in error_str.lower():
+                                error_code = "invalid_key"
+                                raise model_error
+                            if "429" in error_str:
+                                error_code = "upstream_429"
+                                raise model_error
+                            raise model_error
+                    
+                    if not ai_response or not ai_response.strip():
+                        # All models failed
+                        return build_ai_error_response(
+                            status_code=502,
+                            code="all_models_failed",
+                            message="All configured OpenAI models failed",
+                            user_message="❌ AI models unavailable. Please check your OpenAI API key permissions.",
+                            system_state=system_state,
+                            key_source=key_source
                         )
-                        response = await asyncio.wait_for(
-                            client.chat.completions.create(
-                                model=test_model,
-                                messages=ai_messages,
-                                max_tokens=500,
-                                temperature=0.7
-                            ),
-                            timeout=request_timeout
-                        )
-                        ai_response = response.choices[0].message.content if response.choices else ""
-                        model_used = test_model
-                        logger.info(
-                            "AI chat response user=%s model=%s response_length=%d",
-                            user_tag,
-                            model_used,
-                            len(ai_response or "")
-                        )
-                        break  # Success!
-                    except Exception as model_error:
-                        error_str = str(model_error)
-                        # Try next model on 403/404
-                        if "404" in error_str or "model_not_found" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
-                            logger.info(f"AI chat model {test_model} unavailable, trying next")
-                            continue
+                    
+                    # Success - add metadata
+                    logger.info(f"AI chat used model: {model_used}, key_source: {key_source}")
+                
+                except Exception as e:
+                    logger.error(f"OpenAI API error: {e}")
+                    error_str = str(e)
+                    if error_code is None:
                         if "401" in error_str or "invalid_api_key" in error_str.lower():
                             error_code = "invalid_key"
-                            raise model_error
-                        if "429" in error_str:
+                        elif "429" in error_str:
                             error_code = "upstream_429"
-                            raise model_error
-                        raise model_error
-                
-                if not ai_response or not ai_response.strip():
-                    # All models failed
+                        elif "timeout" in error_str.lower():
+                            error_code = "timeout"
+                        else:
+                            error_code = "upstream_error"
+                    if error_code == "invalid_key":
+                        user_message = "❌ OpenAI authentication failed. Please re-save your OpenAI key."
+                        status_code = 400
+                    elif error_code == "upstream_429":
+                        user_message = "❌ OpenAI rate limit reached. Please wait and try again."
+                        status_code = 429
+                    elif error_code == "timeout":
+                        user_message = "❌ OpenAI request timed out. Please try again."
+                        status_code = 504
+                    else:
+                        user_message = "❌ OpenAI request failed. Please try again."
+                        status_code = 502
                     return build_ai_error_response(
-                        status_code=502,
-                        code="all_models_failed",
-                        message="All configured OpenAI models failed",
-                        user_message="❌ AI models unavailable. Please check your OpenAI API key permissions.",
+                        status_code=status_code,
+                        code=error_code,
+                        message=error_str,
+                        user_message=user_message,
                         system_state=system_state,
                         key_source=key_source
                     )
-                
-                # Success - add metadata
-                logger.info(f"AI chat used model: {model_used}, key_source: {key_source}")
-                
-                # Check if AI recommends an action
-                if request_action and any(keyword in content.lower() for keyword in ['start', 'pause', 'stop', 'emergency']):
-                    # Detect action intent
-                    action_detected = None
-                    params = {}
-                    requires_confirmation = False
-                    
-                    if 'emergency' in content.lower() and 'stop' in content.lower():
-                        action_detected = 'emergency_stop'
-                        requires_confirmation = True
-                    elif 'pause' in content.lower():
-                        action_detected = 'pause_bot'
-                        requires_confirmation = False
-                    # Add more action detection logic...
-                    
-                    if action_detected:
-                        if requires_confirmation:
-                            # Generate confirmation token
-                            import uuid
-                            token = str(uuid.uuid4())
-                            confirmation_tokens[token] = {
-                                "user_id": user_id,
-                                "action": action_detected,
-                                "params": params,
-                                "created_at": datetime.now(timezone.utc).isoformat()
-                            }
-                            
-                            ai_response += f"\n\n⚠️ **This is a dangerous action that requires confirmation.**\n"
-                            ai_response += f"To proceed, reply with confirmation token: `{token}`"
-                        else:
-                            # Safe action - execute immediately
-                            result = await action_router.execute_action(action_detected, params, user_id)
-                            ai_response += f"\n\n✅ Action executed: {result}"
-            
-            except Exception as e:
-                logger.error(f"OpenAI API error: {e}")
-                error_str = str(e)
-                if error_code is None:
-                    if "401" in error_str or "invalid_api_key" in error_str.lower():
-                        error_code = "invalid_key"
-                    elif "429" in error_str:
-                        error_code = "upstream_429"
-                    elif "timeout" in error_str.lower():
-                        error_code = "timeout"
-                    else:
-                        error_code = "upstream_error"
-                if error_code == "invalid_key":
-                    user_message = "❌ OpenAI authentication failed. Please re-save your OpenAI key."
-                    status_code = 400
-                elif error_code == "upstream_429":
-                    user_message = "❌ OpenAI rate limit reached. Please wait and try again."
-                    status_code = 429
-                elif error_code == "timeout":
-                    user_message = "❌ OpenAI request timed out. Please try again."
-                    status_code = 504
-                else:
-                    user_message = "❌ OpenAI request failed. Please try again."
-                    status_code = 502
-                return build_ai_error_response(
-                    status_code=status_code,
-                    code=error_code,
-                    message=error_str,
-                    user_message=user_message,
-                    system_state=system_state,
-                    key_source=key_source
-                )
         
+        if ai_response and not wants_code_response(content):
+            ai_response = ai_response.replace("```", "").strip()
+
         # Save AI response
         ai_msg = {
             "user_id": user_id,
