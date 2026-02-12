@@ -3928,8 +3928,8 @@ export default function Dashboard() {
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
               <strong>Autopilot Growth Milestones</strong>
-              <span style={{fontSize: '0.75rem', color: autopilotReinvestStatus?.enabled ? 'var(--success)' : 'var(--muted)'}}>
-                Reinvest Mode: {autopilotReinvestStatus?.enabled ? 'ON' : 'OFF'}
+              <span style={{fontSize: '0.75rem', color: autopilotGrowthStatus?.enabled ? 'var(--success)' : 'var(--muted)'}}>
+                Growth Mode: {autopilotGrowthStatus?.enabled ? 'ON' : 'OFF'}
               </span>
             </div>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>

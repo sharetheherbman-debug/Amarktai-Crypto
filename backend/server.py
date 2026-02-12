@@ -66,6 +66,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events with feature flags for plug-and-play stability"""
     from datetime import datetime, timezone
     startup_time = datetime.now(timezone.utc)
+    import config
     
     logger.info("="*80)
     logger.info("🚀 Starting Amarktai Network Backend Server")
@@ -194,7 +195,6 @@ async def lifespan(app: FastAPI):
     
     # Start Daily Reinvestment Scheduler (optional)
     try:
-        import config
         if not config.ENABLE_AUTOPILOT_REINVEST:
             from services.daily_reinvestment import get_reinvestment_service
             reinvest_service = get_reinvestment_service(db.db)
@@ -207,7 +207,6 @@ async def lifespan(app: FastAPI):
 
     # Start Autopilot Growth Scheduler (optional)
     try:
-        import config
         if config.ENABLE_AUTOPILOT_GROWTH:
             from services.autopilot_growth import get_autopilot_growth_scheduler
             growth_scheduler = get_autopilot_growth_scheduler(db.db)
@@ -218,7 +217,6 @@ async def lifespan(app: FastAPI):
 
     # Start Autopilot Reinvest Scheduler (optional)
     try:
-        import config
         if config.ENABLE_AUTOPILOT_REINVEST:
             from services.autopilot_reinvest import get_autopilot_reinvest_scheduler
             reinvest_scheduler = get_autopilot_reinvest_scheduler(db.db)
