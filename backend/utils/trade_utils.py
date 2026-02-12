@@ -86,3 +86,29 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
 
     normalize_trade_timestamps(record)
     return record
+
+
+def calculate_trade_pnl(
+    entry_value: float,
+    exit_value: float,
+    fees: float,
+    slippage: float = 0.0
+) -> Dict[str, float]:
+    """Calculate gross and net PnL for a trade."""
+    gross_profit = exit_value - entry_value
+    net_profit = gross_profit - fees - slippage
+    return {
+        "gross_profit": gross_profit,
+        "net_profit": net_profit,
+        "fees": fees,
+        "slippage": slippage,
+    }
+
+
+def classify_trade_outcome(net_profit: float) -> Dict[str, int | str]:
+    """Classify a trade outcome for win/loss counters."""
+    if net_profit > 0:
+        return {"win_count": 1, "loss_count": 0, "result": "win"}
+    if net_profit < 0:
+        return {"win_count": 0, "loss_count": 1, "result": "loss"}
+    return {"win_count": 0, "loss_count": 0, "result": "flat"}

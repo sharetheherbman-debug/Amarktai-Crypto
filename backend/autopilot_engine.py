@@ -21,6 +21,9 @@ class AutopilotEngine:
         self.scheduler = AsyncIOScheduler()
         self.db = None
         self.running = False
+        self.last_tick = None
+        self.last_error = None
+        self.last_gate_status = None
         
     async def init_db(self):
         """Initialize database connection"""
@@ -35,7 +38,13 @@ class AutopilotEngine:
         # AUTOPILOT GATE: Check if autopilot can run
         can_run, message = check_autopilot_gates()
         if not can_run:
-            logger.info(f"🤖 Autopilot Engine not started: {message}")
+            self.last_gate_status = {
+                "can_run": False,
+                "reason": message,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            self.last_error = message
+            logger.info(f"🤖 Autopilot Engine NOT STARTED because {message}")
             return
         
         # Prevent multiple starts
@@ -49,6 +58,12 @@ class AutopilotEngine:
         try:
             await self.init_db()
             self.running = True
+            self.last_gate_status = {
+                "can_run": True,
+                "reason": message,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            self.last_error = None
             
             # Only add jobs if scheduler is not already running and schedulers are enabled
             if enable_schedulers and not self.scheduler.running:
@@ -85,13 +100,40 @@ class AutopilotEngine:
                 )
                 
                 self.scheduler.start()
-                logger.info("🤖 Autopilot Engine started with scheduler (hourly reinvestment & evolution)")
+                logger.info("🤖 Autopilot Engine STARTED with scheduler (hourly reinvestment & evolution)")
             else:
-                logger.info("🤖 Autopilot Engine started without scheduler (ENABLE_SCHEDULERS not truthy or already running)")
+                logger.info("🤖 Autopilot Engine STARTED without scheduler (ENABLE_SCHEDULERS not truthy or already running)")
         except Exception as e:
             logger.error(f"Failed to start Autopilot Engine: {e}")
             self.running = False
+            self.last_error = str(e)
             # Don't raise - let server continue
+
+    def _mark_tick(self, job_name: str):
+        self.last_tick = {
+            "job": job_name,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+    def get_diagnostics(self) -> dict:
+        jobs = []
+        try:
+            if self.scheduler:
+                for job in self.scheduler.get_jobs():
+                    jobs.append({
+                        "id": job.id,
+                        "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+                        "trigger": str(job.trigger)
+                    })
+        except Exception as e:
+            self.last_error = str(e)
+        return {
+            "running": self.running,
+            "last_tick": self.last_tick,
+            "next_jobs": jobs,
+            "last_error": self.last_error,
+            "gate_status": self.last_gate_status
+        }
         
     async def hourly_reinvestment_cycle(self):
         """
@@ -101,6 +143,7 @@ class AutopilotEngine:
         PHASE 4B: Respects live trading gates
         """
         try:
+            self._mark_tick("hourly_reinvestment")
             logger.info("💰 Starting hourly reinvestment cycle (ledger-based)...")
             
             # PHASE 4B/4C: Check if trading can run at all
@@ -196,6 +239,7 @@ class AutopilotEngine:
                 
         except Exception as e:
             logger.error(f"Hourly reinvestment error: {e}")
+            self.last_error = str(e)
     
     async def spawn_bot_if_profit_allows(self, user_id: str, seed_amount: float = 1000.0, target_exchange: str = None) -> dict:
         """
@@ -426,6 +470,7 @@ class AutopilotEngine:
     async def check_paper_bot_promotions(self):
         """Check if paper bots meet criteria for live trading promotion"""
         try:
+            self._mark_tick("paper_bot_promotions")
             # Get paper bots that are 7+ days old
             seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
             
@@ -461,6 +506,7 @@ class AutopilotEngine:
                         
         except Exception as e:
             logger.error(f"Paper bot promotion check error: {e}")
+            self.last_error = str(e)
             
     async def promote_to_live(self, bot: dict):
         """Promote paper trading bot to live trading"""
@@ -516,6 +562,7 @@ class AutopilotEngine:
     async def optimize_strategies(self):
         """Optimize bot strategies based on market conditions"""
         try:
+            self._mark_tick("strategy_optimization")
             logger.info("🔧 Running strategy optimization...")
             
             # Get all active bots
@@ -545,10 +592,12 @@ class AutopilotEngine:
                     
         except Exception as e:
             logger.error(f"Strategy optimization error: {e}")
+            self.last_error = str(e)
     
     async def hourly_evolution_cycle(self):
         """Hourly genetic evolution of bot population"""
         try:
+            self._mark_tick("hourly_evolution")
             from bot_dna_evolution import bot_dna_evolution
             import config
             
@@ -591,6 +640,7 @@ class AutopilotEngine:
             
         except Exception as e:
             logger.error(f"Evolution cycle error: {e}")
+            self.last_error = str(e)
     
     async def _find_best_exchange_for_spawn(self, user_id: str, bots: list, seed_amount: float) -> str:
         """Find the best exchange to spawn a new bot on, considering limits and per-exchange profit

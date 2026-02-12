@@ -111,6 +111,13 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
             }
         except Exception as e:
             logger.error(f"Error fetching system modes: {e}")
+
+        wallet_summary = {}
+        try:
+            from services.wallet_summary_service import wallet_summary_service
+            wallet_summary = await wallet_summary_service.get_summary(user_id)
+        except Exception as e:
+            logger.warning(f"Wallet summary unavailable: {e}")
         
         return {
             "success": True,
@@ -127,7 +134,8 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
                 "last_trade": last_trade,
                 "last_trade_time": last_trade_time
             },
-            "system_modes": system_modes
+            "system_modes": system_modes,
+            "wallet_summary": wallet_summary
         }
         
     except Exception as e:

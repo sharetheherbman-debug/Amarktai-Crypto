@@ -400,6 +400,32 @@ async def autopilot_functionality_check(user_id: str = Depends(get_current_user)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/autopilot")
+async def autopilot_runtime_diagnostics(user_id: str = Depends(get_current_user)):
+    """Runtime diagnostics for autopilot scheduler and gating."""
+    try:
+        from autopilot_engine import autopilot
+        from utils.env_utils import env_bool
+        from utils.trading_gates import check_autopilot_gates, check_trading_mode_enabled
+
+        gates_ok, gates_reason = check_autopilot_gates()
+        trading_ok, trading_reason = check_trading_mode_enabled()
+
+        diagnostics = autopilot.get_diagnostics()
+        diagnostics["gating"] = {
+            "autopilot_enabled": env_bool("AUTOPILOT_ENABLED", False),
+            "trading_enabled": trading_ok,
+            "trading_mode": trading_reason if trading_ok else None,
+            "gates_ok": gates_ok,
+            "reason": gates_reason
+        }
+        diagnostics["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return diagnostics
+    except Exception as e:
+        logger.error(f"Autopilot diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/paper-status")
 async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
     """Get paper trading diagnostic status
@@ -690,6 +716,86 @@ async def get_realtime_status(user_id: str = Depends(get_current_user)):
         
     except Exception as e:
         logger.error(f"Realtime status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/accounting")
+async def get_accounting_diagnostics(user_id: str = Depends(get_current_user)):
+    """Get accounting diagnostics for trades, counters, and bot reconciliation."""
+    try:
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "closed"},
+            {
+                "_id": 0,
+                "id": 1,
+                "bot_id": 1,
+                "timestamp": 1,
+                "symbol": 1,
+                "exchange": 1,
+                "entry_price": 1,
+                "exit_price": 1,
+                "net_pnl": 1,
+                "profit_loss": 1,
+                "fee_paid": 1,
+                "fee_amount": 1,
+                "slippage": 1,
+                "trade_close_reason": 1
+            }
+        ).sort("timestamp", -1).to_list(5000)
+
+        def trade_net(trade: Dict) -> float:
+            return float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
+
+        total_trades = len(trades)
+        win_count = sum(1 for t in trades if trade_net(t) > 0)
+        loss_count = sum(1 for t in trades if trade_net(t) < 0)
+
+        trade_by_bot: Dict[str, list] = {}
+        for trade in trades:
+            trade_by_bot.setdefault(trade.get("bot_id"), []).append(trade)
+
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": {"$ne": "deleted"}},
+            {"_id": 0}
+        ).to_list(1000)
+
+        reconciliation = []
+        for bot in bots:
+            bot_id = bot.get("id")
+            bot_trades = trade_by_bot.get(bot_id, [])
+            bot_realized = sum(trade_net(t) for t in bot_trades)
+            bot_wins = sum(1 for t in bot_trades if trade_net(t) > 0)
+            bot_losses = sum(1 for t in bot_trades if trade_net(t) < 0)
+            initial_capital = float(bot.get("initial_capital", 0) or 0)
+            current_capital = float(bot.get("current_capital", 0) or 0)
+            expected_equity = initial_capital + bot_realized
+            reconciliation.append({
+                "bot_id": bot_id,
+                "bot_name": bot.get("name"),
+                "initial_capital": round(initial_capital, 2),
+                "current_capital": round(current_capital, 2),
+                "total_profit": round(float(bot.get("total_profit", 0) or 0), 2),
+                "realized_pnl": round(bot_realized, 2),
+                "expected_equity": round(expected_equity, 2),
+                "equity_delta": round(current_capital - expected_equity, 2),
+                "trades_count": len(bot_trades),
+                "win_count": bot_wins,
+                "loss_count": bot_losses
+            })
+
+        return {
+            "success": True,
+            "trades_recent": trades[:20],
+            "counters": {
+                "trades_count": total_trades,
+                "win_count": win_count,
+                "loss_count": loss_count
+            },
+            "reconciliation": reconciliation,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Accounting diagnostics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

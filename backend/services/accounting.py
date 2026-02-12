@@ -95,7 +95,7 @@ class AccountingService:
             
             # Total fees
             total_fees_zar = sum(
-                t.get("fee_amount", 0)
+                t.get("fee_amount", t.get("fee_paid", t.get("fees", 0)))
                 for t in trades
             )
             

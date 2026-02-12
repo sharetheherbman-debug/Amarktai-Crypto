@@ -57,6 +57,13 @@ async def get_portfolio_summary(
         win_rate = await ledger.calculate_win_rate(user_id)
         if win_rate is not None:
             win_rate = round(win_rate * 100, 2)  # Convert to percentage
+
+        wallet_summary = {}
+        try:
+            from services.wallet_summary_service import wallet_summary_service
+            wallet_summary = await wallet_summary_service.get_summary(user_id)
+        except Exception as e:
+            logger.warning(f"Wallet summary unavailable: {e}")
         
         return {
             "equity": round(equity, 2),
@@ -69,6 +76,7 @@ async def get_portfolio_summary(
             "win_rate": win_rate,
             "total_fills": stats.get("total_fills", 0),
             "total_volume": round(stats.get("total_volume", 0), 2),
+            "wallet_summary": wallet_summary,
             "data_source": "ledger",
             "phase": "1_read_only"
         }

@@ -197,6 +197,8 @@ class BotValidator:
         risk_mode = bot_data.get('risk_mode', 'safe').lower()
         if risk_mode not in valid_risk_modes:
             risk_mode = 'safe'
+
+        strategy_preset = bot_data.get("strategy_preset")
         
         # All validations passed - return validated data with lifecycle fields
         validated_data = {
@@ -220,7 +222,9 @@ class BotValidator:
             "paper_start_date": datetime.now(timezone.utc).isoformat(),
             "paper_end_eligible_at": None,  # Will be set after 7 days
             "promoted_to_live_at": None,
-            "user_id": user_id
+            "user_id": user_id,
+            "strategy_preset": strategy_preset,
+            "strategy": {"preset": strategy_preset} if strategy_preset else {}
         }
         
         return True, validated_data

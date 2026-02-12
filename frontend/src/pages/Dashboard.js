@@ -161,6 +161,8 @@ export default function Dashboard() {
     winRate: 0,
     activeBots: 0,
     pausedBots: 0,
+    paperWalletTotal: 0,
+    paperWalletAllocated: 0,
     lastTradeTime: null,
     systemMode: 'paper'
   });
@@ -171,6 +173,8 @@ export default function Dashboard() {
   const [riskStatus, setRiskStatus] = useState(null);
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
+  const [realtimeFallback, setRealtimeFallback] = useState(false);
+  const [spawnBotLoading, setSpawnBotLoading] = useState(false);
   const [storageData, setStorageData] = useState(null);
   const [storageError, setStorageError] = useState(null);
   const [countdown, setCountdown] = useState(null);
@@ -351,10 +355,37 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       loadOverviewData();
       loadRiskStatus();
+      if (realtimeFallback) {
+        loadSystemHealth();
+        loadCountdown();
+        loadSystemStats();
+      }
     }, 10000);
     
     return () => clearInterval(interval);
-  }, [token, user]);
+  }, [token, user, realtimeFallback]);
+
+  useEffect(() => {
+    if (!token) return;
+    let mounted = true;
+    const checkRealtimeStatus = async () => {
+      try {
+        const res = await get('/diagnostics/realtime');
+        if (!mounted) return;
+        setRealtimeFallback(safeNumber(res?.ws_connected, 0) === 0);
+      } catch (err) {
+        if (mounted) {
+          setRealtimeFallback(true);
+        }
+      }
+    };
+    checkRealtimeStatus();
+    const interval = setInterval(checkRealtimeStatus, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [token]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -983,30 +1014,27 @@ export default function Dashboard() {
 
   const loadOverviewData = async () => {
     try {
-      // Fetch bot status for counts
-      const botsRes = await get('/bots/status');
-      const botsList = botsRes?.bots || [];
-      const activeBots = botsList.filter(bot => bot.status === 'active' || bot.state === 'active').length;
-      const pausedBots = botsList.filter(bot => ['paused', 'paused_ready', 'quarantined'].includes(bot.status) || ['paused', 'paused_ready', 'quarantined'].includes(bot.state)).length;
-      
-      // Fetch portfolio summary for profit data
-      const portfolioRes = await get('/portfolio/summary');
-      const totalProfit = safeNumber(portfolioRes?.net_pnl, 0);
-      const todaysProfit = safeNumber(portfolioRes?.todays_pnl, 0);
-      
-      // Fetch analytics for trade stats
-      const analyticsRes = await get('/analytics/performance_summary');
-      const totalTrades = safeNumber(analyticsRes?.total_trades, 0);
-      const winRate = safeNumber(analyticsRes?.win_rate, 0);
-      
-      // Fetch system mode
-      const modeRes = await get('/system/mode');
+      const [snapshotRes, paperWalletRes, modeRes, tradesRes] = await Promise.all([
+        get('/overview/snapshot'),
+        get('/wallet/paper'),
+        get('/system/mode'),
+        get('/trades/recent?limit=1')
+      ]);
+
+      const totalProfit = safeNumber(snapshotRes?.total_profit, 0);
+      const todaysProfit = safeNumber(snapshotRes?.today_profit, 0);
+      const totalTrades = safeNumber(snapshotRes?.trades_total, 0);
+      const winRate = safeNumber(snapshotRes?.win_rate, 0);
+      const activeBots = safeNumber(snapshotRes?.bots_active, 0);
+      const pausedBots = safeNumber(snapshotRes?.bots_paused, 0);
+      const paperWalletTotal = safeNumber(paperWalletRes?.total, 0);
+      const paperWalletAllocated = Object.values(paperWalletRes?.allocated || {}).reduce(
+        (sum, value) => sum + safeNumber(value, 0),
+        0
+      );
       const systemMode = resolveSystemMode(modeRes);
-      
-      // Get last trade time
-      const tradesRes = await get('/trades/recent?limit=1');
       const lastTradeTime = tradesRes?.trades?.[0]?.timestamp || null;
-      
+
       setOverviewData({
         totalProfit,
         todaysProfit,
@@ -1014,6 +1042,8 @@ export default function Dashboard() {
         winRate,
         activeBots,
         pausedBots,
+        paperWalletTotal,
+        paperWalletAllocated,
         lastTradeTime,
         systemMode
       });
@@ -1563,7 +1593,10 @@ export default function Dashboard() {
     // Send all other messages to AI backend
     try {
       const res = await axios.post(`${API}/ai/chat`, { message: originalInput, context: 'dashboard' }, axiosConfig);
-      const reply = typeof res.data === 'string' ? res.data : (res.data.response || res.data.reply || res.data.message || 'No response');
+      const payload = res.data || {};
+      const reply = typeof payload === 'string'
+        ? payload
+        : (payload.content || payload.response || payload.reply || payload.message || payload.error || 'No response');
       const assistantMsg = { role: 'assistant', content: reply };
       setChatMessages(prev => [...prev, assistantMsg]);
       
@@ -1715,6 +1748,7 @@ export default function Dashboard() {
     const budget = parseInt(e.target['bot-budget'].value);
     const exchange = e.target['bot-exchange'].value;
     const riskMode = e.target['bot-risk'].value;
+    const strategyPreset = e.target['bot-strategy']?.value;
     
     if (!name) {
       showNotification('Please enter a bot name', 'error');
@@ -1734,6 +1768,7 @@ export default function Dashboard() {
         trading_mode: 'paper', // Always start in paper for user bots
         risk_mode: riskMode,
         initial_capital: budget,
+        strategy_preset: strategyPreset || 'adaptive',
         created_by: 'user', // Track origin
         paper_start_date: new Date().toISOString(), // Start 7-day countdown
         learning_complete: false
@@ -1748,6 +1783,22 @@ export default function Dashboard() {
       const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create bot';
       showNotification(errorMsg, 'error');
       console.error('Bot creation error:', err);
+    }
+  };
+
+  const handleSpawnBotNow = async () => {
+    try {
+      setSpawnBotLoading(true);
+      const res = await post('/bots/spawn', {});
+      const spawnedName = res?.bot?.name || res?.bot_name || 'New Bot';
+      showNotification(`✅ Spawned ${spawnedName} immediately`, 'success');
+      await refreshBotState();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const errorMsg = typeof detail === 'string' ? detail : detail?.message || err.message;
+      showNotification(errorMsg || 'Failed to spawn bot', 'error');
+    } finally {
+      setSpawnBotLoading(false);
     }
   };
 
@@ -2946,6 +2997,18 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="status-item">
+                <strong>Paper Wallet Total</strong>
+                <div className="led-row">
+                  <span>R{safeToFixed(overviewData.paperWalletTotal, 2)}</span>
+                </div>
+              </div>
+              <div className="status-item">
+                <strong>Allocated to Bots</strong>
+                <div className="led-row">
+                  <span>R{safeToFixed(overviewData.paperWalletAllocated, 2)}</span>
+                </div>
+              </div>
+              <div className="status-item">
                 <strong>System Mode</strong>
                 <div className="led-row">
                   <span style={{textTransform: 'uppercase', fontWeight: 700}}>
@@ -3237,23 +3300,6 @@ export default function Dashboard() {
               🤖 Bot Overview
             </button>
             <button 
-              onClick={() => setBotManagementTab('spawn')}
-              style={{
-                padding: '10px 20px',
-                background: botManagementTab === 'spawn' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'spawn' ? '#4a90e2' : 'var(--line)'),
-                borderRadius: '8px',
-                color: botManagementTab === 'spawn' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'spawn' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'spawn' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
-              ➕ Spawn a Bot
-            </button>
-            <button 
               onClick={() => setBotManagementTab('uagents')}
               style={{
                 padding: '10px 20px',
@@ -3293,6 +3339,73 @@ export default function Dashboard() {
           <>
           {botManagementTab === 'creation' && (
           <div className="bot-container">
+          <div className="bot-form-card" style={{marginBottom: '20px'}}>
+            <h3>Create New Bot</h3>
+            <form onSubmit={handleCreateBot}>
+              <div className="bot-form-grid">
+                <div className="form-group">
+                  <label htmlFor="bot-name">Bot Name</label>
+                  <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                  <input 
+                    id="bot-budget" 
+                    name="bot-budget" 
+                    type="number" 
+                    min="1000" 
+                    step="100"
+                    defaultValue="1000"
+                    placeholder="1000" 
+                    required 
+                  />
+                  <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
+                    Minimum R1000 per bot
+                  </small>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="bot-exchange">Exchange Platform</label>
+                  <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                    {getAllExchanges().map(exchange => (
+                      <option 
+                        key={exchange.id} 
+                        value={exchange.id}
+                        disabled={exchange.comingSoon}
+                      >
+                        {exchange.icon} {exchange.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
+                    ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
+                  </small>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="bot-risk">Risk Mode</label>
+                  <select id="bot-risk" name="bot-risk">
+                    <option value="safe">🛡️ Safe</option>
+                    <option value="balanced">⚖️ Balanced</option>
+                    <option value="aggressive">⚡ Aggressive</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="bot-strategy">Strategy Preset</label>
+                  <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
+                    <option value="adaptive">🧠 Adaptive Core</option>
+                    <option value="trend">📈 Trend Follow</option>
+                    <option value="mean_reversion">🔄 Mean Reversion</option>
+                    <option value="scalping">⚡ Scalping</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <button type="submit">Create Bot (7 Day Learning)</button>
+                </div>
+              </div>
+              <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
+                📝 User-created bots undergo 7-day paper trading learning period
+              </div>
+            </form>
+          </div>
           <div className="bot-right" style={{flex: '1 1 100%', maxWidth: '100%'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
               <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
@@ -3587,101 +3700,6 @@ export default function Dashboard() {
           </div>
           </div>
           )}
-          {botManagementTab === 'spawn' && (
-          <div className="bot-container">
-            <div className="bot-left" style={{flex: '1 1 100%', maxWidth: '100%'}}>
-              {autoSpawnStatus && (
-                <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-                  <strong>Auto-Spawn Gate (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
-                  <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                    Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
-                  </div>
-                  <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
-                    {SUPPORTED_PLATFORMS.map(exchange => {
-                      const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
-                      const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
-                      const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
-                      const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
-                      const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
-                      return (
-                        <div key={exchange} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
-                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                            <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
-                            <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
-                              {eligible ? '✅ Eligible' : reason}
-                            </span>
-                          </div>
-                          <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                            Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <div className="bot-form-card">
-                <h3>Spawn New Bot</h3>
-                <form onSubmit={handleCreateBot}>
-                  <div className="bot-form-grid">
-                    <div className="form-group">
-                      <label htmlFor="bot-name">Bot Name</label>
-                      <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="bot-budget">Budget (Min R1000)</label>
-                      <input 
-                        id="bot-budget" 
-                        name="bot-budget" 
-                        type="number" 
-                        min="1000" 
-                        step="100"
-                        defaultValue="1000"
-                        placeholder="1000" 
-                        required 
-                      />
-                      <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
-                        Minimum R1000 per bot
-                      </small>
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="bot-exchange">Exchange Platform</label>
-                      <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
-                        {getAllExchanges().map(exchange => (
-                          <option 
-                            key={exchange.id} 
-                            value={exchange.id}
-                            disabled={exchange.comingSoon}
-                          >
-                            {exchange.icon} {exchange.displayName}
-                          </option>
-                        ))}
-                      </select>
-                      <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
-                        ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
-                      </small>
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="bot-risk">Risk Mode</label>
-                      <select id="bot-risk" name="bot-risk">
-                        <option value="safe">🛡️ Safe</option>
-                        <option value="balanced">⚖️ Balanced</option>
-                        <option value="aggressive">⚡ Aggressive</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <button type="submit">Create Bot (7 Day Learning)</button>
-                    </div>
-                  </div>
-                  <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
-                    📝 User-created bots undergo 7-day paper trading learning period
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-          )}
-          
           {/* uAgents Tab */}
           {botManagementTab === 'uagents' && (
             <div style={{padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
@@ -3724,6 +3742,65 @@ export default function Dashboard() {
           </>
         </div>
       </section>
+  );
+
+  const renderSpawnBot = () => (
+    <section className="section active">
+      <div className="card">
+        <h2 style={{marginBottom: '16px', color: '#ffffff'}}>🚀 Spawn Bot</h2>
+        {autoSpawnStatus && (
+          <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <strong>Autopilot Eligibility (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
+            <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+              Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
+            </div>
+            <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
+              {SUPPORTED_PLATFORMS.map(exchange => {
+                const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
+                const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
+                const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
+                const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
+                const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
+                return (
+                  <div key={exchange} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
+                      <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
+                        {eligible ? '✅ Eligible' : reason}
+                      </span>
+                    </div>
+                    <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
+                      Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="bot-form-card">
+          <h3>Spawn Bot Now</h3>
+          <p style={{color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px'}}>
+            Manual spawn creates a bot immediately using available paper wallet funds. Autopilot eligibility is shown above for reference.
+          </p>
+          <button
+            onClick={handleSpawnBotNow}
+            disabled={spawnBotLoading}
+            style={{
+              padding: '12px 18px',
+              background: spawnBotLoading ? '#666' : 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: spawnBotLoading ? 'wait' : 'pointer',
+              fontWeight: 600
+            }}
+          >
+            {spawnBotLoading ? '⏳ Spawning...' : 'Spawn Bot Now'}
+          </button>
+        </div>
+      </div>
+    </section>
   );
 
   const renderProfile = () => {
@@ -6954,6 +7031,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
+            <a href="#" className={activeSection === 'spawn' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('spawn'); }}>🚀 Spawn Bot</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
@@ -7025,6 +7103,7 @@ export default function Dashboard() {
         {activeSection === 'overview' && renderOverview()}
         {activeSection === 'api' && renderApiSetup()}
         {activeSection === 'bots' && renderBots()}
+        {activeSection === 'spawn' && renderSpawnBot()}
         {activeSection === 'system' && renderSystemMode()}
         {activeSection === 'graphs' && renderProfitGraphs()}
         {activeSection === 'trades' && renderLiveTradeFeed()}
