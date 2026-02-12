@@ -16,6 +16,7 @@ NC='\033[0m' # No Color
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+SYSTEMD_SERVICE="${SYSTEMD_SERVICE:-amarktai-api}"
 
 echo "============================================"
 echo "Deployment Acceptance Tests (Smoke Tests)"
@@ -23,6 +24,19 @@ echo "============================================"
 echo ""
 echo "Target: $BASE_URL"
 echo ""
+
+echo "Restarting systemd service: $SYSTEMD_SERVICE"
+if ! systemctl restart "$SYSTEMD_SERVICE"; then
+    echo -e "${RED}❌ Failed to restart systemd service: $SYSTEMD_SERVICE${NC}"
+    exit 1
+fi
+
+echo "Waiting for listener on 127.0.0.1:8000"
+sleep 2
+if ! ss -ltn | grep -q "127.0.0.1:8000"; then
+    echo -e "${RED}❌ Listener not detected on 127.0.0.1:8000${NC}"
+    exit 1
+fi
 
 # Test counter
 TOTAL_TESTS=0
@@ -53,6 +67,7 @@ run_test() {
 # Test 1: Health Check
 run_test "Health check (GET /api/health/ping)" \
     "curl -sf '$BASE_URL/api/health/ping' | grep -q 'pong'"
+
 
 # Test 2: OpenAPI Schema
 run_test "OpenAPI schema exists (GET /openapi.json)" \
@@ -141,6 +156,8 @@ fi
 
 # Only run authenticated tests if we have a token
 if [ -n "$ACCESS_TOKEN" ]; then
+    run_test "System status (GET /api/system/status)" \
+        "curl -sf '$BASE_URL/api/system/status' -H 'Authorization: Bearer $ACCESS_TOKEN' | grep -q '\"system_modes\"'"
     # Test 8: Test with invalid provider returns 400 with correct error
     TEST_RESPONSE=$(curl -sf -X POST "$BASE_URL/api/keys/test" \
         -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -310,4 +327,3 @@ else
     printf "%-60s${RED}❌ FAIL${NC}\n" "No Emergent refs in active backend code"
     echo "Found $EMERGENT_COUNT references (excluding emergentintegrations)"
 fi
-

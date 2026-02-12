@@ -59,6 +59,8 @@ reinvest_requests_collection = None  # Profit reinvestment requests
 # Autopilot and detection
 autopilot_actions_collection = None
 rogue_detections_collection = None
+autopilot_milestones_collection = None
+autopilot_reinvest_events_collection = None
 
 # Emergency stop collection
 emergency_stop_collection = None
@@ -193,6 +195,7 @@ async def setup_collections():
     global notifications_collection, reports_collection, promotion_requests_collection
     global decisions_collection, reinvest_requests_collection
     global autopilot_actions_collection, rogue_detections_collection
+    global autopilot_milestones_collection, autopilot_reinvest_events_collection
     global emergency_stop_collection
     global wallet_balances_collection, capital_injections_collection
     global wallets_collection, ledger_collection, profits_collection, profit_ledger_collection, funding_plans_collection
@@ -251,6 +254,8 @@ async def setup_collections():
     # Autopilot and detection
     autopilot_actions_collection = db.autopilot_actions
     rogue_detections_collection = db.rogue_detections
+    autopilot_milestones_collection = db.autopilot_milestones
+    autopilot_reinvest_events_collection = db.autopilot_reinvest_events
     
     # Emergency stop
     emergency_stop_collection = db.emergency_stop
@@ -377,6 +382,24 @@ async def init_db():
             await notifications_collection.create_index("user_id")
             await notifications_collection.create_index("timestamp")
             await notifications_collection.create_index([("user_id", 1), ("read", 1)])
+
+        if autopilot_milestones_collection is not None:
+            await autopilot_milestones_collection.create_index(
+                [("user_id", 1), ("platform", 1), ("milestone_index", 1)],
+                unique=True
+            )
+            await autopilot_milestones_collection.create_index(
+                [("user_id", 1), ("platform", 1), ("triggered_at", -1)]
+            )
+
+        if autopilot_reinvest_events_collection is not None:
+            await autopilot_reinvest_events_collection.create_index(
+                [("user_id", 1), ("platform", 1), ("date_key", 1)],
+                unique=True
+            )
+            await autopilot_reinvest_events_collection.create_index(
+                [("user_id", 1), ("platform", 1), ("created_at", -1)]
+            )
         
         # Financial tracking indexes
         if wallet_balances_collection is not None:

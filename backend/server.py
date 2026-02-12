@@ -194,12 +194,38 @@ async def lifespan(app: FastAPI):
     
     # Start Daily Reinvestment Scheduler (optional)
     try:
-        from services.daily_reinvestment import get_reinvestment_service
-        reinvest_service = get_reinvestment_service(db.db)
-        reinvest_service.start()
-        logger.info("💰 Daily Reinvestment Scheduler started")
+        import config
+        if not config.ENABLE_AUTOPILOT_REINVEST:
+            from services.daily_reinvestment import get_reinvestment_service
+            reinvest_service = get_reinvestment_service(db.db)
+            reinvest_service.start()
+            logger.info("💰 Daily Reinvestment Scheduler started")
+        else:
+            logger.info("💰 Daily Reinvestment Scheduler skipped (autopilot reinvest enabled)")
     except Exception as e:
         logger.warning(f"Could not start Reinvestment Scheduler: {e}")
+
+    # Start Autopilot Growth Scheduler (optional)
+    try:
+        import config
+        if config.ENABLE_AUTOPILOT_GROWTH:
+            from services.autopilot_growth import get_autopilot_growth_scheduler
+            growth_scheduler = get_autopilot_growth_scheduler(db.db)
+            growth_scheduler.start()
+            logger.info("🤖 Autopilot Growth Scheduler started")
+    except Exception as e:
+        logger.warning(f"Could not start Autopilot Growth Scheduler: {e}")
+
+    # Start Autopilot Reinvest Scheduler (optional)
+    try:
+        import config
+        if config.ENABLE_AUTOPILOT_REINVEST:
+            from services.autopilot_reinvest import get_autopilot_reinvest_scheduler
+            reinvest_scheduler = get_autopilot_reinvest_scheduler(db.db)
+            reinvest_scheduler.start()
+            logger.info("💰 Autopilot Reinvest Scheduler started")
+    except Exception as e:
+        logger.warning(f"Could not start Autopilot Reinvest Scheduler: {e}")
     
     # Start Bot Quarantine Service
     try:
@@ -3049,6 +3075,7 @@ routers_to_mount = [
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
     ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
     ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
+    ("routes.autopilot_growth", "Autopilot Growth"),  # NEW - Growth + reinvest
     ("routes.training", "Bot Training"),  # CRITICAL - Training system
     ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
