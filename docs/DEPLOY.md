@@ -244,6 +244,10 @@ server {
     access_log /var/log/nginx/amarktai-access.log;
     error_log /var/log/nginx/amarktai-error.log;
 
+    # Permissions (recommended)
+    # - Keep /var/log/nginx owned by root:adm (files 640)
+    # - Keep /etc/letsencrypt/live owned by root:root (private keys 600)
+
     # API proxy (backend)
     location /api/ {
         proxy_pass http://amarktai_backend;

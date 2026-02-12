@@ -1728,6 +1728,11 @@ export default function Dashboard() {
   };
 
   const showSection = (section) => {
+    if (section === 'spawn') {
+      setBotManagementTab('spawn');
+      setActiveSection('bots');
+      return;
+    }
     setActiveSection(section);
   };
 
@@ -3422,6 +3427,23 @@ export default function Dashboard() {
             >
               🎓 Training & Quarantine
             </button>
+            <button
+              onClick={() => setBotManagementTab('spawn')}
+              style={{
+                padding: '10px 20px',
+                background: botManagementTab === 'spawn' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
+                border: '2px solid ' + (botManagementTab === 'spawn' ? '#4a90e2' : 'var(--line)'),
+                borderRadius: '8px',
+                color: botManagementTab === 'spawn' ? '#fff' : 'var(--text)',
+                cursor: 'pointer',
+                fontSize: '0.95rem',
+                fontWeight: botManagementTab === 'spawn' ? '700' : '600',
+                transition: 'all 0.3s',
+                boxShadow: botManagementTab === 'spawn' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
+              }}
+            >
+              🚀 Spawn Bot
+            </button>
           </div>
           
           {/* Tab Content */}
@@ -3828,6 +3850,7 @@ export default function Dashboard() {
           {botManagementTab === 'training_quarantine' && (
             <TrainingQuarantineSection />
           )}
+          {botManagementTab === 'spawn' && renderSpawnBot()}
           </>
         </div>
       </section>
@@ -7165,7 +7188,6 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
-            <a href="#" className={activeSection === 'spawn' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('spawn'); }}>🚀 Spawn Bot</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
@@ -7237,7 +7259,6 @@ export default function Dashboard() {
         {activeSection === 'overview' && renderOverview()}
         {activeSection === 'api' && renderApiSetup()}
         {activeSection === 'bots' && renderBots()}
-        {activeSection === 'spawn' && renderSpawnBot()}
         {activeSection === 'system' && renderSystemMode()}
         {activeSection === 'graphs' && renderProfitGraphs()}
         {activeSection === 'trades' && renderLiveTradeFeed()}
