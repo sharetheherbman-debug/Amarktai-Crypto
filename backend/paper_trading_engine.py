@@ -37,7 +37,7 @@ import ccxt.async_support as ccxt
 import asyncio
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import logging
 import database as db
 from exchange_limits import get_fee_rate
@@ -47,6 +47,17 @@ from services.order_validation import order_validator
 from utils.trading_gates import enforce_trading_gates, TradingGateError
 from services.paper_wallet_ledger import paper_wallet_ledger
 from services.trading_mode_validator import trading_mode_validator
+from config import (
+    MIN_TRADE_PROFIT_THRESHOLD_ZAR,
+    EDGE_BUFFER_PCT,
+    EDGE_GATE_PAPER,
+    PAPER_MAX_SPREAD_PCT,
+    PAPER_MIN_ORDERBOOK_NOTIONAL,
+    PAPER_PAIR_WHITELIST,
+    PAPER_PAIR_WHITELIST_ENABLED,
+    PAPER_STALE_EXIT_MINUTES,
+)
+from realtime_events import rt_events
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +479,13 @@ class PaperTradingEngine:
         elif exchange == 'bitget':
             return self.BITGET_PAIRS
         return self.BINANCE_PAIRS
+
+    def _get_whitelist_pairs(self, exchange: str, bot_data: Dict) -> Optional[list]:
+        if not PAPER_PAIR_WHITELIST_ENABLED:
+            return None
+        if bot_data.get("allow_illiquid_pairs") or bot_data.get("pair_whitelist_override"):
+            return None
+        return PAPER_PAIR_WHITELIST.get(exchange, [])
     
     async def get_real_price(self, symbol: str, exchange: str = 'luno', with_label: bool = False) -> float:
         """
@@ -592,6 +610,9 @@ class PaperTradingEngine:
 
         timestamp = datetime.now(timezone.utc).isoformat()
         bid = ask = mid = None
+        bid_volume = None
+        ask_volume = None
+        depth_notional = None
         source = "fallback"
 
         if exchange_obj:
@@ -604,6 +625,9 @@ class PaperTradingEngine:
                     ask = asks[0][0]
                     mid = (bid + ask) / 2
                     source = "order_book"
+                    bid_volume = sum(level[1] for level in bids[:5])
+                    ask_volume = sum(level[1] for level in asks[:5])
+                    depth_notional = sum((price * qty) for price, qty in (bids[:5] + asks[:5]))
             except Exception as e:
                 logger.debug(f"Order book fetch failed for {symbol} on {exchange}: {e}")
 
@@ -637,6 +661,9 @@ class PaperTradingEngine:
             "mid": float(mid),
             "spread": float(spread),
             "spread_bps": float(round(spread_bps, 4)),
+            "bid_volume": bid_volume,
+            "ask_volume": ask_volume,
+            "depth_notional": depth_notional,
             "source": source,
             "timestamp": timestamp,
         }
@@ -744,10 +771,26 @@ class PaperTradingEngine:
             
             # Get ALL available pairs dynamically
             available_pairs = await self.get_available_pairs(exchange)
+            allowed_pairs = self._get_whitelist_pairs(exchange, bot_data)
+            if allowed_pairs:
+                available_pairs = [pair for pair in available_pairs if pair in allowed_pairs]
             requested_symbol = bot_data.get("pair") or bot_data.get("symbol")
+            if requested_symbol and allowed_pairs and requested_symbol not in allowed_pairs:
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "pair_not_allowed",
+                    "error": f"Pair {requested_symbol} not whitelisted",
+                    "details": {
+                        "requested_pair": requested_symbol,
+                        "allowed_pairs": allowed_pairs
+                    }
+                }
             if requested_symbol and requested_symbol in available_pairs:
                 symbol = requested_symbol
             else:
+                if not available_pairs and allowed_pairs:
+                    available_pairs = allowed_pairs
                 symbol = available_pairs[0] if available_pairs else 'BTC/USDT'
             
             # Get REAL market snapshot (bid/ask/mid)
@@ -759,6 +802,36 @@ class PaperTradingEngine:
                 logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
                 self.last_error = f"Invalid price: {current_price}"
                 return {"success": False, "bot_id": bot_id, "error": f"Market unavailable for {symbol}"}
+
+            spread_pct = (market_snapshot.get("spread", 0) / current_price) * 100 if current_price else 0
+            if spread_pct > PAPER_MAX_SPREAD_PCT and not bot_data.get("allow_wide_spread"):
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "spread_too_wide",
+                    "error": f"Spread {spread_pct:.3f}% exceeds max {PAPER_MAX_SPREAD_PCT:.3f}%",
+                    "details": {
+                        "spread_pct": round(spread_pct, 4),
+                        "max_spread_pct": PAPER_MAX_SPREAD_PCT,
+                        "symbol": symbol,
+                        "exchange": exchange
+                    }
+                }
+
+            depth_notional = market_snapshot.get("depth_notional")
+            if depth_notional is not None and depth_notional < PAPER_MIN_ORDERBOOK_NOTIONAL and not bot_data.get("allow_low_liquidity"):
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "low_liquidity",
+                    "error": f"Order book depth {depth_notional:.2f} below minimum",
+                    "details": {
+                        "depth_notional": round(depth_notional, 2),
+                        "min_notional": PAPER_MIN_ORDERBOOK_NOTIONAL,
+                        "symbol": symbol,
+                        "exchange": exchange
+                    }
+                }
             
             # 2. AI INTELLIGENCE: Check market regime
             from market_regime import market_regime_detector
@@ -797,6 +870,35 @@ class PaperTradingEngine:
                     trend = 'bullish'  # Strong BUY signal overrides
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
+
+            # EDGE GATE: Require expected move to clear costs + buffer
+            slippage_rate = PAPER_SLIPPAGE_BPS / 10000
+            latency_rate = PAPER_LATENCY_BPS / 10000
+            exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
+            fee_rate = exchange_fee_struct.get('taker', 0.001)
+            expected_move_pct = abs(float(prediction.get("predicted_change", 0) or 0))
+            fee_pct_roundtrip = fee_rate * 2 * 100
+            slippage_pct_roundtrip = slippage_rate * 2 * 100
+            estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
+            edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
+
+            if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "edge_gate",
+                    "error": "Expected move below edge gate threshold",
+                    "details": {
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "estimated_cost_pct": round(estimated_cost_pct, 4),
+                        "edge_buffer_pct": EDGE_BUFFER_PCT,
+                        "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
+                        "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
+                        "spread_pct": round(spread_pct, 4),
+                        "exchange": exchange,
+                        "symbol": symbol
+                    }
+                }
             
             # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
             # Only trade if at least 2 AI sources have decent confidence
@@ -906,8 +1008,6 @@ class PaperTradingEngine:
                 return {"success": False, "bot_id": bot_id, "error": "Invalid price before trade"}
             
             # REALISTIC EXIT - Use actual bid/ask snapshots with slippage + latency buffers
-            slippage_rate = PAPER_SLIPPAGE_BPS / 10000
-            latency_rate = PAPER_LATENCY_BPS / 10000
 
             entry_base = market_snapshot.get("ask") or current_price
             entry_price = entry_base * (1 + slippage_rate + latency_rate)
@@ -943,121 +1043,73 @@ class PaperTradingEngine:
                     "timestamp": second_entry_time
                 })
 
-            exit_snapshot = await self.get_market_snapshot(symbol, exchange)
-            exit_base = exit_snapshot.get("bid") or current_price
-            exit_price = exit_base * (1 - slippage_rate - latency_rate)
-
-            exit_time = datetime.now(timezone.utc)
-            second_exit_time = exit_time + timedelta(milliseconds=PAPER_LATENCY_MS)
-            exit_fills = []
-            exit_fills.append({"qty": first_qty, "price": exit_price, "timestamp": exit_time})
-            if fill_ratio < 1:
-                exit_fills.append({
-                    "qty": crypto_amount - first_qty,
-                    "price": exit_price * (1 - latency_rate),
-                    "timestamp": second_exit_time
-                })
-
             entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
-            exit_value = sum(fill["qty"] * fill["price"] for fill in exit_fills)
 
-            if entry_value <= 0 or exit_value <= 0:
-                logger.error(f"Invalid trade values: entry={entry_value}, exit={exit_value}")
+            if entry_value <= 0:
+                logger.error(f"Invalid trade values: entry={entry_value}")
                 return {"success": False, "bot_id": bot_id, "error": "Market unavailable for pricing"}
 
             avg_entry_price = entry_value / crypto_amount
-            avg_exit_price = exit_value / crypto_amount
-            from utils.trade_utils import calculate_trade_pnl
-            profit_pct = ((avg_exit_price - avg_entry_price) / avg_entry_price) * 100
 
-            # 3. SIMULATE REAL FEES - exchange-specific rates
-            exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
-            fee_rate = exchange_fee_struct.get('taker', 0.001)
+            # Entry-only fees for open position
             entry_fee = entry_value * fee_rate
-            exit_fee = exit_value * fee_rate
-            fees = entry_fee + exit_fee
+            fees = entry_fee
 
-            # 4. SLIPPAGE COST ESTIMATE
-            slippage_cost = (entry_value + exit_value) * slippage_rate
-            
-            # Recalculate with realistic factors
-            pnl_result = calculate_trade_pnl(entry_value, exit_value, fees, slippage_cost)
-            gross_profit = pnl_result["gross_profit"]
-            net_profit = pnl_result["net_profit"]
-            
-            # P&L SANITY CHECK - Validate trade is realistic
-            if not validate_trade_pnl(net_profit, current_capital):
-                logger.error(f"P&L validation failed: net_profit={net_profit}, capital={current_capital}")
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "error": "Trade P&L failed sanity check - unrealistic profit/loss"
-                }
-            
-            # SMART TRADING: Check minimum profit threshold (ignore R0.30 wins)
-            from config import MIN_TRADE_PROFIT_THRESHOLD_ZAR
-            if net_profit > 0 and net_profit < MIN_TRADE_PROFIT_THRESHOLD_ZAR:
-                logger.info(f"⏭️ Skipping {bot_data['name'][:15]} - Trade profit R{net_profit:.2f} below R{MIN_TRADE_PROFIT_THRESHOLD_ZAR} threshold")
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "error": f"Profit below minimum threshold (R{net_profit:.2f} < R{MIN_TRADE_PROFIT_THRESHOLD_ZAR})"
-                }
-            
-            is_profitable = net_profit > 0
-            
-            # 4. RECORD TRADE FOR RATE LIMITER
-            rate_limiter.record_trade(bot_id, exchange)
-            
-            # 5. RECORD RESULT FOR RISK ENGINE
-            await risk_engine.record_trade_result(user_id, net_profit)
-            
-            trade_amount = entry_value
+            stop_loss_pct = float(bot_data.get("stop_loss_pct", 0.02))
+            take_profit_pct = float(bot_data.get("take_profit_pct", 0.03))
+
             fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
             market_source = market_snapshot.get("source") if isinstance(market_snapshot, dict) else data_source
             spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if isinstance(market_snapshot, dict) else PAPER_SPREAD_BPS
 
-            # Calculate trade quality score (1-10)
-            quality_score = self._calculate_trade_quality(net_profit, fees, trade_amount, profit_pct)
-            
             trade_result = {
                 "success": True,
+                "status": "open",
                 "bot_id": bot_id,
                 "symbol": symbol,
                 "exchange": exchange,
                 "trend": trend,
                 "entry_price": round(avg_entry_price, 6),
-                "exit_price": round(avg_exit_price, 6),
                 "amount": round(crypto_amount, 8),
-                "trade_amount": round(trade_amount, 2),
-                "gross_profit": round(gross_profit, 2),
+                "trade_amount": round(entry_value, 2),
+                "entry_value": round(entry_value, 2),
+                "gross_pnl": 0.0,
+                "gross_profit": 0.0,
+                "fees_total": round(fees, 2),
                 "fees": round(fees, 2),
                 "fee_paid": round(fees, 2),
+                "entry_fee": round(entry_fee, 2),
                 "fee_currency": fee_currency,
-                "slippage_cost": round(slippage_cost, 2),
-                "slippage": round(slippage_cost, 2),
-                "profit_loss": round(net_profit, 2),  # NET profit after fees
-                "net_profit": round(net_profit, 2),  # Same as profit_loss (after fees)
-                "net_profit_zar": round(net_profit, 2),
-                "realized_pnl": round(net_profit, 2),
-                "is_paper": True,  # CRITICAL: Mark as paper trade
-                "profit_pct": round(profit_pct, 3),
-                "is_profitable": is_profitable,
+                "slippage_cost": 0.0,
+                "slippage": 0.0,
+                "profit_loss": 0.0,
+                "net_profit": 0.0,
+                "net_profit_zar": 0.0,
+                "realized_pnl": 0.0,
+                "is_paper": True,
+                "profit_pct": 0.0,
+                "is_profitable": False,
                 "risk_mode": risk_mode,
-                "quality_score": quality_score,
+                "quality_score": 0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "trade_type": "BUY->SELL",
-                "trade_close_reason": "paper_cycle",
-                "data_source": data_source,  # Use determined data source
-                "fee_rate": round(fee_rate * 100, 3),  # Display as percentage
-                "slippage_rate": round(slippage_rate * 100, 4),  # Display slippage as percentage
+                "trade_type": "BUY",
+                "trade_close_reason": None,
+                "data_source": data_source,
+                "fee_rate": round(fee_rate, 6),
+                "slippage_rate": round(slippage_rate, 6),
                 "price_source": market_source,
                 "spread": round(spread_bps, 4),
                 "slippage_bps": round(slippage_rate * 10000, 2),
                 "entry_fills": entry_fills,
-                "exit_fills": exit_fills,
                 "partial_fill": fill_ratio < 1,
                 "latency_ms": PAPER_LATENCY_MS,
+                "stop_loss_pct": stop_loss_pct,
+                "take_profit_pct": take_profit_pct,
+                "stop_loss_price": round(avg_entry_price * (1 - stop_loss_pct), 6),
+                "take_profit_price": round(avg_entry_price * (1 + take_profit_pct), 6),
+                "expected_move_pct": round(expected_move_pct, 4),
+                "estimated_cost_pct": round(estimated_cost_pct, 4),
+                "edge_buffer_pct": EDGE_BUFFER_PCT,
                 # AI Intelligence metadata
                 "ai_regime": regime.get('regime', 'unknown'),
                 "ai_confidence": round(regime.get('confidence', 0), 2),
@@ -1068,15 +1120,17 @@ class PaperTradingEngine:
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
                 "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
             }
-            
-            emoji = "🟢" if is_profitable else "🔴"
-            logger.info(f"{emoji} {bot_data['name'][:15]} | {symbol} | {trend.upper()} | {profit_pct:+.2f}% = R{net_profit:+.2f} (fees: R{fees:.2f})")
-            
+
+            # RECORD TRADE FOR RATE LIMITER (entry)
+            rate_limiter.record_trade(bot_id, exchange)
+
             # Update status tracking
             self.last_trade_simulation = trade_result
             self.trade_count += 1
             self.last_error = None
-            
+
+            logger.info(f"🟡 {bot_data['name'][:15]} | {symbol} | OPEN @ R{avg_entry_price:.2f}")
+
             return trade_result
             
         except Exception as e:
@@ -1115,26 +1169,273 @@ class PaperTradingEngine:
             return 4   # Poor
         else:
             return 3   # Very poor
+
+    async def _close_open_trade(self, bot_id: str, bot_data: Dict, open_trade: Dict) -> Optional[Dict]:
+        """Close an open paper trade if exit conditions are met."""
+        try:
+            symbol = open_trade.get("pair") or open_trade.get("symbol")
+            exchange = open_trade.get("exchange", "luno")
+            market_snapshot = await self.get_market_snapshot(symbol, exchange)
+            current_price = market_snapshot.get("mid")
+            if not current_price:
+                return None
+
+            entry_price = open_trade.get("entry_price") or open_trade.get("price") or current_price
+            stop_loss_pct = float(open_trade.get("stop_loss_pct", bot_data.get("stop_loss_pct", 0.02)))
+            take_profit_pct = float(open_trade.get("take_profit_pct", bot_data.get("take_profit_pct", 0.03)))
+            stop_loss_price = open_trade.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct))
+            take_profit_price = open_trade.get("take_profit_price") or (entry_price * (1 + take_profit_pct))
+
+            entry_time_raw = open_trade.get("entry_time") or open_trade.get("opened_at") or open_trade.get("timestamp")
+            try:
+                entry_time = datetime.fromisoformat(str(entry_time_raw).replace("Z", "+00:00"))
+            except Exception:
+                entry_time = datetime.now(timezone.utc)
+
+            age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
+
+            close_reason = None
+            if current_price >= take_profit_price:
+                close_reason = "take_profit"
+            elif current_price <= stop_loss_price:
+                close_reason = "stop_loss"
+            elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
+                close_reason = "stale_exit"
+
+            if not close_reason:
+                return None
+
+            slippage_rate = float(open_trade.get("slippage_rate", PAPER_SLIPPAGE_BPS / 10000))
+            latency_rate = PAPER_LATENCY_BPS / 10000
+            fee_rate = float(open_trade.get("fee_rate", EXCHANGE_FEES.get(exchange, {"taker": 0.001}).get("taker", 0.001)))
+
+            exit_base = market_snapshot.get("bid") or current_price
+            exit_price = exit_base * (1 - slippage_rate - latency_rate)
+            crypto_amount = float(open_trade.get("amount", 0))
+            fill_ratio = open_trade.get("fill_ratio")
+            if fill_ratio is None:
+                fill_ratio = PAPER_PARTIAL_FILL_RATIO if open_trade.get("partial_fill") else 1.0
+
+            exit_time = datetime.now(timezone.utc)
+            second_exit_time = exit_time + timedelta(milliseconds=PAPER_LATENCY_MS)
+            first_qty = crypto_amount * fill_ratio
+            exit_fills = [{"qty": first_qty, "price": exit_price, "timestamp": exit_time}]
+            if fill_ratio < 1:
+                exit_fills.append({
+                    "qty": crypto_amount - first_qty,
+                    "price": exit_price * (1 - latency_rate),
+                    "timestamp": second_exit_time
+                })
+
+            entry_value = float(open_trade.get("entry_value") or open_trade.get("trade_amount") or 0)
+            exit_value = sum(fill["qty"] * fill["price"] for fill in exit_fills)
+            if entry_value <= 0 or exit_value <= 0:
+                return None
+
+            avg_exit_price = exit_value / crypto_amount if crypto_amount else exit_price
+            from utils.trade_utils import calculate_trade_pnl
+            entry_fee = entry_value * fee_rate
+            exit_fee = exit_value * fee_rate
+            fees = entry_fee + exit_fee
+            slippage_cost = (entry_value + exit_value) * slippage_rate
+            pnl_result = calculate_trade_pnl(entry_value, exit_value, fees, slippage_cost)
+            gross_profit = pnl_result["gross_profit"]
+            net_profit = pnl_result["net_profit"]
+            profit_pct = ((avg_exit_price - entry_price) / entry_price) * 100 if entry_price else 0
+
+            if not validate_trade_pnl(net_profit, bot_data.get("current_capital", 0)):
+                logger.error(f"P&L validation failed: net_profit={net_profit}")
+                return None
+
+            if net_profit > 0 and net_profit < MIN_TRADE_PROFIT_THRESHOLD_ZAR:
+                close_reason = "take_profit" if close_reason == "take_profit" else close_reason
+
+            fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
+            spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS)
+
+            quality_score = self._calculate_trade_quality(net_profit, fees, entry_value, profit_pct)
+
+            trade_result = {
+                "success": True,
+                "status": "closed",
+                "bot_id": bot_id,
+                "symbol": symbol,
+                "exchange": exchange,
+                "trend": open_trade.get("trend", "neutral"),
+                "entry_price": round(entry_price, 6),
+                "exit_price": round(avg_exit_price, 6),
+                "amount": round(crypto_amount, 8),
+                "trade_amount": round(entry_value, 2),
+                "gross_pnl": round(gross_profit, 2),
+                "gross_profit": round(gross_profit, 2),
+                "fees_total": round(fees, 2),
+                "fees": round(fees, 2),
+                "fee_paid": round(fees, 2),
+                "entry_fee": round(entry_fee, 2),
+                "exit_fee": round(exit_fee, 2),
+                "fee_currency": fee_currency,
+                "slippage_cost": round(slippage_cost, 2),
+                "slippage": round(slippage_cost, 2),
+                "profit_loss": round(net_profit, 2),
+                "net_profit": round(net_profit, 2),
+                "net_profit_zar": round(net_profit, 2),
+                "realized_pnl": round(net_profit, 2),
+                "is_paper": True,
+                "profit_pct": round(profit_pct, 3),
+                "is_profitable": net_profit > 0,
+                "risk_mode": bot_data.get("risk_mode", "safe"),
+                "quality_score": quality_score,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "trade_type": "BUY->SELL",
+                "trade_close_reason": close_reason,
+                "data_source": open_trade.get("data_source"),
+                "fee_rate": round(fee_rate, 6),
+                "slippage_rate": round(slippage_rate, 6),
+                "price_source": open_trade.get("price_source"),
+                "spread": round(spread_bps, 4),
+                "slippage_bps": round(slippage_rate * 10000, 2),
+                "entry_fills": open_trade.get("entry_fills", []),
+                "exit_fills": exit_fills,
+                "partial_fill": open_trade.get("partial_fill", False),
+                "latency_ms": PAPER_LATENCY_MS,
+                "open_trade_id": open_trade.get("id")
+            }
+
+            logger.info(
+                f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
+                f"{profit_pct:+.2f}% = R{net_profit:+.2f} (fees: R{fees:.2f})"
+            )
+            return trade_result
+        except Exception as e:
+            logger.error(f"Open trade close error: {e}")
+            return None
     
     async def run_trading_cycle(self, bot_id: str, bot_data: Dict, db_collections: Dict):
         """Run trading cycle - accurate live simulation with risk controls and paper wallet enforcement"""
         try:
-            trade_result = await self.execute_smart_trade(bot_id, bot_data)
-            
-            if not trade_result.get('success'):
-                return None
-            
+            user_id = bot_data.get("user_id")
             bots_collection = db_collections['bots']
             trades_collection = db_collections['trades']
+
+            # Check for an open trade first
+            open_trade = await trades_collection.find_one({"bot_id": bot_id, "status": "open"}, {"_id": 0})
+            trade_result = None
+            existing_trade_id = None
+            entry_recorded = False
+
+            if open_trade:
+                trade_result = await self._close_open_trade(bot_id, bot_data, open_trade)
+                if not trade_result:
+                    return None
+                existing_trade_id = open_trade.get("id") or open_trade.get("trade_id")
+                entry_recorded = bool(open_trade.get("entry_ledger_recorded", False))
+            else:
+                trade_result = await self.execute_smart_trade(bot_id, bot_data)
+                if not trade_result.get('success'):
+                    return None
+
+                if trade_result.get("status") == "open":
+                    # Record open trade and exit (do not close immediately)
+                    from uuid import uuid4
+                    from utils.trade_utils import build_trade_record
+
+                    trade_id = str(uuid4())[:8]
+                    trade_doc = build_trade_record(
+                        {
+                            "id": trade_id,
+                            **trade_result,
+                            "user_id": bot_data['user_id'],
+                            "bot_id": bot_id,
+                            "pair": trade_result.get('symbol'),
+                            "side": "BUY",
+                            "status": "open",
+                            "opened_at": trade_result.get("timestamp"),
+                            "trade_close_reason": None,
+                            "gross_pnl": trade_result.get("gross_pnl", 0),
+                            "net_pnl": trade_result.get("net_profit", 0),
+                            "fees_total": trade_result.get("fees_total", trade_result.get("fees", 0)),
+                            "slippage_cost": trade_result.get("slippage_cost", 0),
+                            "net_pnl_quote": trade_result.get("net_profit_zar", 0),
+                        },
+                        user_id=bot_data['user_id'],
+                        bot=bot_data
+                    )
+
+                    await trades_collection.insert_one(trade_doc)
+
+                    try:
+                        from services.ledger_service import get_ledger_service
+                        ledger_db = getattr(db, "db", None)
+                        if ledger_db is not None:
+                            ledger = get_ledger_service(ledger_db)
+                            currency = "ZAR" if "/ZAR" in trade_result.get("symbol", "") else "USDT"
+                            await ledger.ensure_bot_funding(
+                                user_id=bot_data['user_id'],
+                                bot_id=bot_id,
+                                amount=bot_data.get('initial_capital', 0),
+                                currency=currency
+                            )
+                            entry_fills = trade_result.get("entry_fills", [])
+                            fee_currency = trade_result.get("fee_currency", currency)
+                            fee_total = trade_result.get("fees", 0)
+                            cost_per_fill = fee_total / max(len(entry_fills), 1)
+                            for idx, fill in enumerate(entry_fills):
+                                await ledger.append_fill(
+                                    user_id=bot_data['user_id'],
+                                    bot_id=bot_id,
+                                    exchange=trade_result.get("exchange"),
+                                    symbol=trade_result.get("symbol"),
+                                    side="buy",
+                                    qty=fill.get("qty", 0),
+                                    price=fill.get("price", 0),
+                                    fee=cost_per_fill,
+                                    fee_currency=fee_currency,
+                                    timestamp=fill.get("timestamp"),
+                                    order_id=f"{trade_id}-buy-{idx}",
+                                    client_order_id=f"{trade_id}-buy-{idx}",
+                                    is_paper=True,
+                                    metadata={
+                                        "price_source": trade_result.get("price_source"),
+                                        "slippage_bps": trade_result.get("slippage_bps"),
+                                        "spread_bps": trade_result.get("spread")
+                                    }
+                                )
+                            await trades_collection.update_one(
+                                {"id": trade_id},
+                                {"$set": {"entry_ledger_recorded": True}}
+                            )
+                    except Exception as e:
+                        logger.warning(f"Ledger entry append failed: {e}")
+
+                    await bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {
+                            "open_position_value": round(trade_result.get("trade_amount", 0), 2),
+                            "last_trade": datetime.now(timezone.utc).isoformat()
+                        }}
+                    )
+
+                    try:
+                        from services.realtime_service import realtime_service
+                        await realtime_service.broadcast_trade_execution(bot_data['user_id'], trade_doc)
+                        await rt_events.trade_opened(bot_data['user_id'], trade_doc)
+                    except Exception as e:
+                        logger.warning(f"Realtime trade open broadcast failed: {e}")
+
+                    return {
+                        "bot_id": bot_id,
+                        "trade": trade_doc
+                    }
             
             # CRITICAL FIX: Fetch fresh bot data to avoid stale capital in concurrent trades
             fresh_bot = await bots_collection.find_one({"id": bot_id}, {"_id": 0})
             if not fresh_bot:
                 return None
 
-            # Generate unique trade ID
+            # Generate unique trade ID (reuse if closing open trade)
             from uuid import uuid4
-            trade_id = str(uuid4())[:8]
+            trade_id = existing_trade_id or str(uuid4())[:8]
 
             # Append ledger fills (canonical)
             ledger_equity = None
@@ -1153,29 +1454,32 @@ class PaperTradingEngine:
                     entry_fills = trade_result.get("entry_fills", [])
                     exit_fills = trade_result.get("exit_fills", [])
                     fee_currency = trade_result.get("fee_currency", currency)
-                    fee_total = trade_result.get("fees", 0) + trade_result.get("slippage_cost", 0)
-                    cost_per_fill = fee_total / max(len(entry_fills + exit_fills), 1)
-                    for idx, fill in enumerate(entry_fills):
-                        await ledger.append_fill(
-                            user_id=bot_data['user_id'],
-                            bot_id=bot_id,
-                            exchange=trade_result.get("exchange"),
-                            symbol=trade_result.get("symbol"),
-                            side="buy",
-                            qty=fill.get("qty", 0),
-                            price=fill.get("price", 0),
-                            fee=cost_per_fill,
-                            fee_currency=fee_currency,
-                            timestamp=fill.get("timestamp"),
-                            order_id=f"{trade_id}-buy-{idx}",
-                            client_order_id=f"{trade_id}-buy-{idx}",
-                            is_paper=True,
-                            metadata={
-                                "price_source": trade_result.get("price_source"),
-                                "slippage_bps": trade_result.get("slippage_bps"),
-                                "spread_bps": trade_result.get("spread")
-                            }
-                        )
+                    entry_fee = trade_result.get("entry_fee", 0)
+                    exit_fee = trade_result.get("exit_fee", trade_result.get("fees", 0) - entry_fee)
+                    if not entry_recorded:
+                        cost_per_fill = entry_fee / max(len(entry_fills), 1)
+                        for idx, fill in enumerate(entry_fills):
+                            await ledger.append_fill(
+                                user_id=bot_data['user_id'],
+                                bot_id=bot_id,
+                                exchange=trade_result.get("exchange"),
+                                symbol=trade_result.get("symbol"),
+                                side="buy",
+                                qty=fill.get("qty", 0),
+                                price=fill.get("price", 0),
+                                fee=cost_per_fill,
+                                fee_currency=fee_currency,
+                                timestamp=fill.get("timestamp"),
+                                order_id=f"{trade_id}-buy-{idx}",
+                                client_order_id=f"{trade_id}-buy-{idx}",
+                                is_paper=True,
+                                metadata={
+                                    "price_source": trade_result.get("price_source"),
+                                    "slippage_bps": trade_result.get("slippage_bps"),
+                                    "spread_bps": trade_result.get("spread")
+                                }
+                            )
+                    cost_per_fill = (exit_fee + trade_result.get("slippage_cost", 0)) / max(len(exit_fills), 1)
                     for idx, fill in enumerate(exit_fills):
                         await ledger.append_fill(
                             user_id=bot_data['user_id'],
@@ -1203,6 +1507,9 @@ class PaperTradingEngine:
             
             # PHASE 4A: Update paper wallet ledger with trade result
             net_profit = trade_result.get('profit_loss', 0)
+
+            # Record result for risk engine
+            await risk_engine.record_trade_result(user_id, net_profit)
             
             if net_profit > 0:
                 # Credit profit to paper wallet
@@ -1239,7 +1546,8 @@ class PaperTradingEngine:
                         "current_capital": round(new_capital, 2),
                         "total_profit": round(total_profit, 2),
                         "last_trade": datetime.now(timezone.utc).isoformat(),
-                        "status": "active"
+                        "status": "active",
+                        "open_position_value": 0
                     },
                     "$inc": {
                         "trades_count": 1,
@@ -1281,7 +1589,8 @@ class PaperTradingEngine:
                     "bot_id": bot_id,
                     "pair": trade_result.get('symbol'),
                     "side": "BUY",  # Paper trades simulate BUY->SELL
-                    "status": "closed",  # Paper trades are immediately closed
+                    "status": "closed",
+                    "closed_at": datetime.now(timezone.utc).isoformat(),
                     "new_capital": round(new_capital, 2),
                     "total_profit": round(total_profit, 2),
                     # Paper trading realism ledger fields (use from trade_result)
@@ -1289,10 +1598,13 @@ class PaperTradingEngine:
                     "mid_price": round(entry_price, 6),  # Mid-market price at execution
                     "spread": trade_result.get('spread', round(slippage_rate * 100, 4)),  # Bid-ask spread
                     "slippage_bps": trade_result.get('slippage_bps', round(slippage_rate * 10000, 2)),  # Slippage in bps
-                    "fee_rate": round(fee_rate, 6),  # Fee rate applied
+                    "fee_rate": round(fee_rate, 6),  # Fee rate applied (decimal)
                     "fee_amount": round(fees, 2),  # Total fees charged
                     "gross_pnl": round(gross_profit, 2),  # PnL before fees
+                    "fees_total": round(trade_result.get("fees_total", fees), 2),
+                    "slippage_cost": round(trade_result.get("slippage_cost", 0), 2),
                     "net_pnl": round(net_profit, 2),  # PnL after fees
+                    "net_pnl_quote": round(trade_result.get("net_profit_zar", net_profit), 2),
                     "trade_close_reason": trade_result.get("trade_close_reason", "paper_cycle"),
                     "realized_pnl": round(net_profit, 2),
                     "fee_paid": round(fees, 2),
@@ -1309,12 +1621,20 @@ class PaperTradingEngine:
                 logger.error(f"CRITICAL: Attempted to insert empty trade document for bot {bot_id}")
                 return None
             
-            await trades_collection.insert_one(trade_doc)
-            logger.info(f"✅ Trade inserted: id={trade_id}, profit={trade_result['profit_loss']:.2f}, paper_balance=R{new_capital:.2f}")
+            if existing_trade_id:
+                await trades_collection.update_one(
+                    {"id": trade_id},
+                    {"$set": trade_doc}
+                )
+                logger.info(f"✅ Trade closed: id={trade_id}, profit={trade_result['profit_loss']:.2f}, paper_balance=R{new_capital:.2f}")
+            else:
+                await trades_collection.insert_one(trade_doc)
+                logger.info(f"✅ Trade inserted: id={trade_id}, profit={trade_result['profit_loss']:.2f}, paper_balance=R{new_capital:.2f}")
 
             try:
                 from services.realtime_service import realtime_service
                 await realtime_service.broadcast_trade_execution(bot_data['user_id'], trade_doc)
+                await rt_events.trade_closed(bot_data['user_id'], trade_doc)
             except Exception as e:
                 logger.warning(f"Realtime trade broadcast failed: {e}")
             

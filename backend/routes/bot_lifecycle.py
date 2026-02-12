@@ -15,6 +15,8 @@ import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
+from services.bot_runtime_state import bot_runtime_state
+from engines.audit_logger import audit_logger
 from utils.datetime_helpers import remaining_seconds
 
 logger = logging.getLogger(__name__)
@@ -160,11 +162,19 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
             },
             {"_id": 0}
         ).to_list(1000)
+
+        runtime_states = {
+            state.get("bot_id"): state
+            for state in await bot_runtime_state.list_states(user_id)
+        }
         
         # Enrich each bot with detailed state
         enriched_bots = []
         for bot in bots:
             status = bot.get('status', 'unknown')
+            runtime_state = runtime_states.get(bot.get("id"))
+            if runtime_state and runtime_state.get("state") in {"active", "paused", "stopped"}:
+                status = runtime_state.get("state")
             
             # Map status to standard states
             if status == 'active':
@@ -185,6 +195,8 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 state = status
 
             pause_reason = bot.get('pause_reason') or bot.get('paused_reason')
+            if runtime_state and runtime_state.get("reason"):
+                pause_reason = runtime_state.get("reason")
             pause_reason_code = None
             pause_reason_message = None
             pause_next_action = None
@@ -231,6 +243,7 @@ async def get_bots_status(user_id: str = Depends(get_current_user)):
                 "paused_at": bot.get('paused_at') or bot.get('quarantined_at'),
                 "paused_by_user": bot.get('paused_by_user', False),
                 "paused_by_system": bot.get('paused_by_system', False),
+                "runtime_state": runtime_state,
                 "quarantine_reason": bot.get('quarantine_reason'),
                 "quarantine_until": bot.get('quarantine_until'),
                 "quarantine_release_at": quarantine_release_at,
@@ -411,6 +424,7 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         # Start the bot
         started_at = datetime.now(timezone.utc).isoformat()
         
+        runtime_before = await bot_runtime_state.ensure_state(bot)
         await db.bots_collection.update_one(
             {"id": bot_id},
             {
@@ -428,12 +442,28 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 }
             }
         )
+
+        await bot_runtime_state.set_state(
+            bot_id=bot_id,
+            user_id=user_id,
+            state="active",
+            reason=None,
+            source="api"
+        )
         
         # Get updated bot
         updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
         
         # Send real-time notifications
         await rt_events.bot_resumed(user_id, updated_bot)
+        await rt_events.bot_state_changed(
+            user_id,
+            bot_id,
+            (runtime_before or {}).get("state", bot.get("status", "unknown")),
+            "active",
+            None
+        )
+        await audit_logger.log_bot_action("started", user_id, bot_id, bot.get("name", "bot"))
         
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service
@@ -491,6 +521,7 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
         reason = data.get('reason', 'Manual stop by user')
         stopped_at = datetime.now(timezone.utc).isoformat()
         
+        runtime_before = await bot_runtime_state.ensure_state(bot)
         await db.bots_collection.update_one(
             {"id": bot_id},
             {
@@ -500,6 +531,14 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
                     "stop_reason": reason
                 }
             }
+        )
+
+        await bot_runtime_state.set_state(
+            bot_id=bot_id,
+            user_id=user_id,
+            state="stopped",
+            reason=reason,
+            source="api"
         )
         
         # Get updated bot
@@ -511,6 +550,14 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
             "bot": updated_bot,
             "message": f"⏹️ Bot '{bot['name']}' stopped"
         })
+        await rt_events.bot_state_changed(
+            user_id,
+            bot_id,
+            (runtime_before or {}).get("state", bot.get("status", "unknown")),
+            "stopped",
+            reason
+        )
+        await audit_logger.log_bot_action("stopped", user_id, bot_id, bot.get("name", "bot"), {"reason": reason})
         
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service
@@ -571,6 +618,7 @@ async def pause_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Dep
         reason = data.get('reason', 'Manual pause by user')
         paused_at = datetime.now(timezone.utc).isoformat()
         
+        runtime_before = await bot_runtime_state.ensure_state(bot)
         await db.bots_collection.update_one(
             {"id": bot_id},
             {
@@ -581,6 +629,14 @@ async def pause_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Dep
                     "paused_by_user": True
                 }
             }
+        )
+
+        await bot_runtime_state.set_state(
+            bot_id=bot_id,
+            user_id=user_id,
+            state="paused",
+            reason=reason,
+            source="api"
         )
         
         # Place bot in quarantine for auto-retraining (only if not manually paused)
@@ -596,6 +652,14 @@ async def pause_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Dep
         
         # Send real-time notifications
         await rt_events.bot_paused(user_id, updated_bot)
+        await rt_events.bot_state_changed(
+            user_id,
+            bot_id,
+            (runtime_before or {}).get("state", bot.get("status", "unknown")),
+            "paused",
+            reason
+        )
+        await audit_logger.log_bot_action("paused", user_id, bot_id, bot.get("name", "bot"), {"reason": reason})
         
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service
@@ -732,6 +796,7 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         # Resume the bot
         resumed_at = datetime.now(timezone.utc).isoformat()
         
+        runtime_before = await bot_runtime_state.ensure_state(bot)
         await db.bots_collection.update_one(
             {"id": bot_id},
             {
@@ -747,12 +812,28 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 }
             }
         )
+
+        await bot_runtime_state.set_state(
+            bot_id=bot_id,
+            user_id=user_id,
+            state="active",
+            reason=None,
+            source="api"
+        )
         
         # Get updated bot
         updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
         
         # Send real-time notification
         await rt_events.bot_resumed(user_id, updated_bot)
+        await rt_events.bot_state_changed(
+            user_id,
+            bot_id,
+            (runtime_before or {}).get("state", bot.get("status", "unknown")),
+            "active",
+            None
+        )
+        await audit_logger.log_bot_action("resumed", user_id, bot_id, bot.get("name", "bot"))
         
         logger.info(f"✅ Bot {bot['name']} resumed by user {user_id[:8]}")
         
@@ -1269,6 +1350,8 @@ async def delete_bot(
             }
         )
 
+        await bot_runtime_state.remove(bot_id)
+
         try:
             from services.paper_wallet_ledger import paper_wallet_ledger
             await paper_wallet_ledger.release_funds(bot_id)
@@ -1280,6 +1363,7 @@ async def delete_bot(
         
         # Bot deleted event
         await rt_events.bot_deleted(user_id, bot_name)
+        await audit_logger.log_bot_action("deleted", user_id, bot_id, bot_name)
         
         # Update overview, profits, and platform stats
         await realtime_service.broadcast_overview_update(user_id, f"Bot deleted: {bot_name}")

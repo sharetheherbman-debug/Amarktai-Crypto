@@ -139,7 +139,7 @@ class ProfitService:
             # Get trades
             trades_cursor = db.trades_collection.find(
                 query,
-                {"_id": 0, "profit_loss": 1, "timestamp": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1, "timestamp": 1}
             )
             trades = await trades_cursor.to_list(10000)
             
@@ -153,7 +153,7 @@ class ProfitService:
                         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                         # Bucket by day start (00:00 UTC)
                         date_str = dt.strftime('%Y-%m-%d')
-                        daily_profits[date_str] += trade.get("profit_loss", 0)
+                        daily_profits[date_str] += trade.get("net_pnl", trade.get("profit_loss", 0))
                     except:
                         pass
             
@@ -216,7 +216,7 @@ class ProfitService:
             # Get trades
             trades_cursor = db.trades_collection.find(
                 query,
-                {"_id": 0, "profit_loss": 1, "timestamp": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1, "timestamp": 1}
             )
             trades = await trades_cursor.to_list(10000)
             
@@ -233,7 +233,7 @@ class ProfitService:
                         week_start = dt - timedelta(days=days_since_monday)
                         week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
                         week_key = week_start.strftime('%Y-%m-%d')
-                        weekly_profits[week_key] += trade.get("profit_loss", 0)
+                        weekly_profits[week_key] += trade.get("net_pnl", trade.get("profit_loss", 0))
                     except:
                         pass
             
@@ -306,7 +306,7 @@ class ProfitService:
             # Get trades
             trades_cursor = db.trades_collection.find(
                 query,
-                {"_id": 0, "profit_loss": 1, "timestamp": 1}
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1, "timestamp": 1}
             )
             trades = await trades_cursor.to_list(10000)
             
@@ -320,7 +320,7 @@ class ProfitService:
                         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                         # Bucket by month start (day 1)
                         month_key = dt.strftime('%Y-%m')
-                        monthly_profits[month_key] += trade.get("profit_loss", 0)
+                        monthly_profits[month_key] += trade.get("net_pnl", trade.get("profit_loss", 0))
                     except:
                         pass
             

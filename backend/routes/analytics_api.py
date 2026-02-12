@@ -791,7 +791,7 @@ async def get_countdown_to_target(
                 "days_elapsed": 0,
                 "days_to_target_estimate": None,
                 "confidence": "insufficient_data",
-                "message": "No trades yet - countdown will start after first trade",
+                "message": "No trades yet - countdown will start after 10 trades",
                 "last_updated_at": datetime.now(timezone.utc).isoformat()
             }
         
@@ -822,6 +822,20 @@ async def get_countdown_to_target(
         # Calculate confidence metric
         # More trades and more days = higher confidence
         total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+        if total_trades < 10:
+            return {
+                "target_amount": target_amount,
+                "equity_current": round(equity_current, 2),
+                "net_pnl_total": round(net_pnl_total, 2),
+                "avg_daily_net_pnl": 0,
+                "days_elapsed": round(days_elapsed, 2),
+                "days_to_target_estimate": None,
+                "confidence": "insufficient_data",
+                "message": f"Need {10 - total_trades} more trades to activate countdown",
+                "total_trades": total_trades,
+                "first_trade_at": first_trade_time,
+                "last_updated_at": datetime.now(timezone.utc).isoformat()
+            }
         
         if total_trades < 10:
             confidence = "low"

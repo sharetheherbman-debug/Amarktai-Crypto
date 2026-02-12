@@ -20,6 +20,7 @@ from services.system_gate import system_gate
 from services.trading_mode_validator import trading_mode_validator
 from services.live_gate_service import live_gate_service
 from utils.trading_gates import TradingGateError, enforce_live_trading_gates
+from services.bot_runtime_state import bot_runtime_state
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,22 @@ class TradingScheduler:
                     logger.warning(f"Failed to emit bot_status_changed event: {e}")
             
             active_bots = supported_bots
+
+            # Sync with runtime truth store (pause/stopped bots are skipped)
+            runtime_filtered = []
+            for bot in active_bots:
+                runtime_state = await bot_runtime_state.ensure_state(bot)
+                state = runtime_state.get("state") if runtime_state else bot.get("status", "active")
+                if state in {"paused", "stopped"}:
+                    if bot.get("status") != state:
+                        await db.bots_collection.update_one(
+                            {"id": bot["id"]},
+                            {"$set": {"status": state, "pause_reason": runtime_state.get("reason")}}
+                        )
+                    logger.debug(f"Runtime gate: skipping {bot['name']} ({state})")
+                    continue
+                runtime_filtered.append(bot)
+            active_bots = runtime_filtered
             
             if not active_bots:
                 logger.debug("No bots on supported exchanges")

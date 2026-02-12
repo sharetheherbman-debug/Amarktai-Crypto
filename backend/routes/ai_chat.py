@@ -17,6 +17,9 @@ import database as db
 from ai_super_brain import AISuperBrain
 from engines.trade_budget_manager import trade_budget_manager
 from websocket_manager import manager
+from services.bot_runtime_state import bot_runtime_state
+from realtime_events import rt_events
+from engines.audit_logger import audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -260,15 +263,37 @@ class AIActionRouter:
         try:
             if action == "start_bot":
                 bot_id = params.get('bot_id')
+                bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+                if not bot:
+                    return {"success": False, "action": "start_bot", "error": "Bot not found", "bot_id": bot_id}
+                runtime_before = await bot_runtime_state.ensure_state(bot)
                 result = await db.bots_collection.update_one(
                     {"id": bot_id, "user_id": user_id},
                     {"$set": {"status": "active"}}
                 )
-                return {"success": result.modified_count > 0, "action": "start_bot", "bot_id": bot_id}
+                await bot_runtime_state.set_state(bot_id, user_id, "active", source="ai")
+                verified = await bot_runtime_state.get_state(bot_id)
+                await rt_events.bot_state_changed(
+                    user_id,
+                    bot_id,
+                    (runtime_before or {}).get("state", bot.get("status", "unknown")),
+                    "active"
+                )
+                await audit_logger.log_bot_action("started", user_id, bot_id, bot.get("name", "bot"))
+                return {
+                    "success": result.modified_count > 0,
+                    "action": "start_bot",
+                    "bot_id": bot_id,
+                    "verified_state": verified,
+                }
             
             elif action == "pause_bot":
                 bot_id = params.get('bot_id')
                 reason = params.get('reason', 'AI recommendation')
+                bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+                if not bot:
+                    return {"success": False, "action": "pause_bot", "error": "Bot not found", "bot_id": bot_id}
+                runtime_before = await bot_runtime_state.ensure_state(bot)
                 result = await db.bots_collection.update_one(
                     {"id": bot_id, "user_id": user_id},
                     {"$set": {
@@ -277,23 +302,74 @@ class AIActionRouter:
                         "paused_by_system": True
                     }}
                 )
-                return {"success": result.modified_count > 0, "action": "pause_bot", "bot_id": bot_id}
+                await bot_runtime_state.set_state(bot_id, user_id, "paused", reason=reason, source="ai")
+                verified = await bot_runtime_state.get_state(bot_id)
+                await rt_events.bot_state_changed(
+                    user_id,
+                    bot_id,
+                    (runtime_before or {}).get("state", bot.get("status", "unknown")),
+                    "paused",
+                    reason
+                )
+                await audit_logger.log_bot_action("paused", user_id, bot_id, bot.get("name", "bot"), {"reason": reason})
+                return {
+                    "success": result.modified_count > 0,
+                    "action": "pause_bot",
+                    "bot_id": bot_id,
+                    "verified_state": verified,
+                }
             
             elif action == "stop_bot":
                 bot_id = params.get('bot_id')
+                bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+                if not bot:
+                    return {"success": False, "action": "stop_bot", "error": "Bot not found", "bot_id": bot_id}
+                runtime_before = await bot_runtime_state.ensure_state(bot)
                 result = await db.bots_collection.update_one(
                     {"id": bot_id, "user_id": user_id},
                     {"$set": {"status": "stopped"}}
                 )
-                return {"success": result.modified_count > 0, "action": "stop_bot", "bot_id": bot_id}
+                await bot_runtime_state.set_state(bot_id, user_id, "stopped", source="ai")
+                verified = await bot_runtime_state.get_state(bot_id)
+                await rt_events.bot_state_changed(
+                    user_id,
+                    bot_id,
+                    (runtime_before or {}).get("state", bot.get("status", "unknown")),
+                    "stopped"
+                )
+                await audit_logger.log_bot_action("stopped", user_id, bot_id, bot.get("name", "bot"))
+                return {
+                    "success": result.modified_count > 0,
+                    "action": "stop_bot",
+                    "bot_id": bot_id,
+                    "verified_state": verified,
+                }
 
             elif action == "resume_bot":
                 bot_id = params.get('bot_id')
+                bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
+                if not bot:
+                    return {"success": False, "action": "resume_bot", "error": "Bot not found", "bot_id": bot_id}
+                runtime_before = await bot_runtime_state.ensure_state(bot)
                 result = await db.bots_collection.update_one(
                     {"id": bot_id, "user_id": user_id},
                     {"$set": {"status": "active"}}
                 )
-                return {"success": result.modified_count > 0, "action": "resume_bot", "bot_id": bot_id}
+                await bot_runtime_state.set_state(bot_id, user_id, "active", source="ai")
+                verified = await bot_runtime_state.get_state(bot_id)
+                await rt_events.bot_state_changed(
+                    user_id,
+                    bot_id,
+                    (runtime_before or {}).get("state", bot.get("status", "unknown")),
+                    "active"
+                )
+                await audit_logger.log_bot_action("resumed", user_id, bot_id, bot.get("name", "bot"))
+                return {
+                    "success": result.modified_count > 0,
+                    "action": "resume_bot",
+                    "bot_id": bot_id,
+                    "verified_state": verified,
+                }
             
             elif action == "emergency_stop":
                 result = await db.system_modes_collection.update_one(
@@ -310,6 +386,8 @@ class AIActionRouter:
                         "paused_by_system": True
                     }}
                 )
+                await rt_events.system_mode_changed(user_id, "emergencyStop", True)
+                await audit_logger.log_system_mode_change(user_id, "emergencyStop", True, "AI emergency stop")
                 return {"success": True, "action": "emergency_stop"}
 
             elif action == "toggle_autopilot":
@@ -319,6 +397,8 @@ class AIActionRouter:
                     {"$set": {"autopilot": enabled}},
                     upsert=True
                 )
+                await rt_events.system_mode_changed(user_id, "autopilot", enabled)
+                await audit_logger.log_system_mode_change(user_id, "autopilot", enabled, "AI autopilot toggle")
                 return {"success": True, "action": "toggle_autopilot", "enabled": enabled}
 
             elif action == "switch_mode":
@@ -327,6 +407,8 @@ class AIActionRouter:
                 if mode not in ["paper", "live", "autopilot"]:
                     return {"success": False, "error": "Invalid mode"}
                 await set_system_mode(mode, user_id)
+                await rt_events.system_mode_changed(user_id, "mode", True)
+                await audit_logger.log_system_mode_change(user_id, "mode", True, f"AI switch to {mode}")
                 return {"success": True, "action": "switch_mode", "mode": mode}
 
             elif action == "reset_risk_locks":
@@ -347,10 +429,14 @@ class AIActionRouter:
                     }
                 )
                 try:
-                    from realtime_events import rt_events
                     await rt_events.lock_reset(user_id, "daily_loss")
                 except Exception:
                     pass
+                await audit_logger.log_event(
+                    "risk_lock_reset",
+                    user_id,
+                    {"lock_type": "daily_loss", "source": "ai"},
+                )
                 return {"success": True, "action": "reset_risk_locks"}
 
             elif action == "wallet_transfer":
@@ -365,6 +451,32 @@ class AIActionRouter:
                     idempotency_key=params.get("idempotency_key")
                 )
                 return {"success": True, "action": "wallet_transfer", "result": result}
+
+            elif action == "fetch_status":
+                state = await AIActionRouter.get_system_state(user_id)
+                return {"success": True, "action": "fetch_status", "data": state}
+
+            elif action == "fetch_overview":
+                from services.overview_service import overview_service
+                overview = await overview_service.get_snapshot(user_id)
+                return {"success": True, "action": "fetch_overview", "data": overview}
+
+            elif action == "fetch_risk":
+                user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+                return {
+                    "success": True,
+                    "action": "fetch_risk",
+                    "data": {
+                        "daily_loss_lock_active": bool((user or {}).get("daily_loss_lock_active", False)),
+                        "daily_loss_locked_reason": (user or {}).get("daily_loss_locked_reason"),
+                    },
+                }
+
+            elif action == "open_admin_tools":
+                user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+                if not user or not user.get("is_admin"):
+                    return {"success": False, "action": "open_admin_tools", "error": "Admin access required"}
+                return {"success": True, "action": "open_admin_tools", "message": "Admin tools unlocked"}
             
             elif action == "get_limits":
                 limits = await trade_budget_manager.get_all_exchanges_budget_report()
@@ -500,6 +612,9 @@ async def ai_chat(
             "last_7d_summary": recent_summary
         })
         memory = await get_user_memory(user_id)
+
+        tool_actions: List[Dict[str, Any]] = []
+        action_results: List[Dict[str, Any]] = []
         
         # Check if this is a confirmation for a dangerous action
         if confirmation_token and confirmation_token in confirmation_tokens:
@@ -517,16 +632,25 @@ async def ai_chat(
                     )
                 else:
                     # Execute the confirmed action
+                    tool_actions.append({
+                        "action": action_data["action"],
+                        "params": action_data["params"],
+                        "source": "confirmation"
+                    })
                     result = await action_router.execute_action(
                         action_data['action'],
                         action_data['params'],
                         user_id
                     )
+                    action_results.append(result)
                     
                     # Remove token
                     del confirmation_tokens[confirmation_token]
                     
-                    ai_response = f"Confirmed. Action executed: {action_data['action']}."
+                    if result.get("success"):
+                        ai_response = f"Confirmed. Action executed: {action_data['action']}."
+                    else:
+                        ai_response = f"Action failed: {result.get('error', 'unknown error')}."
                     
                     await log_chatops_action(user_id, action_data['action'], action_data['params'], result)
                     await update_user_memory(user_id, {
@@ -577,14 +701,20 @@ async def ai_chat(
                                 f"Reply with confirmation token: {token}"
                             )
                         else:
+                            tool_actions.append({"action": action, "params": params, "source": "chat"})
                             result = await action_router.execute_action(action, params, user_id)
+                            action_results.append(result)
                             await log_chatops_action(user_id, action, params, result)
                             await update_user_memory(user_id, {
                                 "last_commands": (memory.get("last_commands", []) + [action])[-5:]
                             })
-                            ai_response = f"Done. {action.replace('_', ' ')} executed for bot {bot.get('name')}."
+                            if result.get("success"):
+                                ai_response = f"Done. {action.replace('_', ' ')} executed for bot {bot.get('name')}."
+                            else:
+                                ai_response = f"Action failed: {result.get('error', 'unknown error')}."
 
                 elif action in ["fetch_overview", "fetch_status", "fetch_risk"]:
+                    tool_actions.append({"action": action, "params": params, "source": "chat"})
                     if action == "fetch_overview":
                         from services.overview_service import OverviewService
                         overview = await OverviewService().get_snapshot(user_id)
@@ -593,7 +723,7 @@ async def ai_chat(
                             f"Active bots {overview.get('bots_active', 0)}, "
                             f"Win rate {overview.get('win_rate', 0):.2f}%."
                         )
-                        result = {"overview": overview}
+                        result = {"success": True, "overview": overview}
                     elif action == "fetch_status":
                         from routes.system_status import get_system_status
                         status = await get_system_status(user_id)
@@ -601,7 +731,7 @@ async def ai_chat(
                             f"System status: DB {'connected' if status['database']['connected'] else 'degraded'}, "
                             f"active bots {status['trading_activity']['active_bots']}."
                         )
-                        result = {"status": status}
+                        result = {"success": True, "status": status}
                     else:
                         from routes.risk_management import get_risk_status
                         risk = await get_risk_status(user_id)
@@ -610,8 +740,9 @@ async def ai_chat(
                             f"{'active' if risk['daily_loss_lock']['active'] else 'clear'}, "
                             f"emergency stop {'active' if risk['emergency_stop']['active'] else 'clear'}."
                         )
-                        result = {"risk": risk}
+                        result = {"success": True, "risk": risk}
 
+                    action_results.append(result)
                     await log_chatops_action(user_id, action, params, result)
                     await update_user_memory(user_id, {
                         "last_commands": (memory.get("last_commands", []) + [action])[-5:]
@@ -692,12 +823,14 @@ async def ai_chat(
                                     f"Reply with token {token} and phrase: {CONFIRM_LIVE_TRADING}."
                                 )
                     else:
+                        tool_actions.append({"action": action, "params": params, "source": "chat"})
                         result = await action_router.execute_action(action, params, user_id)
+                        action_results.append(result)
                         await log_chatops_action(user_id, action, params, result)
                         await update_user_memory(user_id, {
                             "last_commands": (memory.get("last_commands", []) + [action])[-5:]
                         })
-                        ai_response = "System switched to paper trading."
+                        ai_response = "System switched to paper trading." if result.get("success") else f"Action failed: {result.get('error', 'unknown error')}."
 
                 elif action == "wallet_transfer":
                     params = {**params, **parse_transfer_params(content)}
@@ -943,7 +1076,9 @@ Instructions:
             "model_used": model_used if 'model_used' in locals() else None,
             "error": error_code,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "system_state": system_state
+            "system_state": system_state,
+            "tool_actions": tool_actions,
+            "action_results": action_results
         }
     
     except Exception as e:

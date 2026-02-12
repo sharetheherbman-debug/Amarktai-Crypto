@@ -101,6 +101,24 @@ class RealTimeEvents:
             "trade": trade_data,
             "message": f"📊 Trade executed: {trade_data.get('pair')}"
         })
+
+    @staticmethod
+    async def trade_opened(user_id: str, trade_data: dict):
+        """Broadcast when a trade opens"""
+        await manager.send_message(user_id, {
+            "type": "trade_opened",
+            "trade": trade_data,
+            "message": f"🟡 Trade opened: {trade_data.get('pair', 'N/A')}"
+        })
+
+    @staticmethod
+    async def trade_closed(user_id: str, trade_data: dict):
+        """Broadcast when a trade closes"""
+        await manager.send_message(user_id, {
+            "type": "trade_closed",
+            "trade": trade_data,
+            "message": f"✅ Trade closed: {trade_data.get('pair', 'N/A')}"
+        })
     
     @staticmethod
     async def profit_updated(user_id: str, new_profit: float, bot_name: str = None):
@@ -119,11 +137,18 @@ class RealTimeEvents:
     @staticmethod
     async def system_mode_changed(user_id: str, mode: str, enabled: bool):
         """Broadcast system mode changes"""
-        await manager.send_message(user_id, {
-            "type": "system_mode_update",
+        payload = {
             "mode": mode,
             "enabled": enabled,
             "message": f"⚙️ {mode} {'enabled' if enabled else 'disabled'}"
+        }
+        await manager.send_message(user_id, {
+            **payload,
+            "type": "system_mode_changed"
+        })
+        await manager.send_message(user_id, {
+            **payload,
+            "type": "system_mode_update"
         })
     
     @staticmethod
@@ -389,6 +414,7 @@ class RealTimeEvents:
             "message": f"🔒 Risk Lock: {reason}"
         })
         logger.warning(f"📡 Real-time: lock_triggered for user {user_id[:8]} - {reason}")
+        await RealTimeEvents.risk_lock_changed(user_id, lock_type, True, reason, loss_pct)
     
     @staticmethod
     async def lock_reset(user_id: str, lock_type: str):
@@ -399,6 +425,28 @@ class RealTimeEvents:
             "message": f"🔓 Risk lock reset: {lock_type}"
         })
         logger.info(f"📡 Real-time: lock_reset for user {user_id[:8]}")
+        await RealTimeEvents.risk_lock_changed(user_id, lock_type, False, None, None)
+
+    @staticmethod
+    async def risk_lock_changed(user_id: str, lock_type: str, active: bool, reason: str = None, loss_pct: float = None):
+        """Broadcast unified risk lock status"""
+        await manager.send_message(user_id, {
+            "type": "risk_lock_changed",
+            "lock_type": lock_type,
+            "active": active,
+            "reason": reason,
+            "loss_pct": loss_pct,
+            "message": f"{'🔒' if active else '🔓'} Risk lock {lock_type}: {'active' if active else 'cleared'}"
+        })
+
+    @staticmethod
+    async def learning_run_completed(user_id: str, run_summary: dict):
+        """Broadcast when a learning run completes"""
+        await manager.send_message(user_id, {
+            "type": "learning_run_completed",
+            "summary": run_summary,
+            "message": "🧠 Learning run completed"
+        })
     
     @staticmethod
     async def wallet_updated(user_id: str, wallet_data: dict):
