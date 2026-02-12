@@ -1069,7 +1069,7 @@ export default function Dashboard() {
       const now = Date.now();
       if (now - botStatusErrorRef.current.lastShown > 60000) {
         const statusLabel = err.response?.status ? ` (${err.response.status})` : '';
-        const message = extractErrorMessage(err, 'Bot status unavailable');
+        const message = extractErrorMessage(err, 'Request failed');
         toast.error(`Bot status unavailable${statusLabel}: ${message}`);
         botStatusErrorRef.current.lastShown = now;
       }

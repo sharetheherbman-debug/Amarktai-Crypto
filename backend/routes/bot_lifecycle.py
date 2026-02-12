@@ -81,9 +81,9 @@ def _bots_status_payload(
     all_exchanges: Optional[list] = None,
 ) -> Dict:
     """Build a safe bots status response payload."""
-    bots = bots or []
-    exchange_counts = exchange_counts or {}
-    all_exchanges = all_exchanges or []
+    bots = [] if bots is None else bots
+    exchange_counts = {} if exchange_counts is None else exchange_counts
+    all_exchanges = [] if all_exchanges is None else all_exchanges
     active_bots = sum(
         1
         for bot in bots
