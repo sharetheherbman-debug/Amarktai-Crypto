@@ -247,6 +247,8 @@ server {
     # Permissions (recommended)
     # - Keep /var/log/nginx owned by root:adm (files 640)
     # - Keep /etc/letsencrypt/live owned by root:root (private keys 600)
+    # These settings restrict log and private key access to privileged users only,
+    # preventing accidental exposure while keeping nginx (root master) functional.
 
     # API proxy (backend)
     location /api/ {
