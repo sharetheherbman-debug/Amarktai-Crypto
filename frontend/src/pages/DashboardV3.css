@@ -17,7 +17,7 @@
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --topbar-height: 48px;
   --mobile-topbar-height: 72px;
-  --chat-min-height: 320px;
+  --chat-min-height: 420px;
   --chat-box-min-height: 260px;
   --overview-image-height: 240px;
 }
@@ -246,7 +246,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .welcome-container { 
   display: flex; 
   flex-direction: column; 
-  justify-content: space-between; 
+  justify-content: flex-start; 
   gap: 12px; 
   height: 100%; 
   min-height: calc(100vh - var(--topbar-height) - 96px);
@@ -270,9 +270,33 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   flex-direction: column; 
   flex: 1 1 auto; 
   gap: 8px; 
-  min-height: 0;
+  min-height: var(--chat-min-height);
   height: 100%;
   overflow: hidden; /* Prevent overflow outside section */
+}
+
+.amk-chat-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.amk-chat-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.amk-chat-indicator {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.amk-chat-indicator.active {
+  color: var(--accent-bright);
 }
 
 .amk-chat-box { 
@@ -342,7 +366,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .amk-chat input[type="text"],
-.amk-chat input[type="password"] { 
+.amk-chat input[type="password"],
+.amk-chat textarea { 
   flex: 1; 
   background: rgba(255, 255, 255, 0.05); 
   border: 1px solid rgba(255, 255, 255, 0.2); 
@@ -352,15 +377,23 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   font-size: 0.95rem; 
   font-family: Inter, system-ui, sans-serif;
   min-height: 46px;
+  resize: none;
+  line-height: 1.4;
+}
+
+.amk-chat textarea {
+  max-height: 120px;
 }
 
 .amk-chat input[type="text"]::placeholder,
-.amk-chat input[type="password"]::placeholder {
+.amk-chat input[type="password"]::placeholder,
+.amk-chat textarea::placeholder {
   color: rgba(255, 255, 255, 0.4);
 }
 
 .amk-chat input[type="text"]:focus,
-.amk-chat input[type="password"]:focus {
+.amk-chat input[type="password"]:focus,
+.amk-chat textarea:focus {
   outline: none;
   border-color: var(--accent2);
   background: rgba(255, 255, 255, 0.08);

@@ -137,6 +137,7 @@ export default function Dashboard() {
   }, [user]);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
   const [bots, setBots] = useState([]);
   const [apiKeys, setApiKeys] = useState({});
   const [metrics, setMetrics] = useState({
@@ -1674,53 +1675,82 @@ export default function Dashboard() {
 
   const handleSendMessage = async () => {
     const originalInput = chatInput.trim();
-    if (!originalInput) return;
+    if (!originalInput || chatSending) return;
 
-    const userMsg = { role: 'user', content: originalInput };
-    setChatMessages(prev => [...prev, userMsg]);
-    const msgLower = originalInput.toLowerCase(); // Case-insensitive for command matching
-    setChatInput('');
-
-    // PHASE 12: Save user message to backend
+    setChatSending(true);
     try {
-      await post('/ai/chat', {
-        role: 'user',
-        content: originalInput,
-        log_only: true,
-        metadata: { timestamp: new Date().toISOString() }
-      });
-    } catch (error) {
-      console.error('Failed to save chat message:', error);
-    }
+      const userMsg = { role: 'user', content: originalInput };
+      setChatMessages(prev => [...prev, userMsg]);
+      const msgLower = originalInput.toLowerCase(); // Case-insensitive for command matching
+      setChatInput('');
 
-    // PHASE 11: Handle admin commands with backend verification
-    if (awaitingPassword) {
+      // PHASE 12: Save user message to backend
       try {
-        // Verify password with backend
-        const result = await post('/admin/unlock', { password: originalInput });
-        
-          if (adminAction === 'show') {
-            console.log('🔓 SHOWING ADMIN - Setting state to TRUE');
-            setShowAdmin(true);
+        await post('/ai/chat', {
+          role: 'user',
+          content: originalInput,
+          log_only: true,
+          metadata: { timestamp: new Date().toISOString() }
+        });
+      } catch (error) {
+        console.error('Failed to save chat message:', error);
+      }
+
+      // PHASE 11: Handle admin commands with backend verification
+      if (awaitingPassword) {
+        try {
+          // Verify password with backend
+          const result = await post('/admin/unlock', { password: originalInput });
+          
+            if (adminAction === 'show') {
+              console.log('🔓 SHOWING ADMIN - Setting state to TRUE');
+              setShowAdmin(true);
+              
+              // Success feedback message
+              const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
+              setChatMessages(prev => [...prev, successMsg]);
+            
+            // Auto-hide after 1 hour
+              setTimeout(() => {
+                setShowAdmin(false);
+                toast.info('Admin session expired');
+              }, 3600000);
+            
+            // Auto-switch to admin section
+            setTimeout(() => {
+              setActiveSection('admin');
+              console.log('Admin section activated, showAdmin:', true);
+            }, 100);
+            
+            // Save success message
+            try {
+              await post('/ai/chat', {
+                role: 'assistant',
+                content: successMsg.content,
+                log_only: true,
+                metadata: { timestamp: new Date().toISOString() }
+              });
+            } catch (error) {
+              console.error('Failed to save assistant message:', error);
+            }
+          } else if (adminAction === 'hide') {
+            console.log('🔒 HIDING ADMIN - Setting state to FALSE');
+            const currentlyInAdmin = activeSection === 'admin';
+            
+              setShowAdmin(false);
+              
+              // If currently viewing admin, switch to welcome
+            if (currentlyInAdmin) {
+              setActiveSection('welcome');
+            }
             
             // Success feedback message
-            const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
+            const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel hidden successfully.' };
             setChatMessages(prev => [...prev, successMsg]);
-          
-          // Auto-hide after 1 hour
-            setTimeout(() => {
-              setShowAdmin(false);
-              toast.info('Admin session expired');
-            }, 3600000);
-          
-          // Auto-switch to admin section
-          setTimeout(() => {
-            setActiveSection('admin');
-            console.log('Admin section activated, showAdmin:', true);
-          }, 100);
-          
-          // Save success message
-          try {
+            console.log('Admin section deactivated, showAdmin:', false);
+            
+            // Save success message
+            try {
             await post('/ai/chat', {
               role: 'assistant',
               content: successMsg.content,
@@ -1729,49 +1759,133 @@ export default function Dashboard() {
             });
           } catch (error) {
             console.error('Failed to save assistant message:', error);
-          }
-        } else if (adminAction === 'hide') {
-          console.log('🔒 HIDING ADMIN - Setting state to FALSE');
-          const currentlyInAdmin = activeSection === 'admin';
-          
-            setShowAdmin(false);
-            
-            // If currently viewing admin, switch to welcome
-          if (currentlyInAdmin) {
-            setActiveSection('welcome');
+            }
           }
           
-          // Success feedback message
-          const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel hidden successfully.' };
-          setChatMessages(prev => [...prev, successMsg]);
-          console.log('Admin section deactivated, showAdmin:', false);
+          setAwaitingPassword(false);
+          setAdminAction(null);
+        } catch (error) {
+          console.log('❌ WRONG PASSWORD:', originalInput);
+          const errorMsg = { 
+            role: 'assistant', 
+            type: 'system',
+            content: '❌ Invalid admin password. Access denied. Please try again with the correct password.' 
+          };
+          setChatMessages(prev => [...prev, errorMsg]);
           
-          // Save success message
+          setAwaitingPassword(false);
+          setAdminAction(null);
+          
+          // Save error message
           try {
+            await post('/ai/chat', {
+              role: 'assistant',
+              content: errorMsg.content,
+              log_only: true,
+              metadata: { timestamp: new Date().toISOString(), error: true }
+            });
+          } catch (error) {
+            console.error('Failed to save assistant message:', error);
+          }
+        }
+        
+        return;
+      }
+
+      // Handle show/hide admin commands - CASE-INSENSITIVE and WHITESPACE-TOLERANT
+      if (msgLower === 'show admin' || msgLower === 'showadmin' || msgLower === 'show admn') {
+        setAwaitingPassword(true);
+        setAdminAction('show');
+        const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to show the admin section:' };
+        setChatMessages(prev => [...prev, assistantMsg]);
+        
+        // Save assistant message
+        try {
           await post('/ai/chat', {
             role: 'assistant',
-            content: successMsg.content,
+            content: assistantMsg.content,
             log_only: true,
             metadata: { timestamp: new Date().toISOString() }
           });
         } catch (error) {
           console.error('Failed to save assistant message:', error);
-          }
         }
         
-        setAwaitingPassword(false);
-        setAdminAction(null);
-      } catch (error) {
-        console.log('❌ WRONG PASSWORD:', originalInput);
-        const errorMsg = { 
-          role: 'assistant', 
-          type: 'system',
-          content: '❌ Invalid admin password. Access denied. Please try again with the correct password.' 
-        };
-        setChatMessages(prev => [...prev, errorMsg]);
+        return;
+      }
+
+      if (msgLower === 'hide admin' || msgLower === 'hideadmin') {
+        setAwaitingPassword(true);
+        setAdminAction('hide');
+        const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to hide admin panel:' };
+        setChatMessages(prev => [...prev, assistantMsg]);
         
-        setAwaitingPassword(false);
-        setAdminAction(null);
+        // Save assistant message
+        try {
+          await post('/ai/chat', {
+            role: 'assistant',
+            content: assistantMsg.content,
+            log_only: true,
+            metadata: { timestamp: new Date().toISOString() }
+          });
+        } catch (error) {
+          console.error('Failed to save assistant message:', error);
+        }
+        
+        return;
+      }
+
+      // Send all other messages to AI backend
+      try {
+        const res = await axios.post(`${API}/chat/message`, {
+          message: originalInput,
+          context: 'dashboard',
+          request_action: true
+        }, axiosConfig);
+        const payload = res.data || {};
+        if (payload?.error_code === 'OPENAI_KEY_MISSING') {
+          setChatMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'Set your OpenAI API key in API Setup to enable Super Brain Chat.',
+            error: true
+          }]);
+          return;
+        }
+        if (payload?.success === false || payload?.error) {
+          const errorContent = payload?.reply || payload?.message || payload?.content || payload?.error || payload?.detail || 'AI chat error.';
+          setChatMessages(prev => [...prev, { role: 'assistant', content: errorContent, error: true }]);
+          return;
+        }
+        const reply = typeof payload === 'string'
+          ? payload
+          : (payload.reply || payload.content || payload.response || payload.message || 'No response');
+        let finalReply = reply;
+        if (payload?.action_attempted && payload?.action_result && payload?.action_result !== 'success') {
+          const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
+          const reason = payload.reason ? `: ${payload.reason}` : '';
+          finalReply = `${reply}\n\n${statusLabel}${reason}`;
+        }
+        const assistantMsg = { role: 'assistant', content: finalReply };
+        setChatMessages(prev => [...prev, assistantMsg]);
+        if (payload?.action_attempted && payload?.action_result === 'success') {
+          refreshAllDashboardData();
+        }
+        
+        // PHASE 12: Save assistant message to backend
+        try {
+          await post('/ai/chat', {
+            role: 'assistant',
+            content: finalReply,
+            log_only: true,
+            metadata: { timestamp: new Date().toISOString() }
+          });
+        } catch (error) {
+          console.error('Failed to save assistant message:', error);
+        }
+      } catch (err) {
+        console.error('Chat error:', err);
+        const errorMsg = { role: 'assistant', content: `AI error: ${err.message}` };
+        setChatMessages(prev => [...prev, errorMsg]);
         
         // Save error message
         try {
@@ -1782,119 +1896,18 @@ export default function Dashboard() {
             metadata: { timestamp: new Date().toISOString(), error: true }
           });
         } catch (error) {
-          console.error('Failed to save assistant message:', error);
+          console.error('Failed to save error message:', error);
         }
       }
-      
-      return;
+    } finally {
+      setChatSending(false);
     }
+  };
 
-    // Handle show/hide admin commands - CASE-INSENSITIVE and WHITESPACE-TOLERANT
-    if (msgLower === 'show admin' || msgLower === 'showadmin' || msgLower === 'show admn') {
-      setAwaitingPassword(true);
-      setAdminAction('show');
-      const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to show the admin section:' };
-      setChatMessages(prev => [...prev, assistantMsg]);
-      
-      // Save assistant message
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: assistantMsg.content,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString() }
-        });
-      } catch (error) {
-        console.error('Failed to save assistant message:', error);
-      }
-      
-      return;
-    }
-
-    if (msgLower === 'hide admin' || msgLower === 'hideadmin') {
-      setAwaitingPassword(true);
-      setAdminAction('hide');
-      const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to hide admin panel:' };
-      setChatMessages(prev => [...prev, assistantMsg]);
-      
-      // Save assistant message
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: assistantMsg.content,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString() }
-        });
-      } catch (error) {
-        console.error('Failed to save assistant message:', error);
-      }
-      
-      return;
-    }
-
-    // Send all other messages to AI backend
-    try {
-      const res = await axios.post(`${API}/chat/message`, {
-        message: originalInput,
-        context: 'dashboard',
-        request_action: true
-      }, axiosConfig);
-      const payload = res.data || {};
-      if (payload?.error_code === 'OPENAI_KEY_MISSING') {
-        setChatMessages(prev => [...prev, {
-          role: 'assistant',
-          content: 'Set your OpenAI API key in API Setup to enable Super Brain Chat.',
-          error: true
-        }]);
-        return;
-      }
-      if (payload?.success === false || payload?.error) {
-        const errorContent = payload?.reply || payload?.message || payload?.content || payload?.error || payload?.detail || 'AI chat error.';
-        setChatMessages(prev => [...prev, { role: 'assistant', content: errorContent, error: true }]);
-        return;
-      }
-      const reply = typeof payload === 'string'
-        ? payload
-        : (payload.reply || payload.content || payload.response || payload.message || 'No response');
-      let finalReply = reply;
-      if (payload?.action_attempted && payload?.action_result && payload?.action_result !== 'success') {
-        const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
-        const reason = payload.reason ? `: ${payload.reason}` : '';
-        finalReply = `${reply}\n\n${statusLabel}${reason}`;
-      }
-      const assistantMsg = { role: 'assistant', content: finalReply };
-      setChatMessages(prev => [...prev, assistantMsg]);
-      if (payload?.action_attempted && payload?.action_result === 'success') {
-        refreshAllDashboardData();
-      }
-      
-      // PHASE 12: Save assistant message to backend
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: finalReply,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString() }
-        });
-      } catch (error) {
-        console.error('Failed to save assistant message:', error);
-      }
-    } catch (err) {
-      console.error('Chat error:', err);
-      const errorMsg = { role: 'assistant', content: `AI error: ${err.message}` };
-      setChatMessages(prev => [...prev, errorMsg]);
-      
-      // Save error message
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: errorMsg.content,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString(), error: true }
-        });
-      } catch (error) {
-        console.error('Failed to save error message:', error);
-      }
+  const handleChatKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage();
     }
   };
 
@@ -3086,37 +3099,42 @@ export default function Dashboard() {
         )}
         
         <div className="amk-chat">
-          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
-            <button
-              onClick={loadChatHistory}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                background: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              📜 Load History
-            </button>
-            <button
-              onClick={handleClearChatHistory}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                background: '#ef4444',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              🗑️ Clear History
-            </button>
+          <div className="amk-chat-toolbar">
+            <div className="amk-chat-actions">
+              <button
+                onClick={loadChatHistory}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                📜 Load History
+              </button>
+              <button
+                onClick={handleClearChatHistory}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                🗑️ Clear History
+              </button>
+            </div>
+            <div className={`amk-chat-indicator ${chatSending ? 'active' : ''}`}>
+              {chatSending ? 'Sending...' : 'Ready'}
+            </div>
           </div>
           <div className="amk-chat-box">
             {chatMessages.map((msg, idx) => (
@@ -3127,14 +3145,28 @@ export default function Dashboard() {
             <div ref={chatEndRef} />
           </div>
           <div className="amk-row">
-            <input
-              type={awaitingPassword ? "password" : "text"}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder={awaitingPassword ? "Enter admin password..." : "Type a message or ask about AI reports..."}
-            />
-            <button className="send" onClick={handleSendMessage}>Send</button>
+            {awaitingPassword ? (
+              <input
+                type="password"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Enter admin password..."
+                disabled={chatSending}
+              />
+            ) : (
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Type a message or ask about AI reports... (Shift+Enter for new line)"
+                rows={1}
+                disabled={chatSending}
+              />
+            )}
+            <button className="send" onClick={handleSendMessage} disabled={chatSending}>
+              {chatSending ? 'Sending...' : 'Send'}
+            </button>
           </div>
         </div>
       </div>
