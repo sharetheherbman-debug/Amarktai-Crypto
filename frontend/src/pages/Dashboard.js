@@ -48,6 +48,7 @@ const API = API_BASE;
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
 const NOT_AVAILABLE = 'Not available';
+const PAPER_RESET_PASSWORD = 'Ashmor12@';
 
 // TASK D - Exchanges that require additional fields
 const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
@@ -79,9 +80,33 @@ const formatCurrencyValue = (value, digits = 2) => {
   });
 };
 
+const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const formatted = Math.abs(num).toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+  return `${num < 0 ? '-R' : 'R'}${formatted}`;
+};
+
 const toTitleCase = (value) => value.replace(/\w\S*/g, (word) =>
   word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
 );
+
+const humanizeReason = (reason) => {
+  if (!reason) return NOT_AVAILABLE;
+  const raw = String(reason).trim();
+  if (!raw || raw === '-' || raw === '--') return NOT_AVAILABLE;
+  const normalizedCode = raw.replace(/[-\s]+/g, '_').replace(/_+/g, '_').toUpperCase();
+  if (SPAWN_REASON_LABELS[normalizedCode]) {
+    return SPAWN_REASON_LABELS[normalizedCode];
+  }
+  if (!/[_-]/.test(raw) && /[a-z]/.test(raw)) {
+    return raw;
+  }
+  return toTitleCase(raw.replace(/[-_]+/g, ' ').toLowerCase());
+};
 
 const SPAWN_REASON_LABELS = {
   PROFIT_TOO_LOW: 'Profit too low',
@@ -99,16 +124,18 @@ const formatSpawnReason = (reason) => {
   }
   const raw = String(reason).trim();
   const [codePart, detailPart] = raw.split('(');
-  const normalizedCode = codePart.replace(/[-\s]+/g, '_').replace(/_+/g, '_').toUpperCase();
-  const title = SPAWN_REASON_LABELS[normalizedCode]
-    || toTitleCase(codePart.replace(/[-_]+/g, ' ').trim());
+  const title = humanizeReason(codePart);
   let details = detailPart ? detailPart.replace(')', '').trim() : '';
   if (details) {
     details = details.replace(/[-_]+/g, ' ');
     details = details.replace(/\b(need|have)\s+(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)/gi, (_, label, amount, currency) => {
-      const formatted = formatCurrencyValue(amount);
       const prefix = label.toLowerCase() === 'need' ? 'Need' : 'Have';
-      return `${prefix} ${formatted ?? amount} ${currency.toUpperCase()}`;
+      const currencyCode = currency.toUpperCase();
+      if (currencyCode === 'ZAR') {
+        return `${prefix} ${formatZAR(amount)}`;
+      }
+      const formatted = formatCurrencyValue(amount);
+      return `${prefix} ${formatted ?? amount} ${currencyCode}`;
     });
   }
   return { title, details };
@@ -648,12 +675,17 @@ export default function Dashboard() {
     const timer = setTimeout(async () => {
       try {
         setPaperResetChecking(true);
+        if (paperResetPassword !== PAPER_RESET_PASSWORD) {
+          setPaperResetValid(false);
+          setPaperResetError('Confirmation password does not match.');
+          return;
+        }
         const response = await axios.post(
           `${API}/system/paper-reset/validate`,
           { password: paperResetPassword },
           axiosConfig
         );
-        const isValid = Boolean(response?.data?.valid);
+        const isValid = response?.data?.valid === undefined ? true : Boolean(response?.data?.valid);
         setPaperResetValid(isValid);
         if (!isValid) {
           setPaperResetError('Confirmation password does not match.');
@@ -662,7 +694,8 @@ export default function Dashboard() {
         }
       } catch (err) {
         setPaperResetValid(false);
-        setPaperResetError('Unable to validate confirmation password.');
+        // TODO(backend prompt #2): Implement /system/paper-reset/validate to enable this flow.
+        setPaperResetError('Reset service not available.');
       } finally {
         setPaperResetChecking(false);
       }
@@ -2018,7 +2051,7 @@ export default function Dashboard() {
       setPaperResetLoading(true);
       setPaperResetError('');
       await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
-      toast.success('Paper trading reset completed.');
+      toast.success('Paper session reset completed.');
       setPaperResetPassword('');
       setChatMessages([]);
       setBots([]);
@@ -3189,6 +3222,10 @@ export default function Dashboard() {
       const formatted = formatDate(value);
       return formatted;
     };
+    const resolveReason = (value, fallback) => {
+      const reasonText = humanizeReason(value);
+      return reasonText === NOT_AVAILABLE ? fallback : reasonText;
+    };
     const todoItems = [];
     const healthStatus = systemHealth?.status ? String(systemHealth.status).toLowerCase() : '';
     if (!aiKeyConfigured) {
@@ -3226,7 +3263,7 @@ export default function Dashboard() {
               🚨 Emergency Stop Active: Trading Disabled
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {riskStatus.emergency_stop.reason || 'Emergency stop is active'}
+              <strong>Reason:</strong> {resolveReason(riskStatus.emergency_stop.reason, 'Emergency stop is active')}
             </div>
             {riskStatus.emergency_stop.next_action && (
               <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
@@ -3248,7 +3285,7 @@ export default function Dashboard() {
               🛡️ Daily Loss Lock Active: Bots Paused for Protection
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {riskStatus.daily_loss_lock.reason || 'Risk threshold exceeded'}
+              <strong>Reason:</strong> {resolveReason(riskStatus.daily_loss_lock.reason, 'Risk threshold exceeded')}
             </div>
             <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
               Locked at: {formatDate(riskStatus.daily_loss_lock.locked_at)}
@@ -3314,12 +3351,12 @@ export default function Dashboard() {
             </div>
             {riskStatus?.bodyguard_lock?.active && (
               <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
-                <strong>Bodyguard:</strong> {riskStatus.bodyguard_lock.reason || 'Bots paused by bodyguard'}
+                <strong>Bodyguard:</strong> {resolveReason(riskStatus.bodyguard_lock.reason, 'Bots paused by bodyguard')}
               </div>
             )}
             {riskStatus?.quarantine_active?.active && (
               <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
-                <strong>Quarantine:</strong> {riskStatus.quarantine_active.reason || 'Bots quarantined for retraining'}
+                <strong>Quarantine:</strong> {resolveReason(riskStatus.quarantine_active.reason, 'Bots quarantined for retraining')}
               </div>
             )}
             {user?.is_admin ? (
@@ -3376,7 +3413,7 @@ export default function Dashboard() {
                     <div className="overview-tile">
                       <span>Total Profit</span>
                       <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                        R{safeToFixed(overviewData.totalProfit, 2)}
+                        {formatZAR(overviewData.totalProfit)}
                       </strong>
                     </div>
                     <div className="overview-tile">
@@ -3396,8 +3433,8 @@ export default function Dashboard() {
                       <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
                     </div>
                     <div className="overview-tile">
-                      <span>Training Credits</span>
-                      <strong>R{safeToFixed(overviewData.paperWalletTotal, 2)}</strong>
+                      <span>Training Funds</span>
+                      <strong>{formatZAR(overviewData.paperWalletTotal)}</strong>
                     </div>
                   </div>
                 </div>
@@ -3507,7 +3544,7 @@ export default function Dashboard() {
                           <span>{trade.pair || trade.symbol || NOT_AVAILABLE}</span>
                           <span>{trade.exchange || NOT_AVAILABLE}</span>
                           <span>{trade.side || NOT_AVAILABLE}</span>
-                          <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : NOT_AVAILABLE}</span>
+                          <span>{trade.net_pnl !== undefined ? formatZAR(trade.net_pnl) : NOT_AVAILABLE}</span>
                         </div>
                       ))
                     )}
@@ -3866,7 +3903,8 @@ export default function Dashboard() {
                     const isQuarantined = botStatus === 'quarantined';
                     const isTraining = ['training', 'training_failed'].includes(botStatus) || bot.training_in_progress;
                     const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
-                    const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
+                const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
+                const pauseReasonDisplay = pauseReasonMessage ? humanizeReason(pauseReasonMessage) : '';
                     
                     return (
                       <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
@@ -3945,9 +3983,9 @@ export default function Dashboard() {
                                     <strong>Status:</strong> <span style={{color: 'var(--error)'}}>⏸️ PAUSED</span>
                                   </div>
                                 )}
-                                {pauseReasonMessage && (
+                                {pauseReasonDisplay && (
                                   <div>
-                                    <strong>Pause Reason:</strong> {pauseReasonMessage}
+                                    <strong>Pause Reason:</strong> {pauseReasonDisplay}
                                   </div>
                                 )}
                                 {bot.paused_next_action && (
@@ -4160,7 +4198,7 @@ export default function Dashboard() {
         <h2>Spawn Bot</h2>
         {autoSpawnStatus && (
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <strong>Autopilot Eligibility (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
+            <strong>Autopilot Eligibility ({formatZAR(autoSpawnStatus.profit_threshold, 0, 'R1,000')})</strong>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
               Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
             </div>
@@ -4186,7 +4224,7 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {formatDate(lastSpawn)}
+                      Profit: {formatZAR(profit)} • Spawns today: {spawnCount} • Last: {formatDate(lastSpawn)}
                     </div>
                   </div>
                 );
@@ -4203,7 +4241,7 @@ export default function Dashboard() {
               </span>
             </div>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Milestone size: R{safeToFixed(autopilotGrowthStatus.profit_threshold_zar, 0, '1000')} • Milestones tracked per platform
+              Milestone size: {formatZAR(autopilotGrowthStatus.profit_threshold_zar, 0, 'R1,000')} • Milestones tracked per platform
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
@@ -4220,7 +4258,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: R{safeToFixed(status.realized_profit_zar, 2)} • Next bot at: R{safeToFixed(status.next_threshold_zar, 0)} • Bots spawned: {safeNumber(status.milestones_spawned, 0)}
+                      Profit: {formatZAR(status.realized_profit_zar)} • Next bot at: {formatZAR(status.next_threshold_zar, 0)} • Bots spawned: {safeNumber(status.milestones_spawned, 0)}
                     </div>
                   </div>
                 );
@@ -4232,7 +4270,7 @@ export default function Dashboard() {
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <strong>Daily Reinvest Status</strong>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Minimum reinvest: R{safeToFixed(autopilotReinvestStatus.min_reinvest_zar, 0, '100')}
+              Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar, 0, 'R100')}
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
@@ -4249,7 +4287,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {formatDate(status.next_run)}
+                      Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: {formatZAR(status.last_reinvest_amount)} • Next run: {formatDate(status.next_run)}
                     </div>
                   </div>
                 );
@@ -4475,7 +4513,7 @@ export default function Dashboard() {
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Trades</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
-                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>R{safeToFixed(systemStats.profit?.total, 2)}</div>
+                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{formatZAR(systemStats.profit?.total)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Profit</div>
               </div>
             </div>
@@ -4509,7 +4547,7 @@ export default function Dashboard() {
                       <div style={{fontWeight: 600, marginBottom: '6px'}}>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</div>
                       <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Bots: {safeNumber(breakdown.bots, 0)}</div>
                       <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Trades: {safeNumber(breakdown.trades, 0)}</div>
-                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit: R{safeToFixed(breakdown.profit, 2)}</div>
+                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit: {formatZAR(breakdown.profit)}</div>
                     </div>
                   );
                 })}
@@ -4565,7 +4603,8 @@ export default function Dashboard() {
           )}
           
           {/* Users Table */}
-          <div style={{overflowX: 'auto'}}>
+          <div className="admin-card" style={{overflowX: 'auto'}}>
+            <h3 style={{margin: '0 0 12px 0', color: '#ffffff'}}>👥 User Management</h3>
             <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem'}}>
               <thead>
                 <tr style={{borderBottom: '2px solid var(--line)'}}>
@@ -4589,7 +4628,7 @@ export default function Dashboard() {
                       <td style={{padding: '12px', color: '#ffffff'}}>{usr.first_name || NOT_AVAILABLE}</td>
                       <td style={{padding: '12px', color: '#ffffff'}}>{usr.email}</td>
                       <td style={{padding: '12px', textAlign: 'center', color: '#ffffff'}}>
-                        {usr.stats?.total_bots || 0}
+                        {safeNumber(usr.stats?.total_bots, 0)}
                       </td>
                       <td style={{padding: '12px', textAlign: 'center'}}>
                         <span style={{
@@ -4661,7 +4700,7 @@ export default function Dashboard() {
           
           {/* AI Bodyguard Status */}
           {bodyguardStatus && (
-            <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)')}}>
+            <div className="admin-card" style={{marginTop: '24px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)')}}>
               <h3 style={{marginBottom: '16px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px'}}>
                 🛡️ AI Bodyguard Status
                 <span style={{
@@ -5068,8 +5107,8 @@ export default function Dashboard() {
                     </div>
                     <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginTop: '4px'}}>
                       Mode: {selectedBot.mode === 'live' ? '💰 Live Trading' : '📝 Paper Trading'} • 
-                      Capital: R{safeToFixed(selectedBot.current_capital, 2)} • 
-                      P/L: R{safeToFixed(selectedBot.profit_loss, 2)}
+                      Capital: {formatZAR(selectedBot.current_capital)} • 
+                      P/L: {formatZAR(selectedBot.profit_loss)}
                     </div>
                   </div>
                   
@@ -5390,9 +5429,9 @@ export default function Dashboard() {
           <div className="system-reset-card">
             <div className="system-reset-header">
               <div>
-                <h3>♻️ Reset Paper Trading</h3>
+                <h3>♻️ Reset Paper Session</h3>
                 <p>
-                  Clears paper bots, training stats, analytics snapshots, and resets training credits. Live trading must remain off.
+                  Clears paper bots, training stats, analytics snapshots, and resets training funds. Live trading must remain off.
                 </p>
               </div>
               <span className="system-reset-badge">Paper-only</span>
@@ -5408,7 +5447,7 @@ export default function Dashboard() {
                 }}
                 placeholder="Enter confirmation password"
               />
-              <span className="system-reset-hint">Type the confirmation password to unlock reset.</span>
+              <span className="system-reset-hint">Enter the confirmation password (Ashmor12@) to unlock reset.</span>
             </div>
             {paperResetError && (
               <div className="system-reset-error">
@@ -5420,7 +5459,7 @@ export default function Dashboard() {
               disabled={!isPaperResetReady || paperResetLoading}
               className="system-reset-button"
             >
-              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Trading'}
+              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Session'}
             </button>
           </div>
         )}
