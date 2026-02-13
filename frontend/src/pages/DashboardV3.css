@@ -922,6 +922,40 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   overflow: hidden;
 }
 
+.countdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.countdown-subtitle {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-width: 520px;
+}
+
+.countdown-mode {
+  padding: 6px 12px;
+  color: white;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.countdown-mode.paper {
+  background: linear-gradient(135deg, var(--accent-bright) 0%, #0ea5e9 100%);
+}
+
+.countdown-mode.live {
+  background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+}
+
 .countdown-hero::after {
   content: '';
   position: absolute;

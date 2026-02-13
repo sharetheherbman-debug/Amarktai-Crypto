@@ -6599,21 +6599,13 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px'}}>
-            <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
+          <div className="countdown-header">
+            <div>
+              <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
+              <p className="countdown-subtitle">Every trade compounds toward your first million — stay consistent and stay sharp.</p>
+            </div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
-                <span style={{
-                  padding: '6px 12px',
-                  background: countdownData.mode === 'live'
-                    ? 'linear-gradient(135deg, var(--success) 0%, #059669 100%)'
-                    : 'linear-gradient(135deg, var(--accent-bright) 0%, #0ea5e9 100%)',
-                  color: 'white',
-                  borderRadius: '6px',
-                  fontSize: '0.85rem',
-                  fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+              <span className={`countdown-mode ${countdownData.mode === 'live' ? 'live' : 'paper'}`}>
                 {countdownData.mode || 'Paper'} Mode
               </span>
             </div>
@@ -6676,8 +6668,8 @@ export default function Dashboard() {
               <div className="countdown-roadmap">
                 <div className="countdown-roadmap-header">
                   <div>
-                    <h3>Road to 1M ZAR</h3>
-                    <p>Mission progress toward financial freedom</p>
+                    <h3>Roadmap Milestones</h3>
+                    <p>Track the climb from today's balance to R1,000,000.</p>
                   </div>
                   <span className="countdown-roadmap-badge">{safeToFixed(progressPct, 1, '0.0')}% Complete</span>
                 </div>
@@ -6702,7 +6694,7 @@ export default function Dashboard() {
                   })}
                 </div>
                 <div className="countdown-roadmap-next">
-                  Next milestone: <strong>R{formatCurrencyValue(nextMilestone, 0) || nextMilestone.toLocaleString()}</strong>
+                  Next milestone: <strong>R{formatCurrencyValue(nextMilestone, 0) || nextMilestone.toLocaleString()}</strong> — keep the momentum.
                 </div>
               </div>
 
