@@ -67,7 +67,9 @@
     "start": "craco start",
     "build": "npm run check:assets && craco build",
     "test": "craco test",
-    "check:assets": "node ../scripts/check-assets.js"
+    "check:assets": "node ../scripts/check-assets.js",
+    "check:lockfile": "npm ci --ignore-scripts --no-audit",
+    "check:ci": "npm ci && npm run build"
   },
   "browserslist": {
     "production": [
