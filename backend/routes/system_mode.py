@@ -331,6 +331,7 @@ class PaperResetRequest(BaseModel):
 
 
 async def perform_paper_reset(user_id: str) -> dict:
+    """Clear paper trading data for a user and return deletion summaries."""
     summary = {
         "bots_deleted": 0,
         "trades_deleted": 0,
