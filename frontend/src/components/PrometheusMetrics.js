@@ -165,7 +165,7 @@ export default function PrometheusMetrics() {
     } catch (err) {
       console.error('Error fetching metrics:', err);
       const errorMessage = err.message || 'Failed to fetch metrics';
-      const statusCode = err.status || err.response?.status || 'N/A';
+      const statusCode = err.status || err.response?.status || 'Not available';
       setError(`Metrics not available yet (${statusCode}): ${errorMessage}`);
     } finally {
       setLoading(false);

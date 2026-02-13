@@ -4,6 +4,7 @@ import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
 
 const APIKeySettings = () => {
+  const NOT_AVAILABLE = 'Not available';
   // Build providers list from platform config (10 providers: 3 AI + 7 exchanges)
   const PROVIDERS = ALL_PROVIDERS.map(id => {
     const config = PLATFORM_CONFIG[id];
@@ -20,6 +21,7 @@ const APIKeySettings = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [showKeys, setShowKeys] = useState({});
+  const [expandedProvider, setExpandedProvider] = useState(null);
   const [requestCounter, setRequestCounter] = useState(0); // Track request order
   
   const token = localStorage.getItem('token');
@@ -277,37 +279,11 @@ const APIKeySettings = () => {
     setMessage({ type, text });
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
-  
-  const getStatusColor = (status) => {
-    // Normalize status: handle both old and new values
-    const normalizedStatus = status?.toLowerCase();
-    
-    if (normalizedStatus === 'test_ok' || normalizedStatus === 'configured_valid') {
-      return '#22c55e'; // Green
-    } else if (normalizedStatus === 'test_failed' || normalizedStatus === 'configured_invalid') {
-      return '#ef4444'; // Red
-    } else if (normalizedStatus === 'saved_untested' || normalizedStatus === 'configured_untested') {
-      return '#f59e0b'; // Amber/Warning
-    } else {
-      return '#6b7280'; // Gray for not_configured
-    }
-  };
-  
-  const getStatusIcon = (status) => {
-    // Normalize status: handle both old and new values
-    const normalizedStatus = status?.toLowerCase();
-    
-    if (normalizedStatus === 'test_ok' || normalizedStatus === 'configured_valid') {
-      return '✅';
-    } else if (normalizedStatus === 'test_failed' || normalizedStatus === 'configured_invalid') {
-      return '❌';
-    } else if (normalizedStatus === 'saved_untested' || normalizedStatus === 'configured_untested') {
-      return '⚠️';
-    } else {
-      return '⚪';
-    }
-  };
 
+  const toggleProvider = (providerId) => {
+    setExpandedProvider(prev => (prev === providerId ? null : providerId));
+  };
+  
   const getStatusDisplay = (status, lastTestError) => {
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid') {
@@ -329,189 +305,148 @@ const APIKeySettings = () => {
   };
 
   const formatTimestamp = (timestamp) => {
-    if (!timestamp) return '—';
+    if (!timestamp) return NOT_AVAILABLE;
     const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return '—';
+    if (Number.isNaN(date.getTime())) return NOT_AVAILABLE;
     return date.toLocaleString();
+  };
+
+  const getStatusBadge = (status) => {
+    const normalizedStatus = status?.toLowerCase();
+    if (normalizedStatus === 'configured_valid' || normalizedStatus === 'test_ok') {
+      return { label: 'Test OK', tone: 'success' };
+    }
+    if (normalizedStatus === 'configured_invalid' || normalizedStatus === 'test_failed') {
+      return { label: 'Test failed', tone: 'error' };
+    }
+    if (normalizedStatus === 'configured_untested' || normalizedStatus === 'saved_untested') {
+      return { label: 'Configured', tone: 'warning' };
+    }
+    if (normalizedStatus === 'testing') {
+      return { label: 'Testing', tone: 'info' };
+    }
+    return { label: 'Not configured', tone: 'muted' };
   };
   
   return (
     <div className="api-key-settings">
-      <h2 style={{marginBottom: '20px', fontSize: '1.5rem', fontWeight: 'bold', color: '#ffffff'}}>
-        🔑 API Key Management
-      </h2>
-      
+      <div className="api-key-header">
+        <div>
+          <h2>🔑 API Key Management</h2>
+          <p className="api-key-subtitle">
+            Select a provider to add, update, or test your credentials. Keys are encrypted and scoped to your account.
+          </p>
+        </div>
+      </div>
+
       {message.text && (
-        <div className={`message ${message.type}`} style={{
-          padding: '12px 16px',
-          marginBottom: '20px',
-          borderRadius: '6px',
-          backgroundColor: message.type === 'success' ? '#22c55e20' : '#ef444420',
-          border: `1px solid ${message.type === 'success' ? '#22c55e' : '#ef4444'}`,
-          color: message.type === 'success' ? '#22c55e' : '#ef4444'
-        }}>
+        <div className={`api-message ${message.type}`}>
           {message.text}
         </div>
       )}
-      
-      <div style={{display: 'grid', gap: '20px'}}>
+
+      <div className="api-key-grid">
         {PROVIDERS.map(provider => {
           const providerStatus = providers.find(p => p.provider === provider.id);
           const status = providerStatus?.status || 'not_configured';
-          
+          const statusBadge = getStatusBadge(status);
+          const isExpanded = expandedProvider === provider.id;
+          const statusDetails = providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error);
+
           return (
-            <div key={provider.id} style={{
-              padding: '20px',
-              background: 'var(--panel)',
-              borderRadius: '8px',
-              border: '1px solid var(--line)'
-            }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '16px'
-              }}>
-                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                  <span style={{fontSize: '1.5rem'}}>{provider.icon}</span>
+            <div key={provider.id} className={`api-key-card ${isExpanded ? 'expanded' : ''}`}>
+              <button
+                type="button"
+                className="api-key-card-header"
+                onClick={() => toggleProvider(provider.id)}
+                aria-expanded={isExpanded}
+              >
+                <div className="api-key-card-title">
+                  <span className="api-key-icon">{provider.icon}</span>
                   <div>
-                    <h3 style={{margin: 0, fontSize: '1.1rem', fontWeight: 'bold'}}>
-                      {provider.name}
-                    </h3>
-                    <div style={{
-                      fontSize: '0.75rem',
-                      color: getStatusColor(status),
-                      marginTop: '4px'
-                    }}>
-                      {getStatusIcon(status)} {providerStatus?.status_display || 'Not configured'}
-                    </div>
-                    {providerStatus?.last_test_error && (
-                      <div style={{fontSize: '0.7rem', color: '#ef4444', marginTop: '4px'}}>
-                        Last error: {providerStatus.last_test_error}
-                      </div>
-                    )}
-                    {providerStatus?.updated_at && (
-                      <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>
-                        Updated: {formatTimestamp(providerStatus.updated_at)}
-                      </div>
-                    )}
+                    <h3>{provider.name}</h3>
+                    <span className={`api-key-badge ${statusBadge.tone}`}>{statusBadge.label}</span>
                   </div>
                 </div>
-                
-                {status !== 'not_configured' && (
-                  <div style={{display: 'flex', gap: '8px'}}>
-                    <button
-                      onClick={() => testApiKey(provider.id)}
-                      disabled={loading}
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '0.85rem',
-                        background: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Test
-                    </button>
-                    <button
-                      onClick={() => deleteApiKey(provider.id, provider.name)}
-                      disabled={loading}
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '0.85rem',
-                        background: '#ef4444',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Delete
-                    </button>
+                <span className="api-key-card-cta">Click to manage</span>
+              </button>
+
+              <div className="api-key-card-meta">
+                <span>Status: {statusDetails}</span>
+                <span>Last tested: {formatTimestamp(providerStatus?.last_tested_at)}</span>
+              </div>
+
+              {isExpanded && (
+                <div className="api-key-card-body">
+                  <div className="api-key-fields">
+                    {provider.fields.map(field => (
+                      <div key={field} className="api-key-field">
+                        <label>
+                          {field === 'api_key' ? 'API Key' :
+                           field === 'api_secret' ? 'API Secret' :
+                           field === 'passphrase' ? 'Passphrase' : field}
+                        </label>
+                        <input
+                          type={showKeys[`${provider.id}_${field}`] ? 'text' : 'password'}
+                          value={formData[provider.id]?.[field] || ''}
+                          onChange={(e) => handleInputChange(provider.id, field, e.target.value)}
+                          placeholder={`Enter ${field.replace('_', ' ')}`}
+                          disabled={loading}
+                        />
+                      </div>
+                    ))}
                   </div>
-                )}
-              </div>
-              
-              <div style={{display: 'grid', gap: '12px'}}>
-                {provider.fields.map(field => (
-                  <div key={field}>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '0.85rem',
-                      marginBottom: '6px',
-                      color: 'var(--muted)'
-                    }}>
-                      {field === 'api_key' ? 'API Key' :
-                       field === 'api_secret' ? 'API Secret' :
-                       field === 'passphrase' ? 'Passphrase' : field}
-                    </label>
-                    <input
-                      type={showKeys[`${provider.id}_${field}`] ? 'text' : 'password'}
-                      value={formData[provider.id]?.[field] || ''}
-                      onChange={(e) => handleInputChange(provider.id, field, e.target.value)}
-                      placeholder={`Enter ${field.replace('_', ' ')}`}
+
+                  <div className="api-key-actions">
+                    <button
+                      onClick={() => saveApiKey(provider.id)}
                       disabled={loading}
-                      style={{
-                        width: '100%',
-                        padding: '10px',
-                        fontSize: '0.9rem',
-                        background: 'var(--glass)',
-                        border: '1px solid var(--line)',
-                        borderRadius: '4px',
-                        color: 'var(--text)'
-                      }}
-                    />
+                      className="api-key-button primary"
+                    >
+                      {loading ? 'Saving...' : 'Save Key'}
+                    </button>
+                    {status !== 'not_configured' && (
+                      <>
+                        <button
+                          onClick={() => testApiKey(provider.id)}
+                          disabled={loading}
+                          className="api-key-button ghost"
+                        >
+                          Test
+                        </button>
+                        <button
+                          onClick={() => deleteApiKey(provider.id, provider.name)}
+                          disabled={loading}
+                          className="api-key-button danger"
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
                   </div>
-                ))}
-                
-                <button
-                  onClick={() => saveApiKey(provider.id)}
-                  disabled={loading}
-                  style={{
-                    padding: '10px 16px',
-                    fontSize: '0.9rem',
-                    background: '#22c55e',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {loading ? 'Saving...' : 'Save API Key'}
-                </button>
-              </div>
-              
-              <div style={{
-                marginTop: '12px',
-                padding: '8px',
-                background: 'var(--glass)',
-                borderRadius: '4px',
-                fontSize: '0.75rem',
-                color: 'var(--muted)'
-              }}>
-                Required fields: {provider.fields.join(', ')}
-              </div>
+
+                  {providerStatus?.last_test_error && (
+                    <div className="api-key-error">
+                      Last error: {providerStatus.last_test_error}
+                    </div>
+                  )}
+                  <div className="api-key-meta-note">
+                    Updated: {formatTimestamp(providerStatus?.updated_at)}
+                  </div>
+                  <div className="api-key-required">
+                    Required fields: {provider.fields.join(', ')}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-      
-      <div style={{
-        marginTop: '20px',
-        padding: '16px',
-        background: 'var(--panel)',
-        borderRadius: '8px',
-        border: '1px solid #3b82f6',
-        fontSize: '0.85rem',
-        color: 'var(--muted)'
-      }}>
-        <h4 style={{margin: '0 0 8px 0', color: '#3b82f6'}}>ℹ️ Security Note</h4>
-        <p style={{margin: 0}}>
-          All API keys are encrypted at rest using industry-standard encryption.
-          Keys are never stored in plaintext and are only used for authenticated API calls.
+
+      <div className="api-key-security">
+        <h4>ℹ️ Security Note</h4>
+        <p>
+          All API keys are encrypted at rest using industry-standard encryption. Keys are never stored in plaintext and are only used for authenticated API calls.
         </p>
       </div>
     </div>

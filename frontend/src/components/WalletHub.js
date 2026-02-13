@@ -392,7 +392,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
                     {plan.ai_message}
                   </div>
                   <div style={{ fontSize: '0.85rem', color: '#856404' }}>
-                    Bot: {plan.bot_name || 'N/A'} | Created: {new Date(plan.created_at).toLocaleString()}
+                    Bot: {plan.bot_name || 'Not available'} | Created: {new Date(plan.created_at).toLocaleString()}
                   </div>
                 </div>
                 <button
