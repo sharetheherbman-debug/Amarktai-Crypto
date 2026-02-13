@@ -478,6 +478,11 @@ class TradingScheduler:
                 current_time = datetime.now(timezone.utc)
                 if self.last_heartbeat is None or (current_time - self.last_heartbeat).total_seconds() >= self.heartbeat_interval:
                     self.last_heartbeat = current_time
+                    try:
+                        from services.autonomy_heartbeat import heartbeat_registry
+                        heartbeat_registry.mark_ok("trading_scheduler")
+                    except Exception:
+                        pass
                     heartbeat_event = {
                         "type": "heartbeat",
                         "timestamp": current_time.isoformat(),
@@ -501,6 +506,11 @@ class TradingScheduler:
                 
             except Exception as e:
                 logger.error(f"Trading loop error: {e}")
+                try:
+                    from services.autonomy_heartbeat import heartbeat_registry
+                    heartbeat_registry.mark_error("trading_scheduler", str(e))
+                except Exception:
+                    pass
                 await asyncio.sleep(self.check_interval)
     
     def start(self):

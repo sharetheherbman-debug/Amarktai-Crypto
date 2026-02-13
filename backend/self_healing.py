@@ -41,9 +41,19 @@ class SelfHealingSystem:
                 await self._check_database_connection()
                 await self._check_memory_usage()
                 await self._check_disk_space()
+                try:
+                    from services.autonomy_heartbeat import heartbeat_registry
+                    heartbeat_registry.mark_ok("self_heal")
+                except Exception:
+                    pass
                 
             except Exception as e:
                 logger.error(f"Health monitoring error: {e}")
+                try:
+                    from services.autonomy_heartbeat import heartbeat_registry
+                    heartbeat_registry.mark_error("self_heal", str(e))
+                except Exception:
+                    pass
             
             await asyncio.sleep(30)
     

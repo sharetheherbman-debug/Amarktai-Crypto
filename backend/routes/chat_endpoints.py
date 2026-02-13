@@ -11,7 +11,7 @@ import logging
 
 from auth import get_current_user
 import database as db
-from routes.ai_chat import ai_chat
+from routes.ai_chat import ai_chat, get_chat_history
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,8 @@ async def chat_message(
         ai_payload = {
             'content': message_text,
             'request_action': payload.get('request_action', False),
-            'confirmation_token': payload.get('confirmation_token')
+            'confirmation_token': payload.get('confirmation_token') or payload.get('confirmation_id'),
+            'confirmation_phrase': payload.get('confirmation_phrase')
         }
         
         # Call main AI chat handler
@@ -72,3 +73,13 @@ async def chat_message(
             "response": "Sorry, I encountered an error processing your message.",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+
+@router.get("/history")
+async def chat_history(
+    days: int = 30,
+    limit: int = 100,
+    user_id: str = Depends(get_current_user)
+):
+    """Chat history alias for frontend compatibility."""
+    return await get_chat_history(days=days, limit=limit, user_id=user_id)

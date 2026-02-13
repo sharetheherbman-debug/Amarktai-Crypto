@@ -161,7 +161,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
 
   const loadRecentMessages = async () => {
     try {
-      const response = await fetch('/api/ai/chat/history?limit=10', {
+      const response = await fetch('/api/chat/history?limit=10', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -179,7 +179,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
   const loadChatHistory = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/ai/chat/history', {
+      const response = await fetch('/api/chat/history', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -264,7 +264,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/ai/chat', {
+      const response = await fetch('/api/chat/message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -293,8 +293,18 @@ const AIChatPanel = ({ onAdminUnlock }) => {
 
       const data = await response.json();
 
+      if (data?.error_code === 'OPENAI_KEY_MISSING') {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Set your OpenAI API key in API Setup to enable Super Brain Chat.',
+          timestamp: data?.timestamp || new Date().toISOString(),
+          error: true
+        }]);
+        return;
+      }
+
       if (!response.ok || data?.success === false || data?.error) {
-        const errorContent = data?.content || data?.error || data?.detail || 'AI chat error. Please try again.';
+        const errorContent = data?.reply || data?.content || data?.error || data?.detail || 'AI chat error. Please try again.';
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: errorContent,
