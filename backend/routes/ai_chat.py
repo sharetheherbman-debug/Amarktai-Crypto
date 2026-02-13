@@ -32,6 +32,7 @@ ai_brain = AISuperBrain()
 # Action confirmation tokens storage (legacy - DB-backed confirmations preferred)
 confirmation_tokens = {}
 CONFIRMATION_TTL_MINUTES = 15
+UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
 ALLOW_ENV_OPENAI_KEY = os.getenv("ALLOW_ENV_OPENAI_KEY", "false").lower() == "true"
 last_ai_error: Optional[Dict] = None
@@ -225,8 +226,9 @@ async def create_confirmation_record(
     action: str,
     params: Dict[str, Any],
     confirmation_phrase: Optional[str] = None,
-    ttl_minutes: int = CONFIRMATION_TTL_MINUTES,
+    ttl_minutes: Optional[int] = None,
 ) -> Dict[str, Any]:
+    ttl_minutes = ttl_minutes or CONFIRMATION_TTL_MINUTES
     confirmation_id = str(uuid4())
     created_at = datetime.now(timezone.utc)
     expires_at = created_at + timedelta(minutes=ttl_minutes)
@@ -1199,7 +1201,7 @@ async def ai_chat(
         )
 
         if not confirmation_token and content:
-            match = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", content, re.I)
+            match = UUID_PATTERN.search(content)
             if match:
                 confirmation_token = match.group(0)
 

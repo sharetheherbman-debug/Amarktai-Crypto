@@ -238,7 +238,10 @@ async def run_autonomy_now(
     is_admin = bool((user or {}).get("is_admin"))
 
     if mode != "paper" and not request.allow_live:
-        raise HTTPException(status_code=403, detail="Live autonomy run blocked while in live mode without allow_live")
+        raise HTTPException(
+            status_code=403,
+            detail="Autonomy run requires allow_live=true when not in paper mode"
+        )
     if request.allow_live and not is_admin:
         raise HTTPException(status_code=403, detail="Admin access required for live autonomy run")
 
