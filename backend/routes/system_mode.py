@@ -7,7 +7,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from collections import defaultdict
+import hmac
 import os
 
 from auth import get_current_user, is_admin
@@ -18,6 +20,9 @@ from websocket_manager import manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system", tags=["System Mode"])
+PAPER_RESET_MAX_ATTEMPTS = 5
+PAPER_RESET_WINDOW = timedelta(minutes=1)
+paper_reset_attempts = defaultdict(lambda: {"count": 0, "reset_at": datetime.now(timezone.utc)})
 
 
 def get_paper_reset_password() -> str:
@@ -25,6 +30,29 @@ def get_paper_reset_password() -> str:
     if not reset_password:
         raise HTTPException(status_code=500, detail="Paper reset password not configured")
     return reset_password
+
+
+def is_paper_reset_password_valid(candidate: str) -> bool:
+    reset_password = get_paper_reset_password()
+    return hmac.compare_digest(str(candidate or ""), reset_password)
+
+
+def check_paper_reset_attempts(user_id: str) -> tuple[bool, int]:
+    now = datetime.now(timezone.utc)
+    attempts = paper_reset_attempts[user_id]
+    if now - attempts["reset_at"] > PAPER_RESET_WINDOW:
+        attempts["count"] = 0
+        attempts["reset_at"] = now
+    if attempts["count"] >= PAPER_RESET_MAX_ATTEMPTS:
+        remaining = PAPER_RESET_WINDOW - (now - attempts["reset_at"])
+        return False, max(1, int(remaining.total_seconds()))
+    attempts["count"] += 1
+    return True, 0
+
+
+def reset_paper_reset_attempts(user_id: str) -> None:
+    if user_id in paper_reset_attempts:
+        paper_reset_attempts.pop(user_id, None)
 
 
 def live_trading_enabled() -> bool:
@@ -491,7 +519,13 @@ async def validate_paper_reset(
     current_mode = await get_system_mode(user_id)
     if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
         return {"valid": False, "reason": "Paper reset is only available in paper mode."}
-    return {"valid": request.password == get_paper_reset_password()}
+    allowed, retry_after = check_paper_reset_attempts(user_id)
+    if not allowed:
+        return {"valid": False, "reason": f"Too many attempts. Try again in {retry_after}s."}
+    is_valid = is_paper_reset_password_valid(request.password)
+    if is_valid:
+        reset_paper_reset_attempts(user_id)
+    return {"valid": is_valid}
 
 
 @router.put("/mode")
@@ -622,8 +656,12 @@ async def paper_reset(
 ):
     """Reset all paper trading data for the authenticated user."""
     try:
-        if request.password != get_paper_reset_password():
+        allowed, retry_after = check_paper_reset_attempts(user_id)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
+        if not is_paper_reset_password_valid(request.password):
             raise HTTPException(status_code=403, detail="Invalid reset password")
+        reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
         if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
@@ -652,8 +690,12 @@ async def reset_paper_trading(
 ):
     """Legacy paper reset endpoint (password via PAPER_RESET_PASSWORD env)."""
     try:
-        if request.password != get_paper_reset_password():
+        allowed, retry_after = check_paper_reset_attempts(user_id)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
+        if not is_paper_reset_password_valid(request.password):
             raise HTTPException(status_code=403, detail="Invalid reset password")
+        reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
         if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
