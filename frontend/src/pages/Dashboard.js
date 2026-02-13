@@ -688,7 +688,7 @@ export default function Dashboard() {
         }
       } catch (err) {
         setPaperResetValid(false);
-        // TODO(backend prompt #2): Implement /system/paper-reset/validate to enable this flow.
+        // TODO(backend): Implement /system/paper-reset/validate to enable this flow.
         setPaperResetError('Password validation not available. Please contact administrator.');
       } finally {
         setPaperResetChecking(false);
