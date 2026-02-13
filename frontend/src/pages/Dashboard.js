@@ -689,7 +689,7 @@ export default function Dashboard() {
       } catch (err) {
         setPaperResetValid(false);
         // TODO(backend prompt #2): Implement /system/paper-reset/validate to enable this flow.
-        setPaperResetError('Reset service not available.');
+        setPaperResetError('Password validation not available. Please contact administrator.');
       } finally {
         setPaperResetChecking(false);
       }
@@ -1701,8 +1701,12 @@ export default function Dashboard() {
   };
 
   const handleSendMessage = async () => {
+    if (chatSending) {
+      showNotification('Message already sending. Please wait.', 'info');
+      return;
+    }
     const originalInput = chatInput.trim();
-    if (!originalInput || chatSending) return;
+    if (!originalInput) return;
 
     setChatSending(true);
     try {
@@ -3553,7 +3557,7 @@ export default function Dashboard() {
   };
 
   const renderApiSetup = () => {
-    // Build providers list dynamically from exchange config
+    // Build providers list dynamically from exchange config (OpenAI prepended).
     const exchanges = getAllExchanges();
     const exchangeProviders = exchanges.map(ex => ex.id);
     const providers = ['openai', ...exchangeProviders];
@@ -4192,7 +4196,7 @@ export default function Dashboard() {
         <h2>Spawn Bot</h2>
         {autoSpawnStatus && (
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <strong>Autopilot Eligibility ({formatZAR(autoSpawnStatus.profit_threshold, 0, 'R1,000')})</strong>
+            <strong>Autopilot Eligibility ({formatZAR(autoSpawnStatus.profit_threshold ?? 1000, 0)})</strong>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
               Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
             </div>
@@ -4235,7 +4239,7 @@ export default function Dashboard() {
               </span>
             </div>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Milestone size: {formatZAR(autopilotGrowthStatus.profit_threshold_zar, 0, 'R1,000')} • Milestones tracked per platform
+              Milestone size: {formatZAR(autopilotGrowthStatus.profit_threshold_zar ?? 1000, 0)} • Milestones tracked per platform
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
@@ -4264,7 +4268,7 @@ export default function Dashboard() {
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <strong>Daily Reinvest Status</strong>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar, 0, 'R100')}
+              Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar ?? 100, 0)}
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
@@ -6727,7 +6731,7 @@ export default function Dashboard() {
                   })}
                 </div>
                 <div className="countdown-roadmap-next">
-                  Next milestone: <strong>R{formatCurrencyValue(nextMilestone, 0) || nextMilestone.toLocaleString()}</strong> — keep the momentum.
+                  Next milestone: <strong>{formatZAR(nextMilestone, 0)}</strong> — keep the momentum.
                 </div>
               </div>
 
