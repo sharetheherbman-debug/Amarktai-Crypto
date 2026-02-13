@@ -20,6 +20,9 @@
   --chat-min-height: 420px;
   --chat-box-min-height: 260px;
   --overview-image-height: 240px;
+  --overview-height-min: 520px;
+  --overview-height-max: 720px;
+  --overview-height-offset: calc(100vh - var(--topbar-height) - 220px);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -423,7 +426,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   align-items: stretch;
   border-bottom: 1px solid var(--line);
   min-height: 0;
-  height: clamp(520px, calc(100vh - var(--topbar-height) - 220px), 720px);
+  height: clamp(var(--overview-height-min), var(--overview-height-offset), var(--overview-height-max));
   overflow: hidden;
 }
 

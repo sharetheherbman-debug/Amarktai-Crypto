@@ -25,6 +25,6 @@ Creating an optimized production build...
 Compiled successfully.
 
 File sizes after gzip:
-  230.03 kB  build/static/js/main.5cba264b.js
-  16.56 kB   build/static/css/main.7a4dc042.css
+  230.06 kB  build/static/js/main.77cf4fbd.js
+  16.59 kB   build/static/css/main.da8e3f36.css
 ```

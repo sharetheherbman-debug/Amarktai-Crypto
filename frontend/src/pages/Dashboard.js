@@ -689,7 +689,7 @@ export default function Dashboard() {
       } catch (err) {
         setPaperResetValid(false);
         // TODO(backend): Implement /system/paper-reset/validate to enable this flow.
-        setPaperResetError('Password validation not available. Please contact administrator.');
+        setPaperResetError('Password validation service is currently unavailable. Please try again later or contact support if the issue persists.');
       } finally {
         setPaperResetChecking(false);
       }
@@ -1702,7 +1702,7 @@ export default function Dashboard() {
 
   const handleSendMessage = async () => {
     if (chatSending) {
-      showNotification('Message already sending. Please wait.', 'info');
+      showNotification('A message is already being sent. Please wait.', 'info');
       return;
     }
     const originalInput = chatInput.trim();
@@ -3261,7 +3261,7 @@ export default function Dashboard() {
               🚨 Emergency Stop Active: Trading Disabled
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {resolveReason(riskStatus.emergency_stop.reason, 'Emergency stop is active')}
+              <strong>Reason:</strong> {resolveReason(riskStatus.emergency_stop.reason, 'No specific reason provided.')}
             </div>
             {riskStatus.emergency_stop.next_action && (
               <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
@@ -6639,7 +6639,7 @@ export default function Dashboard() {
           <div className="countdown-header">
             <div>
               <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
-              <p className="countdown-subtitle">Every trade compounds toward your first million — stay consistent and stay sharp.</p>
+              <p className="countdown-subtitle">Every trade compounds toward your first million - stay consistent and stay sharp.</p>
             </div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
               <span className={`countdown-mode ${countdownData.mode === 'live' ? 'live' : 'paper'}`}>
@@ -6731,7 +6731,7 @@ export default function Dashboard() {
                   })}
                 </div>
                 <div className="countdown-roadmap-next">
-                  Next milestone: <strong>{formatZAR(nextMilestone, 0)}</strong> — keep the momentum.
+                  Next milestone: <strong>{formatZAR(nextMilestone, 0)}</strong> - keep the momentum.
                 </div>
               </div>
 

@@ -128,7 +128,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
   };
 
   const handlePaperReset = async () => {
-    if (!window.confirm('Reset practice capital to 0? This cannot be undone.')) {
+    if (!window.confirm('Reset training funds to 0? This cannot be undone.')) {
       return;
     }
     try {
@@ -136,7 +136,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       await post('/wallet/paper/reset', { confirm: true });
       await loadWalletData();
     } catch (err) {
-      alert('Failed to reset practice capital: ' + (err.message || 'Unknown error'));
+      alert('Failed to reset training funds: ' + (err.message || 'Unknown error'));
     } finally {
       setPaperActionLoading(false);
     }
