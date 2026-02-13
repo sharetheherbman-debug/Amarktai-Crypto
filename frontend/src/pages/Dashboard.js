@@ -48,7 +48,6 @@ const API = API_BASE;
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
 const NOT_AVAILABLE = 'Not available';
-const PAPER_RESET_CONFIRMATION = 'Ashmor12@';
 
 // TASK D - Exchanges that require additional fields
 const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
@@ -241,6 +240,8 @@ export default function Dashboard() {
   const [paperResetPassword, setPaperResetPassword] = useState('');
   const [paperResetError, setPaperResetError] = useState('');
   const [paperResetLoading, setPaperResetLoading] = useState(false);
+  const [paperResetValid, setPaperResetValid] = useState(false);
+  const [paperResetChecking, setPaperResetChecking] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
@@ -622,6 +623,51 @@ export default function Dashboard() {
       loadAutopilotReinvestStatus()
     ]);
   };
+
+  const isPaperResetMode = systemModes.paperTrading && !systemModes.liveTrading;
+
+  useEffect(() => {
+    if (!isPaperResetMode) {
+      setPaperResetPassword('');
+      setPaperResetValid(false);
+      setPaperResetChecking(false);
+      setPaperResetError('');
+    }
+  }, [isPaperResetMode]);
+
+  useEffect(() => {
+    if (!isPaperResetMode) {
+      return undefined;
+    }
+    if (!paperResetPassword) {
+      setPaperResetValid(false);
+      setPaperResetError('');
+      return undefined;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setPaperResetChecking(true);
+        const response = await axios.post(
+          `${API}/system/paper-reset/validate`,
+          { password: paperResetPassword },
+          axiosConfig
+        );
+        const isValid = Boolean(response?.data?.valid);
+        setPaperResetValid(isValid);
+        if (!isValid) {
+          setPaperResetError('Confirmation password does not match.');
+        } else {
+          setPaperResetError('');
+        }
+      } catch (err) {
+        setPaperResetValid(false);
+        setPaperResetError('Unable to validate confirmation password.');
+      } finally {
+        setPaperResetChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [paperResetPassword, isPaperResetMode, axiosConfig]);
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -1951,7 +1997,7 @@ export default function Dashboard() {
   };
 
   const handlePaperReset = async () => {
-    if (paperResetPassword !== PAPER_RESET_CONFIRMATION) {
+    if (!paperResetValid) {
       setPaperResetError('Enter the confirmation password exactly to continue.');
       return;
     }
@@ -5258,8 +5304,8 @@ export default function Dashboard() {
   };
 
   const renderSystemMode = () => {
-    const showPaperReset = systemModes.paperTrading && !systemModes.liveTrading;
-    const isPaperResetReady = paperResetPassword === PAPER_RESET_CONFIRMATION;
+    const showPaperReset = isPaperResetMode;
+    const isPaperResetReady = paperResetValid && !paperResetChecking;
     return (
       <section className="section active">
         <div className="card">
@@ -5330,13 +5376,10 @@ export default function Dashboard() {
                 value={paperResetPassword}
                 onChange={(e) => {
                   setPaperResetPassword(e.target.value);
-                  if (paperResetError) {
-                    setPaperResetError('');
-                  }
                 }}
-                placeholder={`Enter ${PAPER_RESET_CONFIRMATION}`}
+                placeholder="Enter confirmation password"
               />
-              <span className="system-reset-hint">Enter {PAPER_RESET_CONFIRMATION} to unlock reset.</span>
+              <span className="system-reset-hint">Type the confirmation password to unlock reset.</span>
             </div>
             {paperResetError && (
               <div className="system-reset-error">
@@ -5348,7 +5391,7 @@ export default function Dashboard() {
               disabled={!isPaperResetReady || paperResetLoading}
               className="system-reset-button"
             >
-              {paperResetLoading ? 'Resetting...' : 'Reset Paper Trading'}
+              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Trading'}
             </button>
           </div>
         )}

@@ -18,7 +18,11 @@ from websocket_manager import manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system", tags=["System Mode"])
-PAPER_RESET_CONFIRMATION = "Ashmor12@"
+DEFAULT_PAPER_RESET_PASSWORD = "Ashmor12@"
+
+
+def get_paper_reset_password() -> str:
+    return os.getenv("PAPER_RESET_PASSWORD", DEFAULT_PAPER_RESET_PASSWORD)
 
 
 def live_trading_enabled() -> bool:
@@ -476,6 +480,17 @@ async def perform_paper_reset(user_id: str) -> dict:
     }
 
 
+@router.post("/paper-reset/validate")
+async def validate_paper_reset(
+    request: PaperResetRequest,
+    user_id: str = Depends(get_current_user)
+):
+    current_mode = await get_system_mode(user_id)
+    if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
+        return {"valid": False, "reason": "Paper reset is only available in paper mode."}
+    return {"valid": request.password == get_paper_reset_password()}
+
+
 @router.put("/mode")
 async def toggle_mode(
     data: ModeToggleRequest,
@@ -604,7 +619,7 @@ async def paper_reset(
 ):
     """Reset all paper trading data for the authenticated user."""
     try:
-        if request.password != PAPER_RESET_CONFIRMATION:
+        if request.password != get_paper_reset_password():
             raise HTTPException(status_code=403, detail="Invalid reset password")
 
         current_mode = await get_system_mode(user_id)
@@ -634,10 +649,7 @@ async def reset_paper_trading(
 ):
     """Legacy paper reset endpoint (password via PAPER_RESET_PASSWORD env)."""
     try:
-        reset_password = os.getenv("PAPER_RESET_PASSWORD")
-        if not reset_password:
-            raise HTTPException(status_code=500, detail="Paper reset password not configured")
-        if request.password != reset_password:
+        if request.password != get_paper_reset_password():
             raise HTTPException(status_code=403, detail="Invalid reset password")
 
         current_mode = await get_system_mode(user_id)
