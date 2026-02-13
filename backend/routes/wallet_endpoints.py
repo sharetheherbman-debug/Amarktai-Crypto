@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
 
 
-async def build_paper_wallet_status_summary(user_id: str = Depends(get_current_user)):
+async def build_paper_wallet_status_summary(user_id: str):
     """Return paper wallet status summary."""
     summary = await wallet_summary_service.get_summary(user_id)
     return {
