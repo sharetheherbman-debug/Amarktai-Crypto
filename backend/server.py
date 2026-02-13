@@ -1361,16 +1361,6 @@ async def send_chat_message(message: dict, user_id: str = Depends(get_current_us
             # If even that fails, return simple error
             return "I apologize, but I'm experiencing technical difficulties. Please try again later."
 
-@api_router.get("/chat/history")
-async def get_chat_history(limit: int = 50, user_id: str = Depends(get_current_user)):
-    """Get chat history"""
-    messages = await db.chat_messages_collection.find(
-        {"user_id": user_id},
-        {"_id": 0}
-    ).sort("timestamp", -1).limit(limit).to_list(limit)
-    messages.reverse()
-    return {"messages": messages}
-
 # ============================================================================
 # ANALYTICS
 # ============================================================================

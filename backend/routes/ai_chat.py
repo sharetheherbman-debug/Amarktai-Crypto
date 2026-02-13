@@ -336,7 +336,7 @@ async def build_grounded_context(user_id: str) -> Dict[str, Any]:
     from routes.system_mode import get_mode
     from services.overview_service import overview_service
     from routes.bot_lifecycle import get_bots_status
-    from routes.wallet_endpoints import get_paper_wallet_status
+    from routes.wallet_endpoints import build_paper_wallet_status_summary
     from routes.autonomy_control import get_autonomy_status
     from routes.learning_jobs import get_learning_status
 
@@ -345,7 +345,7 @@ async def build_grounded_context(user_id: str) -> Dict[str, Any]:
         get_mode(user_id),
         overview_service.get_snapshot(user_id),
         get_bots_status(user_id),
-        get_paper_wallet_status(user_id),
+        build_paper_wallet_status_summary(user_id),
         get_autonomy_status(user_id),
         build_ai_status(user_id),
         get_learning_status(user_id),

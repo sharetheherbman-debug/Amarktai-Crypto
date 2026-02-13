@@ -336,6 +336,7 @@ export default function Landing() {
             inset: 0;
             z-index: 2;
             padding: 32px 20px;
+            background: rgba(0, 0, 0, 0.55);
           }
 
           .right {
