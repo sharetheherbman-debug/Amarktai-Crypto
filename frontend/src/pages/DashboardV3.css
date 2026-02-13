@@ -390,7 +390,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   align-items: stretch;
   border-bottom: 1px solid var(--line);
   min-height: 0;
-  height: calc(100vh - var(--topbar-height) - 210px);
+  height: clamp(520px, calc(100vh - var(--topbar-height) - 220px), 720px);
+  overflow: hidden;
 }
 
 .overview-pane {
@@ -417,7 +418,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(0, 0, 0, 0.9);
 }
 
 .overview-image > * {
@@ -445,7 +446,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-image-card h3 {
   margin-bottom: 6px;
   font-size: 1.35rem;
-  color: #ffffff;
+  color: var(--accent-bright);
 }
 
 .overview-image-card p {
@@ -456,6 +457,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .overview-content {
   background: var(--panel);
+  overflow: hidden;
 }
 
 .overview-scroll {
@@ -559,13 +561,13 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .overview-live-header p {
   margin: 4px 0 0;
-  color: var(--accent-bright);
+  color: var(--success);
   font-size: 0.8rem;
 }
 
 .overview-live-update {
   font-size: 0.75rem;
-  color: var(--success);
+  color: var(--accent-bright);
 }
 
 .overview-heartbeats {
@@ -1365,6 +1367,18 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
     grid-template-columns: 1fr;
     gap: 12px; 
     height: auto; 
+  }
+
+  .overview-pane {
+    padding: 14px;
+  }
+
+  .overview-image {
+    min-height: 220px;
+  }
+
+  .overview-image-overlay {
+    padding: 14px;
   }
 
   .overview-heartbeats {
