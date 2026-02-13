@@ -2417,18 +2417,18 @@ export default function Dashboard() {
   const getApiStatus = (provider) => {
     const key = apiKeys[provider.toLowerCase()];
     if (!key || key.status === 'not_configured') {
-      return { badge: 'missing', text: 'Not Configured', dot: 'err' };
+      return { badge: 'missing', text: 'Not configured', dot: 'err' };
     }
     if (key.status === 'configured_valid') {
       return { badge: 'verified', text: 'Tested OK', dot: 'ok' };
     }
     if (key.status === 'configured_invalid') {
-      return { badge: 'error', text: 'Invalid', dot: 'err' };
+      return { badge: 'error', text: 'Failed', dot: 'err' };
     }
     if (key.status === 'configured_untested') {
-      return { badge: 'saved', text: 'Configured', dot: 'warn' };
+      return { badge: 'saved', text: 'Saved', dot: 'warn' };
     }
-    return { badge: 'saved', text: 'Configured', dot: 'warn' };
+    return { badge: 'saved', text: 'Saved', dot: 'warn' };
   };
 
   const handleProfileChange = (field, value) => {
@@ -3525,8 +3525,7 @@ export default function Dashboard() {
     // Build providers list dynamically from exchange config
     const exchanges = getAllExchanges();
     const exchangeProviders = exchanges.map(ex => ex.id);
-    const otherProviders = ['openai', 'flokx', 'fetchai'];
-    const providers = [...otherProviders, ...exchangeProviders];
+    const providers = ['openai', ...exchangeProviders];
     
     return (
       <section className="section active">
@@ -3547,21 +3546,24 @@ export default function Dashboard() {
                 || keyDetails.last_four
                 || keyDetails.last4;
               const maskedKey = status.badge === 'missing'
-                ? 'Not available'
+                ? 'Not configured'
                 : keySuffix
                   ? `•••• ${keySuffix}`
                   : '••••••••';
               const lastTestValue = keyDetails.last_tested_at || keyDetails.last_test || keyDetails.last_test_time || keyDetails.updated_at;
-              const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not available';
-              const lastTest = lastTestFormatted === NOT_AVAILABLE ? NOT_AVAILABLE : lastTestFormatted;
+              const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not tested';
+              const lastTest = lastTestFormatted === NOT_AVAILABLE ? 'Not tested' : lastTestFormatted;
+              const displayName = exchangeInfo
+                ? `${exchangeInfo.icon} ${exchangeInfo.displayName}`
+                : provider === 'openai'
+                  ? '✨ OpenAI'
+                  : provider.charAt(0).toUpperCase() + provider.slice(1);
               
               return (
                 <div key={provider} className="api-card">
                   <div className="api-header" onClick={() => toggleApiExpand(provider)}>
                     <div className="api-title">
-                      <span>
-                        {exchangeInfo ? `${exchangeInfo.icon} ${exchangeInfo.displayName}` : provider.charAt(0).toUpperCase() + provider.slice(1)}
-                      </span>
+                      <span>{displayName}</span>
                       <small style={{color: 'var(--muted)', fontSize: '0.7rem'}}>
                         {exchangeInfo?.comingSoon ? 'Coming soon' : 'Secure integration'}
                       </small>
@@ -3571,18 +3573,13 @@ export default function Dashboard() {
                       <span>Last test: {lastTest}</span>
                       <span className={`status-badge ${status.badge}`}>{status.text}</span>
                       <div className={`status-dot ${status.dot}`}></div>
+                      <span className="api-toggle">{isExpanded ? '▲' : '▼'}</span>
                     </div>
                   </div>
                   <div className={`api-form ${isExpanded ? 'active' : ''}`} id={`form-${provider}`}>
                     {/* TASK D - Config-driven field schema (no duplication) */}
                     {provider === 'openai' && (
                       <input name="api_key" placeholder="API Key (sk-...)" type="password" />
-                    )}
-                    {provider === 'flokx' && (
-                      <input name="api_token" placeholder="API Token" type="password" />
-                    )}
-                    {provider === 'fetchai' && (
-                      <input name="api_key" placeholder="API Key" type="password" />
                     )}
                     {/* All exchanges require api_key + api_secret */}
                     {SUPPORTED_PLATFORMS.includes(provider) && (

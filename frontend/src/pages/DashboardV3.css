@@ -798,9 +798,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 /* API SETUP */
 .api-accordion { 
-  display: flex; 
-  flex-direction: column; 
-  gap: 12px; 
+  display: grid; 
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px; 
+  align-items: start;
 }
 
 .api-card { 
@@ -809,6 +810,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
 }
 
 .api-header { 
@@ -840,6 +843,12 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   flex-wrap: wrap;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.api-toggle {
+  font-size: 0.75rem;
+  color: var(--accent-bright);
+  font-weight: 700;
 }
 
 .api-header .api-meta span {
@@ -902,6 +911,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .status-badge.saved { background: #374151; color: #fbbf24; }
 .status-badge.verified { background: var(--success); color: #000; }
 .status-badge.error { background: var(--error); color: #fff; }
+
+.status-dot.warn {
+  background: var(--paper);
+}
 
 .countdown-hero {
   animation: pulse 3s infinite;
