@@ -48,7 +48,6 @@ const API = API_BASE;
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
 const NOT_AVAILABLE = 'Not available';
-const PAPER_RESET_PASSWORD = 'Ashmor12@';
 
 // TASK D - Exchanges that require additional fields
 const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
@@ -675,17 +674,12 @@ export default function Dashboard() {
     const timer = setTimeout(async () => {
       try {
         setPaperResetChecking(true);
-        if (paperResetPassword !== PAPER_RESET_PASSWORD) {
-          setPaperResetValid(false);
-          setPaperResetError('Confirmation password does not match.');
-          return;
-        }
         const response = await axios.post(
           `${API}/system/paper-reset/validate`,
           { password: paperResetPassword },
           axiosConfig
         );
-        const isValid = response?.data?.valid === undefined ? true : Boolean(response?.data?.valid);
+        const isValid = Boolean(response?.data?.valid);
         setPaperResetValid(isValid);
         if (!isValid) {
           setPaperResetError('Confirmation password does not match.');
@@ -5447,7 +5441,7 @@ export default function Dashboard() {
                 }}
                 placeholder="Enter confirmation password"
               />
-              <span className="system-reset-hint">Enter the confirmation password (Ashmor12@) to unlock reset.</span>
+              <span className="system-reset-hint">Enter the confirmation password to unlock reset.</span>
             </div>
             {paperResetError && (
               <div className="system-reset-error">
