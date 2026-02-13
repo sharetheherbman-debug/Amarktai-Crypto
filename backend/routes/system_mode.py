@@ -18,11 +18,13 @@ from websocket_manager import manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system", tags=["System Mode"])
-DEFAULT_PAPER_RESET_PASSWORD = "Ashmor12@"
 
 
 def get_paper_reset_password() -> str:
-    return os.getenv("PAPER_RESET_PASSWORD", DEFAULT_PAPER_RESET_PASSWORD)
+    reset_password = os.getenv("PAPER_RESET_PASSWORD")
+    if not reset_password:
+        raise HTTPException(status_code=500, detail="Paper reset password not configured")
+    return reset_password
 
 
 def live_trading_enabled() -> bool:
