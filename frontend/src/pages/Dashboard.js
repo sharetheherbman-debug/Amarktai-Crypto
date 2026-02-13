@@ -47,6 +47,7 @@ const API = API_BASE;
 // Admin password is verified on backend only - no hardcoded password in frontend
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
+const NOT_AVAILABLE = 'Not available';
 
 // TASK D - Exchanges that require additional fields
 const EXCHANGES_NEEDING_SECRET = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
@@ -68,6 +69,50 @@ const safeToFixed = (value, digits = 2, fallback = '0.00') => {
 };
 
 const safePercent = (value, digits = 1, fallback = '0.0') => `${safeToFixed(value, digits, fallback)}%`;
+
+const formatCurrencyValue = (value, digits = 2) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+};
+
+const toTitleCase = (value) => value.replace(/\w\S*/g, (word) =>
+  word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+);
+
+const SPAWN_REASON_LABELS = {
+  PROFIT_TOO_LOW: 'Profit too low',
+  NOT_READY: 'Not ready',
+  COOLDOWN_ACTIVE: 'Cooldown active',
+  MAX_SPAWNS_REACHED: 'Daily limit reached',
+  INSUFFICIENT_BALANCE: 'Insufficient balance',
+  NOT_ENABLED: 'Not enabled',
+  ELIGIBLE: 'Eligible'
+};
+
+const formatSpawnReason = (reason) => {
+  if (!reason) {
+    return { title: NOT_AVAILABLE, details: '' };
+  }
+  const raw = String(reason).trim();
+  const [codePart, detailPart] = raw.split('(');
+  const normalizedCode = codePart.replace(/[-\s]+/g, '_').replace(/_+/g, '_').toUpperCase();
+  const title = SPAWN_REASON_LABELS[normalizedCode]
+    || toTitleCase(codePart.replace(/[-_]+/g, ' ').trim());
+  let details = detailPart ? detailPart.replace(')', '').trim() : '';
+  if (details) {
+    details = details.replace(/[-_]+/g, ' ');
+    details = details.replace(/\b(need|have)\s+(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)/gi, (_, label, amount, currency) => {
+      const formatted = formatCurrencyValue(amount);
+      const prefix = label.toLowerCase() === 'need' ? 'Need' : 'Have';
+      return `${prefix} ${formatted ?? amount} ${currency.toUpperCase()}`;
+    });
+  }
+  return { title, details };
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -98,9 +143,9 @@ export default function Dashboard() {
     totalProfit: 'R0.00',
     activeBots: '0 / 0',
     exposure: '0%',
-    riskLevel: 'Unknown',
-    aiSentiment: 'Neutral',
-    lastUpdate: 'Not available'
+    riskLevel: NOT_AVAILABLE,
+    aiSentiment: NOT_AVAILABLE,
+    lastUpdate: NOT_AVAILABLE
   });
   const [balances, setBalances] = useState({ zar: 0, btc: 0 });
   const [systemModes, setSystemModes] = useState({
@@ -135,7 +180,7 @@ export default function Dashboard() {
     sse: 'Disconnected',
     ws: 'Disconnected'
   });
-  const [wsRtt, setWsRtt] = useState('—');
+  const [wsRtt, setWsRtt] = useState(NOT_AVAILABLE);
   const [sseLastUpdate, setSseLastUpdate] = useState(null); // Track SSE last update time
   const [platformFilter, setPlatformFilter] = useState('all');
   const [editingBotId, setEditingBotId] = useState(null);
@@ -150,10 +195,10 @@ export default function Dashboard() {
     exchange: 'luno'
   });
   const [systemHealth, setSystemHealth] = useState({
-    status: 'Unknown',
+    status: NOT_AVAILABLE,
     errors: 0,
-    uptime: '—',
-    lastCheck: '—'
+    uptime: NOT_AVAILABLE,
+    lastCheck: NOT_AVAILABLE
   });
   const [overviewData, setOverviewData] = useState({
     totalProfit: 0,
@@ -192,10 +237,11 @@ export default function Dashboard() {
   const [showAITools, setShowAITools] = useState(false); // Toggle AI tools submenu
   const [eligibleBots, setEligibleBots] = useState([]);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
-  const [showPaperResetModal, setShowPaperResetModal] = useState(false);
   const [paperResetPassword, setPaperResetPassword] = useState('');
   const [paperResetError, setPaperResetError] = useState('');
   const [paperResetLoading, setPaperResetLoading] = useState(false);
+  const [paperResetValid, setPaperResetValid] = useState(false);
+  const [paperResetChecking, setPaperResetChecking] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
@@ -230,10 +276,10 @@ export default function Dashboard() {
 
   // Safe date formatter - handles null/undefined gracefully
   const formatDate = (dateStr, options = {}) => {
-    if (!dateStr) return '—';
+    if (!dateStr) return NOT_AVAILABLE;
     try {
       const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return '—';
+      if (isNaN(date.getTime())) return NOT_AVAILABLE;
       
       const { format = 'localeString' } = options;
       switch (format) {
@@ -248,12 +294,12 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Date format error:', error);
-      return '—';
+      return NOT_AVAILABLE;
     }
   };
 
   const formatDuration = (seconds) => {
-    if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—';
+    if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return NOT_AVAILABLE;
     const totalSeconds = Math.max(0, Math.floor(seconds));
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -578,6 +624,51 @@ export default function Dashboard() {
     ]);
   };
 
+  const isPaperResetMode = systemModes.paperTrading && !systemModes.liveTrading;
+
+  useEffect(() => {
+    if (!isPaperResetMode) {
+      setPaperResetPassword('');
+      setPaperResetValid(false);
+      setPaperResetChecking(false);
+      setPaperResetError('');
+    }
+  }, [isPaperResetMode]);
+
+  useEffect(() => {
+    if (!isPaperResetMode) {
+      return undefined;
+    }
+    if (!paperResetPassword) {
+      setPaperResetValid(false);
+      setPaperResetError('');
+      return undefined;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setPaperResetChecking(true);
+        const response = await axios.post(
+          `${API}/system/paper-reset/validate`,
+          { password: paperResetPassword },
+          axiosConfig
+        );
+        const isValid = Boolean(response?.data?.valid);
+        setPaperResetValid(isValid);
+        if (!isValid) {
+          setPaperResetError('Confirmation password does not match.');
+        } else {
+          setPaperResetError('');
+        }
+      } catch (err) {
+        setPaperResetValid(false);
+        setPaperResetError('Unable to validate confirmation password.');
+      } finally {
+        setPaperResetChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [paperResetPassword, isPaperResetMode, axiosConfig]);
+
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
     if (selectedUserId && adminBots.length > 0) {
@@ -659,7 +750,7 @@ export default function Dashboard() {
         
         wsRef.current.onclose = () => {
           setConnectionStatus(prev => ({ ...prev, ws: 'Disconnected', sse: 'Disconnected' }));
-          setWsRtt('—');
+          setWsRtt(NOT_AVAILABLE);
           
           // Only reconnect if under max attempts
           if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -1279,7 +1370,7 @@ export default function Dashboard() {
         exposure: `${safeToFixed(res.data.exposure, 1, '0.0')}%`,
         riskLevel: res.data.risk_level || 'Unknown',
         aiSentiment: res.data.ai_sentiment || 'Neutral',
-        lastUpdate: new Date().toLocaleTimeString() || '—'
+        lastUpdate: new Date().toLocaleTimeString() || NOT_AVAILABLE
       });
     } catch (err) {
       console.error('Metrics fetch error:', err);
@@ -1514,7 +1605,7 @@ export default function Dashboard() {
       setSystemHealth({
         status: data.database?.connected ? 'Healthy' : 'Degraded',
         errors: (data.scheduler_status?.errors || []).length,
-        uptime: data.uptime || '—',
+        uptime: data.uptime || NOT_AVAILABLE,
         lastCheck: new Date().toLocaleTimeString()
       });
       
@@ -1533,7 +1624,7 @@ export default function Dashboard() {
       setSystemHealth({
         status: 'Unknown',
         errors: 0,
-        uptime: '—',
+        uptime: NOT_AVAILABLE,
         lastCheck: new Date().toLocaleTimeString()
       });
     }
@@ -1906,17 +1997,45 @@ export default function Dashboard() {
   };
 
   const handlePaperReset = async () => {
-    if (!paperResetPassword) {
-      setPaperResetError('Password is required to reset paper trading.');
+    if (!paperResetValid) {
+      setPaperResetError('Enter the confirmation password exactly to continue.');
       return;
     }
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      await axios.post(`${API}/system/reset-paper`, { password: paperResetPassword }, axiosConfig);
+      await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
       toast.success('Paper trading reset completed.');
-      setShowPaperResetModal(false);
       setPaperResetPassword('');
+      setChatMessages([]);
+      setBots([]);
+      setRecentTrades([]);
+      setAutoSpawnStatus(null);
+      setAutopilotGrowthStatus(null);
+      setAutopilotReinvestStatus(null);
+      setCountdown(null);
+      setCustomCountdowns([]);
+      setOverviewData({
+        totalProfit: 0,
+        todaysTrades: 0,
+        openPositions: 0,
+        winRate: 0,
+        activeBots: 0,
+        paperWalletTotal: 0,
+        paperWalletAllocated: 0,
+        lastTradeTime: null,
+        systemMode: 'paper',
+        lastRebalance: NOT_AVAILABLE,
+        nextReinvest: NOT_AVAILABLE
+      });
+      setMetrics({
+        totalProfit: 'R0.00',
+        activeBots: '0 / 0',
+        exposure: '0%',
+        riskLevel: NOT_AVAILABLE,
+        aiSentiment: NOT_AVAILABLE,
+        lastUpdate: NOT_AVAILABLE
+      });
       refreshAllDashboardData();
     } catch (err) {
       setPaperResetError(extractErrorMessage(err, 'Paper reset failed'));
@@ -2215,7 +2334,7 @@ export default function Dashboard() {
           provider: provider,
           statusCode: 500,
           message: err.response?.data?.detail || 'Internal server error',
-          requestId: err.response?.headers?.['x-request-id'] || 'N/A'
+          requestId: err.response?.headers?.['x-request-id'] || NOT_AVAILABLE
         };
         
         showNotification(
@@ -2341,7 +2460,7 @@ export default function Dashboard() {
   };
 
   const copyAddress = async (address) => {
-    if (!address || address === 'N/A') {
+    if (!address || address === NOT_AVAILABLE) {
       showNotification('No address available', 'error');
       return;
     }
@@ -2532,10 +2651,10 @@ export default function Dashboard() {
       const result = await get('/ml/predict?symbol=BTC-ZAR&platform=luno');
       
       const message = `📊 Price Prediction (BTC-ZAR)\n\n` +
-        `💰 Current: R${result.current_price || 'N/A'}\n` +
-        `📈 Predicted (1h): R${result.prediction_1h || 'N/A'}\n` +
-        `📈 Predicted (24h): R${result.prediction_24h || 'N/A'}\n` +
-        `🎯 Confidence: ${result.confidence || 'N/A'}%\n` +
+        `💰 Current: R${result.current_price || NOT_AVAILABLE}\n` +
+        `📈 Predicted (1h): R${result.prediction_1h || NOT_AVAILABLE}\n` +
+        `📈 Predicted (24h): R${result.prediction_24h || NOT_AVAILABLE}\n` +
+        `🎯 Confidence: ${result.confidence || NOT_AVAILABLE}%\n` +
         `⏱️ Generated: ${new Date().toLocaleTimeString()}\n\n` +
         `⚠️ This is not financial advice. Use for reference only.`;
       
@@ -3036,8 +3155,25 @@ export default function Dashboard() {
     const aiModel = aiStatus?.model || 'Not available';
     const formatOverviewDate = (value) => {
       const formatted = formatDate(value);
-      return formatted === '—' ? 'Not available' : formatted;
+      return formatted;
     };
+    const todoItems = [];
+    const healthStatus = systemHealth?.status ? String(systemHealth.status).toLowerCase() : '';
+    if (!aiKeyConfigured) {
+      todoItems.push('Connect AI key to enable assistant intelligence.');
+    }
+    if (bots.length === 0) {
+      todoItems.push('Create your first bot to start trading.');
+    }
+    if (connectionStatus.ws !== 'Connected') {
+      todoItems.push('Reconnect realtime WebSocket feed.');
+    }
+    if (systemHealth?.status && systemHealth.status !== NOT_AVAILABLE && !['healthy', 'ok', 'online'].includes(healthStatus)) {
+      todoItems.push(`System health check: ${systemHealth.status}.`);
+    }
+    if (!overviewData.lastTradeTime) {
+      todoItems.push('No trades yet. Start paper trading to build history.');
+    }
 
     return (
       <section className="section active">
@@ -3055,7 +3191,7 @@ export default function Dashboard() {
             color: 'white'
           }}>
             <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
-              🚨 Emergency Stop Active — Trading Disabled
+              🚨 Emergency Stop Active: Trading Disabled
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
               <strong>Reason:</strong> {riskStatus.emergency_stop.reason || 'Emergency stop is active'}
@@ -3077,7 +3213,7 @@ export default function Dashboard() {
             color: 'white'
             }}>
             <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
-              🛡️ Daily Loss Lock Active — Bots Paused for Protection
+              🛡️ Daily Loss Lock Active: Bots Paused for Protection
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
               <strong>Reason:</strong> {riskStatus.daily_loss_lock.reason || 'Risk threshold exceeded'}
@@ -3181,153 +3317,169 @@ export default function Dashboard() {
         
           {/* Overview Container with Split Layout */}
           <div className="overview-container">
-            <div className="overview-pane overview-left">
-              <div className="overview-left-content">
-                <div className="overview-left-head">
+            <div className="overview-pane overview-image">
+              <div className="overview-image-overlay">
+                <div className="overview-image-card">
                   <h3>Autonomous Trading Command</h3>
                   <p>Monitor system health, performance, and autonomy signals in real time.</p>
                 </div>
-                <div className="overview-tiles">
-                  <div className="overview-tile">
-                    <span>Total Profit</span>
-                    <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                      R{safeToFixed(overviewData.totalProfit, 2)}
-                    </strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Today's Trades</span>
-                    <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Open Positions</span>
-                    <strong>{safeNumber(overviewData.openPositions, 0)}</strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Win Rate</span>
-                    <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Active Bots</span>
-                    <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Training Credits</span>
-                    <strong>R{safeToFixed(overviewData.paperWalletTotal, 2)}</strong>
-                  </div>
-                </div>
               </div>
             </div>
-            <div className="overview-pane overview-right">
-              <div className="overview-live-header">
-                <div>
-                  <h3>System Live View</h3>
-                  <p>Heartbeat + activity signal feed</p>
-                </div>
-                <span className="overview-live-update">Last update: {metrics.lastUpdate}</span>
-              </div>
-              <div className="overview-heartbeats">
-                <div className="heartbeat-tile">
-                  <span>Autopilot</span>
-                  <strong>{autopilotHeartbeat.status || 'unknown'}</strong>
-                    <small>{formatOverviewDate(autopilotHeartbeat.last_tick)}</small>
+            <div className="overview-pane overview-content">
+              <div className="overview-scroll">
+                <div className="overview-top">
+                  <div className="overview-todo">
+                  <div className="overview-todo-header">System Todo</div>
+                    {todoItems.length === 0 ? (
+                      <div className="overview-todo-empty">All systems operational.</div>
+                    ) : (
+                      <ul>
+                        {todoItems.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
+                  <div className="overview-tiles">
+                    <div className="overview-tile">
+                      <span>Total Profit</span>
+                      <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                        R{safeToFixed(overviewData.totalProfit, 2)}
+                      </strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Today's Trades</span>
+                      <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Open Positions</span>
+                      <strong>{safeNumber(overviewData.openPositions, 0)}</strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Win Rate</span>
+                      <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Active Bots</span>
+                      <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
+                    </div>
+                    <div className="overview-tile">
+                      <span>Training Credits</span>
+                      <strong>R{safeToFixed(overviewData.paperWalletTotal, 2)}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="overview-live-header">
+                  <div>
+                    <h3>System Live View</h3>
+                    <p>Heartbeat + activity signal feed</p>
+                  </div>
+                  <span className="overview-live-update">Last update: {metrics.lastUpdate}</span>
+                </div>
+                <div className="overview-heartbeats">
                   <div className="heartbeat-tile">
-                    <span>Trading Scheduler</span>
-                    <strong>{tradingHeartbeat.status || 'unknown'}</strong>
-                    <small>{formatOverviewDate(tradingHeartbeat.last_tick)}</small>
+                    <span>Autopilot</span>
+                    <strong>{autopilotHeartbeat.status || 'unknown'}</strong>
+                      <small>{formatOverviewDate(autopilotHeartbeat.last_tick)}</small>
+                    </div>
+                    <div className="heartbeat-tile">
+                      <span>Trading Scheduler</span>
+                      <strong>{tradingHeartbeat.status || 'unknown'}</strong>
+                      <small>{formatOverviewDate(tradingHeartbeat.last_tick)}</small>
+                    </div>
+                    <div className="heartbeat-tile">
+                      <span>Bodyguard</span>
+                      <strong>{bodyguardHeartbeat.status || 'unknown'}</strong>
+                      <small>{formatOverviewDate(bodyguardHeartbeat.last_tick)}</small>
+                    </div>
+                    <div className="heartbeat-tile">
+                      <span>Realtime</span>
+                      <strong>{realtimeHeartbeat.status || 'unknown'}</strong>
+                      <small>{formatOverviewDate(realtimeHeartbeat.last_tick)}</small>
+                    </div>
+                    <div className="heartbeat-tile">
+                      <span>Self-Heal</span>
+                      <strong>{selfHealHeartbeat.status || 'unknown'}</strong>
+                      <small>{formatOverviewDate(selfHealHeartbeat.last_tick)}</small>
+                    </div>
+                    <div className="heartbeat-tile">
+                      <span>Learning Loop</span>
+                      <strong>{learningEnabled ? 'enabled' : 'disabled'}</strong>
+                      <small>{formatOverviewDate(learningLastRun)}</small>
+                    </div>
                   </div>
-                  <div className="heartbeat-tile">
-                    <span>Bodyguard</span>
-                    <strong>{bodyguardHeartbeat.status || 'unknown'}</strong>
-                    <small>{formatOverviewDate(bodyguardHeartbeat.last_tick)}</small>
+                <div className="overview-status-grid">
+                  <div className="status-item">
+                    <strong>System Mode</strong>
+                    <div className="led-row">
+                      <span style={{textTransform: 'uppercase', fontWeight: 700}}>
+                        {overviewData.systemMode === 'live' && '🔴 LIVE'}
+                        {overviewData.systemMode === 'autopilot' && '🤖 AUTOPILOT'}
+                        {overviewData.systemMode === 'paper' && '📄 PAPER'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="heartbeat-tile">
-                    <span>Realtime</span>
-                    <strong>{realtimeHeartbeat.status || 'unknown'}</strong>
-                    <small>{formatOverviewDate(realtimeHeartbeat.last_tick)}</small>
+                  <div className="status-item">
+                    <strong>Last Trade</strong>
+                    <div className="led-row">
+                      <span style={{fontSize: '0.85rem'}}>
+                        {formatOverviewDate(overviewData.lastTradeTime)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="heartbeat-tile">
-                    <span>Self-Heal</span>
-                    <strong>{selfHealHeartbeat.status || 'unknown'}</strong>
-                    <small>{formatOverviewDate(selfHealHeartbeat.last_tick)}</small>
+                  <div className="status-item">
+                    <strong>Exposure</strong>
+                    <div className="led-row"><span>{metrics.exposure || NOT_AVAILABLE}</span></div>
                   </div>
-                  <div className="heartbeat-tile">
-                    <span>Learning Loop</span>
-                    <strong>{learningEnabled ? 'enabled' : 'disabled'}</strong>
-                    <small>{formatOverviewDate(learningLastRun)}</small>
+                  <div className="status-item">
+                    <strong>Risk Level</strong>
+                    <div className="led-row"><span>{metrics.riskLevel || NOT_AVAILABLE}</span></div>
+                  </div>
+                  <div className="status-item">
+                    <strong>AI Model</strong>
+                    <div className="led-row">
+                      <span>{aiModel}</span>
+                      <span className="status-pill">{aiKeyConfigured ? 'Key OK' : 'Key missing'}</span>
+                    </div>
+                  </div>
+                  <div className="status-item">
+                    <strong>Last Rebalance</strong>
+                    <div className="led-row">
+                      <span>{overviewData.lastRebalance || NOT_AVAILABLE}</span>
+                    </div>
+                  </div>
+                  <div className="status-item">
+                    <strong>Next Reinvest</strong>
+                    <div className="led-row">
+                      <span>{overviewData.nextReinvest || NOT_AVAILABLE}</span>
+                    </div>
+                  </div>
+                  <div className="status-item">
+                    <strong>WebSocket</strong>
+                    <div className="led-row">
+                      <span style={{color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
+                        {connectionStatus.ws}
+                      </span>
+                      <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
+                    </div>
                   </div>
                 </div>
-              <div className="overview-status-grid">
-                <div className="status-item">
-                  <strong>System Mode</strong>
-                  <div className="led-row">
-                    <span style={{textTransform: 'uppercase', fontWeight: 700}}>
-                      {overviewData.systemMode === 'live' && '🔴 LIVE'}
-                      {overviewData.systemMode === 'autopilot' && '🤖 AUTOPILOT'}
-                      {overviewData.systemMode === 'paper' && '📄 PAPER'}
-                    </span>
+                <div className="overview-activity">
+                  <div className="overview-activity-header">Activity Feed</div>
+                  <div className="overview-activity-list">
+                    {recentTrades.length === 0 ? (
+                      <div className="overview-activity-empty">No recent trades.</div>
+                    ) : (
+                      recentTrades.slice(0, 3).map((trade, idx) => (
+                        <div key={`${trade.id || trade.timestamp || idx}`} className="overview-activity-row">
+                          <span>{trade.pair || trade.symbol || NOT_AVAILABLE}</span>
+                          <span>{trade.exchange || NOT_AVAILABLE}</span>
+                          <span>{trade.side || NOT_AVAILABLE}</span>
+                          <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : NOT_AVAILABLE}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
-                </div>
-                <div className="status-item">
-                  <strong>Last Trade</strong>
-                  <div className="led-row">
-                    <span style={{fontSize: '0.85rem'}}>
-                      {formatOverviewDate(overviewData.lastTradeTime) !== 'Not available' ? formatOverviewDate(overviewData.lastTradeTime) : 'No trades yet'}
-                    </span>
-                  </div>
-                </div>
-                <div className="status-item">
-                  <strong>Exposure</strong>
-                  <div className="led-row"><span>{metrics.exposure || 'Not available'}</span></div>
-                </div>
-                <div className="status-item">
-                  <strong>Risk Level</strong>
-                  <div className="led-row"><span>{metrics.riskLevel || 'Not available'}</span></div>
-                </div>
-                <div className="status-item">
-                  <strong>AI Model</strong>
-                  <div className="led-row">
-                    <span>{aiModel}</span>
-                    <span className="status-pill">{aiKeyConfigured ? 'Key OK' : 'Key missing'}</span>
-                  </div>
-                </div>
-                <div className="status-item">
-                  <strong>Last Rebalance</strong>
-                  <div className="led-row">
-                    <span>{overviewData.lastRebalance || 'Not available'}</span>
-                  </div>
-                </div>
-                <div className="status-item">
-                  <strong>Next Reinvest</strong>
-                  <div className="led-row">
-                    <span>{overviewData.nextReinvest || 'Not available'}</span>
-                  </div>
-                </div>
-                <div className="status-item">
-                  <strong>WebSocket</strong>
-                  <div className="led-row">
-                    <span style={{color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
-                      {connectionStatus.ws}
-                    </span>
-                    <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
-                  </div>
-                </div>
-              </div>
-              <div className="overview-activity">
-                <div className="overview-activity-header">Activity Feed</div>
-                <div className="overview-activity-list">
-                  {recentTrades.length === 0 ? (
-                    <div className="overview-activity-empty">No recent trades.</div>
-                  ) : (
-                    recentTrades.slice(0, 3).map((trade, idx) => (
-                      <div key={`${trade.id || trade.timestamp || idx}`} className="overview-activity-row">
-                        <span>{trade.pair || trade.symbol || 'Not available'}</span>
-                        <span>{trade.exchange || 'Not available'}</span>
-                        <span>{trade.side || 'Not available'}</span>
-                        <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : 'Not available'}</span>
-                      </div>
-                    ))
-                  )}
                 </div>
               </div>
             </div>
@@ -3369,7 +3521,7 @@ export default function Dashboard() {
                   : '••••••••';
               const lastTestValue = keyDetails.last_tested_at || keyDetails.last_test || keyDetails.last_test_time || keyDetails.updated_at;
               const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not available';
-              const lastTest = lastTestFormatted === '—' ? 'Not available' : lastTestFormatted;
+              const lastTest = lastTestFormatted === NOT_AVAILABLE ? NOT_AVAILABLE : lastTestFormatted;
               
               return (
                 <div key={provider} className="api-card">
@@ -3552,74 +3704,89 @@ export default function Dashboard() {
           <>
           {botManagementTab === 'creation' && (
           <div className="bot-container">
-          <div className="bot-form-card" style={{marginBottom: '20px'}}>
-            <h3>Create New Bot</h3>
-            <form onSubmit={handleCreateBot}>
-              <div className="bot-form-grid">
-                <div className="form-group">
-                  <label htmlFor="bot-name">Bot Name</label>
-                  <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+          <div className="bot-left">
+            <div className="bot-form-card" style={{marginBottom: '20px'}}>
+              <h3>Create New Bot</h3>
+              <form onSubmit={handleCreateBot}>
+                <div className="bot-form-grid">
+                  <div className="form-group">
+                    <label htmlFor="bot-name">Bot Name</label>
+                    <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                    <input 
+                      id="bot-budget" 
+                      name="bot-budget" 
+                      type="number" 
+                      min="1000" 
+                      step="100"
+                      defaultValue="1000"
+                      placeholder="1000" 
+                      required 
+                    />
+                    <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
+                      Minimum R1000 per bot
+                    </small>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="bot-exchange">Exchange Platform</label>
+                    <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                      {getAllExchanges().map(exchange => (
+                        <option 
+                          key={exchange.id} 
+                          value={exchange.id}
+                          disabled={exchange.comingSoon}
+                        >
+                          {exchange.icon} {exchange.displayName}
+                        </option>
+                      ))}
+                    </select>
+                    <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
+                      ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
+                    </small>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="bot-risk">Risk Mode</label>
+                    <select id="bot-risk" name="bot-risk">
+                      <option value="safe">🛡️ Safe</option>
+                      <option value="balanced">⚖️ Balanced</option>
+                      <option value="aggressive">⚡ Aggressive</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="bot-strategy">Strategy Preset</label>
+                    <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
+                      <option value="adaptive">🧠 Adaptive Core</option>
+                      <option value="trend">📈 Trend Follow</option>
+                      <option value="mean_reversion">🔄 Mean Reversion</option>
+                      <option value="scalping">⚡ Scalping</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <button type="submit">Create Bot (7 Day Learning)</button>
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label htmlFor="bot-budget">Budget (Min R1000)</label>
-                  <input 
-                    id="bot-budget" 
-                    name="bot-budget" 
-                    type="number" 
-                    min="1000" 
-                    step="100"
-                    defaultValue="1000"
-                    placeholder="1000" 
-                    required 
-                  />
-                  <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
-                    Minimum R1000 per bot
-                  </small>
+                <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
+                  📝 User-created bots undergo 7-day paper trading learning period
                 </div>
-                <div className="form-group">
-                  <label htmlFor="bot-exchange">Exchange Platform</label>
-                  <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
-                    {getAllExchanges().map(exchange => (
-                      <option 
-                        key={exchange.id} 
-                        value={exchange.id}
-                        disabled={exchange.comingSoon}
-                      >
-                        {exchange.icon} {exchange.displayName}
-                      </option>
-                    ))}
-                  </select>
-                  <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
-                    ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
-                  </small>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="bot-risk">Risk Mode</label>
-                  <select id="bot-risk" name="bot-risk">
-                    <option value="safe">🛡️ Safe</option>
-                    <option value="balanced">⚖️ Balanced</option>
-                    <option value="aggressive">⚡ Aggressive</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="bot-strategy">Strategy Preset</label>
-                  <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
-                    <option value="adaptive">🧠 Adaptive Core</option>
-                    <option value="trend">📈 Trend Follow</option>
-                    <option value="mean_reversion">🔄 Mean Reversion</option>
-                    <option value="scalping">⚡ Scalping</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <button type="submit">Create Bot (7 Day Learning)</button>
-                </div>
-              </div>
-              <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
-                📝 User-created bots undergo 7-day paper trading learning period
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-          <div className="bot-right" style={{flex: '1 1 100%', maxWidth: '100%'}}>
+          <div className="bot-right">
+            <div className="bot-preview-card">
+              <div className="bot-preview-banner">
+                <div>
+                  <h4>Bot Mission Preview</h4>
+                  <p>Track readiness, simulated learning, and go-live requirements before scaling up.</p>
+                </div>
+              </div>
+              <ul className="bot-preview-list">
+                <li>7-day learning cycle before live eligibility</li>
+                <li>Safety locks enforced by Bodyguard</li>
+                <li>Auto-capital allocation and reinvestment milestones</li>
+              </ul>
+            </div>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
               <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
               <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
@@ -3720,7 +3887,7 @@ export default function Dashboard() {
                               )}
                             </span>
                             <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
-                              {bot.exchange ? bot.exchange.toUpperCase() : 'N/A'}
+                              {bot.exchange ? bot.exchange.toUpperCase() : NOT_AVAILABLE}
                             </span>
                             {botMode === 'paper' && (
                               <span style={{
@@ -3973,6 +4140,7 @@ export default function Dashboard() {
                 const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
                 const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
                 const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
+                const reasonInfo = formatSpawnReason(reason);
                 const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
                 const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
                 return (
@@ -3980,11 +4148,16 @@ export default function Dashboard() {
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                       <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
                       <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
-                        {eligible ? '✅ Eligible' : reason}
+                        {eligible ? '✅ Eligible' : reasonInfo.title}
                       </span>
                     </div>
+                    {!eligible && reasonInfo.details && (
+                      <div style={{fontSize: '0.75rem', color: 'rgba(255,255,255,0.75)', marginTop: '4px'}}>
+                        {reasonInfo.details}
+                      </div>
+                    )}
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {lastSpawn ? formatDate(lastSpawn) : '—'}
+                      Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {formatDate(lastSpawn)}
                     </div>
                   </div>
                 );
@@ -4006,7 +4179,9 @@ export default function Dashboard() {
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
                 const status = autopilotGrowthStatus.platforms?.[exchange] || {};
-                const blocked = status.blocked_reasons?.length ? status.blocked_reasons.join(', ') : (status.eligible ? 'ELIGIBLE' : 'NOT_READY');
+                const blocked = status.blocked_reasons?.length
+                  ? status.blocked_reasons.map(reason => formatSpawnReason(reason).title).join(', ')
+                  : formatSpawnReason(status.eligible ? 'ELIGIBLE' : 'NOT_READY').title;
                 return (
                   <div key={`growth-${exchange}`} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
@@ -4033,7 +4208,9 @@ export default function Dashboard() {
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
                 const status = autopilotReinvestStatus.platforms?.[exchange] || {};
-                const blocked = status.blocked_reasons?.length ? status.blocked_reasons.join(', ') : (status.eligible ? 'ELIGIBLE' : 'NOT_READY');
+                const blocked = status.blocked_reasons?.length
+                  ? status.blocked_reasons.map(reason => formatSpawnReason(reason).title).join(', ')
+                  : formatSpawnReason(status.eligible ? 'ELIGIBLE' : 'NOT_READY').title;
                 return (
                   <div key={`reinvest-${exchange}`} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
@@ -4043,7 +4220,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Last Reinvest: {status.last_reinvest_date || '—'} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {status.next_run ? formatDate(status.next_run) : '—'}
+                      Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {formatDate(status.next_run)}
                     </div>
                   </div>
                 );
@@ -4204,7 +4381,7 @@ export default function Dashboard() {
               Admin API: {adminApiHealth.status}
             </div>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
-              Last check: {adminApiHealth.lastCheck ? formatDate(adminApiHealth.lastCheck) : '—'}
+              Last check: {adminApiHealth.lastCheck ? formatDate(adminApiHealth.lastCheck) : NOT_AVAILABLE}
             </div>
           {adminApiHealth.error && (
             <div style={{fontSize: '0.75rem', color: 'var(--error)'}}>
@@ -4380,7 +4557,7 @@ export default function Dashboard() {
                 ) : (
                   allUsers.map(usr => (
                     <tr key={usr.id} style={{borderBottom: '1px solid var(--line)'}}>
-                      <td style={{padding: '12px', color: '#ffffff'}}>{usr.first_name || 'N/A'}</td>
+                      <td style={{padding: '12px', color: '#ffffff'}}>{usr.first_name || NOT_AVAILABLE}</td>
                       <td style={{padding: '12px', color: '#ffffff'}}>{usr.email}</td>
                       <td style={{padding: '12px', textAlign: 'center', color: '#ffffff'}}>
                         {usr.stats?.total_bots || 0}
@@ -4633,7 +4810,7 @@ export default function Dashboard() {
                   <tbody>
                     {adminUsers.map(usr => (
                       <tr key={usr.id} style={{borderBottom: '1px solid var(--line)'}}>
-                        <td style={{padding: '12px'}}>{usr.first_name || 'N/A'}</td>
+                        <td style={{padding: '12px'}}>{usr.first_name || NOT_AVAILABLE}</td>
                         <td style={{padding: '12px'}}>{usr.email}</td>
                         <td style={{padding: '12px', textAlign: 'center'}}>
                           <span style={{
@@ -4660,7 +4837,7 @@ export default function Dashboard() {
                           </span>
                         </td>
                         <td style={{padding: '12px', textAlign: 'center'}}>
-                          {usr.api_keys_count > 0 ? `✓ ${usr.api_keys_count}` : '—'}
+                          {usr.api_keys_count > 0 ? `✓ ${usr.api_keys_count}` : NOT_AVAILABLE}
                         </td>
                         <td style={{padding: '12px', textAlign: 'center', fontWeight: 600}}>
                           {usr.bots_count || 0}
@@ -5127,7 +5304,8 @@ export default function Dashboard() {
   };
 
   const renderSystemMode = () => {
-    const showPaperReset = systemModes.paperTrading && !systemModes.liveTrading;
+    const showPaperReset = isPaperResetMode;
+    const isPaperResetReady = paperResetValid && !paperResetChecking;
     return (
       <section className="section active">
         <div className="card">
@@ -5180,27 +5358,40 @@ export default function Dashboard() {
           </div>
         </div>
         {showPaperReset && (
-          <div style={{marginTop: '24px', padding: '16px', background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '8px'}}>
-            <h3 style={{marginBottom: '8px'}}>♻️ Reset Paper Trading</h3>
-            <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
-              Clears paper bots, training stats, analytics snapshots, and resets training credits. Live trading must remain off.
-            </p>
+          <div className="system-reset-card">
+            <div className="system-reset-header">
+              <div>
+                <h3>♻️ Reset Paper Trading</h3>
+                <p>
+                  Clears paper bots, training stats, analytics snapshots, and resets training credits. Live trading must remain off.
+                </p>
+              </div>
+              <span className="system-reset-badge">Paper-only</span>
+            </div>
+            <div className="system-reset-input">
+              <label htmlFor="paper-reset-password">Confirmation Password</label>
+              <input
+                id="paper-reset-password"
+                type="password"
+                value={paperResetPassword}
+                onChange={(e) => {
+                  setPaperResetPassword(e.target.value);
+                }}
+                placeholder="Enter confirmation password"
+              />
+              <span className="system-reset-hint">Type the confirmation password to unlock reset.</span>
+            </div>
+            {paperResetError && (
+              <div className="system-reset-error">
+                {paperResetError}
+              </div>
+            )}
             <button
-              onClick={() => {
-                setPaperResetError('');
-                setShowPaperResetModal(true);
-              }}
-              style={{
-                padding: '10px 18px',
-                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
+              onClick={handlePaperReset}
+              disabled={!isPaperResetReady || paperResetLoading}
+              className="system-reset-button"
             >
-              Reset Paper Trading
+              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Trading'}
             </button>
           </div>
         )}
@@ -5227,86 +5418,6 @@ export default function Dashboard() {
             🚨 EMERGENCY STOP
           </button>
         </div>
-        {showPaperResetModal && (
-          <div style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}>
-            <div style={{
-              background: 'var(--panel)',
-              border: '1px solid var(--line)',
-              borderRadius: '10px',
-              padding: '24px',
-              width: '100%',
-              maxWidth: '420px',
-              boxShadow: '0 12px 32px rgba(0,0,0,0.5)'
-            }}>
-              <h3 style={{marginBottom: '8px'}}>Reset Paper Trading</h3>
-              <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '16px'}}>
-                Enter the reset password to clear paper-only data for your account.
-              </p>
-              <input
-                type="password"
-                value={paperResetPassword}
-                onChange={(e) => setPaperResetPassword(e.target.value)}
-                placeholder="Reset password"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--line)',
-                  background: 'var(--glass)',
-                  color: 'var(--text)',
-                  marginBottom: '12px'
-                }}
-              />
-              {paperResetError && (
-                <div style={{fontSize: '0.8rem', color: 'var(--error)', marginBottom: '12px'}}>
-                  {paperResetError}
-                </div>
-              )}
-              <div style={{display: 'flex', gap: '8px', justifyContent: 'flex-end'}}>
-                <button
-                  onClick={() => {
-                    setShowPaperResetModal(false);
-                    setPaperResetPassword('');
-                    setPaperResetError('');
-                  }}
-                  style={{
-                    padding: '8px 14px',
-                    background: 'var(--glass)',
-                    border: '1px solid var(--line)',
-                    borderRadius: '6px',
-                    color: 'var(--text)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handlePaperReset}
-                  disabled={paperResetLoading}
-                  style={{
-                    padding: '8px 14px',
-                    background: paperResetLoading ? '#4b5563' : 'var(--success)',
-                    border: 'none',
-                    borderRadius: '6px',
-                    color: '#0b0b0b',
-                    fontWeight: 700,
-                    cursor: paperResetLoading ? 'wait' : 'pointer'
-                  }}
-                >
-                  {paperResetLoading ? 'Resetting...' : 'Confirm Reset'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </section>
     );
@@ -6450,21 +6561,27 @@ export default function Dashboard() {
   const renderCountdown = () => {
     // Use countdown data from the new endpoint
     const countdownData = countdown || {};
-    const progressDeg = countdownData.progress_pct ? (countdownData.progress_pct / 100) * 360 : 0;
+    const progressPct = safeNumber(countdownData.progress_pct, 0);
+    const progressDeg = progressPct ? (progressPct / 100) * 360 : 0;
+    const currentCapital = safeNumber(countdownData.current_capital, 0);
+    const milestoneTargets = [30000, 100000, 250000, 500000, 1000000];
+    const nextMilestone = milestoneTargets.find((target) => currentCapital < target) || 1000000;
     
     return (
       <section className="section active">
         <div className="card">
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px'}}>
-            <h2 style={{margin: 0}}>🎯 Countdown to R1 Million</h2>
+            <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
-              <span style={{
-                padding: '6px 12px',
-                background: countdownData.mode === 'live' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                color: 'white',
-                borderRadius: '6px',
-                fontSize: '0.85rem',
-                fontWeight: 700,
+                <span style={{
+                  padding: '6px 12px',
+                  background: countdownData.mode === 'live'
+                    ? 'linear-gradient(135deg, var(--success) 0%, #059669 100%)'
+                    : 'linear-gradient(135deg, var(--accent-bright) 0%, #0ea5e9 100%)',
+                  color: 'white',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px'
               }}>
@@ -6518,7 +6635,7 @@ export default function Dashboard() {
                   alignItems: 'center',
                   background: 'var(--panel)'
                 }}>
-                  <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 24px rgba(16, 185, 129, 0.4)'}}>
+                  <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent-bright) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 24px rgba(16, 185, 129, 0.4)'}}>
                     <div style={{width: '140px', height: '140px', borderRadius: '50%', background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 700, color: 'var(--success)', flexDirection: 'column'}}>
                       <div>{safeToFixed(countdownData.progress_pct, 1, '0.0')}%</div>
                       <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>Complete</div>
@@ -6527,9 +6644,42 @@ export default function Dashboard() {
                 </div>
               </div>
               
+              <div className="countdown-roadmap">
+                <div className="countdown-roadmap-header">
+                  <div>
+                    <h3>Road to 1M ZAR</h3>
+                    <p>Mission progress toward financial freedom</p>
+                  </div>
+                  <span className="countdown-roadmap-badge">{safeToFixed(progressPct, 1, '0.0')}% Complete</span>
+                </div>
+                <div className="countdown-roadmap-bar">
+                  <div
+                    className="countdown-roadmap-fill"
+                    style={{ width: `${Math.min(progressPct, 100)}%` }}
+                  />
+                </div>
+                <div className="countdown-roadmap-milestones">
+                  {milestoneTargets.map((target) => {
+                    const isComplete = currentCapital >= target;
+                    const labelValue = formatCurrencyValue(target, 0) || target.toLocaleString();
+                    return (
+                      <span
+                        key={target}
+                        className={`countdown-roadmap-chip ${isComplete ? 'active' : ''}`}
+                      >
+                        R{labelValue}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="countdown-roadmap-next">
+                  Next milestone: <strong>R{formatCurrencyValue(nextMilestone, 0) || nextMilestone.toLocaleString()}</strong>
+                </div>
+              </div>
+
               {/* Key Metrics Grid */}
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px'}}>
-                <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
+                <div style={{padding: '20px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.35)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Capital</div>
                   <div style={{fontSize: '1.8rem', fontWeight: 700, color: 'var(--success)'}}>
                     R{Number.isFinite(Number(countdownData.current_capital))
@@ -6538,63 +6688,27 @@ export default function Dashboard() {
                   </div>
                 </div>
                 
-                <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(59, 130, 246, 0.3)'}}>
+                <div style={{padding: '20px', background: 'rgba(56, 189, 248, 0.12)', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.35)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Daily ROI</div>
-                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: '#3b82f6'}}>
+                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent-bright)'}}>
                     {safeToFixed(countdownData.metrics?.daily_roi_pct, 3, '0.000')}%
                   </div>
                 </div>
                 
-                <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(217, 119, 6, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(245, 158, 11, 0.3)'}}>
+                <div style={{padding: '20px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.25)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily Profit</div>
-                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: '#f59e0b'}}>
+                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: 'var(--success)'}}>
                     R{safeToFixed(countdownData.metrics?.avg_daily_profit, 2)}
                   </div>
                 </div>
                 
-                <div style={{padding: '20px', background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(147, 51, 234, 0.05) 100%)', borderRadius: '10px', border: '1px solid rgba(168, 85, 247, 0.3)'}}>
+                <div style={{padding: '20px', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.25)'}}>
                   <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Remaining</div>
-                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: '#a855f7'}}>
+                  <div style={{fontSize: '1.8rem', fontWeight: 700, color: 'var(--accent-bright)'}}>
                     R{Number.isFinite(Number(countdownData.remaining))
                       ? safeToFixed(countdownData.remaining, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
                       : '1,000,000'}
                   </div>
-                </div>
-              </div>
-              
-              {/* Progress Bar */}
-              <div style={{marginBottom: '24px'}}>
-                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '0.9rem', fontWeight: 600}}>
-                  <span style={{color: 'var(--text)'}}>R{Number.isFinite(Number(countdownData.current_capital))
-                    ? safeToFixed(countdownData.current_capital, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-                    : '0.00'}</span>
-                  <span style={{color: 'var(--success)'}}>R1,000,000</span>
-                </div>
-                <div style={{height: '20px', background: 'var(--panel)', borderRadius: '10px', overflow: 'hidden', border: '2px solid var(--line)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)'}}>
-                  <div style={{
-                    height: '100%',
-                    width: `${Math.min(countdownData.progress_pct || 0, 100)}%`,
-                    background: 'linear-gradient(90deg, var(--success) 0%, #34d399 50%, var(--accent) 100%)',
-                    transition: 'width 1s ease-in-out',
-                    boxShadow: '0 0 10px rgba(16, 185, 129, 0.5)',
-                    position: 'relative'
-                  }}>
-                    <div style={{
-                      position: 'absolute',
-                      right: '10px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      color: 'white',
-                      textShadow: '0 1px 2px rgba(0,0,0,0.5)'
-                    }}>
-                      {safeToFixed(countdownData.progress_pct, 1, '0.0')}%
-                    </div>
-                  </div>
-                </div>
-                <div style={{marginTop: '10px', fontSize: '0.85rem', color: 'var(--muted)'}}>
-                  Next milestone: <span style={{color: 'var(--success)', fontWeight: 600}}>R1,000,000</span>
                 </div>
               </div>
               
@@ -6615,27 +6729,27 @@ export default function Dashboard() {
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px'}}>Est. Completion</div>
                   <div style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)'}}>
-                    {countdownData.completion_date || 'Unknown'}
+                    {countdownData.completion_date || NOT_AVAILABLE}
                   </div>
                 </div>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
                   <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px'}}>Projection Type</div>
                   <div style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize'}}>
-                    {countdownData.projections?.using || 'N/A'}
+                    {countdownData.projections?.using || NOT_AVAILABLE}
                   </div>
                 </div>
               </div>
               
               {/* 12-Month AI Projection */}
               {countdownData.projections?.twelve_month && (
-                <div style={{marginTop: '20px', padding: '20px', background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)', borderRadius: '12px', border: '2px solid #3b82f6'}}>
-                  <h3 style={{color: '#3b82f6', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                <div style={{marginTop: '20px', padding: '20px', background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(14, 165, 233, 0.05) 100%)', borderRadius: '12px', border: '2px solid var(--accent-bright)'}}>
+                  <h3 style={{color: 'var(--accent-bright)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
                     🔮 AI 12-Month Projection
                   </h3>
                   <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px'}}>
                     <div style={{textAlign: 'center', padding: '16px', background: 'var(--panel)', borderRadius: '8px'}}>
                       <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>Projected Value</div>
-                      <div style={{fontSize: '1.6rem', fontWeight: 700, color: '#3b82f6'}}>
+                      <div style={{fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-bright)'}}>
                         R{Number.isFinite(Number(countdownData.projections?.twelve_month))
                           ? safeToFixed(countdownData.projections.twelve_month, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
                           : '0.00'}
@@ -6651,7 +6765,7 @@ export default function Dashboard() {
                     </div>
                     <div style={{textAlign: 'center', padding: '16px', background: 'var(--panel)', borderRadius: '8px'}}>
                       <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '8px'}}>12-Month ROI</div>
-                      <div style={{fontSize: '1.6rem', fontWeight: 700, color: '#3b82f6'}}>
+                      <div style={{fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent-bright)'}}>
                         {safeToFixed(countdownData.projections?.twelve_month_roi, 1, '0.0')}%
                       </div>
                     </div>

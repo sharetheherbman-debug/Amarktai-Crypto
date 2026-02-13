@@ -127,7 +127,7 @@ export default function ComparisonGraphs({ platformFilter = 'all' }) {
   };
 
   const formatTime = (timestamp) => {
-    if (!timestamp) return '—';
+    if (!timestamp) return 'Not available';
     const date = new Date(timestamp);
     return date.toLocaleTimeString('en-ZA', { 
       hour: '2-digit', 

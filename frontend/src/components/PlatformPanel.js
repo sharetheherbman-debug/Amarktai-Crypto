@@ -39,7 +39,7 @@ export default function PlatformPanel({ platformFilter = 'all', bots = [], balan
   }, [platformFilter]);
 
   const formatMoney = (amount, currency = 'ZAR') => {
-    if (!amount && amount !== 0) return '—';
+    if (!amount && amount !== 0) return 'Not available';
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
       currency: currency,
@@ -48,7 +48,7 @@ export default function PlatformPanel({ platformFilter = 'all', bots = [], balan
   };
 
   const formatTime = (timestamp) => {
-    if (!timestamp) return '—';
+    if (!timestamp) return 'Not available';
     const date = new Date(timestamp);
     return date.toLocaleTimeString('en-ZA', { 
       hour: '2-digit', 
@@ -142,7 +142,7 @@ export default function PlatformPanel({ platformFilter = 'all', bots = [], balan
                     <div>
                       <p className="text-muted-foreground text-xs">Win Rate</p>
                       <p className="font-medium">
-                        {bot.win_rate ? `${(bot.win_rate * 100).toFixed(1)}%` : '—'}
+                        {bot.win_rate ? `${(bot.win_rate * 100).toFixed(1)}%` : 'Not available'}
                       </p>
                     </div>
                   </div>

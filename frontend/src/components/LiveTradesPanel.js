@@ -43,7 +43,7 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
   const filteredTrades = filterByPlatform(trades, platformFilter);
 
   const formatMoney = (amount, currency = 'ZAR') => {
-    if (!amount) return '—';
+    if (!amount) return 'Not available';
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
       currency: currency,
@@ -52,7 +52,7 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
   };
 
   const formatTime = (timestamp) => {
-    if (!timestamp) return '—';
+    if (!timestamp) return 'Not available';
     const date = new Date(timestamp);
     return date.toLocaleTimeString('en-ZA', { 
       hour: '2-digit', 

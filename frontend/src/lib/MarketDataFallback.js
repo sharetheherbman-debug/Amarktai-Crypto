@@ -211,7 +211,7 @@ class MarketDataFallback {
       'BTC/USD': {
         price: binanceBTC || kucoinBTC || bybitBTC || krakenBTC || bitgetBTC || gateBTC || 0,
         change: 0,
-        source: binanceBTC ? 'Binance' : kucoinBTC ? 'KuCoin' : bybitBTC ? 'Bybit' : krakenBTC ? 'Kraken' : bitgetBTC ? 'Bitget' : gateBTC ? 'Gate.io' : 'N/A',
+        source: binanceBTC ? 'Binance' : kucoinBTC ? 'KuCoin' : bybitBTC ? 'Bybit' : krakenBTC ? 'Kraken' : bitgetBTC ? 'Bitget' : gateBTC ? 'Gate.io' : 'Not available',
         currency: 'USD',
         isFallback: true
       },

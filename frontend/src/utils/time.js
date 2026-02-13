@@ -3,7 +3,7 @@ export const formatTimestamp = (timestamp, options = {}) => {
     includeTime = true,
     includeDate = true,
     includeSeconds = false,
-    fallback = '—',
+    fallback = 'Not available',
     locale = 'en-US'
   } = options;
 

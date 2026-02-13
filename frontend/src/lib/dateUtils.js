@@ -12,7 +12,7 @@
  * @param {boolean} options.includeTime - Include time in output (default: true)
  * @param {boolean} options.includeDate - Include date in output (default: true)
  * @param {boolean} options.includeSeconds - Include seconds (default: false)
- * @param {string} options.fallback - Fallback text for invalid/null timestamps (default: "—")
+ * @param {string} options.fallback - Fallback text for invalid/null timestamps (default: "Not available")
  * @param {string} options.locale - Locale for formatting (default: "en-US")
  * @returns {string} Formatted timestamp or fallback
  */
@@ -21,7 +21,7 @@ export function formatTimestamp(timestamp, options = {}) {
     includeTime = true,
     includeDate = true,
     includeSeconds = false,
-    fallback = "—",
+    fallback = "Not available",
     locale = "en-US"  // Consistent locale for all users
   } = options;
   
@@ -65,10 +65,10 @@ export function formatTimestamp(timestamp, options = {}) {
  * Format a timestamp to relative time (e.g., "2 hours ago")
  * 
  * @param {string|Date|null} timestamp - ISO timestamp or Date
- * @param {string} fallback - Fallback text (default: "—")
+ * @param {string} fallback - Fallback text (default: "Not available")
  * @returns {string} Relative time string or fallback
  */
-export function formatRelativeTime(timestamp, fallback = "—") {
+export function formatRelativeTime(timestamp, fallback = "Not available") {
   if (!timestamp) return fallback;
   
   try {
@@ -109,10 +109,10 @@ export function formatRelativeTime(timestamp, fallback = "—") {
  * 
  * @param {string|Date|null} timestamp
  * @param {boolean} includeSeconds - Include seconds (default: false)
- * @param {string} fallback - Fallback text (default: "—")
+ * @param {string} fallback - Fallback text (default: "Not available")
  * @returns {string}
  */
-export function formatTime(timestamp, includeSeconds = false, fallback = "—") {
+export function formatTime(timestamp, includeSeconds = false, fallback = "Not available") {
   return formatTimestamp(timestamp, {
     includeDate: false,
     includeTime: true,
@@ -125,10 +125,10 @@ export function formatTime(timestamp, includeSeconds = false, fallback = "—") 
  * Format a timestamp to date only
  * 
  * @param {string|Date|null} timestamp
- * @param {string} fallback - Fallback text (default: "—")
+ * @param {string} fallback - Fallback text (default: "Not available")
  * @returns {string}
  */
-export function formatDate(timestamp, fallback = "—") {
+export function formatDate(timestamp, fallback = "Not available") {
   return formatTimestamp(timestamp, {
     includeDate: true,
     includeTime: false,
