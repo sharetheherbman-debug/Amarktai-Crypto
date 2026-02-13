@@ -169,6 +169,13 @@ class BodyguardService:
             action_description: Description of action taken, or None
         """
         try:
+            try:
+                from services.autonomy_state import autonomy_state
+                if autonomy_state.is_paused("bodyguard"):
+                    return False, "Bodyguard paused"
+            except Exception:
+                pass
+
             # Get bot data
             bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
             if not bot:
@@ -631,7 +638,7 @@ class BodyguardService:
             # Calculate resume threshold if paused
             resume_threshold = threshold - RESUME_HYSTERESIS if paused_by_bodyguard else None
             
-            return {
+            result = {
                 "bot_id": bot_id,
                 "bot_name": bot.get('name'),
                 "risk_mode": risk_mode,
@@ -645,9 +652,22 @@ class BodyguardService:
                 "status": bot.get('status'),
                 "pause_reason": bot.get('pause_reason')
             }
+
+            try:
+                from services.autonomy_heartbeat import heartbeat_registry
+                heartbeat_registry.mark_ok("bodyguard")
+            except Exception:
+                pass
+
+            return result
             
         except Exception as e:
             logger.error(f"Error getting drawdown status for bot {bot_id}: {e}")
+            try:
+                from services.autonomy_heartbeat import heartbeat_registry
+                heartbeat_registry.mark_error("bodyguard", str(e))
+            except Exception:
+                pass
             return None
     
     async def check_all_user_bots(self, user_id: str) -> Dict:

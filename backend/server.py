@@ -3074,6 +3074,7 @@ routers_to_mount = [
     ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
     ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
     ("routes.autopilot_growth", "Autopilot Growth"),  # NEW - Growth + reinvest
+    ("routes.autonomy_control", "Autonomy Control"),  # NEW - Autonomy status + controls
     ("routes.training", "Bot Training"),  # CRITICAL - Training system
     ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),

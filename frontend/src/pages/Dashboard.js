@@ -173,6 +173,9 @@ export default function Dashboard() {
   const [bodyguardStatus, setBodyguardStatus] = useState(null);
   // Consolidated risk status from /api/risk/status
   const [riskStatus, setRiskStatus] = useState(null);
+  const [autonomyStatus, setAutonomyStatus] = useState(null);
+  const [aiStatus, setAiStatus] = useState(null);
+  const [learningStatus, setLearningStatus] = useState(null);
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
@@ -464,7 +467,7 @@ export default function Dashboard() {
   const loadChatHistory = async () => {
     try {
       // Load chat history from backend (per-user, auto-namespaced by JWT)
-      const data = await get('/ai/chat/history?days=30&limit=100');
+      const data = await get('/chat/history?days=30&limit=100');
       if (data.messages && data.messages.length > 0) {
         // Messages are already in chronological order (newest-last) from backend
         setChatMessages(data.messages);
@@ -495,7 +498,7 @@ export default function Dashboard() {
     }
     
     try {
-      await post('/ai/chat/clear', {});
+      await post('/chat/clear', { clear_server_side: true });
       // Reset to fresh greeting
       if (user) {
         setChatMessages([{
@@ -1085,17 +1088,23 @@ export default function Dashboard() {
 
   const loadOverviewData = async () => {
     try {
-      const [snapshotResult, paperWalletResult, modeResult, tradesResult] = await Promise.allSettled([
+      const [snapshotResult, paperWalletResult, modeResult, tradesResult, autonomyResult, aiResult, learningResult] = await Promise.allSettled([
         get('/overview/snapshot'),
         get('/wallet/paper'),
         get('/system/mode'),
-        get('/trades/recent?limit=1')
+        get('/trades/recent?limit=1'),
+        get('/autonomy/status'),
+        get('/ai/status'),
+        get('/learning/status')
       ]);
 
       const snapshotRes = snapshotResult.status === 'fulfilled' ? snapshotResult.value : {};
       const paperWalletRes = paperWalletResult.status === 'fulfilled' ? paperWalletResult.value : {};
       const modeRes = modeResult.status === 'fulfilled' ? modeResult.value : {};
       const tradesRes = tradesResult.status === 'fulfilled' ? tradesResult.value : {};
+      const autonomyRes = autonomyResult.status === 'fulfilled' ? autonomyResult.value : null;
+      const aiRes = aiResult.status === 'fulfilled' ? aiResult.value : null;
+      const learningRes = learningResult.status === 'fulfilled' ? learningResult.value : null;
 
       const totalProfit = safeNumber(snapshotRes?.total_profit, 0);
       const todaysProfit = safeNumber(snapshotRes?.today_profit, 0);
@@ -1123,6 +1132,9 @@ export default function Dashboard() {
         lastTradeTime,
         systemMode
       });
+      setAutonomyStatus(autonomyRes);
+      setAiStatus(aiRes);
+      setLearningStatus(learningRes);
     } catch (err) {
       console.error('Overview data fetch error:', err);
     }
@@ -1579,6 +1591,7 @@ export default function Dashboard() {
       await post('/ai/chat', {
         role: 'user',
         content: originalInput,
+        log_only: true,
         metadata: { timestamp: new Date().toISOString() }
       });
     } catch (error) {
@@ -1616,6 +1629,7 @@ export default function Dashboard() {
             await post('/ai/chat', {
               role: 'assistant',
               content: successMsg.content,
+              log_only: true,
               metadata: { timestamp: new Date().toISOString() }
             });
           } catch (error) {
@@ -1639,13 +1653,14 @@ export default function Dashboard() {
           
           // Save success message
           try {
-            await post('/ai/chat', {
-              role: 'assistant',
-              content: successMsg.content,
-              metadata: { timestamp: new Date().toISOString() }
-            });
-          } catch (error) {
-            console.error('Failed to save assistant message:', error);
+          await post('/ai/chat', {
+            role: 'assistant',
+            content: successMsg.content,
+            log_only: true,
+            metadata: { timestamp: new Date().toISOString() }
+          });
+        } catch (error) {
+          console.error('Failed to save assistant message:', error);
           }
         }
         
@@ -1667,6 +1682,7 @@ export default function Dashboard() {
           await post('/ai/chat', {
             role: 'assistant',
             content: errorMsg.content,
+            log_only: true,
             metadata: { timestamp: new Date().toISOString(), error: true }
           });
         } catch (error) {
@@ -1689,6 +1705,7 @@ export default function Dashboard() {
         await post('/ai/chat', {
           role: 'assistant',
           content: assistantMsg.content,
+          log_only: true,
           metadata: { timestamp: new Date().toISOString() }
         });
       } catch (error) {
@@ -1709,6 +1726,7 @@ export default function Dashboard() {
         await post('/ai/chat', {
           role: 'assistant',
           content: assistantMsg.content,
+          log_only: true,
           metadata: { timestamp: new Date().toISOString() }
         });
       } catch (error) {
@@ -1720,16 +1738,28 @@ export default function Dashboard() {
 
     // Send all other messages to AI backend
     try {
-      const res = await axios.post(`${API}/ai/chat`, { message: originalInput, context: 'dashboard' }, axiosConfig);
+      const res = await axios.post(`${API}/chat/message`, {
+        message: originalInput,
+        context: 'dashboard',
+        request_action: true
+      }, axiosConfig);
       const payload = res.data || {};
+      if (payload?.error_code === 'OPENAI_KEY_MISSING') {
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Set your OpenAI API key in API Setup to enable Super Brain Chat.',
+          error: true
+        }]);
+        return;
+      }
       if (payload?.success === false || payload?.error) {
-        const errorContent = payload?.content || payload?.error || payload?.detail || 'AI chat error.';
+        const errorContent = payload?.reply || payload?.message || payload?.content || payload?.error || payload?.detail || 'AI chat error.';
         setChatMessages(prev => [...prev, { role: 'assistant', content: errorContent, error: true }]);
         return;
       }
       const reply = typeof payload === 'string'
         ? payload
-        : (payload.content || payload.response || payload.reply || payload.message || 'No response');
+        : (payload.reply || payload.content || payload.response || payload.message || 'No response');
       const assistantMsg = { role: 'assistant', content: reply };
       setChatMessages(prev => [...prev, assistantMsg]);
       
@@ -1738,6 +1768,7 @@ export default function Dashboard() {
         await post('/ai/chat', {
           role: 'assistant',
           content: reply,
+          log_only: true,
           metadata: { timestamp: new Date().toISOString() }
         });
       } catch (error) {
@@ -1753,6 +1784,7 @@ export default function Dashboard() {
         await post('/ai/chat', {
           role: 'assistant',
           content: errorMsg.content,
+          log_only: true,
           metadata: { timestamp: new Date().toISOString(), error: true }
         });
       } catch (error) {
@@ -2944,10 +2976,23 @@ export default function Dashboard() {
     </section>
   );
 
-  const renderOverview = () => (
-    <section className="section active">
-      <div className="card">
-        <h2 style={{color: '#ffffff'}}>System Overview</h2>
+  const renderOverview = () => {
+    const autonomySubs = autonomyStatus?.subsystems || {};
+    const autopilotHeartbeat = autonomySubs.autopilot || {};
+    const tradingHeartbeat = autonomySubs.trading_scheduler || {};
+    const bodyguardHeartbeat = autonomySubs.bodyguard || {};
+    const realtimeHeartbeat = autonomySubs.realtime || {};
+    const selfHealHeartbeat = autonomySubs.self_heal || {};
+    const learningHeartbeat = autonomySubs.learning_loop || {};
+    const learningEnabled = learningStatus?.enabled;
+    const learningLastRun = learningStatus?.last_run || learningHeartbeat.last_tick;
+    const aiKeyConfigured = aiStatus?.key_configured;
+    const aiModel = aiStatus?.model || '—';
+
+    return (
+      <section className="section active">
+        <div className="card">
+          <h2 style={{color: '#ffffff'}}>System Overview</h2>
         
         {/* Risk Status Banner */}
         {riskStatus?.emergency_stop?.active && (
@@ -3084,211 +3129,153 @@ export default function Dashboard() {
           </div>
         )}
         
-        {/* Overview Container with Image and Enhanced Metrics Panel */}
-        <div className="overview-container">
-          <div className="overview-image">
-            <img src="/assets/poster.jpg" alt="Amarktai humanoid trading bot poster" />
-          </div>
-          <div className="overview-metrics">
-            <div className="status-list">
-              {/* System Status Metrics */}
-              <div className="status-item">
-                <strong>Total Profit</strong>
-                <div className="led-row">
-                  <span style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                    R{safeToFixed(overviewData.totalProfit, 2)}
-                  </span>
+          {/* Overview Container with Split Layout */}
+          <div className="overview-container">
+            <div className="overview-pane overview-left">
+              <div className="overview-left-content">
+                <div className="overview-left-head">
+                  <h3>Autonomous Trading Command</h3>
+                  <p>Monitor system health, performance, and autonomy signals in real time.</p>
+                </div>
+                <div className="overview-tiles">
+                  <div className="overview-tile">
+                    <span>Total Profit</span>
+                    <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                      R{safeToFixed(overviewData.totalProfit, 2)}
+                    </strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Today's Profit</span>
+                    <strong style={{color: safeNumber(overviewData.todaysProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                      R{safeToFixed(overviewData.todaysProfit, 2)}
+                    </strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Total Trades</span>
+                    <strong>{safeNumber(overviewData.totalTrades, 0)}</strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Win Rate</span>
+                    <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Active Bots</span>
+                    <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Paper Wallet</span>
+                    <strong>R{safeToFixed(overviewData.paperWalletTotal, 2)}</strong>
+                  </div>
                 </div>
               </div>
-              <div className="status-item">
-                <strong>Today's Profit</strong>
-                <div className="led-row">
-                  <span style={{color: safeNumber(overviewData.todaysProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                    R{safeToFixed(overviewData.todaysProfit, 2)}
-                  </span>
+            </div>
+            <div className="overview-pane overview-right">
+              <div className="overview-live-header">
+                <div>
+                  <h3>System Live View</h3>
+                  <p>Heartbeat + activity signal feed</p>
+                </div>
+                <span className="overview-live-update">Last update: {metrics.lastUpdate}</span>
+              </div>
+              <div className="overview-heartbeats">
+                <div className="heartbeat-tile">
+                  <span>Autopilot</span>
+                  <strong>{autopilotHeartbeat.status || 'unknown'}</strong>
+                  <small>{formatDate(autopilotHeartbeat.last_tick)}</small>
+                </div>
+                <div className="heartbeat-tile">
+                  <span>Trading Scheduler</span>
+                  <strong>{tradingHeartbeat.status || 'unknown'}</strong>
+                  <small>{formatDate(tradingHeartbeat.last_tick)}</small>
+                </div>
+                <div className="heartbeat-tile">
+                  <span>Bodyguard</span>
+                  <strong>{bodyguardHeartbeat.status || 'unknown'}</strong>
+                  <small>{formatDate(bodyguardHeartbeat.last_tick)}</small>
+                </div>
+                <div className="heartbeat-tile">
+                  <span>Realtime</span>
+                  <strong>{realtimeHeartbeat.status || 'unknown'}</strong>
+                  <small>{formatDate(realtimeHeartbeat.last_tick)}</small>
+                </div>
+                <div className="heartbeat-tile">
+                  <span>Self-Heal</span>
+                  <strong>{selfHealHeartbeat.status || 'unknown'}</strong>
+                  <small>{formatDate(selfHealHeartbeat.last_tick)}</small>
+                </div>
+                <div className="heartbeat-tile">
+                  <span>Learning Loop</span>
+                  <strong>{learningEnabled ? 'enabled' : 'disabled'}</strong>
+                  <small>{formatDate(learningLastRun)}</small>
                 </div>
               </div>
-              <div className="status-item">
-                <strong>Total Trades</strong>
-                <div className="led-row"><span>{safeNumber(overviewData.totalTrades, 0)}</span></div>
-              </div>
-              <div className="status-item">
-                <strong>Win Rate</strong>
-                <div className="led-row"><span>{safeToFixed(overviewData.winRate, 1, '0.0')}%</span></div>
-              </div>
-              <div className="status-item">
-                <strong>Bot Status</strong>
-                <div className="led-row">
-                  <span style={{color: 'var(--success)'}}>{safeNumber(overviewData.activeBots, 0)} Active</span>
-                  <span style={{color: 'var(--muted)', margin: '0 4px'}}>/</span>
-                  <span style={{color: 'var(--error)'}}>{safeNumber(overviewData.pausedBots, 0)} Paused</span>
+              <div className="overview-status-grid">
+                <div className="status-item">
+                  <strong>System Mode</strong>
+                  <div className="led-row">
+                    <span style={{textTransform: 'uppercase', fontWeight: 700}}>
+                      {overviewData.systemMode === 'live' && '🔴 LIVE'}
+                      {overviewData.systemMode === 'autonomous' && '🤖 AUTONOMOUS'}
+                      {overviewData.systemMode === 'paper' && '📄 PAPER'}
+                    </span>
+                  </div>
+                </div>
+                <div className="status-item">
+                  <strong>Last Trade</strong>
+                  <div className="led-row">
+                    <span style={{fontSize: '0.85rem'}}>
+                      {formatDate(overviewData.lastTradeTime) !== '—' ? formatDate(overviewData.lastTradeTime) : 'No trades yet'}
+                    </span>
+                  </div>
+                </div>
+                <div className="status-item">
+                  <strong>Exposure</strong>
+                  <div className="led-row"><span>{metrics.exposure}</span></div>
+                </div>
+                <div className="status-item">
+                  <strong>Risk Level</strong>
+                  <div className="led-row"><span>{metrics.riskLevel}</span></div>
+                </div>
+                <div className="status-item">
+                  <strong>AI Model</strong>
+                  <div className="led-row">
+                    <span>{aiModel}</span>
+                    <span className="status-pill">{aiKeyConfigured ? 'Key OK' : 'Key missing'}</span>
+                  </div>
+                </div>
+                <div className="status-item">
+                  <strong>WebSocket</strong>
+                  <div className="led-row">
+                    <span style={{color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
+                      {connectionStatus.ws}
+                    </span>
+                    <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
+                  </div>
                 </div>
               </div>
-              <div className="status-item">
-                <strong>Paper Wallet Total</strong>
-                <div className="led-row">
-                  <span>R{safeToFixed(overviewData.paperWalletTotal, 2)}</span>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>Allocated to Bots</strong>
-                <div className="led-row">
-                  <span>R{safeToFixed(overviewData.paperWalletAllocated, 2)}</span>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>System Mode</strong>
-                <div className="led-row">
-                  <span style={{textTransform: 'uppercase', fontWeight: 700}}>
-                    {overviewData.systemMode === 'live' && '🔴 LIVE'}
-                    {overviewData.systemMode === 'autonomous' && '🤖 AUTONOMOUS'}
-                    {overviewData.systemMode === 'paper' && '📄 PAPER'}
-                  </span>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>Last Trade</strong>
-                <div className="led-row">
-                  <span style={{fontSize: '0.85rem'}}>
-                    {formatDate(overviewData.lastTradeTime) !== '—' ? formatDate(overviewData.lastTradeTime) : 'No trades yet'}
-                  </span>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>Bodyguard Status</strong>
-                <div className="led-row">
-                  {riskStatus?.bodyguard_lock?.active ? (
-                    <span style={{color: 'var(--error)', fontWeight: 700}}>🔒 LOCKED</span>
+              <div className="overview-activity">
+                <div className="overview-activity-header">Activity Feed</div>
+                <div className="overview-activity-list">
+                  {recentTrades.length === 0 ? (
+                    <div className="overview-activity-empty">No recent trades.</div>
                   ) : (
-                    <span style={{color: 'var(--success)', fontWeight: 700}}>✅ CLEAR</span>
+                    recentTrades.slice(0, 6).map((trade, idx) => (
+                      <div key={`${trade.id || trade.timestamp || idx}`} className="overview-activity-row">
+                        <span>{trade.pair || trade.symbol || '—'}</span>
+                        <span>{trade.exchange || '—'}</span>
+                        <span>{trade.side || '—'}</span>
+                        <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : '—'}</span>
+                      </div>
+                    ))
                   )}
-                </div>
-              </div>
-
-              {/* Existing metrics */}
-              <div className="status-item">
-                <strong>Exposure</strong>
-                <div className="led-row"><span>{metrics.exposure}</span></div>
-              </div>
-              <div className="status-item">
-                <strong>Risk Level</strong>
-                <div className="led-row"><span>{metrics.riskLevel}</span></div>
-              </div>
-              <div className="status-item">
-                <strong>AI Sentiment</strong>
-                <div className="led-row"><span>{metrics.aiSentiment}</span></div>
-              </div>
-              <div className="status-item">
-                <strong>Last Update</strong>
-                <div className="led-row"><span>{metrics.lastUpdate}</span></div>
-              </div>
-              <div className="status-item">
-                <strong>Round-Trip Time</strong>
-                <div className="led-row"><span>{wsRtt}</span></div>
-              </div>
-              <div className="status-item">
-                <strong>WebSocket</strong>
-                <div className="led-row">
-                  <span style={{color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
-                    {connectionStatus.ws}
-                  </span>
-                  <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>Live Updates</strong>
-                <div className="led-row">
-                  <span style={{color: connectionStatus.sse === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
-                    {connectionStatus.sse}
-                  </span>
-                  <div className={`status-dot ${connectionStatus.sse === 'Connected' ? 'ok' : 'err'}`}></div>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>BTC/ZAR</strong>
-                <div className="led-row">
-                  <span>R{safeNumber(livePrices['BTC/ZAR']?.price, 0).toLocaleString()}</span>
-                  {livePrices['BTC/ZAR']?.isFallback && (
-                    <span style={{
-                      fontSize: '0.65rem',
-                      padding: '2px 6px',
-                      marginLeft: '8px',
-                      background: 'rgba(59, 130, 246, 0.2)',
-                      color: '#3b82f6',
-                      borderRadius: '4px',
-                      fontWeight: '600'
-                    }}>
-                      Public data
-                    </span>
-                  )}
-                  <span style={{
-                    color: livePrices['BTC/ZAR']?.change >= 0 ? 'var(--success)' : 'var(--error)',
-                    fontSize: '0.8rem',
-                    marginLeft: '8px'
-                  }}>
-                    {livePrices['BTC/ZAR']?.change >= 0 ? '+' : ''}{safeToFixed(livePrices['BTC/ZAR']?.change, 2)}%
-                  </span>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>ETH/ZAR</strong>
-                <div className="led-row">
-                  <span>R{safeNumber(livePrices['ETH/ZAR']?.price, 0).toLocaleString()}</span>
-                  {livePrices['ETH/ZAR']?.isFallback && (
-                    <span style={{
-                      fontSize: '0.65rem',
-                      padding: '2px 6px',
-                      marginLeft: '8px',
-                      background: 'rgba(59, 130, 246, 0.2)',
-                      color: '#3b82f6',
-                      borderRadius: '4px',
-                      fontWeight: '600'
-                    }}>
-                      Public data
-                    </span>
-                  )}
-                  <span style={{
-                    color: livePrices['ETH/ZAR']?.change >= 0 ? 'var(--success)' : 'var(--error)',
-                    fontSize: '0.8rem',
-                    marginLeft: '8px'
-                  }}>
-                    {livePrices['ETH/ZAR']?.change >= 0 ? '+' : ''}{safeToFixed(livePrices['ETH/ZAR']?.change, 2)}%
-                  </span>
-                </div>
-              </div>
-              <div className="status-item">
-                <strong>XRP/ZAR</strong>
-                <div className="led-row">
-                  <span>R{safeNumber(livePrices['XRP/ZAR']?.price, 0).toLocaleString()}</span>
-                  {livePrices['XRP/ZAR']?.isFallback && (
-                    <span style={{
-                      fontSize: '0.65rem',
-                      padding: '2px 6px',
-                      marginLeft: '8px',
-                      background: 'rgba(59, 130, 246, 0.2)',
-                      color: '#3b82f6',
-                      borderRadius: '4px',
-                      fontWeight: '600'
-                    }}>
-                      Public data
-                    </span>
-                  )}
-                  <span style={{
-                    color: livePrices['XRP/ZAR']?.change >= 0 ? 'var(--success)' : 'var(--error)',
-                    fontSize: '0.8rem',
-                    marginLeft: '8px'
-                  }}>
-                    {livePrices['XRP/ZAR']?.change >= 0 ? '+' : ''}{safeToFixed(livePrices['XRP/ZAR']?.change, 2)}%
-                  </span>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      
-    </section>
-  );
+      </section>
+    );
+  };
 
   const renderApiSetup = () => {
     // Build providers list dynamically from exchange config

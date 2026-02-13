@@ -20,6 +20,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
 
+
+@router.get("/paper")
+async def get_paper_wallet_status(user_id: str = Depends(get_current_user)):
+    """Return paper wallet status summary."""
+    summary = await wallet_summary_service.get_summary(user_id)
+    return {
+        "success": True,
+        "mode": summary.get("mode"),
+        "total": summary.get("available_wallet_zar"),
+        "allocated": summary.get("allocated_funds_zar"),
+        "required": summary.get("required_funds_zar"),
+        "shortfall": summary.get("shortfall_zar"),
+        "status": summary.get("status"),
+        "timestamp": summary.get("timestamp"),
+    }
+
 @router.get("/required-capital")
 async def get_required_capital(user_id: str = Depends(get_current_user)):
     """Get required capital breakdown from bot collection

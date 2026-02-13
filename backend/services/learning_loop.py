@@ -51,6 +51,13 @@ class LearningLoop:
         if not os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true":
             logger.info("📚 Learning loop disabled (ENABLE_LEARNING_LOOP=false)")
             return
+        try:
+            from services.autonomy_state import autonomy_state
+            if autonomy_state.is_paused("learning_loop"):
+                logger.info("📚 Learning loop paused by autonomy controls")
+                return
+        except Exception:
+            pass
 
         try:
             users = await db.users_collection.find({}, {"_id": 0, "id": 1}).to_list(2000)
@@ -58,8 +65,18 @@ class LearningLoop:
                 await self._run_for_user(user.get("id"), dry_run=dry_run)
             self.last_run = datetime.now(timezone.utc)
             logger.info("📚 Learning loop complete")
+            try:
+                from services.autonomy_heartbeat import heartbeat_registry
+                heartbeat_registry.mark_ok("learning_loop")
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f"Learning loop error: {e}")
+            try:
+                from services.autonomy_heartbeat import heartbeat_registry
+                heartbeat_registry.mark_error("learning_loop", str(e))
+            except Exception:
+                pass
 
     async def _run_for_user(self, user_id: str, dry_run: bool = False):
         if not user_id:

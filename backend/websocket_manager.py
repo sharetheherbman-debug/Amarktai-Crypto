@@ -101,6 +101,12 @@ class ConnectionManager:
         """Broadcast message to all connections of a specific user"""
         if user_id in self.active_connections:
             disconnected = set()
+
+            try:
+                from services.autonomy_heartbeat import heartbeat_registry
+                heartbeat_registry.mark_ok("realtime")
+            except Exception:
+                pass
             
             # Sanitize message once before broadcasting
             sanitized = sanitize_for_json(message)
@@ -110,6 +116,11 @@ class ConnectionManager:
                     await connection.send_json(sanitized)
                 except Exception as e:
                     logger.error(f"Broadcast error: {e}")
+                    try:
+                        from services.autonomy_heartbeat import heartbeat_registry
+                        heartbeat_registry.mark_error("realtime", str(e))
+                    except Exception:
+                        pass
                     disconnected.add(connection)
             
             # Clean up disconnected sockets

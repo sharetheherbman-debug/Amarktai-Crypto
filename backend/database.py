@@ -102,6 +102,7 @@ action_audit_log_collection = None
 # ChatOps memory and audit logs
 user_memory_collection = None
 chatops_actions_collection = None
+chatops_confirmations_collection = None
 
 # Aliases for backward compatibility
 wallet_balances = None  # Alias for wallet_balances_collection
@@ -206,7 +207,7 @@ async def setup_collections():
     global price_snapshots_collection
     global learning_runs_collection, learning_changes_collection, learning_metrics_collection
     global strategy_versions_collection, bot_strategy_assignments_collection, action_audit_log_collection
-    global user_memory_collection, chatops_actions_collection
+    global user_memory_collection, chatops_actions_collection, chatops_confirmations_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
     global paper_ledger_collection  # Phase 4A: Paper wallet ledger
     
@@ -297,6 +298,7 @@ async def setup_collections():
     # ChatOps memory and audit logs
     user_memory_collection = db.user_memory
     chatops_actions_collection = db.chatops_actions
+    chatops_confirmations_collection = db.chatops_confirmations
     
     # Aliases for backward compatibility
     wallet_balances = wallet_balances_collection
@@ -356,6 +358,15 @@ async def init_db():
         if sessions_collection is not None:
             await sessions_collection.create_index("user_id")
             await sessions_collection.create_index("created_at", expireAfterSeconds=86400)  # 24 hours
+
+        # Chat indexes
+        if chat_messages_collection is not None:
+            await chat_messages_collection.create_index("user_id")
+            await chat_messages_collection.create_index("timestamp")
+        if chatops_confirmations_collection is not None:
+            await chatops_confirmations_collection.create_index("confirmation_id", unique=True)
+            await chatops_confirmations_collection.create_index("user_id")
+            await chatops_confirmations_collection.create_index("expires_at")
         
         # Bot lifecycle indexes
         if bot_lifecycle_collection is not None:

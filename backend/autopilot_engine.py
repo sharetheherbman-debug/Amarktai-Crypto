@@ -107,6 +107,11 @@ class AutopilotEngine:
             logger.error(f"Failed to start Autopilot Engine: {e}")
             self.running = False
             self.last_error = str(e)
+            try:
+                from services.autonomy_heartbeat import heartbeat_registry
+                heartbeat_registry.mark_error("autopilot", str(e))
+            except Exception:
+                pass
             # Don't raise - let server continue
 
     def _mark_tick(self, job_name: str):
@@ -115,6 +120,11 @@ class AutopilotEngine:
             "job": job_name,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        try:
+            from services.autonomy_heartbeat import heartbeat_registry
+            heartbeat_registry.mark_ok("autopilot")
+        except Exception:
+            pass
 
     def get_diagnostics(self) -> dict:
         jobs = []
