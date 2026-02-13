@@ -1,12 +1,12 @@
 """
-Email Templates for Amarktai Network
+Email Templates for Amarktai Crypto
 Dark blue theme with inline CSS for email client compatibility
 """
 
 from .logo_base64 import AMARKTAI_LOGO_BASE64
 
 
-def get_base_template(content: str, title: str = "Amarktai Network") -> str:
+def get_base_template(content: str, title: str = "Amarktai Crypto") -> str:
     """
     Base HTML email template with dark blue theme and Amarktai branding.
     Uses inline CSS for maximum email client compatibility.
@@ -33,10 +33,10 @@ def get_base_template(content: str, title: str = "Amarktai Network") -> str:
                                 <img src="data:image/png;base64,{AMARKTAI_LOGO_BASE64}" alt="Amarktai Logo" style="width: 80px; height: 80px; display: inline-block;" />
                             </div>
                             <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; letter-spacing: -0.5px;">
-                                <span style="color: #60a5fa;">Amarktai</span> Network
+                                <span style="color: #60a5fa;">Amarktai</span> Crypto
                             </h1>
                             <p style="margin: 8px 0 0 0; color: #93c5fd; font-size: 14px; font-weight: 400;">
-                                AI-Powered Trading Excellence
+                                AI-Powered Trading Excellence · part of Amarktai Network
                             </p>
                         </td>
                     </tr>
@@ -52,7 +52,7 @@ def get_base_template(content: str, title: str = "Amarktai Network") -> str:
                     <tr>
                         <td style="background-color: #0f172a; padding: 30px 40px; text-align: center; border-top: 1px solid #1e293b;">
                             <p style="margin: 0 0 12px 0; color: #64748b; font-size: 13px; line-height: 1.6;">
-                                &copy; 2024 Amarktai Network. All rights reserved.
+                                &copy; 2024 Amarktai Crypto · part of Amarktai Network. All rights reserved.
                             </p>
                             <p style="margin: 0; color: #475569; font-size: 12px;">
                                 <a href="https://www.amarktai.online" style="color: #60a5fa; text-decoration: none;">www.amarktai.online</a>
@@ -74,7 +74,7 @@ def get_welcome_template(user_email: str, set_password_url: str) -> tuple[str, s
     """
     html_content = f"""
         <h2 style="margin: 0 0 24px 0; color: #ffffff; font-size: 24px; font-weight: 600;">
-            Welcome to Amarktai Network! 🚀
+            Welcome to Amarktai Crypto! 🚀
         </h2>
         
         <p style="margin: 0 0 16px 0; color: #cbd5e1; font-size: 16px; line-height: 1.6;">
@@ -146,7 +146,7 @@ def get_welcome_template(user_email: str, set_password_url: str) -> tuple[str, s
     """
     
     plain_text = f"""
-Welcome to Amarktai Network!
+Welcome to Amarktai Crypto!
 
 Your account has been successfully created. We're excited to have you join our AI-powered trading platform.
 
@@ -166,12 +166,12 @@ GETTING STARTED
 Need help? Email us at amarktainetwork@gmail.com
 
 ---
-Amarktai Network
+Amarktai Crypto (part of Amarktai Network)
 AI-Powered Trading Excellence
 www.amarktai.online
     """.strip()
     
-    html_body = get_base_template(html_content, "Welcome to Amarktai Network")
+    html_body = get_base_template(html_content, "Welcome to Amarktai Crypto")
     return html_body, plain_text
 
 
@@ -390,7 +390,7 @@ EXCHANGE BREAKDOWN
         plain_text += f"     {bot.get('exchange', 'Unknown').title()} • Win Rate: {bot.get('win_rate', 0):.1f}%\n"
     
     plain_text += "\nView Full Dashboard: https://www.amarktai.online\n"
-    plain_text += "\n---\nAmarktai Network\nAI-Powered Trading Excellence\n"
+    plain_text += "\n---\nAmarktai Crypto (part of Amarktai Network)\nAI-Powered Trading Excellence\n"
     
     html_body = get_base_template(html_content, f"Daily Report - {date}")
     return html_body, plain_text
@@ -525,7 +525,7 @@ RECOMMENDED ACTIONS
 Go to Dashboard: https://www.amarktai.online
 
 ---
-Amarktai Network
+Amarktai Crypto (part of Amarktai Network)
 AI-Powered Trading Excellence
     """.strip()
     

@@ -19,7 +19,7 @@ class AIService:
     def get_chat_history(self, user_id: str, first_name: str = "User") -> List[Dict]:
         """Get or create chat history for user with personalization"""
         if user_id not in self.chats:
-            system_message = f"""You are the AI brain of Amarktai Network, an autonomous cryptocurrency trading system with FULL CONTROL over the entire dashboard.
+            system_message = f"""You are the AI brain of Amarktai Crypto, an autonomous cryptocurrency trading system with FULL CONTROL over the entire dashboard.
 
 You are speaking with {first_name}. Always address them by name to create a personal connection.
 

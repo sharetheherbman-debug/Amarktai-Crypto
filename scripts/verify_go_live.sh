@@ -8,7 +8,7 @@
 set +e  # Allow commands to fail (we check return codes manually)
 
 echo "=========================================="
-echo "🚀 AMARKTAI NETWORK - GO-LIVE VERIFICATION"
+echo "🚀 AMARKTAI CRYPTO - GO-LIVE VERIFICATION"
 echo "=========================================="
 echo ""
 
@@ -169,6 +169,40 @@ fi
 echo ""
 
 ###############################################################################
+# TEST 3B: Overview Snapshot Contract
+###############################################################################
+echo "📊 Test 3B: Overview Snapshot Contract"
+echo "--------------------------------------"
+
+if [ -f "backend/routes/dashboard_overview.py" ]; then
+    if grep -q "systemMode" backend/routes/dashboard_overview.py && \
+       grep -q "activeBots" backend/routes/dashboard_overview.py && \
+       grep -q "openPositions" backend/routes/dashboard_overview.py; then
+        pass "Overview snapshot contract keys are defined (camelCase)"
+    else
+        fail "Overview snapshot contract keys missing in backend/routes/dashboard_overview.py"
+    fi
+else
+    fail "backend/routes/dashboard_overview.py not found"
+fi
+
+echo ""
+
+###############################################################################
+# TEST 3C: AI Chat Action Metadata
+###############################################################################
+echo "🤖 Test 3C: AI Chat Action Metadata"
+echo "-----------------------------------"
+
+if [ -f "backend/routes/ai_chat.py" ] && grep -q "action_result" backend/routes/ai_chat.py; then
+    pass "AI chat action metadata fields present"
+else
+    fail "AI chat action metadata fields missing"
+fi
+
+echo ""
+
+###############################################################################
 # TEST 4: Paper Trading Status Endpoint
 ###############################################################################
 echo "📊 Test 4: Paper Trading Status"
@@ -208,6 +242,31 @@ if grep -q "def get_status" backend/paper_trading_engine.py; then
     pass "Paper trading engine has get_status() method"
 else
     fail "Paper trading engine missing get_status() method"
+fi
+
+echo ""
+
+###############################################################################
+# TEST 4B: Paper Reset Endpoint & Env Configuration
+###############################################################################
+echo "♻️ Test 4B: Paper Reset Endpoint"
+echo "--------------------------------"
+
+if [ -f ".env.example" ] && grep -q "PAPER_RESET_PASSWORD" .env.example; then
+    pass "PAPER_RESET_PASSWORD documented in .env.example"
+else
+    fail "PAPER_RESET_PASSWORD missing in .env.example"
+fi
+
+response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$API_BASE/api/system/reset-paper" 2>/dev/null || echo "000")
+if [ "$response" = "405" ] || [ "$response" = "422" ] || [ "$response" = "401" ]; then
+    pass "Paper reset endpoint exists at /api/system/reset-paper"
+else
+    if [ "$response" = "404" ]; then
+        fail "Paper reset endpoint not found (404)"
+    else
+        warn "Paper reset endpoint returned: $response (may not be running)"
+    fi
 fi
 
 echo ""

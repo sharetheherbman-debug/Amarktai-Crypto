@@ -1,4 +1,4 @@
-/* Production Dashboard - Amarktai Network */
+/* Production Dashboard - Amarktai Crypto */
 
 :root {
   --bg: #000010;
@@ -137,6 +137,19 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .topbar h1 { 
   font-size: 1rem; 
   font-weight: 600; 
+}
+
+.topbar-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brand-subtitle {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
 }
 
 .top-actions { 
@@ -346,6 +359,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   gap: 16px;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
+  min-height: calc(100vh - var(--topbar-height) - 180px);
+  height: calc(100vh - var(--topbar-height) - 180px);
 }
 
 .overview-pane {
@@ -357,6 +372,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   display: flex;
   flex-direction: column;
   min-height: 100%;
+  overflow: hidden;
 }
 
 .overview-left {
@@ -369,7 +385,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+  background: rgba(0,0,0,0.68);
 }
 
 .overview-left-content {
@@ -411,10 +427,14 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-tile span {
   font-size: 0.8rem;
   color: var(--muted);
+  font-weight: 500;
+  font-family: Inter, system-ui, sans-serif;
 }
 
 .overview-tile strong {
   font-size: 1rem;
+  font-weight: 600;
+  font-family: Inter, system-ui, sans-serif;
 }
 
 .overview-live-header {
@@ -557,22 +577,24 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .api-card { 
-  background: var(--glass); 
-  border: 1px solid var(--line); 
-  border-radius: 6px; 
-  overflow: hidden; 
+  background: rgba(0, 0, 42, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
 .api-header { 
   font-weight: 600; 
   font-size: 0.95rem; 
-  padding: 10px; 
-  background: var(--accent); 
+  padding: 12px 14px; 
+  background: rgba(0, 0, 42, 0.55);
   cursor: pointer; 
   display: flex; 
   align-items: center; 
   gap: 4px; 
-  justify-content: space-between; 
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .api-header:hover { background: var(--accent2); }
@@ -582,6 +604,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   padding: 12px; 
   flex-direction: column; 
   gap: 8px; 
+  background: rgba(0, 0, 42, 0.35);
 }
 
 .api-form.active { display: flex; }
@@ -629,6 +652,14 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .status-badge.saved { background: #374151; color: #fbbf24; }
 .status-badge.verified { background: var(--success); color: #000; }
 .status-badge.error { background: var(--error); color: #fff; }
+
+.countdown-hero {
+  animation: pulse 3s infinite;
+}
+
+.countdown-ring {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
 
 /* BOT MANAGEMENT */
 .bot-container { 

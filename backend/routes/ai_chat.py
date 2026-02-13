@@ -221,6 +221,72 @@ def build_ai_error_response(
     )
 
 
+def build_action_meta(action: Optional[str], tool_result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not action:
+        return {
+            "action_attempted": False,
+            "action_name": None,
+            "action_result": None,
+            "reason": None,
+        }
+    if not tool_result:
+        return {
+            "action_attempted": True,
+            "action_name": action,
+            "action_result": "failed",
+            "reason": "Action result unavailable.",
+        }
+    if tool_result.get("requires_confirmation"):
+        reason = tool_result.get("reply") or "Confirmation required."
+        return {
+            "action_attempted": True,
+            "action_name": action,
+            "action_result": "blocked",
+            "reason": reason,
+        }
+    result_payload = tool_result.get("result") if isinstance(tool_result.get("result"), dict) else {}
+    if isinstance(result_payload, dict) and "success" in result_payload:
+        success_flag = result_payload.get("success")
+    else:
+        success_flag = tool_result.get("success")
+    reason = tool_result.get("error") or result_payload.get("error") or result_payload.get("message")
+    if success_flag:
+        return {
+            "action_attempted": True,
+            "action_name": action,
+            "action_result": "success",
+            "reason": None,
+        }
+    reason_text = reason or "Action failed."
+    lowered = reason_text.lower()
+    blocked_keywords = ("blocked", "required", "not allowed", "permission", "confirm", "confirmation")
+    action_result = "blocked" if any(word in lowered for word in blocked_keywords) else "failed"
+    return {
+        "action_attempted": True,
+        "action_name": action,
+        "action_result": action_result,
+        "reason": reason_text,
+    }
+
+
+def resolve_action_reply(action: str, tool_result: Optional[Dict[str, Any]]) -> str:
+    if not tool_result:
+        return f"Action '{action}' failed."
+    if tool_result.get("requires_confirmation"):
+        return tool_result.get("reply") or "Confirmation required."
+    result_payload = tool_result.get("result") if isinstance(tool_result.get("result"), dict) else {}
+    reply = tool_result.get("reply") or result_payload.get("message") or tool_result.get("message")
+    if isinstance(result_payload, dict) and "success" in result_payload:
+        success_flag = result_payload.get("success")
+    else:
+        success_flag = tool_result.get("success")
+    if success_flag:
+        return reply or f"✅ {action.replace('_', ' ').title()} completed."
+    reason = tool_result.get("error") or result_payload.get("error") or result_payload.get("message")
+    if reason:
+        return reason
+    return reply or f"Action '{action}' failed."
+
 async def create_confirmation_record(
     user_id: str,
     action: str,
@@ -1302,8 +1368,19 @@ async def ai_chat(
         # Load per-user memory and update with latest 7-day summary
         memory = await get_user_memory(user_id)
         recent_summary = await build_recent_summary(user_id)
-        user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "risk_profile": 1})
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "risk_profile": 1, "first_name": 1, "last_name": 1, "email": 1, "username": 1}
+        )
         risk_profile = (user_doc or {}).get("risk_profile") or memory.get("risk_profile") or "balanced"
+        first_name = (user_doc or {}).get("first_name") or ""
+        last_name = (user_doc or {}).get("last_name") or ""
+        username = (user_doc or {}).get("username") or ""
+        email = (user_doc or {}).get("email") or ""
+        if first_name and last_name:
+            display_name = f"{first_name} {last_name}".strip()
+        else:
+            display_name = first_name or username or email or "Trader"
         await update_user_memory(user_id, {
             "risk_profile": risk_profile,
             "last_7d_summary": recent_summary
@@ -1315,6 +1392,8 @@ async def ai_chat(
         requires_confirmation = False
         confirmation_id = None
         handled_action = False
+        action_meta = build_action_meta(None, None)
+        action_success = False
 
         if confirmation_token:
             handled_action = True
@@ -1326,6 +1405,7 @@ async def ai_chat(
                     ai_response = f"Please confirm by typing the exact phrase: {required_phrase}."
                     requires_confirmation = True
                     confirmation_id = record.get("confirmation_id")
+                    action_meta = build_action_meta(record.get("action"), {"requires_confirmation": True, "reply": ai_response})
                 else:
                     tool_actions.append({
                         "action": record["action"],
@@ -1340,7 +1420,10 @@ async def ai_chat(
                     )
                     await mark_confirmation_used(record["confirmation_id"])
                     action_results.append(tool_result.get("result", tool_result))
-                    ai_response = tool_result.get("reply") or f"Confirmed. Action executed: {record['action']}."
+                    action_meta = build_action_meta(record["action"], tool_result)
+                    ai_response = resolve_action_reply(record["action"], tool_result)
+                    if action_meta.get("action_result") == "success":
+                        action_success = True
                     await log_chatops_action(user_id, record["action"], record.get("params", {}), tool_result)
                     await update_user_memory(user_id, {
                         "last_commands": (memory.get("last_commands", []) + [record["action"]])[-5:]
@@ -1370,13 +1453,15 @@ async def ai_chat(
                     handled_action = True
                     tool_actions.append({"action": action, "params": params, "source": "chat"})
                     tool_result = await execute_tool_action(action, params, user_id)
+                    action_meta = build_action_meta(action, tool_result)
+                    ai_response = resolve_action_reply(action, tool_result)
                     if tool_result.get("requires_confirmation"):
-                        ai_response = tool_result.get("reply") or "Confirmation required."
                         requires_confirmation = True
                         confirmation_id = tool_result.get("confirmation_id")
                     else:
                         action_results.append(tool_result.get("result", tool_result))
-                        ai_response = tool_result.get("reply") or f"Action executed: {action}."
+                        if action_meta.get("action_result") == "success":
+                            action_success = True
                     await log_chatops_action(user_id, action, params, tool_result)
                     await update_user_memory(user_id, {
                         "last_commands": (memory.get("last_commands", []) + [action])[-5:]
@@ -1445,34 +1530,57 @@ async def ai_chat(
                     context_payload = json.dumps(grounded_context, default=str)
                     if len(context_payload) > 4000:
                         context_payload = context_payload[:4000] + "..."
-                    tools_payload = json.dumps(get_tool_catalog(), default=str)
+                    tool_catalog = get_tool_catalog()
+                    tools_payload = json.dumps(tool_catalog, default=str)
+                    system_mode_status = grounded_context.get("system_mode") or {}
+                    allowed_actions = ", ".join([tool["name"] for tool in tool_catalog])
+                    capabilities = [
+                        "Answer questions about bots, performance, risk, and system health",
+                        "Provide overview snapshot, wallet status, and autonomy status",
+                        "Trigger approved actions only when confirmed (see Allowed Actions)"
+                    ]
 
                     # Prepare context for AI
-                    context = f"""You are an AI trading assistant for the Amarktai Network.
-                    
-Grounded System Context (JSON):
-{context_payload}
+                    context = f"""You are an AI trading assistant for Amarktai Crypto (part of Amarktai Network).
 
-User Memory:
-- Preferences: {memory_preferences}
-- Risk Profile: {risk_profile}
-- Last 7-day summary: {recent_summary}
-- Last commands: {memory_commands}
+                    User:
+                    - Name: {display_name}
+                    - Risk Profile: {risk_profile}
 
-Available Tools (JSON):
-{tools_payload}
+                    Current System Status:
+                    - Mode: {system_mode_status.get("mode", "unknown")}
+                    - Paper Trading: {system_mode_status.get("paperTrading", False)}
+                    - Live Trading: {system_mode_status.get("liveTrading", False)}
+                    - Autopilot: {system_mode_status.get("autopilot", False)}
 
-User Question: {content}
+                    Capabilities:
+                    - {"; ".join(capabilities)}
+                    - Allowed Actions: {allowed_actions}
 
-Instructions:
-- Respond in plain language (no code blocks unless the user asks for code)
-- Use the grounded system context. Do not guess unknown values.
-- If an action is needed, respond with JSON: {{ "action": "<tool_name>", "params": {{...}}, "reply": "<short response>" }}
-- If multiple actions are needed, respond with JSON: {{ "tool_actions": [{{"action": "...", "params": {{...}}}}], "reply": "<short response>" }}
-- Explain safety checks and confirmations as needed
-- Provide concise next steps
-- Use conversation history for context to maintain continuity
-"""
+                    Grounded System Context (JSON):
+                    {context_payload}
+
+                    User Memory:
+                    - Preferences: {memory_preferences}
+                    - Last 7-day summary: {recent_summary}
+                    - Last commands: {memory_commands}
+
+                    Available Tools (JSON):
+                    {tools_payload}
+
+                    User Question: {content}
+
+                    Instructions:
+                    - Respond in plain language (no code blocks unless the user asks for code)
+                    - Use the grounded system context. Do not guess unknown values.
+                    - Never claim an action completed unless the tool reports success.
+                    - If an action requires confirmation, ask for confirmation before executing.
+                    - If an action is needed, respond with JSON: {{ "action": "<tool_name>", "params": {{...}}, "reply": "<short response>" }}
+                    - If multiple actions are needed, respond with JSON: {{ "tool_actions": [{{"action": "...", "params": {{...}}}}], "reply": "<short response>" }}
+                    - Explain safety checks and confirmations as needed
+                    - Provide concise next steps
+                    - Use conversation history for context to maintain continuity
+                    """
                     
                     # Build messages with history for context
                     ai_messages = [{"role": "system", "content": context}]
@@ -1589,13 +1697,17 @@ Instructions:
                 tool_actions.append({"action": tool_action, "params": tool_params or {}, "source": "ai"})
                 tool_result = await execute_tool_action(tool_action, tool_params or {}, user_id)
                 await log_chatops_action(user_id, tool_action, tool_params or {}, tool_result)
+                action_meta = build_action_meta(tool_action, tool_result)
+                action_reply = resolve_action_reply(tool_action, tool_result)
                 if tool_result.get("requires_confirmation"):
                     requires_confirmation = True
                     confirmation_id = tool_result.get("confirmation_id")
-                    ai_response = tool_result.get("reply") or tool_reply or "Confirmation required."
+                    ai_response = action_reply
                 else:
                     action_results.append(tool_result.get("result", tool_result))
-                    ai_response = tool_reply or tool_result.get("reply") or ai_response
+                    ai_response = tool_reply if tool_reply and action_meta.get("action_result") == "success" else action_reply
+                    if action_meta.get("action_result") == "success":
+                        action_success = True
             elif tool_action_list:
                 if tool_reply:
                     ai_response = tool_reply
@@ -1609,14 +1721,18 @@ Instructions:
                     tool_actions.append({"action": action_name, "params": action_params, "source": "ai"})
                     tool_result = await execute_tool_action(action_name, action_params, user_id)
                     await log_chatops_action(user_id, action_name, action_params, tool_result)
+                    action_meta = build_action_meta(action_name, tool_result)
                     if tool_result.get("requires_confirmation") and not requires_confirmation:
                         requires_confirmation = True
                         confirmation_id = tool_result.get("confirmation_id")
-                        ai_response = tool_result.get("reply") or ai_response
+                        ai_response = resolve_action_reply(action_name, tool_result)
                     else:
                         action_results.append(tool_result.get("result", tool_result))
-                        if not tool_result.get("success") and isinstance(ai_response, str):
-                            ai_response += f" Action failed: {tool_result.get('error', 'unknown error')}."
+                        if action_meta.get("action_result") == "success":
+                            action_success = True
+                        elif isinstance(ai_response, str):
+                            failure_reason = action_meta.get("reason") or "Action failed."
+                            ai_response += f" {failure_reason}"
         except Exception as tool_error:
             logger.warning(f"Tool action parsing failed: {tool_error}")
 
@@ -1634,6 +1750,9 @@ Instructions:
             "type": "ai_chat_message",
             "message": ai_response
         })
+
+        if action_success:
+            await rt_events.force_refresh(user_id, reason="AI action completed. Refreshing dashboard.")
         
         return {
             "success": True,
@@ -1641,6 +1760,7 @@ Instructions:
             "content": ai_response,
             "reply": ai_response,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            **action_meta,
             "actions": tool_actions,
             "tool_actions": tool_actions,
             "action_results": action_results,

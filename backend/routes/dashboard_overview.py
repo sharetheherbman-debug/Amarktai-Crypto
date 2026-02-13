@@ -20,6 +20,32 @@ import database as db
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+OVERVIEW_SNAPSHOT_KEYS = [
+    "systemMode",
+    "activeBots",
+    "openPositions",
+    "totalProfit",
+    "winRate",
+    "todaysTrades",
+    "riskLevel",
+    "lastRebalance",
+    "nextReinvest",
+]
+
+
+def _safe_int(value, default=0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default=0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 
 @router.get("/api/dashboard/overview")
 async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
@@ -186,10 +212,44 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
         
         # Get complete snapshot from centralized service
         snapshot = await overview_service.get_snapshot(user_id)
-        
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "risk_profile": 1}
+        )
+        risk_level = (user_doc or {}).get("risk_profile") or "balanced"
+
+        mode_flags = snapshot.get("trading_mode_flags") or {}
+        if mode_flags.get("live_trading"):
+            system_mode = "live"
+        elif mode_flags.get("autopilot"):
+            system_mode = "autopilot"
+        else:
+            system_mode = "paper"
+
+        open_positions = 0
+        if db.positions_collection is not None:
+            try:
+                open_positions = await db.positions_collection.count_documents({
+                    "user_id": user_id,
+                    "status": {"$ne": "closed"}
+                })
+            except Exception:
+                open_positions = await db.positions_collection.count_documents({"user_id": user_id})
+
+        normalized_snapshot = {
+            "systemMode": system_mode,
+            "activeBots": _safe_int(snapshot.get("bots_active", 0)),
+            "openPositions": _safe_int(open_positions),
+            "totalProfit": round(_safe_float(snapshot.get("total_profit", 0)), 2),
+            "winRate": round(_safe_float(snapshot.get("win_rate", 0)), 2),
+            "todaysTrades": _safe_int(snapshot.get("trades_today", 0)),
+            "riskLevel": risk_level.replace("_", " ").title(),
+            "lastRebalance": snapshot.get("last_rebalance") or "Not available",
+            "nextReinvest": snapshot.get("next_reinvest") or "Not available",
+        }
+
         return {
-            "success": True,
-            **snapshot
+            **normalized_snapshot
         }
         
     except Exception as e:
