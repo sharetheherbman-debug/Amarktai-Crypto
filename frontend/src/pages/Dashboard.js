@@ -1613,7 +1613,7 @@ export default function Dashboard() {
             setShowAdmin(true);
             
             // Success feedback message
-            const successMsg = { role: 'assistant', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
+            const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
             setChatMessages(prev => [...prev, successMsg]);
           
           // Auto-hide after 1 hour
@@ -1651,7 +1651,7 @@ export default function Dashboard() {
           }
           
           // Success feedback message
-          const successMsg = { role: 'assistant', content: '✅ Admin panel hidden successfully.' };
+          const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel hidden successfully.' };
           setChatMessages(prev => [...prev, successMsg]);
           console.log('Admin section deactivated, showAdmin:', false);
           
@@ -1674,6 +1674,7 @@ export default function Dashboard() {
         console.log('❌ WRONG PASSWORD:', originalInput);
         const errorMsg = { 
           role: 'assistant', 
+          type: 'system',
           content: '❌ Invalid admin password. Access denied. Please try again with the correct password.' 
         };
         setChatMessages(prev => [...prev, errorMsg]);
@@ -2393,6 +2394,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: message 
       }]);
       
@@ -2404,6 +2406,7 @@ export default function Dashboard() {
       const errorMsg = err.response?.data?.detail || 'Bodyguard check failed';
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: `❌ Bodyguard scan failed: ${errorMsg}` 
       }]);
       showNotification(`❌ ${errorMsg}`, 'error');
@@ -2432,6 +2435,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: message 
       }]);
       
@@ -2440,6 +2444,7 @@ export default function Dashboard() {
       const errorMsg = err.response?.data?.detail || 'Learning failed';
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: `❌ Learning failed: ${errorMsg}` 
       }]);
       showNotification(`❌ ${errorMsg}`, 'error');
@@ -2465,6 +2470,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: message 
       }]);
       
@@ -2479,6 +2485,7 @@ export default function Dashboard() {
       }
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: `❌ Bot evolution failed: ${errorMsg}` 
       }]);
     } finally {
@@ -2499,6 +2506,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: message 
       }]);
       
@@ -2508,6 +2516,7 @@ export default function Dashboard() {
       toast.error(`❌ ${errorMsg}`);
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: `❌ Insights failed: ${errorMsg}` 
       }]);
     } finally {
@@ -2532,6 +2541,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: message 
       }]);
       
@@ -2545,6 +2555,7 @@ export default function Dashboard() {
       }
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: `❌ Prediction failed: ${errorMsg}` 
       }]);
     } finally {
@@ -2571,6 +2582,7 @@ export default function Dashboard() {
       
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: message 
       }]);
       
@@ -2582,6 +2594,7 @@ export default function Dashboard() {
       toast.error(`❌ ${errorMsg}`);
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
+        type: 'system',
         content: `❌ Reinvestment failed: ${errorMsg}` 
       }]);
     } finally {
@@ -2988,7 +3001,7 @@ export default function Dashboard() {
           </div>
           <div className="amk-chat-box">
             {chatMessages.map((msg, idx) => (
-              <div key={idx} className={`msg ${msg.role}`}>
+              <div key={idx} className={`msg ${msg.role} ${msg.type || ''}`.trim()}>
                 <div className="bubble">{msg.content}</div>
               </div>
             ))}
@@ -3306,7 +3319,7 @@ export default function Dashboard() {
                   {recentTrades.length === 0 ? (
                     <div className="overview-activity-empty">No recent trades.</div>
                   ) : (
-                    recentTrades.slice(0, 4).map((trade, idx) => (
+                    recentTrades.slice(0, 3).map((trade, idx) => (
                       <div key={`${trade.id || trade.timestamp || idx}`} className="overview-activity-row">
                         <span>{trade.pair || trade.symbol || 'Not available'}</span>
                         <span>{trade.exchange || 'Not available'}</span>
@@ -3334,7 +3347,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>🔑 API Setup - All Integration Keys</h2>
+          <h2 style={{color: '#ffffff'}}>🔑 API Setup</h2>
           <p style={{color: 'var(--muted)', marginBottom: '20px', fontSize: '0.9rem'}}>
             Configure all API keys and credentials for exchanges, AI services, and integrations. All keys are encrypted and stored securely per-user.
           </p>
@@ -3343,14 +3356,35 @@ export default function Dashboard() {
               const status = getApiStatus(provider);
               const isExpanded = expandedApis[provider];
               const exchangeInfo = getExchangeById(provider);
+              const keyDetails = apiKeys[provider.toLowerCase()] || {};
+              const keySuffix = keyDetails.masked_key
+                || keyDetails.key_masked
+                || keyDetails.key_last4
+                || keyDetails.last_four
+                || keyDetails.last4;
+              const maskedKey = status.badge === 'missing'
+                ? 'Not available'
+                : keySuffix
+                  ? `•••• ${keySuffix}`
+                  : '••••••••';
+              const lastTestValue = keyDetails.last_tested_at || keyDetails.last_test || keyDetails.last_test_time || keyDetails.updated_at;
+              const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not available';
+              const lastTest = lastTestFormatted === '—' ? 'Not available' : lastTestFormatted;
               
               return (
                 <div key={provider} className="api-card">
                   <div className="api-header" onClick={() => toggleApiExpand(provider)}>
-                    <span>
-                      {exchangeInfo ? `${exchangeInfo.icon} ${exchangeInfo.displayName}` : provider.charAt(0).toUpperCase() + provider.slice(1)}
-                    </span>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                    <div className="api-title">
+                      <span>
+                        {exchangeInfo ? `${exchangeInfo.icon} ${exchangeInfo.displayName}` : provider.charAt(0).toUpperCase() + provider.slice(1)}
+                      </span>
+                      <small style={{color: 'var(--muted)', fontSize: '0.7rem'}}>
+                        {exchangeInfo?.comingSoon ? 'Coming soon' : 'Secure integration'}
+                      </small>
+                    </div>
+                    <div className="api-meta">
+                      <span>Key: {maskedKey}</span>
+                      <span>Last test: {lastTest}</span>
                       <span className={`status-badge ${status.badge}`}>{status.text}</span>
                       <div className={`status-dot ${status.dot}`}></div>
                     </div>
@@ -4172,16 +4206,17 @@ export default function Dashboard() {
             <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
               Last check: {adminApiHealth.lastCheck ? formatDate(adminApiHealth.lastCheck) : '—'}
             </div>
-            {adminApiHealth.error && (
-              <div style={{fontSize: '0.75rem', color: 'var(--error)'}}>
-                {adminApiHealth.error}
-              </div>
-            )}
-          </div>
-          
+          {adminApiHealth.error && (
+            <div style={{fontSize: '0.75rem', color: 'var(--error)'}}>
+              {adminApiHealth.error}
+            </div>
+          )}
+        </div>
+        
+        <div className="admin-stack">
           {/* VPS Resource Summary */}
           {systemStats?.vps_resources && (
-            <div style={{marginBottom: '24px'}}>
+            <div className="admin-card">
               <h3 style={{marginBottom: '12px', color: '#ffffff'}}>🖥️ VPS Resources</h3>
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px'}}>
                 <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
@@ -4220,7 +4255,7 @@ export default function Dashboard() {
           
           {/* System Stats */}
           {systemStats && (
-            <div style={{marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px'}}>
+            <div className="admin-card" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px'}}>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
                 <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{safeNumber(systemStats.users?.total, 0)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Users</div>
@@ -4241,7 +4276,7 @@ export default function Dashboard() {
           )}
 
           {systemStats && (
-            <div style={{marginBottom: '24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px'}}>
+            <div className="admin-card" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px'}}>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginBottom: '8px'}}>System Modes</div>
                 <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
@@ -4258,7 +4293,7 @@ export default function Dashboard() {
           )}
 
           {systemStats?.exchange_breakdown && (
-            <div style={{marginBottom: '24px', padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div className="admin-card">
               <h3 style={{margin: 0, color: '#ffffff'}}>📊 Exchange Breakdown</h3>
               <div style={{marginTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
                 {SUPPORTED_PLATFORMS.map(exchange => {
@@ -4283,7 +4318,7 @@ export default function Dashboard() {
             </div>
           )}
           {storageData && (
-            <div style={{marginBottom: '24px', padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+            <div className="admin-card">
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                 <h3 style={{margin: 0, color: '#ffffff'}}>💾 User Storage Usage</h3>
                 <div style={{fontSize: '0.9rem', color: '#cccccc'}}>
@@ -4551,7 +4586,7 @@ export default function Dashboard() {
           )}
           
           {/* User Management Table - Interactive */}
-          <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+          <div className="admin-card">
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
               <h3 style={{margin: 0, color: 'var(--accent)', fontWeight: 'bold'}}>👥 User Management</h3>
               <button
@@ -4711,7 +4746,7 @@ export default function Dashboard() {
           </div>
           
           {/* Bot Override Panel - Interactive */}
-          <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+          <div className="admin-card">
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
               <h3 style={{margin: 0, color: 'var(--accent)', fontWeight: 'bold'}}>🤖 Bot Control Panel</h3>
               <button
@@ -4736,6 +4771,11 @@ export default function Dashboard() {
             {/* User and Bot Selection */}
             <div style={{marginBottom: '20px', padding: '16px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--accent)'}}>
               <h4 style={{margin: '0 0 12px 0', color: 'var(--accent)', fontSize: '0.9rem', fontWeight: 'bold'}}>🎯 Select Target</h4>
+              {!loadingBots && adminBots.length === 0 && (
+                <div className="admin-empty" style={{marginBottom: '12px'}}>
+                  No bots are currently registered for any users.
+                </div>
+              )}
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px'}}>
                 {/* User Selection */}
                 <div>
@@ -4931,7 +4971,7 @@ export default function Dashboard() {
           </div>
           
           {/* Admin Tools - All in One Section */}
-          <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--accent)'}}>
+          <div className="admin-card">
             <h3 style={{marginBottom: '16px', color: 'var(--accent)'}}>🛠️ System Administration</h3>
             
             <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
@@ -4993,7 +5033,7 @@ export default function Dashboard() {
                     const reportMsg = `System Health Report (${score}/100)\n\n${statusHTML}`;
                     setChatMessages(prev => [...prev, 
                       { role: 'user', content: 'Check system health' },
-                      { role: 'assistant', content: reportMsg }
+                      { role: 'assistant', type: 'system', content: reportMsg }
                     ]);
                     
                     // Redirect to chat section
@@ -5029,13 +5069,7 @@ export default function Dashboard() {
           </div>
           
           {/* Admin Utilities */}
-          <div style={{
-            marginTop: '24px', 
-            padding: '20px', 
-            background: 'var(--glass)', 
-            borderRadius: '10px', 
-            border: '1px solid var(--line)'
-          }}>
+          <div className="admin-card">
             <h3 style={{marginBottom: '16px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px'}}>
               🔐 Encryption Utilities
               <span style={{fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--muted)'}}>
@@ -5080,12 +5114,13 @@ export default function Dashboard() {
             </div>
           </div>
           
-          <div style={{marginTop: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--error)', fontSize: '0.85rem'}}>
+          <div className="admin-card" style={{borderColor: 'var(--error)'}}>
             <p style={{color: 'var(--error)', fontWeight: 600, marginBottom: '8px'}}>⚠️ Admin Warning</p>
             <p style={{color: 'var(--muted)'}}>
               You have full control over all users. Use these powers responsibly. All actions are logged.
             </p>
           </div>
+        </div>
         </div>
       </section>
     );
@@ -7330,7 +7365,6 @@ export default function Dashboard() {
         <header className="topbar">
           <div className="topbar-brand">
             <h1>Amarktai Crypto</h1>
-            <span className="brand-subtitle">part of Amarktai Network</span>
           </div>
           <div className="top-actions">
             <div className="status-indicator">
@@ -7400,7 +7434,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="footer">
-        <div>© 2026 Amarktai Crypto · part of Amarktai Network. All rights reserved.</div>
+        <div>© 2026 Amarktai Crypto · a part of Amarktai Network. All rights reserved.</div>
       </footer>
 
       {/* Bot Promotion Modal */}

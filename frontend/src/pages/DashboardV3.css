@@ -7,6 +7,7 @@
   --line: rgba(255,255,255,0.15);
   --accent: #001a33;
   --accent2: #002b57;
+  --accent-bright: #38bdf8;
   --text: #ffffff;
   --muted: #b3b3b3;
   --radius: 8px;
@@ -221,6 +222,13 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   color: #ffffff; /* FIXED: All section headers now white for go-live */
 }
 
+.card h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 12px;
+}
+
 .card h2 .balances {
   display: flex;
   gap: 12px;
@@ -276,6 +284,9 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   padding: 16px; 
   overflow-y: auto; 
   overflow-x: hidden; 
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .amk-chat .msg { 
@@ -303,18 +314,31 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   color: var(--text); 
 }
 
+.amk-chat .msg.system .bubble {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #d1fae5;
+}
+
+.amk-chat .msg.assist .bubble {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #e0f2fe;
+}
+
 .amk-chat .amk-row { 
   display: flex; 
   gap: 6px; 
   align-items: center; 
   flex-shrink: 0; /* Keep input row pinned at bottom */
-  position: sticky; /* Pin to bottom of chat container */
-  bottom: 0;
-  background: var(--bg); /* Match background */
-  padding: 8px 0; /* Add some padding */
+  background: linear-gradient(180deg, rgba(0, 0, 16, 0.2) 0%, rgba(0, 0, 16, 0.8) 100%);
+  padding: 10px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.amk-chat input[type="text"] { 
+.amk-chat input[type="text"],
+.amk-chat input[type="password"] { 
   flex: 1; 
   background: rgba(255, 255, 255, 0.05); 
   border: 1px solid rgba(255, 255, 255, 0.2); 
@@ -326,11 +350,13 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   min-height: 46px;
 }
 
-.amk-chat input[type="text"]::placeholder {
+.amk-chat input[type="text"]::placeholder,
+.amk-chat input[type="password"]::placeholder {
   color: rgba(255, 255, 255, 0.4);
 }
 
-.amk-chat input[type="text"]:focus {
+.amk-chat input[type="text"]:focus,
+.amk-chat input[type="password"]:focus {
   outline: none;
   border-color: var(--accent2);
   background: rgba(255, 255, 255, 0.08);
@@ -359,8 +385,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   gap: 16px;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
-  min-height: calc(100vh - var(--topbar-height) - 180px);
-  height: calc(100vh - var(--topbar-height) - 180px);
+  min-height: 0;
+  height: calc(100vh - var(--topbar-height) - 210px);
 }
 
 .overview-pane {
@@ -376,24 +402,32 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .overview-left {
+  background: var(--panel);
+}
+
+.overview-right {
   background: url('/assets/poster.jpg') center/cover no-repeat;
   position: relative;
   overflow: hidden;
+  color: #ffffff;
 }
 
-.overview-left::before {
+.overview-right::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.68);
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.overview-right > * {
+  position: relative;
+  z-index: 1;
 }
 
 .overview-left-content {
-  position: relative;
-  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   height: 100%;
   color: #ffffff;
 }
@@ -406,6 +440,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-left-head p {
   color: rgba(255,255,255,0.75);
   font-size: 0.9rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .overview-tiles {
@@ -418,10 +456,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .overview-tile span {
@@ -448,31 +486,32 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-live-header h3 {
   margin: 0;
   font-size: 1.2rem;
+  color: #ffffff;
 }
 
 .overview-live-header p {
   margin: 4px 0 0;
-  color: var(--muted);
+  color: var(--accent-bright);
   font-size: 0.8rem;
 }
 
 .overview-live-update {
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--success);
 }
 
 .overview-heartbeats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .heartbeat-tile {
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -495,7 +534,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .overview-status-grid .status-item {
@@ -514,7 +553,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .overview-activity {
-  margin-top: 12px;
+  margin-top: 10px;
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -573,38 +612,60 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .api-accordion { 
   display: flex; 
   flex-direction: column; 
-  gap: 8px; 
+  gap: 12px; 
 }
 
 .api-card { 
-  background: rgba(0, 0, 42, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
 .api-header { 
   font-weight: 600; 
   font-size: 0.95rem; 
-  padding: 12px 14px; 
-  background: rgba(0, 0, 42, 0.55);
+  padding: 14px 16px; 
+  background: rgba(0, 0, 42, 0.45);
   cursor: pointer; 
   display: flex; 
   align-items: center; 
-  gap: 4px; 
+  gap: 12px; 
   justify-content: space-between;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
 }
 
 .api-header:hover { background: var(--accent2); }
+
+.api-header .api-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.api-header .api-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.api-header .api-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .api-form { 
   display: none; 
   padding: 12px; 
   flex-direction: column; 
-  gap: 8px; 
-  background: rgba(0, 0, 42, 0.35);
+  gap: 10px; 
+  background: rgba(0, 0, 42, 0.25);
 }
 
 .api-form.active { display: flex; }
@@ -622,9 +683,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .api-form .buttons { 
   display: flex; 
-  gap: 6px; 
+  gap: 8px; 
   margin-top: 6px; 
   flex-wrap: wrap; 
+  justify-content: flex-end;
 }
 
 .api-form button { 
@@ -655,10 +717,53 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .countdown-hero {
   animation: pulse 3s infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.countdown-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.05) 0%, transparent 60%);
+  pointer-events: none;
 }
 
 .countdown-ring {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  position: relative;
+}
+
+.countdown-ring::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  pointer-events: none;
+}
+
+.admin-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.admin-empty {
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
 }
 
 /* BOT MANAGEMENT */
