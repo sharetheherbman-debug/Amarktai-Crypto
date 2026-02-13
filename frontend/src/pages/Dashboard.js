@@ -31,7 +31,6 @@ import { post, get } from '../lib/apiClient';
 import realtimeClient from '../lib/realtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
-import VersionBadge from '../components/VersionBadge';
 
 ChartJS.register(
   CategoryScale,
@@ -60,7 +59,7 @@ const safeNumber = (value, fallback = 0) => {
 
 const resolveSystemMode = (modeRes) => {
   if (!modeRes) return 'paper';
-  return modeRes.mode || (modeRes.liveTrading ? 'live' : modeRes.autopilot ? 'autonomous' : 'paper');
+  return modeRes.mode || (modeRes.liveTrading ? 'live' : modeRes.autopilot ? 'autopilot' : 'paper');
 };
 
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -101,7 +100,7 @@ export default function Dashboard() {
     exposure: '0%',
     riskLevel: 'Unknown',
     aiSentiment: 'Neutral',
-    lastUpdate: '—'
+    lastUpdate: 'Not available'
   });
   const [balances, setBalances] = useState({ zar: 0, btc: 0 });
   const [systemModes, setSystemModes] = useState({
@@ -158,15 +157,16 @@ export default function Dashboard() {
   });
   const [overviewData, setOverviewData] = useState({
     totalProfit: 0,
-    todaysProfit: 0,
-    totalTrades: 0,
+    todaysTrades: 0,
+    openPositions: 0,
     winRate: 0,
     activeBots: 0,
-    pausedBots: 0,
     paperWalletTotal: 0,
     paperWalletAllocated: 0,
     lastTradeTime: null,
-    systemMode: 'paper'
+    systemMode: 'paper',
+    lastRebalance: 'Not available',
+    nextReinvest: 'Not available'
   });
   const [botControlLoading, setBotControlLoading] = useState({});
   const [recentTrades, setRecentTrades] = useState([]);
@@ -192,6 +192,10 @@ export default function Dashboard() {
   const [showAITools, setShowAITools] = useState(false); // Toggle AI tools submenu
   const [eligibleBots, setEligibleBots] = useState([]);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
+  const [showPaperResetModal, setShowPaperResetModal] = useState(false);
+  const [paperResetPassword, setPaperResetPassword] = useState('');
+  const [paperResetError, setPaperResetError] = useState('');
+  const [paperResetLoading, setPaperResetLoading] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
@@ -1106,31 +1110,31 @@ export default function Dashboard() {
       const aiRes = aiResult.status === 'fulfilled' ? aiResult.value : null;
       const learningRes = learningResult.status === 'fulfilled' ? learningResult.value : null;
 
-      const totalProfit = safeNumber(snapshotRes?.total_profit, 0);
-      const todaysProfit = safeNumber(snapshotRes?.today_profit, 0);
-      const totalTrades = safeNumber(snapshotRes?.trades_total, 0);
-      const winRate = safeNumber(snapshotRes?.win_rate, 0);
-      const activeBots = safeNumber(snapshotRes?.bots_active, 0);
-      const pausedBots = safeNumber(snapshotRes?.bots_paused, 0);
+      const totalProfit = safeNumber(snapshotRes?.totalProfit, 0);
+      const todaysTrades = safeNumber(snapshotRes?.todaysTrades, 0);
+      const openPositions = safeNumber(snapshotRes?.openPositions, 0);
+      const winRate = safeNumber(snapshotRes?.winRate, 0);
+      const activeBots = safeNumber(snapshotRes?.activeBots, 0);
       const paperWalletTotal = safeNumber(paperWalletRes?.total, 0);
       const paperWalletAllocated = Object.values(paperWalletRes?.allocated || {}).reduce(
         (sum, value) => sum + safeNumber(value, 0),
         0
       );
-      const systemMode = resolveSystemMode(modeRes);
+      const systemMode = snapshotRes?.systemMode || resolveSystemMode(modeRes);
       const lastTradeTime = tradesRes?.trades?.[0]?.timestamp || null;
 
       setOverviewData({
         totalProfit,
-        todaysProfit,
-        totalTrades,
+        todaysTrades,
+        openPositions,
         winRate,
         activeBots,
-        pausedBots,
         paperWalletTotal,
         paperWalletAllocated,
         lastTradeTime,
-        systemMode
+        systemMode,
+        lastRebalance: snapshotRes?.lastRebalance || 'Not available',
+        nextReinvest: snapshotRes?.nextReinvest || 'Not available'
       });
       setAutonomyStatus(autonomyRes);
       setAiStatus(aiRes);
@@ -1760,14 +1764,23 @@ export default function Dashboard() {
       const reply = typeof payload === 'string'
         ? payload
         : (payload.reply || payload.content || payload.response || payload.message || 'No response');
-      const assistantMsg = { role: 'assistant', content: reply };
+      let finalReply = reply;
+      if (payload?.action_attempted && payload?.action_result && payload?.action_result !== 'success') {
+        const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
+        const reason = payload.reason ? `: ${payload.reason}` : '';
+        finalReply = `${reply}\n\n${statusLabel}${reason}`;
+      }
+      const assistantMsg = { role: 'assistant', content: finalReply };
       setChatMessages(prev => [...prev, assistantMsg]);
+      if (payload?.action_attempted && payload?.action_result === 'success') {
+        refreshAllDashboardData();
+      }
       
       // PHASE 12: Save assistant message to backend
       try {
         await post('/ai/chat', {
           role: 'assistant',
-          content: reply,
+          content: finalReply,
           log_only: true,
           metadata: { timestamp: new Date().toISOString() }
         });
@@ -1888,6 +1901,26 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Emergency stop error:', err);
       showNotification('Emergency stop failed', 'error');
+    }
+  };
+
+  const handlePaperReset = async () => {
+    if (!paperResetPassword) {
+      setPaperResetError('Password is required to reset paper trading.');
+      return;
+    }
+    try {
+      setPaperResetLoading(true);
+      setPaperResetError('');
+      await axios.post(`${API}/system/reset-paper`, { password: paperResetPassword }, axiosConfig);
+      toast.success('Paper trading reset completed.');
+      setShowPaperResetModal(false);
+      setPaperResetPassword('');
+      refreshAllDashboardData();
+    } catch (err) {
+      setPaperResetError(extractErrorMessage(err, 'Paper reset failed'));
+    } finally {
+      setPaperResetLoading(false);
     }
   };
 
@@ -2251,16 +2284,16 @@ export default function Dashboard() {
   const getApiStatus = (provider) => {
     const key = apiKeys[provider.toLowerCase()];
     if (!key || key.status === 'not_configured') {
-      return { badge: 'missing', text: 'Not configured', dot: 'err' };
+      return { badge: 'missing', text: 'Not Configured', dot: 'err' };
     }
     if (key.status === 'configured_valid') {
-      return { badge: 'verified', text: 'Valid ✓', dot: 'ok' };
+      return { badge: 'verified', text: 'Tested OK', dot: 'ok' };
     }
     if (key.status === 'configured_invalid') {
-      return { badge: 'error', text: 'Invalid ✗', dot: 'err' };
+      return { badge: 'error', text: 'Invalid', dot: 'err' };
     }
     if (key.status === 'configured_untested') {
-      return { badge: 'saved', text: 'Configured (untested)', dot: 'warn' };
+      return { badge: 'saved', text: 'Configured', dot: 'warn' };
     }
     return { badge: 'saved', text: 'Configured', dot: 'warn' };
   };
@@ -2987,7 +3020,11 @@ export default function Dashboard() {
     const learningEnabled = learningStatus?.enabled;
     const learningLastRun = learningStatus?.last_run || learningHeartbeat.last_tick;
     const aiKeyConfigured = aiStatus?.key_configured;
-    const aiModel = aiStatus?.model || '—';
+    const aiModel = aiStatus?.model || 'Not available';
+    const formatOverviewDate = (value) => {
+      const formatted = formatDate(value);
+      return formatted === '—' ? 'Not available' : formatted;
+    };
 
     return (
       <section className="section active">
@@ -3145,14 +3182,12 @@ export default function Dashboard() {
                     </strong>
                   </div>
                   <div className="overview-tile">
-                    <span>Today's Profit</span>
-                    <strong style={{color: safeNumber(overviewData.todaysProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                      R{safeToFixed(overviewData.todaysProfit, 2)}
-                    </strong>
+                    <span>Today's Trades</span>
+                    <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
                   </div>
                   <div className="overview-tile">
-                    <span>Total Trades</span>
-                    <strong>{safeNumber(overviewData.totalTrades, 0)}</strong>
+                    <span>Open Positions</span>
+                    <strong>{safeNumber(overviewData.openPositions, 0)}</strong>
                   </div>
                   <div className="overview-tile">
                     <span>Win Rate</span>
@@ -3163,7 +3198,7 @@ export default function Dashboard() {
                     <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
                   </div>
                   <div className="overview-tile">
-                    <span>Paper Wallet</span>
+                    <span>Training Credits</span>
                     <strong>R{safeToFixed(overviewData.paperWalletTotal, 2)}</strong>
                   </div>
                 </div>
@@ -3181,41 +3216,41 @@ export default function Dashboard() {
                 <div className="heartbeat-tile">
                   <span>Autopilot</span>
                   <strong>{autopilotHeartbeat.status || 'unknown'}</strong>
-                  <small>{formatDate(autopilotHeartbeat.last_tick)}</small>
+                    <small>{formatOverviewDate(autopilotHeartbeat.last_tick)}</small>
+                  </div>
+                  <div className="heartbeat-tile">
+                    <span>Trading Scheduler</span>
+                    <strong>{tradingHeartbeat.status || 'unknown'}</strong>
+                    <small>{formatOverviewDate(tradingHeartbeat.last_tick)}</small>
+                  </div>
+                  <div className="heartbeat-tile">
+                    <span>Bodyguard</span>
+                    <strong>{bodyguardHeartbeat.status || 'unknown'}</strong>
+                    <small>{formatOverviewDate(bodyguardHeartbeat.last_tick)}</small>
+                  </div>
+                  <div className="heartbeat-tile">
+                    <span>Realtime</span>
+                    <strong>{realtimeHeartbeat.status || 'unknown'}</strong>
+                    <small>{formatOverviewDate(realtimeHeartbeat.last_tick)}</small>
+                  </div>
+                  <div className="heartbeat-tile">
+                    <span>Self-Heal</span>
+                    <strong>{selfHealHeartbeat.status || 'unknown'}</strong>
+                    <small>{formatOverviewDate(selfHealHeartbeat.last_tick)}</small>
+                  </div>
+                  <div className="heartbeat-tile">
+                    <span>Learning Loop</span>
+                    <strong>{learningEnabled ? 'enabled' : 'disabled'}</strong>
+                    <small>{formatOverviewDate(learningLastRun)}</small>
+                  </div>
                 </div>
-                <div className="heartbeat-tile">
-                  <span>Trading Scheduler</span>
-                  <strong>{tradingHeartbeat.status || 'unknown'}</strong>
-                  <small>{formatDate(tradingHeartbeat.last_tick)}</small>
-                </div>
-                <div className="heartbeat-tile">
-                  <span>Bodyguard</span>
-                  <strong>{bodyguardHeartbeat.status || 'unknown'}</strong>
-                  <small>{formatDate(bodyguardHeartbeat.last_tick)}</small>
-                </div>
-                <div className="heartbeat-tile">
-                  <span>Realtime</span>
-                  <strong>{realtimeHeartbeat.status || 'unknown'}</strong>
-                  <small>{formatDate(realtimeHeartbeat.last_tick)}</small>
-                </div>
-                <div className="heartbeat-tile">
-                  <span>Self-Heal</span>
-                  <strong>{selfHealHeartbeat.status || 'unknown'}</strong>
-                  <small>{formatDate(selfHealHeartbeat.last_tick)}</small>
-                </div>
-                <div className="heartbeat-tile">
-                  <span>Learning Loop</span>
-                  <strong>{learningEnabled ? 'enabled' : 'disabled'}</strong>
-                  <small>{formatDate(learningLastRun)}</small>
-                </div>
-              </div>
               <div className="overview-status-grid">
                 <div className="status-item">
                   <strong>System Mode</strong>
                   <div className="led-row">
                     <span style={{textTransform: 'uppercase', fontWeight: 700}}>
                       {overviewData.systemMode === 'live' && '🔴 LIVE'}
-                      {overviewData.systemMode === 'autonomous' && '🤖 AUTONOMOUS'}
+                      {overviewData.systemMode === 'autopilot' && '🤖 AUTOPILOT'}
                       {overviewData.systemMode === 'paper' && '📄 PAPER'}
                     </span>
                   </div>
@@ -3224,23 +3259,35 @@ export default function Dashboard() {
                   <strong>Last Trade</strong>
                   <div className="led-row">
                     <span style={{fontSize: '0.85rem'}}>
-                      {formatDate(overviewData.lastTradeTime) !== '—' ? formatDate(overviewData.lastTradeTime) : 'No trades yet'}
+                      {formatOverviewDate(overviewData.lastTradeTime) !== 'Not available' ? formatOverviewDate(overviewData.lastTradeTime) : 'No trades yet'}
                     </span>
                   </div>
                 </div>
                 <div className="status-item">
                   <strong>Exposure</strong>
-                  <div className="led-row"><span>{metrics.exposure}</span></div>
+                  <div className="led-row"><span>{metrics.exposure || 'Not available'}</span></div>
                 </div>
                 <div className="status-item">
                   <strong>Risk Level</strong>
-                  <div className="led-row"><span>{metrics.riskLevel}</span></div>
+                  <div className="led-row"><span>{metrics.riskLevel || 'Not available'}</span></div>
                 </div>
                 <div className="status-item">
                   <strong>AI Model</strong>
                   <div className="led-row">
                     <span>{aiModel}</span>
                     <span className="status-pill">{aiKeyConfigured ? 'Key OK' : 'Key missing'}</span>
+                  </div>
+                </div>
+                <div className="status-item">
+                  <strong>Last Rebalance</strong>
+                  <div className="led-row">
+                    <span>{overviewData.lastRebalance || 'Not available'}</span>
+                  </div>
+                </div>
+                <div className="status-item">
+                  <strong>Next Reinvest</strong>
+                  <div className="led-row">
+                    <span>{overviewData.nextReinvest || 'Not available'}</span>
                   </div>
                 </div>
                 <div className="status-item">
@@ -3259,12 +3306,12 @@ export default function Dashboard() {
                   {recentTrades.length === 0 ? (
                     <div className="overview-activity-empty">No recent trades.</div>
                   ) : (
-                    recentTrades.slice(0, 6).map((trade, idx) => (
+                    recentTrades.slice(0, 4).map((trade, idx) => (
                       <div key={`${trade.id || trade.timestamp || idx}`} className="overview-activity-row">
-                        <span>{trade.pair || trade.symbol || '—'}</span>
-                        <span>{trade.exchange || '—'}</span>
-                        <span>{trade.side || '—'}</span>
-                        <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : '—'}</span>
+                        <span>{trade.pair || trade.symbol || 'Not available'}</span>
+                        <span>{trade.exchange || 'Not available'}</span>
+                        <span>{trade.side || 'Not available'}</span>
+                        <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : 'Not available'}</span>
                       </div>
                     ))
                   )}
@@ -4065,55 +4112,6 @@ export default function Dashboard() {
         </div>
       </section>
     );
-  };
-
-  // Handle Start Fresh - Wipe paper data
-  const handleStartFresh = async () => {
-    const confirmPhrase = window.prompt(
-      'WARNING: This will delete all paper trading data!\n\n' +
-      'This includes:\n' +
-      '- All paper trading bots\n' +
-      '- All paper trades history\n' +
-      '- Bot telemetry data\n' +
-      '- Risk lock states\n\n' +
-      'Type "DELETE_ALL_PAPER_DATA" to confirm:'
-    );
-
-    if (confirmPhrase !== 'DELETE_ALL_PAPER_DATA') {
-      if (confirmPhrase !== null) {
-        showNotification('Incorrect confirmation phrase', 'error');
-      }
-      return;
-    }
-
-    try {
-      const response = await axios.post(
-        `${API}/admin/start-fresh`,
-        {
-          confirm_phrase: 'DELETE_ALL_PAPER_DATA',
-          scope: 'paper_only',
-          also_reset_risk_locks: true
-        },
-        axiosConfig
-      );
-
-      if (response.data.success) {
-        const summary = response.data.summary;
-        showNotification(
-          `Start Fresh completed! Deleted: ${summary.bots_deleted} bots, ${summary.trades_deleted} trades`,
-          'success'
-        );
-        
-        // Refresh data
-        loadBots();
-        loadSystemStats();
-        loadAdminUsers();
-      }
-    } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
-      showNotification(`Start Fresh failed: ${errorMsg}`, 'error');
-      console.error('Start Fresh error:', err);
-    }
   };
 
   // Handle API Key Migration
@@ -5030,72 +5028,34 @@ export default function Dashboard() {
             </p>
           </div>
           
-          {/* Danger Zone - Admin Only Destructive Actions */}
+          {/* Admin Utilities */}
           <div style={{
             marginTop: '24px', 
             padding: '20px', 
-            background: 'rgba(239, 68, 68, 0.1)', 
-            borderRadius: '8px', 
-            border: '2px solid var(--error)'
+            background: 'var(--glass)', 
+            borderRadius: '10px', 
+            border: '1px solid var(--line)'
           }}>
-            <h3 style={{marginBottom: '16px', color: 'var(--error)', display: 'flex', alignItems: 'center', gap: '8px'}}>
-              ⚠️ Danger Zone
+            <h3 style={{marginBottom: '16px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              🔐 Encryption Utilities
               <span style={{fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--muted)'}}>
-                (Admin Only - Destructive Actions)
+                (Admin-only maintenance)
               </span>
             </h3>
             
             <div style={{display: 'grid', gap: '12px'}}>
-              {/* Start Fresh Button */}
               <div style={{
                 padding: '16px',
                 background: 'var(--panel)',
-                borderRadius: '6px',
-                border: '1px solid var(--error)'
-              }}>
-                <div style={{marginBottom: '12px'}}>
-                  <h4 style={{margin: '0 0 8px 0', color: 'var(--text)', fontSize: '1rem'}}>
-                    🗑️ Start Fresh (Wipe Paper Data)
-                  </h4>
-                  <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: 0, lineHeight: '1.5'}}>
-                    Delete all paper trading bots, trades, and telemetry. Resets risk locks. 
-                    <strong style={{color: 'var(--error)'}}>Cannot be undone!</strong>
-                  </p>
-                </div>
-                <button
-                  onClick={handleStartFresh}
-                  style={{
-                    padding: '10px 20px',
-                    background: 'var(--error)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    fontSize: '0.9rem',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                  onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-                >
-                  🗑️ Start Fresh (Delete Paper Data)
-                </button>
-              </div>
-
-              {/* API Key Migration Button */}
-              <div style={{
-                padding: '16px',
-                background: 'var(--panel)',
-                borderRadius: '6px',
-                border: '1px solid #f59e0b'
+                borderRadius: '8px',
+                border: '1px solid rgba(245, 158, 11, 0.4)'
               }}>
                 <div style={{marginBottom: '12px'}}>
                   <h4 style={{margin: '0 0 8px 0', color: 'var(--text)', fontSize: '1rem'}}>
                     🔐 Migrate API Key Encryption
                   </h4>
                   <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: 0, lineHeight: '1.5'}}>
-                    Migrate API keys from JWT_SECRET-derived encryption to dedicated AMARKTAI_FERNET_KEY.
-                    Required when upgrading encryption method.
+                    Re-encrypt stored API keys using the dedicated AMARKTAI_FERNET_KEY. Run once after rotating encryption keys.
                   </p>
                 </div>
                 <button
@@ -5118,19 +5078,6 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-            
-            <div style={{
-              marginTop: '16px',
-              padding: '12px',
-              background: 'rgba(239, 68, 68, 0.1)',
-              borderRadius: '4px',
-              fontSize: '0.75rem',
-              color: 'var(--error)',
-              lineHeight: '1.5'
-            }}>
-              <strong>⚠️ Warning:</strong> These actions are irreversible and will affect system data.
-              All actions are logged in the audit trail. Use with extreme caution.
-            </div>
           </div>
           
           <div style={{marginTop: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', border: '1px solid var(--error)', fontSize: '0.85rem'}}>
@@ -5144,11 +5091,13 @@ export default function Dashboard() {
     );
   };
 
-  const renderSystemMode = () => (
-    <section className="section active">
-      <div className="card">
-        <h2 style={{color: '#ffffff'}}>System Mode</h2>
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px'}}>
+  const renderSystemMode = () => {
+    const showPaperReset = systemModes.paperTrading && !systemModes.liveTrading;
+    return (
+      <section className="section active">
+        <div className="card">
+          <h2 style={{color: '#ffffff'}}>System Mode</h2>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px'}}>
           <div className="system-card" onClick={() => toggleSystemMode('paperTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.paperTrading ? 'var(--success)' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
             <h3>🧪 Paper Trading</h3>
             <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: '8px 0'}}>Practice with simulated funds</p>
@@ -5195,6 +5144,31 @@ export default function Dashboard() {
             Bodyguard uses this tier to pause bots when drawdown exceeds your selected threshold.
           </div>
         </div>
+        {showPaperReset && (
+          <div style={{marginTop: '24px', padding: '16px', background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '8px'}}>
+            <h3 style={{marginBottom: '8px'}}>♻️ Reset Paper Trading</h3>
+            <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
+              Clears paper bots, training stats, analytics snapshots, and resets training credits. Live trading must remain off.
+            </p>
+            <button
+              onClick={() => {
+                setPaperResetError('');
+                setShowPaperResetModal(true);
+              }}
+              style={{
+                padding: '10px 18px',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Reset Paper Trading
+            </button>
+          </div>
+        )}
         <div style={{marginTop: '24px', padding: '16px', background: 'var(--panel)', border: '2px solid var(--error)', borderRadius: '8px'}}>
           <h3 style={{color: 'var(--error)', marginBottom: '8px'}}>🚨 Emergency Controls</h3>
           <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
@@ -5218,9 +5192,90 @@ export default function Dashboard() {
             🚨 EMERGENCY STOP
           </button>
         </div>
+        {showPaperResetModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: 'var(--panel)',
+              border: '1px solid var(--line)',
+              borderRadius: '10px',
+              padding: '24px',
+              width: '100%',
+              maxWidth: '420px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.5)'
+            }}>
+              <h3 style={{marginBottom: '8px'}}>Reset Paper Trading</h3>
+              <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '16px'}}>
+                Enter the reset password to clear paper-only data for your account.
+              </p>
+              <input
+                type="password"
+                value={paperResetPassword}
+                onChange={(e) => setPaperResetPassword(e.target.value)}
+                placeholder="Reset password"
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--line)',
+                  background: 'var(--glass)',
+                  color: 'var(--text)',
+                  marginBottom: '12px'
+                }}
+              />
+              {paperResetError && (
+                <div style={{fontSize: '0.8rem', color: 'var(--error)', marginBottom: '12px'}}>
+                  {paperResetError}
+                </div>
+              )}
+              <div style={{display: 'flex', gap: '8px', justifyContent: 'flex-end'}}>
+                <button
+                  onClick={() => {
+                    setShowPaperResetModal(false);
+                    setPaperResetPassword('');
+                    setPaperResetError('');
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    background: 'var(--glass)',
+                    border: '1px solid var(--line)',
+                    borderRadius: '6px',
+                    color: 'var(--text)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePaperReset}
+                  disabled={paperResetLoading}
+                  style={{
+                    padding: '8px 14px',
+                    background: paperResetLoading ? '#4b5563' : 'var(--success)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#0b0b0b',
+                    fontWeight: 700,
+                    cursor: paperResetLoading ? 'wait' : 'pointer'
+                  }}
+                >
+                  {paperResetLoading ? 'Resetting...' : 'Confirm Reset'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
-  );
+    );
+  };
 
   const renderLiveTradeFeed = () => {
     // Group trades by exchange
@@ -6398,7 +6453,7 @@ export default function Dashboard() {
               {/* Main Stats Row */}
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px'}}>
                 {/* Days Remaining Card */}
-                <div style={{
+                <div className="countdown-hero" style={{
                   padding: '32px',
                   border: '2px solid var(--success)',
                   borderRadius: '12px',
@@ -6418,7 +6473,7 @@ export default function Dashboard() {
                 </div>
                 
                 {/* Progress Circle Card */}
-                <div style={{
+                <div className="countdown-ring" style={{
                   padding: '32px',
                   border: '1px solid var(--line)',
                   borderRadius: '12px',
@@ -6502,6 +6557,9 @@ export default function Dashboard() {
                       {safeToFixed(countdownData.progress_pct, 1, '0.0')}%
                     </div>
                   </div>
+                </div>
+                <div style={{marginTop: '10px', fontSize: '0.85rem', color: 'var(--muted)'}}>
+                  Next milestone: <span style={{color: 'var(--success)', fontWeight: 600}}>R1,000,000</span>
                 </div>
               </div>
               
@@ -7270,8 +7328,14 @@ export default function Dashboard() {
       {/* Topbar - Desktop */}
       {!isMobile && (
         <header className="topbar">
-          <h1>Amarktai Network</h1>
+          <div className="topbar-brand">
+            <h1>Amarktai Crypto</h1>
+            <span className="brand-subtitle">part of Amarktai Network</span>
+          </div>
           <div className="top-actions">
+            <div className="status-indicator">
+              <span>{`Hello, ${user?.first_name || 'Trader'}`}</span>
+            </div>
             <div className="status-indicator" style={{padding: '4px 12px', background: systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? 'var(--success)' : 'var(--error)', borderRadius: '6px', fontWeight: 600}}>
               <span>{systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? '✓ System Healthy' : '⚠ System Issues'}</span>
             </div>
@@ -7336,9 +7400,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="footer">
-        <div>© 2026 Amarktai Network. All rights reserved.</div>
-        {/* TASK G - Only show build badge in admin view */}
-        {showAdmin && <VersionBadge position="footer" showBuildInfo={true} />}
+        <div>© 2026 Amarktai Crypto · part of Amarktai Network. All rights reserved.</div>
       </footer>
 
       {/* Bot Promotion Modal */}

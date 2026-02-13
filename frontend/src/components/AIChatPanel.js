@@ -12,6 +12,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
   const [systemState, setSystemState] = useState(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [showLoadHistory, setShowLoadHistory] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -29,6 +30,25 @@ const AIChatPanel = ({ onAdminUnlock }) => {
       setSessionChecked(true);
     }
   }, [sessionChecked]);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setUserProfile(data);
+        }
+      } catch (err) {
+        console.error('Profile fetch error:', err);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   const checkSessionAndLoad = async () => {
     try {
@@ -328,9 +348,16 @@ const AIChatPanel = ({ onAdminUnlock }) => {
         return;
       }
 
+      let finalReply = replyContent;
+      if (data?.action_attempted && data?.action_result && data?.action_result !== 'success') {
+        const statusLabel = data.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
+        const reason = data.reason ? `: ${data.reason}` : '';
+        finalReply = `${replyContent}\n\n${statusLabel}${reason}`;
+      }
+
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: replyContent,
+        content: finalReply,
         timestamp: data.timestamp
       }]);
 
@@ -380,7 +407,11 @@ const AIChatPanel = ({ onAdminUnlock }) => {
             <Bot size={24} />
             <div>
               <h3 className="font-semibold">AI Trading Assistant</h3>
-              <p className="text-xs opacity-90">Ask me anything about your trading system</p>
+              <p className="text-xs opacity-90">
+                {userProfile?.first_name
+                  ? `Hi ${userProfile.first_name}, ask me anything about your trading system`
+                  : 'Ask me anything about your trading system'}
+              </p>
             </div>
           </div>
           <button

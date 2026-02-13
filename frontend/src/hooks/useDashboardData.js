@@ -54,7 +54,7 @@ export const useDashboardData = (token) => {
     exposure: '0%',
     riskLevel: 'Unknown',
     aiSentiment: 'Neutral',
-    lastUpdate: '—'
+    lastUpdate: 'Not available'
   });
   const [systemModes, setSystemModes] = useState({
     paperTrading: false,
@@ -95,13 +95,17 @@ export const useDashboardData = (token) => {
 
   const loadMetrics = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/overview`, axiosConfig);
+      const res = await axios.get(`${API}/overview/snapshot`, axiosConfig);
+      const data = res.data || {};
+      const totalProfit = Number.isFinite(Number(data.totalProfit)) ? Number(data.totalProfit) : 0;
+      const activeBots = Number.isFinite(Number(data.activeBots)) ? Number(data.activeBots) : 0;
+      const openPositions = Number.isFinite(Number(data.openPositions)) ? Number(data.openPositions) : 0;
       setMetrics({
-        totalProfit: `R${res.data.total_profit?.toFixed(2) || '0.00'}`,
-        activeBots: res.data.activeBots || '0 / 0',
-        exposure: `${res.data.exposure?.toFixed(2) || '0'}%`,
-        riskLevel: res.data.risk_level || 'Unknown',
-        aiSentiment: res.data.ai_sentiment || 'Neutral',
+        totalProfit: `R${totalProfit.toFixed(2)}`,
+        activeBots: `${activeBots}`,
+        exposure: `${openPositions}%`,
+        riskLevel: data.riskLevel || 'Unknown',
+        aiSentiment: 'Neutral',
         lastUpdate: formatTimestamp(new Date(), { includeDate: false })
       });
     } catch (err) {

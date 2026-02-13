@@ -40,7 +40,7 @@ class EmailTemplates:
             <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
                 <h2 style="color: #2c3e50;">Withdrawal Confirmation Required</h2>
                 
-                <p>You have initiated a withdrawal from your Amarktai Network account:</p>
+                <p>You have initiated a withdrawal from your Amarktai Crypto account:</p>
                 
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
                     <p style="margin: 5px 0;"><strong>From:</strong> {from_exchange}</p>
@@ -63,7 +63,7 @@ class EmailTemplates:
                 
                 <p style="color: #7f8c8d; font-size: 14px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
                     If you did not initiate this withdrawal, please contact support immediately.<br>
-                    <strong>Amarktai Network Security Team</strong>
+                    <strong>Amarktai Crypto Security Team (part of Amarktai Network)</strong>
                 </p>
             </div>
         </body>
@@ -145,7 +145,7 @@ class EmailTemplates:
                 </table>
                 
                 <p style="color: #7f8c8d; font-size: 14px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
-                    This is an automated report from your Amarktai Network trading system.<br>
+                    This is an automated report from your Amarktai Crypto trading system (part of Amarktai Network).<br>
                     <a href="https://your-domain.com/dashboard">View Dashboard</a>
                 </p>
             </div>
@@ -205,8 +205,8 @@ class EmailTemplates:
                 </p>
                 
                 <p style="color: #7f8c8d; font-size: 14px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
-                    This is an automated alert from your Amarktai Network system.<br>
-                    <strong>Amarktai Network Operations</strong>
+                    This is an automated alert from your Amarktai Crypto system (part of Amarktai Network).<br>
+                    <strong>Amarktai Crypto Operations</strong>
                 </p>
             </div>
         </body>

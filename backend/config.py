@@ -35,7 +35,7 @@ SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
 SMTP_USER = os.getenv('SMTP_USER', '')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
 FROM_EMAIL = os.getenv('FROM_EMAIL', SMTP_USER)
-FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Network')
+FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Crypto')
 
 # Optional Integrations
 FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')

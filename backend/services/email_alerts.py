@@ -62,7 +62,7 @@ Current Status:
 The bot will be paused automatically when it reaches 100% of the limit.
 
 Best regards,
-Amarktai Network
+Amarktai Crypto (part of Amarktai Network)
             """.strip()
             
             html_body = f"""
@@ -86,7 +86,7 @@ Amarktai Network
     <hr style="border: 1px solid #eee;">
     <p style="color: #888; font-size: 12px;">
         Best regards,<br>
-        <strong>Amarktai Network</strong>
+        <strong>Amarktai Crypto (part of Amarktai Network)</strong>
     </p>
 </body>
 </html>
@@ -139,7 +139,7 @@ Details:
 The bot will automatically resume trading tomorrow when the daily counter resets.
 
 Best regards,
-Amarktai Network
+Amarktai Crypto (part of Amarktai Network)
             """.strip()
             
             html_body = f"""
@@ -163,7 +163,7 @@ Amarktai Network
     <hr style="border: 1px solid #eee;">
     <p style="color: #888; font-size: 12px;">
         Best regards,<br>
-        <strong>Amarktai Network</strong>
+        <strong>Amarktai Crypto (part of Amarktai Network)</strong>
     </p>
 </body>
 </html>
@@ -221,7 +221,7 @@ The bot will resume automatically when drawdown improves to {threshold - 2}% or 
 This is a protective measure to prevent further losses.
 
 Best regards,
-Amarktai Network
+Amarktai Crypto (part of Amarktai Network)
             """.strip()
             
             html_body = f"""
@@ -251,7 +251,7 @@ Amarktai Network
     <hr style="border: 1px solid #eee;">
     <p style="color: #888; font-size: 12px;">
         Best regards,<br>
-        <strong>Amarktai Network</strong>
+        <strong>Amarktai Crypto (part of Amarktai Network)</strong>
     </p>
 </body>
 </html>
@@ -305,7 +305,7 @@ Details:
 The bot is now in a cooldown period and will not trade for the next hour.
 
 Best regards,
-Amarktai Network
+Amarktai Crypto (part of Amarktai Network)
             """.strip()
             
             html_body = f"""
@@ -330,7 +330,7 @@ Amarktai Network
     <hr style="border: 1px solid #eee;">
     <p style="color: #888; font-size: 12px;">
         Best regards,<br>
-        <strong>Amarktai Network</strong>
+        <strong>Amarktai Crypto (part of Amarktai Network)</strong>
     </p>
 </body>
 </html>

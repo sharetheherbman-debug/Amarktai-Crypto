@@ -35,7 +35,7 @@ class TOTPService:
             totp = pyotp.TOTP(secret)
             qr_uri = totp.provisioning_uri(
                 name=user_email,
-                issuer_name="Amarktai Network"
+                issuer_name="Amarktai Crypto"
             )
             
             return {

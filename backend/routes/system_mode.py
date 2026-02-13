@@ -13,6 +13,7 @@ import os
 from auth import get_current_user, is_admin
 import database as db
 from realtime_events import rt_events
+from websocket_manager import manager
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +318,11 @@ class ModeToggleRequest(BaseModel):
     confirmation_token: Optional[str] = None
 
 
+class PaperResetRequest(BaseModel):
+    """Request to reset paper trading data"""
+    password: str
+
+
 @router.put("/mode")
 async def toggle_mode(
     data: ModeToggleRequest,
@@ -435,6 +441,175 @@ async def toggle_mode(
         raise
     except Exception as e:
         logger.error(f"Toggle mode error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reset-paper")
+async def reset_paper_trading(
+    request: PaperResetRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Reset all paper trading data for the authenticated user."""
+    try:
+        reset_password = os.getenv("PAPER_RESET_PASSWORD")
+        if not reset_password:
+            raise HTTPException(status_code=500, detail="Paper reset password not configured")
+        if request.password != reset_password:
+            raise HTTPException(status_code=403, detail="Invalid reset password")
+
+        current_mode = await get_system_mode(user_id)
+        if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
+            raise HTTPException(
+                status_code=400,
+                detail="Paper reset is only available in paper mode with live trading disabled."
+            )
+
+        summary = {
+            "bots_deleted": 0,
+            "trades_deleted": 0,
+            "orders_deleted": 0,
+            "positions_deleted": 0,
+            "metrics_deleted": 0,
+            "learning_deleted": 0,
+            "decisions_deleted": 0,
+            "wallet_reset": False,
+            "chat_cleared": 0
+        }
+
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "deleted_at": {"$exists": False}},
+            {"_id": 0, "id": 1}
+        ).to_list(1000)
+        bot_ids = [bot.get("id") for bot in bots if bot.get("id")]
+
+        delete_timestamp = datetime.now(timezone.utc).isoformat()
+        if bot_ids:
+            bot_result = await db.bots_collection.update_many(
+                {"id": {"$in": bot_ids}, "user_id": user_id},
+                {
+                    "$set": {
+                        "status": "deleted",
+                        "deleted_at": delete_timestamp,
+                        "deleted_by": user_id,
+                        "deletion_reason": "paper_reset"
+                    }
+                }
+            )
+            summary["bots_deleted"] = bot_result.modified_count
+
+        bot_linked = [
+            ("trades_deleted", db.trades_collection),
+            ("orders_deleted", db.orders_collection),
+            ("positions_deleted", db.positions_collection),
+        ]
+        for key, collection in bot_linked:
+            if collection is None or not bot_ids:
+                continue
+            result = await collection.delete_many({"bot_id": {"$in": bot_ids}})
+            summary[key] = result.deleted_count
+
+        user_collections = [
+            ("metrics_deleted", db.performance_metrics_collection),
+            ("metrics_deleted", db.balance_snapshots_collection),
+            ("metrics_deleted", db.bot_metrics_collection),
+            ("metrics_deleted", db.bot_runtime_state_collection),
+            ("metrics_deleted", db.bot_lifecycle_collection),
+            ("metrics_deleted", db.wallet_balances_collection),
+            ("metrics_deleted", db.wallets_collection),
+            ("metrics_deleted", db.ledger_collection),
+            ("metrics_deleted", db.capital_injections_collection),
+            ("metrics_deleted", db.funding_plans_collection),
+            ("metrics_deleted", db.wallet_transfers_collection),
+            ("metrics_deleted", db.transfer_jobs_collection),
+            ("metrics_deleted", db.transfers_ledger_collection),
+            ("learning_deleted", db.training_jobs_collection),
+            ("learning_deleted", db.learning_data_collection),
+            ("learning_deleted", db.learning_logs_collection),
+            ("learning_deleted", db.learning_runs_collection),
+            ("learning_deleted", db.learning_changes_collection),
+            ("learning_deleted", db.learning_metrics_collection),
+            ("learning_deleted", db.strategy_versions_collection),
+            ("learning_deleted", db.bot_strategy_assignments_collection),
+            ("decisions_deleted", db.decisions_collection),
+            ("decisions_deleted", db.autopilot_actions_collection),
+            ("decisions_deleted", db.autopilot_milestones_collection),
+            ("decisions_deleted", db.autopilot_reinvest_events_collection),
+            ("decisions_deleted", db.action_audit_log_collection),
+            ("metrics_deleted", db.profits_collection),
+            ("metrics_deleted", db.profit_ledger_collection),
+            ("metrics_deleted", db.reinvest_requests_collection),
+            ("metrics_deleted", db.user_countdowns_collection),
+            ("metrics_deleted", db.user_memory_collection),
+            ("metrics_deleted", db.reports_collection),
+            ("metrics_deleted", db.notifications_collection),
+            ("metrics_deleted", db.paper_ledger_collection),
+            ("chat_cleared", db.chat_messages_collection),
+            ("chat_cleared", db.chatops_actions_collection),
+            ("chat_cleared", db.chatops_confirmations_collection),
+        ]
+        for key, collection in user_collections:
+            if collection is None:
+                continue
+            result = await collection.delete_many({"user_id": user_id})
+            summary[key] += result.deleted_count
+
+        try:
+            from services.paper_wallet_service import paper_wallet_service
+            await paper_wallet_service.reset(user_id)
+            summary["wallet_reset"] = True
+        except Exception as e:
+            logger.warning(f"Paper wallet reset failed: {e}")
+
+        await db.users_collection.update_one(
+            {"id": user_id},
+            {
+                "$set": {
+                    "daily_loss_lock_active": False,
+                    "daily_loss_lock_reset_at": delete_timestamp,
+                    "daily_loss_lock_reset_by": user_id,
+                    "emergency_stop": False
+                },
+                "$unset": {
+                    "daily_loss_locked_at": "",
+                    "daily_loss_locked_reason": "",
+                    "daily_loss_pct": "",
+                    "daily_loss_day_key": ""
+                }
+            }
+        )
+
+        await db.system_modes_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"paperTrading": True, "liveTrading": False, "autopilot": False}},
+            upsert=True
+        )
+
+        try:
+            await db.audit_logs_collection.insert_one({
+                "user_id": user_id,
+                "action": "paper_reset",
+                "timestamp": delete_timestamp,
+                "details": summary
+            })
+        except Exception as e:
+            logger.warning(f"Paper reset audit log failed: {e}")
+
+        await manager.send_message(user_id, {
+            "type": "paper_reset",
+            "message": "Paper trading data reset completed."
+        })
+        await rt_events.force_refresh(user_id, reason="Paper trading reset completed.")
+
+        return {
+            "success": True,
+            "message": "Paper trading reset completed.",
+            "summary": summary,
+            "timestamp": delete_timestamp
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Paper reset error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
