@@ -6311,7 +6311,7 @@ export default function Dashboard() {
       if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString('en-ZA') : NOT_AVAILABLE;
       if (typeof value === 'object') {
         try {
-          return JSON.stringify(value) ?? NOT_AVAILABLE;
+          return JSON.stringify(value);
         } catch (error) {
           return NOT_AVAILABLE;
         }
