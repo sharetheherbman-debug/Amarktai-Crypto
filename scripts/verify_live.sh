@@ -444,7 +444,7 @@ fi
 # Check frontend contains copyright text
 echo -n "Checking for footer copyright text... "
 FRONTEND_RESPONSE=$(curl -s "$BASE_URL/" 2>&1)
-if echo "$FRONTEND_RESPONSE" | grep -q "Part of Amarktai Network\|© 2026 Amarktai"; then
+if echo "$FRONTEND_RESPONSE" | grep -q "Part of Amarktai Network — For personal use only."; then
     echo -e "${GREEN}✅ PASS${NC} (Copyright text present in frontend)"
     PASSED=$((PASSED+1))
 else

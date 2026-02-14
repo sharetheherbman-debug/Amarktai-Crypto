@@ -4,10 +4,6 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import Features from './pages/Features';
-import About from './pages/About';
-import Terms from './pages/Terms';
-import Privacy from './pages/Privacy';
 import SiteFooter from './components/SiteFooter';
 import '@/App.css';
 
@@ -24,10 +20,10 @@ function App() {
         <div className="app-shell">
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/features" element={<Features />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/terms" element={<Terms />} />
-            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/features" element={<Navigate to="/" replace />} />
+            <Route path="/about" element={<Navigate to="/" replace />} />
+            <Route path="/terms" element={<Navigate to="/" replace />} />
+            <Route path="/privacy" element={<Navigate to="/" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route
@@ -38,6 +34,7 @@ function App() {
                 </PrivateRoute>
               }
             />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <SiteFooter />
         </div>

@@ -196,7 +196,8 @@ export default function Dashboard() {
   const [awaitingPassword, setAwaitingPassword] = useState(false);
   const [adminAction, setAdminAction] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
-  const [expandedBots, setExpandedBots] = useState({});
+  const [selectedBotDetailId, setSelectedBotDetailId] = useState(null);
+  const [botDetailTab, setBotDetailTab] = useState('overview');
   const [expandedApis, setExpandedApis] = useState({});
   const [activeBotTab, setActiveBotTab] = useState('exchange'); // Setup wizard removed - users create starting bots manually
   const [graphPeriod, setGraphPeriod] = useState('daily');
@@ -2129,10 +2130,6 @@ export default function Dashboard() {
     }
   };
 
-  const toggleBotExpand = (botId) => {
-    setExpandedBots(prev => ({ ...prev, [botId]: !prev[botId] }));
-  };
-
   const toggleApiExpand = (provider) => {
     setExpandedApis(prev => ({ ...prev, [provider]: !prev[provider] }));
   };
@@ -3397,13 +3394,7 @@ export default function Dashboard() {
 
           <div className="overview-container">
             <div className="overview-pane overview-image">
-              <img src="/assets/background.jpg" alt="Trading workspace" />
-              <div className="overview-image-overlay">
-                <div className="overview-image-card">
-                  <h3>Autonomous trading command</h3>
-                  <p>Calm, aligned telemetry for supervised execution and system health.</p>
-                </div>
-              </div>
+              <img src="/assets/background.jpg" alt="Trading workspace" className="overview-image-asset" />
             </div>
             <div className="overview-pane overview-content">
               <div className="overview-scroll">
@@ -4745,61 +4736,45 @@ export default function Dashboard() {
             Real-time trade feed showing all 7 supported platforms (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
           </p>
           
-          {/* 50/50 Split Layout: LEFT = Trade Feed | RIGHT = Platform Selector + Comparison */}
-          <div style={{display: 'flex', gap: '16px', alignItems: 'stretch', minHeight: '600px'}}>
-            
-            {/* LEFT: Real-time Trade Feed */}
-            <div style={{flex: '0 0 50%', display: 'flex', flexDirection: 'column'}}>
-              <h3 style={{marginBottom: '12px', fontSize: '1.1rem'}}>Real-Time Trade Feed</h3>
-              <div style={{
-                flex: 1,
-                background: 'var(--panel)', 
-                borderRadius: '8px', 
-                padding: '16px', 
-                overflowY: 'auto',
-                border: '1px solid var(--line)'
-              }}>
+          <div className="live-trades-layout">
+            <div className="live-trades-panel">
+              <div className="live-trades-panel-header">
+                <div>
+                  <h3>Real-Time Trade Feed</h3>
+                  <p>Latest executions across all connected bots.</p>
+                </div>
+                <span className="live-trades-panel-meta">{recentTrades.slice(0, 30).length} latest</span>
+              </div>
+              <div className="live-trades-feed">
                 {recentTrades.length === 0 ? (
-                  <div style={{textAlign: 'center', padding: '40px', color: 'var(--muted)'}}>
+                  <div className="live-trades-empty">
                     <p>📭 No trades yet. Trades will appear here in real-time.</p>
                   </div>
                 ) : (
-                  <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+                  <div className="live-trades-table">
+                    <div className="live-trades-row header">
+                      <span>Bot</span>
+                      <span>Pair</span>
+                      <span>Side</span>
+                      <span>P/L</span>
+                      <span>Time</span>
+                    </div>
                     {recentTrades.slice(0, 30).map((trade, idx) => {
                       const isWin = trade.is_profitable || trade.profit_loss > 0;
-                      const profitColor = isWin ? 'var(--success)' : 'var(--error)';
-                      const profitIcon = isWin ? '🟢' : '🔴';
-                      
+                      const side = (trade.side || trade.action || 'trade').toString().toLowerCase();
+                      const sideLabel = side === 'buy' || side === 'sell' ? side : 'trade';
                       return (
-                        <div key={trade.id || trade.timestamp || `trade-${trade.symbol}-${idx}`} style={{
-                          background: 'var(--bg)',
-                          border: '1px solid ' + (isWin ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'),
-                          borderRadius: '8px',
-                          padding: '12px',
-                          transition: 'all 0.2s'
-                        }}>
-                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
-                            <div style={{fontWeight: 600, color: 'var(--text)', fontSize: '0.95rem'}}>
-                              🤖 {trade.bot_name || 'Bot'}
-                            </div>
-                            <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
-                              {new Date(trade.timestamp).toLocaleTimeString()}
-                            </div>
+                        <div key={trade.id || trade.timestamp || `trade-${trade.symbol}-${idx}`} className="live-trades-row">
+                          <div className="trade-main">
+                            <strong>🤖 {trade.bot_name || 'Bot'}</strong>
+                            <span>{trade.exchange?.toUpperCase() || NOT_AVAILABLE}</span>
                           </div>
-                          
-                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                            <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
-                              {trade.symbol} • {trade.exchange?.toUpperCase()}
-                            </div>
-                            <div style={{textAlign: 'right'}}>
-                              <div style={{fontSize: '0.9rem', fontWeight: 700, color: profitColor}}>
-                                {profitIcon} {isWin ? 'WIN' : 'LOSS'}
-                              </div>
-                              <div style={{fontSize: '0.85rem', color: profitColor, fontWeight: 600}}>
-                                R{safeToFixed(trade.profit_loss, 2)}
-                              </div>
-                            </div>
-                          </div>
+                          <span>{trade.symbol || NOT_AVAILABLE}</span>
+                          <span className={`trade-side ${sideLabel}`}>{sideLabel}</span>
+                          <span className={`trade-profit ${isWin ? 'win' : 'loss'}`}>
+                            R{safeToFixed(trade.profit_loss, 2)}
+                          </span>
+                          <span className="trade-time">{new Date(trade.timestamp).toLocaleTimeString()}</span>
                         </div>
                       );
                     })}
@@ -4807,76 +4782,51 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            
-            {/* RIGHT: Platform Selector + Comparison Cards */}
-            <div style={{flex: '0 0 50%', display: 'flex', flexDirection: 'column'}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
-                <h3 style={{margin: 0, fontSize: '1.1rem'}}>Platform Performance</h3>
-                <PlatformSelector 
-                  value={platformFilter} 
+
+            <div className="live-trades-panel">
+              <div className="live-trades-panel-header">
+                <div>
+                  <h3>Platform Performance</h3>
+                  <p>Summary by exchange and execution health.</p>
+                </div>
+                <PlatformSelector
+                  value={platformFilter}
                   onChange={setPlatformFilter}
                   includeAll={true}
                 />
               </div>
-              
-              <div style={{
-                flex: 1,
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}>
+              <div className="live-trades-platforms">
                 {allPlatforms
                   .filter(p => platformFilter === 'all' || p.id === platformFilter)
                   .map(platform => {
                     const stats = getExchangeStats(tradesByExchange[platform.id]);
                     const hasData = stats.count > 0;
-                    
                     return (
-                      <div key={platform.id} style={{
-                        background: 'var(--glass)',
-                        border: '1px solid var(--line)',
-                        borderRadius: '12px',
-                        padding: '20px',
-                        transition: 'all 0.3s'
-                      }}>
-                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
-                          <h3 style={{margin: 0, textTransform: 'uppercase', fontSize: '1.1rem', color: 'var(--accent)'}}>
-                            {platform.icon} {platform.name}
-                          </h3>
-                          <span style={{
-                            padding: '4px 12px',
-                            background: hasData ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 139, 139, 0.2)',
-                            color: hasData ? 'var(--success)' : '#8b8b8b',
-                            borderRadius: '12px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600
-                          }}>
-                            {hasData ? 'ACTIVE' : 'NO DATA'}
+                      <div key={platform.id} className="live-trades-platform-card">
+                        <div className="live-trades-platform-header">
+                          <h4>{platform.icon} {platform.name}</h4>
+                          <span className={`platform-badge ${hasData ? 'active' : 'muted'}`}>
+                            {hasData ? `${stats.winRate}% Win` : 'No Trades'}
                           </span>
                         </div>
-                        
-                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px'}}>
-                          <div style={{textAlign: 'center'}}>
-                            <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '4px'}}>TRADES</div>
-                            <div style={{fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)'}}>{stats.count}</div>
+                        <div className="live-trades-platform-stats">
+                          <div>
+                            <strong>{stats.count}</strong>
+                            <span>Trades</span>
                           </div>
-                          <div style={{textAlign: 'center'}}>
-                            <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '4px'}}>WIN RATE</div>
-                            <div style={{fontSize: '1.4rem', fontWeight: 700, color: hasData ? 'var(--success)' : 'var(--muted)'}}>{stats.winRate}%</div>
+                          <div>
+                            <strong>{stats.winRate}%</strong>
+                            <span>Win Rate</span>
                           </div>
-                          <div style={{textAlign: 'center'}}>
-                            <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginBottom: '4px'}}>PROFIT</div>
-                            <div style={{fontSize: '1.2rem', fontWeight: 700, color: parseFloat(stats.profit) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                          <div>
+                            <strong className={parseFloat(stats.profit) >= 0 ? 'profit' : 'loss'}>
                               R{stats.profit}
-                            </div>
+                            </strong>
+                            <span>Profit</span>
                           </div>
                         </div>
-                        
                         {!hasData && (
-                          <div style={{marginTop: '12px', padding: '8px', background: 'rgba(139, 139, 139, 0.1)', borderRadius: '6px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--muted)'}}>
-                            No trades yet for this platform
-                          </div>
+                          <div className="platform-empty">No trades yet for this platform</div>
                         )}
                       </div>
                     );
@@ -4916,11 +4866,11 @@ export default function Dashboard() {
           display: false
         },
         tooltip: {
-          backgroundColor: 'rgba(0, 0, 42, 0.95)',
+          backgroundColor: 'rgba(10, 12, 20, 0.95)',
           titleColor: 'var(--success)',
           bodyColor: '#ffffff',
-          borderColor: 'var(--success)',
-          borderWidth: 2,
+          borderColor: 'rgba(34, 197, 94, 0.6)',
+          borderWidth: 1,
           padding: 12,
           titleFont: { size: 14, weight: 'bold' },
           bodyFont: { size: 13 }
@@ -4929,8 +4879,8 @@ export default function Dashboard() {
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { 
-            color: '#8b8b8b',
+          ticks: {
+            color: 'var(--muted)',
             font: { size: 11 },
             callback: function(value) {
               return 'R' + value;
@@ -4943,8 +4893,8 @@ export default function Dashboard() {
           border: { display: false }
         },
         x: {
-          ticks: { 
-            color: '#8b8b8b',
+          ticks: {
+            color: 'var(--muted)',
             font: { size: 11 }
           },
           grid: { 
@@ -4965,97 +4915,34 @@ export default function Dashboard() {
           <h2 style={{marginBottom: '16px', color: '#ffffff'}}>💹 Profits & Performance</h2>
           
           {/* Horizontal Sub-tabs */}
-          <div style={{
-            display: 'flex', 
-            gap: '10px', 
-            marginBottom: '24px', 
-            marginTop: '16px',
-            borderBottom: '2px solid var(--line)', 
-            paddingBottom: '10px',
-            flexWrap: 'wrap'
-          }}>
-            <button 
+          <div className="profit-tabs">
+            <button
               onClick={() => setProfitsTab('metrics')}
-              style={{
-                padding: '10px 20px',
-                background: profitsTab === 'metrics' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'metrics' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: profitsTab === 'metrics' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: profitsTab === 'metrics' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: profitsTab === 'metrics' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
+              className={`profit-tab ${profitsTab === 'metrics' ? 'active' : ''}`}
             >
               📊 Metrics
             </button>
-            <button 
+            <button
               onClick={() => setProfitsTab('profit-history')}
-              style={{
-                padding: '10px 20px',
-                background: profitsTab === 'profit-history' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'profit-history' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: profitsTab === 'profit-history' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: profitsTab === 'profit-history' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: profitsTab === 'profit-history' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
+              className={`profit-tab ${profitsTab === 'profit-history' ? 'active' : ''}`}
             >
               💰 Profit History
             </button>
-            <button 
+            <button
               onClick={() => setProfitsTab('equity')}
-              style={{
-                padding: '10px 20px',
-                background: profitsTab === 'equity' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'equity' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: profitsTab === 'equity' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: profitsTab === 'equity' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: profitsTab === 'equity' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
+              className={`profit-tab ${profitsTab === 'equity' ? 'active' : ''}`}
             >
               📈 Equity/PnL
             </button>
-            <button 
+            <button
               onClick={() => setProfitsTab('drawdown')}
-              style={{
-                padding: '10px 20px',
-                background: profitsTab === 'drawdown' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'drawdown' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: profitsTab === 'drawdown' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: profitsTab === 'drawdown' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: profitsTab === 'drawdown' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
+              className={`profit-tab ${profitsTab === 'drawdown' ? 'active' : ''}`}
             >
               📉 Drawdown
             </button>
-            <button 
+            <button
               onClick={() => setProfitsTab('win-rate')}
-              style={{
-                padding: '10px 20px',
-                background: profitsTab === 'win-rate' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'win-rate' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: profitsTab === 'win-rate' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: profitsTab === 'win-rate' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: profitsTab === 'win-rate' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
+              className={`profit-tab ${profitsTab === 'win-rate' ? 'active' : ''}`}
             >
               🎯 Win Rate
             </button>
@@ -5854,14 +5741,20 @@ export default function Dashboard() {
         <div className="card">
           <div className="countdown-header">
             <div>
-              <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
-              <p className="countdown-subtitle">Every trade compounds toward your first million - stay consistent and stay sharp.</p>
+              <h2 style={{margin: 0}}>⏱️ Road to R1,000,000</h2>
+              <p className="countdown-subtitle">Goal-driven automation to 1M ZAR. Every trade compounds the momentum.</p>
             </div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
               <span className={`countdown-mode ${countdownData.mode === 'live' ? 'live' : 'paper'}`}>
                 {countdownData.mode || 'Paper'} Mode
               </span>
             </div>
+          </div>
+          <div className="countdown-progress">
+            <div className="countdown-progress-track">
+              <span style={{ width: `${Math.min(progressPct, 100)}%` }} />
+            </div>
+            <span className="countdown-progress-label">{safeToFixed(progressPct, 1, '0.0')}% toward R1,000,000</span>
           </div>
           
           {countdownData.status === 'achieved' ? (
@@ -5880,12 +5773,12 @@ export default function Dashboard() {
               <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px'}}>
                 {/* Days Remaining Card */}
                 <div className="countdown-hero" style={{
-                  padding: '32px',
-                  border: '2px solid var(--success)',
-                  borderRadius: '12px',
+                  padding: '30px',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  borderRadius: '16px',
                   textAlign: 'center',
-                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.05) 100%)',
-                  boxShadow: '0 12px 24px rgba(0, 0, 0, 0.3)'
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  boxShadow: '0 8px 18px rgba(0, 0, 0, 0.2)'
                 }}>
                   <div style={{fontSize: '4rem', fontWeight: 700, color: countdownData.days_remaining >= 9999 ? 'var(--error)' : 'var(--success)', margin: '12px 0'}}>
                     {countdownData.days_remaining < 9999 ? countdownData.days_remaining : '∞'}
@@ -5902,15 +5795,15 @@ export default function Dashboard() {
                 <div className="countdown-ring" style={{
                   padding: '32px',
                   border: '1px solid var(--line)',
-                  borderRadius: '12px',
+                  borderRadius: '16px',
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  background: 'var(--panel)'
+                  background: 'rgba(15, 17, 26, 0.7)'
                 }}>
-                  <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent-bright) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 18px rgba(0, 0, 0, 0.35)'}}>
-                    <div style={{width: '140px', height: '140px', borderRadius: '50%', background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 700, color: 'var(--success)', flexDirection: 'column'}}>
+                  <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent-bright) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 14px rgba(0, 0, 0, 0.3)'}}>
+                    <div style={{width: '140px', height: '140px', borderRadius: '50%', background: 'rgba(11, 13, 20, 0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 700, color: 'var(--success)', flexDirection: 'column'}}>
                       <div>{safeToFixed(countdownData.progress_pct, 1, '0.0')}%</div>
                       <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>Complete</div>
                     </div>
@@ -6050,7 +5943,7 @@ export default function Dashboard() {
                 </div>
               )}
               
-              <div style={{marginTop: '16px', padding: '16px', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.05) 100%)', borderRadius: '8px', border: '2px solid var(--success)', textAlign: 'center'}}>
+              <div style={{marginTop: '16px', padding: '16px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.35)', textAlign: 'center'}}>
                 <p style={{margin: 0, fontSize: '1rem', color: 'var(--text)', fontWeight: 600}}>
                   {countdownData.message || 'Keep trading to reach your goal!'}
                 </p>
@@ -6382,13 +6275,6 @@ export default function Dashboard() {
         <div className="card">
           <h2 style={{color: 'var(--text)'}}>🔑 API Setup</h2>
           <div className="api-setup-split">
-            <div className="api-setup-image">
-              <img src="/assets/background.jpg" alt="API provider interface background" />
-              <div className="api-setup-overlay">
-                <h3 style={{color: 'var(--text)'}}>Secure provider vault</h3>
-                <p>Connect exchanges and AI services with encrypted key storage.</p>
-              </div>
-            </div>
             <div className="api-setup-panel">
               <APIKeySettings />
             </div>
@@ -6402,6 +6288,86 @@ export default function Dashboard() {
 
   const renderBots = () => {
     const filteredBots = bots.filter(bot => platformFilter === 'all' || bot.exchange === platformFilter);
+    const resolvedSelectedBotId = filteredBots.some(bot => bot.id === selectedBotDetailId)
+      ? selectedBotDetailId
+      : filteredBots[0]?.id;
+    const selectedBot = filteredBots.find(bot => bot.id === resolvedSelectedBotId) || null;
+    const selectedBotMode = selectedBot?.trading_mode || selectedBot?.mode || 'paper';
+    const selectedIsLive = selectedBotMode === 'live';
+    const selectedStatus = selectedBot ? getBotStatus(selectedBot) : null;
+    const selectedStatusLabel = selectedBot ? humanizeReason(selectedStatus) : NOT_AVAILABLE;
+    const selectedPauseReason = selectedBot?.paused_reason_message || selectedBot?.paused_reason;
+    const selectedPauseReasonDisplay = selectedPauseReason ? formatReasonInline(selectedPauseReason) : NOT_AVAILABLE;
+    const selectedExchangeLabel = selectedBot?.exchange
+      ? getPlatformDisplayName(selectedBot.exchange)
+      : NOT_AVAILABLE;
+    const formatPercentValue = (value, digits = 1) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? `${num.toFixed(digits)}%` : NOT_AVAILABLE;
+    };
+    const formatDetailValue = (value) => {
+      if (value === null || value === undefined || value === '') return NOT_AVAILABLE;
+      if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+      if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString('en-ZA') : NOT_AVAILABLE;
+      if (typeof value === 'object') {
+        try {
+          return JSON.stringify(value) ?? NOT_AVAILABLE;
+        } catch (error) {
+          return NOT_AVAILABLE;
+        }
+      }
+      return String(value);
+    };
+    const botDetailSections = selectedBot ? {
+      overview: [
+        { label: 'Status', value: selectedStatusLabel },
+        { label: 'Mode', value: selectedIsLive ? 'Live' : 'Paper' },
+        { label: 'Exchange', value: selectedExchangeLabel },
+        { label: 'Pair', value: selectedBot.pair || selectedBot.symbol || selectedBot.market || NOT_AVAILABLE },
+        { label: 'Last Trade', value: formatDate(selectedBot.last_trade_time || selectedBot.last_trade_at || selectedBot.last_trade_timestamp) },
+        { label: 'Training Complete', value: formatDetailValue(selectedBot.training_complete) }
+      ],
+      performance: [
+        { label: 'Current Capital', value: formatZAR(selectedBot.current_capital) },
+        { label: 'Profit', value: formatZAR(selectedBot.profit ?? selectedBot.profit_loss ?? selectedBot.pnl) },
+        { label: 'Trades', value: safeNumber(selectedBot.trades_count, 0) },
+        { label: 'Win Rate', value: formatPercentValue(selectedBot.win_rate ?? selectedBot.win_rate_pct ?? selectedBot.winRate) },
+        { label: 'ROI', value: formatPercentValue(selectedBot.roi ?? selectedBot.roi_pct) }
+      ],
+      risk: [
+        { label: 'Risk Mode', value: selectedBot.risk_mode || selectedBot.risk_profile || selectedBot.riskLevel || NOT_AVAILABLE },
+        { label: 'Risk State', value: selectedBot.risk_state || selectedBot.risk_level || NOT_AVAILABLE },
+        { label: 'Pause Reason', value: selectedPauseReasonDisplay },
+        { label: 'Quarantine', value: formatDetailValue(selectedBot.quarantine_active ?? selectedBot.in_quarantine) }
+      ],
+      trades: [
+        { label: 'Last Trade', value: formatDate(selectedBot.last_trade_time || selectedBot.last_trade_at || selectedBot.last_trade_timestamp) },
+        { label: 'Last Trade P/L', value: formatZAR(selectedBot.last_trade_profit ?? selectedBot.last_trade_pnl ?? selectedBot.last_trade_pl) },
+        { label: 'Last Trade Price', value: formatZAR(selectedBot.last_trade_price) },
+        { label: 'Avg Trade Duration', value: selectedBot.avg_trade_duration ? formatDuration(selectedBot.avg_trade_duration) : NOT_AVAILABLE }
+      ],
+      settings: [
+        { label: 'Strategy', value: selectedBot.strategy || selectedBot.strategy_preset || selectedBot.strategy_name || NOT_AVAILABLE },
+        { label: 'Risk Profile', value: selectedBot.risk_profile || NOT_AVAILABLE },
+        { label: 'Bot ID', value: selectedBot.id || NOT_AVAILABLE },
+        { label: 'Created At', value: formatDate(selectedBot.created_at) }
+      ]
+    } : null;
+    const selectedStatusTone = selectedBot
+      ? (selectedStatus === 'active' ? 'ok' : (['paused', 'paused_ready'].includes(selectedStatus) ? 'paused' : 'warn'))
+      : 'warn';
+    const selectedIsPaused = selectedBot ? ['paused', 'paused_ready'].includes(selectedStatus) : false;
+    const selectedCanStart = selectedBot ? ['stopped', 'inactive', 'unknown'].includes(selectedStatus) : false;
+    const renderBotDetailGrid = (items) => (
+      <div className="bot-detail-grid">
+        {items.map((item) => (
+          <div key={item.label} className="bot-detail-item">
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+    );
     return (
       <section className="section active">
         <div className="card">
@@ -6430,126 +6396,131 @@ export default function Dashboard() {
           {botManagementTab === 'creation' && (
             <div className="bot-container">
               <div className="bot-left">
-                <div className="bot-form-card" style={{marginBottom: '16px'}}>
-                  <h3>Create New Bot</h3>
-                  <form onSubmit={handleCreateBot}>
-                    <div className="bot-form-grid">
-                      <div>
-                        <label htmlFor="bot-name">Bot Name</label>
-                        <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                <div className="bot-form-stack">
+                  <div className="bot-form-card">
+                    <h3>Create New Bot</h3>
+                    <form onSubmit={handleCreateBot}>
+                      <div className="bot-form-grid">
+                        <div>
+                          <label htmlFor="bot-name">Bot Name</label>
+                          <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                        </div>
+                        <div>
+                          <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                          <input
+                            id="bot-budget"
+                            name="bot-budget"
+                            type="number"
+                            min="1000"
+                            step="100"
+                            defaultValue="1000"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="bot-exchange">Exchange Platform</label>
+                          <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                            {getAllExchanges().map(exchange => (
+                              <option
+                                key={exchange.id}
+                                value={exchange.id}
+                                disabled={exchange.comingSoon}
+                              >
+                                {exchange.icon} {exchange.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="bot-risk">Risk Mode</label>
+                          <select id="bot-risk" name="bot-risk">
+                            <option value="safe">Safe</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="aggressive">Aggressive</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="bot-strategy">Strategy Preset</label>
+                          <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
+                            <option value="adaptive">Adaptive Core</option>
+                            <option value="trend">Trend Follow</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                            <option value="scalping">Scalping</option>
+                          </select>
+                        </div>
+                        <div>
+                          <button type="submit">Create Bot (7 Day Learning)</button>
+                        </div>
                       </div>
-                      <div>
-                        <label htmlFor="bot-budget">Budget (Min R1000)</label>
-                        <input
-                          id="bot-budget"
-                          name="bot-budget"
-                          type="number"
-                          min="1000"
-                          step="100"
-                          defaultValue="1000"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="bot-exchange">Exchange Platform</label>
-                        <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
-                          {getAllExchanges().map(exchange => (
-                            <option
-                              key={exchange.id}
-                              value={exchange.id}
-                              disabled={exchange.comingSoon}
-                            >
-                              {exchange.icon} {exchange.displayName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="bot-risk">Risk Mode</label>
-                        <select id="bot-risk" name="bot-risk">
-                          <option value="safe">Safe</option>
-                          <option value="balanced">Balanced</option>
-                          <option value="aggressive">Aggressive</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="bot-strategy">Strategy Preset</label>
-                        <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
-                          <option value="adaptive">Adaptive Core</option>
-                          <option value="trend">Trend Follow</option>
-                          <option value="mean_reversion">Mean Reversion</option>
-                          <option value="scalping">Scalping</option>
-                        </select>
-                      </div>
-                      <div>
-                        <button type="submit">Create Bot (7 Day Learning)</button>
-                      </div>
-                    </div>
-                  </form>
-                </div>
+                    </form>
+                  </div>
 
-                <div className="bot-form-card" style={{marginBottom: '16px'}}>
-                  <h3>Fetch.ai uAgents</h3>
-                  <form onSubmit={handleCreateUAgent}>
-                    <div className="bot-form-grid">
-                      <div>
-                        <label htmlFor="uagent-name">uAgent Name</label>
-                        <input id="uagent-name" name="uagent-name" placeholder="Custom Agent" type="text" required />
+                  <div className="bot-form-card">
+                    <h3>Fetch.ai uAgents</h3>
+                    <form onSubmit={handleCreateUAgent}>
+                      <div className="bot-form-grid">
+                        <div>
+                          <label htmlFor="uagent-name">uAgent Name</label>
+                          <input id="uagent-name" name="uagent-name" placeholder="Custom Agent" type="text" required />
+                        </div>
+                        <div>
+                          <label htmlFor="uagent-strategy">Strategy</label>
+                          <select id="uagent-strategy" name="uagent-strategy" defaultValue="adaptive">
+                            <option value="adaptive">Adaptive</option>
+                            <option value="trend">Trend</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="uagent-file">Upload File (.py)</label>
+                          <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
+                        </div>
+                        <div>
+                          <button type="submit">Deploy uAgent</button>
+                        </div>
                       </div>
-                      <div>
-                        <label htmlFor="uagent-strategy">Strategy</label>
-                        <select id="uagent-strategy" name="uagent-strategy" defaultValue="adaptive">
-                          <option value="adaptive">Adaptive</option>
-                          <option value="trend">Trend</option>
-                          <option value="mean_reversion">Mean Reversion</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="uagent-file">Upload File (.py)</label>
-                        <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
-                      </div>
-                      <div>
-                        <button type="submit">Deploy uAgent</button>
-                      </div>
-                    </div>
-                  </form>
-                </div>
+                    </form>
+                  </div>
 
-                <div className="bot-form-card">
-                  <h3>FlokX Alert Bot</h3>
-                  <form onSubmit={handleCreateFlokxBot}>
-                    <div className="bot-form-grid">
-                      <div>
-                        <label htmlFor="flokx-name">Bot Name</label>
-                        <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
+                  <div className="bot-form-card">
+                    <h3>FlokX Alert Bot</h3>
+                    <form onSubmit={handleCreateFlokxBot}>
+                      <div className="bot-form-grid">
+                        <div>
+                          <label htmlFor="flokx-name">Bot Name</label>
+                          <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
+                        </div>
+                        <div>
+                          <label htmlFor="flokx-signal">Signal Type</label>
+                          <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
+                            <option value="momentum">Momentum</option>
+                            <option value="breakout">Breakout</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="flokx-risk">Risk Level</label>
+                          <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
+                            <option value="safe">Safe</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="aggressive">Aggressive</option>
+                          </select>
+                        </div>
+                        <div>
+                          <button type="submit">Create FlokX Bot</button>
+                        </div>
                       </div>
-                      <div>
-                        <label htmlFor="flokx-signal">Signal Type</label>
-                        <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
-                          <option value="momentum">Momentum</option>
-                          <option value="breakout">Breakout</option>
-                          <option value="mean_reversion">Mean Reversion</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="flokx-risk">Risk Level</label>
-                        <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
-                          <option value="safe">Safe</option>
-                          <option value="balanced">Balanced</option>
-                          <option value="aggressive">Aggressive</option>
-                        </select>
-                      </div>
-                      <div>
-                        <button type="submit">Create FlokX Bot</button>
-                      </div>
-                    </div>
-                  </form>
+                    </form>
+                  </div>
                 </div>
               </div>
 
               <div className="bot-right">
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
-                  <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
+                <div className="bot-summary-header">
+                  <div>
+                    <h3 style={{margin: 0}}>Bot Fleet</h3>
+                    <p>Monitor live status and drill into full bot detail.</p>
+                  </div>
                   <PlatformSelector
                     value={platformFilter}
                     onChange={setPlatformFilter}
@@ -6558,63 +6529,108 @@ export default function Dashboard() {
                 </div>
                 <div className="bot-list">
                   {filteredBots.length === 0 ? (
-                    <p style={{color: 'var(--muted)', padding: '20px', textAlign: 'center'}}>
-                      No bots available.
-                    </p>
+                    <p className="bot-empty">No bots available.</p>
                   ) : (
                     filteredBots.map(bot => {
-                      const isExpanded = expandedBots[bot.id];
                       const botMode = bot.trading_mode || bot.mode || 'paper';
                       const isLive = botMode === 'live';
                       const botStatus = getBotStatus(bot);
                       const statusLabel = humanizeReason(botStatus);
                       const isActive = botStatus === 'active';
                       const isPaused = ['paused', 'paused_ready'].includes(botStatus);
-                      const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
-                      const pauseReason = bot.paused_reason_message || bot.paused_reason;
-                      const pauseReasonDisplay = pauseReason ? formatReasonInline(pauseReason) : '';
+                      const statusTone = isActive ? 'ok' : (isPaused ? 'paused' : 'warn');
 
                       return (
-                        <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
-                          <div className="bot-header" onClick={() => toggleBotExpand(bot.id)}>
-                            <div style={{display: 'flex', flexDirection: 'column'}}>
-                              <strong>{bot.name}</strong>
-                              <span style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
-                                {bot.exchange?.toUpperCase() || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'} • {statusLabel}
-                              </span>
-                            </div>
-                            <div className={`status-dot ${isLive ? 'ok' : 'warn'}`}></div>
+                        <button
+                          key={bot.id}
+                          type="button"
+                          className={`bot-list-item ${resolvedSelectedBotId === bot.id ? 'active' : ''}`}
+                          onClick={() => {
+                            setSelectedBotDetailId(bot.id);
+                            setBotDetailTab('overview');
+                          }}
+                        >
+                          <div className="bot-list-main">
+                            <strong>{bot.name || 'Bot'}</strong>
+                            <span className="bot-list-meta">
+                              {getPlatformDisplayName(bot.exchange) || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'}
+                            </span>
                           </div>
-                          {isExpanded && (
-                            <div className="bot-details active">
-                              {pauseReasonDisplay && (
-                                <p><strong>Pause reason:</strong> {pauseReasonDisplay}</p>
-                              )}
-                              <p><strong>Capital:</strong> {formatZAR(bot.current_capital)}</p>
-                              <p><strong>Trades:</strong> {safeNumber(bot.trades_count, 0)}</p>
-                              <div className="buttons">
-                                {isPaused && (
-                                  <button onClick={() => handleResumeBot(bot.id)}>
-                                    ▶ Resume
-                                  </button>
-                                )}
-                                {!isActive && !isPaused && canStart && (
-                                  <button onClick={() => handleStartBot(bot.id)}>
-                                    🚀 Start
-                                  </button>
-                                )}
-                                <button onClick={() => handleToggleBotMode(bot.id, botMode)}>
-                                  {isLive ? 'Switch to Paper' : 'Switch to Live'}
-                                </button>
-                                <button className="danger" onClick={() => handleDeleteBot(bot.id)}>
-                                  Delete
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                          <span className={`bot-status-pill ${statusTone}`}>{statusLabel}</span>
+                        </button>
                       );
                     })
+                  )}
+                </div>
+                <div className="bot-detail">
+                  {!selectedBot ? (
+                    <div className="bot-empty">Select a bot to see details.</div>
+                  ) : (
+                    <>
+                      <div className="bot-detail-header">
+                        <div>
+                          <h4>{selectedBot.name || 'Bot Detail'}</h4>
+                          <span>
+                            {selectedExchangeLabel} • {selectedIsLive ? 'Live' : 'Paper'} • {selectedStatusLabel}
+                          </span>
+                        </div>
+                        <span className={`bot-status-pill ${selectedStatusTone}`}>{selectedStatusLabel}</span>
+                      </div>
+                      {selectedPauseReasonDisplay !== NOT_AVAILABLE && (
+                        <div className="bot-detail-alert">
+                          <strong>Pause reason:</strong> {selectedPauseReasonDisplay}
+                        </div>
+                      )}
+                      <div className="bot-detail-tabs">
+                        {['overview', 'performance', 'risk', 'trades', 'settings'].map(tab => (
+                          <button
+                            key={tab}
+                            type="button"
+                            className={`bot-detail-tab ${botDetailTab === tab ? 'active' : ''}`}
+                            onClick={() => setBotDetailTab(tab)}
+                          >
+                            {tab}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="bot-detail-body">
+                        {botDetailTab === 'overview' && renderBotDetailGrid(botDetailSections.overview)}
+                        {botDetailTab === 'performance' && renderBotDetailGrid(botDetailSections.performance)}
+                        {botDetailTab === 'risk' && renderBotDetailGrid(botDetailSections.risk)}
+                        {botDetailTab === 'trades' && renderBotDetailGrid(botDetailSections.trades)}
+                        {botDetailTab === 'settings' && (
+                          <div className="bot-detail-settings">
+                            {renderBotDetailGrid(botDetailSections.settings)}
+                            <div className="bot-detail-raw">
+                              {Object.entries(selectedBot).map(([key, value]) => (
+                                <div key={key} className="bot-detail-row">
+                                  <span className="bot-detail-key">{toTitleCase(key.replace(/_/g, ' '))}</span>
+                                  <span className="bot-detail-value">{formatDetailValue(value)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="bot-detail-actions">
+                        {selectedIsPaused && (
+                          <button onClick={() => handleResumeBot(selectedBot.id)}>
+                            ▶ Resume
+                          </button>
+                        )}
+                        {!selectedIsPaused && selectedCanStart && (
+                          <button onClick={() => handleStartBot(selectedBot.id)}>
+                            🚀 Start
+                          </button>
+                        )}
+                        <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
+                          {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
+                        </button>
+                        <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
