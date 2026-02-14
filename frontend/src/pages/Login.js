@@ -60,7 +60,7 @@ export default function Login() {
         <div className="auth-content">
           <img
             src="/assets/logo.png"
-            alt="Amarktai Logo"
+            alt="Amarktai Crypto"
             className="auth-logo"
             onClick={() => navigate('/')}
           />
@@ -131,22 +131,6 @@ export default function Login() {
         </video>
       </div>
 
-      {/* Footer */}
-      <footer style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        textAlign: 'center',
-        padding: '12px',
-        color: '#8a9bb0',
-        fontSize: '0.85rem',
-        zIndex: 10,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(8px)'
-      }}>
-        © 2026 Amarktai Crypto · a part of Amarktai Network. All rights reserved.
-      </footer>
     </div>
   );
 }

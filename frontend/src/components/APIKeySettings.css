@@ -3,7 +3,7 @@
   margin: 0 auto;
   padding: 16px;
   color: var(--text);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: Inter, sans-serif;
 }
 
 .api-key-header h2 {
@@ -48,9 +48,13 @@
 .api-key-card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius);
   overflow: hidden;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  cursor: pointer;
 }
 
 .api-key-card:hover {
@@ -58,8 +62,10 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
-.api-key-card.expanded {
-  border-color: rgba(56, 189, 248, 0.4);
+.api-key-card.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: not-allowed;
 }
 
 .api-key-card-header {
@@ -67,12 +73,12 @@
   border: none;
   background: transparent;
   color: inherit;
-  padding: 16px;
+  padding: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  cursor: pointer;
+  cursor: inherit;
   text-align: left;
 }
 
@@ -89,7 +95,16 @@
 }
 
 .api-key-icon {
-  font-size: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.2rem;
+}
+
+.api-key-icon img {
+  width: 24px;
+  height: 24px;
+  opacity: 0.75;
 }
 
 .api-key-badge {
@@ -111,9 +126,9 @@
 }
 
 .api-key-badge.warning {
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.4);
-  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent2);
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.15);
 }
 
 .api-key-badge.error {
@@ -143,17 +158,15 @@
 .api-key-card-meta {
   display: grid;
   gap: 4px;
-  padding: 0 16px 12px;
+  padding: 0;
   font-size: 0.75rem;
   color: var(--muted);
 }
 
-.api-key-card-body {
-  padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 42, 0.25);
-  display: grid;
-  gap: 12px;
+.api-key-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .api-key-fields {
@@ -171,7 +184,7 @@
 .api-key-field input {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--glass);
   color: var(--text);
@@ -191,7 +204,7 @@
 }
 
 .api-key-button {
-  border-radius: 8px;
+  border-radius: 999px;
   padding: 8px 14px;
   font-size: 0.85rem;
   font-weight: 600;
@@ -205,13 +218,13 @@
 }
 
 .api-key-button.primary {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  color: #06140c;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(34, 197, 94, 0.65) 100%);
+  color: #0b0d14;
 }
 
 .api-key-button.ghost {
   background: rgba(56, 189, 248, 0.12);
-  color: #e0f2fe;
+  color: var(--text);
   border-color: rgba(56, 189, 248, 0.4);
 }
 
@@ -219,6 +232,19 @@
   background: rgba(239, 68, 68, 0.15);
   color: #fecaca;
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+.api-key-disabled {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 6px 0;
+}
+
+.api-key-modal {
+  background: rgba(15, 15, 20, 0.95) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  color: var(--text);
 }
 
 .api-key-error {
@@ -235,9 +261,9 @@
 .api-key-security {
   margin-top: 24px;
   padding: 16px;
-  border-radius: 10px;
-  background: var(--panel);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--radius);
+  background: var(--glass);
+  border: 1px solid var(--line);
   font-size: 0.85rem;
   color: var(--muted);
 }

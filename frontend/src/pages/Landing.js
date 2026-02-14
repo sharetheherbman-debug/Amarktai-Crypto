@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Volume2, VolumeX } from 'lucide-react';
+import PublicNav from '../components/PublicNav';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -76,6 +77,7 @@ export default function Landing() {
 
   return (
     <div className="landing-container">
+      <PublicNav />
       <audio
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
@@ -98,16 +100,16 @@ export default function Landing() {
         <div className="content">
           <img
             src="/assets/logo.png"
-            alt="Amarktai Logo"
+            alt="Amarktai Crypto"
             className="logo"
             onClick={() => navigate('/')}
           />
           
           <div className="hero">
             <h1>
-              Your journey to <span className="emph">autonomous wealth</span>
+              Amarktai Crypto for <span className="emph">autonomous trading</span>
             </h1>
-            <p>Intelligent, adaptive, unstoppable.</p>
+            <p>Premium glass-fintech control with real-time AI signal flow.</p>
           </div>
 
           <div className="actions">
@@ -139,13 +141,8 @@ export default function Landing() {
         >
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
-      </div>
-
-      {/* Footer */}
-      <div className="footer">
-        <p>
-          © 2026 Amarktai Crypto · a part of Amarktai Network. All rights reserved.
-        </p>
+        <img src="/assets/ai/ai-orb.svg" alt="" className="ai-orb" />
+        <img src="/assets/ai/ai-grid.svg" alt="" className="ai-grid" />
       </div>
 
       <style jsx>{`
@@ -153,24 +150,24 @@ export default function Landing() {
           display: flex;
           height: 100vh;
           align-items: center;
-          background: #000;
-          color: #f0f8f5;
-          font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+          background: var(--bg);
+          color: var(--text);
           position: relative;
           overflow: hidden;
+          padding-top: 40px;
         }
 
         .sound-btn {
           position: fixed;
-          top: 24px;
+          top: 90px;
           right: 24px;
           width: 48px;
           height: 48px;
           border-radius: 50%;
-          background: rgba(6, 12, 16, 0.75);
-          backdrop-filter: blur(8px);
-          border: 1px solid rgba(46, 223, 163, 0.25);
-          color: #2edfa3;
+          background: rgba(15, 15, 20, 0.75);
+          backdrop-filter: blur(var(--blur));
+          border: 1px solid var(--line);
+          color: var(--accent2);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -180,8 +177,8 @@ export default function Landing() {
         }
 
         .sound-btn:hover {
-          background: rgba(6, 12, 16, 0.9);
-          border-color: #2edfa3;
+          background: rgba(15, 15, 20, 0.9);
+          border-color: rgba(56, 189, 248, 0.6);
         }
 
         .sound-btn.pulse {
@@ -226,12 +223,28 @@ export default function Landing() {
           max-width: 520px;
           width: 100%;
           gap: 32px;
-          background: rgba(6, 12, 16, 0.75);
-          border: 1px solid rgba(46, 223, 163, 0.25);
-          border-radius: 16px;
+          background: var(--glass);
+          border: 1px solid var(--line);
+          border-radius: var(--radius);
           padding: 48px;
-          backdrop-filter: blur(8px);
-          box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+          backdrop-filter: blur(var(--blur));
+          box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
+          position: relative;
+          overflow: hidden;
+        }
+
+        .content::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(circle at 10% 90%, rgba(56, 189, 248, 0.18), transparent 55%);
+          opacity: 0.35;
+          pointer-events: none;
+        }
+
+        .content > * {
+          position: relative;
+          z-index: 1;
         }
 
         .logo {
@@ -253,7 +266,7 @@ export default function Landing() {
         }
 
         .hero .emph {
-          background: linear-gradient(135deg, #008a65, #2edfa3);
+          background: linear-gradient(135deg, var(--accent), var(--accent2));
           -webkit-background-clip: text;
           background-clip: text;
           color: transparent;
@@ -261,7 +274,7 @@ export default function Landing() {
 
         .hero p {
           font-size: 1.25rem;
-          color: #8a9bb0;
+          color: var(--muted);
           margin: 0;
         }
 
@@ -274,7 +287,7 @@ export default function Landing() {
         .btn {
           flex: 1;
           padding: 16px 24px;
-          border-radius: 8px;
+          border-radius: 999px;
           font-weight: 600;
           font-size: 1rem;
           cursor: pointer;
@@ -283,8 +296,8 @@ export default function Landing() {
         }
 
         .btn-primary {
-          background: linear-gradient(135deg, #008a65, #2edfa3);
-          color: #fff;
+          background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(34, 197, 94, 0.65));
+          color: #0b0d14;
         }
 
         .btn-primary:hover {
@@ -293,36 +306,30 @@ export default function Landing() {
         }
 
         .btn-secondary {
-          background: transparent;
-          border: 2px solid #2edfa3;
-          color: #2edfa3;
+          background: rgba(56, 189, 248, 0.12);
+          border: 1px solid rgba(56, 189, 248, 0.35);
+          color: var(--text);
         }
 
         .btn-secondary:hover {
-          background: rgba(46, 223, 163, 0.1);
+          background: rgba(56, 189, 248, 0.2);
           transform: translateY(-2px);
         }
 
-        .footer {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          text-align: center;
-          padding: 12px;
-          color: #8a9bb0;
-          font-size: 0.85rem;
-          z-index: 10;
-          background: rgba(0, 0, 0, 0.5);
+        .ai-orb {
+          position: absolute;
+          bottom: 40px;
+          right: 40px;
+          width: 180px;
+          opacity: 0.7;
         }
 
-        .footer a {
-          color: #2edfa3;
-          text-decoration: none;
-        }
-
-        .footer a:hover {
-          text-decoration: underline;
+        .ai-grid {
+          position: absolute;
+          top: 20px;
+          left: 20px;
+          width: 260px;
+          opacity: 0.35;
         }
 
         /* Mobile Responsive */
@@ -336,7 +343,7 @@ export default function Landing() {
             inset: 0;
             z-index: 2;
             padding: 32px 20px;
-            background: rgba(0, 0, 0, 0.55);
+            background: rgba(10, 12, 20, 0.55);
           }
 
           .right {
@@ -346,10 +353,10 @@ export default function Landing() {
           }
 
           .content {
-            background: transparent;
-            border: none;
-            backdrop-filter: none;
-            box-shadow: none;
+            background: rgba(15, 15, 20, 0.6);
+            border: 1px solid var(--line);
+            backdrop-filter: blur(var(--blur));
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
             gap: 24px;
             padding: 24px;
           }
@@ -366,9 +373,10 @@ export default function Landing() {
             flex-direction: column;
           }
 
-          .footer {
-            z-index: 3;
-            color: #fff;
+          .ai-orb {
+            width: 140px;
+            bottom: 20px;
+            right: 20px;
           }
         }
       `}</style>

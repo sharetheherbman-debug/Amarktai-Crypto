@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './APIKeySettings.css';
 import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
@@ -20,11 +27,29 @@ const APIKeySettings = () => {
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const [showKeys, setShowKeys] = useState({});
-  const [expandedProvider, setExpandedProvider] = useState(null);
+  const showKeys = {};
+  const [activeProviderId, setActiveProviderId] = useState(null);
+  const [unsupportedProviders, setUnsupportedProviders] = useState({});
   const [requestCounter, setRequestCounter] = useState(0); // Track request order
   
   const token = localStorage.getItem('token');
+
+  const isProviderAvailable = (providerId) => {
+    if (PLATFORM_CONFIG[providerId]?.enabled === false) {
+      return false;
+    }
+    return !unsupportedProviders[providerId];
+  };
+
+  const activeProvider = useMemo(
+    () => PROVIDERS.find((provider) => provider.id === activeProviderId),
+    [PROVIDERS, activeProviderId]
+  );
+
+  const activeProviderStatus = useMemo(
+    () => providers.find((status) => status.provider === activeProviderId),
+    [providers, activeProviderId]
+  );
 
   const normalizeStatusResponse = (data) => {
     if (data?.status_map && Object.keys(data.status_map).length > 0) {
@@ -122,8 +147,14 @@ const APIKeySettings = () => {
       }
     }));
   };
+
+  const markProviderUnsupported = (providerId, providerName) => {
+    setUnsupportedProviders(prev => ({ ...prev, [providerId]: true }));
+    showMessage('error', `${providerName || 'This provider'} is not available in this build.`);
+  };
   
   const saveApiKey = async (providerId) => {
+    const providerName = PROVIDERS.find(p => p.id === providerId)?.name;
     const data = formData[providerId];
     if (!data || !data.api_key || data.api_key.trim() === '') {
       showMessage('error', 'API key cannot be empty');
@@ -157,6 +188,11 @@ const APIKeySettings = () => {
       
       const result = await response.json();
       
+      if (response.status === 404 || response.status === 501) {
+        markProviderUnsupported(providerId, providerName);
+        return;
+      }
+
       if (response.ok) {
         showMessage('success', result.message || 'API key saved successfully');
         setFormData(prev => ({ ...prev, [providerId]: {} }));
@@ -165,6 +201,10 @@ const APIKeySettings = () => {
         showMessage('error', result.detail || 'Failed to save API key');
       }
     } catch (error) {
+      if (error.response?.status === 404 || error.response?.status === 501) {
+        markProviderUnsupported(providerId, providerName);
+        return;
+      }
       showMessage('error', 'Error saving API key: ' + error.message);
     } finally {
       setLoading(false);
@@ -172,6 +212,7 @@ const APIKeySettings = () => {
   };
   
   const testApiKey = async (providerId) => {
+    const providerName = PROVIDERS.find(p => p.id === providerId)?.name;
     setLoading(true);
     
     // Optimistic update: immediately show testing state
@@ -197,6 +238,10 @@ const APIKeySettings = () => {
           localStorage.removeItem('token');
           window.location.href = '/login';
         }, 2000);
+        return;
+      }
+      if (response.status === 404 || response.status === 501) {
+        markProviderUnsupported(providerId, providerName);
         return;
       }
       
@@ -227,6 +272,10 @@ const APIKeySettings = () => {
       // Delayed refetch to confirm persisted state (don't overwrite optimistic update immediately)
       setTimeout(() => fetchAllProviders(), 500);
     } catch (error) {
+      if (error.response?.status === 404 || error.response?.status === 501) {
+        markProviderUnsupported(providerId, providerName);
+        return;
+      }
       showMessage('error', 'Error testing API key: ' + error.message);
       // Revert optimistic update on error
       fetchAllProviders();
@@ -257,6 +306,10 @@ const APIKeySettings = () => {
       
       const result = await response.json();
       
+      if (response.status === 404 || response.status === 501) {
+        markProviderUnsupported(providerId, providerName);
+        return;
+      }
       if (response.ok) {
         showMessage('success', result.message || 'API key deleted successfully');
         // Refresh to confirm
@@ -267,6 +320,10 @@ const APIKeySettings = () => {
         fetchAllProviders();
       }
     } catch (error) {
+      if (error.response?.status === 404 || error.response?.status === 501) {
+        markProviderUnsupported(providerId, providerName);
+        return;
+      }
       showMessage('error', 'Error deleting API key: ' + error.message);
       // Revert on error
       fetchAllProviders();
@@ -280,10 +337,6 @@ const APIKeySettings = () => {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  const toggleProvider = (providerId) => {
-    setExpandedProvider(prev => (prev === providerId ? null : providerId));
-  };
-  
   const getStatusDisplay = (status, lastTestError) => {
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid') {
@@ -311,7 +364,10 @@ const APIKeySettings = () => {
     return date.toLocaleString();
   };
 
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status, available = true) => {
+    if (!available) {
+      return { label: 'Not available', tone: 'muted' };
+    }
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid' || normalizedStatus === 'test_ok') {
       return { label: 'Test OK', tone: 'success' };
@@ -327,6 +383,8 @@ const APIKeySettings = () => {
     }
     return { label: 'Not configured', tone: 'muted' };
   };
+
+  const activeStatus = activeProviderStatus?.status || 'not_configured';
   
   return (
     <div className="api-key-settings">
@@ -349,37 +407,108 @@ const APIKeySettings = () => {
         {PROVIDERS.map(provider => {
           const providerStatus = providers.find(p => p.provider === provider.id);
           const status = providerStatus?.status || 'not_configured';
-          const statusBadge = getStatusBadge(status);
-          const isExpanded = expandedProvider === provider.id;
-          const statusDetails = providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error);
+          const isAvailable = isProviderAvailable(provider.id);
+          const statusBadge = getStatusBadge(status, isAvailable);
+          const statusDetails = isAvailable
+            ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error)
+            : 'Not available in this build';
+          const iconSrc = PLATFORM_CONFIG[provider.id]?.type === 'ai_provider'
+            ? '/assets/ai/ai-bot.svg'
+            : '/assets/ai/ai-grid.svg';
+          const isConfigured = status !== 'not_configured';
 
           return (
-            <div key={provider.id} className={`api-key-card ${isExpanded ? 'expanded' : ''}`}>
-              <button
-                type="button"
-                className="api-key-card-header"
-                onClick={() => toggleProvider(provider.id)}
-                aria-expanded={isExpanded}
-              >
+            <div
+              key={provider.id}
+              className={`api-key-card ${!isAvailable ? 'disabled' : ''}`}
+              aria-disabled={!isAvailable}
+              onClick={() => {
+                if (isAvailable) {
+                  setActiveProviderId(provider.id);
+                }
+              }}
+            >
+              <div className="api-key-card-header">
                 <div className="api-key-card-title">
-                  <span className="api-key-icon">{provider.icon}</span>
+                  <span className="api-key-icon">
+                    <img src={iconSrc} alt="" />
+                    <span>{provider.icon}</span>
+                  </span>
                   <div>
                     <h3>{provider.name}</h3>
                     <span className={`api-key-badge ${statusBadge.tone}`}>{statusBadge.label}</span>
                   </div>
                 </div>
-                <span className="api-key-card-cta">Click to manage</span>
-              </button>
+                <span className="api-key-card-cta">{isAvailable ? 'Manage' : 'Unavailable'}</span>
+              </div>
 
               <div className="api-key-card-meta">
                 <span>Status: {statusDetails}</span>
-                <span>Last tested: {formatTimestamp(providerStatus?.last_tested_at)}</span>
+                <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : 'Not available in this build'}</span>
               </div>
 
-              {isExpanded && (
-                <div className="api-key-card-body">
+              <div className="api-key-card-actions">
+                <button
+                  type="button"
+                  onClick={() => setActiveProviderId(provider.id)}
+                  disabled={!isAvailable}
+                  className="api-key-button primary"
+                >
+                  Manage
+                </button>
+                {isAvailable && isConfigured && (
+                  <button
+                    type="button"
+                    onClick={() => testApiKey(provider.id)}
+                    disabled={loading}
+                    className="api-key-button ghost"
+                  >
+                    Test
+                  </button>
+                )}
+              </div>
+
+              {!isAvailable && (
+                <div className="api-key-disabled">
+                  Not available in this build
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <Dialog
+        open={Boolean(activeProviderId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveProviderId(null);
+          }
+        }}
+      >
+        <DialogContent className="api-key-modal">
+          {activeProvider && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{activeProvider.name} API Keys</DialogTitle>
+                <DialogDescription>
+                  Store or test your {activeProvider.name} credentials securely.
+                </DialogDescription>
+              </DialogHeader>
+
+              {!isProviderAvailable(activeProvider.id) ? (
+                <div className="api-key-disabled">
+                  Not available in this build.
+                </div>
+              ) : (
+                <>
+                  <div className="api-key-card-meta">
+                    <span>Status: {activeProviderStatus?.status_display || getStatusDisplay(activeStatus, activeProviderStatus?.last_test_error)}</span>
+                    <span>Last tested: {formatTimestamp(activeProviderStatus?.last_tested_at)}</span>
+                  </div>
+
                   <div className="api-key-fields">
-                    {provider.fields.map(field => (
+                    {activeProvider.fields.map(field => (
                       <div key={field} className="api-key-field">
                         <label>
                           {field === 'api_key' ? 'API Key' :
@@ -387,9 +516,9 @@ const APIKeySettings = () => {
                            field === 'passphrase' ? 'Passphrase' : field}
                         </label>
                         <input
-                          type={showKeys[`${provider.id}_${field}`] ? 'text' : 'password'}
-                          value={formData[provider.id]?.[field] || ''}
-                          onChange={(e) => handleInputChange(provider.id, field, e.target.value)}
+                          type={showKeys[`${activeProvider.id}_${field}`] ? 'text' : 'password'}
+                          value={formData[activeProvider.id]?.[field] || ''}
+                          onChange={(e) => handleInputChange(activeProvider.id, field, e.target.value)}
                           placeholder={`Enter ${field.replace('_', ' ')}`}
                           disabled={loading}
                         />
@@ -399,23 +528,23 @@ const APIKeySettings = () => {
 
                   <div className="api-key-actions">
                     <button
-                      onClick={() => saveApiKey(provider.id)}
+                      onClick={() => saveApiKey(activeProvider.id)}
                       disabled={loading}
                       className="api-key-button primary"
                     >
                       {loading ? 'Saving...' : 'Save Key'}
                     </button>
-                    {status !== 'not_configured' && (
+                    {activeStatus !== 'not_configured' && (
                       <>
                         <button
-                          onClick={() => testApiKey(provider.id)}
+                          onClick={() => testApiKey(activeProvider.id)}
                           disabled={loading}
                           className="api-key-button ghost"
                         >
                           Test
                         </button>
                         <button
-                          onClick={() => deleteApiKey(provider.id, provider.name)}
+                          onClick={() => deleteApiKey(activeProvider.id, activeProvider.name)}
                           disabled={loading}
                           className="api-key-button danger"
                         >
@@ -425,23 +554,23 @@ const APIKeySettings = () => {
                     )}
                   </div>
 
-                  {providerStatus?.last_test_error && (
+                  {activeProviderStatus?.last_test_error && (
                     <div className="api-key-error">
-                      Last error: {providerStatus.last_test_error}
+                      Last error: {activeProviderStatus.last_test_error}
                     </div>
                   )}
                   <div className="api-key-meta-note">
-                    Updated: {formatTimestamp(providerStatus?.updated_at)}
+                    Updated: {formatTimestamp(activeProviderStatus?.updated_at)}
                   </div>
                   <div className="api-key-required">
-                    Required fields: {provider.fields.join(', ')}
+                    Required fields: {activeProvider.fields.join(', ')}
                   </div>
-                </div>
+                </>
               )}
-            </div>
-          );
-        })}
-      </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <div className="api-key-security">
         <h4>ℹ️ Security Note</h4>

@@ -71,21 +71,26 @@ function getExistingAssets() {
       console.warn(`⚠️  Warning: ${PUBLIC_ASSETS_DIR} does not exist`);
       return assets;
     }
-    
-    const files = fs.readdirSync(PUBLIC_ASSETS_DIR);
-    
-    for (const file of files) {
-      const filePath = path.join(PUBLIC_ASSETS_DIR, file);
-      const stat = fs.statSync(filePath);
-      
-      if (stat.isFile() && file !== '.gitkeep' && file !== 'README_ASSETS.txt') {
-        assets.push({
-          name: file,
-          size: stat.size,
-          path: filePath
-        });
+
+    const walkDir = (dir) => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walkDir(entryPath);
+        } else if (entry.isFile() && entry.name !== '.gitkeep' && entry.name !== 'README_ASSETS.txt') {
+          const stat = fs.statSync(entryPath);
+          assets.push({
+            name: entry.name,
+            size: stat.size,
+            path: entryPath,
+            relativePath: path.relative(PUBLIC_ASSETS_DIR, entryPath)
+          });
+        }
       }
-    }
+    };
+
+    walkDir(PUBLIC_ASSETS_DIR);
   } catch (error) {
     console.error('Error reading assets directory:', error.message);
   }
@@ -108,7 +113,8 @@ async function validateAssets() {
   existingAssets.forEach(asset => {
     const sizeKB = (asset.size / 1024).toFixed(2);
     const status = asset.size === 0 ? '⚠️  EMPTY' : '✅';
-    console.log(`  ${status} ${asset.name} (${sizeKB} KB)`);
+    const assetLabel = asset.relativePath || asset.name;
+    console.log(`  ${status} ${assetLabel} (${sizeKB} KB)`);
   });
   console.log();
   
@@ -151,7 +157,7 @@ async function validateAssets() {
   
   if (unusedAssets.length > 0) {
     console.log('ℹ️  Unused assets (in public/assets/ but not referenced):');
-    unusedAssets.forEach(asset => console.log(`   - ${asset.name}`));
+    unusedAssets.forEach(asset => console.log(`   - ${asset.relativePath || asset.name}`));
     console.log();
   }
   
