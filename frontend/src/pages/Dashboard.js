@@ -688,9 +688,8 @@ export default function Dashboard() {
       return undefined;
     }
     setPaperResetChecking(false);
-    const isValid = paperResetPassword === 'Ashmor12@';
-    setPaperResetValid(isValid);
-    setPaperResetError(isValid ? '' : 'Confirmation password does not match.');
+    setPaperResetValid(true);
+    setPaperResetError('');
     return undefined;
   }, [paperResetPassword, isPaperResetMode, axiosConfig]);
 
@@ -1898,9 +1897,6 @@ export default function Dashboard() {
         if (payload?.action_attempted && payload?.action_result === 'success') {
           refreshAllDashboardData();
         }
-        if (payload?.action_attempted && payload?.action_result === 'success') {
-          refreshAllDashboardData();
-        }
         
         // PHASE 12: Save assistant message to backend
         try {
@@ -2041,8 +2037,8 @@ export default function Dashboard() {
   };
 
   const handlePaperReset = async () => {
-    if (paperResetPassword !== 'Ashmor12@') {
-      setPaperResetError('Enter the confirmation password exactly to continue.');
+    if (!paperResetPassword) {
+      setPaperResetError('Enter the confirmation password to continue.');
       return;
     }
     try {
@@ -4632,7 +4628,7 @@ export default function Dashboard() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3 style={{marginTop: 0}}>Confirm Paper Reset</h3>
             <p style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
-              Enter the confirmation password (Ashmor12@) to reset paper bots, trades, and training funds.
+              Enter the confirmation password to reset paper bots, trades, and training funds.
             </p>
             <div className="system-reset-input" style={{marginTop: '16px'}}>
               <label htmlFor="paper-reset-password-modal">Confirmation Password</label>

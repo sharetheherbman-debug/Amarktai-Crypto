@@ -27,12 +27,14 @@ const APIKeySettings = () => {
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
-  const showKeys = {};
   const [activeProviderId, setActiveProviderId] = useState(null);
   const [unsupportedProviders, setUnsupportedProviders] = useState({});
   const [requestCounter, setRequestCounter] = useState(0); // Track request order
   
   const token = localStorage.getItem('token');
+
+  const getProviderName = (providerId) =>
+    PROVIDERS.find((provider) => provider.id === providerId)?.name;
 
   const isProviderAvailable = (providerId) => {
     if (PLATFORM_CONFIG[providerId]?.enabled === false) {
@@ -154,7 +156,7 @@ const APIKeySettings = () => {
   };
   
   const saveApiKey = async (providerId) => {
-    const providerName = PROVIDERS.find(p => p.id === providerId)?.name;
+    const providerName = getProviderName(providerId);
     const data = formData[providerId];
     if (!data || !data.api_key || data.api_key.trim() === '') {
       showMessage('error', 'API key cannot be empty');
@@ -212,7 +214,7 @@ const APIKeySettings = () => {
   };
   
   const testApiKey = async (providerId) => {
-    const providerName = PROVIDERS.find(p => p.id === providerId)?.name;
+    const providerName = getProviderName(providerId);
     setLoading(true);
     
     // Optimistic update: immediately show testing state
@@ -516,7 +518,7 @@ const APIKeySettings = () => {
                            field === 'passphrase' ? 'Passphrase' : field}
                         </label>
                         <input
-                          type={showKeys[`${activeProvider.id}_${field}`] ? 'text' : 'password'}
+                          type="password"
                           value={formData[activeProvider.id]?.[field] || ''}
                           onChange={(e) => handleInputChange(activeProvider.id, field, e.target.value)}
                           placeholder={`Enter ${field.replace('_', ' ')}`}
