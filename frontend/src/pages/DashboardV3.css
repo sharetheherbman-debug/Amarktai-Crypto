@@ -5,14 +5,14 @@
   --panel: rgba(15, 15, 20, 0.55);
   --glass: rgba(15, 15, 20, 0.55);
   --line: rgba(255, 255, 255, 0.1);
-  --accent: #22c55e;
+  --accent: var(--success);
   --accent2: #38bdf8;
   --accent-bright: #38bdf8;
   --text: #f8fafc;
   --muted: #94a3b8;
   --radius: 18px;
   --error: #ef4444;
-  --success: #22c55e;
+  --success: var(--success);
   --paper: #38bdf8;
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --topbar-height: 56px;
@@ -177,7 +177,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f59e0b;
+  background: var(--accent2);
   box-shadow: 0 0 0 1px rgba(255,255,255,0.1) inset;
 }
 
@@ -443,7 +443,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .amk-chat button.send { 
-  background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%); 
+  background: linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%); 
   border: none; 
   color: white; 
   padding: 10px 18px; 
@@ -689,6 +689,67 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-live-change {
   font-size: 0.8rem;
   font-weight: 600;
+}
+
+/* API SETUP SPLIT */
+.api-setup-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.api-setup-image {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  min-height: 360px;
+  background: var(--panel);
+}
+
+.api-setup-image::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 8, 16, 0.75);
+}
+
+.api-setup-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  position: absolute;
+  inset: 0;
+}
+
+.api-setup-overlay {
+  position: relative;
+  z-index: 1;
+  padding: 20px;
+  color: #ffffff;
+}
+
+.api-setup-overlay h3 {
+  margin: 0 0 6px 0;
+  font-size: 1.2rem;
+  color: var(--accent-bright);
+}
+
+.api-setup-overlay p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.api-setup-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--panel);
+  max-height: 640px;
+  overflow-y: auto;
 }
 
 .overview-heartbeats {
@@ -1056,11 +1117,11 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .countdown-mode.paper {
-  background: linear-gradient(135deg, var(--accent-bright) 0%, #0ea5e9 100%);
+  background: linear-gradient(135deg, var(--accent-bright) 0%, var(--accent2) 100%);
 }
 
 .countdown-mode.live {
-  background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+  background: linear-gradient(135deg, var(--success) 0%, var(--success) 100%);
 }
 
 .countdown-hero::after {
@@ -1089,7 +1150,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .countdown-roadmap {
   background: var(--panel);
   border: 1px solid rgba(56, 189, 248, 0.25);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 18px;
   margin-bottom: 24px;
   display: grid;
@@ -1178,7 +1239,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .admin-card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 18px;
 }
 
@@ -1203,7 +1264,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .bot-left, .bot-right { 
   border: 1px solid var(--line); 
-  border-radius: 6px; 
+  border-radius: var(--radius); 
   padding: 12px; 
   background: var(--panel); 
   overflow-y: auto;
@@ -1255,7 +1316,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .bot-form-card { 
   background: var(--glass); 
   border: 1px solid var(--line); 
-  border-radius: 6px; 
+  border-radius: var(--radius); 
   padding: 12px; 
 }
 
@@ -1367,7 +1428,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .bot-card { 
   background: var(--glass); 
   border: 1px solid var(--line); 
-  border-radius: 6px; 
+  border-radius: var(--radius); 
   overflow: hidden; 
 }
 
@@ -1554,6 +1615,14 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
     grid-template-columns: 1fr;
     gap: 12px; 
     height: auto; 
+  }
+
+  .api-setup-split {
+    grid-template-columns: 1fr;
+  }
+
+  .api-setup-panel {
+    max-height: none;
   }
 
   .overview-pane {

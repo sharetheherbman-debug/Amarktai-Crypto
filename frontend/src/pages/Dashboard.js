@@ -147,6 +147,12 @@ const formatSpawnReason = (reason) => {
   return { title, details };
 };
 
+const formatReasonInline = (reason) => {
+  const info = formatSpawnReason(reason);
+  if (!info.details) return info.title;
+  return `${info.title}: ${info.details}`;
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -2546,7 +2552,7 @@ export default function Dashboard() {
       case 'high':
         return 'var(--error)';
       case 'medium':
-        return '#f59e0b';
+        return 'var(--accent2)';
       case 'low':
         return 'var(--success)';
       default:
@@ -3230,7 +3236,6 @@ export default function Dashboard() {
 
   const renderOverview = () => {
     const aiKeyConfigured = aiStatus?.key_configured;
-    const aiModel = aiStatus?.model || 'Not available';
     const formatOverviewDate = (value) => {
       const formatted = formatDate(value);
       return formatted;
@@ -3429,8 +3434,8 @@ export default function Dashboard() {
                     <strong>{overviewData.systemMode?.toUpperCase() || 'PAPER'}</strong>
                   </div>
                   <div className="status-item">
-                    <span>AI Model</span>
-                    <strong>{aiKeyConfigured ? aiModel : 'Disconnected'}</strong>
+                    <span>AI Status</span>
+                    <strong>{aiKeyConfigured ? 'Connected' : 'Not configured'}</strong>
                   </div>
                   <div className="status-item">
                     <span>Last Trade</span>
@@ -3833,7 +3838,7 @@ export default function Dashboard() {
                             style={{
                               padding: '4px 8px',
                               fontSize: '0.75rem',
-                              background: usr.status === 'blocked' ? 'var(--success)' : '#f59e0b',
+                              background: usr.status === 'blocked' ? 'var(--success)' : 'var(--accent2)',
                               color: 'white',
                               border: 'none',
                               borderRadius: '4px',
@@ -3869,14 +3874,14 @@ export default function Dashboard() {
           
           {/* AI Bodyguard Status */}
           {bodyguardStatus && (
-            <div className="admin-card" style={{marginTop: '24px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)')}}>
+            <div className="admin-card" style={{marginTop: '24px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? 'var(--accent2)' : 'var(--error)')}}>
               <h3 style={{marginBottom: '16px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px'}}>
                 🛡️ AI Bodyguard Status
                 <span style={{
                   fontSize: '0.75rem', 
                   padding: '4px 8px', 
                   borderRadius: '4px', 
-                  background: bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)',
+                  background: bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? 'var(--accent2)' : 'var(--error)',
                   color: 'white'
                 }}>
                   {bodyguardStatus.health_status}
@@ -3916,8 +3921,8 @@ export default function Dashboard() {
                   )}
                   
                   {bodyguardStatus.warnings?.length > 0 && (
-                    <div style={{padding: '12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '6px', border: '1px solid #f59e0b'}}>
-                      <div style={{fontWeight: 600, color: '#f59e0b', marginBottom: '8px'}}>⚠️ Warnings ({bodyguardStatus.warnings.length})</div>
+                    <div style={{padding: '12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '6px', border: '1px solid var(--accent2)'}}>
+                      <div style={{fontWeight: 600, color: 'var(--accent2)', marginBottom: '8px'}}>⚠️ Warnings ({bodyguardStatus.warnings.length})</div>
                       <ul style={{margin: 0, paddingLeft: '20px', fontSize: '0.85rem', color: 'var(--text)'}}>
                         {bodyguardStatus.warnings.map((warning, idx) => (
                           <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
@@ -3986,7 +3991,7 @@ export default function Dashboard() {
                             borderRadius: '4px',
                             fontWeight: 700,
                             background: usr.total_storage_mb > 10 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                            color: usr.total_storage_mb > 10 ? '#f59e0b' : 'var(--success)'
+                            color: usr.total_storage_mb > 10 ? 'var(--accent2)' : 'var(--success)'
                           }}>
                             {safeToFixed(usr.total_storage_mb, 2)} MB
                           </span>
@@ -4009,7 +4014,7 @@ export default function Dashboard() {
                 style={{
                   padding: '8px 16px',
                   fontSize: '0.85rem',
-                  background: '#3b82f6',
+                  background: 'var(--accent2)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',
@@ -4055,7 +4060,7 @@ export default function Dashboard() {
                             borderRadius: '4px',
                             fontSize: '0.75rem',
                             fontWeight: 600,
-                            background: usr.role === 'admin' ? '#8b5cf6' : 'var(--glass)',
+                            background: usr.role === 'admin' ? 'var(--accent2)' : 'var(--glass)',
                             color: usr.role === 'admin' ? 'white' : 'var(--text)'
                           }}>
                             {usr.role || 'user'}
@@ -4087,7 +4092,7 @@ export default function Dashboard() {
                               style={{
                                 padding: '4px 8px',
                                 fontSize: '0.75rem',
-                                background: actionLoading[`reset-${usr.id}`] ? '#666' : '#3b82f6',
+                                background: actionLoading[`reset-${usr.id}`] ? '#666' : 'var(--accent2)',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
@@ -4104,7 +4109,7 @@ export default function Dashboard() {
                               style={{
                                 padding: '4px 8px',
                                 fontSize: '0.75rem',
-                                background: actionLoading[`block-${usr.id}`] ? '#666' : (usr.status === 'blocked' ? 'var(--success)' : '#f59e0b'),
+                                background: actionLoading[`block-${usr.id}`] ? '#666' : (usr.status === 'blocked' ? 'var(--success)' : 'var(--accent2)'),
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
@@ -4169,7 +4174,7 @@ export default function Dashboard() {
                 style={{
                   padding: '8px 16px',
                   fontSize: '0.85rem',
-                  background: '#3b82f6',
+                  background: 'var(--accent2)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',
@@ -4252,7 +4257,7 @@ export default function Dashboard() {
               </div>
               
               {selectedUserId && filteredAdminBots.length === 0 && (
-                <div style={{marginTop: '12px', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px', fontSize: '0.8rem', color: '#f59e0b'}}>
+                <div style={{marginTop: '12px', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px', fontSize: '0.8rem', color: 'var(--accent2)'}}>
                   ⚠️ Selected user has no bots
                 </div>
               )}
@@ -4290,7 +4295,7 @@ export default function Dashboard() {
                       style={{
                         padding: '10px 16px',
                         fontSize: '0.85rem',
-                        background: actionLoading[`pause-${selectedBot.bot_id}`] ? '#666' : (selectedBot.status === 'active' ? '#f59e0b' : 'var(--success)'),
+                        background: actionLoading[`pause-${selectedBot.bot_id}`] ? '#666' : (selectedBot.status === 'active' ? 'var(--accent2)' : 'var(--success)'),
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
@@ -4328,7 +4333,7 @@ export default function Dashboard() {
                       style={{
                         padding: '10px 16px',
                         fontSize: '0.85rem',
-                        background: selectedBot.mode === 'live' ? '#f59e0b' : (actionLoading[`mode-${selectedBot.bot_id}`] ? '#666' : 'var(--glass)'),
+                        background: selectedBot.mode === 'live' ? 'var(--accent2)' : (actionLoading[`mode-${selectedBot.bot_id}`] ? '#666' : 'var(--glass)'),
                         color: selectedBot.mode === 'live' ? 'white' : 'var(--text)',
                         border: '1px solid var(--line)',
                         borderRadius: '4px',
@@ -4394,7 +4399,7 @@ export default function Dashboard() {
                 disabled={aiTaskLoading === 'bodyguard'}
                 style={{
                   padding: '12px 16px',
-                  background: aiTaskLoading === 'bodyguard' ? '#666' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  background: aiTaskLoading === 'bodyguard' ? '#666' : 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
@@ -4414,7 +4419,7 @@ export default function Dashboard() {
                 onClick={handleEmailAllUsers}
                 style={{
                   padding: '12px 16px',
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  background: 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
@@ -4461,7 +4466,7 @@ export default function Dashboard() {
                 }}
                 style={{
                   padding: '12px 16px',
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  background: 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
@@ -4510,7 +4515,7 @@ export default function Dashboard() {
                   onClick={handleMigrateApiKeys}
                   style={{
                     padding: '10px 20px',
-                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    background: 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -4555,10 +4560,10 @@ export default function Dashboard() {
               {systemModes.paperTrading ? '✓ ON' : '✗ OFF'}
             </div>
           </div>
-          <div className="system-card" onClick={() => toggleSystemMode('liveTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.liveTrading ? '#f59e0b' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
+          <div className="system-card" onClick={() => toggleSystemMode('liveTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.liveTrading ? 'var(--accent2)' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
             <h3>💰 Live Trading</h3>
             <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: '8px 0'}}>⚠️ Execute REAL trades</p>
-            <div style={{fontWeight: 600, fontSize: '1.2rem', color: systemModes.liveTrading ? '#f59e0b' : 'var(--error)'}}>
+            <div style={{fontWeight: 600, fontSize: '1.2rem', color: systemModes.liveTrading ? 'var(--accent2)' : 'var(--error)'}}>
               {systemModes.liveTrading ? '⚡ ON' : '✗ OFF'}
             </div>
           </div>
@@ -4842,7 +4847,7 @@ export default function Dashboard() {
                           <span style={{
                             padding: '4px 12px',
                             background: hasData ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 139, 139, 0.2)',
-                            color: hasData ? '#10b981' : '#8b8b8b',
+                            color: hasData ? 'var(--success)' : '#8b8b8b',
                             borderRadius: '12px',
                             fontSize: '0.75rem',
                             fontWeight: 600
@@ -4891,13 +4896,13 @@ export default function Dashboard() {
       datasets: [{
         label: 'Profit (ZAR)',
         data: profitData?.values || [0, 0, 0, 0, 0, 0, 0],
-        borderColor: '#10b981',
+        borderColor: 'var(--success)',
         backgroundColor: 'rgba(16, 185, 129, 0.2)',
         fill: true,
         tension: 0.4,
         pointRadius: 5,
         pointHoverRadius: 8,
-        pointBackgroundColor: '#10b981',
+        pointBackgroundColor: 'var(--success)',
         pointBorderColor: '#ffffff',
         pointBorderWidth: 2
       }]
@@ -4912,9 +4917,9 @@ export default function Dashboard() {
         },
         tooltip: {
           backgroundColor: 'rgba(0, 0, 42, 0.95)',
-          titleColor: '#10b981',
+          titleColor: 'var(--success)',
           bodyColor: '#ffffff',
-          borderColor: '#10b981',
+          borderColor: 'var(--success)',
           borderWidth: 2,
           padding: 12,
           titleFont: { size: 14, weight: 'bold' },
@@ -4973,8 +4978,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('metrics')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'metrics' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'metrics' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'metrics' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'metrics' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'metrics' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -4990,8 +4995,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('profit-history')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'profit-history' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'profit-history' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'profit-history' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'profit-history' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'profit-history' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5007,8 +5012,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('equity')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'equity' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'equity' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'equity' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'equity' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'equity' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5024,8 +5029,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('drawdown')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'drawdown' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'drawdown' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'drawdown' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'drawdown' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'drawdown' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5041,8 +5046,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('win-rate')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'win-rate' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'win-rate' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'win-rate' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'win-rate' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'win-rate' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5200,7 +5205,7 @@ export default function Dashboard() {
                       onClick={() => setGraphPeriod(period)}
                       style={{
                         padding: '6px 14px',
-                        background: graphPeriod === period ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'var(--glass)',
+                        background: graphPeriod === period ? 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)' : 'var(--glass)',
                         color: graphPeriod === period ? '#ffffff' : 'var(--muted)',
                         border: graphPeriod === period ? 'none' : '1px solid var(--line)',
                         borderRadius: '6px',
@@ -5226,8 +5231,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(16, 185, 129, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Profit</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Profit</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     R{safeToFixed(profitData?.total, 2)}
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>ZAR</span>
                   </div>
@@ -5240,8 +5245,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(59, 130, 246, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     R{safeToFixed(profitData?.avg_daily, 2)}
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{profitData?.avg_daily ? '+12%' : ''}</span>
                   </div>
@@ -5254,8 +5259,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(245, 158, 11, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Day</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Day</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     R{Number.isFinite(Number(profitData?.best_day))
                       ? safeToFixed(profitData.best_day, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
                       : '0.00'}
@@ -5269,8 +5274,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(168, 85, 247, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#a855f7', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Growth Rate</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#a855f7', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Growth Rate</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     {safeToFixed(profitData?.growth_rate, 2)}%
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{profitData?.growth_rate > 0 ? '↑' : ''}</span>
                   </div>
@@ -5310,7 +5315,7 @@ export default function Dashboard() {
                       onClick={() => setEquityRange(range)}
                       style={{
                         padding: '6px 14px',
-                        background: equityRange === range ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'var(--glass)',
+                        background: equityRange === range ? 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)' : 'var(--glass)',
                         color: equityRange === range ? '#ffffff' : 'var(--muted)',
                         border: equityRange === range ? 'none' : '1px solid var(--line)',
                         borderRadius: '6px',
@@ -5338,8 +5343,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(16, 185, 129, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Equity</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Equity</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(equityData.current_equity, 2)}
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>ZAR</span>
                       </div>
@@ -5352,8 +5357,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(59, 130, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: equityData.total_pnl >= 0 ? '#10b981' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: equityData.total_pnl >= 0 ? 'var(--success)' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(equityData.total_pnl, 2)}
                       </div>
                     </div>
@@ -5365,8 +5370,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(245, 158, 11, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Realized P&L</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Realized P&L</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(equityData.total_pnl, 2)}
                       </div>
                     </div>
@@ -5404,13 +5409,13 @@ export default function Dashboard() {
                           datasets: [{
                             label: 'Equity (ZAR)',
                             data: equityData.equity_curve.map(p => p.equity),
-                            borderColor: '#10b981',
+                            borderColor: 'var(--success)',
                             backgroundColor: 'rgba(16, 185, 129, 0.2)',
                             fill: true,
                             tension: 0.4,
                             pointRadius: 3,
                             pointHoverRadius: 6,
-                            pointBackgroundColor: '#10b981',
+                            pointBackgroundColor: 'var(--success)',
                             pointBorderColor: '#ffffff',
                             pointBorderWidth: 2
                           }]
@@ -5422,9 +5427,9 @@ export default function Dashboard() {
                             legend: { display: false },
                             tooltip: {
                               backgroundColor: 'rgba(0, 0, 42, 0.95)',
-                              titleColor: '#10b981',
+                              titleColor: 'var(--success)',
                               bodyColor: '#ffffff',
-                              borderColor: '#10b981',
+                              borderColor: 'var(--success)',
                               borderWidth: 2,
                               padding: 12,
                               titleFont: { size: 14, weight: 'bold' },
@@ -5523,8 +5528,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(245, 158, 11, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Drawdown</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Drawdown</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {safeToFixed(drawdownData.current_drawdown_pct, 2)}%
                       </div>
                     </div>
@@ -5536,8 +5541,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(16, 185, 129, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Peak Equity</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Peak Equity</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(drawdownData.peak_equity, 2)}
                       </div>
                     </div>
@@ -5549,8 +5554,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(59, 130, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Underwater Periods</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Underwater Periods</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {drawdownData.underwater_periods || 0}
                       </div>
                     </div>
@@ -5657,7 +5662,7 @@ export default function Dashboard() {
                       onClick={() => setWinRatePeriod(period)}
                       style={{
                         padding: '6px 14px',
-                        background: winRatePeriod === period ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' : 'var(--glass)',
+                        background: winRatePeriod === period ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
                         color: winRatePeriod === period ? '#ffffff' : 'var(--muted)',
                         border: winRatePeriod === period ? 'none' : '1px solid var(--line)',
                         borderRadius: '6px',
@@ -5685,8 +5690,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(139, 92, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Win Rate</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#8b5cf6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Win Rate</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {safeToFixed(winRateData.win_rate_pct, 1, '0.0')}%
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>({winRateData.winning_trades}/{winRateData.total_trades})</span>
                       </div>
@@ -5699,8 +5704,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(16, 185, 129, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Win</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Win</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(winRateData.avg_win, 2)}
                       </div>
                     </div>
@@ -5725,8 +5730,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(245, 158, 11, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Profit Factor</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Profit Factor</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {safeToFixed(winRateData.profit_factor, 2)}
                       </div>
                     </div>
@@ -5741,8 +5746,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(59, 130, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Trades</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Trades</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {winRateData.total_trades || 0}
                       </div>
                     </div>
@@ -5754,8 +5759,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(34, 197, 94, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#22c55e', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Trade</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#22c55e', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Trade</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(winRateData.best_trade, 2)}
                       </div>
                     </div>
@@ -5780,8 +5785,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(168, 85, 247, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#a855f7', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: winRateData.total_pnl >= 0 ? '#10b981' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: winRateData.total_pnl >= 0 ? 'var(--success)' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(winRateData.total_pnl, 2)}
                       </div>
                     </div>
@@ -5799,7 +5804,7 @@ export default function Dashboard() {
                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
                       <div>
                         <div style={{fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '8px'}}>Winning Trades</div>
-                        <div style={{fontSize: '1.5rem', fontWeight: 700, color: '#10b981'}}>
+                        <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)'}}>
                           {safeNumber(winRateData.winning_trades, 0)} ({safeToFixed((safeNumber(winRateData.winning_trades, 0) / Math.max(safeNumber(winRateData.total_trades, 0), 1)) * 100, 1, '0.0')}%)
                         </div>
                         <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>
@@ -5888,7 +5893,7 @@ export default function Dashboard() {
                   <p style={{fontSize: '1rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px'}}>
                     DAYS REMAINING
                   </p>
-                  <p style={{fontSize: '1.5rem', fontWeight: 700, background: 'linear-gradient(45deg, var(--success), #34d399)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', margin: '8px 0'}}>
+                  <p style={{fontSize: '1.5rem', fontWeight: 700, background: 'linear-gradient(45deg, var(--success), var(--success))', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', margin: '8px 0'}}>
                     TO R1 MILLION
                   </p>
                 </div>
@@ -6070,7 +6075,7 @@ export default function Dashboard() {
                   onClick={() => setShowAddCountdown(!showAddCountdown)}
                   style={{
                     padding: '8px 16px',
-                    background: showAddCountdown ? 'var(--error)' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                    background: showAddCountdown ? 'var(--error)' : 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -6091,9 +6096,9 @@ export default function Dashboard() {
                 padding: '20px',
                 background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(124, 58, 237, 0.05) 100%)',
                 borderRadius: '12px',
-                border: '2px solid #8b5cf6'
+                border: '2px solid var(--accent2)'
               }}>
-                <h4 style={{marginBottom: '16px', color: '#8b5cf6'}}>Add New Goal</h4>
+                <h4 style={{marginBottom: '16px', color: 'var(--accent2)'}}>Add New Goal</h4>
                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '12px', alignItems: 'end'}}>
                   <div>
                     <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px'}}>
@@ -6141,7 +6146,7 @@ export default function Dashboard() {
                     onClick={addCustomCountdown}
                     style={{
                       padding: '10px 20px',
-                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      background: 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)',
                       color: 'white',
                       border: 'none',
                       borderRadius: '6px',
@@ -6237,7 +6242,7 @@ export default function Dashboard() {
                           <div style={{
                             height: '100%',
                             width: `${Math.min(cd.progress_pct, 100)}%`,
-                            background: 'linear-gradient(90deg, var(--accent) 0%, #ec4899 100%)',
+                            background: 'linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%)',
                             transition: 'width 1s ease-in-out'
                           }}></div>
                         </div>
@@ -6320,7 +6325,7 @@ export default function Dashboard() {
               style={{
                 padding: '8px 16px',
                 background: intelligenceTab === 'whale-flow' ? 'rgba(74, 144, 226, 0.3)' : 'transparent',
-                border: '1px solid ' + (intelligenceTab === 'whale-flow' ? '#4a90e2' : 'rgba(255,255,255,0.2)'),
+                border: '1px solid ' + (intelligenceTab === 'whale-flow' ? 'var(--accent2)' : 'rgba(255,255,255,0.2)'),
                 borderRadius: '6px',
                 color: '#fff',
                 cursor: 'pointer',
@@ -6335,7 +6340,7 @@ export default function Dashboard() {
               style={{
                 padding: '8px 16px',
                 background: intelligenceTab === 'decision-trace' ? 'rgba(74, 144, 226, 0.3)' : 'transparent',
-                border: '1px solid ' + (intelligenceTab === 'decision-trace' ? '#4a90e2' : 'rgba(255,255,255,0.2)'),
+                border: '1px solid ' + (intelligenceTab === 'decision-trace' ? 'var(--accent2)' : 'rgba(255,255,255,0.2)'),
                 borderRadius: '6px',
                 color: '#fff',
                 cursor: 'pointer',
@@ -6350,7 +6355,7 @@ export default function Dashboard() {
               style={{
                 padding: '8px 16px',
                 background: intelligenceTab === 'metrics' ? 'rgba(74, 144, 226, 0.3)' : 'transparent',
-                border: '1px solid ' + (intelligenceTab === 'metrics' ? '#4a90e2' : 'rgba(255,255,255,0.2)'),
+                border: '1px solid ' + (intelligenceTab === 'metrics' ? 'var(--accent2)' : 'rgba(255,255,255,0.2)'),
                 borderRadius: '6px',
                 color: '#fff',
                 cursor: 'pointer',
@@ -6375,13 +6380,324 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <APIKeySettings />
+          <h2 style={{color: '#ffffff'}}>🔑 API Setup</h2>
+          <div className="api-setup-split">
+            <div className="api-setup-image">
+              <img src="/assets/background.jpg" alt="Secure provider access" />
+              <div className="api-setup-overlay">
+                <h3>Secure provider vault</h3>
+                <p>Connect exchanges and AI services with encrypted key storage.</p>
+              </div>
+            </div>
+            <div className="api-setup-panel">
+              <APIKeySettings />
+            </div>
+          </div>
         </div>
       </section>
     );
   };
 
   const renderApiSetup = renderAPIKeys;
+
+  const renderBots = () => {
+    const filteredBots = bots.filter(bot => platformFilter === 'all' || bot.exchange === platformFilter);
+    return (
+      <section className="section active">
+        <div className="card">
+          <h2 style={{color: '#ffffff'}}>🤖 Bot Management</h2>
+          <div className="bot-tabs">
+            <button
+              className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}
+              onClick={() => setBotManagementTab('creation')}
+            >
+              Overview
+            </button>
+            <button
+              className={`bot-tab ${botManagementTab === 'training_quarantine' ? 'active' : ''}`}
+              onClick={() => setBotManagementTab('training_quarantine')}
+            >
+              Training & Quarantine
+            </button>
+            <button
+              className={`bot-tab ${botManagementTab === 'spawn' ? 'active' : ''}`}
+              onClick={() => setBotManagementTab('spawn')}
+            >
+              Spawn Status
+            </button>
+          </div>
+
+          {botManagementTab === 'creation' && (
+            <div className="bot-container">
+              <div className="bot-left">
+                <div className="bot-form-card" style={{marginBottom: '16px'}}>
+                  <h3>Create New Bot</h3>
+                  <form onSubmit={handleCreateBot}>
+                    <div className="bot-form-grid">
+                      <div>
+                        <label htmlFor="bot-name">Bot Name</label>
+                        <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                      </div>
+                      <div>
+                        <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                        <input
+                          id="bot-budget"
+                          name="bot-budget"
+                          type="number"
+                          min="1000"
+                          step="100"
+                          defaultValue="1000"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="bot-exchange">Exchange Platform</label>
+                        <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                          {getAllExchanges().map(exchange => (
+                            <option
+                              key={exchange.id}
+                              value={exchange.id}
+                              disabled={exchange.comingSoon}
+                            >
+                              {exchange.icon} {exchange.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="bot-risk">Risk Mode</label>
+                        <select id="bot-risk" name="bot-risk">
+                          <option value="safe">Safe</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="aggressive">Aggressive</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="bot-strategy">Strategy Preset</label>
+                        <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
+                          <option value="adaptive">Adaptive Core</option>
+                          <option value="trend">Trend Follow</option>
+                          <option value="mean_reversion">Mean Reversion</option>
+                          <option value="scalping">Scalping</option>
+                        </select>
+                      </div>
+                      <div>
+                        <button type="submit">Create Bot (7 Day Learning)</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bot-form-card" style={{marginBottom: '16px'}}>
+                  <h3>Fetch.ai uAgents</h3>
+                  <form onSubmit={handleCreateUAgent}>
+                    <div className="bot-form-grid">
+                      <div>
+                        <label htmlFor="uagent-name">uAgent Name</label>
+                        <input id="uagent-name" name="uagent-name" placeholder="Custom Agent" type="text" required />
+                      </div>
+                      <div>
+                        <label htmlFor="uagent-strategy">Strategy</label>
+                        <select id="uagent-strategy" name="uagent-strategy" defaultValue="adaptive">
+                          <option value="adaptive">Adaptive</option>
+                          <option value="trend">Trend</option>
+                          <option value="mean_reversion">Mean Reversion</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="uagent-file">Upload File (.py)</label>
+                        <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
+                      </div>
+                      <div>
+                        <button type="submit">Deploy uAgent</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bot-form-card">
+                  <h3>FlokX Alert Bot</h3>
+                  <form onSubmit={handleCreateFlokxBot}>
+                    <div className="bot-form-grid">
+                      <div>
+                        <label htmlFor="flokx-name">Bot Name</label>
+                        <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
+                      </div>
+                      <div>
+                        <label htmlFor="flokx-signal">Signal Type</label>
+                        <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
+                          <option value="momentum">Momentum</option>
+                          <option value="breakout">Breakout</option>
+                          <option value="mean_reversion">Mean Reversion</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="flokx-risk">Risk Level</label>
+                        <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
+                          <option value="safe">Safe</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="aggressive">Aggressive</option>
+                        </select>
+                      </div>
+                      <div>
+                        <button type="submit">Create FlokX Bot</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              <div className="bot-right">
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
+                  <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
+                  <PlatformSelector
+                    value={platformFilter}
+                    onChange={setPlatformFilter}
+                    includeAll={true}
+                  />
+                </div>
+                <div className="bot-list">
+                  {filteredBots.length === 0 ? (
+                    <p style={{color: 'var(--muted)', padding: '20px', textAlign: 'center'}}>
+                      No bots available.
+                    </p>
+                  ) : (
+                    filteredBots.map(bot => {
+                      const isExpanded = expandedBots[bot.id];
+                      const botMode = bot.trading_mode || bot.mode || 'paper';
+                      const isLive = botMode === 'live';
+                      const botStatus = getBotStatus(bot);
+                      const statusLabel = humanizeReason(botStatus);
+                      const isActive = botStatus === 'active';
+                      const isPaused = ['paused', 'paused_ready'].includes(botStatus);
+                      const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
+                      const pauseReason = bot.paused_reason_message || bot.paused_reason;
+                      const pauseReasonDisplay = pauseReason ? formatReasonInline(pauseReason) : '';
+
+                      return (
+                        <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
+                          <div className="bot-header" onClick={() => toggleBotExpand(bot.id)}>
+                            <div style={{display: 'flex', flexDirection: 'column'}}>
+                              <strong>{bot.name}</strong>
+                              <span style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+                                {bot.exchange?.toUpperCase() || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'} • {statusLabel}
+                              </span>
+                            </div>
+                            <div className={`status-dot ${isLive ? 'ok' : 'warn'}`}></div>
+                          </div>
+                          {isExpanded && (
+                            <div className="bot-details active">
+                              {pauseReasonDisplay && (
+                                <p><strong>Pause reason:</strong> {pauseReasonDisplay}</p>
+                              )}
+                              <p><strong>Capital:</strong> {formatZAR(bot.current_capital)}</p>
+                              <p><strong>Trades:</strong> {safeNumber(bot.trades_count, 0)}</p>
+                              <div className="buttons">
+                                {isPaused && (
+                                  <button onClick={() => handleResumeBot(bot.id)}>
+                                    ▶ Resume
+                                  </button>
+                                )}
+                                {!isActive && !isPaused && canStart && (
+                                  <button onClick={() => handleStartBot(bot.id)}>
+                                    🚀 Start
+                                  </button>
+                                )}
+                                <button onClick={() => handleToggleBotMode(bot.id, botMode)}>
+                                  {isLive ? 'Switch to Paper' : 'Switch to Live'}
+                                </button>
+                                <button className="danger" onClick={() => handleDeleteBot(bot.id)}>
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {botManagementTab === 'training_quarantine' && (
+            <TrainingQuarantineSection />
+          )}
+
+          {botManagementTab === 'spawn' && (
+            <div style={{display: 'grid', gap: '16px'}}>
+              <div className="bot-form-card">
+                <h3>Auto-Spawn Status</h3>
+                {autoSpawnStatus ? (
+                  <>
+                    <div style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+                      Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Threshold: {formatZAR(autoSpawnStatus.profit_threshold, 0)} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
+                    </div>
+                    <div style={{display: 'grid', gap: '8px', marginTop: '12px'}}>
+                      {SUPPORTED_PLATFORMS.map(exchange => {
+                        const reason = autoSpawnStatus.reason_per_exchange?.[exchange];
+                        const profit = autoSpawnStatus.current_profit_per_exchange?.[exchange];
+                        const spawns = autoSpawnStatus.spawn_count_today_per_exchange?.[exchange];
+                        const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
+                        return (
+                          <div key={`spawn-${exchange}`} style={{padding: '10px', borderRadius: '8px', background: 'var(--panel)'}}>
+                            <div style={{fontSize: '0.85rem', color: 'var(--text)'}}>
+                              {getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)} • {formatReasonInline(reason)}
+                            </div>
+                            <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                              Profit: {formatZAR(profit)} • Spawns today: {safeNumber(spawns, 0)} • Last: {formatDate(lastSpawn)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{color: 'var(--muted)', fontSize: '0.85rem'}}>Auto-spawn status unavailable.</div>
+                )}
+              </div>
+
+              {autopilotReinvestStatus && (
+                <div className="bot-form-card">
+                  <h3>Autopilot Reinvest</h3>
+                  <div style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+                    Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar ?? 100, 0)} • {autopilotReinvestStatus.enabled ? 'Enabled' : 'Disabled'}
+                  </div>
+                  <div style={{display: 'grid', gap: '8px', marginTop: '12px'}}>
+                    {SUPPORTED_PLATFORMS.map(exchange => {
+                      const status = autopilotReinvestStatus.platforms?.[exchange] || {};
+                      const reasonFlags = [];
+                      if (!autopilotReinvestStatus.enabled) {
+                        reasonFlags.push('Autopilot Reinvest Disabled');
+                      }
+                      if (status.blocked_reasons?.includes('AUTOPILOT_OFF_FOR_USER')) {
+                        reasonFlags.push('Autopilot Off For User');
+                      }
+                      if (Number.isFinite(status.bots_current) && Number.isFinite(status.bots_max) && status.bots_current < status.bots_max) {
+                        reasonFlags.push('Bots Not Maxed');
+                      }
+                      const reasonLine = reasonFlags.length > 0 ? reasonFlags.join(' • ') : (status.eligible ? 'Eligible' : 'Check guardrails');
+                      return (
+                        <div key={`reinvest-${exchange}`} style={{padding: '10px', borderRadius: '8px', background: 'var(--panel)'}}>
+                          <div style={{fontSize: '0.85rem', color: 'var(--text)'}}>
+                            {getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)} • {reasonLine}
+                          </div>
+                          <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                            Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: {formatZAR(status.last_reinvest_amount)} • Next run: {formatDate(status.next_run)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  };
 
   // New unified Metrics section with tabs
   const renderMetricsWithTabs = () => {
@@ -6404,8 +6720,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('flokx')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'flokx' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'flokx' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'flokx' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'flokx' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'flokx' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -6421,8 +6737,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('decision-trace')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'decision-trace' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'decision-trace' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'decision-trace' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'decision-trace' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'decision-trace' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -6438,8 +6754,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('whale-flow')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'whale-flow' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'whale-flow' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'whale-flow' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'whale-flow' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'whale-flow' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -6455,8 +6771,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('system-metrics')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'system-metrics' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'system-metrics' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'system-metrics' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'system-metrics' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'system-metrics' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -6835,7 +7151,7 @@ export default function Dashboard() {
               ))}
             </div>
             <div style={{marginBottom: '20px', textAlign: 'left', background: '#2a2a3e', padding: '15px', borderRadius: '8px'}}>
-              <h3 style={{marginBottom: '10px', fontSize: '16px', color: '#ffcc00'}}>⚠️ Important Questions:</h3>
+              <h3 style={{marginBottom: '10px', fontSize: '16px', color: 'var(--accent2)'}}>⚠️ Important Questions:</h3>
               <ol style={{paddingLeft: '20px'}}>
                 <li style={{marginBottom: '8px'}}>Have you funded your LUNO wallet with real ZAR?</li>
                 <li style={{marginBottom: '8px'}}>Do you want to use these paper-trained bots for live trading?</li>
@@ -6846,7 +7162,7 @@ export default function Dashboard() {
               <button
                 className="btn-primary"
                 onClick={() => confirmLiveSwitch(true, true)}
-                style={{background: '#00ff88', color: '#000', padding: '12px 24px'}}
+                style={{background: 'var(--success)', color: '#000', padding: '12px 24px'}}
               >
                 ✅ Yes, I've Funded LUNO - Switch to Live!
               </button>
