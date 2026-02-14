@@ -1,0 +1,16 @@
+<svg width="240" height="240" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="orbGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(120 120) rotate(90) scale(110)">
+      <stop offset="0" stop-color="#38BDF8" stop-opacity="0.7" />
+      <stop offset="0.6" stop-color="#22C55E" stop-opacity="0.25" />
+      <stop offset="1" stop-color="#0B0D14" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="orbRing" x1="30" y1="30" x2="210" y2="210" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8" />
+      <stop offset="1" stop-color="#22C55E" />
+    </linearGradient>
+  </defs>
+  <circle cx="120" cy="120" r="92" fill="url(#orbGlow)" />
+  <circle cx="120" cy="120" r="64" stroke="url(#orbRing)" stroke-width="2" stroke-opacity="0.7" />
+  <circle cx="120" cy="120" r="36" stroke="#FFFFFF" stroke-opacity="0.25" />
+</svg>

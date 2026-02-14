@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
 import { get, post } from '../lib/apiClient';
 
-const WalletHub = ({ platformFilter = 'all' }) => {
+const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   const [balances, setBalances] = useState(null);
   const [requirements, setRequirements] = useState(null);
   const [fundingPlans, setFundingPlans] = useState([]);
@@ -235,113 +235,15 @@ const WalletHub = ({ platformFilter = 'all' }) => {
         </div>
       )}
 
-      {/* Training Wallet */}
-      <div style={{
-        background: 'var(--glass)',
-        borderRadius: '12px',
-        padding: '24px',
-        marginBottom: '30px',
-        border: '1px solid var(--line)'
-      }}>
-        <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>🧪 Training Funds</h2>
-        <p style={{ marginBottom: '16px', color: 'var(--muted)', fontSize: '0.9rem' }}>
-          Simulation funds for paper trading and training only. These credits never touch live balances.
-        </p>
-        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Practice Capital (Paper Mode)</div>
-            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text)' }}>
-              {paperWallet?.total?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-            </div>
-          </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Available</div>
-            <div>
-              {Object.entries(paperWallet?.available || {}).map(([currency, amount]) => (
-                <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
-              ))}
-            </div>
-          </div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Allocated</div>
-            <div>
-              {Object.entries(paperWallet?.allocated || {}).map(([currency, amount]) => (
-                <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Amount"
-            value={paperDepositAmount}
-            onChange={(e) => setPaperDepositAmount(e.target.value)}
-            style={{
-              padding: '8px 10px',
-              borderRadius: '6px',
-              border: '1px solid var(--line)',
-              background: 'var(--panel)',
-              color: 'var(--text)'
-            }}
-          />
-          <select
-            value={paperDepositCurrency}
-            onChange={(e) => setPaperDepositCurrency(e.target.value)}
-            style={{
-              padding: '8px 10px',
-              borderRadius: '6px',
-              border: '1px solid var(--line)',
-              background: 'var(--panel)',
-              color: 'var(--text)'
-            }}
-          >
-            <option value="ZAR">ZAR</option>
-            <option value="USDT">USDT</option>
-          </select>
-          <button
-            onClick={handlePaperDeposit}
-            disabled={paperActionLoading}
-            style={{
-              padding: '8px 14px',
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: 600,
-              cursor: paperActionLoading ? 'wait' : 'pointer'
-            }}
-          >
-            ➕ Add Training Funds
-          </button>
-          <button
-            onClick={handlePaperReset}
-            disabled={paperActionLoading}
-            style={{
-              padding: '8px 14px',
-              background: 'var(--error)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: 600,
-              cursor: paperActionLoading ? 'wait' : 'pointer'
-            }}
-          >
-            ♻️ Reset Practice Capital
-          </button>
-        </div>
-      </div>
-
       {/* Master Luno Wallet */}
       <div style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        borderRadius: '12px',
+        background: 'var(--glass)',
+        borderRadius: '16px',
         padding: '30px',
         marginBottom: '30px',
-        color: 'white',
-        boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+        color: 'var(--text)',
+        border: '1px solid var(--line)',
+        boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
       }}>
         <h2 style={{ marginBottom: '20px', fontSize: '1.5rem' }}>🏦 Master Luno Wallet</h2>
         <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
@@ -368,6 +270,117 @@ const WalletHub = ({ platformFilter = 'all' }) => {
           Last updated: {balances?.last_updated || 'Just now'}
         </div>
       </div>
+
+      {isPaperMode ? (
+        <div style={{
+          background: 'var(--glass)',
+          borderRadius: '12px',
+          padding: '24px',
+          marginBottom: '30px',
+          border: '1px solid var(--line)'
+        }}>
+          <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>🧪 Training Funds</h2>
+          <p style={{ marginBottom: '16px', color: 'var(--muted)', fontSize: '0.9rem' }}>
+            Simulation funds for paper trading and training only. These credits never touch live balances.
+          </p>
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Training Capital (Paper Mode)</div>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text)' }}>
+                {paperWallet?.total?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+              </div>
+            </div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Available</div>
+              <div>
+                {Object.entries(paperWallet?.available || {}).map(([currency, amount]) => (
+                  <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Allocated</div>
+              <div>
+                {Object.entries(paperWallet?.allocated || {}).map(([currency, amount]) => (
+                  <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Amount"
+              value={paperDepositAmount}
+              onChange={(e) => setPaperDepositAmount(e.target.value)}
+              style={{
+                padding: '8px 10px',
+                borderRadius: '10px',
+                border: '1px solid var(--line)',
+                background: 'var(--panel)',
+                color: 'var(--text)'
+              }}
+            />
+            <select
+              value={paperDepositCurrency}
+              onChange={(e) => setPaperDepositCurrency(e.target.value)}
+              style={{
+                padding: '8px 10px',
+                borderRadius: '10px',
+                border: '1px solid var(--line)',
+                background: 'var(--panel)',
+                color: 'var(--text)'
+              }}
+            >
+              <option value="ZAR">ZAR</option>
+              <option value="USDT">USDT</option>
+            </select>
+            <button
+              onClick={handlePaperDeposit}
+              disabled={paperActionLoading}
+              style={{
+                padding: '8px 14px',
+                background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(34, 197, 94, 0.65) 100%)',
+                color: '#0b0d14',
+                border: 'none',
+                borderRadius: '999px',
+                fontWeight: 600,
+                cursor: paperActionLoading ? 'wait' : 'pointer'
+              }}
+            >
+              ➕ Add Training Funds
+            </button>
+            <button
+              onClick={handlePaperReset}
+              disabled={paperActionLoading}
+              style={{
+                padding: '8px 14px',
+                background: 'rgba(239, 68, 68, 0.2)',
+                color: 'var(--text)',
+                border: '1px solid rgba(239, 68, 68, 0.45)',
+                borderRadius: '999px',
+                fontWeight: 600,
+                cursor: paperActionLoading ? 'wait' : 'pointer'
+              }}
+            >
+              ♻️ Reset Training Capital
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          background: 'var(--glass)',
+          borderRadius: '12px',
+          padding: '18px',
+          marginBottom: '30px',
+          border: '1px solid var(--line)',
+          color: 'var(--muted)'
+        }}>
+          Training tools are available in paper mode only.
+        </div>
+      )}
 
       {/* Funding Plans (if any) */}
       {fundingPlans.length > 0 && (

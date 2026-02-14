@@ -90,7 +90,7 @@ export default function Register() {
         <div className="content">
           <img
             src="/assets/logo.png"
-            alt="Amarktai Logo"
+            alt="Amarktai Crypto"
             className="logo"
             onClick={() => navigate('/')}
           />
@@ -286,9 +286,8 @@ export default function Register() {
           display: flex;
           height: 100vh;
           align-items: center;
-          background: #000;
-          color: #f0f8f5;
-          font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+          background: var(--bg);
+          color: var(--text);
           position: relative;
           overflow: hidden;
         }
@@ -311,6 +310,13 @@ export default function Register() {
           justify-content: center;
         }
 
+        .right::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: rgba(10, 12, 20, 0.55);
+        }
+
         .right video {
           width: 100%;
           height: 100%;
@@ -325,12 +331,14 @@ export default function Register() {
           max-width: 420px;
           width: 100%;
           gap: 20px;
-          background: rgba(6, 12, 16, 0.75);
-          border: 1px solid rgba(46, 223, 163, 0.25);
-          border-radius: 16px;
+          background: var(--glass);
+          border: 1px solid var(--line);
+          border-radius: var(--radius);
           padding: 48px;
-          backdrop-filter: blur(8px);
-          box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+          backdrop-filter: blur(var(--blur));
+          box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
+          position: relative;
+          z-index: 1;
         }
 
         .logo {
@@ -352,7 +360,7 @@ export default function Register() {
 
         .step-indicator {
           font-size: 0.9rem;
-          color: #8a9bb0;
+          color: var(--muted);
           margin: 0;
         }
 
@@ -374,20 +382,21 @@ export default function Register() {
         .input {
           width: 100%;
           padding: 12px 16px;
-          border-radius: 8px;
-          border: 1px solid rgba(46, 223, 163, 0.25);
-          background: rgba(0, 0, 0, 0.3);
-          color: #f0f8f5;
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          background: rgba(10, 12, 20, 0.7);
+          color: var(--text);
           font-size: 1rem;
         }
 
         .input::placeholder {
-          color: #8a9bb0;
+          color: var(--muted);
         }
 
         .input:focus {
           outline: none;
-          border-color: #2edfa3;
+          border-color: rgba(34, 197, 94, 0.6);
+          box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
         }
 
         .eye-btn {
@@ -397,7 +406,7 @@ export default function Register() {
           transform: translateY(-50%);
           background: none;
           border: none;
-          color: #8a9bb0;
+          color: var(--muted);
           cursor: pointer;
           padding: 4px;
           display: flex;
@@ -405,7 +414,7 @@ export default function Register() {
         }
 
         .eye-btn:hover {
-          color: #2edfa3;
+          color: var(--accent);
         }
 
         .invite-header {
@@ -417,13 +426,13 @@ export default function Register() {
 
         .invite-label {
           font-size: 0.9rem;
-          color: #8a9bb0;
+          color: var(--muted);
         }
 
         .show-toggle {
           background: none;
           border: none;
-          color: #2edfa3;
+          color: var(--accent);
           cursor: pointer;
           font-size: 0.85rem;
           padding: 4px 8px;
@@ -435,7 +444,7 @@ export default function Register() {
 
         .invite-hint {
           font-size: 0.8rem;
-          color: #8a9bb0;
+          color: var(--muted);
           margin: -8px 0 0 0;
         }
 
@@ -447,9 +456,9 @@ export default function Register() {
         .submit-btn {
           flex: 1;
           padding: 14px;
-          border-radius: 8px;
-          background: linear-gradient(135deg, #008a65, #2edfa3);
-          color: #fff;
+          border-radius: 999px;
+          background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(34, 197, 94, 0.65));
+          color: #0b0d14;
           font-weight: 600;
           font-size: 1rem;
           border: none;
@@ -473,12 +482,12 @@ export default function Register() {
 
         .back-btn {
           padding: 14px 20px;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.1);
-          color: #f0f8f5;
+          border-radius: 999px;
+          background: rgba(56, 189, 248, 0.12);
+          color: var(--text);
           font-weight: 600;
           font-size: 1rem;
-          border: 1px solid rgba(46, 223, 163, 0.25);
+          border: 1px solid rgba(56, 189, 248, 0.35);
           cursor: pointer;
           transition: all 0.3s ease;
           display: flex;
@@ -487,16 +496,16 @@ export default function Register() {
         }
 
         .back-btn:hover {
-          background: rgba(255, 255, 255, 0.15);
+          background: rgba(56, 189, 248, 0.2);
         }
 
         .alt-link {
           font-size: 0.9rem;
-          color: #8a9bb0;
+          color: var(--muted);
         }
 
         .alt-link a {
-          color: #2edfa3;
+          color: var(--accent);
           cursor: pointer;
           text-decoration: none;
         }
@@ -525,29 +534,12 @@ export default function Register() {
           }
 
           .content {
-            background: rgba(6, 12, 16, 0.85);
-            backdrop-filter: blur(12px);
+            background: rgba(10, 12, 20, 0.75);
+            backdrop-filter: blur(var(--blur));
             padding: 32px 24px;
           }
         }
       `}</style>
-
-      {/* Footer */}
-      <footer style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        textAlign: 'center',
-        padding: '12px',
-        color: '#8a9bb0',
-        fontSize: '0.85rem',
-        zIndex: 10,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(8px)'
-      }}>
-        © 2026 Amarktai Crypto · a part of Amarktai Network. All rights reserved.
-      </footer>
     </div>
   );
 }

@@ -126,18 +126,31 @@ const formatSpawnReason = (reason) => {
   const title = humanizeReason(codePart);
   let details = detailPart ? detailPart.replace(')', '').trim() : '';
   if (details) {
-    details = details.replace(/[-_]+/g, ' ');
-    details = details.replace(/\b(need|have)\s+(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)/gi, (_, label, amount, currency) => {
-      const prefix = label.toLowerCase() === 'need' ? 'Need' : 'Have';
-      const currencyCode = currency.toUpperCase();
-      if (currencyCode === 'ZAR') {
-        return `${prefix} ${formatZAR(amount)}`;
-      }
-      const formatted = formatCurrencyValue(amount);
-      return `${prefix} ${formatted ?? amount} ${currencyCode}`;
-    });
+    const detailsParts = [];
+    const pattern = /\b(need|have)\s+(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)/gi;
+    let match;
+    while ((match = pattern.exec(details)) !== null) {
+      const label = match[1].toLowerCase() === 'need' ? 'need' : 'current';
+      const amount = match[2];
+      const currencyCode = match[3].toUpperCase();
+      const formattedAmount = currencyCode === 'ZAR'
+        ? formatZAR(amount)
+        : `${formatCurrencyValue(amount) ?? amount} ${currencyCode}`;
+      detailsParts.push(`${label} ${formattedAmount}`);
+    }
+    if (detailsParts.length) {
+      details = detailsParts.join(' • ');
+    } else {
+      details = toTitleCase(details.replace(/[-_]+/g, ' ').toLowerCase());
+    }
   }
   return { title, details };
+};
+
+const formatReasonInline = (reason) => {
+  const info = formatSpawnReason(reason);
+  if (!info.details) return info.title;
+  return `${info.title}: ${info.details}`;
 };
 
 export default function Dashboard() {
@@ -269,6 +282,7 @@ export default function Dashboard() {
   const [paperResetLoading, setPaperResetLoading] = useState(false);
   const [paperResetValid, setPaperResetValid] = useState(false);
   const [paperResetChecking, setPaperResetChecking] = useState(false);
+  const [showPaperResetModal, setShowPaperResetModal] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
@@ -659,8 +673,16 @@ export default function Dashboard() {
       setPaperResetValid(false);
       setPaperResetChecking(false);
       setPaperResetError('');
+      setShowPaperResetModal(false);
     }
   }, [isPaperResetMode]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    loadLivePrices();
+    const priceInterval = setInterval(loadLivePrices, 5000);
+    return () => clearInterval(priceInterval);
+  }, [token, loadLivePrices]);
 
   useEffect(() => {
     if (!isPaperResetMode) {
@@ -681,15 +703,15 @@ export default function Dashboard() {
         );
         const isValid = Boolean(response?.data?.valid);
         setPaperResetValid(isValid);
-        if (!isValid) {
-          setPaperResetError('Confirmation password does not match.');
-        } else {
-          setPaperResetError('');
-        }
+        setPaperResetError(isValid ? '' : 'Confirmation password does not match.');
       } catch (err) {
+        const statusCode = err.response?.status;
         setPaperResetValid(false);
-        // TODO(backend): Implement /system/paper-reset/validate to enable this flow.
-        setPaperResetError('Password validation service is currently unavailable. Please try again later or contact support if the issue persists.');
+        if (statusCode === 404 || statusCode === 501) {
+          setPaperResetError('Reset not available in this build.');
+        } else {
+          setPaperResetError('Password validation failed. Please try again.');
+        }
       } finally {
         setPaperResetChecking(false);
       }
@@ -2041,8 +2063,8 @@ export default function Dashboard() {
   };
 
   const handlePaperReset = async () => {
-    if (!paperResetValid) {
-      setPaperResetError('Enter the confirmation password exactly to continue.');
+    if (!paperResetPassword) {
+      setPaperResetError('Enter the confirmation password to continue.');
       return;
     }
     try {
@@ -2051,6 +2073,7 @@ export default function Dashboard() {
       await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
       toast.success('Paper session reset completed.');
       setPaperResetPassword('');
+      setShowPaperResetModal(false);
       setChatMessages([]);
       setBots([]);
       setRecentTrades([]);
@@ -2082,6 +2105,11 @@ export default function Dashboard() {
       });
       refreshAllDashboardData();
     } catch (err) {
+      const statusCode = err.response?.status;
+      if (statusCode === 404 || statusCode === 501) {
+        setPaperResetError('Reset not available in this build.');
+        return;
+      }
       setPaperResetError(extractErrorMessage(err, 'Paper reset failed'));
     } finally {
       setPaperResetLoading(false);
@@ -2524,7 +2552,7 @@ export default function Dashboard() {
       case 'high':
         return 'var(--error)';
       case 'medium':
-        return '#f59e0b';
+        return 'var(--accent2)';
       case 'low':
         return 'var(--success)';
       default:
@@ -3049,6 +3077,7 @@ export default function Dashboard() {
   const renderWelcome = () => (
     <section className="section active">
       <div className="card welcome-container">
+        <img src="/assets/ai/ai-grid.svg" alt="" className="welcome-watermark" />
         <div className="welcome-header">
           <h2 style={{color: '#ffffff'}}>Welcome, {user?.first_name || 'User'}</h2>
           <p>Control your AI trading system with natural language.</p>
@@ -3061,9 +3090,9 @@ export default function Dashboard() {
             style={{
               width: '100%',
               padding: '12px 16px',
-              background: showAITools ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' : 'var(--panel)',
-              color: showAITools ? 'white' : 'var(--text)',
-              border: '1px solid var(--success)',
+              background: showAITools ? 'linear-gradient(135deg, rgba(56, 189, 248, 0.9) 0%, rgba(56, 189, 248, 0.6) 100%)' : 'var(--panel)',
+              color: 'var(--text)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
               borderRadius: '8px',
               cursor: 'pointer',
               fontWeight: 600,
@@ -3080,51 +3109,51 @@ export default function Dashboard() {
         
         {/* AI Tools & Analytics - Collapsible */}
         {showAITools && (
-        <div style={{marginBottom: '20px', padding: '16px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--success)'}}>
+        <div style={{marginBottom: '20px', padding: '16px', background: 'var(--panel)', borderRadius: '12px', border: '1px solid var(--line)'}}>
           <p style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '12px'}}>
             ⚡ All reports appear in the chat below. Ask questions about results!
           </p>
           
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px'}}>
-            <button
-              onClick={handleTriggerLearning}
-              disabled={aiTaskLoading === 'learning'}
-              style={{padding: '12px', background: aiTaskLoading === 'learning' ? '#666' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'learning' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'learning' ? 0.7 : 1}}
-            >
-              {aiTaskLoading === 'learning' ? '⏳ Analyzing...' : '📚 AI Learning'}
-            </button>
+              <button
+                onClick={handleTriggerLearning}
+                disabled={aiTaskLoading === 'learning'}
+                style={{padding: '12px', background: aiTaskLoading === 'learning' ? '#666' : 'linear-gradient(135deg, rgba(56, 189, 248, 0.9) 0%, rgba(56, 189, 248, 0.6) 100%)', color: '#0b0d14', border: 'none', borderRadius: '999px', cursor: aiTaskLoading === 'learning' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'learning' ? 0.7 : 1}}
+              >
+                {aiTaskLoading === 'learning' ? '⏳ Analyzing...' : '📚 AI Learning'}
+              </button>
             
-            <button 
-              onClick={handleEvolveBots}
-              disabled={aiTaskLoading === 'evolve'}
-              style={{padding: '12px', background: aiTaskLoading === 'evolve' ? '#666' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'evolve' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'evolve' ? 0.7 : 1}}
-            >
-              {aiTaskLoading === 'evolve' ? '⏳ Evolving...' : '🧬 Evolve Bots'}
-            </button>
+              <button 
+                onClick={handleEvolveBots}
+                disabled={aiTaskLoading === 'evolve'}
+                style={{padding: '12px', background: aiTaskLoading === 'evolve' ? '#666' : 'linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(34, 197, 94, 0.6) 100%)', color: '#0b0d14', border: 'none', borderRadius: '999px', cursor: aiTaskLoading === 'evolve' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'evolve' ? 0.7 : 1}}
+              >
+                {aiTaskLoading === 'evolve' ? '⏳ Evolving...' : '🧬 Evolve Bots'}
+              </button>
             
-            <button 
-              onClick={handleGetInsights}
-              disabled={aiTaskLoading === 'insights'}
-              style={{padding: '12px', background: aiTaskLoading === 'insights' ? '#666' : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'insights' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'insights' ? 0.7 : 1}}
-            >
-              {aiTaskLoading === 'insights' ? '⏳ Generating...' : '💡 AI Insights'}
-            </button>
+              <button 
+                onClick={handleGetInsights}
+                disabled={aiTaskLoading === 'insights'}
+                style={{padding: '12px', background: aiTaskLoading === 'insights' ? '#666' : 'linear-gradient(135deg, rgba(56, 189, 248, 0.9) 0%, rgba(34, 197, 94, 0.6) 100%)', color: '#0b0d14', border: 'none', borderRadius: '999px', cursor: aiTaskLoading === 'insights' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'insights' ? 0.7 : 1}}
+              >
+                {aiTaskLoading === 'insights' ? '⏳ Generating...' : '💡 AI Insights'}
+              </button>
             
-            <button 
-              onClick={handlePredictPrice}
-              disabled={aiTaskLoading === 'predict'}
-              style={{padding: '12px', background: aiTaskLoading === 'predict' ? '#666' : 'linear-gradient(135deg, #ec4899 0%, #db2777 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'predict' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'predict' ? 0.7 : 1}}
-            >
-              {aiTaskLoading === 'predict' ? '⏳ Predicting...' : '🔮 ML Predict'}
-            </button>
+              <button 
+                onClick={handlePredictPrice}
+                disabled={aiTaskLoading === 'predict'}
+                style={{padding: '12px', background: aiTaskLoading === 'predict' ? '#666' : 'linear-gradient(135deg, rgba(56, 189, 248, 0.85) 0%, rgba(56, 189, 248, 0.55) 100%)', color: '#0b0d14', border: 'none', borderRadius: '999px', cursor: aiTaskLoading === 'predict' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'predict' ? 0.7 : 1}}
+              >
+                {aiTaskLoading === 'predict' ? '⏳ Predicting...' : '🔮 ML Predict'}
+              </button>
             
-            <button 
-              onClick={handleReinvestProfits}
-              disabled={aiTaskLoading === 'reinvest'}
-              style={{padding: '12px', background: aiTaskLoading === 'reinvest' ? '#666' : 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: aiTaskLoading === 'reinvest' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'reinvest' ? 0.7 : 1}}
-            >
-              {aiTaskLoading === 'reinvest' ? '⏳ Reinvesting...' : '💰 Reinvest Profits'}
-            </button>
+              <button 
+                onClick={handleReinvestProfits}
+                disabled={aiTaskLoading === 'reinvest'}
+                style={{padding: '12px', background: aiTaskLoading === 'reinvest' ? '#666' : 'linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(34, 197, 94, 0.6) 100%)', color: '#0b0d14', border: 'none', borderRadius: '999px', cursor: aiTaskLoading === 'reinvest' ? 'wait' : 'pointer', fontWeight: 600, fontSize: '0.9rem', opacity: aiTaskLoading === 'reinvest' ? 0.7 : 1}}
+              >
+                {aiTaskLoading === 'reinvest' ? '⏳ Reinvesting...' : '💰 Reinvest Profits'}
+              </button>
           </div>
         </div>
         )}
@@ -3137,10 +3166,10 @@ export default function Dashboard() {
                 style={{
                   padding: '6px 12px',
                   fontSize: '0.8rem',
-                  background: '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
+                  background: 'rgba(56, 189, 248, 0.2)',
+                  color: 'var(--text)',
+                  border: '1px solid rgba(56, 189, 248, 0.4)',
+                  borderRadius: '999px',
                   cursor: 'pointer',
                   fontWeight: 600
                 }}
@@ -3152,10 +3181,10 @@ export default function Dashboard() {
                 style={{
                   padding: '6px 12px',
                   fontSize: '0.8rem',
-                  background: '#ef4444',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  color: 'var(--text)',
+                  border: '1px solid rgba(239, 68, 68, 0.45)',
+                  borderRadius: '999px',
                   cursor: 'pointer',
                   fontWeight: 600
                 }}
@@ -3166,6 +3195,7 @@ export default function Dashboard() {
             <div className={`amk-chat-indicator ${chatSending ? 'active' : ''}`}>
               {chatSending ? 'Sending...' : 'Ready'}
             </div>
+            <img src="/assets/ai/ai-wave.svg" alt="" className="amk-chat-banner" />
           </div>
           <div className="amk-chat-box">
             {chatMessages.map((msg, idx) => (
@@ -3205,17 +3235,7 @@ export default function Dashboard() {
   );
 
   const renderOverview = () => {
-    const autonomySubs = autonomyStatus?.subsystems || {};
-    const autopilotHeartbeat = autonomySubs.autopilot || {};
-    const tradingHeartbeat = autonomySubs.trading_scheduler || {};
-    const bodyguardHeartbeat = autonomySubs.bodyguard || {};
-    const realtimeHeartbeat = autonomySubs.realtime || {};
-    const selfHealHeartbeat = autonomySubs.self_heal || {};
-    const learningHeartbeat = autonomySubs.learning_loop || {};
-    const learningEnabled = learningStatus?.enabled;
-    const learningLastRun = learningStatus?.last_run || learningHeartbeat.last_tick;
     const aiKeyConfigured = aiStatus?.key_configured;
-    const aiModel = aiStatus?.model || 'Not available';
     const formatOverviewDate = (value) => {
       const formatted = formatDate(value);
       return formatted;
@@ -3224,1085 +3244,241 @@ export default function Dashboard() {
       const reasonText = humanizeReason(value);
       return reasonText === NOT_AVAILABLE ? fallback : reasonText;
     };
-    const todoItems = [];
-    const healthStatus = systemHealth?.status ? String(systemHealth.status).toLowerCase() : '';
-    if (!aiKeyConfigured) {
-      todoItems.push('Connect AI key to enable assistant intelligence.');
-    }
-    if (bots.length === 0) {
-      todoItems.push('Create your first bot to start trading.');
-    }
-    if (connectionStatus.ws !== 'Connected') {
-      todoItems.push('Reconnect realtime WebSocket feed.');
-    }
-    if (systemHealth?.status && systemHealth.status !== NOT_AVAILABLE && !['healthy', 'ok', 'online'].includes(healthStatus)) {
-      todoItems.push(`System health check: ${systemHealth.status}.`);
-    }
-    if (!overviewData.lastTradeTime) {
-      todoItems.push('No trades yet. Start paper trading to build history.');
-    }
+    const pricePairs = [
+      { label: 'XBTZAR', key: 'BTC/ZAR' },
+      { label: 'ETHZAR', key: 'ETH/ZAR' },
+      { label: 'XRPZAR', key: 'XRP/ZAR' }
+    ];
+    const formatLivePrice = (value) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return NOT_AVAILABLE;
+      return `R${numeric.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
 
     return (
       <section className="section active">
         <div className="card">
           <h2 style={{color: '#ffffff'}}>System Overview</h2>
-        
-        {/* Risk Status Banner */}
-        {riskStatus?.emergency_stop?.active && (
-          <div style={{
-            padding: '16px',
-            background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
-            border: '2px solid #b91c1c',
-            borderRadius: '8px',
-            marginBottom: '20px',
-            color: 'white'
-          }}>
-            <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
-              🚨 Emergency Stop Active: Trading Disabled
-            </div>
-            <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {resolveReason(riskStatus.emergency_stop.reason, 'No specific reason provided.')}
-            </div>
-            {riskStatus.emergency_stop.next_action && (
-              <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
-                Next action: {riskStatus.emergency_stop.next_action}
-              </div>
-            )}
-          </div>
-        )}
-        {riskStatus?.daily_loss_lock?.active && (
-          <div style={{
-            padding: '16px',
-            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-            border: '2px solid #dc2626',
-            borderRadius: '8px',
-            marginBottom: '20px',
-            color: 'white'
-            }}>
-            <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
-              🛡️ Daily Loss Lock Active: Bots Paused for Protection
-            </div>
-            <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {resolveReason(riskStatus.daily_loss_lock.reason, 'Risk threshold exceeded')}
-            </div>
-            <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
-              Locked at: {formatDate(riskStatus.daily_loss_lock.locked_at)}
-            </div>
-            {riskStatus.daily_loss_lock.next_action && (
-              <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
-                Next action: {riskStatus.daily_loss_lock.next_action}
-              </div>
-            )}
-            {user?.is_admin && (
-              <div style={{marginTop: '12px', display: 'flex', gap: '10px'}}>
-                <button
-                  onClick={handleResetDailyLossLock}
-                  style={{
-                    padding: '10px 16px',
-                    background: 'white',
-                    color: '#dc2626',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  🔓 Reset Daily Loss Lock
-                </button>
-                <button
-                  onClick={handleResumeAllBots}
-                  disabled={botControlLoading['all']}
-                  style={{
-                    padding: '10px 16px',
-                    background: 'rgba(255,255,255,0.2)',
-                    color: 'white',
-                    border: '1px solid white',
-                    borderRadius: '6px',
-                    fontWeight: 600,
-                    cursor: botControlLoading['all'] ? 'wait' : 'pointer',
-                    opacity: botControlLoading['all'] ? 0.6 : 1
-                  }}
-                >
-                  {botControlLoading['all'] ? '⏳ Resuming...' : '▶️ Resume All Bots'}
-                </button>
-              </div>
-            )}
-            {!user?.is_admin && (
-              <div style={{marginTop: '12px', fontSize: '0.85rem', fontStyle: 'italic'}}>
-                Admin access required to reset risk lock
-              </div>
-            )}
-          </div>
-        )}
 
-        {(riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active) && (
-          <div style={{
-            padding: '16px',
-            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-            border: '2px solid #d97706',
-            borderRadius: '8px',
-            marginBottom: '20px',
-            color: 'white'
-          }}>
-            <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
-              🛡️ Bodyguard/Quarantine Lock Active
+          {/* Risk Status Banner */}
+          {riskStatus?.emergency_stop?.active && (
+            <div style={{
+              padding: '16px',
+              background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
+              border: '2px solid #b91c1c',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              color: 'white'
+            }}>
+              <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
+                🚨 Emergency Stop Active: Trading Disabled
+              </div>
+              <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
+                <strong>Reason:</strong> {resolveReason(riskStatus.emergency_stop.reason, 'No specific reason provided.')}
+              </div>
+              {riskStatus.emergency_stop.next_action && (
+                <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
+                  Next action: {riskStatus.emergency_stop.next_action}
+                </div>
+              )}
             </div>
-            {riskStatus?.bodyguard_lock?.active && (
-              <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
-                <strong>Bodyguard:</strong> {resolveReason(riskStatus.bodyguard_lock.reason, 'Bots paused by bodyguard')}
+          )}
+          {riskStatus?.daily_loss_lock?.active && (
+            <div style={{
+              padding: '16px',
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              border: '2px solid #dc2626',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              color: 'white'
+            }}>
+              <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
+                🛡️ Daily Loss Lock Active: Bots Paused for Protection
               </div>
-            )}
-            {riskStatus?.quarantine_active?.active && (
-              <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
-                <strong>Quarantine:</strong> {resolveReason(riskStatus.quarantine_active.reason, 'Bots quarantined for retraining')}
+              <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
+                <strong>Reason:</strong> {resolveReason(riskStatus.daily_loss_lock.reason, 'Risk threshold exceeded')}
               </div>
-            )}
-            {user?.is_admin ? (
-              <div style={{marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                <button
-                  onClick={handleResetBodyguardLock}
-                  style={{
-                    padding: '10px 16px',
-                    background: 'white',
-                    color: '#d97706',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  🔓 Reset Bodyguard Locks
-                </button>
+              <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
+                Locked at: {formatDate(riskStatus.daily_loss_lock.locked_at)}
               </div>
-            ) : (
-              <div style={{marginTop: '12px', fontSize: '0.85rem', fontStyle: 'italic'}}>
-                Admin access required to reset bodyguard locks
+              {riskStatus.daily_loss_lock.next_action && (
+                <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
+                  Next action: {riskStatus.daily_loss_lock.next_action}
+                </div>
+              )}
+              {user?.is_admin && (
+                <div style={{marginTop: '12px', display: 'flex', gap: '10px'}}>
+                  <button
+                    onClick={handleResetDailyLossLock}
+                    style={{
+                      padding: '10px 16px',
+                      background: 'white',
+                      color: '#dc2626',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🔓 Reset Daily Loss Lock
+                  </button>
+                  <button
+                    onClick={handleResumeAllBots}
+                    disabled={botControlLoading['all']}
+                    style={{
+                      padding: '10px 16px',
+                      background: 'rgba(255,255,255,0.2)',
+                      color: 'white',
+                      border: '1px solid white',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: botControlLoading['all'] ? 'wait' : 'pointer',
+                      opacity: botControlLoading['all'] ? 0.6 : 1
+                    }}
+                  >
+                    {botControlLoading['all'] ? '⏳ Resuming...' : '▶️ Resume All Bots'}
+                  </button>
+                </div>
+              )}
+              {!user?.is_admin && (
+                <div style={{marginTop: '12px', fontSize: '0.85rem', fontStyle: 'italic'}}>
+                  Admin access required to reset risk lock
+                </div>
+              )}
+            </div>
+          )}
+
+          {(riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active) && (
+            <div style={{
+              padding: '16px',
+              background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.25) 0%, rgba(34, 197, 94, 0.2) 100%)',
+              border: '1px solid rgba(56, 189, 248, 0.35)',
+              borderRadius: '8px',
+              marginBottom: '20px',
+              color: 'white'
+            }}>
+              <div style={{fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px'}}>
+                🛡️ Bodyguard/Quarantine Lock Active
               </div>
-            )}
-          </div>
-        )}
-        
-          {/* Overview Container with Split Layout */}
+              {riskStatus?.bodyguard_lock?.active && (
+                <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
+                  <strong>Bodyguard:</strong> {resolveReason(riskStatus.bodyguard_lock.reason, 'Bots paused by bodyguard')}
+                </div>
+              )}
+              {riskStatus?.quarantine_active?.active && (
+                <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
+                  <strong>Quarantine:</strong> {resolveReason(riskStatus.quarantine_active.reason, 'Bots quarantined for retraining')}
+                </div>
+              )}
+              {user?.is_admin ? (
+                <div style={{marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                  <button
+                    onClick={handleResetBodyguardLock}
+                    style={{
+                      padding: '10px 16px',
+                      background: 'white',
+                      color: '#0b0d14',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🔓 Reset Bodyguard Locks
+                  </button>
+                </div>
+              ) : (
+                <div style={{marginTop: '12px', fontSize: '0.85rem', fontStyle: 'italic'}}>
+                  Admin access required to reset bodyguard locks
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="overview-container">
             <div className="overview-pane overview-image">
+              <img src="/assets/background.jpg" alt="Trading workspace" />
               <div className="overview-image-overlay">
                 <div className="overview-image-card">
-                  <h3>Autonomous Trading Command</h3>
-                  <p>Monitor system health, performance, and autonomy signals in real time.</p>
+                  <h3>Autonomous trading command</h3>
+                  <p>Calm, aligned telemetry for supervised execution and system health.</p>
                 </div>
               </div>
             </div>
             <div className="overview-pane overview-content">
               <div className="overview-scroll">
-                <div className="overview-top">
-                  <div className="overview-todo">
-                  <div className="overview-todo-header">System Todo</div>
-                    {todoItems.length === 0 ? (
-                      <div className="overview-todo-empty">All systems operational.</div>
-                    ) : (
-                      <ul>
-                        {todoItems.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    )}
+                <div className="overview-tiles">
+                  <div className="overview-tile">
+                    <span>Total Profit</span>
+                    <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                      {formatZAR(overviewData.totalProfit)}
+                    </strong>
                   </div>
-                  <div className="overview-tiles">
-                    <div className="overview-tile">
-                      <span>Total Profit</span>
-                      <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                        {formatZAR(overviewData.totalProfit)}
-                      </strong>
-                    </div>
-                    <div className="overview-tile">
-                      <span>Today's Trades</span>
-                      <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
-                    </div>
-                    <div className="overview-tile">
-                      <span>Open Positions</span>
-                      <strong>{safeNumber(overviewData.openPositions, 0)}</strong>
-                    </div>
-                    <div className="overview-tile">
-                      <span>Win Rate</span>
-                      <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
-                    </div>
-                    <div className="overview-tile">
-                      <span>Active Bots</span>
-                      <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
-                    </div>
-                    <div className="overview-tile">
-                      <span>Training Funds</span>
-                      <strong>{formatZAR(overviewData.paperWalletTotal)}</strong>
-                    </div>
+                  <div className="overview-tile">
+                    <span>Today's Trades</span>
+                    <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Open Positions</span>
+                    <strong>{safeNumber(overviewData.openPositions, 0)}</strong>
+                  </div>
+                  <div className="overview-tile">
+                    <span>Win Rate</span>
+                    <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
                   </div>
                 </div>
+
+                <div className="overview-status-grid">
+                  <div className="status-item">
+                    <span>System Mode</span>
+                    <strong>{overviewData.systemMode?.toUpperCase() || 'PAPER'}</strong>
+                  </div>
+                  <div className="status-item">
+                    <span>AI Status</span>
+                    <strong>{aiKeyConfigured ? 'Connected' : 'Not configured'}</strong>
+                  </div>
+                  <div className="status-item">
+                    <span>Last Trade</span>
+                    <strong>{formatOverviewDate(overviewData.lastTradeTime)}</strong>
+                  </div>
+                  <div className="status-item">
+                    <span>Realtime Feed</span>
+                    <strong>{connectionStatus.ws === 'Connected' ? 'Connected' : 'Disconnected'}</strong>
+                  </div>
+                </div>
+
                 <div className="overview-live-header">
                   <div>
-                    <h3>System Live View</h3>
-                    <p>Heartbeat + activity signal feed</p>
+                    <h3>Realtime Luno Live Prices</h3>
+                    <p>Streaming spot prices for primary ZAR pairs.</p>
                   </div>
                   <span className="overview-live-update">Last update: {metrics.lastUpdate}</span>
                 </div>
-                <div className="overview-heartbeats">
-                  <div className="heartbeat-tile">
-                    <span>Autopilot</span>
-                    <strong>{autopilotHeartbeat.status || 'unknown'}</strong>
-                      <small>{formatOverviewDate(autopilotHeartbeat.last_tick)}</small>
-                    </div>
-                    <div className="heartbeat-tile">
-                      <span>Trading Scheduler</span>
-                      <strong>{tradingHeartbeat.status || 'unknown'}</strong>
-                      <small>{formatOverviewDate(tradingHeartbeat.last_tick)}</small>
-                    </div>
-                    <div className="heartbeat-tile">
-                      <span>Bodyguard</span>
-                      <strong>{bodyguardHeartbeat.status || 'unknown'}</strong>
-                      <small>{formatOverviewDate(bodyguardHeartbeat.last_tick)}</small>
-                    </div>
-                    <div className="heartbeat-tile">
-                      <span>Realtime</span>
-                      <strong>{realtimeHeartbeat.status || 'unknown'}</strong>
-                      <small>{formatOverviewDate(realtimeHeartbeat.last_tick)}</small>
-                    </div>
-                    <div className="heartbeat-tile">
-                      <span>Self-Heal</span>
-                      <strong>{selfHealHeartbeat.status || 'unknown'}</strong>
-                      <small>{formatOverviewDate(selfHealHeartbeat.last_tick)}</small>
-                    </div>
-                    <div className="heartbeat-tile">
-                      <span>Learning Loop</span>
-                      <strong>{learningEnabled ? 'enabled' : 'disabled'}</strong>
-                      <small>{formatOverviewDate(learningLastRun)}</small>
-                    </div>
-                  </div>
-                <div className="overview-status-grid">
-                  <div className="status-item">
-                    <strong>System Mode</strong>
-                    <div className="led-row">
-                      <span style={{textTransform: 'uppercase', fontWeight: 700}}>
-                        {overviewData.systemMode === 'live' && '🔴 LIVE'}
-                        {overviewData.systemMode === 'autopilot' && '🤖 AUTOPILOT'}
-                        {overviewData.systemMode === 'paper' && '📄 PAPER'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="status-item">
-                    <strong>Last Trade</strong>
-                    <div className="led-row">
-                      <span style={{fontSize: '0.85rem'}}>
-                        {formatOverviewDate(overviewData.lastTradeTime)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="status-item">
-                    <strong>Exposure</strong>
-                    <div className="led-row"><span>{metrics.exposure || NOT_AVAILABLE}</span></div>
-                  </div>
-                  <div className="status-item">
-                    <strong>Risk Level</strong>
-                    <div className="led-row"><span>{metrics.riskLevel || NOT_AVAILABLE}</span></div>
-                  </div>
-                  <div className="status-item">
-                    <strong>AI Model</strong>
-                    <div className="led-row">
-                      <span>{aiModel}</span>
-                      <span className="status-pill">{aiKeyConfigured ? 'Key OK' : 'Key missing'}</span>
-                    </div>
-                  </div>
-                  <div className="status-item">
-                    <strong>Last Rebalance</strong>
-                    <div className="led-row">
-                      <span>{overviewData.lastRebalance || NOT_AVAILABLE}</span>
-                    </div>
-                  </div>
-                  <div className="status-item">
-                    <strong>Next Reinvest</strong>
-                    <div className="led-row">
-                      <span>{overviewData.nextReinvest || NOT_AVAILABLE}</span>
-                    </div>
-                  </div>
-                  <div className="status-item">
-                    <strong>WebSocket</strong>
-                    <div className="led-row">
-                      <span style={{color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--error)'}}>
-                        {connectionStatus.ws}
-                      </span>
-                      <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
-                    </div>
-                  </div>
-                </div>
-                <div className="overview-activity">
-                  <div className="overview-activity-header">Activity Feed</div>
-                  <div className="overview-activity-list">
-                    {recentTrades.length === 0 ? (
-                      <div className="overview-activity-empty">No recent trades.</div>
-                    ) : (
-                      recentTrades.slice(0, 3).map((trade, idx) => (
-                        <div key={`${trade.id || trade.timestamp || idx}`} className="overview-activity-row">
-                          <span>{trade.pair || trade.symbol || NOT_AVAILABLE}</span>
-                          <span>{trade.exchange || NOT_AVAILABLE}</span>
-                          <span>{trade.side || NOT_AVAILABLE}</span>
-                          <span>{trade.net_pnl !== undefined ? formatZAR(trade.net_pnl) : NOT_AVAILABLE}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  };
-
-  const renderApiSetup = () => {
-    // Build providers list dynamically from exchange config (OpenAI prepended).
-    const exchanges = getAllExchanges();
-    const exchangeProviders = exchanges.map(ex => ex.id);
-    const providers = ['openai', ...exchangeProviders];
-    
-    return (
-      <section className="section active">
-        <div className="card">
-          <h2 style={{color: '#ffffff'}}>🔑 API Setup</h2>
-          <p style={{color: 'var(--muted)', marginBottom: '20px', fontSize: '0.9rem'}}>
-            Configure all API keys and credentials for exchanges, AI services, and integrations. All keys are encrypted and stored securely per-user.
-          </p>
-          <div className="api-accordion">
-            {providers.map(provider => {
-              const status = getApiStatus(provider);
-              const isExpanded = expandedApis[provider];
-              const exchangeInfo = getExchangeById(provider);
-              const keyDetails = apiKeys[provider.toLowerCase()] || {};
-              const keySuffix = keyDetails.masked_key
-                || keyDetails.key_masked
-                || keyDetails.key_last4
-                || keyDetails.last_four
-                || keyDetails.last4;
-              const maskedKey = status.badge === 'missing'
-                ? 'Not configured'
-                : keySuffix
-                  ? `•••• ${keySuffix}`
-                  : '••••••••';
-              const lastTestValue = keyDetails.last_tested_at || keyDetails.last_test || keyDetails.last_test_time || keyDetails.updated_at;
-              const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not tested';
-              const lastTest = lastTestFormatted === NOT_AVAILABLE ? 'Not tested' : lastTestFormatted;
-              const displayName = exchangeInfo
-                ? `${exchangeInfo.icon} ${exchangeInfo.displayName}`
-                : provider === 'openai'
-                  ? '✨ OpenAI'
-                  : provider.charAt(0).toUpperCase() + provider.slice(1);
-              
-              return (
-                <div key={provider} className="api-card">
-                  <div className="api-header" onClick={() => toggleApiExpand(provider)}>
-                    <div className="api-title">
-                      <span>{displayName}</span>
-                      <small style={{color: 'var(--muted)', fontSize: '0.7rem'}}>
-                        {exchangeInfo?.comingSoon ? 'Coming soon' : 'Secure integration'}
-                      </small>
-                    </div>
-                    <div className="api-meta">
-                      <span>Key: {maskedKey}</span>
-                      <span>Last test: {lastTest}</span>
-                      <span className={`status-badge ${status.badge}`}>{status.text}</span>
-                      <div className={`status-dot ${status.dot}`}></div>
-                      <span className="api-toggle">{isExpanded ? '▲' : '▼'}</span>
-                    </div>
-                  </div>
-                  <div className={`api-form ${isExpanded ? 'active' : ''}`} id={`form-${provider}`}>
-                    {/* TASK D - Config-driven field schema (no duplication) */}
-                    {provider === 'openai' && (
-                      <input name="api_key" placeholder="API Key (sk-...)" type="password" />
-                    )}
-                    {/* All exchanges require api_key + api_secret */}
-                    {SUPPORTED_PLATFORMS.includes(provider) && (
-                      <>
-                        <input 
-                          name="api_key" 
-                          placeholder="API Key" 
-                          type="text"
-                          style={{ color: '#e0e0e0', backgroundColor: 'rgba(255,255,255,0.05)' }}
-                        />
-                        <input 
-                          name="api_secret" 
-                          placeholder="Secret Key" 
-                          type="password"
-                          style={{ color: '#e0e0e0', backgroundColor: 'rgba(255,255,255,0.05)' }}
-                        />
-                        {/* KuCoin and Bitget require passphrase */}
-                        {(provider === 'kucoin' || provider === 'bitget') && (
-                          <input 
-                            name="passphrase" 
-                            placeholder="Passphrase" 
-                            type="text"
-                            style={{ color: '#e0e0e0', backgroundColor: 'rgba(255,255,255,0.05)' }}
-                          />
-                        )}
-                      </>
-                    )}
-                    <div className="buttons">
-                      <button 
-                        onClick={() => handleSaveApiKey(provider)}
-                        disabled={exchangeInfo?.comingSoon}
-                        style={{ opacity: exchangeInfo?.comingSoon ? 0.5 : 1 }}
-                      >
-                        Save
-                      </button>
-                      <button 
-                        onClick={() => handleTestApiKey(provider)}
-                        disabled={exchangeInfo?.comingSoon}
-                        style={{ opacity: exchangeInfo?.comingSoon ? 0.5 : 1 }}
-                      >
-                        Test
-                      </button>
-                      <button className="danger" onClick={() => handleDeleteApiKey(provider)}>Remove</button>
-                    </div>
-                    {apiKeys[provider.toLowerCase()]?.last_test_error && (
-                      <div style={{marginTop: '8px', fontSize: '0.75rem', color: 'var(--error)'}}>
-                        Last error: {apiKeys[provider.toLowerCase()].last_test_error}
-                      </div>
-                    )}
-                    {apiKeys[provider.toLowerCase()]?.updated_at && (
-                      <div style={{marginTop: '4px', fontSize: '0.75rem', color: 'var(--muted)'}}>
-                        Updated: {formatDate(apiKeys[provider.toLowerCase()].updated_at)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-    );
-  };
-
-  const renderBots = () => (
-      <section className="section active">
-        <div className="card">
-          <h2 style={{marginBottom: '16px', color: '#ffffff'}}>🤖 Bot Management</h2>
-          
-          {/* Horizontal Sub-tabs */}
-          <div style={{
-            display: 'flex', 
-            gap: '10px', 
-            marginBottom: '24px', 
-            marginTop: '16px',
-            borderBottom: '2px solid var(--line)', 
-            paddingBottom: '10px',
-            flexWrap: 'wrap'
-          }}>
-            <button 
-              onClick={() => setBotManagementTab('creation')}
-              style={{
-                padding: '10px 20px',
-                background: botManagementTab === 'creation' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'creation' ? '#4a90e2' : 'var(--line)'),
-                borderRadius: '8px',
-                color: botManagementTab === 'creation' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'creation' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'creation' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
-              🤖 Bot Overview
-            </button>
-            <button 
-              onClick={() => setBotManagementTab('uagents')}
-              style={{
-                padding: '10px 20px',
-                background: botManagementTab === 'uagents' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'uagents' ? '#4a90e2' : 'var(--line)'),
-                borderRadius: '8px',
-                color: botManagementTab === 'uagents' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'uagents' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'uagents' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
-              🤖 uAgents (Fetch.ai)
-            </button>
-            <button 
-              onClick={() => setBotManagementTab('training_quarantine')}
-              style={{
-                padding: '10px 20px',
-                background: botManagementTab === 'training_quarantine' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'training_quarantine' ? '#4a90e2' : 'var(--line)'),
-                borderRadius: '8px',
-                color: botManagementTab === 'training_quarantine' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'training_quarantine' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'training_quarantine' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
-              🎓 Training & Quarantine
-            </button>
-            <button 
-              onClick={() => setBotManagementTab('spawn')}
-              style={{
-                padding: '10px 20px',
-                background: botManagementTab === 'spawn' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (botManagementTab === 'spawn' ? '#4a90e2' : 'var(--line)'),
-                borderRadius: '8px',
-                color: botManagementTab === 'spawn' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: botManagementTab === 'spawn' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: botManagementTab === 'spawn' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
-              Spawn Bot
-            </button>
-          </div>
-          
-          {/* Tab Content */}
-          <>
-          {botManagementTab === 'creation' && (
-          <div className="bot-container">
-          <div className="bot-left">
-            <div className="bot-form-card" style={{marginBottom: '20px'}}>
-              <h3>Create New Bot</h3>
-              <form onSubmit={handleCreateBot}>
-                <div className="bot-form-grid">
-                  <div className="form-group">
-                    <label htmlFor="bot-name">Bot Name</label>
-                    <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="bot-budget">Budget (Min R1000)</label>
-                    <input 
-                      id="bot-budget" 
-                      name="bot-budget" 
-                      type="number" 
-                      min="1000" 
-                      step="100"
-                      defaultValue="1000"
-                      placeholder="1000" 
-                      required 
-                    />
-                    <small style={{color: 'var(--muted)', fontSize: '0.75rem'}}>
-                      Minimum R1000 per bot
-                    </small>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="bot-exchange">Exchange Platform</label>
-                    <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
-                      {getAllExchanges().map(exchange => (
-                        <option 
-                          key={exchange.id} 
-                          value={exchange.id}
-                          disabled={exchange.comingSoon}
-                        >
-                          {exchange.icon} {exchange.displayName}
-                        </option>
-                      ))}
-                    </select>
-                    <small style={{color: 'var(--muted)', fontSize: '0.75rem', display: 'block', marginTop: '4px'}}>
-                      ✅ All 7 exchanges available (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
-                    </small>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="bot-risk">Risk Mode</label>
-                    <select id="bot-risk" name="bot-risk">
-                      <option value="safe">🛡️ Safe</option>
-                      <option value="balanced">⚖️ Balanced</option>
-                      <option value="aggressive">⚡ Aggressive</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="bot-strategy">Strategy Preset</label>
-                    <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
-                      <option value="adaptive">🧠 Adaptive Core</option>
-                      <option value="trend">📈 Trend Follow</option>
-                      <option value="mean_reversion">🔄 Mean Reversion</option>
-                      <option value="scalping">⚡ Scalping</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <button type="submit">Create Bot (7 Day Learning)</button>
-                  </div>
-                </div>
-                <div style={{marginTop: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)'}}>
-                  📝 User-created bots undergo 7-day paper trading learning period
-                </div>
-              </form>
-            </div>
-          </div>
-          <div className="bot-right">
-            <div className="bot-preview-card">
-              <div className="bot-preview-banner">
-                <div>
-                  <h4>Bot Mission Preview</h4>
-                  <p>Track readiness, simulated learning, and go-live requirements before scaling up.</p>
-                </div>
-              </div>
-              <ul className="bot-preview-list">
-                <li>7-day learning cycle before live eligibility</li>
-                <li>Safety locks enforced by Bodyguard</li>
-                <li>Auto-capital allocation and reinvestment milestones</li>
-              </ul>
-            </div>
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
-              <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
-              <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                <button
-                  onClick={handleResumeAllBots}
-                  disabled={botControlLoading['all']}
-                  style={{
-                    padding: '8px 14px',
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    fontWeight: 600,
-                    fontSize: '0.85rem',
-                    cursor: botControlLoading['all'] ? 'wait' : 'pointer',
-                    opacity: botControlLoading['all'] ? 0.6 : 1
-                  }}
-                >
-                  {botControlLoading['all'] ? '⏳ Resuming...' : '▶️ Resume All Bots'}
-                </button>
-                <PlatformSelector 
-                  value={platformFilter} 
-                  onChange={setPlatformFilter}
-                  includeAll={true}
-                />
-              </div>
-            </div>
-            
-            <div className="bot-list">
-              {bots.length === 0 ? (
-                <p style={{color: 'var(--muted)', padding: '20px', textAlign: 'center'}}>
-                  No bots.
-                </p>
-              ) : (
-                bots
-                  .filter(bot => platformFilter === 'all' || bot.exchange === platformFilter)
-                  .map(bot => {
-                    const isExpanded = expandedBots[bot.id];
-                    const botMode = bot.trading_mode || bot.mode || 'paper';
-                    const isLive = botMode === 'live';
-                    const paperDays = bot.paper_start_date 
-                      ? Math.floor((Date.now() - new Date(bot.paper_start_date).getTime()) / (1000 * 60 * 60 * 24)) + 1
-                      : 1;
-                    const riskMode = bot.risk_mode || 'safe';
-                    const botStatus = getBotStatus(bot);
-                    const isActive = botStatus === 'active';
-                    const isPaused = ['paused', 'paused_ready'].includes(botStatus);
-                    const isQuarantined = botStatus === 'quarantined';
-                    const isTraining = ['training', 'training_failed'].includes(botStatus) || bot.training_in_progress;
-                    const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
-                const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
-                const pauseReasonDisplay = pauseReasonMessage ? humanizeReason(pauseReasonMessage) : '';
-                    
+                <div className="overview-live-prices">
+                  {pricePairs.map(({ label, key }) => {
+                    const entry = livePrices?.[key] || {};
+                    const change = Number(entry.change || 0);
                     return (
-                      <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
-                        <div className="bot-header" onClick={() => toggleBotExpand(bot.id)}>
-                          <div style={{display: 'flex', alignItems: 'center', gap: '12px', flex: 1}}>
-                            <span style={{fontWeight: 600}}>
-                              {editingBotId === bot.id ? (
-                                <input
-                                  type="text"
-                                  value={editingBotName}
-                                  onChange={(e) => setEditingBotName(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onBlur={() => handleSaveBotName(bot.id)}
-                                  onKeyPress={(e) => e.key === 'Enter' && handleSaveBotName(bot.id)}
-                                  style={{
-                                    padding: '4px 8px',
-                                    background: 'var(--bg)',
-                                    border: '1px solid var(--accent)',
-                                    borderRadius: '4px',
-                                    color: 'var(--text)',
-                                    fontSize: '1rem'
-                                  }}
-                                  autoFocus
-                                />
-                              ) : (
-                                <>
-                                  {bot.name}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingBotId(bot.id);
-                                      setEditingBotName(bot.name);
-                                    }}
-                                    style={{
-                                      marginLeft: '8px',
-                                      padding: '2px 6px',
-                                      background: 'transparent',
-                                      border: '1px solid var(--line)',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                      fontSize: '0.75rem'
-                                    }}
-                                  >
-                                    ✏️
-                                  </button>
-                                </>
-                              )}
-                            </span>
-                            <span style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
-                              {bot.exchange ? bot.exchange.toUpperCase() : NOT_AVAILABLE}
-                            </span>
-                            {botMode === 'paper' && (
-                              <span style={{
-                                padding: '2px 8px',
-                                background: 'var(--accent)',
-                                color: 'white',
-                                borderRadius: '12px',
-                                fontSize: '0.75rem',
-                                fontWeight: 600
-                              }}>
-                                📄 Day {paperDays}/7
-                              </span>
-                            )}
-                          </div>
-                          <div className={`status-dot ${isLive ? 'ok' : 'err'}`} title={isLive ? 'Live Trading' : 'Paper Trading'}></div>
-                        </div>
-                        
-                        {isExpanded && (
-                          <div className="bot-details active">
-                            {/* Bot Status Information */}
-                            <div style={{marginBottom: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px'}}>
-                              <div style={{fontSize: '0.9rem', fontWeight: 600, marginBottom: '8px'}}>Bot Status</div>
-                              <div style={{display: 'grid', gap: '6px', fontSize: '0.85rem'}}>
-                                {isPaused && (
-                                  <div>
-                                    <strong>Status:</strong> <span style={{color: 'var(--error)'}}>⏸️ PAUSED</span>
-                                  </div>
-                                )}
-                                {pauseReasonDisplay && (
-                                  <div>
-                                    <strong>Pause Reason:</strong> {pauseReasonDisplay}
-                                  </div>
-                                )}
-                                {bot.paused_next_action && (
-                                  <div>
-                                    <strong>Next Action:</strong> {bot.paused_next_action}
-                                  </div>
-                                )}
-                                {bot.quarantine_remaining_seconds !== undefined && bot.quarantine_remaining_seconds !== null && (
-                                  <div>
-                                    <strong>Release In:</strong> {formatDuration(bot.quarantine_remaining_seconds)}
-                                  </div>
-                                )}
-                                {bot.quarantine_release_at && (
-                                  <div>
-                                    <strong>Release At:</strong> {formatDate(bot.quarantine_release_at)}
-                                  </div>
-                                )}
-                                {bot.paused_by_system && (
-                                  <div>
-                                    <span style={{color: 'var(--paper)'}}>⚠️ Paused by System</span>
-                                  </div>
-                                )}
-                                {bot.paused_by_user && (
-                                  <div>
-                                    <span style={{color: 'var(--muted)'}}>👤 Paused by User</span>
-                                  </div>
-                                )}
-                                {isQuarantined && (
-                                  <div>
-                                    <span style={{color: 'var(--error)'}}>🔒 In Quarantine</span>
-                                  </div>
-                                )}
-                                {isTraining && (
-                                  <div>
-                                    <span style={{color: 'var(--accent)'}}>🎓 In Training</span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            
-                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '12px'}}>
-                              <div>
-                                <label style={{fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '4px'}}>
-                                  Trading Mode
-                                </label>
-                                <button
-                                  onClick={() => handleToggleBotMode(bot.id, botMode)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '8px',
-                                    background: isLive ? 'var(--success)' : 'var(--accent)',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontWeight: 600
-                                  }}
-                                >
-                                  {botMode.toUpperCase()}
-                                </button>
-                              </div>
-                              
-                              <div>
-                                <label style={{fontSize: '0.85rem', color: 'var(--muted)', display: 'block', marginBottom: '4px'}}>
-                                  Risk Mode
-                                </label>
-                                <select
-                                  value={riskMode}
-                                  onChange={(e) => handleChangeRiskMode(bot.id, e.target.value)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '8px',
-                                    background: 'var(--panel)',
-                                    border: '1px solid var(--line)',
-                                    borderRadius: '6px',
-                                    color: 'var(--text)',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <option value="safe">🛡️ Safe</option>
-                                  <option value="balanced">⚖️ Balanced</option>
-                                  <option value="aggressive">⚡ Aggressive</option>
-                                </select>
-                              </div>
-                            </div>
-                            
-                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', padding: '12px', background: 'var(--glass)', borderRadius: '6px', marginBottom: '12px'}}>
-                              <div style={{textAlign: 'center'}}>
-                                <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit</div>
-                                <div style={{fontSize: '1.1rem', fontWeight: 700, color: bot.total_profit > 0 ? 'var(--success)' : 'var(--error)'}}>
-                                  R{safeToFixed(bot.total_profit, 2)}
-                                </div>
-                              </div>
-                              <div style={{textAlign: 'center'}}>
-                                <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Capital</div>
-                                <div style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)'}}>
-                                  R{safeToFixed(bot.current_capital, 2)}
-                                </div>
-                              </div>
-                              <div style={{textAlign: 'center'}}>
-                                <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Trades</div>
-                                <div style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent)'}}>
-                                  {bot.trades_count || 0}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            <div className="buttons" style={{display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px'}}>
-                              {isPaused && !isActive && (
-                                <button 
-                                  onClick={() => handleResumeBot(bot.id)}
-                                  disabled={botControlLoading[bot.id]}
-                                  style={{
-                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    fontWeight: 600,
-                                    cursor: botControlLoading[bot.id] ? 'wait' : 'pointer',
-                                    opacity: botControlLoading[bot.id] ? 0.6 : 1
-                                  }}
-                                >
-                                  {botControlLoading[bot.id] ? '⏳ Starting...' : '▶️ Resume Bot'}
-                                </button>
-                              )}
-                              {!isActive && !isPaused && !isQuarantined && !isTraining && canStart && (
-                                <button 
-                                  onClick={() => handleStartBot(bot.id)}
-                                  disabled={botControlLoading[bot.id]}
-                                  style={{
-                                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '10px',
-                                    borderRadius: '6px',
-                                    fontWeight: 600,
-                                    cursor: botControlLoading[bot.id] ? 'wait' : 'pointer',
-                                    opacity: botControlLoading[bot.id] ? 0.6 : 1
-                                  }}
-                                >
-                                  {botControlLoading[bot.id] ? '⏳ Starting...' : '🚀 Start Bot'}
-                                </button>
-                              )}
-                              <button 
-                                className="danger" 
-                                onClick={() => handleDeleteBot(bot.id)}
-                              >
-                                🗑️ Delete Bot
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                      <div key={label} className="overview-live-card">
+                        <span className="overview-live-label">{label}</span>
+                        <strong className="overview-live-price">{formatLivePrice(entry.price)}</strong>
+                        <span
+                          className="overview-live-change"
+                          style={{ color: change >= 0 ? 'var(--success)' : 'var(--error)' }}
+                        >
+                          {change >= 0 ? '+' : ''}{safeToFixed(change, 2)}%
+                        </span>
                       </div>
                     );
-                  })
-              )}
-            </div>
-          </div>
-          </div>
-          )}
-          {/* uAgents Tab */}
-          {botManagementTab === 'uagents' && (
-            <div style={{padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-              <h3>🤖 Fetch.ai uAgents</h3>
-              <p style={{color: 'var(--muted)', marginBottom: '20px'}}>
-                Manage your Fetch.ai uAgents for custom trading strategies
-              </p>
-              <div className="bot-form-card">
-                <h3>🤖 Upload Custom Fetch.ai uAgent</h3>
-                <p style={{color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px'}}>
-                  Upload your own Fetch.ai uAgent code (.py file) for custom trading strategies
-                </p>
-                <form onSubmit={handleCreateUAgent}>
-                  <div className="bot-form-grid">
-                    <div className="form-group">
-                      <label htmlFor="uagent-name">uAgent Name</label>
-                      <input id="uagent-name" name="uagent-name" placeholder="My Custom Agent" type="text" required />
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="uagent-file">Upload uAgent File (.py)</label>
-                      <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
-                    </div>
-                    <div className="form-group">
-                      <label htmlFor="uagent-strategy">Strategy Description</label>
-                      <textarea id="uagent-strategy" name="uagent-strategy" placeholder="Describe what this uAgent does..." rows="4"></textarea>
-                    </div>
-                    <div className="form-group">
-                      <button type="submit">Deploy uAgent</button>
-                    </div>
-                  </div>
-                </form>
+                  })}
+                </div>
               </div>
             </div>
-          )}
-          
-          {/* Training & Quarantine Unified Tab */}
-          {botManagementTab === 'training_quarantine' && (
-            <TrainingQuarantineSection />
-          )}
-          {botManagementTab === 'spawn' && renderSpawnBot()}
-          </>
+          </div>
         </div>
       </section>
-  );
-
-  const renderSpawnBot = () => (
-    <section className="section active">
-      <div className="card">
-        <h2>Spawn Bot</h2>
-        {autoSpawnStatus && (
-          <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <strong>Autopilot Eligibility ({formatZAR(autoSpawnStatus.profit_threshold ?? 1000, 0)})</strong>
-            <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
-            </div>
-            <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
-              {SUPPORTED_PLATFORMS.map(exchange => {
-                const profit = safeNumber(autoSpawnStatus.current_profit_per_exchange?.[exchange], 0);
-                const eligible = autoSpawnStatus.eligible_per_exchange?.[exchange];
-                const reason = autoSpawnStatus.reason_per_exchange?.[exchange] || (eligible ? 'ELIGIBLE' : 'NOT_READY');
-                const reasonInfo = formatSpawnReason(reason);
-                const spawnCount = safeNumber(autoSpawnStatus.spawn_count_today_per_exchange?.[exchange], 0);
-                const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
-                return (
-                  <div key={exchange} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                      <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
-                      <span style={{fontSize: '0.75rem', color: eligible ? 'var(--success)' : 'var(--muted)'}}>
-                        {eligible ? '✅ Eligible' : reasonInfo.title}
-                      </span>
-                    </div>
-                    {!eligible && reasonInfo.details && (
-                      <div style={{fontSize: '0.75rem', color: 'rgba(255,255,255,0.75)', marginTop: '4px'}}>
-                        {reasonInfo.details}
-                      </div>
-                    )}
-                    <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: {formatZAR(profit)} • Spawns today: {spawnCount} • Last: {formatDate(lastSpawn)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {autopilotGrowthStatus && (
-          <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-              <strong>Autopilot Growth Milestones</strong>
-              <span style={{fontSize: '0.75rem', color: autopilotGrowthStatus?.enabled ? 'var(--success)' : 'var(--muted)'}}>
-                Growth Mode: {autopilotGrowthStatus?.enabled ? 'ON' : 'OFF'}
-              </span>
-            </div>
-            <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Milestone size: {formatZAR(autopilotGrowthStatus.profit_threshold_zar ?? 1000, 0)} • Milestones tracked per platform
-            </div>
-            <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
-              {SUPPORTED_PLATFORMS.map(exchange => {
-                const status = autopilotGrowthStatus.platforms?.[exchange] || {};
-                const blocked = status.blocked_reasons?.length
-                  ? status.blocked_reasons.map(reason => formatSpawnReason(reason).title).join(', ')
-                  : formatSpawnReason(status.eligible ? 'ELIGIBLE' : 'NOT_READY').title;
-                return (
-                  <div key={`growth-${exchange}`} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                      <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
-                      <span style={{fontSize: '0.75rem', color: status.eligible ? 'var(--success)' : 'var(--muted)'}}>
-                        {status.eligible ? '✅ Eligible' : blocked}
-                      </span>
-                    </div>
-                    <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: {formatZAR(status.realized_profit_zar)} • Next bot at: {formatZAR(status.next_threshold_zar, 0)} • Bots spawned: {safeNumber(status.milestones_spawned, 0)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {autopilotReinvestStatus && (
-          <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <strong>Daily Reinvest Status</strong>
-            <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar ?? 100, 0)}
-            </div>
-            <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
-              {SUPPORTED_PLATFORMS.map(exchange => {
-                const status = autopilotReinvestStatus.platforms?.[exchange] || {};
-                const blocked = status.blocked_reasons?.length
-                  ? status.blocked_reasons.map(reason => formatSpawnReason(reason).title).join(', ')
-                  : formatSpawnReason(status.eligible ? 'ELIGIBLE' : 'NOT_READY').title;
-                return (
-                  <div key={`reinvest-${exchange}`} style={{padding: '6px 10px', borderRadius: '6px', background: 'var(--panel)'}}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                      <span>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</span>
-                      <span style={{fontSize: '0.75rem', color: status.eligible ? 'var(--success)' : 'var(--muted)'}}>
-                        {status.eligible ? '✅ Eligible' : blocked}
-                      </span>
-                    </div>
-                    <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: {formatZAR(status.last_reinvest_amount)} • Next run: {formatDate(status.next_run)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        <div className="bot-form-card">
-          <h3>Autonomous Spawning</h3>
-          <p style={{color: 'var(--muted)', fontSize: '0.9rem', marginBottom: 0}}>
-            Bot creation is fully automated. Autopilot will spawn new bots when eligibility,
-            risk guardrails, and exchange caps allow. Manual spawning is disabled.
-          </p>
-        </div>
-      </div>
-    </section>
-  );
+    );
+  };
 
   const renderProfile = () => {
     
@@ -4662,7 +3838,7 @@ export default function Dashboard() {
                             style={{
                               padding: '4px 8px',
                               fontSize: '0.75rem',
-                              background: usr.status === 'blocked' ? 'var(--success)' : '#f59e0b',
+                              background: usr.status === 'blocked' ? 'var(--success)' : 'var(--accent2)',
                               color: 'white',
                               border: 'none',
                               borderRadius: '4px',
@@ -4698,14 +3874,14 @@ export default function Dashboard() {
           
           {/* AI Bodyguard Status */}
           {bodyguardStatus && (
-            <div className="admin-card" style={{marginTop: '24px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)')}}>
+            <div className="admin-card" style={{marginTop: '24px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? 'var(--accent2)' : 'var(--error)')}}>
               <h3 style={{marginBottom: '16px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px'}}>
                 🛡️ AI Bodyguard Status
                 <span style={{
                   fontSize: '0.75rem', 
                   padding: '4px 8px', 
                   borderRadius: '4px', 
-                  background: bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)',
+                  background: bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? 'var(--accent2)' : 'var(--error)',
                   color: 'white'
                 }}>
                   {bodyguardStatus.health_status}
@@ -4745,8 +3921,8 @@ export default function Dashboard() {
                   )}
                   
                   {bodyguardStatus.warnings?.length > 0 && (
-                    <div style={{padding: '12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '6px', border: '1px solid #f59e0b'}}>
-                      <div style={{fontWeight: 600, color: '#f59e0b', marginBottom: '8px'}}>⚠️ Warnings ({bodyguardStatus.warnings.length})</div>
+                    <div style={{padding: '12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '6px', border: '1px solid var(--accent2)'}}>
+                      <div style={{fontWeight: 600, color: 'var(--accent2)', marginBottom: '8px'}}>⚠️ Warnings ({bodyguardStatus.warnings.length})</div>
                       <ul style={{margin: 0, paddingLeft: '20px', fontSize: '0.85rem', color: 'var(--text)'}}>
                         {bodyguardStatus.warnings.map((warning, idx) => (
                           <li key={idx} style={{marginBottom: '4px'}}>{warning}</li>
@@ -4815,7 +3991,7 @@ export default function Dashboard() {
                             borderRadius: '4px',
                             fontWeight: 700,
                             background: usr.total_storage_mb > 10 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                            color: usr.total_storage_mb > 10 ? '#f59e0b' : 'var(--success)'
+                            color: usr.total_storage_mb > 10 ? 'var(--accent2)' : 'var(--success)'
                           }}>
                             {safeToFixed(usr.total_storage_mb, 2)} MB
                           </span>
@@ -4838,7 +4014,7 @@ export default function Dashboard() {
                 style={{
                   padding: '8px 16px',
                   fontSize: '0.85rem',
-                  background: '#3b82f6',
+                  background: 'var(--accent2)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',
@@ -4884,7 +4060,7 @@ export default function Dashboard() {
                             borderRadius: '4px',
                             fontSize: '0.75rem',
                             fontWeight: 600,
-                            background: usr.role === 'admin' ? '#8b5cf6' : 'var(--glass)',
+                            background: usr.role === 'admin' ? 'var(--accent2)' : 'var(--glass)',
                             color: usr.role === 'admin' ? 'white' : 'var(--text)'
                           }}>
                             {usr.role || 'user'}
@@ -4916,7 +4092,7 @@ export default function Dashboard() {
                               style={{
                                 padding: '4px 8px',
                                 fontSize: '0.75rem',
-                                background: actionLoading[`reset-${usr.id}`] ? '#666' : '#3b82f6',
+                                background: actionLoading[`reset-${usr.id}`] ? '#666' : 'var(--accent2)',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
@@ -4933,7 +4109,7 @@ export default function Dashboard() {
                               style={{
                                 padding: '4px 8px',
                                 fontSize: '0.75rem',
-                                background: actionLoading[`block-${usr.id}`] ? '#666' : (usr.status === 'blocked' ? 'var(--success)' : '#f59e0b'),
+                                background: actionLoading[`block-${usr.id}`] ? '#666' : (usr.status === 'blocked' ? 'var(--success)' : 'var(--accent2)'),
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
@@ -4998,7 +4174,7 @@ export default function Dashboard() {
                 style={{
                   padding: '8px 16px',
                   fontSize: '0.85rem',
-                  background: '#3b82f6',
+                  background: 'var(--accent2)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '4px',
@@ -5081,7 +4257,7 @@ export default function Dashboard() {
               </div>
               
               {selectedUserId && filteredAdminBots.length === 0 && (
-                <div style={{marginTop: '12px', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px', fontSize: '0.8rem', color: '#f59e0b'}}>
+                <div style={{marginTop: '12px', padding: '8px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '4px', fontSize: '0.8rem', color: 'var(--accent2)'}}>
                   ⚠️ Selected user has no bots
                 </div>
               )}
@@ -5119,7 +4295,7 @@ export default function Dashboard() {
                       style={{
                         padding: '10px 16px',
                         fontSize: '0.85rem',
-                        background: actionLoading[`pause-${selectedBot.bot_id}`] ? '#666' : (selectedBot.status === 'active' ? '#f59e0b' : 'var(--success)'),
+                        background: actionLoading[`pause-${selectedBot.bot_id}`] ? '#666' : (selectedBot.status === 'active' ? 'var(--accent2)' : 'var(--success)'),
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
@@ -5157,7 +4333,7 @@ export default function Dashboard() {
                       style={{
                         padding: '10px 16px',
                         fontSize: '0.85rem',
-                        background: selectedBot.mode === 'live' ? '#f59e0b' : (actionLoading[`mode-${selectedBot.bot_id}`] ? '#666' : 'var(--glass)'),
+                        background: selectedBot.mode === 'live' ? 'var(--accent2)' : (actionLoading[`mode-${selectedBot.bot_id}`] ? '#666' : 'var(--glass)'),
                         color: selectedBot.mode === 'live' ? 'white' : 'var(--text)',
                         border: '1px solid var(--line)',
                         borderRadius: '4px',
@@ -5223,7 +4399,7 @@ export default function Dashboard() {
                 disabled={aiTaskLoading === 'bodyguard'}
                 style={{
                   padding: '12px 16px',
-                  background: aiTaskLoading === 'bodyguard' ? '#666' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  background: aiTaskLoading === 'bodyguard' ? '#666' : 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
@@ -5243,7 +4419,7 @@ export default function Dashboard() {
                 onClick={handleEmailAllUsers}
                 style={{
                   padding: '12px 16px',
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  background: 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
@@ -5290,7 +4466,7 @@ export default function Dashboard() {
                 }}
                 style={{
                   padding: '12px 16px',
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  background: 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
@@ -5339,7 +4515,7 @@ export default function Dashboard() {
                   onClick={handleMigrateApiKeys}
                   style={{
                     padding: '10px 20px',
-                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    background: 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -5384,10 +4560,10 @@ export default function Dashboard() {
               {systemModes.paperTrading ? '✓ ON' : '✗ OFF'}
             </div>
           </div>
-          <div className="system-card" onClick={() => toggleSystemMode('liveTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.liveTrading ? '#f59e0b' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
+          <div className="system-card" onClick={() => toggleSystemMode('liveTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.liveTrading ? 'var(--accent2)' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
             <h3>💰 Live Trading</h3>
             <p style={{fontSize: '0.85rem', color: 'var(--muted)', margin: '8px 0'}}>⚠️ Execute REAL trades</p>
-            <div style={{fontWeight: 600, fontSize: '1.2rem', color: systemModes.liveTrading ? '#f59e0b' : 'var(--error)'}}>
+            <div style={{fontWeight: 600, fontSize: '1.2rem', color: systemModes.liveTrading ? 'var(--accent2)' : 'var(--error)'}}>
               {systemModes.liveTrading ? '⚡ ON' : '✗ OFF'}
             </div>
           </div>
@@ -5434,30 +4610,17 @@ export default function Dashboard() {
               </div>
               <span className="system-reset-badge">Paper-only</span>
             </div>
-            <div className="system-reset-input">
-              <label htmlFor="paper-reset-password">Confirmation Password</label>
-              <input
-                id="paper-reset-password"
-                type="password"
-                value={paperResetPassword}
-                onChange={(e) => {
-                  setPaperResetPassword(e.target.value);
-                }}
-                placeholder="Enter confirmation password"
-              />
-              <span className="system-reset-hint">Enter the confirmation password to unlock reset.</span>
-            </div>
-            {paperResetError && (
-              <div className="system-reset-error">
-                {paperResetError}
-              </div>
-            )}
             <button
-              onClick={handlePaperReset}
-              disabled={!isPaperResetReady || paperResetLoading}
+              onClick={() => {
+                setPaperResetError('');
+                setPaperResetPassword('');
+                setPaperResetValid(false);
+                setShowPaperResetModal(true);
+              }}
+              disabled={paperResetLoading}
               className="system-reset-button"
             >
-              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Session'}
+              {paperResetLoading ? 'Resetting...' : 'Reset Paper Session'}
             </button>
           </div>
         )}
@@ -5485,6 +4648,59 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+      {showPaperResetModal && (
+        <div className="modal-overlay" onClick={() => setShowPaperResetModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{marginTop: 0}}>Confirm Paper Reset</h3>
+            <p style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
+              Enter the confirmation password to reset paper bots, trades, and training funds.
+            </p>
+            <div className="system-reset-input" style={{marginTop: '16px'}}>
+              <label htmlFor="paper-reset-password-modal">Confirmation Password</label>
+              <input
+                id="paper-reset-password-modal"
+                type="password"
+                value={paperResetPassword}
+                onChange={(e) => setPaperResetPassword(e.target.value)}
+                placeholder="Enter confirmation password"
+              />
+              <span className="system-reset-hint">Reset remains unavailable in live trading.</span>
+            </div>
+            {paperResetError && (
+              <div className="system-reset-error">
+                {paperResetError}
+              </div>
+            )}
+            <div style={{display: 'flex', gap: '12px', marginTop: '20px', flexWrap: 'wrap'}}>
+              <button
+                className="system-reset-button"
+                onClick={handlePaperReset}
+                disabled={!isPaperResetReady || paperResetLoading}
+              >
+                {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Confirm Reset'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowPaperResetModal(false);
+                  setPaperResetPassword('');
+                  setPaperResetError('');
+                }}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '999px',
+                  border: '1px solid var(--line)',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
     );
   };
@@ -5631,7 +4847,7 @@ export default function Dashboard() {
                           <span style={{
                             padding: '4px 12px',
                             background: hasData ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 139, 139, 0.2)',
-                            color: hasData ? '#10b981' : '#8b8b8b',
+                            color: hasData ? 'var(--success)' : '#8b8b8b',
                             borderRadius: '12px',
                             fontSize: '0.75rem',
                             fontWeight: 600
@@ -5680,13 +4896,13 @@ export default function Dashboard() {
       datasets: [{
         label: 'Profit (ZAR)',
         data: profitData?.values || [0, 0, 0, 0, 0, 0, 0],
-        borderColor: '#10b981',
+        borderColor: 'var(--success)',
         backgroundColor: 'rgba(16, 185, 129, 0.2)',
         fill: true,
         tension: 0.4,
         pointRadius: 5,
         pointHoverRadius: 8,
-        pointBackgroundColor: '#10b981',
+        pointBackgroundColor: 'var(--success)',
         pointBorderColor: '#ffffff',
         pointBorderWidth: 2
       }]
@@ -5701,9 +4917,9 @@ export default function Dashboard() {
         },
         tooltip: {
           backgroundColor: 'rgba(0, 0, 42, 0.95)',
-          titleColor: '#10b981',
+          titleColor: 'var(--success)',
           bodyColor: '#ffffff',
-          borderColor: '#10b981',
+          borderColor: 'var(--success)',
           borderWidth: 2,
           padding: 12,
           titleFont: { size: 14, weight: 'bold' },
@@ -5762,8 +4978,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('metrics')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'metrics' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'metrics' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'metrics' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'metrics' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'metrics' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5779,8 +4995,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('profit-history')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'profit-history' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'profit-history' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'profit-history' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'profit-history' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'profit-history' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5796,8 +5012,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('equity')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'equity' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'equity' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'equity' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'equity' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'equity' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5813,8 +5029,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('drawdown')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'drawdown' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'drawdown' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'drawdown' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'drawdown' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'drawdown' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5830,8 +5046,8 @@ export default function Dashboard() {
               onClick={() => setProfitsTab('win-rate')}
               style={{
                 padding: '10px 20px',
-                background: profitsTab === 'win-rate' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (profitsTab === 'win-rate' ? '#4a90e2' : 'var(--line)'),
+                background: profitsTab === 'win-rate' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (profitsTab === 'win-rate' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: profitsTab === 'win-rate' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -5989,7 +5205,7 @@ export default function Dashboard() {
                       onClick={() => setGraphPeriod(period)}
                       style={{
                         padding: '6px 14px',
-                        background: graphPeriod === period ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'var(--glass)',
+                        background: graphPeriod === period ? 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)' : 'var(--glass)',
                         color: graphPeriod === period ? '#ffffff' : 'var(--muted)',
                         border: graphPeriod === period ? 'none' : '1px solid var(--line)',
                         borderRadius: '6px',
@@ -6015,8 +5231,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(16, 185, 129, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Profit</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Profit</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     R{safeToFixed(profitData?.total, 2)}
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>ZAR</span>
                   </div>
@@ -6029,8 +5245,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(59, 130, 246, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Daily</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     R{safeToFixed(profitData?.avg_daily, 2)}
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{profitData?.avg_daily ? '+12%' : ''}</span>
                   </div>
@@ -6043,8 +5259,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(245, 158, 11, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Day</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Day</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     R{Number.isFinite(Number(profitData?.best_day))
                       ? safeToFixed(profitData.best_day, 2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
                       : '0.00'}
@@ -6058,8 +5274,8 @@ export default function Dashboard() {
                   border: '1px solid rgba(168, 85, 247, 0.3)',
                   textAlign: 'center'
                 }}>
-                  <div style={{fontSize: '0.75rem', color: '#a855f7', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Growth Rate</div>
-                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#a855f7', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                  <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Growth Rate</div>
+                  <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                     {safeToFixed(profitData?.growth_rate, 2)}%
                     <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>{profitData?.growth_rate > 0 ? '↑' : ''}</span>
                   </div>
@@ -6099,7 +5315,7 @@ export default function Dashboard() {
                       onClick={() => setEquityRange(range)}
                       style={{
                         padding: '6px 14px',
-                        background: equityRange === range ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'var(--glass)',
+                        background: equityRange === range ? 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)' : 'var(--glass)',
                         color: equityRange === range ? '#ffffff' : 'var(--muted)',
                         border: equityRange === range ? 'none' : '1px solid var(--line)',
                         borderRadius: '6px',
@@ -6127,8 +5343,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(16, 185, 129, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Equity</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Equity</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(equityData.current_equity, 2)}
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>ZAR</span>
                       </div>
@@ -6141,8 +5357,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(59, 130, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: equityData.total_pnl >= 0 ? '#10b981' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: equityData.total_pnl >= 0 ? 'var(--success)' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(equityData.total_pnl, 2)}
                       </div>
                     </div>
@@ -6154,8 +5370,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(245, 158, 11, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Realized P&L</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Realized P&L</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(equityData.total_pnl, 2)}
                       </div>
                     </div>
@@ -6193,13 +5409,13 @@ export default function Dashboard() {
                           datasets: [{
                             label: 'Equity (ZAR)',
                             data: equityData.equity_curve.map(p => p.equity),
-                            borderColor: '#10b981',
+                            borderColor: 'var(--success)',
                             backgroundColor: 'rgba(16, 185, 129, 0.2)',
                             fill: true,
                             tension: 0.4,
                             pointRadius: 3,
                             pointHoverRadius: 6,
-                            pointBackgroundColor: '#10b981',
+                            pointBackgroundColor: 'var(--success)',
                             pointBorderColor: '#ffffff',
                             pointBorderWidth: 2
                           }]
@@ -6211,9 +5427,9 @@ export default function Dashboard() {
                             legend: { display: false },
                             tooltip: {
                               backgroundColor: 'rgba(0, 0, 42, 0.95)',
-                              titleColor: '#10b981',
+                              titleColor: 'var(--success)',
                               bodyColor: '#ffffff',
-                              borderColor: '#10b981',
+                              borderColor: 'var(--success)',
                               borderWidth: 2,
                               padding: 12,
                               titleFont: { size: 14, weight: 'bold' },
@@ -6312,8 +5528,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(245, 158, 11, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Drawdown</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Current Drawdown</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {safeToFixed(drawdownData.current_drawdown_pct, 2)}%
                       </div>
                     </div>
@@ -6325,8 +5541,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(16, 185, 129, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Peak Equity</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Peak Equity</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(drawdownData.peak_equity, 2)}
                       </div>
                     </div>
@@ -6338,8 +5554,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(59, 130, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Underwater Periods</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Underwater Periods</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {drawdownData.underwater_periods || 0}
                       </div>
                     </div>
@@ -6446,7 +5662,7 @@ export default function Dashboard() {
                       onClick={() => setWinRatePeriod(period)}
                       style={{
                         padding: '6px 14px',
-                        background: winRatePeriod === period ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' : 'var(--glass)',
+                        background: winRatePeriod === period ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
                         color: winRatePeriod === period ? '#ffffff' : 'var(--muted)',
                         border: winRatePeriod === period ? 'none' : '1px solid var(--line)',
                         borderRadius: '6px',
@@ -6474,8 +5690,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(139, 92, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Win Rate</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#8b5cf6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Win Rate</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {safeToFixed(winRateData.win_rate_pct, 1, '0.0')}%
                         <span style={{fontSize: '0.75rem', color: 'var(--muted)'}}>({winRateData.winning_trades}/{winRateData.total_trades})</span>
                       </div>
@@ -6488,8 +5704,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(16, 185, 129, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Win</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#10b981', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Avg Win</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(winRateData.avg_win, 2)}
                       </div>
                     </div>
@@ -6514,8 +5730,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(245, 158, 11, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Profit Factor</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#f59e0b', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Profit Factor</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {safeToFixed(winRateData.profit_factor, 2)}
                       </div>
                     </div>
@@ -6530,8 +5746,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(59, 130, 246, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Trades</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#3b82f6', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total Trades</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--accent2)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         {winRateData.total_trades || 0}
                       </div>
                     </div>
@@ -6543,8 +5759,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(34, 197, 94, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#22c55e', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Trade</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: '#22c55e', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Best Trade</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: 'var(--success)', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(winRateData.best_trade, 2)}
                       </div>
                     </div>
@@ -6569,8 +5785,8 @@ export default function Dashboard() {
                       border: '1px solid rgba(168, 85, 247, 0.3)',
                       textAlign: 'center'
                     }}>
-                      <div style={{fontSize: '0.75rem', color: '#a855f7', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
-                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: winRateData.total_pnl >= 0 ? '#10b981' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                      <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
+                      <div style={{fontSize: '1.75rem', fontWeight: 700, color: winRateData.total_pnl >= 0 ? 'var(--success)' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                         R{safeToFixed(winRateData.total_pnl, 2)}
                       </div>
                     </div>
@@ -6588,7 +5804,7 @@ export default function Dashboard() {
                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
                       <div>
                         <div style={{fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '8px'}}>Winning Trades</div>
-                        <div style={{fontSize: '1.5rem', fontWeight: 700, color: '#10b981'}}>
+                        <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)'}}>
                           {safeNumber(winRateData.winning_trades, 0)} ({safeToFixed((safeNumber(winRateData.winning_trades, 0) / Math.max(safeNumber(winRateData.total_trades, 0), 1)) * 100, 1, '0.0')}%)
                         </div>
                         <div style={{fontSize: '0.85rem', color: 'var(--muted)', marginTop: '4px'}}>
@@ -6669,15 +5885,15 @@ export default function Dashboard() {
                   borderRadius: '12px',
                   textAlign: 'center',
                   background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.05) 100%)',
-                  boxShadow: '0 4px 16px rgba(16, 185, 129, 0.2)'
+                  boxShadow: '0 12px 24px rgba(0, 0, 0, 0.3)'
                 }}>
-                  <div style={{fontSize: '4rem', fontWeight: 700, color: countdownData.days_remaining >= 9999 ? 'var(--error)' : 'var(--success)', margin: '12px 0', textShadow: '0 0 12px rgba(16, 185, 129, 0.5)'}}>
+                  <div style={{fontSize: '4rem', fontWeight: 700, color: countdownData.days_remaining >= 9999 ? 'var(--error)' : 'var(--success)', margin: '12px 0'}}>
                     {countdownData.days_remaining < 9999 ? countdownData.days_remaining : '∞'}
                   </div>
                   <p style={{fontSize: '1rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '4px'}}>
                     DAYS REMAINING
                   </p>
-                  <p style={{fontSize: '1.5rem', fontWeight: 700, background: 'linear-gradient(45deg, var(--success), #34d399)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', margin: '8px 0'}}>
+                  <p style={{fontSize: '1.5rem', fontWeight: 700, background: 'linear-gradient(45deg, var(--success), var(--success))', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', margin: '8px 0'}}>
                     TO R1 MILLION
                   </p>
                 </div>
@@ -6693,7 +5909,7 @@ export default function Dashboard() {
                   alignItems: 'center',
                   background: 'var(--panel)'
                 }}>
-                  <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent-bright) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 24px rgba(16, 185, 129, 0.4)'}}>
+                  <div style={{width: '180px', height: '180px', borderRadius: '50%', background: `conic-gradient(var(--success) 0deg ${progressDeg}deg, var(--accent-bright) ${progressDeg}deg 360deg)`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 18px rgba(0, 0, 0, 0.35)'}}>
                     <div style={{width: '140px', height: '140px', borderRadius: '50%', background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 700, color: 'var(--success)', flexDirection: 'column'}}>
                       <div>{safeToFixed(countdownData.progress_pct, 1, '0.0')}%</div>
                       <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '4px'}}>Complete</div>
@@ -6859,7 +6075,7 @@ export default function Dashboard() {
                   onClick={() => setShowAddCountdown(!showAddCountdown)}
                   style={{
                     padding: '8px 16px',
-                    background: showAddCountdown ? 'var(--error)' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                    background: showAddCountdown ? 'var(--error)' : 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
@@ -6880,9 +6096,9 @@ export default function Dashboard() {
                 padding: '20px',
                 background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(124, 58, 237, 0.05) 100%)',
                 borderRadius: '12px',
-                border: '2px solid #8b5cf6'
+                border: '2px solid var(--accent2)'
               }}>
-                <h4 style={{marginBottom: '16px', color: '#8b5cf6'}}>Add New Goal</h4>
+                <h4 style={{marginBottom: '16px', color: 'var(--accent2)'}}>Add New Goal</h4>
                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '12px', alignItems: 'end'}}>
                   <div>
                     <label style={{display: 'block', fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '6px'}}>
@@ -6930,7 +6146,7 @@ export default function Dashboard() {
                     onClick={addCustomCountdown}
                     style={{
                       padding: '10px 20px',
-                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      background: 'linear-gradient(135deg, var(--success) 0%, var(--success) 100%)',
                       color: 'white',
                       border: 'none',
                       borderRadius: '6px',
@@ -7026,7 +6242,7 @@ export default function Dashboard() {
                           <div style={{
                             height: '100%',
                             width: `${Math.min(cd.progress_pct, 100)}%`,
-                            background: 'linear-gradient(90deg, var(--accent) 0%, #ec4899 100%)',
+                            background: 'linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%)',
                             transition: 'width 1s ease-in-out'
                           }}></div>
                         </div>
@@ -7055,10 +6271,11 @@ export default function Dashboard() {
   };
 
   const renderWalletHub = () => {
+    const isPaperMode = systemModes.paperTrading && !systemModes.liveTrading;
     return (
       <section className="section active">
         <div className="card">
-          <WalletHub />
+          <WalletHub isPaperMode={isPaperMode} />
         </div>
       </section>
     );
@@ -7108,7 +6325,7 @@ export default function Dashboard() {
               style={{
                 padding: '8px 16px',
                 background: intelligenceTab === 'whale-flow' ? 'rgba(74, 144, 226, 0.3)' : 'transparent',
-                border: '1px solid ' + (intelligenceTab === 'whale-flow' ? '#4a90e2' : 'rgba(255,255,255,0.2)'),
+                border: '1px solid ' + (intelligenceTab === 'whale-flow' ? 'var(--accent2)' : 'rgba(255,255,255,0.2)'),
                 borderRadius: '6px',
                 color: '#fff',
                 cursor: 'pointer',
@@ -7123,7 +6340,7 @@ export default function Dashboard() {
               style={{
                 padding: '8px 16px',
                 background: intelligenceTab === 'decision-trace' ? 'rgba(74, 144, 226, 0.3)' : 'transparent',
-                border: '1px solid ' + (intelligenceTab === 'decision-trace' ? '#4a90e2' : 'rgba(255,255,255,0.2)'),
+                border: '1px solid ' + (intelligenceTab === 'decision-trace' ? 'var(--accent2)' : 'rgba(255,255,255,0.2)'),
                 borderRadius: '6px',
                 color: '#fff',
                 cursor: 'pointer',
@@ -7138,7 +6355,7 @@ export default function Dashboard() {
               style={{
                 padding: '8px 16px',
                 background: intelligenceTab === 'metrics' ? 'rgba(74, 144, 226, 0.3)' : 'transparent',
-                border: '1px solid ' + (intelligenceTab === 'metrics' ? '#4a90e2' : 'rgba(255,255,255,0.2)'),
+                border: '1px solid ' + (intelligenceTab === 'metrics' ? 'var(--accent2)' : 'rgba(255,255,255,0.2)'),
                 borderRadius: '6px',
                 color: '#fff',
                 cursor: 'pointer',
@@ -7163,7 +6380,320 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <APIKeySettings />
+          <h2 style={{color: 'var(--text)'}}>🔑 API Setup</h2>
+          <div className="api-setup-split">
+            <div className="api-setup-image">
+              <img src="/assets/background.jpg" alt="API provider interface background" />
+              <div className="api-setup-overlay">
+                <h3 style={{color: 'var(--text)'}}>Secure provider vault</h3>
+                <p>Connect exchanges and AI services with encrypted key storage.</p>
+              </div>
+            </div>
+            <div className="api-setup-panel">
+              <APIKeySettings />
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
+  const renderApiSetup = renderAPIKeys;
+
+  const renderBots = () => {
+    const filteredBots = bots.filter(bot => platformFilter === 'all' || bot.exchange === platformFilter);
+    return (
+      <section className="section active">
+        <div className="card">
+          <h2 style={{color: 'var(--text)'}}>🤖 Bot Management</h2>
+          <div className="bot-tabs">
+            <button
+              className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}
+              onClick={() => setBotManagementTab('creation')}
+            >
+              Overview
+            </button>
+            <button
+              className={`bot-tab ${botManagementTab === 'training_quarantine' ? 'active' : ''}`}
+              onClick={() => setBotManagementTab('training_quarantine')}
+            >
+              Training & Quarantine
+            </button>
+            <button
+              className={`bot-tab ${botManagementTab === 'spawn' ? 'active' : ''}`}
+              onClick={() => setBotManagementTab('spawn')}
+            >
+              Spawn Status
+            </button>
+          </div>
+
+          {botManagementTab === 'creation' && (
+            <div className="bot-container">
+              <div className="bot-left">
+                <div className="bot-form-card" style={{marginBottom: '16px'}}>
+                  <h3>Create New Bot</h3>
+                  <form onSubmit={handleCreateBot}>
+                    <div className="bot-form-grid">
+                      <div>
+                        <label htmlFor="bot-name">Bot Name</label>
+                        <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                      </div>
+                      <div>
+                        <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                        <input
+                          id="bot-budget"
+                          name="bot-budget"
+                          type="number"
+                          min="1000"
+                          step="100"
+                          defaultValue="1000"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="bot-exchange">Exchange Platform</label>
+                        <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                          {getAllExchanges().map(exchange => (
+                            <option
+                              key={exchange.id}
+                              value={exchange.id}
+                              disabled={exchange.comingSoon}
+                            >
+                              {exchange.icon} {exchange.displayName}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="bot-risk">Risk Mode</label>
+                        <select id="bot-risk" name="bot-risk">
+                          <option value="safe">Safe</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="aggressive">Aggressive</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="bot-strategy">Strategy Preset</label>
+                        <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
+                          <option value="adaptive">Adaptive Core</option>
+                          <option value="trend">Trend Follow</option>
+                          <option value="mean_reversion">Mean Reversion</option>
+                          <option value="scalping">Scalping</option>
+                        </select>
+                      </div>
+                      <div>
+                        <button type="submit">Create Bot (7 Day Learning)</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bot-form-card" style={{marginBottom: '16px'}}>
+                  <h3>Fetch.ai uAgents</h3>
+                  <form onSubmit={handleCreateUAgent}>
+                    <div className="bot-form-grid">
+                      <div>
+                        <label htmlFor="uagent-name">uAgent Name</label>
+                        <input id="uagent-name" name="uagent-name" placeholder="Custom Agent" type="text" required />
+                      </div>
+                      <div>
+                        <label htmlFor="uagent-strategy">Strategy</label>
+                        <select id="uagent-strategy" name="uagent-strategy" defaultValue="adaptive">
+                          <option value="adaptive">Adaptive</option>
+                          <option value="trend">Trend</option>
+                          <option value="mean_reversion">Mean Reversion</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="uagent-file">Upload File (.py)</label>
+                        <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
+                      </div>
+                      <div>
+                        <button type="submit">Deploy uAgent</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bot-form-card">
+                  <h3>FlokX Alert Bot</h3>
+                  <form onSubmit={handleCreateFlokxBot}>
+                    <div className="bot-form-grid">
+                      <div>
+                        <label htmlFor="flokx-name">Bot Name</label>
+                        <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
+                      </div>
+                      <div>
+                        <label htmlFor="flokx-signal">Signal Type</label>
+                        <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
+                          <option value="momentum">Momentum</option>
+                          <option value="breakout">Breakout</option>
+                          <option value="mean_reversion">Mean Reversion</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="flokx-risk">Risk Level</label>
+                        <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
+                          <option value="safe">Safe</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="aggressive">Aggressive</option>
+                        </select>
+                      </div>
+                      <div>
+                        <button type="submit">Create FlokX Bot</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              <div className="bot-right">
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap'}}>
+                  <h3 style={{margin: 0}}>Running Bots ({bots.length})</h3>
+                  <PlatformSelector
+                    value={platformFilter}
+                    onChange={setPlatformFilter}
+                    includeAll={true}
+                  />
+                </div>
+                <div className="bot-list">
+                  {filteredBots.length === 0 ? (
+                    <p style={{color: 'var(--muted)', padding: '20px', textAlign: 'center'}}>
+                      No bots available.
+                    </p>
+                  ) : (
+                    filteredBots.map(bot => {
+                      const isExpanded = expandedBots[bot.id];
+                      const botMode = bot.trading_mode || bot.mode || 'paper';
+                      const isLive = botMode === 'live';
+                      const botStatus = getBotStatus(bot);
+                      const statusLabel = humanizeReason(botStatus);
+                      const isActive = botStatus === 'active';
+                      const isPaused = ['paused', 'paused_ready'].includes(botStatus);
+                      const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
+                      const pauseReason = bot.paused_reason_message || bot.paused_reason;
+                      const pauseReasonDisplay = pauseReason ? formatReasonInline(pauseReason) : '';
+
+                      return (
+                        <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
+                          <div className="bot-header" onClick={() => toggleBotExpand(bot.id)}>
+                            <div style={{display: 'flex', flexDirection: 'column'}}>
+                              <strong>{bot.name}</strong>
+                              <span style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+                                {bot.exchange?.toUpperCase() || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'} • {statusLabel}
+                              </span>
+                            </div>
+                            <div className={`status-dot ${isLive ? 'ok' : 'warn'}`}></div>
+                          </div>
+                          {isExpanded && (
+                            <div className="bot-details active">
+                              {pauseReasonDisplay && (
+                                <p><strong>Pause reason:</strong> {pauseReasonDisplay}</p>
+                              )}
+                              <p><strong>Capital:</strong> {formatZAR(bot.current_capital)}</p>
+                              <p><strong>Trades:</strong> {safeNumber(bot.trades_count, 0)}</p>
+                              <div className="buttons">
+                                {isPaused && (
+                                  <button onClick={() => handleResumeBot(bot.id)}>
+                                    ▶ Resume
+                                  </button>
+                                )}
+                                {!isActive && !isPaused && canStart && (
+                                  <button onClick={() => handleStartBot(bot.id)}>
+                                    🚀 Start
+                                  </button>
+                                )}
+                                <button onClick={() => handleToggleBotMode(bot.id, botMode)}>
+                                  {isLive ? 'Switch to Paper' : 'Switch to Live'}
+                                </button>
+                                <button className="danger" onClick={() => handleDeleteBot(bot.id)}>
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {botManagementTab === 'training_quarantine' && (
+            <TrainingQuarantineSection />
+          )}
+
+          {botManagementTab === 'spawn' && (
+            <div style={{display: 'grid', gap: '16px'}}>
+              <div className="bot-form-card">
+                <h3>Auto-Spawn Status</h3>
+                {autoSpawnStatus ? (
+                  <>
+                    <div style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+                      Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Threshold: {formatZAR(autoSpawnStatus.profit_threshold, 0)} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
+                    </div>
+                    <div style={{display: 'grid', gap: '8px', marginTop: '12px'}}>
+                      {SUPPORTED_PLATFORMS.map(exchange => {
+                        const reason = autoSpawnStatus.reason_per_exchange?.[exchange];
+                        const profit = autoSpawnStatus.current_profit_per_exchange?.[exchange];
+                        const spawns = autoSpawnStatus.spawn_count_today_per_exchange?.[exchange];
+                        const lastSpawn = autoSpawnStatus.last_spawn_time_per_exchange?.[exchange];
+                        return (
+                          <div key={`spawn-${exchange}`} style={{padding: '10px', borderRadius: '8px', background: 'var(--panel)'}}>
+                            <div style={{fontSize: '0.85rem', color: 'var(--text)'}}>
+                              {getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)} • {formatReasonInline(reason)}
+                            </div>
+                            <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                              Profit: {formatZAR(profit)} • Spawns today: {safeNumber(spawns, 0)} • Last: {formatDate(lastSpawn)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{color: 'var(--muted)', fontSize: '0.85rem'}}>Auto-spawn status unavailable.</div>
+                )}
+              </div>
+
+              {autopilotReinvestStatus && (
+                <div className="bot-form-card">
+                  <h3>Autopilot Reinvest</h3>
+                  <div style={{fontSize: '0.8rem', color: 'var(--muted)'}}>
+                    Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar ?? 100, 0)} • {autopilotReinvestStatus.enabled ? 'Enabled' : 'Disabled'}
+                  </div>
+                  <div style={{display: 'grid', gap: '8px', marginTop: '12px'}}>
+                    {SUPPORTED_PLATFORMS.map(exchange => {
+                      const status = autopilotReinvestStatus.platforms?.[exchange] || {};
+                      const reasonFlags = [];
+                      if (!autopilotReinvestStatus.enabled) {
+                        reasonFlags.push('Autopilot Reinvest Disabled');
+                      }
+                      if (status.blocked_reasons?.includes('AUTOPILOT_OFF_FOR_USER')) {
+                        reasonFlags.push('Autopilot Off For User');
+                      }
+                      if (Number.isFinite(status.bots_current) && Number.isFinite(status.bots_max) && status.bots_current < status.bots_max) {
+                        reasonFlags.push('Bots Not Maxed');
+                      }
+                      const reasonLine = reasonFlags.length > 0 ? reasonFlags.join(' • ') : (status.eligible ? 'Eligible' : 'Check guardrails');
+                      return (
+                        <div key={`reinvest-${exchange}`} style={{padding: '10px', borderRadius: '8px', background: 'var(--panel)'}}>
+                          <div style={{fontSize: '0.85rem', color: 'var(--text)'}}>
+                            {getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)} • {reasonLine}
+                          </div>
+                          <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                            Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: {formatZAR(status.last_reinvest_amount)} • Next run: {formatDate(status.next_run)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
     );
@@ -7190,8 +6720,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('flokx')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'flokx' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'flokx' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'flokx' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'flokx' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'flokx' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -7207,8 +6737,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('decision-trace')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'decision-trace' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'decision-trace' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'decision-trace' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'decision-trace' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'decision-trace' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -7224,8 +6754,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('whale-flow')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'whale-flow' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'whale-flow' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'whale-flow' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'whale-flow' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'whale-flow' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -7241,8 +6771,8 @@ export default function Dashboard() {
               onClick={() => setMetricsTab('system-metrics')}
               style={{
                 padding: '10px 20px',
-                background: metricsTab === 'system-metrics' ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'system-metrics' ? '#4a90e2' : 'var(--line)'),
+                background: metricsTab === 'system-metrics' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+                border: '2px solid ' + (metricsTab === 'system-metrics' ? 'var(--accent2)' : 'var(--line)'),
                 borderRadius: '8px',
                 color: metricsTab === 'system-metrics' ? '#fff' : 'var(--text)',
                 cursor: 'pointer',
@@ -7604,11 +7134,6 @@ export default function Dashboard() {
         {activeSection === 'admin' && showAdmin && renderAdmin()}
       </main>
 
-      {/* Footer */}
-      <footer className="footer">
-        <div>© 2026 Amarktai Crypto · a part of Amarktai Network. All rights reserved.</div>
-      </footer>
-
       {/* Bot Promotion Modal */}
       {showPromotionModal && eligibleBots.length > 0 && (
         <div className="modal-overlay" onClick={() => setShowPromotionModal(false)}>
@@ -7626,7 +7151,7 @@ export default function Dashboard() {
               ))}
             </div>
             <div style={{marginBottom: '20px', textAlign: 'left', background: '#2a2a3e', padding: '15px', borderRadius: '8px'}}>
-              <h3 style={{marginBottom: '10px', fontSize: '16px', color: '#ffcc00'}}>⚠️ Important Questions:</h3>
+              <h3 style={{marginBottom: '10px', fontSize: '16px', color: 'var(--accent2)'}}>⚠️ Important Questions:</h3>
               <ol style={{paddingLeft: '20px'}}>
                 <li style={{marginBottom: '8px'}}>Have you funded your LUNO wallet with real ZAR?</li>
                 <li style={{marginBottom: '8px'}}>Do you want to use these paper-trained bots for live trading?</li>
@@ -7637,7 +7162,7 @@ export default function Dashboard() {
               <button
                 className="btn-primary"
                 onClick={() => confirmLiveSwitch(true, true)}
-                style={{background: '#00ff88', color: '#000', padding: '12px 24px'}}
+                style={{background: 'var(--success)', color: '#000', padding: '12px 24px'}}
               >
                 ✅ Yes, I've Funded LUNO - Switch to Live!
               </button>
