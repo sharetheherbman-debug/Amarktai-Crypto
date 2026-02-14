@@ -6380,12 +6380,12 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>🔑 API Setup</h2>
+          <h2 style={{color: 'var(--text)'}}>🔑 API Setup</h2>
           <div className="api-setup-split">
             <div className="api-setup-image">
-              <img src="/assets/background.jpg" alt="Secure provider access" />
+              <img src="/assets/background.jpg" alt="API provider interface background" />
               <div className="api-setup-overlay">
-                <h3>Secure provider vault</h3>
+                <h3 style={{color: 'var(--text)'}}>Secure provider vault</h3>
                 <p>Connect exchanges and AI services with encrypted key storage.</p>
               </div>
             </div>
@@ -6405,7 +6405,7 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>🤖 Bot Management</h2>
+          <h2 style={{color: 'var(--text)'}}>🤖 Bot Management</h2>
           <div className="bot-tabs">
             <button
               className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}

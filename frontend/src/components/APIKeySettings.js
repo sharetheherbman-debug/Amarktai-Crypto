@@ -441,7 +441,7 @@ const APIKeySettings = () => {
                     <span className={`api-key-badge ${statusBadge.tone}`}>{statusBadge.label}</span>
                   </div>
                 </div>
-                <span className="api-key-card-cta">{isAvailable ? 'Add / Update' : 'Unavailable'}</span>
+                <span className="api-key-card-cta">{isAvailable ? 'Add/Update' : 'Unavailable'}</span>
               </div>
 
               <div className="api-key-card-meta">
@@ -456,7 +456,7 @@ const APIKeySettings = () => {
                   disabled={!isAvailable}
                   className="api-key-button primary"
                 >
-                  Add / Update
+                  Add/Update
                 </button>
                 {isAvailable && isConfigured && (
                   <button
