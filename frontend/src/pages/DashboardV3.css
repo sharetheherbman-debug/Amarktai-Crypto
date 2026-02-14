@@ -17,9 +17,12 @@
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --topbar-height: 48px;
   --mobile-topbar-height: 72px;
-  --chat-min-height: 320px;
+  --chat-min-height: 420px;
   --chat-box-min-height: 260px;
   --overview-image-height: 240px;
+  --overview-height-min: 520px;
+  --overview-height-max: 720px;
+  --overview-height-offset: calc(100vh - var(--topbar-height) - 220px);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -246,7 +249,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .welcome-container { 
   display: flex; 
   flex-direction: column; 
-  justify-content: space-between; 
+  justify-content: flex-start; 
   gap: 12px; 
   height: 100%; 
   min-height: calc(100vh - var(--topbar-height) - 96px);
@@ -270,9 +273,33 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   flex-direction: column; 
   flex: 1 1 auto; 
   gap: 8px; 
-  min-height: 0;
+  min-height: var(--chat-min-height);
   height: 100%;
   overflow: hidden; /* Prevent overflow outside section */
+}
+
+.amk-chat-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.amk-chat-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.amk-chat-indicator {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.amk-chat-indicator.active {
+  color: var(--accent-bright);
 }
 
 .amk-chat-box { 
@@ -342,7 +369,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .amk-chat input[type="text"],
-.amk-chat input[type="password"] { 
+.amk-chat input[type="password"],
+.amk-chat textarea { 
   flex: 1; 
   background: rgba(255, 255, 255, 0.05); 
   border: 1px solid rgba(255, 255, 255, 0.2); 
@@ -352,15 +380,23 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   font-size: 0.95rem; 
   font-family: Inter, system-ui, sans-serif;
   min-height: 46px;
+  resize: none;
+  line-height: 1.4;
+}
+
+.amk-chat textarea {
+  max-height: 120px;
 }
 
 .amk-chat input[type="text"]::placeholder,
-.amk-chat input[type="password"]::placeholder {
+.amk-chat input[type="password"]::placeholder,
+.amk-chat textarea::placeholder {
   color: rgba(255, 255, 255, 0.4);
 }
 
 .amk-chat input[type="text"]:focus,
-.amk-chat input[type="password"]:focus {
+.amk-chat input[type="password"]:focus,
+.amk-chat textarea:focus {
   outline: none;
   border-color: var(--accent2);
   background: rgba(255, 255, 255, 0.08);
@@ -390,7 +426,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   align-items: stretch;
   border-bottom: 1px solid var(--line);
   min-height: 0;
-  height: calc(100vh - var(--topbar-height) - 210px);
+  height: clamp(var(--overview-height-min), var(--overview-height-offset), var(--overview-height-max));
+  overflow: hidden;
 }
 
 .overview-pane {
@@ -417,7 +454,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(0, 0, 0, 0.9);
 }
 
 .overview-image > * {
@@ -445,7 +482,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .overview-image-card h3 {
   margin-bottom: 6px;
   font-size: 1.35rem;
-  color: #ffffff;
+  color: var(--accent-bright);
 }
 
 .overview-image-card p {
@@ -456,6 +493,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .overview-content {
   background: var(--panel);
+  overflow: hidden;
 }
 
 .overview-scroll {
@@ -559,13 +597,13 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 .overview-live-header p {
   margin: 4px 0 0;
-  color: var(--accent-bright);
+  color: var(--success);
   font-size: 0.8rem;
 }
 
 .overview-live-update {
   font-size: 0.75rem;
-  color: var(--success);
+  color: var(--accent-bright);
 }
 
 .overview-heartbeats {
@@ -763,9 +801,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 
 /* API SETUP */
 .api-accordion { 
-  display: flex; 
-  flex-direction: column; 
-  gap: 12px; 
+  display: grid; 
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px; 
+  align-items: start;
 }
 
 .api-card { 
@@ -774,6 +813,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
 }
 
 .api-header { 
@@ -805,6 +846,12 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   flex-wrap: wrap;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.api-toggle {
+  font-size: 0.75rem;
+  color: var(--accent-bright);
+  font-weight: 700;
 }
 
 .api-header .api-meta span {
@@ -868,10 +915,48 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .status-badge.verified { background: var(--success); color: #000; }
 .status-badge.error { background: var(--error); color: #fff; }
 
+.status-dot.warn {
+  background: var(--paper);
+}
+
 .countdown-hero {
   animation: pulse 3s infinite;
   position: relative;
   overflow: hidden;
+}
+
+.countdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.countdown-subtitle {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-width: 520px;
+}
+
+.countdown-mode {
+  padding: 6px 12px;
+  color: white;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.countdown-mode.paper {
+  background: linear-gradient(135deg, var(--accent-bright) 0%, #0ea5e9 100%);
+}
+
+.countdown-mode.live {
+  background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
 }
 
 .countdown-hero::after {
@@ -1365,6 +1450,18 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
     grid-template-columns: 1fr;
     gap: 12px; 
     height: auto; 
+  }
+
+  .overview-pane {
+    padding: 14px;
+  }
+
+  .overview-image {
+    min-height: 220px;
+  }
+
+  .overview-image-overlay {
+    padding: 14px;
   }
 
   .overview-heartbeats {

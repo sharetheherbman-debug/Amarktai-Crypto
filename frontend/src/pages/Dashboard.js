@@ -79,9 +79,33 @@ const formatCurrencyValue = (value, digits = 2) => {
   });
 };
 
+const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const formatted = Math.abs(num).toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+  return `${num < 0 ? '-R' : 'R'}${formatted}`;
+};
+
 const toTitleCase = (value) => value.replace(/\w\S*/g, (word) =>
   word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
 );
+
+const humanizeReason = (reason) => {
+  if (!reason) return NOT_AVAILABLE;
+  const raw = String(reason).trim();
+  if (!raw || raw === '-' || raw === '--') return NOT_AVAILABLE;
+  const normalizedCode = raw.replace(/[-\s]+/g, '_').replace(/_+/g, '_').toUpperCase();
+  if (SPAWN_REASON_LABELS[normalizedCode]) {
+    return SPAWN_REASON_LABELS[normalizedCode];
+  }
+  if (!/[_-]/.test(raw) && /[a-z]/.test(raw)) {
+    return raw;
+  }
+  return toTitleCase(raw.replace(/[-_]+/g, ' ').toLowerCase());
+};
 
 const SPAWN_REASON_LABELS = {
   PROFIT_TOO_LOW: 'Profit too low',
@@ -99,16 +123,18 @@ const formatSpawnReason = (reason) => {
   }
   const raw = String(reason).trim();
   const [codePart, detailPart] = raw.split('(');
-  const normalizedCode = codePart.replace(/[-\s]+/g, '_').replace(/_+/g, '_').toUpperCase();
-  const title = SPAWN_REASON_LABELS[normalizedCode]
-    || toTitleCase(codePart.replace(/[-_]+/g, ' ').trim());
+  const title = humanizeReason(codePart);
   let details = detailPart ? detailPart.replace(')', '').trim() : '';
   if (details) {
     details = details.replace(/[-_]+/g, ' ');
     details = details.replace(/\b(need|have)\s+(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)/gi, (_, label, amount, currency) => {
-      const formatted = formatCurrencyValue(amount);
       const prefix = label.toLowerCase() === 'need' ? 'Need' : 'Have';
-      return `${prefix} ${formatted ?? amount} ${currency.toUpperCase()}`;
+      const currencyCode = currency.toUpperCase();
+      if (currencyCode === 'ZAR') {
+        return `${prefix} ${formatZAR(amount)}`;
+      }
+      const formatted = formatCurrencyValue(amount);
+      return `${prefix} ${formatted ?? amount} ${currencyCode}`;
     });
   }
   return { title, details };
@@ -137,6 +163,7 @@ export default function Dashboard() {
   }, [user]);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
   const [bots, setBots] = useState([]);
   const [apiKeys, setApiKeys] = useState({});
   const [metrics, setMetrics] = useState({
@@ -661,7 +688,8 @@ export default function Dashboard() {
         }
       } catch (err) {
         setPaperResetValid(false);
-        setPaperResetError('Unable to validate confirmation password.');
+        // TODO(backend): Implement /system/paper-reset/validate to enable this flow.
+        setPaperResetError('Password validation service is currently unavailable. Please try again later or contact support if the issue persists.');
       } finally {
         setPaperResetChecking(false);
       }
@@ -1673,54 +1701,87 @@ export default function Dashboard() {
   };
 
   const handleSendMessage = async () => {
+    if (chatSending) {
+      showNotification('A message is already being sent. Please wait.', 'info');
+      return;
+    }
     const originalInput = chatInput.trim();
     if (!originalInput) return;
 
-    const userMsg = { role: 'user', content: originalInput };
-    setChatMessages(prev => [...prev, userMsg]);
-    const msgLower = originalInput.toLowerCase(); // Case-insensitive for command matching
-    setChatInput('');
-
-    // PHASE 12: Save user message to backend
+    setChatSending(true);
     try {
-      await post('/ai/chat', {
-        role: 'user',
-        content: originalInput,
-        log_only: true,
-        metadata: { timestamp: new Date().toISOString() }
-      });
-    } catch (error) {
-      console.error('Failed to save chat message:', error);
-    }
+      const userMsg = { role: 'user', content: originalInput };
+      setChatMessages(prev => [...prev, userMsg]);
+      const msgLower = originalInput.toLowerCase(); // Case-insensitive for command matching
+      setChatInput('');
 
-    // PHASE 11: Handle admin commands with backend verification
-    if (awaitingPassword) {
+      // PHASE 12: Save user message to backend
       try {
-        // Verify password with backend
-        const result = await post('/admin/unlock', { password: originalInput });
-        
-          if (adminAction === 'show') {
-            console.log('🔓 SHOWING ADMIN - Setting state to TRUE');
-            setShowAdmin(true);
+        await post('/ai/chat', {
+          role: 'user',
+          content: originalInput,
+          log_only: true,
+          metadata: { timestamp: new Date().toISOString() }
+        });
+      } catch (error) {
+        console.error('Failed to save chat message:', error);
+      }
+
+      // PHASE 11: Handle admin commands with backend verification
+      if (awaitingPassword) {
+        try {
+          // Verify password with backend
+          const result = await post('/admin/unlock', { password: originalInput });
+          
+            if (adminAction === 'show') {
+              console.log('🔓 SHOWING ADMIN - Setting state to TRUE');
+              setShowAdmin(true);
+              
+              // Success feedback message
+              const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
+              setChatMessages(prev => [...prev, successMsg]);
+            
+            // Auto-hide after 1 hour
+              setTimeout(() => {
+                setShowAdmin(false);
+                toast.info('Admin session expired');
+              }, 3600000);
+            
+            // Auto-switch to admin section
+            setTimeout(() => {
+              setActiveSection('admin');
+              console.log('Admin section activated, showAdmin:', true);
+            }, 100);
+            
+            // Save success message
+            try {
+              await post('/ai/chat', {
+                role: 'assistant',
+                content: successMsg.content,
+                log_only: true,
+                metadata: { timestamp: new Date().toISOString() }
+              });
+            } catch (error) {
+              console.error('Failed to save assistant message:', error);
+            }
+          } else if (adminAction === 'hide') {
+            console.log('🔒 HIDING ADMIN - Setting state to FALSE');
+            const currentlyInAdmin = activeSection === 'admin';
+            
+              setShowAdmin(false);
+              
+              // If currently viewing admin, switch to welcome
+            if (currentlyInAdmin) {
+              setActiveSection('welcome');
+            }
             
             // Success feedback message
-            const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel unlocked successfully! Switching to admin section...' };
+            const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel hidden successfully.' };
             setChatMessages(prev => [...prev, successMsg]);
-          
-          // Auto-hide after 1 hour
-            setTimeout(() => {
-              setShowAdmin(false);
-              toast.info('Admin session expired');
-            }, 3600000);
-          
-          // Auto-switch to admin section
-          setTimeout(() => {
-            setActiveSection('admin');
-            console.log('Admin section activated, showAdmin:', true);
-          }, 100);
-          
-          // Save success message
-          try {
+            console.log('Admin section deactivated, showAdmin:', false);
+            
+            // Save success message
+            try {
             await post('/ai/chat', {
               role: 'assistant',
               content: successMsg.content,
@@ -1729,49 +1790,133 @@ export default function Dashboard() {
             });
           } catch (error) {
             console.error('Failed to save assistant message:', error);
-          }
-        } else if (adminAction === 'hide') {
-          console.log('🔒 HIDING ADMIN - Setting state to FALSE');
-          const currentlyInAdmin = activeSection === 'admin';
-          
-            setShowAdmin(false);
-            
-            // If currently viewing admin, switch to welcome
-          if (currentlyInAdmin) {
-            setActiveSection('welcome');
+            }
           }
           
-          // Success feedback message
-          const successMsg = { role: 'assistant', type: 'system', content: '✅ Admin panel hidden successfully.' };
-          setChatMessages(prev => [...prev, successMsg]);
-          console.log('Admin section deactivated, showAdmin:', false);
+          setAwaitingPassword(false);
+          setAdminAction(null);
+        } catch (error) {
+          console.log('❌ WRONG PASSWORD:', originalInput);
+          const errorMsg = { 
+            role: 'assistant', 
+            type: 'system',
+            content: '❌ Invalid admin password. Access denied. Please try again with the correct password.' 
+          };
+          setChatMessages(prev => [...prev, errorMsg]);
           
-          // Save success message
+          setAwaitingPassword(false);
+          setAdminAction(null);
+          
+          // Save error message
           try {
+            await post('/ai/chat', {
+              role: 'assistant',
+              content: errorMsg.content,
+              log_only: true,
+              metadata: { timestamp: new Date().toISOString(), error: true }
+            });
+          } catch (error) {
+            console.error('Failed to save assistant message:', error);
+          }
+        }
+        
+        return;
+      }
+
+      // Handle show/hide admin commands - CASE-INSENSITIVE and WHITESPACE-TOLERANT
+      if (msgLower === 'show admin' || msgLower === 'showadmin' || msgLower === 'show admn') {
+        setAwaitingPassword(true);
+        setAdminAction('show');
+        const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to show the admin section:' };
+        setChatMessages(prev => [...prev, assistantMsg]);
+        
+        // Save assistant message
+        try {
           await post('/ai/chat', {
             role: 'assistant',
-            content: successMsg.content,
+            content: assistantMsg.content,
             log_only: true,
             metadata: { timestamp: new Date().toISOString() }
           });
         } catch (error) {
           console.error('Failed to save assistant message:', error);
-          }
         }
         
-        setAwaitingPassword(false);
-        setAdminAction(null);
-      } catch (error) {
-        console.log('❌ WRONG PASSWORD:', originalInput);
-        const errorMsg = { 
-          role: 'assistant', 
-          type: 'system',
-          content: '❌ Invalid admin password. Access denied. Please try again with the correct password.' 
-        };
-        setChatMessages(prev => [...prev, errorMsg]);
+        return;
+      }
+
+      if (msgLower === 'hide admin' || msgLower === 'hideadmin') {
+        setAwaitingPassword(true);
+        setAdminAction('hide');
+        const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to hide admin panel:' };
+        setChatMessages(prev => [...prev, assistantMsg]);
         
-        setAwaitingPassword(false);
-        setAdminAction(null);
+        // Save assistant message
+        try {
+          await post('/ai/chat', {
+            role: 'assistant',
+            content: assistantMsg.content,
+            log_only: true,
+            metadata: { timestamp: new Date().toISOString() }
+          });
+        } catch (error) {
+          console.error('Failed to save assistant message:', error);
+        }
+        
+        return;
+      }
+
+      // Send all other messages to AI backend
+      try {
+        const res = await axios.post(`${API}/chat/message`, {
+          message: originalInput,
+          context: 'dashboard',
+          request_action: true
+        }, axiosConfig);
+        const payload = res.data || {};
+        if (payload?.error_code === 'OPENAI_KEY_MISSING') {
+          setChatMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'Set your OpenAI API key in API Setup to enable Super Brain Chat.',
+            error: true
+          }]);
+          return;
+        }
+        if (payload?.success === false || payload?.error) {
+          const errorContent = payload?.reply || payload?.message || payload?.content || payload?.error || payload?.detail || 'AI chat error.';
+          setChatMessages(prev => [...prev, { role: 'assistant', content: errorContent, error: true }]);
+          return;
+        }
+        const reply = typeof payload === 'string'
+          ? payload
+          : (payload.reply || payload.content || payload.response || payload.message || 'No response');
+        let finalReply = reply;
+        if (payload?.action_attempted && payload?.action_result && payload?.action_result !== 'success') {
+          const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
+          const reason = payload.reason ? `: ${payload.reason}` : '';
+          finalReply = `${reply}\n\n${statusLabel}${reason}`;
+        }
+        const assistantMsg = { role: 'assistant', content: finalReply };
+        setChatMessages(prev => [...prev, assistantMsg]);
+        if (payload?.action_attempted && payload?.action_result === 'success') {
+          refreshAllDashboardData();
+        }
+        
+        // PHASE 12: Save assistant message to backend
+        try {
+          await post('/ai/chat', {
+            role: 'assistant',
+            content: finalReply,
+            log_only: true,
+            metadata: { timestamp: new Date().toISOString() }
+          });
+        } catch (error) {
+          console.error('Failed to save assistant message:', error);
+        }
+      } catch (err) {
+        console.error('Chat error:', err);
+        const errorMsg = { role: 'assistant', content: `AI error: ${err.message}` };
+        setChatMessages(prev => [...prev, errorMsg]);
         
         // Save error message
         try {
@@ -1782,119 +1927,18 @@ export default function Dashboard() {
             metadata: { timestamp: new Date().toISOString(), error: true }
           });
         } catch (error) {
-          console.error('Failed to save assistant message:', error);
+          console.error('Failed to save error message:', error);
         }
       }
-      
-      return;
+    } finally {
+      setChatSending(false);
     }
+  };
 
-    // Handle show/hide admin commands - CASE-INSENSITIVE and WHITESPACE-TOLERANT
-    if (msgLower === 'show admin' || msgLower === 'showadmin' || msgLower === 'show admn') {
-      setAwaitingPassword(true);
-      setAdminAction('show');
-      const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to show the admin section:' };
-      setChatMessages(prev => [...prev, assistantMsg]);
-      
-      // Save assistant message
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: assistantMsg.content,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString() }
-        });
-      } catch (error) {
-        console.error('Failed to save assistant message:', error);
-      }
-      
-      return;
-    }
-
-    if (msgLower === 'hide admin' || msgLower === 'hideadmin') {
-      setAwaitingPassword(true);
-      setAdminAction('hide');
-      const assistantMsg = { role: 'assistant', content: '🔐 Please enter the admin password to hide admin panel:' };
-      setChatMessages(prev => [...prev, assistantMsg]);
-      
-      // Save assistant message
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: assistantMsg.content,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString() }
-        });
-      } catch (error) {
-        console.error('Failed to save assistant message:', error);
-      }
-      
-      return;
-    }
-
-    // Send all other messages to AI backend
-    try {
-      const res = await axios.post(`${API}/chat/message`, {
-        message: originalInput,
-        context: 'dashboard',
-        request_action: true
-      }, axiosConfig);
-      const payload = res.data || {};
-      if (payload?.error_code === 'OPENAI_KEY_MISSING') {
-        setChatMessages(prev => [...prev, {
-          role: 'assistant',
-          content: 'Set your OpenAI API key in API Setup to enable Super Brain Chat.',
-          error: true
-        }]);
-        return;
-      }
-      if (payload?.success === false || payload?.error) {
-        const errorContent = payload?.reply || payload?.message || payload?.content || payload?.error || payload?.detail || 'AI chat error.';
-        setChatMessages(prev => [...prev, { role: 'assistant', content: errorContent, error: true }]);
-        return;
-      }
-      const reply = typeof payload === 'string'
-        ? payload
-        : (payload.reply || payload.content || payload.response || payload.message || 'No response');
-      let finalReply = reply;
-      if (payload?.action_attempted && payload?.action_result && payload?.action_result !== 'success') {
-        const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
-        const reason = payload.reason ? `: ${payload.reason}` : '';
-        finalReply = `${reply}\n\n${statusLabel}${reason}`;
-      }
-      const assistantMsg = { role: 'assistant', content: finalReply };
-      setChatMessages(prev => [...prev, assistantMsg]);
-      if (payload?.action_attempted && payload?.action_result === 'success') {
-        refreshAllDashboardData();
-      }
-      
-      // PHASE 12: Save assistant message to backend
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: finalReply,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString() }
-        });
-      } catch (error) {
-        console.error('Failed to save assistant message:', error);
-      }
-    } catch (err) {
-      console.error('Chat error:', err);
-      const errorMsg = { role: 'assistant', content: `AI error: ${err.message}` };
-      setChatMessages(prev => [...prev, errorMsg]);
-      
-      // Save error message
-      try {
-        await post('/ai/chat', {
-          role: 'assistant',
-          content: errorMsg.content,
-          log_only: true,
-          metadata: { timestamp: new Date().toISOString(), error: true }
-        });
-      } catch (error) {
-        console.error('Failed to save error message:', error);
-      }
+  const handleChatKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage();
     }
   };
 
@@ -2005,7 +2049,7 @@ export default function Dashboard() {
       setPaperResetLoading(true);
       setPaperResetError('');
       await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
-      toast.success('Paper trading reset completed.');
+      toast.success('Paper session reset completed.');
       setPaperResetPassword('');
       setChatMessages([]);
       setBots([]);
@@ -2404,18 +2448,18 @@ export default function Dashboard() {
   const getApiStatus = (provider) => {
     const key = apiKeys[provider.toLowerCase()];
     if (!key || key.status === 'not_configured') {
-      return { badge: 'missing', text: 'Not Configured', dot: 'err' };
+      return { badge: 'missing', text: 'Not configured', dot: 'err' };
     }
     if (key.status === 'configured_valid') {
       return { badge: 'verified', text: 'Tested OK', dot: 'ok' };
     }
     if (key.status === 'configured_invalid') {
-      return { badge: 'error', text: 'Invalid', dot: 'err' };
+      return { badge: 'error', text: 'Failed', dot: 'err' };
     }
     if (key.status === 'configured_untested') {
-      return { badge: 'saved', text: 'Configured', dot: 'warn' };
+      return { badge: 'saved', text: 'Saved', dot: 'warn' };
     }
-    return { badge: 'saved', text: 'Configured', dot: 'warn' };
+    return { badge: 'saved', text: 'Saved', dot: 'warn' };
   };
 
   const handleProfileChange = (field, value) => {
@@ -3086,37 +3130,42 @@ export default function Dashboard() {
         )}
         
         <div className="amk-chat">
-          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
-            <button
-              onClick={loadChatHistory}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                background: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              📜 Load History
-            </button>
-            <button
-              onClick={handleClearChatHistory}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                background: '#ef4444',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              🗑️ Clear History
-            </button>
+          <div className="amk-chat-toolbar">
+            <div className="amk-chat-actions">
+              <button
+                onClick={loadChatHistory}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                📜 Load History
+              </button>
+              <button
+                onClick={handleClearChatHistory}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                🗑️ Clear History
+              </button>
+            </div>
+            <div className={`amk-chat-indicator ${chatSending ? 'active' : ''}`}>
+              {chatSending ? 'Sending...' : 'Ready'}
+            </div>
           </div>
           <div className="amk-chat-box">
             {chatMessages.map((msg, idx) => (
@@ -3127,14 +3176,28 @@ export default function Dashboard() {
             <div ref={chatEndRef} />
           </div>
           <div className="amk-row">
-            <input
-              type={awaitingPassword ? "password" : "text"}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder={awaitingPassword ? "Enter admin password..." : "Type a message or ask about AI reports..."}
-            />
-            <button className="send" onClick={handleSendMessage}>Send</button>
+            {awaitingPassword ? (
+              <input
+                type="password"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Enter admin password..."
+                disabled={chatSending}
+              />
+            ) : (
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyDown}
+                placeholder="Type a message or ask about AI reports... (Shift+Enter for new line)"
+                rows={1}
+                disabled={chatSending}
+              />
+            )}
+            <button className="send" onClick={handleSendMessage} disabled={chatSending}>
+              {chatSending ? 'Sending...' : 'Send'}
+            </button>
           </div>
         </div>
       </div>
@@ -3156,6 +3219,10 @@ export default function Dashboard() {
     const formatOverviewDate = (value) => {
       const formatted = formatDate(value);
       return formatted;
+    };
+    const resolveReason = (value, fallback) => {
+      const reasonText = humanizeReason(value);
+      return reasonText === NOT_AVAILABLE ? fallback : reasonText;
     };
     const todoItems = [];
     const healthStatus = systemHealth?.status ? String(systemHealth.status).toLowerCase() : '';
@@ -3194,7 +3261,7 @@ export default function Dashboard() {
               🚨 Emergency Stop Active: Trading Disabled
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {riskStatus.emergency_stop.reason || 'Emergency stop is active'}
+              <strong>Reason:</strong> {resolveReason(riskStatus.emergency_stop.reason, 'No specific reason provided.')}
             </div>
             {riskStatus.emergency_stop.next_action && (
               <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
@@ -3216,7 +3283,7 @@ export default function Dashboard() {
               🛡️ Daily Loss Lock Active: Bots Paused for Protection
             </div>
             <div style={{fontSize: '0.9rem', marginBottom: '8px'}}>
-              <strong>Reason:</strong> {riskStatus.daily_loss_lock.reason || 'Risk threshold exceeded'}
+              <strong>Reason:</strong> {resolveReason(riskStatus.daily_loss_lock.reason, 'Risk threshold exceeded')}
             </div>
             <div style={{fontSize: '0.85rem', color: 'rgba(255,255,255,0.9)'}}>
               Locked at: {formatDate(riskStatus.daily_loss_lock.locked_at)}
@@ -3282,12 +3349,12 @@ export default function Dashboard() {
             </div>
             {riskStatus?.bodyguard_lock?.active && (
               <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
-                <strong>Bodyguard:</strong> {riskStatus.bodyguard_lock.reason || 'Bots paused by bodyguard'}
+                <strong>Bodyguard:</strong> {resolveReason(riskStatus.bodyguard_lock.reason, 'Bots paused by bodyguard')}
               </div>
             )}
             {riskStatus?.quarantine_active?.active && (
               <div style={{fontSize: '0.9rem', marginBottom: '6px'}}>
-                <strong>Quarantine:</strong> {riskStatus.quarantine_active.reason || 'Bots quarantined for retraining'}
+                <strong>Quarantine:</strong> {resolveReason(riskStatus.quarantine_active.reason, 'Bots quarantined for retraining')}
               </div>
             )}
             {user?.is_admin ? (
@@ -3344,7 +3411,7 @@ export default function Dashboard() {
                     <div className="overview-tile">
                       <span>Total Profit</span>
                       <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                        R{safeToFixed(overviewData.totalProfit, 2)}
+                        {formatZAR(overviewData.totalProfit)}
                       </strong>
                     </div>
                     <div className="overview-tile">
@@ -3364,8 +3431,8 @@ export default function Dashboard() {
                       <strong>{safeNumber(overviewData.activeBots, 0)}</strong>
                     </div>
                     <div className="overview-tile">
-                      <span>Training Credits</span>
-                      <strong>R{safeToFixed(overviewData.paperWalletTotal, 2)}</strong>
+                      <span>Training Funds</span>
+                      <strong>{formatZAR(overviewData.paperWalletTotal)}</strong>
                     </div>
                   </div>
                 </div>
@@ -3475,7 +3542,7 @@ export default function Dashboard() {
                           <span>{trade.pair || trade.symbol || NOT_AVAILABLE}</span>
                           <span>{trade.exchange || NOT_AVAILABLE}</span>
                           <span>{trade.side || NOT_AVAILABLE}</span>
-                          <span>{trade.net_pnl !== undefined ? `R${safeToFixed(trade.net_pnl, 2)}` : NOT_AVAILABLE}</span>
+                          <span>{trade.net_pnl !== undefined ? formatZAR(trade.net_pnl) : NOT_AVAILABLE}</span>
                         </div>
                       ))
                     )}
@@ -3490,11 +3557,10 @@ export default function Dashboard() {
   };
 
   const renderApiSetup = () => {
-    // Build providers list dynamically from exchange config
+    // Build providers list dynamically from exchange config (OpenAI prepended).
     const exchanges = getAllExchanges();
     const exchangeProviders = exchanges.map(ex => ex.id);
-    const otherProviders = ['openai', 'flokx', 'fetchai'];
-    const providers = [...otherProviders, ...exchangeProviders];
+    const providers = ['openai', ...exchangeProviders];
     
     return (
       <section className="section active">
@@ -3515,21 +3581,24 @@ export default function Dashboard() {
                 || keyDetails.last_four
                 || keyDetails.last4;
               const maskedKey = status.badge === 'missing'
-                ? 'Not available'
+                ? 'Not configured'
                 : keySuffix
                   ? `•••• ${keySuffix}`
                   : '••••••••';
               const lastTestValue = keyDetails.last_tested_at || keyDetails.last_test || keyDetails.last_test_time || keyDetails.updated_at;
-              const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not available';
-              const lastTest = lastTestFormatted === NOT_AVAILABLE ? NOT_AVAILABLE : lastTestFormatted;
+              const lastTestFormatted = lastTestValue ? formatDate(lastTestValue) : 'Not tested';
+              const lastTest = lastTestFormatted === NOT_AVAILABLE ? 'Not tested' : lastTestFormatted;
+              const displayName = exchangeInfo
+                ? `${exchangeInfo.icon} ${exchangeInfo.displayName}`
+                : provider === 'openai'
+                  ? '✨ OpenAI'
+                  : provider.charAt(0).toUpperCase() + provider.slice(1);
               
               return (
                 <div key={provider} className="api-card">
                   <div className="api-header" onClick={() => toggleApiExpand(provider)}>
                     <div className="api-title">
-                      <span>
-                        {exchangeInfo ? `${exchangeInfo.icon} ${exchangeInfo.displayName}` : provider.charAt(0).toUpperCase() + provider.slice(1)}
-                      </span>
+                      <span>{displayName}</span>
                       <small style={{color: 'var(--muted)', fontSize: '0.7rem'}}>
                         {exchangeInfo?.comingSoon ? 'Coming soon' : 'Secure integration'}
                       </small>
@@ -3539,18 +3608,13 @@ export default function Dashboard() {
                       <span>Last test: {lastTest}</span>
                       <span className={`status-badge ${status.badge}`}>{status.text}</span>
                       <div className={`status-dot ${status.dot}`}></div>
+                      <span className="api-toggle">{isExpanded ? '▲' : '▼'}</span>
                     </div>
                   </div>
                   <div className={`api-form ${isExpanded ? 'active' : ''}`} id={`form-${provider}`}>
                     {/* TASK D - Config-driven field schema (no duplication) */}
                     {provider === 'openai' && (
                       <input name="api_key" placeholder="API Key (sk-...)" type="password" />
-                    )}
-                    {provider === 'flokx' && (
-                      <input name="api_token" placeholder="API Token" type="password" />
-                    )}
-                    {provider === 'fetchai' && (
-                      <input name="api_key" placeholder="API Key" type="password" />
                     )}
                     {/* All exchanges require api_key + api_secret */}
                     {SUPPORTED_PLATFORMS.includes(provider) && (
@@ -3837,7 +3901,8 @@ export default function Dashboard() {
                     const isQuarantined = botStatus === 'quarantined';
                     const isTraining = ['training', 'training_failed'].includes(botStatus) || bot.training_in_progress;
                     const canStart = ['stopped', 'inactive', 'unknown'].includes(botStatus);
-                    const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
+                const pauseReasonMessage = bot.paused_reason_message || bot.paused_reason;
+                const pauseReasonDisplay = pauseReasonMessage ? humanizeReason(pauseReasonMessage) : '';
                     
                     return (
                       <div key={bot.id} className="bot-card" style={{marginBottom: '12px'}}>
@@ -3916,9 +3981,9 @@ export default function Dashboard() {
                                     <strong>Status:</strong> <span style={{color: 'var(--error)'}}>⏸️ PAUSED</span>
                                   </div>
                                 )}
-                                {pauseReasonMessage && (
+                                {pauseReasonDisplay && (
                                   <div>
-                                    <strong>Pause Reason:</strong> {pauseReasonMessage}
+                                    <strong>Pause Reason:</strong> {pauseReasonDisplay}
                                   </div>
                                 )}
                                 {bot.paused_next_action && (
@@ -4131,7 +4196,7 @@ export default function Dashboard() {
         <h2>Spawn Bot</h2>
         {autoSpawnStatus && (
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
-            <strong>Autopilot Eligibility (R{safeToFixed(autoSpawnStatus.profit_threshold, 0, '1000')})</strong>
+            <strong>Autopilot Eligibility ({formatZAR(autoSpawnStatus.profit_threshold ?? 1000, 0)})</strong>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
               Mode: {autoSpawnStatus.trading_mode?.toUpperCase() || 'PAPER'} • Cooldown: {safeNumber(autoSpawnStatus.cooldown_minutes, 0)} min • Max/day: {safeNumber(autoSpawnStatus.max_spawns_per_day, 0)}
             </div>
@@ -4157,7 +4222,7 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: R{safeToFixed(profit, 2)} • Spawns today: {spawnCount} • Last: {formatDate(lastSpawn)}
+                      Profit: {formatZAR(profit)} • Spawns today: {spawnCount} • Last: {formatDate(lastSpawn)}
                     </div>
                   </div>
                 );
@@ -4174,7 +4239,7 @@ export default function Dashboard() {
               </span>
             </div>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Milestone size: R{safeToFixed(autopilotGrowthStatus.profit_threshold_zar, 0, '1000')} • Milestones tracked per platform
+              Milestone size: {formatZAR(autopilotGrowthStatus.profit_threshold_zar ?? 1000, 0)} • Milestones tracked per platform
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
@@ -4191,7 +4256,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Profit: R{safeToFixed(status.realized_profit_zar, 2)} • Next bot at: R{safeToFixed(status.next_threshold_zar, 0)} • Bots spawned: {safeNumber(status.milestones_spawned, 0)}
+                      Profit: {formatZAR(status.realized_profit_zar)} • Next bot at: {formatZAR(status.next_threshold_zar, 0)} • Bots spawned: {safeNumber(status.milestones_spawned, 0)}
                     </div>
                   </div>
                 );
@@ -4203,7 +4268,7 @@ export default function Dashboard() {
           <div style={{marginBottom: '16px', padding: '12px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)'}}>
             <strong>Daily Reinvest Status</strong>
             <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-              Minimum reinvest: R{safeToFixed(autopilotReinvestStatus.min_reinvest_zar, 0, '100')}
+              Minimum reinvest: {formatZAR(autopilotReinvestStatus.min_reinvest_zar ?? 100, 0)}
             </div>
             <div style={{display: 'grid', gap: '6px', marginTop: '8px'}}>
               {SUPPORTED_PLATFORMS.map(exchange => {
@@ -4220,7 +4285,7 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px'}}>
-                      Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: R{safeToFixed(status.last_reinvest_amount, 2, '0.00')} • Next run: {formatDate(status.next_run)}
+                      Last Reinvest: {formatDate(status.last_reinvest_date)} • Amount: {formatZAR(status.last_reinvest_amount)} • Next run: {formatDate(status.next_run)}
                     </div>
                   </div>
                 );
@@ -4446,7 +4511,7 @@ export default function Dashboard() {
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Trades</div>
               </div>
               <div style={{padding: '16px', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)', textAlign: 'center'}}>
-                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>R{safeToFixed(systemStats.profit?.total, 2)}</div>
+                <div style={{fontSize: '2rem', fontWeight: 700, color: 'var(--success)'}}>{formatZAR(systemStats.profit?.total)}</div>
                 <div style={{fontSize: '0.85rem', color: '#ffffff', marginTop: '4px'}}>Total Profit</div>
               </div>
             </div>
@@ -4480,7 +4545,7 @@ export default function Dashboard() {
                       <div style={{fontWeight: 600, marginBottom: '6px'}}>{getPlatformIcon(exchange)} {getPlatformDisplayName(exchange)}</div>
                       <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Bots: {safeNumber(breakdown.bots, 0)}</div>
                       <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Trades: {safeNumber(breakdown.trades, 0)}</div>
-                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit: R{safeToFixed(breakdown.profit, 2)}</div>
+                      <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>Profit: {formatZAR(breakdown.profit)}</div>
                     </div>
                   );
                 })}
@@ -4536,7 +4601,8 @@ export default function Dashboard() {
           )}
           
           {/* Users Table */}
-          <div style={{overflowX: 'auto'}}>
+          <div className="admin-card" style={{overflowX: 'auto'}}>
+            <h3 style={{margin: '0 0 12px 0', color: '#ffffff'}}>👥 User Management</h3>
             <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem'}}>
               <thead>
                 <tr style={{borderBottom: '2px solid var(--line)'}}>
@@ -4560,7 +4626,7 @@ export default function Dashboard() {
                       <td style={{padding: '12px', color: '#ffffff'}}>{usr.first_name || NOT_AVAILABLE}</td>
                       <td style={{padding: '12px', color: '#ffffff'}}>{usr.email}</td>
                       <td style={{padding: '12px', textAlign: 'center', color: '#ffffff'}}>
-                        {usr.stats?.total_bots || 0}
+                        {safeNumber(usr.stats?.total_bots, 0)}
                       </td>
                       <td style={{padding: '12px', textAlign: 'center'}}>
                         <span style={{
@@ -4632,7 +4698,7 @@ export default function Dashboard() {
           
           {/* AI Bodyguard Status */}
           {bodyguardStatus && (
-            <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)')}}>
+            <div className="admin-card" style={{marginTop: '24px', border: '2px solid ' + (bodyguardStatus.health_score >= 80 ? 'var(--success)' : bodyguardStatus.health_score >= 60 ? '#f59e0b' : 'var(--error)')}}>
               <h3 style={{marginBottom: '16px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px'}}>
                 🛡️ AI Bodyguard Status
                 <span style={{
@@ -5039,8 +5105,8 @@ export default function Dashboard() {
                     </div>
                     <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginTop: '4px'}}>
                       Mode: {selectedBot.mode === 'live' ? '💰 Live Trading' : '📝 Paper Trading'} • 
-                      Capital: R{safeToFixed(selectedBot.current_capital, 2)} • 
-                      P/L: R{safeToFixed(selectedBot.profit_loss, 2)}
+                      Capital: {formatZAR(selectedBot.current_capital)} • 
+                      P/L: {formatZAR(selectedBot.profit_loss)}
                     </div>
                   </div>
                   
@@ -5361,9 +5427,9 @@ export default function Dashboard() {
           <div className="system-reset-card">
             <div className="system-reset-header">
               <div>
-                <h3>♻️ Reset Paper Trading</h3>
+                <h3>♻️ Reset Paper Session</h3>
                 <p>
-                  Clears paper bots, training stats, analytics snapshots, and resets training credits. Live trading must remain off.
+                  Clears paper bots, training stats, analytics snapshots, and resets training funds. Live trading must remain off.
                 </p>
               </div>
               <span className="system-reset-badge">Paper-only</span>
@@ -5379,7 +5445,7 @@ export default function Dashboard() {
                 }}
                 placeholder="Enter confirmation password"
               />
-              <span className="system-reset-hint">Type the confirmation password to unlock reset.</span>
+              <span className="system-reset-hint">Enter the confirmation password to unlock reset.</span>
             </div>
             {paperResetError && (
               <div className="system-reset-error">
@@ -5391,7 +5457,7 @@ export default function Dashboard() {
               disabled={!isPaperResetReady || paperResetLoading}
               className="system-reset-button"
             >
-              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Trading'}
+              {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Reset Paper Session'}
             </button>
           </div>
         )}
@@ -6570,21 +6636,13 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px'}}>
-            <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
+          <div className="countdown-header">
+            <div>
+              <h2 style={{margin: 0}}>🚀 Road to R1,000,000</h2>
+              <p className="countdown-subtitle">Every trade compounds toward your first million - stay consistent and stay sharp.</p>
+            </div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
-                <span style={{
-                  padding: '6px 12px',
-                  background: countdownData.mode === 'live'
-                    ? 'linear-gradient(135deg, var(--success) 0%, #059669 100%)'
-                    : 'linear-gradient(135deg, var(--accent-bright) 0%, #0ea5e9 100%)',
-                  color: 'white',
-                  borderRadius: '6px',
-                  fontSize: '0.85rem',
-                  fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
-              }}>
+              <span className={`countdown-mode ${countdownData.mode === 'live' ? 'live' : 'paper'}`}>
                 {countdownData.mode || 'Paper'} Mode
               </span>
             </div>
@@ -6647,8 +6705,8 @@ export default function Dashboard() {
               <div className="countdown-roadmap">
                 <div className="countdown-roadmap-header">
                   <div>
-                    <h3>Road to 1M ZAR</h3>
-                    <p>Mission progress toward financial freedom</p>
+                    <h3>Roadmap Milestones</h3>
+                    <p>Track the climb from today's balance to R1,000,000.</p>
                   </div>
                   <span className="countdown-roadmap-badge">{safeToFixed(progressPct, 1, '0.0')}% Complete</span>
                 </div>
@@ -6673,7 +6731,7 @@ export default function Dashboard() {
                   })}
                 </div>
                 <div className="countdown-roadmap-next">
-                  Next milestone: <strong>R{formatCurrencyValue(nextMilestone, 0) || nextMilestone.toLocaleString()}</strong>
+                  Next milestone: <strong>{formatZAR(nextMilestone, 0)}</strong> - keep the momentum.
                 </div>
               </div>
 

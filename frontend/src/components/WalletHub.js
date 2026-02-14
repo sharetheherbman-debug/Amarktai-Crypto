@@ -112,7 +112,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       alert('Enter a valid amount');
       return;
     }
-    if (!window.confirm(`Add ${amount} ${paperDepositCurrency} to your training balance?`)) {
+    if (!window.confirm(`Add ${amount} ${paperDepositCurrency} to your training funds?`)) {
       return;
     }
     try {
@@ -121,14 +121,14 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       setPaperDepositAmount('');
       await loadWalletData();
     } catch (err) {
-      alert('Failed to add training credits: ' + (err.message || 'Unknown error'));
+      alert('Failed to add training funds: ' + (err.message || 'Unknown error'));
     } finally {
       setPaperActionLoading(false);
     }
   };
 
   const handlePaperReset = async () => {
-    if (!window.confirm('Reset training balance to 0? This cannot be undone.')) {
+    if (!window.confirm('Reset training funds to 0? This cannot be undone.')) {
       return;
     }
     try {
@@ -136,7 +136,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
       await post('/wallet/paper/reset', { confirm: true });
       await loadWalletData();
     } catch (err) {
-      alert('Failed to reset training balance: ' + (err.message || 'Unknown error'));
+      alert('Failed to reset training funds: ' + (err.message || 'Unknown error'));
     } finally {
       setPaperActionLoading(false);
     }
@@ -243,13 +243,13 @@ const WalletHub = ({ platformFilter = 'all' }) => {
         marginBottom: '30px',
         border: '1px solid var(--line)'
       }}>
-        <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>🧪 Training Credits</h2>
+        <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>🧪 Training Funds</h2>
         <p style={{ marginBottom: '16px', color: 'var(--muted)', fontSize: '0.9rem' }}>
           Simulation funds for paper trading and training only. These credits never touch live balances.
         </p>
         <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Training Balance (All Currencies)</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Practice Capital (Paper Mode)</div>
             <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text)' }}>
               {paperWallet?.total?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
             </div>
@@ -314,7 +314,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
               cursor: paperActionLoading ? 'wait' : 'pointer'
             }}
           >
-            ➕ Add Training Credits
+            ➕ Add Training Funds
           </button>
           <button
             onClick={handlePaperReset}
@@ -329,7 +329,7 @@ const WalletHub = ({ platformFilter = 'all' }) => {
               cursor: paperActionLoading ? 'wait' : 'pointer'
             }}
           >
-            ♻️ Reset Training Balance
+            ♻️ Reset Practice Capital
           </button>
         </div>
       </div>
