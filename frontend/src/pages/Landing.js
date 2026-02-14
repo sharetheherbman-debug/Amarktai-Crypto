@@ -2,7 +2,6 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Volume2, VolumeX } from 'lucide-react';
-import PublicNav from '../components/PublicNav';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -77,7 +76,6 @@ export default function Landing() {
 
   return (
     <div className="landing-container">
-      <PublicNav />
       <audio
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
@@ -98,18 +96,12 @@ export default function Landing() {
       {/* Left Column - Content */}
       <div className="left">
         <div className="content">
-          <img
-            src="/assets/logo.png"
-            alt="Amarktai Crypto"
-            className="logo"
-            onClick={() => navigate('/')}
-          />
-          
           <div className="hero">
-            <h1>
-              Amarktai Crypto for <span className="emph">autonomous trading</span>
-            </h1>
-            <p>Premium glass-fintech control with real-time AI signal flow.</p>
+            <h1>Amarktai Crypto</h1>
+            <h2>for autonomous wealth.</h2>
+            <p className="hero-description">
+              AI self-trading automation with self-healing, self-learning intelligence running 24/7 to protect and grow capital.
+            </p>
           </div>
 
           <div className="actions">
@@ -154,12 +146,11 @@ export default function Landing() {
           color: var(--text);
           position: relative;
           overflow: hidden;
-          padding-top: 40px;
         }
 
         .sound-btn {
           position: fixed;
-          top: 90px;
+          top: 28px;
           right: 24px;
           width: 48px;
           height: 48px;
@@ -222,11 +213,11 @@ export default function Landing() {
           text-align: center;
           max-width: 520px;
           width: 100%;
-          gap: 32px;
+          gap: 24px;
           background: var(--glass);
           border: 1px solid var(--line);
           border-radius: var(--radius);
-          padding: 48px;
+          padding: 48px 44px;
           backdrop-filter: blur(var(--blur));
           box-shadow: 0 16px 32px rgba(0, 0, 0, 0.35);
           position: relative;
@@ -247,35 +238,25 @@ export default function Landing() {
           z-index: 1;
         }
 
-        .logo {
-          width: 110px;
-          height: 110px;
-          cursor: pointer;
-          transition: transform 0.3s ease;
-        }
-
-        .logo:hover {
-          transform: scale(1.05);
-        }
-
         .hero h1 {
-          font-size: 2.8rem;
+          font-size: 2.9rem;
           font-weight: 700;
-          line-height: 1.2;
-          margin: 0 0 16px 0;
-        }
-
-        .hero .emph {
-          background: linear-gradient(135deg, var(--accent), var(--accent2));
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-        }
-
-        .hero p {
-          font-size: 1.25rem;
-          color: var(--muted);
+          line-height: 1.1;
           margin: 0;
+        }
+
+        .hero h2 {
+          font-size: 1.5rem;
+          font-weight: 600;
+          color: var(--accent2);
+          margin: 10px 0 0;
+        }
+
+        .hero-description {
+          font-size: 1.05rem;
+          color: var(--muted);
+          margin: 12px 0 0;
+          line-height: 1.6;
         }
 
         .actions {
@@ -365,8 +346,12 @@ export default function Landing() {
             font-size: 2rem;
           }
 
-          .hero p {
-            font-size: 1rem;
+          .hero h2 {
+            font-size: 1.2rem;
+          }
+
+          .hero-description {
+            font-size: 0.95rem;
           }
 
           .actions {

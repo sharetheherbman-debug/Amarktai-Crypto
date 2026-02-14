@@ -208,7 +208,7 @@ curl -fsS https://www.amarktai.online/api/keys/providers | \
 ## Acceptance Test 6: Footer
 
 **Requirement**:
-- Default footer: "© 2026 Amarktai Crypto — Part of Amarktai Network"
+- Default footer: "Part of Amarktai Network — For personal use only."
 - Build badge ONLY when admin UI unlocked
 
 **Fix Applied**:
@@ -223,7 +223,7 @@ curl -fsS https://www.amarktai.online/api/keys/providers | \
 1. Go to https://www.amarktai.online
 2. Login
 3. Check footer:
-   - Default: Should see "© 2026 Amarktai Crypto — Part of Amarktai Network" ONLY
+   - Default: Should see "Part of Amarktai Network — For personal use only." ONLY
    - Should NOT see build badge/date
 4. Type "show admin" in AI chat
 5. Enter admin password
@@ -236,7 +236,7 @@ curl -fsS https://www.amarktai.online/api/keys/providers | \
 grep -A3 "footer className=\"footer\"" frontend/src/pages/Dashboard.js
 # Expected:
 # <footer className="footer">
-#   <div>© 2026 Amarktai Crypto — Part of Amarktai Network</div>
+#   <div>Part of Amarktai Network — For personal use only.</div>
 #   {showAdmin && <VersionBadge position="footer" showBuildInfo={true} />}
 # </footer>
 ```

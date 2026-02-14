@@ -113,7 +113,7 @@ tail -f /var/log/amarktai/backend.log | grep "Route collision"
 Open https://www.amarktai.online in a browser and verify:
 
 1. **Login Page**: Can log in successfully
-2. **Dashboard Footer**: Shows "© 2026 Amarktai Crypto — Part of Amarktai Network" (no build date visible)
+2. **Dashboard Footer**: Shows "Part of Amarktai Network — For personal use only." (no build date visible)
 3. **API Setup Section**:
    - OpenAI shows only API Key field
    - Luno/Binance/Bybit/Kraken/Gate show API Key + Secret

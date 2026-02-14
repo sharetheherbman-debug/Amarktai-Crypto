@@ -1,7 +1,7 @@
 .api-key-settings {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 12px;
   color: var(--text);
   font-family: Inter, sans-serif;
 }
@@ -41,12 +41,12 @@
 
 .api-key-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
 }
 
 .api-key-card {
-  background: var(--panel);
+  background: rgba(10, 12, 20, 0.7);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -59,7 +59,7 @@
 
 .api-key-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
 }
 
 .api-key-card.disabled {
@@ -167,6 +167,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .api-key-fields {

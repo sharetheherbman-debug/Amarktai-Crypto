@@ -107,7 +107,7 @@ def test_footer_fix():
     with open('frontend/src/pages/Dashboard.js', 'r') as f:
         dashboard = f.read()
     
-    if '© 2026 Amarktai Crypto — Part of Amarktai Network' in dashboard:
+    if 'Part of Amarktai Network — For personal use only.' in dashboard:
         print("  ✅ Dashboard footer shows copyright")
     else:
         print("  ❌ FAIL: Dashboard footer missing copyright")
