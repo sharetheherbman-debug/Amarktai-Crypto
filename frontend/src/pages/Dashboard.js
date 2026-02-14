@@ -687,10 +687,30 @@ export default function Dashboard() {
       setPaperResetError('');
       return undefined;
     }
-    setPaperResetChecking(false);
-    setPaperResetValid(true);
-    setPaperResetError('');
-    return undefined;
+    const timer = setTimeout(async () => {
+      try {
+        setPaperResetChecking(true);
+        const response = await axios.post(
+          `${API}/system/paper-reset/validate`,
+          { password: paperResetPassword },
+          axiosConfig
+        );
+        const isValid = Boolean(response?.data?.valid);
+        setPaperResetValid(isValid);
+        setPaperResetError(isValid ? '' : 'Confirmation password does not match.');
+      } catch (err) {
+        const statusCode = err.response?.status;
+        setPaperResetValid(false);
+        if (statusCode === 404 || statusCode === 501) {
+          setPaperResetError('Reset not available in this build.');
+        } else {
+          setPaperResetError('Password validation failed. Please try again.');
+        }
+      } finally {
+        setPaperResetChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
   }, [paperResetPassword, isPaperResetMode, axiosConfig]);
 
   // Update filtered bots when adminBots or selectedUserId changes
