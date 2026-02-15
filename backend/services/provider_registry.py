@@ -110,7 +110,7 @@ async def test_fetchai(api_key: str, api_secret: Optional[str] = None) -> tuple[
         if not normalized_key:
             return False, "Fetch.ai API key is required"
         if len(normalized_key) < 20:
-            return False, "Fetch.ai API key appears invalid or too short"
+            return False, "Fetch.ai API key is too short (minimum 20 characters)"
 
         # Basic format validation passed (no stable test endpoint available)
         return True, None
