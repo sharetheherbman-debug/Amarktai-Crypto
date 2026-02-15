@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import GlassCard from '@/ui/components/GlassCard';
 import SecondaryButton from '@/ui/components/SecondaryButton';
+import SiteFooter from '../components/SiteFooter';
 import { Volume2, VolumeX } from 'lucide-react';
 import './Landing.css';
 
@@ -139,6 +140,7 @@ export default function Landing() {
         </video>
         <div className="page-overlay" />
       </div>
+      <SiteFooter />
     </div>
   );
 }

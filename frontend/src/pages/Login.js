@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from 'lucide-react';
+import SiteFooter from '../components/SiteFooter';
 import './Auth.css';
 import { post } from '../lib/apiClient';
 
@@ -128,7 +129,7 @@ export default function Login() {
         </video>
         <div className="auth-overlay" />
       </div>
-
+      <SiteFooter />
     </div>
   );
 }
