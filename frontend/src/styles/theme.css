@@ -24,4 +24,7 @@
   --shadow-glow: 0 0 0 1px rgba(96, 165, 250, 0.22), 0 18px 42px rgba(2, 6, 23, 0.45);
   --overlay: rgba(3, 7, 20, 0.62);
   --card-gap: 18px;
+  --split-left-gradient: linear-gradient(150deg, rgba(8, 16, 42, 0.9), rgba(10, 20, 50, 0.78));
+  --split-left-gradient-soft: linear-gradient(150deg, rgba(8, 16, 42, 0.86), rgba(11, 20, 50, 0.76));
+  --media-overlay: rgba(5, 11, 28, 0.58);
 }

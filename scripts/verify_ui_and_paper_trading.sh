@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BASE_URL="${BASE_URL:-http://localhost:8000}"
 INVITE_CODE="${INVITE_CODE:-${X_INVITE_CODE:-AMARKTAI2024}}"
