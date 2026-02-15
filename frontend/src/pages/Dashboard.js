@@ -205,6 +205,10 @@ export default function Dashboard() {
   const [isMobile, setIsMobile] = useState(false);
   const [selectedBotDetailId, setSelectedBotDetailId] = useState(null);
   const [botDetailTab, setBotDetailTab] = useState('overview');
+  const [selectedTradeId, setSelectedTradeId] = useState(null);
+  const [tradeExchangeFilter, setTradeExchangeFilter] = useState('all');
+  const [tradeBotFilter, setTradeBotFilter] = useState('all');
+  const [tradePairFilter, setTradePairFilter] = useState('all');
   const [expandedApis, setExpandedApis] = useState({});
   const [activeBotTab, setActiveBotTab] = useState('exchange'); // Setup wizard removed - users create starting bots manually
   const [graphPeriod, setGraphPeriod] = useState('daily');
@@ -291,6 +295,7 @@ export default function Dashboard() {
   const [paperResetValid, setPaperResetValid] = useState(false);
   const [paperResetChecking, setPaperResetChecking] = useState(false);
   const [showPaperResetModal, setShowPaperResetModal] = useState(false);
+  const [paperResetUnavailable, setPaperResetUnavailable] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
@@ -523,6 +528,10 @@ export default function Dashboard() {
       loadProfitData();
     }
   }, [graphPeriod, connectionStatus]);
+
+  useEffect(() => {
+    setSelectedTradeId(null);
+  }, [tradeExchangeFilter, tradeBotFilter, tradePairFilter]);
 
   // Load equity data when equity tab is active or range changes
   useEffect(() => {
@@ -2142,6 +2151,7 @@ export default function Dashboard() {
       const statusCode = err.response?.status;
       if (statusCode === 404 || statusCode === 501) {
         setPaperResetError('Reset not available in this build.');
+        setPaperResetUnavailable(true);
         return;
       }
       setPaperResetError(extractErrorMessage(err, 'Paper reset failed'));
@@ -3548,7 +3558,10 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>Profile Settings</h2>
+          <SectionHeader
+            title="👤 Profile"
+            subtitle="Account preferences and security controls."
+          />
           <div className="profile-grid">
             <div className="field-group">
               <label>Full Name</label>
@@ -4609,12 +4622,15 @@ export default function Dashboard() {
   };
 
   const renderSystemMode = () => {
-    const showPaperReset = isPaperResetMode;
+    const showPaperReset = true;
     const isPaperResetReady = paperResetValid && !paperResetChecking;
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>System Mode</h2>
+          <SectionHeader
+            title="🎮 System Mode"
+            subtitle="Control paper/live trading, autopilot, and reset runtime safely."
+          />
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px'}}>
           <div className="system-card" onClick={() => toggleSystemMode('paperTrading')} style={{padding: '16px', background: 'var(--glass)', border: '2px solid ' + (systemModes.paperTrading ? 'var(--success)' : 'var(--line)'), borderRadius: '8px', cursor: 'pointer', textAlign: 'center'}}>
             <h3>🧪 Paper Trading</h3>
@@ -4666,12 +4682,12 @@ export default function Dashboard() {
           <div className="system-reset-card">
             <div className="system-reset-header">
               <div>
-                <h3>♻️ Reset Paper Session</h3>
+                <h3>♻️ Start Fresh / Reset Runtime</h3>
                 <p>
-                  Clears paper bots, training stats, analytics snapshots, and resets training funds. Live trading must remain off.
+                  Clears bots, trades, and analytics snapshots, and resets the paper wallet. Live trading must be off to proceed.
                 </p>
               </div>
-              <span className="system-reset-badge">Paper-only</span>
+              <span className="system-reset-badge">{isPaperResetMode ? 'Paper-only' : 'Unavailable in Live'}</span>
             </div>
             <button
               onClick={() => {
@@ -4680,11 +4696,14 @@ export default function Dashboard() {
                 setPaperResetValid(false);
                 setShowPaperResetModal(true);
               }}
-              disabled={paperResetLoading}
+              disabled={!isPaperResetMode || paperResetLoading}
               className="system-reset-button"
             >
-              {paperResetLoading ? 'Resetting...' : 'Reset Paper Session'}
+              {paperResetLoading ? 'Resetting...' : 'Reset Runtime'}
             </button>
+            {!isPaperResetMode && (
+              <div className="system-reset-hint">Disable live trading to enable reset.</div>
+            )}
           </div>
         )}
         <div style={{marginTop: '24px', padding: '16px', background: 'var(--panel)', border: '2px solid var(--error)', borderRadius: '8px'}}>
@@ -4769,141 +4788,126 @@ export default function Dashboard() {
   };
 
   const renderLiveTradeFeed = () => {
-    // Group trades by exchange
-    const tradesByExchange = {
-      luno: recentTrades.filter(t => t.exchange?.toLowerCase() === 'luno'),
-      binance: recentTrades.filter(t => t.exchange?.toLowerCase() === 'binance'),
-      kucoin: recentTrades.filter(t => t.exchange?.toLowerCase() === 'kucoin'),
-      bybit: recentTrades.filter(t => t.exchange?.toLowerCase() === 'bybit'),
-      kraken: recentTrades.filter(t => t.exchange?.toLowerCase() === 'kraken'),
-      bitget: recentTrades.filter(t => t.exchange?.toLowerCase() === 'bitget'),
-      gate: recentTrades.filter(t => t.exchange?.toLowerCase() === 'gate')
-    };
+    const exchanges = Array.from(new Set(recentTrades.map(trade => trade.exchange?.toLowerCase()).filter(Boolean)));
+    const botsList = Array.from(new Set(recentTrades.map(trade => trade.bot_name).filter(Boolean)));
+    const pairsList = Array.from(new Set(recentTrades.map(trade => trade.symbol).filter(Boolean)));
 
-    // Calculate stats per exchange
-    const getExchangeStats = (trades) => {
-      if (trades.length === 0) return { count: 0, winRate: 0, profit: 0 };
-      const wins = trades.filter(t => t.is_profitable || t.profit_loss > 0).length;
-      const profit = trades.reduce((sum, t) => sum + safeNumber(t.profit_loss, 0), 0);
-      return {
-        count: trades.length,
-        winRate: safeToFixed((wins / trades.length) * 100, 1, '0.0'),
-        profit: safeToFixed(profit, 2)
-      };
-    };
-    
-    // Use platform constants - single source of truth
-    const allPlatforms = SUPPORTED_PLATFORMS.map(id => ({
-      id: id,
-      name: getPlatformDisplayName(id),
-      icon: getPlatformIcon(id),
-      supported: PLATFORM_CONFIG[id].enabled
-    }));
+    const filteredTrades = recentTrades.filter((trade) => {
+      const tradeExchange = trade.exchange?.toLowerCase();
+      if (tradeExchangeFilter !== 'all' && tradeExchange !== tradeExchangeFilter) return false;
+      if (tradeBotFilter !== 'all' && trade.bot_name !== tradeBotFilter) return false;
+      if (tradePairFilter !== 'all' && trade.symbol !== tradePairFilter) return false;
+      return true;
+    });
+
+    const resolvedTradeId = filteredTrades.some(trade => trade.id === selectedTradeId)
+      ? selectedTradeId
+      : filteredTrades[0]?.id;
+    const selectedTrade = filteredTrades.find(trade => trade.id === resolvedTradeId) || null;
 
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>📊 Live Trades - Platform Comparison</h2>
-          <p style={{color: 'var(--muted)', marginBottom: '20px', fontSize: '0.9rem'}}>
-            Real-time trade feed showing all 7 supported platforms (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
-          </p>
-          
-          <div className="live-trades-layout">
-            <div className="live-trades-panel">
-              <div className="live-trades-panel-header">
-                <div>
-                  <h3>Real-Time Trade Feed</h3>
-                  <p>Latest executions across all connected bots.</p>
+          <SectionHeader
+            title="📊 Live Trades"
+            subtitle="Track live executions and drill into order details."
+          />
+
+          <div className="trade-filters">
+            <select value={tradeExchangeFilter} onChange={(e) => setTradeExchangeFilter(e.target.value)}>
+              <option value="all">All Exchanges</option>
+              {exchanges.map(exchange => (
+                <option key={exchange} value={exchange}>{getPlatformDisplayName(exchange)}</option>
+              ))}
+            </select>
+            <select value={tradeBotFilter} onChange={(e) => setTradeBotFilter(e.target.value)}>
+              <option value="all">All Bots</option>
+              {botsList.map(bot => (
+                <option key={bot} value={bot}>{bot}</option>
+              ))}
+            </select>
+            <select value={tradePairFilter} onChange={(e) => setTradePairFilter(e.target.value)}>
+              <option value="all">All Pairs</option>
+              {pairsList.map(pair => (
+                <option key={pair} value={pair}>{pair}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="trade-feed-layout">
+            <div className="trade-feed-list">
+              {filteredTrades.length === 0 ? (
+                <div className="live-trades-empty">
+                  <p>📭 No trades match this filter yet.</p>
                 </div>
-                <span className="live-trades-panel-meta">{recentTrades.slice(0, 30).length} latest</span>
-              </div>
-              <div className="live-trades-feed">
-                {recentTrades.length === 0 ? (
-                  <div className="live-trades-empty">
-                    <p>📭 No trades yet. Trades will appear here in real-time.</p>
-                  </div>
-                ) : (
-                  <div className="live-trades-table">
-                    <div className="live-trades-row header">
-                      <span>Bot</span>
-                      <span>Pair</span>
-                      <span>Side</span>
-                      <span>P/L</span>
-                      <span>Time</span>
-                    </div>
-                    {recentTrades.slice(0, 30).map((trade, idx) => {
-                      const isWin = trade.is_profitable || trade.profit_loss > 0;
-                      const side = (trade.side || trade.action || 'trade').toString().toLowerCase();
-                      const sideLabel = side === 'buy' || side === 'sell' ? side : 'trade';
-                      return (
-                        <div key={trade.id || trade.timestamp || `trade-${trade.symbol}-${idx}`} className="live-trades-row">
-                          <div className="trade-main">
-                            <strong>🤖 {trade.bot_name || 'Bot'}</strong>
-                            <span>{trade.exchange?.toUpperCase() || NOT_AVAILABLE}</span>
-                          </div>
-                          <span>{trade.symbol || NOT_AVAILABLE}</span>
-                          <span className={`trade-side ${sideLabel}`}>{sideLabel}</span>
-                          <span className={`trade-profit ${isWin ? 'win' : 'loss'}`}>
-                            R{safeToFixed(trade.profit_loss, 2)}
-                          </span>
-                          <span className="trade-time">{new Date(trade.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              ) : (
+                filteredTrades.slice(0, 40).map((trade, idx) => {
+                  const isWin = trade.is_profitable || trade.profit_loss > 0;
+                  const side = (trade.side || trade.action || 'trade').toString().toLowerCase();
+                  const sideLabel = side === 'buy' || side === 'sell' ? side : 'trade';
+                  return (
+                    <button
+                      key={trade.id || trade.timestamp || `trade-${trade.symbol}-${idx}`}
+                      type="button"
+                      className={`trade-row ${resolvedTradeId === trade.id ? 'active' : ''}`}
+                      onClick={() => setSelectedTradeId(trade.id)}
+                    >
+                      <div>
+                        <strong>{trade.bot_name || 'Bot'}</strong>
+                        <span>{trade.symbol || NOT_AVAILABLE}</span>
+                      </div>
+                      <div className="trade-row-meta">
+                        <span className={`trade-side ${sideLabel}`}>{sideLabel}</span>
+                        <span className={`trade-profit ${isWin ? 'win' : 'loss'}`}>
+                          R{safeToFixed(trade.profit_loss, 2)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
 
-            <div className="live-trades-panel">
-              <div className="live-trades-panel-header">
-                <div>
-                  <h3>Platform Performance</h3>
-                  <p>Summary by exchange and execution health.</p>
+            <div className="trade-detail-panel">
+              {!selectedTrade ? (
+                <div className="trade-empty-detail">Select a trade to see details.</div>
+              ) : (
+                <div className="trade-detail-card">
+                  <div className="trade-detail-header">
+                    <div>
+                      <h3>{selectedTrade.symbol || NOT_AVAILABLE}</h3>
+                      <p>{selectedTrade.bot_name || 'Bot'} • {getPlatformDisplayName(selectedTrade.exchange?.toLowerCase())}</p>
+                    </div>
+                    <span>{new Date(selectedTrade.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div className="trade-detail-grid">
+                    <div>
+                      <span>Side</span>
+                      <strong>{selectedTrade.side || selectedTrade.action || 'Trade'}</strong>
+                    </div>
+                    <div>
+                      <span>Price</span>
+                      <strong>{formatZAR(selectedTrade.price || selectedTrade.avg_price)}</strong>
+                    </div>
+                    <div>
+                      <span>Size</span>
+                      <strong>{selectedTrade.size || selectedTrade.quantity || NOT_AVAILABLE}</strong>
+                    </div>
+                    <div>
+                      <span>Fees</span>
+                      <strong>{formatZAR(selectedTrade.fees || selectedTrade.fee)}</strong>
+                    </div>
+                    <div>
+                      <span>Slippage</span>
+                      <strong>{selectedTrade.slippage || NOT_AVAILABLE}</strong>
+                    </div>
+                    <div>
+                      <span>Decision Trace</span>
+                      <strong>{selectedTrade.reason || selectedTrade.decision_trace || NOT_AVAILABLE}</strong>
+                    </div>
+                  </div>
                 </div>
-                <PlatformSelector
-                  value={platformFilter}
-                  onChange={setPlatformFilter}
-                  includeAll={true}
-                />
-              </div>
-              <div className="live-trades-platforms">
-                {allPlatforms
-                  .filter(p => platformFilter === 'all' || p.id === platformFilter)
-                  .map(platform => {
-                    const stats = getExchangeStats(tradesByExchange[platform.id]);
-                    const hasData = stats.count > 0;
-                    return (
-                      <div key={platform.id} className="live-trades-platform-card">
-                        <div className="live-trades-platform-header">
-                          <h4>{platform.icon} {platform.name}</h4>
-                          <span className={`platform-badge ${hasData ? 'active' : 'muted'}`}>
-                            {hasData ? `${stats.winRate}% Win` : 'No Trades'}
-                          </span>
-                        </div>
-                        <div className="live-trades-platform-stats">
-                          <div>
-                            <strong>{stats.count}</strong>
-                            <span>Trades</span>
-                          </div>
-                          <div>
-                            <strong>{stats.winRate}%</strong>
-                            <span>Win Rate</span>
-                          </div>
-                          <div>
-                            <strong className={parseFloat(stats.profit) >= 0 ? 'profit' : 'loss'}>
-                              R{stats.profit}
-                            </strong>
-                            <span>Profit</span>
-                          </div>
-                        </div>
-                        {!hasData && (
-                          <div className="platform-empty">No trades yet for this platform</div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -4912,6 +4916,8 @@ export default function Dashboard() {
   };
 
   const renderProfitGraphs = () => {
+    const maxDrawdown = drawdownData?.max_drawdown_pct ?? drawdownData?.max_drawdown;
+    const feesValue = profitData?.fees ?? profitData?.total_fees ?? null;
     
     const chartData = {
       labels: profitData?.labels || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
@@ -4984,7 +4990,18 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{marginBottom: '16px', color: '#ffffff'}}>💹 Profits & Performance</h2>
+          <SectionHeader
+            title="💹 Profits & Performance"
+            subtitle="Track equity, drawdown, and performance metrics across bots."
+          />
+
+          <div className="profit-kpi-grid">
+            <StatCard label="Net P&L" value={formatZAR(overviewData.totalProfit)} />
+            <StatCard label="Win Rate" value={safePercent(overviewData.winRate, 1)} />
+            <StatCard label="Max Drawdown" value={maxDrawdown !== undefined && maxDrawdown !== null ? `${safeToFixed(maxDrawdown, 2)}%` : NOT_AVAILABLE} />
+            <StatCard label="Trades/Day" value={safeNumber(overviewData.todaysTrades, 0)} />
+            <StatCard label="Fees" value={feesValue !== null ? formatZAR(feesValue) : NOT_AVAILABLE} />
+          </div>
           
           {/* Horizontal Sub-tabs */}
           <div className="profit-tabs">
@@ -5805,28 +5822,52 @@ export default function Dashboard() {
     const progressPct = safeNumber(countdownData.progress_pct, 0);
     const progressDeg = progressPct ? (progressPct / 100) * 360 : 0;
     const currentCapital = safeNumber(countdownData.current_capital, 0);
+    const remainingCapital = Number.isFinite(Number(countdownData.remaining))
+      ? safeNumber(countdownData.remaining, 0)
+      : Math.max(0, 1000000 - currentCapital);
+    const daysRemaining = safeNumber(countdownData.days_remaining, null);
+    const requiredDaily = daysRemaining && daysRemaining < 9999
+      ? remainingCapital / Math.max(daysRemaining, 1)
+      : null;
     const milestoneTargets = [30000, 100000, 250000, 500000, 1000000];
     const nextMilestone = milestoneTargets.find((target) => currentCapital < target) || 1000000;
     
     return (
       <section className="section active">
         <div className="card">
-          <div className="countdown-header">
-            <div>
-              <h2 style={{margin: 0}}>⏱️ Road to R1,000,000</h2>
-              <p className="countdown-subtitle">Goal-driven automation to 1M ZAR. Every trade compounds the momentum.</p>
-            </div>
-            <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+          <SectionHeader
+            title="⏱️ Road to R1,000,000"
+            subtitle="Goal-driven automation to 1M ZAR. Every trade compounds the momentum."
+            action={(
               <span className={`countdown-mode ${countdownData.mode === 'live' ? 'live' : 'paper'}`}>
                 {countdownData.mode || 'Paper'} Mode
               </span>
-            </div>
-          </div>
+            )}
+          />
           <div className="countdown-progress">
             <div className="countdown-progress-track">
               <span style={{ width: `${Math.min(progressPct, 100)}%` }} />
             </div>
             <span className="countdown-progress-label">{safeToFixed(progressPct, 1, '0.0')}% toward R1,000,000</span>
+          </div>
+
+          <div className="countdown-summary-grid">
+            <div>
+              <span>Current Equity</span>
+              <strong>{formatZAR(currentCapital)}</strong>
+            </div>
+            <div>
+              <span>Goal</span>
+              <strong>R1,000,000</strong>
+            </div>
+            <div>
+              <span>Remaining</span>
+              <strong>{formatZAR(remainingCapital)}</strong>
+            </div>
+            <div>
+              <span>Required Daily Avg</span>
+              <strong>{requiredDaily ? formatZAR(requiredDaily) : NOT_AVAILABLE}</strong>
+            </div>
           </div>
           
           {countdownData.status === 'achieved' ? (
@@ -6240,6 +6281,10 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
+          <SectionHeader
+            title="💰 Wallet Hub"
+            subtitle="Master Luno balances, funding plans, and paper vs live separation."
+          />
           <WalletHub isPaperMode={isPaperMode} />
         </div>
       </section>

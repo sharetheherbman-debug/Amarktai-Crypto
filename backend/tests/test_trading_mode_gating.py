@@ -5,6 +5,7 @@ Phase 4A, 4B, 4C implementation tests
 
 import pytest
 import asyncio
+import os
 from services.paper_wallet_ledger import paper_wallet_ledger
 from services.trading_mode_validator import trading_mode_validator
 import database as db
@@ -169,6 +170,8 @@ class TestTradingModeValidator:
             "name": "Test Paper Bot"
         }
         
+        os.environ['PAPER_TRADING'] = '1'
+
         # Mock system mode (autopilot enabled)
         await db.system_modes_collection.insert_one({
             "user_id": bot_data["user_id"],
@@ -183,6 +186,7 @@ class TestTradingModeValidator:
         
         # Cleanup
         await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
+        os.environ.pop('PAPER_TRADING', None)
     
     @pytest.mark.asyncio
     async def test_validate_paper_trading_emergency_stop(self):
@@ -194,6 +198,8 @@ class TestTradingModeValidator:
             "name": "Test Paper Bot 2"
         }
         
+        os.environ['PAPER_TRADING'] = '1'
+
         # Mock system mode with emergency stop
         await db.system_modes_collection.insert_one({
             "user_id": bot_data["user_id"],
@@ -208,6 +214,7 @@ class TestTradingModeValidator:
         
         # Cleanup
         await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
+        os.environ.pop('PAPER_TRADING', None)
     
     @pytest.mark.asyncio
     async def test_validate_live_trading_no_api_keys(self):
@@ -220,6 +227,8 @@ class TestTradingModeValidator:
             "name": "Test Live Bot"
         }
         
+        os.environ['LIVE_TRADING'] = '1'
+
         # Mock system mode (live enabled)
         await db.system_modes_collection.insert_one({
             "user_id": bot_data["user_id"],
@@ -234,6 +243,7 @@ class TestTradingModeValidator:
         
         # Cleanup
         await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
+        os.environ.pop('LIVE_TRADING', None)
     
     @pytest.mark.asyncio
     async def test_validate_global_trading_gates_both_disabled(self):
@@ -266,6 +276,8 @@ class TestTradingModeValidator:
             "status": "active"
         })
         
+        os.environ['PAPER_TRADING'] = '1'
+
         # Mock system mode
         await db.system_modes_collection.insert_one({
             "user_id": "test_user_mode_001",
@@ -281,6 +293,99 @@ class TestTradingModeValidator:
         # Cleanup
         await db.bots_collection.delete_one({"id": bot_id})
         await db.system_modes_collection.delete_one({"user_id": "test_user_mode_001"})
+        os.environ.pop('PAPER_TRADING', None)
+
+    @pytest.mark.asyncio
+    async def test_paper_mode_allowed_when_live_disabled(self):
+        """Paper mode allowed even if live trading is disabled for user."""
+        bot_data = {
+            "id": "test_bot_paper_override_001",
+            "user_id": "test_user_paper_override_001",
+            "trading_mode": "live",
+            "exchange": "binance",
+            "name": "Paper Override Bot"
+        }
+
+        os.environ['PAPER_TRADING'] = '1'
+
+        await db.system_modes_collection.insert_one({
+            "user_id": bot_data["user_id"],
+            "autopilot": True,
+            "paperTrading": True,
+            "liveTrading": False,
+            "emergencyStop": False
+        })
+
+        can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(
+            bot_data["id"], bot_data
+        )
+        assert can_trade is True
+        assert mode == "paper"
+
+        await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
+        os.environ.pop('PAPER_TRADING', None)
+
+    @pytest.mark.asyncio
+    async def test_live_mode_blocked_without_user_flag(self):
+        """Live mode should be blocked when user liveTrading is false."""
+        bot_data = {
+            "id": "test_bot_live_block_001",
+            "user_id": "test_user_live_block_001",
+            "trading_mode": "live",
+            "exchange": "binance",
+            "name": "Live Block Bot"
+        }
+
+        os.environ['LIVE_TRADING'] = '1'
+
+        await db.system_modes_collection.insert_one({
+            "user_id": bot_data["user_id"],
+            "autopilot": True,
+            "paperTrading": False,
+            "liveTrading": False,
+            "emergencyStop": False
+        })
+
+        can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(
+            bot_data["id"], bot_data
+        )
+        assert can_trade is False
+        assert mode == "live"
+        assert "Live trading not enabled for user" in reason
+
+        await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
+        os.environ.pop('LIVE_TRADING', None)
+
+    @pytest.mark.asyncio
+    async def test_live_mode_blocked_by_env_gate(self):
+        """Live mode should be blocked when LIVE_TRADING env gate is disabled."""
+        bot_data = {
+            "id": "test_bot_live_env_001",
+            "user_id": "test_user_live_env_001",
+            "trading_mode": "live",
+            "exchange": "binance",
+            "name": "Live Env Bot"
+        }
+
+        os.environ.pop('LIVE_TRADING', None)
+        os.environ.pop('ENABLE_LIVE_TRADING', None)
+
+        await db.system_modes_collection.insert_one({
+            "user_id": bot_data["user_id"],
+            "autopilot": True,
+            "paperTrading": False,
+            "liveTrading": True,
+            "emergencyStop": False
+        })
+
+        can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(
+            bot_data["id"], bot_data
+        )
+        assert can_trade is False
+        assert mode == "live"
+        assert "Live trading not enabled globally" in reason
+
+        await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
 
 
 class TestIntegration:
