@@ -171,9 +171,26 @@ class TradingScheduler:
                             upsert=False
                         )
             
-            # Filter bots with trading enabled and pause others with reason
-            paused_bots = [bot for bot in active_bots if not users_with_trading.get(bot['user_id'], False)]
-            active_bots = [bot for bot in active_bots if users_with_trading.get(bot['user_id'], False)]
+            # Filter bots with trading enabled and pause others with reason.
+            # Keep paper bots running when mode is disabled so they are not blocked by MODE_DISABLED.
+            paused_bots = []
+            runnable_bots = []
+            for bot in active_bots:
+                user_id = bot['user_id']
+                user_can_trade = users_with_trading.get(user_id, False)
+                pause_reason = users_pause_reasons.get(user_id, BotPauseReason.MODE_DISABLED)
+                trading_mode = bot.get('trading_mode')
+                bot_mode = trading_mode if trading_mode is not None else bot.get('mode', 'paper')
+                if (not user_can_trade and
+                        pause_reason == BotPauseReason.MODE_DISABLED and
+                        bot_mode == 'paper'):
+                    runnable_bots.append(bot)
+                    continue
+                if user_can_trade:
+                    runnable_bots.append(bot)
+                else:
+                    paused_bots.append(bot)
+            active_bots = runnable_bots
             
             # Update paused bots with pause reason
             for bot in paused_bots:

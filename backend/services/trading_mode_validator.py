@@ -106,7 +106,9 @@ class TradingModeValidator:
             
             # Check if autopilot is enabled (required for trading)
             if not system_mode.get('autopilot', False):
-                return False, "paper", "Autopilot is disabled"
+                if system_mode.get('paperTrading', True):
+                    return True, "paper", "Paper trading allowed while autopilot is disabled"
+                return False, "paper", "Paper trading is disabled"
             
             # Paper trading is allowed
             return True, "paper", "Paper trading validated"
