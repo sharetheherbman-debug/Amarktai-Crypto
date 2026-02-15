@@ -1,6 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
+  --bg1: #f7fbff;
+  --bg2: #eef4ff;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panelBorder: rgba(15, 23, 42, 0.1);
   --bg: #0b0d14;
   --surface: rgba(15, 16, 22, 0.72);
   --surface-2: rgba(12, 14, 20, 0.85);
@@ -22,6 +26,14 @@
   --shadow-glow: 0 0 0 1px rgba(56, 189, 248, 0.15), 0 18px 40px rgba(0, 0, 0, 0.4);
   --overlay: rgba(6, 8, 12, 0.65);
   --card-gap: 18px;
+}
+
+.bright-glass-panel {
+  background: var(--panel);
+  border: 1px solid var(--panelBorder);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
 }
 
 * {

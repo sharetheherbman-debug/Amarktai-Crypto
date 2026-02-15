@@ -215,6 +215,33 @@ class TestTradingModeValidator:
         # Cleanup
         await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
         os.environ.pop('PAPER_TRADING', None)
+
+    @pytest.mark.asyncio
+    async def test_validate_paper_trading_autopilot_disabled_still_allowed(self):
+        """Paper bots should not be blocked by MODE_DISABLED when paper mode is enabled."""
+        bot_data = {
+            "id": "test_bot_paper_003",
+            "user_id": "test_user_paper_003",
+            "trading_mode": "paper",
+            "name": "Test Paper Bot 3"
+        }
+
+        os.environ['PAPER_TRADING'] = '1'
+
+        await db.system_modes_collection.insert_one({
+            "user_id": bot_data["user_id"],
+            "autopilot": False,
+            "paperTrading": True,
+            "emergencyStop": False
+        })
+
+        can_trade, mode, reason = await trading_mode_validator.validate_paper_trading(bot_data)
+        assert can_trade is True
+        assert mode == "paper"
+        assert reason == "Paper trading allowed while autopilot is disabled"
+
+        await db.system_modes_collection.delete_one({"user_id": bot_data["user_id"]})
+        os.environ.pop('PAPER_TRADING', None)
     
     @pytest.mark.asyncio
     async def test_validate_live_trading_no_api_keys(self):

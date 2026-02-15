@@ -19,9 +19,6 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    console.log('Login attempt:', { email: formData.email });
-    console.log('API endpoint:', API);
-    
     if (!formData.email || !formData.password) {
       toast.error('Please fill in all fields');
       return;
@@ -29,7 +26,10 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const response = await post('/auth/login', formData);
+      const response = await post('/auth/login', {
+        email: formData.email,
+        password: formData.password
+      });
       console.log('Login response:', response);
       
       // Clear all previous session data including chat
@@ -54,7 +54,7 @@ export default function Login() {
     <div className="auth-container">
       {/* Left Column - Content */}
       <div className="auth-left">
-        <div className="auth-content glass-card">
+        <div className="auth-content bright-glass-panel">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"

@@ -85,7 +85,7 @@ export default function Register() {
     <div className="auth-container">
       {/* Left Column - Content */}
       <div className="auth-left">
-        <div className="auth-content glass-card">
+        <div className="auth-content bright-glass-panel">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
