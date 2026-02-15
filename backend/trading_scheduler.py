@@ -35,6 +35,12 @@ class BotPauseReason:
     USER_PAUSED = "USER_PAUSED"  # Manually paused by user
     UNSUPPORTED_EXCHANGE = "UNSUPPORTED_EXCHANGE"  # Exchange not supported for paper trading
 
+
+def _is_paper_bot(bot: dict) -> bool:
+    """Return True when bot mode resolves to paper."""
+    raw_mode = bot.get('trading_mode') or bot.get('mode') or 'paper'
+    return str(raw_mode).strip().lower().startswith('paper')
+
 class TradingScheduler:
     """CONTINUOUS STAGGERED TRADING - Uses trade_staggerer for 24/7 execution"""
     
@@ -179,11 +185,9 @@ class TradingScheduler:
                 user_id = bot['user_id']
                 user_can_trade = users_with_trading.get(user_id, False)
                 pause_reason = users_pause_reasons.get(user_id, BotPauseReason.MODE_DISABLED)
-                trading_mode = bot.get('trading_mode')
-                bot_mode = trading_mode if trading_mode is not None else bot.get('mode', 'paper')
                 if (not user_can_trade and
                         pause_reason == BotPauseReason.MODE_DISABLED and
-                        bot_mode == 'paper'):
+                        _is_paper_bot(bot)):
                     runnable_bots.append(bot)
                     continue
                 if user_can_trade:
@@ -209,7 +213,8 @@ class TradingScheduler:
                 
                 # Place bot in quarantine for auto-retraining
                 try:
-                    await quarantine_service.quarantine_bot(bot['id'], pause_reason)
+                    if pause_reason != BotPauseReason.MODE_DISABLED or not _is_paper_bot(bot):
+                        await quarantine_service.quarantine_bot(bot['id'], pause_reason)
                 except Exception as e:
                     logger.warning(f"Failed to quarantine bot: {e}")
                 
@@ -259,7 +264,7 @@ class TradingScheduler:
                 try:
                     # Check both 'mode' and 'trading_mode' for backwards compatibility
                     mode = bot.get('mode') or bot.get('trading_mode', 'paper')
-                    is_paper_mode = mode == 'paper'
+                    is_paper_mode = str(mode).strip().lower().startswith('paper')
                     
                     # Register trade start
                     await trade_staggerer.register_trade_start(bot_id, bot.get('exchange'))

@@ -4,7 +4,6 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import SiteFooter from './components/SiteFooter';
 import ErrorBoundary from './components/ErrorBoundary';
 import '@/App.css';
 
@@ -39,7 +38,6 @@ function App() {
             />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          <SiteFooter />
         </div>
       </BrowserRouter>
     </div>

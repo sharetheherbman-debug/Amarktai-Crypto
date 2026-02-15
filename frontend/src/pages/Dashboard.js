@@ -22,6 +22,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import BotQuarantineSection from '../components/Dashboard/BotQuarantineSection';
 import BotTrainingSection from '../components/Dashboard/BotTrainingSection';
 import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantineSection';
+import SiteFooter from '../components/SiteFooter';
 import { wsUrl } from '../lib/api.js';
 import { formatTimestamp } from '../utils/time.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
@@ -7367,6 +7368,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      <SiteFooter />
     </div>
   );
 }
