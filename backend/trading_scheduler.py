@@ -94,14 +94,32 @@ class TradingScheduler:
                     {"$set": {
                         "status": "paused",
                         "pause_reason": BotPauseReason.UNSUPPORTED_EXCHANGE,
+                        "pause_reason_code": BotPauseReason.UNSUPPORTED_EXCHANGE,
                         "paused_by_system": True,
-                        "paused_at": datetime.now(timezone.utc).isoformat()
+                        "paused_at": datetime.now(timezone.utc).isoformat(),
+                        "last_intervention": {
+                            "source": "trading_scheduler",
+                            "rule": "unsupported_exchange",
+                            "reason_code": BotPauseReason.UNSUPPORTED_EXCHANGE,
+                            "threshold": None,
+                            "reason": f"Exchange {exchange} is not supported for paper trading",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }
                     }}
                 )
                 
                 # Place bot in quarantine for auto-retraining
                 try:
-                    await quarantine_service.quarantine_bot(bot['id'], BotPauseReason.UNSUPPORTED_EXCHANGE)
+                    await quarantine_service.quarantine_bot(
+                        bot['id'],
+                        BotPauseReason.UNSUPPORTED_EXCHANGE,
+                        {
+                            "source": "trading_scheduler",
+                            "rule": "unsupported_exchange",
+                            "reason_code": BotPauseReason.UNSUPPORTED_EXCHANGE,
+                            "threshold": None
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to quarantine bot: {e}")
                 
@@ -206,15 +224,33 @@ class TradingScheduler:
                     {"$set": {
                         "status": "paused",
                         "pause_reason": pause_reason,
+                        "pause_reason_code": pause_reason,
                         "paused_by_system": True,
-                        "paused_at": datetime.now(timezone.utc).isoformat()
+                        "paused_at": datetime.now(timezone.utc).isoformat(),
+                        "last_intervention": {
+                            "source": "trading_scheduler",
+                            "rule": "system_mode_gate",
+                            "reason_code": pause_reason,
+                            "threshold": None,
+                            "reason": f"Scheduler gate blocked bot ({pause_reason})",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }
                     }}
                 )
                 
                 # Place bot in quarantine for auto-retraining
                 try:
                     if pause_reason != BotPauseReason.MODE_DISABLED or not _is_paper_bot(bot):
-                        await quarantine_service.quarantine_bot(bot['id'], pause_reason)
+                        await quarantine_service.quarantine_bot(
+                            bot['id'],
+                            pause_reason,
+                            {
+                                "source": "trading_scheduler",
+                                "rule": "system_mode_gate",
+                                "reason_code": pause_reason,
+                                "threshold": None
+                            }
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to quarantine bot: {e}")
                 

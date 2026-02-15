@@ -1,33 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-:root {
-  --bg1: #f7fbff;
-  --bg2: #eef4ff;
-  --panel: rgba(255, 255, 255, 0.78);
-  --panelBorder: rgba(15, 23, 42, 0.1);
-  --bg: #0b0d14;
-  --surface: rgba(15, 16, 22, 0.72);
-  --surface-2: rgba(12, 14, 20, 0.85);
-  --glass: rgba(15, 16, 22, 0.68);
-  --line: rgba(148, 163, 184, 0.2);
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --success: #22c55e;
-  --accent: #22c55e;
-  --accent2: #38bdf8;
-  --accent-energy: #f97316;
-  --error: #ef4444;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
-  --radius-pill: 999px;
-  --blur: 18px;
-  --shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.35);
-  --shadow-glow: 0 0 0 1px rgba(56, 189, 248, 0.15), 0 18px 40px rgba(0, 0, 0, 0.4);
-  --overlay: rgba(6, 8, 12, 0.65);
-  --card-gap: 18px;
-}
-
 .bright-glass-panel {
   background: var(--panel);
   border: 1px solid var(--panelBorder);

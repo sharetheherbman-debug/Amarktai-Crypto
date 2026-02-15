@@ -1,0 +1,27 @@
+:root {
+  --bg1: #111d46;
+  --bg2: #1a2c62;
+  --bg: radial-gradient(circle at 20% 20%, #1d3a8a 0%, #0f1c45 42%, #0a122f 100%);
+  --panel: rgba(14, 24, 52, 0.78);
+  --panelBorder: rgba(125, 211, 252, 0.28);
+  --surface: rgba(12, 19, 44, 0.74);
+  --surface-2: rgba(9, 16, 38, 0.88);
+  --glass: rgba(12, 19, 44, 0.66);
+  --line: rgba(125, 211, 252, 0.22);
+  --text: #f8fbff;
+  --muted: #b8c7e5;
+  --success: #22c55e;
+  --accent: #22c55e;
+  --accent2: #60a5fa;
+  --accent-energy: #a78bfa;
+  --error: #ef4444;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+  --blur: 18px;
+  --shadow-soft: 0 14px 30px rgba(2, 6, 23, 0.45);
+  --shadow-glow: 0 0 0 1px rgba(96, 165, 250, 0.22), 0 18px 42px rgba(2, 6, 23, 0.45);
+  --overlay: rgba(3, 7, 20, 0.62);
+  --card-gap: 18px;
+}

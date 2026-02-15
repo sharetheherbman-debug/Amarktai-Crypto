@@ -1,19 +1,7 @@
 /* Production Dashboard - Amarktai Crypto */
 
 :root {
-  --bg: #0b0d14;
-  --panel: rgba(15, 15, 20, 0.55);
-  --glass: rgba(15, 15, 20, 0.55);
-  --line: rgba(255, 255, 255, 0.1);
-  --accent: var(--success);
-  --accent2: #38bdf8;
-  --accent-bright: #38bdf8;
-  --text: #f8fafc;
-  --muted: #94a3b8;
   --radius: 18px;
-  --error: #ef4444;
-  --success: #22c55e;
-  --paper: #38bdf8;
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --topbar-height: 56px;
   --mobile-topbar-height: 76px;
@@ -230,13 +218,12 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   padding: 20px 20px 80px;
   width: calc(100% - 200px);
   height: calc(100vh - var(--topbar-height));
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 
-.section { display: none; min-height: 100%; overflow: visible; }
-.section.active { display: block; }
+.section { display: none; min-height: 100%; overflow: hidden; }
+.section.active { display: block; height: 100%; overflow-y: auto; overflow-x: hidden; }
 
 .card { 
   background: var(--glass); 

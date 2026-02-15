@@ -98,13 +98,13 @@ export default function Landing() {
 
       <div className="landing-left">
         <div className="landing-content bright-glass-panel">
-          <img src="/assets/logo.png" alt="Amarktai Network" className="landing-logo" />
+          <img src="/assets/logo.png" alt="Amarktai Crypto" className="landing-logo" />
           <div className="landing-hero">
-            <span className="landing-kicker">Executive Command Center</span>
-            <h1>Amarktai Network Command Center</h1>
+            <span className="landing-kicker">Amarktai Crypto</span>
+            <h1>Intelligent crypto automation with safer paper-first execution.</h1>
             <p>
-              Self-trading AI that self-heals, self-learns, and manages risk in real time while
-              protecting capital across every market session.
+              Build, monitor, and tune AI trading bots with live diagnostics, adaptive protection,
+              and seamless progression from paper testing to production-ready strategies.
             </p>
           </div>
           <div className="landing-feature-grid">
@@ -121,9 +121,8 @@ export default function Landing() {
             ))}
           </div>
           <div className="landing-cta">
-            <SecondaryButton onClick={() => navigate('/login')}>
-              Enter Command Center
-            </SecondaryButton>
+            <SecondaryButton onClick={() => navigate('/login')}>Login</SecondaryButton>
+            <button className="btn-primary" onClick={() => navigate('/register')}>Register</button>
           </div>
         </div>
       </div>
