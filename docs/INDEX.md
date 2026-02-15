@@ -130,7 +130,7 @@ The platform supports exactly **7 exchanges**:
 6. **Bitget** - Max 10 bots per user
 7. **Gate.io** - Max 10 bots per user
 
-> **Note**: VALR, OVEX, and Emergent are **not supported**.
+> **Note**: VALR, OVEX, and Legacy AI are **not supported**.
 
 ---
 

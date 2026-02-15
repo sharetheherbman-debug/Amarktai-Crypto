@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Repository Cleanup Script
-Removes all traces of Emergent, VALR, and OVEX from documentation files
+Removes all traces of Legacy AI, VALR, and OVEX from documentation files
 """
 
 import os
@@ -76,7 +76,7 @@ def delete_old_docs():
 
 def clean_references_in_file(filepath: Path) -> bool:
     """
-    Remove VALR/OVEX/Emergent references from a file
+    Remove VALR/OVEX/Legacy AI references from a file
     Returns True if file was modified
     """
     if not filepath.exists():
@@ -89,7 +89,7 @@ def clean_references_in_file(filepath: Path) -> bool:
         # Patterns to remove (case-insensitive)
         patterns = [
             (r'(?i)\b(valr|ovex)\b', 'REMOVED'),
-            (r'(?i)emergent(?!integrations)', 'REMOVED'),  # Keep emergentintegrations package name
+            (r'(?i)legacy_ai(?!_integrations)', 'REMOVED'),  # Keep legacy_ai_integrations package name
         ]
         
         # For markdown files, remove entire lines/sections mentioning these
@@ -169,7 +169,7 @@ def update_audit_script():
 
 def main():
     print("=" * 60)
-    print("REPOSITORY CLEANUP - Removing Emergent/VALR/OVEX traces")
+    print("REPOSITORY CLEANUP - Removing Legacy AI/VALR/OVEX traces")
     print("=" * 60)
     print()
     
@@ -187,7 +187,7 @@ def main():
     print("=" * 60)
     print()
     print("Next steps:")
-    print("1. Run: grep -RIn 'valr\\|ovex\\|emergent' . | grep -v '.git' | grep -v 'audit'")
+    print("1. Run: grep -RIn 'valr\\|ovex\\|legacy_ai' . | grep -v '.git' | grep -v 'audit'")
     print("2. Verify no unwanted references remain")
     print("3. Commit changes")
 

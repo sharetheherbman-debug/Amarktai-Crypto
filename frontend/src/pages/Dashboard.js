@@ -306,6 +306,7 @@ export default function Dashboard() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedBotId, setSelectedBotId] = useState('');
   const [filteredAdminBots, setFilteredAdminBots] = useState([]);
+  const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
   
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
@@ -2945,6 +2946,42 @@ export default function Dashboard() {
     }
   }, [axiosConfig]);
 
+  const loadEmergencyOverrideStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/admin/emergency-stop/status`, axiosConfig);
+      setEmergencyOverrideStatus(res.data);
+    } catch (err) {
+      console.error('Emergency override status error:', err);
+    }
+  }, [axiosConfig]);
+
+  const updateGlobalEmergencyOverride = async (disabled) => {
+    const reason = window.prompt(disabled ? 'Reason for disabling emergency stop globally:' : 'Reason for re-enabling emergency stop globally:');
+    if (!reason) return;
+    await axios.post(`${API}/admin/emergency-stop/global`, { disabled, reason }, axiosConfig);
+    showNotification('Global emergency-stop override updated', 'success');
+    await loadEmergencyOverrideStatus();
+    await loadRiskStatus();
+  };
+
+  const updateUserEmergencyOverride = async (targetUserId, disabled) => {
+    if (!targetUserId) return;
+    const reason = window.prompt(`${disabled ? 'Disable' : 'Re-enable'} emergency stop for user ${targetUserId}. Reason:`);
+    if (!reason) return;
+    await axios.post(`${API}/admin/emergency-stop/user`, { user_id: targetUserId, disabled, reason }, axiosConfig);
+    showNotification('User emergency-stop override updated', 'success');
+    await loadEmergencyOverrideStatus();
+    await loadRiskStatus();
+  };
+
+  const clearUserEmergencyOverride = async (targetUserId) => {
+    if (!targetUserId) return;
+    await axios.post(`${API}/admin/emergency-stop/clear-user`, { user_id: targetUserId }, axiosConfig);
+    showNotification('User emergency-stop override cleared', 'success');
+    await loadEmergencyOverrideStatus();
+    await loadRiskStatus();
+  };
+
   // Load admin data when admin panel is shown
   useEffect(() => {
     if (showAdmin) {
@@ -2954,8 +2991,9 @@ export default function Dashboard() {
       loadAdminUsers();
       loadAdminBots();
       loadAdminHealth();
+      loadEmergencyOverrideStatus();
     }
-  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth]);
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
 
   useEffect(() => {
     if (!showAdmin) return undefined;
@@ -2964,9 +3002,10 @@ export default function Dashboard() {
       loadAdminUsers();
       loadAdminBots();
       loadAdminHealth();
+      loadEmergencyOverrideStatus();
     }, 15000);
     return () => clearInterval(interval);
-  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth]);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {
@@ -4464,6 +4503,41 @@ export default function Dashboard() {
                 👆 Select a user and bot above to perform admin actions
               </div>
             )}
+          </div>
+
+          <div className="admin-card">
+            <h3 style={{marginBottom: '12px', color: 'var(--accent)'}}>🚨 Emergency Stop Overrides (Admin-only)</h3>
+            <p style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '12px'}}>
+              This panel is available only after admin unlock. Every change is recorded in the audit trail.
+            </p>
+            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px'}}>
+              <button onClick={() => updateGlobalEmergencyOverride(true)} style={{padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--error)', color: '#fff', fontWeight: 600, cursor: 'pointer'}}>
+                Disable Emergency Stop (Global)
+              </button>
+              <button onClick={() => updateGlobalEmergencyOverride(false)} style={{padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--success)', color: '#fff', fontWeight: 600, cursor: 'pointer'}}>
+                Re-enable Emergency Stop (Global)
+              </button>
+            </div>
+            <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '8px'}}>
+              Global override: {emergencyOverrideStatus?.global?.disabled ? 'Disabled' : 'Enabled'} • Last change: {formatDate(emergencyOverrideStatus?.global?.updated_at)}
+            </div>
+            <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
+              <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} style={{padding: '8px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--panel)', color: '#fff'}}>
+                <option value="">Select user for override</option>
+                {adminUsers.map((usr) => (
+                  <option key={usr.id} value={usr.id}>{usr.email || usr.id}</option>
+                ))}
+              </select>
+              <button onClick={() => updateUserEmergencyOverride(selectedUserId, true)} disabled={!selectedUserId} style={{padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--accent2)', color: '#fff', cursor: selectedUserId ? 'pointer' : 'not-allowed'}}>
+                Disable for User
+              </button>
+              <button onClick={() => updateUserEmergencyOverride(selectedUserId, false)} disabled={!selectedUserId} style={{padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--success)', color: '#fff', cursor: selectedUserId ? 'pointer' : 'not-allowed'}}>
+                Re-enable for User
+              </button>
+              <button onClick={() => clearUserEmergencyOverride(selectedUserId)} disabled={!selectedUserId} style={{padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--line)', background: 'var(--panel)', color: '#fff', cursor: selectedUserId ? 'pointer' : 'not-allowed'}}>
+                Clear User Override
+              </button>
+            </div>
           </div>
           
           {/* Admin Tools - All in One Section */}

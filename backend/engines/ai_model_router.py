@@ -1,7 +1,6 @@
 """
 AI Model Router - Central OpenAI Client
 - Routes requests to appropriate models (GPT-5.1, GPT-4o, GPT-4)
-- Manages Emergent LLM key
 - Handles failover and rate limiting
 - Optimizes cost vs. performance
 """
@@ -14,14 +13,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Try to import emergentintegrations for Universal Key support
-try:
-    from emergentintegrations import LLM
-    EMERGENT_AVAILABLE = True
-except ImportError:
-    logger.warning("emergentintegrations not available - fallback to OpenAI SDK")
-    EMERGENT_AVAILABLE = False
-    import openai
+import openai
 
 class AIModelRouter:
     def __init__(self):
@@ -33,27 +25,16 @@ class AIModelRouter:
         }
         
         # Initialize clients
-        self.emergent_client = None
         self.openai_client = None
         
         # Get API keys from environment
-        self.emergent_key = os.environ.get('EMERGENT_LLM_KEY')
         self.openai_key = os.environ.get('OPENAI_API_KEY')
         
-        # Initialize appropriate client
-        if EMERGENT_AVAILABLE and self.emergent_key:
+        if self.openai_key:
             try:
-                self.emergent_client = LLM(api_key=self.emergent_key)
-                logger.info("✅ Emergent LLM client initialized")
-            except Exception as e:
-                logger.error(f"Failed to init Emergent client: {e}")
-        
-        if not self.emergent_client and self.openai_key:
-            try:
-                if EMERGENT_AVAILABLE:
-                    openai.api_key = self.openai_key
-                    self.openai_client = openai
-                    logger.info("✅ OpenAI client initialized")
+                openai.api_key = self.openai_key
+                self.openai_client = openai
+                logger.info("✅ OpenAI client initialized")
             except Exception as e:
                 logger.error(f"Failed to init OpenAI client: {e}")
     
@@ -76,27 +57,6 @@ class AIModelRouter:
         try:
             model = self.models.get(mode, self.models['balanced'])
             
-            # Try Emergent client first (supports Universal Key)
-            if self.emergent_client:
-                try:
-                    response = await asyncio.to_thread(
-                        self.emergent_client.chat.completions.create,
-                        model=model,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature
-                    )
-                    
-                    return {
-                        "content": response.choices[0].message.content,
-                        "model": model,
-                        "tokens": response.usage.total_tokens if hasattr(response, 'usage') else 0,
-                        "source": "emergent"
-                    }
-                except Exception as e:
-                    logger.warning(f"Emergent client failed: {e}, trying fallback...")
-            
-            # Fallback to OpenAI client
             if self.openai_client:
                 try:
                     response = await asyncio.to_thread(
@@ -283,7 +243,6 @@ Provide 3-5 actionable recommendations.
             
             return {
                 "status": "healthy" if "OK" in result.get('content', '') or not result.get('error') else "degraded",
-                "emergent_available": self.emergent_client is not None,
                 "openai_available": self.openai_client is not None,
                 "last_check": datetime.now(timezone.utc).isoformat()
             }

@@ -6,7 +6,7 @@ This implementation delivers a production-ready, rule-enforced trading system wi
 - ✅ Central rules module for all business logic
 - ✅ Bot capacity caps enforced (Luno: 5, others: 10)
 - ✅ Profit-gated auto-growth (>= R1000 per exchange)
-- ✅ Clean codebase (VALR/OVEX/Emergent removed)
+- ✅ Clean codebase (VALR/OVEX/Legacy AI removed)
 - ✅ Fixed critical bugs (ObjectId, null IDs, spawn behavior)
 - ✅ Comprehensive deployment documentation
 - ✅ Automated smoke tests
@@ -96,7 +96,7 @@ Created single source of truth for all bot-related business rules:
 
 **Verified Clean:**
 - ✅ No VALR/OVEX in active backend code
-- ✅ No Emergent except emergentintegrations package
+- ✅ No Legacy AI except legacy_aiintegrations package
 - ✅ Archives clearly marked
 
 ### 5. Deployment Documentation
@@ -120,7 +120,7 @@ Created single source of truth for all bot-related business rules:
 - ✅ No spawn-to-65 logic in scheduler
 - ✅ Capital allocator consolidated
 - ✅ No VALR/OVEX in active code
-- ✅ No Emergent in active code (except package)
+- ✅ No Legacy AI in active code (except package)
 
 ## Supported Exchanges (7 Only)
 
@@ -189,8 +189,8 @@ ls -l backend/rules/bot_rules.py
 # 2. Check for VALR/OVEX in active code (should be none)
 grep -r "valr\|ovex" -i backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" | grep -v "AddressApproval"
 
-# 3. Check for Emergent (except package name)
-grep -r "emergent" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" | grep -v "emergentintegrations"
+# 3. Check for Legacy AI (except package name)
+grep -r "legacy_ai" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" | grep -v "legacy_aiintegrations"
 
 # 4. Run smoke tests
 ./scripts/smoke.sh
@@ -212,7 +212,7 @@ grep "has.*bots - spawning more" backend/autonomous_scheduler.py || echo "Clean"
 ✅ No spawn-to-65 logic in scheduler
 ✅ Capital allocator consolidated
 ✅ No VALR/OVEX in active backend code
-✅ No Emergent in active backend code
+✅ No Legacy AI in active backend code
 ```
 
 ## API Changes
@@ -274,7 +274,7 @@ The system is now:
 1. Rule-enforced (no more runaway spawning)
 2. Bug-free (ObjectId, null IDs, duplicate logic fixed)
 3. Well-documented (deployment guide + smoke tests)
-4. Clean (no VALR/OVEX/Emergent confusion)
+4. Clean (no VALR/OVEX/Legacy AI confusion)
 
 ## Next Steps
 

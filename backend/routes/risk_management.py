@@ -15,6 +15,7 @@ from typing import Optional
 from auth import get_current_user
 import database as db
 from utils.datetime_helpers import remaining_seconds
+from services.emergency_stop_override_service import emergency_stop_override_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,7 +77,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
 
         bots = await db.bots_collection.find(
             {"user_id": user_id, "status": {"$ne": "deleted"}},
-            {"_id": 0, "status": 1, "quarantine_reason": 1, "retraining_until": 1, "paused_by_bodyguard": 1, "pause_reason": 1}
+            {"_id": 0, "id": 1, "name": 1, "status": 1, "trading_mode": 1, "mode": 1, "quarantine_reason": 1, "retraining_until": 1, "paused_by_bodyguard": 1, "pause_reason": 1}
         ).to_list(1000)
 
         quarantined_bots = [bot for bot in bots if bot.get("status") == "quarantined"]
@@ -94,6 +95,8 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         daily_loss_reason = user.get("daily_loss_locked_reason", "Daily loss lock active") if daily_loss_active else None
 
         emergency_active = modes.get("emergencyStop", False) if modes else False
+        emergency_eval = await emergency_stop_override_service.evaluate(user_id, emergency_active)
+        emergency_active = emergency_eval["effective_active"]
         emergency_reason = modes.get("emergency_stop_reason", "Emergency stop active") if emergency_active else None
 
         bodyguard_reasons = sorted({
@@ -112,6 +115,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         from services.bodyguard_service import bodyguard_service
         from services.ledger_service import get_ledger_service
         bot_risk_status = []
+        per_bot_status = []
         for bot in bots:
             bot_id = bot.get("id")
             if not bot_id:
@@ -149,6 +153,22 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "pause_reason": drawdown_status.get("pause_reason"),
                 "last_decision_time": bot.get("bodyguard_last_pause_at") or bot.get("bodyguard_last_breach_at")
             })
+            bot_state = "ok"
+            reason = None
+            if bot.get("status") == "quarantined":
+                bot_state = "quarantined"
+                reason = bot.get("quarantine_reason") or "Bot quarantined"
+            elif bot.get("paused_by_bodyguard"):
+                bot_state = "warning"
+                reason = bot.get("pause_reason") or "Bodyguard pause"
+            per_bot_status.append({
+                "bot_id": bot_id,
+                "bot_name": bot.get("name"),
+                "status": bot_state,
+                "reason": reason,
+            })
+
+        bodyguard_active = len(bodyguard_bots) > 0
 
         return {
             "daily_loss_lock": {
@@ -164,10 +184,15 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "reason": emergency_reason,
                 "why": emergency_reason,
                 "locked_at": modes.get("emergency_stop_at") if modes else None,
+                "override": {
+                    "global_disabled": emergency_eval["global_disabled"],
+                    "user_disabled": emergency_eval["user_disabled"],
+                    "user_reason": emergency_eval["user_override"].get("reason"),
+                },
                 "next_action": "Disable emergency stop to resume trading" if emergency_active else None,
             },
             "bodyguard_lock": {
-                "active": len(bodyguard_bots) > 0,
+                "active": bodyguard_active,
                 "reason": bodyguard_reason,
                 "why": bodyguard_reason,
                 "reasons": bodyguard_reasons,
@@ -188,6 +213,9 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
                 "primary_trigger": "drawdown",
                 "bots": bot_risk_status,
             },
+            "bodyguard_active": bodyguard_active,
+            "bodyguard_reason": bodyguard_reason or ("No active bodyguard lock" if not bodyguard_active else None),
+            "per_bot_status": per_bot_status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 

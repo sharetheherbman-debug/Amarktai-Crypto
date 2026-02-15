@@ -6,7 +6,7 @@
 **Status**: COMPLETE
 
 - ✅ Exactly 7 exchanges enforced: luno, binance, kucoin, bybit, kraken, bitget, gate
-- ✅ VALR/OVEX/Emergent removed from active code
+- ✅ VALR/OVEX/Legacy AI removed from active code
 - ✅ Rules module defines SUPPORTED_EXCHANGES
 - ✅ Validation in batch-create endpoint
 - ⚠️ Frontend UI updates needed (optional)
@@ -209,7 +209,7 @@ python scripts/verify_deployment.py  # Verify system health
 
 ### Critical Requirements: ✅ 7/7 COMPLETE
 
-1. ✅ Exchanges - COMPLETE (7 only, no VALR/OVEX/Emergent)
+1. ✅ Exchanges - COMPLETE (7 only, no VALR/OVEX/Legacy AI)
 2. ✅ Bot Caps - COMPLETE (Luno: 5, others: 10, enforced + migration)
 3. ✅ Per-Exchange Profit Gating - COMPLETE (milestone tracking, idempotent)
 4. ✅ Reinvestment - COMPLETE (when at cap, into top performers)

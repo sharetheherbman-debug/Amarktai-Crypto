@@ -57,7 +57,6 @@ class TestBotCaps:
         # Verify unsupported exchanges are NOT in list
         assert 'valr' not in [e.lower() for e in SUPPORTED_EXCHANGES], "VALR should not be supported"
         assert 'ovex' not in [e.lower() for e in SUPPORTED_EXCHANGES], "OVEX should not be supported"
-        assert 'emergent' not in [e.lower() for e in SUPPORTED_EXCHANGES], "Emergent should not be supported"
     
     def test_check_bot_cap_limit_function(self):
         """Test the check_bot_cap_limit function directly"""

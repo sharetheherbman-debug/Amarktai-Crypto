@@ -18,6 +18,7 @@ import random
 from auth import get_current_user, require_admin
 from utils.bot_state import normalize_bot_state
 from services.wallet_summary_service import wallet_summary_service
+from services.emergency_stop_override_service import emergency_stop_override_service
 import database as db
 from engines.audit_logger import audit_logger
 from json_utils import serialize_doc, serialize_list
@@ -117,6 +118,21 @@ class BotModeChangeRequest(BaseModel):
 
 class BotExchangeChangeRequest(BaseModel):
     exchange: str = Field(..., description="Exchange: luno, binance, kucoin, bybit, bitget")
+
+
+class EmergencyStopGlobalOverrideRequest(BaseModel):
+    disabled: bool
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class EmergencyStopUserOverrideRequest(BaseModel):
+    user_id: str = Field(..., min_length=1)
+    disabled: bool
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class EmergencyStopClearUserOverrideRequest(BaseModel):
+    user_id: str = Field(..., min_length=1)
 
 
 class PurgeDeletedBotsRequest(BaseModel):
@@ -2786,3 +2802,104 @@ async def start_all_bots(
     except Exception as e:
         logger.error(f"Start all bots error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/emergency-stop/status")
+async def get_emergency_stop_override_status(admin_id: str = Depends(require_admin)):
+    """Get global/per-user emergency-stop overrides and currently active users."""
+    overrides = await emergency_stop_override_service.get_status()
+    active_docs = await db.system_modes_collection.find(
+        {"emergencyStop": True},
+        {"_id": 0, "user_id": 1, "emergency_stop_reason": 1, "emergency_stop_at": 1}
+    ).to_list(1000)
+    return {
+        "success": True,
+        "global": {
+            "disabled": bool(overrides.get("global_disabled")),
+            "reason": overrides.get("global_reason"),
+            "updated_by": overrides.get("global_updated_by"),
+            "updated_at": overrides.get("global_updated_at"),
+        },
+        "per_user": overrides.get("per_user", {}),
+        "active_emergency_stop_users": active_docs,
+    }
+
+
+@router.post("/emergency-stop/global")
+async def set_emergency_stop_global_override(
+    data: EmergencyStopGlobalOverrideRequest,
+    admin_id: str = Depends(require_admin),
+):
+    overrides = await emergency_stop_override_service.set_global(
+        disabled=data.disabled,
+        reason=data.reason,
+        updated_by=admin_id,
+    )
+    await log_admin_action(
+        admin_id=admin_id,
+        action="emergency_stop_global_override",
+        target_type="system",
+        target_id="emergency_stop",
+        details={"disabled": data.disabled, "reason": data.reason},
+    )
+    try:
+        from realtime_events import rt_events
+        affected = await db.system_modes_collection.find({"emergencyStop": True}, {"_id": 0, "user_id": 1}).to_list(1000)
+        for item in affected:
+            if item.get("user_id"):
+                await rt_events.force_refresh(item["user_id"], reason="Emergency stop override updated by admin.")
+    except Exception as e:
+        logger.warning(f"Emergency stop global override realtime broadcast failed: {e}")
+    return {"success": True, "global": {
+        "disabled": bool(overrides.get("global_disabled")),
+        "reason": overrides.get("global_reason"),
+        "updated_by": overrides.get("global_updated_by"),
+        "updated_at": overrides.get("global_updated_at"),
+    }}
+
+
+@router.post("/emergency-stop/user")
+async def set_emergency_stop_user_override(
+    data: EmergencyStopUserOverrideRequest,
+    admin_id: str = Depends(require_admin),
+):
+    overrides = await emergency_stop_override_service.set_user(
+        user_id=data.user_id,
+        disabled=data.disabled,
+        reason=data.reason,
+        updated_by=admin_id,
+    )
+    await log_admin_action(
+        admin_id=admin_id,
+        action="emergency_stop_user_override",
+        target_type="user",
+        target_id=data.user_id,
+        details={"disabled": data.disabled, "reason": data.reason},
+    )
+    try:
+        from realtime_events import rt_events
+        await rt_events.force_refresh(data.user_id, reason="Emergency stop override updated by admin.")
+    except Exception as e:
+        logger.warning(f"Emergency stop user override realtime broadcast failed: {e}")
+    return {"success": True, "user_override": (overrides.get("per_user") or {}).get(data.user_id, {})}
+
+
+@router.post("/emergency-stop/clear-user")
+async def clear_emergency_stop_user_override(
+    data: EmergencyStopClearUserOverrideRequest,
+    admin_id: str = Depends(require_admin),
+):
+    overrides = await emergency_stop_override_service.clear_user(data.user_id)
+    await log_admin_action(
+        admin_id=admin_id,
+        action="emergency_stop_user_override_clear",
+        target_type="user",
+        target_id=data.user_id,
+        details={},
+    )
+    try:
+        from realtime_events import rt_events
+        await rt_events.force_refresh(data.user_id, reason="Emergency stop override cleared by admin.")
+    except Exception as e:
+        logger.warning(f"Emergency stop clear override realtime broadcast failed: {e}")
+    return {"success": True, "per_user": overrides.get("per_user", {})}

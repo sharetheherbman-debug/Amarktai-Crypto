@@ -145,7 +145,7 @@ Found 383 references:
 - `backend/tests/test_route_uniqueness_and_platforms.py:104` - assert 'ovex' not in PLATFORM_CONFIG, \
 - `backend/tests/test_route_uniqueness_and_platforms.py:105` - "OVEX should not be in PLATFORM_CONFIG"
 - `backend/tests/test_route_uniqueness_and_platforms.py:107` - print("✅ VALR/OVEX exclusion check passed")
-- `docs/IMPLEMENTATION_COMPLETE.md:9` - - ✅ Clean codebase (VALR/OVEX/Emergent removed)
+- `docs/IMPLEMENTATION_COMPLETE.md:9` - - ✅ Clean codebase (VALR/OVEX/Legacy AI removed)
 - `docs/IMPLEMENTATION_COMPLETE.md:94` - - Removed VALR/OVEX references from 5 active docs
 - `docs/IMPLEMENTATION_COMPLETE.md:98` - - ✅ No VALR/OVEX in active backend code
 - `docs/IMPLEMENTATION_COMPLETE.md:122` - - ✅ No VALR/OVEX in active code
