@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
-import { get } from '../lib/apiClient';
+import { get, notifyError } from '../lib/apiClient';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Line } from 'react-chartjs-2';
@@ -124,30 +124,10 @@ export default function PrometheusMetrics() {
   // Fetch metrics from Prometheus endpoint and system health
   const fetchMetrics = async () => {
     try {
-      // Attach authorization token properly
-      const token = localStorage.getItem('token');
-      
-      // Fetch Prometheus metrics
-      const response = await fetch(`${API_BASE}/metrics`, {
-        headers: { 
-          'Accept': 'text/plain',
-          'Authorization': `Bearer ${token}`
-        }
+      const metricsText = await get('/metrics', {
+        responseType: 'text',
+        headers: { Accept: 'text/plain' }
       });
-
-      // Check content type
-      const contentType = response.headers.get('content-type');
-      
-      let metricsText;
-      if (contentType?.includes('application/json')) {
-        // Handle JSON response
-        const jsonData = await response.json();
-        // Convert JSON to text format if needed, or handle differently
-        metricsText = JSON.stringify(jsonData, null, 2);
-      } else {
-        // Handle text response
-        metricsText = await response.text();
-      }
 
       setMetrics(metricsText);
       const parsed = parsePrometheusMetrics(metricsText);
@@ -159,6 +139,7 @@ export default function PrometheusMetrics() {
         setSystemHealth(healthData);
       } catch (healthErr) {
         console.error('Error fetching system health:', healthErr);
+        notifyError(healthErr);
       }
       
       setError(null);
@@ -167,6 +148,7 @@ export default function PrometheusMetrics() {
       const errorMessage = err.message || 'Failed to fetch metrics';
       const statusCode = err.status || err.response?.status || 'Not available';
       setError(`Metrics not available yet (${statusCode}): ${errorMessage}`);
+      notifyError(err);
     } finally {
       setLoading(false);
     }

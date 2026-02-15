@@ -49,12 +49,20 @@ class TradingModeValidator:
             
             # Determine bot's trading mode
             mode = bot_data.get('trading_mode') or bot_data.get('mode', 'paper')
+            user_id = bot_data.get('user_id')
+            system_mode = None
+            if user_id:
+                system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+                # If user is explicitly in paper mode, run paper gates to avoid blocking
+                # paper trading with live-only errors.
+                if system_mode and system_mode.get('paperTrading') and not system_mode.get('liveTrading'):
+                    return await self.validate_paper_trading(bot_data, system_mode=system_mode)
             
             # Validate based on mode
             if mode == 'paper':
-                return await self.validate_paper_trading(bot_data)
+                return await self.validate_paper_trading(bot_data, system_mode=system_mode)
             elif mode == 'live':
-                return await self.validate_live_trading(bot_data)
+                return await self.validate_live_trading(bot_data, system_mode=system_mode)
             else:
                 return False, mode, f"Invalid trading mode: {mode}"
         
@@ -62,7 +70,11 @@ class TradingModeValidator:
             logger.error(f"Error validating bot trading mode: {e}")
             return False, "error", f"Error: {str(e)}"
     
-    async def validate_paper_trading(self, bot_data: Dict) -> Tuple[bool, str, str]:
+    async def validate_paper_trading(
+        self,
+        bot_data: Dict,
+        system_mode: Optional[Dict] = None
+    ) -> Tuple[bool, str, str]:
         """
         Validate paper trading can proceed.
         
@@ -75,9 +87,13 @@ class TradingModeValidator:
         try:
             user_id = bot_data.get('user_id')
             bot_id = bot_data.get('id')
-            
+
+            if not env_bool('PAPER_TRADING', False):
+                return False, "paper", "Paper trading not enabled globally"
+
             # Check user's system mode
-            system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+            if system_mode is None:
+                system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
             
             if not system_mode:
                 # Default to paper trading if no mode set
@@ -99,7 +115,11 @@ class TradingModeValidator:
             logger.error(f"Error validating paper trading: {e}")
             return False, "paper", f"Error: {str(e)}"
     
-    async def validate_live_trading(self, bot_data: Dict) -> Tuple[bool, str, str]:
+    async def validate_live_trading(
+        self,
+        bot_data: Dict,
+        system_mode: Optional[Dict] = None
+    ) -> Tuple[bool, str, str]:
         """
         Validate live trading can proceed with all safety checks.
         
@@ -113,9 +133,14 @@ class TradingModeValidator:
             user_id = bot_data.get('user_id')
             bot_id = bot_data.get('id')
             exchange = bot_data.get('exchange', 'unknown')
+
+            live_enabled = env_bool('ENABLE_LIVE_TRADING', False) or env_bool('LIVE_TRADING', False)
+            if not live_enabled:
+                return False, "live", "Live trading not enabled globally"
             
             # 1. Check user's system mode for live trading flag
-            system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+            if system_mode is None:
+                system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
             
             if not system_mode:
                 return False, "live", "No system mode configuration found"

@@ -1,14 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from 'lucide-react';
-import { API_BASE } from '../lib/api';
 import './Auth.css';
-
-const API = API_BASE;
+import { post } from '../lib/apiClient';
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
@@ -32,22 +29,22 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const response = await axios.post(`${API}/auth/login`, formData);
-      console.log('Login response:', response.data);
+      const response = await post('/auth/login', formData);
+      console.log('Login response:', response);
       
       // Clear all previous session data including chat
       localStorage.clear();
       sessionStorage.clear();
       
       // TASK B - Use access_token from standardized auth response
-      localStorage.setItem('token', response.data.access_token);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+      localStorage.setItem('token', response.access_token);
+      localStorage.setItem('user', JSON.stringify(response.user));
       
       toast.success('Welcome back!');
       navigate('/dashboard');
     } catch (error) {
       console.error('Login error:', error);
-      toast.error(error.response?.data?.detail || 'Login failed. Please check your credentials.');
+      toast.error(error.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -57,7 +54,7 @@ export default function Login() {
     <div className="auth-container">
       {/* Left Column - Content */}
       <div className="auth-left">
-        <div className="auth-content">
+        <div className="auth-content glass-card">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
@@ -129,6 +126,7 @@ export default function Login() {
         >
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
+        <div className="auth-overlay" />
       </div>
 
     </div>

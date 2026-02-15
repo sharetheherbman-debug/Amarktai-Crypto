@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { toast } from 'sonner';
-import { API_BASE } from '../../lib/api.js';
-
-const API = API_BASE;
+import { post, notifyError } from '../../lib/apiClient';
 
 export const CreateBotSection = ({ token, onBotCreated }) => {
   const [botName, setBotName] = useState('');
@@ -11,8 +8,6 @@ export const CreateBotSection = ({ token, onBotCreated }) => {
   const [botCapital, setBotCapital] = useState('1000');
   const [botRisk, setBotRisk] = useState('safe');
   const [creating, setCreating] = useState(false);
-
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
 
   const handleCreateBot = async (e) => {
     e.preventDefault();
@@ -29,12 +24,12 @@ export const CreateBotSection = ({ token, onBotCreated }) => {
 
     setCreating(true);
     try {
-      await axios.post(`${API}/bots`, {
+      await post('/bots', {
         name: botName,
         initial_capital: parseFloat(botCapital),
         risk_mode: botRisk,
         exchange: botExchange
-      }, axiosConfig);
+      });
       
       toast.success(`Bot "${botName}" created successfully!`);
       setBotName('');
@@ -43,6 +38,7 @@ export const CreateBotSection = ({ token, onBotCreated }) => {
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Failed to create bot';
       toast.error(msg);
+      notifyError(err);
     } finally {
       setCreating(false);
     }

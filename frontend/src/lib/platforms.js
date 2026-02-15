@@ -11,7 +11,7 @@
  * - gate
  */
 
-import { API_BASE } from './api';
+import { get, notifyError } from './apiClient';
 
 // Platform configuration with defaults
 export const PLATFORMS = {
@@ -93,19 +93,9 @@ export const PLATFORM_LIST = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'b
 /**
  * Fetch platforms from backend with their enabled status and limits
  */
-export async function fetchPlatforms(token) {
+export async function fetchPlatforms() {
   try {
-    const response = await fetch(`${API_BASE}/system/platforms`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch platforms: ${response.statusText}`);
-    }
-
-    const data = await response.json();
+    const data = await get('/system/platforms');
     
     // Merge backend data with static configuration
     const platforms = data.platforms || [];
@@ -117,6 +107,7 @@ export async function fetchPlatforms(token) {
     }));
   } catch (error) {
     console.error('Error fetching platforms:', error);
+    notifyError(error);
     
     // Return default platform list with config from PLATFORMS constant
     return PLATFORM_LIST.map(id => ({

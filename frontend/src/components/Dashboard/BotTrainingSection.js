@@ -1,39 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { toast } from 'sonner';
-import { API_BASE } from '../../lib/api.js';
-
-const API = API_BASE;
+import { get, post, notifyError } from '../../lib/apiClient';
 
 const BotTrainingSection = () => {
   const [trainingHistory, setTrainingHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const token = localStorage.getItem('token');
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
-  
   useEffect(() => {
     fetchTrainingHistory();
   }, []);
   
   const fetchTrainingHistory = async () => {
     try {
-      const response = await axios.get(`${API}/training/history`, axiosConfig);
-      setTrainingHistory(response.data.history || []);
+      const data = await get('/training/history');
+      setTrainingHistory(data.history || []);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch training history:', error);
+      notifyError(error);
       setLoading(false);
     }
   };
   
   const startTraining = async (botId) => {
     try {
-      await axios.post(`${API}/training/start`, { bot_id: botId }, axiosConfig);
+      await post('/training/start', { bot_id: botId });
       toast.success('Training started successfully');
       fetchTrainingHistory();
     } catch (error) {
       console.error('Failed to start training:', error);
       toast.error('Failed to start training');
+      notifyError(error);
     }
   };
   

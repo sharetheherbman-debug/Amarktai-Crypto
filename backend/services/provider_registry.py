@@ -106,14 +106,13 @@ async def test_flokx(api_key: str, api_secret: Optional[str] = None) -> tuple[bo
 async def test_fetchai(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
     """Test Fetch.ai API key"""
     try:
-        # Fetch.ai uses agent addresses, validate format
-        if not api_key.startswith("agent"):
-            return False, "API key must start with 'agent'"
-        
-        if len(api_key) < 20:
-            return False, "API key too short"
-        
-        # Basic format validation passed
+        normalized_key = (api_key or "").strip()
+        if not normalized_key:
+            return False, "Fetch.ai API key is required"
+        if len(normalized_key) < 20:
+            return False, "Fetch.ai API key is too short (minimum 20 characters)"
+
+        # Basic format validation passed (no stable test endpoint available)
         return True, None
     except Exception as e:
         return False, f"Test failed: {str(e)[:100]}"
