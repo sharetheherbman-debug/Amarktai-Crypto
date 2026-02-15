@@ -20,6 +20,7 @@ from services.system_gate import system_gate
 from services.trading_mode_validator import trading_mode_validator
 from services.live_gate_service import live_gate_service
 from utils.trading_gates import TradingGateError, enforce_live_trading_gates
+from utils.trading_mode import resolve_bot_trading_mode
 from services.bot_runtime_state import bot_runtime_state
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,7 @@ class BotPauseReason:
 
 def _is_paper_bot(bot: dict) -> bool:
     """Return True when bot mode resolves to paper."""
-    raw_mode = bot.get('trading_mode') or bot.get('mode') or 'paper'
-    return str(raw_mode).strip().lower().startswith('paper')
+    return resolve_bot_trading_mode(bot).startswith('paper')
 
 class TradingScheduler:
     """CONTINUOUS STAGGERED TRADING - Uses trade_staggerer for 24/7 execution"""

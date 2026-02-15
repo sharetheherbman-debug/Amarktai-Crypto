@@ -3706,7 +3706,7 @@
     {
       "file": "docs/IMPLEMENTATION_COMPLETE.md",
       "line": 9,
-      "text": "- \u2705 Clean codebase (VALR/OVEX/Emergent removed)"
+      "text": "- \u2705 Clean codebase (VALR/OVEX/Legacy AI removed)"
     },
     {
       "file": "docs/IMPLEMENTATION_COMPLETE.md",
@@ -3746,7 +3746,7 @@
     {
       "file": "docs/IMPLEMENTATION_COMPLETE.md",
       "line": 277,
-      "text": "4. Clean (no VALR/OVEX/Emergent confusion)"
+      "text": "4. Clean (no VALR/OVEX/Legacy AI confusion)"
     },
     {
       "file": "docs/GO_LIVE_FIX_DEPLOYMENT.md",
@@ -3761,12 +3761,12 @@
     {
       "file": "docs/INDEX.md",
       "line": 133,
-      "text": "> **Note**: VALR, OVEX, and Emergent are **not supported**."
+      "text": "> **Note**: VALR, OVEX, and Legacy AI are **not supported**."
     },
     {
       "file": "docs/VERIFICATION_REPORT.md",
       "line": 7,
-      "text": "## A) DELETE Emergent/VALR/OVEX - \u2705 COMPLETE"
+      "text": "## A) DELETE Legacy AI/VALR/OVEX - \u2705 COMPLETE"
     },
     {
       "file": "docs/VERIFICATION_REPORT.md",
@@ -3811,22 +3811,22 @@
     {
       "file": "docs/VERIFICATION_REPORT.md",
       "line": 218,
-      "text": "# No VALR/OVEX/Emergent in active code"
+      "text": "# No VALR/OVEX/Legacy AI in active code"
     },
     {
       "file": "docs/VERIFICATION_REPORT.md",
       "line": 219,
-      "text": "grep -RIn \"emergent\\|valr\\|ovex\" backend/ --include=\"*.py\" --exclude-dir=\"_archive\" --exclude-dir=\"t"
+      "text": "grep -RIn \"legacy_ai\\|valr\\|ovex\" backend/ --include=\"*.py\" --exclude-dir=\"_archive\" --exclude-dir=\"t"
     },
     {
       "file": "docs/VERIFICATION_REPORT.md",
       "line": 249,
-      "text": "1. \u2705 DELETE Emergent/VALR/OVEX from active code"
+      "text": "1. \u2705 DELETE Legacy AI/VALR/OVEX from active code"
     },
     {
       "file": "docs/VERIFICATION_REPORT.md",
       "line": 268,
-      "text": "- \u2705 Clean codebase (no VALR/OVEX/Emergent confusion)"
+      "text": "- \u2705 Clean codebase (no VALR/OVEX/Legacy AI confusion)"
     },
     {
       "file": "docs/TRANSFER_IMPLEMENTATION_COMPLETE.md",
@@ -3866,12 +3866,12 @@
     {
       "file": "docs/PRODUCTION_STATUS.md",
       "line": 9,
-      "text": "- \u2705 VALR/OVEX/Emergent removed from active code"
+      "text": "- \u2705 VALR/OVEX/Legacy AI removed from active code"
     },
     {
       "file": "docs/PRODUCTION_STATUS.md",
       "line": 212,
-      "text": "1. \u2705 Exchanges - COMPLETE (7 only, no VALR/OVEX/Emergent)"
+      "text": "1. \u2705 Exchanges - COMPLETE (7 only, no VALR/OVEX/Legacy AI)"
     },
     {
       "file": "docs/IMPLEMENTATION_STATUS.md",
@@ -5131,7 +5131,7 @@
     {
       "file": "scripts/smoke.sh",
       "line": 284,
-      "text": "echo \"VALR/OVEX/Emergent Cleanup Tests\""
+      "text": "echo \"VALR/OVEX/Legacy AI Cleanup Tests\""
     },
     {
       "file": "scripts/smoke.sh",
@@ -5156,12 +5156,12 @@
     {
       "file": "scripts/cleanup_repo.py",
       "line": 4,
-      "text": "Removes all traces of Emergent, VALR, and OVEX from documentation files"
+      "text": "Removes all traces of Legacy AI, VALR, and OVEX from documentation files"
     },
     {
       "file": "scripts/cleanup_repo.py",
       "line": 79,
-      "text": "Remove VALR/OVEX/Emergent references from a file"
+      "text": "Remove VALR/OVEX/Legacy AI references from a file"
     },
     {
       "file": "scripts/cleanup_repo.py",
@@ -5186,12 +5186,12 @@
     {
       "file": "scripts/cleanup_repo.py",
       "line": 172,
-      "text": "print(\"REPOSITORY CLEANUP - Removing Emergent/VALR/OVEX traces\")"
+      "text": "print(\"REPOSITORY CLEANUP - Removing Legacy AI/VALR/OVEX traces\")"
     },
     {
       "file": "scripts/cleanup_repo.py",
       "line": 190,
-      "text": "print(\"1. Run: grep -RIn 'valr\\\\|ovex\\\\|emergent' . | grep -v '.git' | grep -v 'audit'\")"
+      "text": "print(\"1. Run: grep -RIn 'valr\\\\|ovex\\\\|legacy_ai' . | grep -v '.git' | grep -v 'audit'\")"
     },
     {
       "file": "scripts/smoke_test.sh",
@@ -5241,12 +5241,12 @@
     {
       "file": "scripts/verify_deployment.py",
       "line": 208,
-      "text": "\"\"\"Verify no VALR/OVEX/Emergent in active code\"\"\""
+      "text": "\"\"\"Verify no VALR/OVEX/Legacy AI in active code\"\"\""
     },
     {
       "file": "scripts/verify_deployment.py",
       "line": 209,
-      "text": "logger.info(\"\\n=== VALR/OVEX/EMERGENT CLEANUP VERIFICATION ===\")"
+      "text": "logger.info(\"\\n=== VALR/OVEX/LEGACY_AI CLEANUP VERIFICATION ===\")"
     },
     {
       "file": "scripts/verify_deployment.py",
@@ -5266,12 +5266,12 @@
     {
       "file": "scripts/verify_deployment.py",
       "line": 236,
-      "text": "logger.error(f\"\u274c Found {len(violations)} VALR/OVEX/Emergent violations:\")"
+      "text": "logger.error(f\"\u274c Found {len(violations)} VALR/OVEX/Legacy AI violations:\")"
     },
     {
       "file": "scripts/verify_deployment.py",
       "line": 241,
-      "text": "logger.info(\"\u2705 No VALR/OVEX/Emergent in active backend code\")"
+      "text": "logger.info(\"\u2705 No VALR/OVEX/Legacy AI in active backend code\")"
     },
     {
       "file": "scripts/comprehensive_audit.sh",

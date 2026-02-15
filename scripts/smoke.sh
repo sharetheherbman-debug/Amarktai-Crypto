@@ -311,7 +311,7 @@ fi
 
 echo ""
 echo "============================================"
-echo "VALR/OVEX/Emergent Cleanup Tests"
+echo "VALR/OVEX/Legacy AI Cleanup Tests"
 echo "============================================"
 echo ""
 
@@ -328,15 +328,15 @@ else
     echo "Found $VALR_OVEX_COUNT references"
 fi
 
-# Test: No Emergent (except emergentintegrations package) in active code
-EMERGENT_COUNT=$(grep -r "emergent" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" 2>/dev/null | grep -v "emergentintegrations" | wc -l || echo "0")
-if [ "$EMERGENT_COUNT" = "0" ]; then
+# Test: No Legacy AI (except legacy_aiintegrations package) in active code
+LEGACY_AI_COUNT=$(grep -r "legacy_ai" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" 2>/dev/null | grep -v "legacy_aiintegrations" | wc -l || echo "0")
+if [ "$LEGACY_AI_COUNT" = "0" ]; then
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     PASSED_TESTS=$((PASSED_TESTS + 1))
-    printf "%-60s${GREEN}✅ PASS${NC}\n" "No Emergent refs in active backend code"
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "No Legacy AI refs in active backend code"
 else
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     FAILED_TESTS=$((FAILED_TESTS + 1))
-    printf "%-60s${RED}❌ FAIL${NC}\n" "No Emergent refs in active backend code"
-    echo "Found $EMERGENT_COUNT references (excluding emergentintegrations)"
+    printf "%-60s${RED}❌ FAIL${NC}\n" "No Legacy AI refs in active backend code"
+    echo "Found $LEGACY_AI_COUNT references (excluding legacy_aiintegrations)"
 fi

@@ -12,6 +12,7 @@ from typing import Dict, Optional, Tuple
 import database as db
 from realtime_events import rt_events
 from websocket_manager import manager
+from utils.trading_mode import resolve_bot_trading_mode
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,13 @@ RESUME_HYSTERESIS = float(os.getenv('BODYGUARD_RESUME_HYSTERESIS', '2.0'))
 
 # Cooldown period after pause (minutes)
 PAUSE_COOLDOWN_MINUTES = int(os.getenv('BODYGUARD_PAUSE_COOLDOWN_MINUTES', '30'))
-BREACH_CONFIRMATIONS_REQUIRED = int(os.getenv('BODYGUARD_BREACH_CONFIRMATIONS', '2'))
+_DEFAULT_BREACH_CONFIRMATIONS = int(os.getenv('BODYGUARD_BREACH_CONFIRMATIONS', '2'))
+# BODYGUARD_BREACH_STREAK takes precedence; BODYGUARD_BREACH_CONFIRMATIONS remains backward-compatible fallback.
+BREACH_CONFIRMATIONS_REQUIRED = int(os.getenv('BODYGUARD_BREACH_STREAK', str(_DEFAULT_BREACH_CONFIRMATIONS)))
 BREACH_CONFIRMATION_WINDOW_MINUTES = int(os.getenv('BODYGUARD_BREACH_WINDOW_MINUTES', '15'))
 EXTREME_DRAWDOWN_MULTIPLIER = float(os.getenv('BODYGUARD_EXTREME_DRAWDOWN_MULTIPLIER', '1.5'))
+MIN_TRADES_FOR_BODYGUARD = int(os.getenv('MIN_TRADES_FOR_BODYGUARD', '3'))
+BODYGUARD_MIN_RUNTIME_SECONDS = int(os.getenv('BODYGUARD_MIN_RUNTIME_SECONDS', '180'))
 
 # Win-aware thresholds
 MIN_TRADES_FOR_WIN_CHECK = 10  # Need at least 10 trades to assess profitability
@@ -191,9 +196,15 @@ class BodyguardService:
                     risk_mode = "balanced"
             if not risk_mode:
                 risk_mode = "balanced"
-            trading_mode = str(bot.get('trading_mode', bot.get('mode', 'paper'))).strip().lower()
+            trading_mode = resolve_bot_trading_mode(bot)
             risk_profile = (risk_mode or "balanced").lower()
             threshold = self._get_drawdown_threshold(trading_mode, risk_profile)
+            now = datetime.now(timezone.utc)
+
+            created_at = self._parse_datetime(bot.get("created_at"))
+            runtime_seconds = (now - created_at).total_seconds() if created_at else 0
+            trades_count = int(bot.get("trades_count") or 0)
+            in_warmup = trades_count < MIN_TRADES_FOR_BODYGUARD and runtime_seconds < BODYGUARD_MIN_RUNTIME_SECONDS
 
             exchange = bot.get('exchange', '').lower()
             pair = bot.get('pair', '')
@@ -239,7 +250,7 @@ class BodyguardService:
             bot_status = bot.get('status', 'active')
             paused_by_bodyguard = bot.get('paused_by_bodyguard', False)
             last_pause_at = self._parse_datetime(bot.get('bodyguard_last_pause_at'))
-            now = datetime.now(timezone.utc)
+            
             
             # Check if we hit new equity peak (recovery)
             if current_equity >= equity_peak:
@@ -264,6 +275,19 @@ class BodyguardService:
 
             # Check if currently active and drawdown exceeds threshold
             if bot_status == 'active' and current_drawdown_pct >= threshold:
+                if in_warmup:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {
+                            "bodyguard_warmup": True,
+                            "bodyguard_warmup_reason": (
+                                f"Warmup active ({trades_count}/{MIN_TRADES_FOR_BODYGUARD} trades, "
+                                f"{int(runtime_seconds)}/{BODYGUARD_MIN_RUNTIME_SECONDS}s)"
+                            )
+                        }}
+                    )
+                    logger.info("🛡️ Bodyguard warmup skip for bot %s", bot.get('name'))
+                    return False, None
                 if last_pause_at:
                     cooldown_until = last_pause_at + timedelta(minutes=PAUSE_COOLDOWN_MINUTES)
                     if now < cooldown_until:
@@ -395,7 +419,7 @@ class BodyguardService:
         try:
             bot_name = bot.get('name', 'Unknown')
             risk_mode = bot.get('risk_mode', 'balanced')
-            trading_mode = str(bot.get('trading_mode', bot.get('mode', 'paper'))).strip().lower()
+            trading_mode = resolve_bot_trading_mode(bot)
             
             # Determine action based on mode
             if trading_mode.startswith('paper'):
@@ -645,7 +669,7 @@ class BodyguardService:
                 return None
             
             risk_mode = bot.get('risk_mode', 'balanced')
-            trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
+            trading_mode = resolve_bot_trading_mode(bot)
             threshold = self._get_drawdown_threshold(trading_mode, risk_mode)
             
             exchange = bot.get('exchange', '').lower()

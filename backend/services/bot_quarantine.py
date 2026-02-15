@@ -3,19 +3,27 @@ Bot Quarantine & Auto-Retraining Service
 Ensures no bots remain paused indefinitely
 """
 import asyncio
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 import logging
 import database as db
+from utils.trading_mode import resolve_bot_trading_mode
 
 logger = logging.getLogger(__name__)
 
 # Quarantine durations (in seconds)
 QUARANTINE_DURATIONS = {
-    1: 3600,      # 1st pause: 1 hour
+    1: int(os.getenv("PAPER_QUARANTINE_FIRST_SECONDS", "60")),  # 1st pause: configurable (default 60s for paper)
     2: 10800,     # 2nd pause: 3 hours  
     3: 86400,     # 3rd pause: 24 hours
     4: None       # 4th pause: delete & regenerate
+}
+LIVE_QUARANTINE_DURATIONS = {
+    1: int(os.getenv("LIVE_QUARANTINE_FIRST_SECONDS", "3600")),
+    2: 10800,
+    3: 86400,
+    4: None,
 }
 
 NON_STRATEGY_REASON_CODES = {
@@ -50,7 +58,7 @@ class BotQuarantineService:
             if not bot:
                 return {"error": "Bot not found"}
 
-            trading_mode = str(bot.get("trading_mode") or bot.get("mode") or "paper").strip().lower()
+            trading_mode = resolve_bot_trading_mode(bot)
             is_paper = trading_mode.startswith("paper")
             reason_code = str(metadata.get("reason_code") or reason or "").strip().upper().replace(" ", "_")
 
@@ -89,7 +97,8 @@ class BotQuarantineService:
                 }
             else:
                 # 1st/2nd/3rd pause: Quarantine with retraining
-                duration = QUARANTINE_DURATIONS[quarantine_count]
+                durations = QUARANTINE_DURATIONS if is_paper else LIVE_QUARANTINE_DURATIONS
+                duration = durations[quarantine_count]
                 if is_paper and reason_code in NON_STRATEGY_REASON_CODES:
                     duration = min(duration, 60)
                 retraining_until = datetime.now(timezone.utc) + timedelta(seconds=duration)

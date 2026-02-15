@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from auth import get_current_user
 import database as db
 from engines.audit_logger import audit_logger
+from services.emergency_stop_override_service import emergency_stop_override_service
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,9 @@ async def get_emergency_stop_status(user_id: str = Depends(get_current_user)):
                 "activated_by": None
             }
         
-        is_active = modes.get('emergencyStop', False)
+        stored_active = modes.get('emergencyStop', False)
+        evaluation = await emergency_stop_override_service.evaluate(user_id, stored_active)
+        is_active = evaluation["effective_active"]
         
         return {
             "success": True,
@@ -164,7 +167,12 @@ async def get_emergency_stop_status(user_id: str = Depends(get_current_user)):
             "active": is_active,
             "reason": modes.get('emergency_stop_reason'),
             "updated_at": modes.get('emergency_stop_at'),
-            "activated_by": modes.get('emergency_stop_by')
+            "activated_by": modes.get('emergency_stop_by'),
+            "override": {
+                "global_disabled": evaluation["global_disabled"],
+                "user_disabled": evaluation["user_disabled"],
+                "user_reason": evaluation["user_override"].get("reason")
+            }
         }
         
     except Exception as e:
@@ -197,7 +205,9 @@ async def get_emergency_gates_status(user_id: str = Depends(get_current_user)):
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         
         # Emergency stop status
-        emergency_stop = modes.get('emergencyStop', False) if modes else False
+        stored_emergency_stop = modes.get('emergencyStop', False) if modes else False
+        evaluation = await emergency_stop_override_service.evaluate(user_id, stored_emergency_stop)
+        emergency_stop = evaluation["effective_active"]
         
         # Check environment and user toggles for live trading
         env_live_enabled = env_bool("ENABLE_LIVE_TRADING", False) or env_bool("LIVE_TRADING", False)
@@ -239,7 +249,11 @@ async def get_emergency_gates_status(user_id: str = Depends(get_current_user)):
                 "user_live_gate": user_live_enabled,
                 "env_autopilot_gate": env_autopilot_enabled,
                 "user_autopilot_gate": user_autopilot_enabled,
-                "emergency_stop_gate": not emergency_stop
+                "emergency_stop_gate": not emergency_stop,
+                "emergency_stop_override": {
+                    "global_disabled": evaluation["global_disabled"],
+                    "user_disabled": evaluation["user_disabled"]
+                }
             },
             "timestamp": datetime.now(timezone.utc).isoformat()
         }

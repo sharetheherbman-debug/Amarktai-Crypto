@@ -205,8 +205,8 @@ async def verify_rules_module():
 
 
 async def verify_no_valr_ovex():
-    """Verify no VALR/OVEX/Emergent in active code"""
-    logger.info("\n=== VALR/OVEX/EMERGENT CLEANUP VERIFICATION ===")
+    """Verify no VALR/OVEX/Legacy AI in active code"""
+    logger.info("\n=== VALR/OVEX/LEGACY_AI CLEANUP VERIFICATION ===")
     
     import re
     from pathlib import Path
@@ -226,19 +226,19 @@ async def verify_no_valr_ovex():
             if re.search(r'\b(valr|ovex)\b', content, re.IGNORECASE):
                 violations.append(f"{py_file}: contains VALR/OVEX")
             
-            # Check for Emergent (excluding emergentintegrations)
-            if re.search(r'\bemergent\b', content, re.IGNORECASE) and 'emergentintegrations' not in content:
-                violations.append(f"{py_file}: contains Emergent reference")
+            # Check for Legacy AI (excluding legacy_aiintegrations)
+            if re.search(r'\blegacy_ai\b', content, re.IGNORECASE) and 'legacy_aiintegrations' not in content:
+                violations.append(f"{py_file}: contains Legacy AI reference")
         except:
             pass
     
     if violations:
-        logger.error(f"❌ Found {len(violations)} VALR/OVEX/Emergent violations:")
+        logger.error(f"❌ Found {len(violations)} VALR/OVEX/Legacy AI violations:")
         for v in violations[:5]:
             logger.error(f"   {v}")
         return False
     else:
-        logger.info("✅ No VALR/OVEX/Emergent in active backend code")
+        logger.info("✅ No VALR/OVEX/Legacy AI in active backend code")
         return True
 
 

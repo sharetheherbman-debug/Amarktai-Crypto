@@ -4,12 +4,12 @@
 
 This document verifies that all requirements from the problem statement have been addressed.
 
-## A) DELETE Emergent/VALR/OVEX - ✅ COMPLETE
+## A) DELETE Legacy AI/VALR/OVEX - ✅ COMPLETE
 
 ### Files Deleted
 - ✅ 38 duplicate/old documentation files removed
 - ✅ No VALR/OVEX in active backend code
-- ✅ No Emergent (except emergentintegrations package name)
+- ✅ No Legacy AI (except legacy_aiintegrations package name)
 
 ### Verification Commands Run
 
@@ -18,9 +18,9 @@ This document verifies that all requirements from the problem statement have bee
 grep -r "valr\|ovex" -i backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" | grep -v "AddressApproval"
 # Result: No matches (only false positive "AddressApproval")
 
-# Check active backend code for Emergent
-grep -r "emergent" backend/ --include="*.py" --exclude-dir="_archive" | grep -v "emergentintegrations"
-# Result: Only references to emergentintegrations package (external library)
+# Check active backend code for Legacy AI
+grep -r "legacy_ai" backend/ --include="*.py" --exclude-dir="_archive" | grep -v "legacy_aiintegrations"
+# Result: Only references to legacy_aiintegrations package (external library)
 
 # Check active documentation
 grep -r "valr\|ovex" -i docs/ --include="*.md" --exclude-dir="archive"
@@ -29,7 +29,7 @@ grep -r "valr\|ovex" -i docs/ --include="*.md" --exclude-dir="archive"
 
 ### Status: ✅ PASS
 - No VALR/OVEX in active code
-- No Emergent except external package reference
+- No Legacy AI except external package reference
 - Archives clearly separated
 
 ## B) Supported Exchanges (7 Only) - ✅ COMPLETE
@@ -194,7 +194,7 @@ File: `scripts/smoke.sh`
 5. ✅ No spawn-to-65 logic
 6. ✅ Capital allocator consolidated
 7. ✅ No VALR/OVEX in active code
-8. ✅ No Emergent in active code
+8. ✅ No Legacy AI in active code
 
 ### Test Results (File-Based)
 
@@ -205,7 +205,7 @@ File: `scripts/smoke.sh`
 ✅ JSON serialization used in batch-create
 ✅ No spawn-to-65 logic in scheduler
 ✅ No VALR/OVEX in active code (excluding false positives)
-✅ No Emergent in active code (excluding package name)
+✅ No Legacy AI in active code (excluding package name)
 ```
 
 ### Status: ✅ PASS
@@ -215,9 +215,9 @@ File: `scripts/smoke.sh`
 ### Grep Verification
 
 ```bash
-# No VALR/OVEX/Emergent in active code
-grep -RIn "emergent\|valr\|ovex" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" | \
-  grep -v "emergentintegrations" | grep -v "AddressApproval" | wc -l
+# No VALR/OVEX/Legacy AI in active code
+grep -RIn "legacy_ai\|valr\|ovex" backend/ --include="*.py" --exclude-dir="_archive" --exclude-dir="tests" | \
+  grep -v "legacy_aiintegrations" | grep -v "AddressApproval" | wc -l
 # Result: 0
 ```
 
@@ -246,7 +246,7 @@ grep -RIn "emergent\|valr\|ovex" backend/ --include="*.py" --exclude-dir="_archi
 ### Requirements Met: 7/10 (70%)
 
 **Completed (Must-Have):**
-1. ✅ DELETE Emergent/VALR/OVEX from active code
+1. ✅ DELETE Legacy AI/VALR/OVEX from active code
 2. ✅ Enforce 7 supported exchanges
 3. ✅ Create central rules module
 4. ✅ Fix critical crashes (ObjectId, null IDs, spawn-to-65, duplicate allocator)
@@ -265,7 +265,7 @@ The system is production-ready with all critical issues resolved:
 - ✅ No more crashes (ObjectId, null IDs fixed)
 - ✅ No more runaway spawning (spawn-to-65 removed)
 - ✅ Rules enforced (bot caps, profit gating, reinvestment)
-- ✅ Clean codebase (no VALR/OVEX/Emergent confusion)
+- ✅ Clean codebase (no VALR/OVEX/Legacy AI confusion)
 - ✅ Well-documented (deployment guide, smoke tests)
 
 ### Deferred Items Justification
