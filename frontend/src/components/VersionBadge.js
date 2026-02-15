@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Badge } from './ui/badge';
-import { API_BASE } from '../lib/api';
+import { get, notifyError } from '../lib/apiClient';
 
 /**
  * VersionBadge Component
@@ -28,16 +28,12 @@ export default function VersionBadge({ position = 'footer', showBuildInfo = fals
   useEffect(() => {
     const fetchBuildInfo = async () => {
       try {
-        const response = await fetch(`${API_BASE}/build/info`);
-        if (response.ok) {
-          const data = await response.json();
-          setBuildInfo(data);
-        } else {
-          setError('Could not fetch build info');
-        }
+        const data = await get('/build/info');
+        setBuildInfo(data);
       } catch (err) {
         console.warn('Version badge: could not fetch build info', err);
         setError(err.message);
+        notifyError(err);
       } finally {
         setLoading(false);
       }

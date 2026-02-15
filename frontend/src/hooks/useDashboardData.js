@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../lib/api.js';
+import { get, notifyError } from '../lib/apiClient';
 import { formatTimestamp } from '../lib/dateUtils.js';
 import realtimeClient from '../lib/realtime';
-
-const API = API_BASE;
 
 /**
  * Normalize live price responses into a pair->price map.
@@ -72,31 +69,30 @@ export const useDashboardData = (token) => {
   const [profitData, setProfitData] = useState(null);
   const [systemStatus, setSystemStatus] = useState(null);
 
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
-
   const loadUser = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/auth/me`, axiosConfig);
-      setUser(res.data);
+      const res = await get('/auth/me');
+      setUser(res);
     } catch (err) {
       console.error('User fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadBots = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/bots/status`, axiosConfig);
-      const botsData = res.data?.bots || res.data || [];
+      const res = await get('/bots/status');
+      const botsData = res?.bots || res || [];
       setBots(botsData);
     } catch (err) {
       console.error('Bots fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadMetrics = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/overview/snapshot`, axiosConfig);
-      const data = res.data || {};
+      const data = await get('/overview/snapshot');
       const totalProfit = Number.isFinite(Number(data.totalProfit)) ? Number(data.totalProfit) : 0;
       const activeBots = Number.isFinite(Number(data.activeBots)) ? Number(data.activeBots) : 0;
       const openPositions = Number.isFinite(Number(data.openPositions)) ? Number(data.openPositions) : 0;
@@ -110,41 +106,44 @@ export const useDashboardData = (token) => {
       });
     } catch (err) {
       console.error('Metrics fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadSystemModes = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/system/mode`, axiosConfig);
+      const data = await get('/system/mode');
       setSystemModes({
-        paperTrading: res.data.paperTrading || false,
-        liveTrading: res.data.liveTrading || false,
-        autopilot: res.data.autopilot || false
+        paperTrading: data.paperTrading || false,
+        liveTrading: data.liveTrading || false,
+        autopilot: data.autopilot || false
       });
     } catch (err) {
       console.error('System modes fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadSystemStatus = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/system/status`, axiosConfig);
-      setSystemStatus(res.data);
+      const data = await get('/system/status');
+      setSystemStatus(data);
     } catch (err) {
       console.error('System status fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadApiStatuses = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/keys/status`, axiosConfig);
-      const statusMap = res.data?.status_map || {};
+      const data = await get('/keys/status');
+      const statusMap = data?.status_map || {};
       if (Object.keys(statusMap).length > 0) {
         setApiKeys(statusMap);
         return;
       }
 
-      const keys = Array.isArray(res.data?.keys) ? res.data.keys : [];
+      const keys = Array.isArray(data?.keys) ? data.keys : [];
       const fallbackMap = keys.reduce((acc, key) => {
         if (key?.provider) {
           acc[key.provider] = {
@@ -159,42 +158,47 @@ export const useDashboardData = (token) => {
       setApiKeys(fallbackMap);
     } catch (err) {
       console.error('API keys fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadRecentTrades = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/trades/recent?limit=50`, axiosConfig);
-      setRecentTrades(res.data.trades || []);
+      const data = await get('/trades/recent?limit=50');
+      setRecentTrades(data.trades || []);
     } catch (err) {
       console.error('Recent trades fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadCountdown = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/analytics/countdown-to-million`, axiosConfig);
-      setCountdown(res.data);
+      const data = await get('/analytics/countdown-to-million');
+      setCountdown(data);
     } catch (err) {
       console.error('Countdown fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadLivePrices = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/prices/live`, axiosConfig);
-      setLivePrices(prev => normalizeLivePrices(res.data, prev));
+      const data = await get('/prices/live');
+      setLivePrices(prev => normalizeLivePrices(data, prev));
     } catch (err) {
       console.error('Live prices fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 
   const loadProfitData = useCallback(async (period = 'daily') => {
     try {
-      const res = await axios.get(`${API}/analytics/profit-history?period=${period}`, axiosConfig);
-      setProfitData(res.data);
+      const data = await get(`/analytics/profit-history?period=${period}`);
+      setProfitData(data);
     } catch (err) {
       console.error('Profit data fetch error:', err);
+      notifyError(err);
     }
   }, [token]);
 

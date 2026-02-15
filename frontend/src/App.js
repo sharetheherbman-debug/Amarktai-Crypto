@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import SiteFooter from './components/SiteFooter';
+import ErrorBoundary from './components/ErrorBoundary';
 import '@/App.css';
 
 function PrivateRoute({ children }) {
@@ -30,7 +31,9 @@ function App() {
               path="/dashboard"
               element={
                 <PrivateRoute>
-                  <Dashboard />
+                  <ErrorBoundary title="Dashboard Error" message="Unable to render dashboard view.">
+                    <Dashboard />
+                  </ErrorBoundary>
                 </PrivateRoute>
               }
             />

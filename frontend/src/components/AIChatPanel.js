@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, AlertTriangle, CheckCircle } from 'lucide-react';
+import { get, post, notifyError } from '../lib/apiClient';
 
 /**
  * AI Chat Panel Component
@@ -34,17 +35,11 @@ const AIChatPanel = ({ onAdminUnlock }) => {
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await fetch('/api/auth/me', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setUserProfile(data);
-        }
+        const data = await get('/auth/me');
+        setUserProfile(data);
       } catch (err) {
         console.error('Profile fetch error:', err);
+        notifyError(err);
       }
     };
     fetchProfile();
@@ -69,14 +64,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
   const fetchDailyGreeting = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/ai/chat/greeting', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await post('/ai/chat/greeting');
       
       const newMessages = [];
       
@@ -96,30 +84,24 @@ const AIChatPanel = ({ onAdminUnlock }) => {
       
       // Fetch and display since-last-login report
       try {
-        const sinceLoginResponse = await fetch('/api/system/since-last-login', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
+        const sinceData = await get('/system/since-last-login');
+        const reportContent = formatSinceLastLoginReport(sinceData);
+
+        newMessages.push({
+          role: 'assistant',
+          content: reportContent,
+          timestamp: new Date().toISOString(),
+          is_greeting: false
         });
-        
-        if (sinceLoginResponse.ok) {
-          const sinceData = await sinceLoginResponse.json();
-          const reportContent = formatSinceLastLoginReport(sinceData);
-          
-          newMessages.push({
-            role: 'assistant',
-            content: reportContent,
-            timestamp: new Date().toISOString(),
-            is_greeting: false
-          });
-        }
       } catch (sinceErr) {
         console.error('Failed to fetch since-last-login:', sinceErr);
+        notifyError(sinceErr);
       }
       
       setMessages(newMessages);
     } catch (err) {
       console.error('Failed to fetch daily greeting:', err);
+      notifyError(err);
       // Show fallback greeting
       setMessages([{
         role: 'assistant',
@@ -181,37 +163,27 @@ const AIChatPanel = ({ onAdminUnlock }) => {
 
   const loadRecentMessages = async () => {
     try {
-      const response = await fetch('/api/chat/history?limit=10', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await get('/chat/history?limit=10');
       if (data.messages) {
         setMessages(data.messages);
       }
     } catch (err) {
       console.error('Failed to load recent messages:', err);
+      notifyError(err);
     }
   };
 
   const loadChatHistory = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/chat/history', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await get('/chat/history');
       if (data.messages && data.messages.length > 0) {
         setMessages(data.messages);
         setShowLoadHistory(false); // Hide button after loading
       }
     } catch (err) {
       console.error('Failed to load chat history:', err);
+      notifyError(err);
     } finally {
       setLoading(false);
     }
@@ -284,34 +256,11 @@ const AIChatPanel = ({ onAdminUnlock }) => {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/chat/message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          message: trimmedInput,
-          context: 'dashboard',
-          request_action: true  // Allow AI to propose actions
-        })
+      const data = await post('/chat/message', {
+        message: trimmedInput,
+        context: 'dashboard',
+        request_action: true
       });
-
-      if (response.status === 401 || response.status === 403) {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: '⚠️ Session expired. Please login again.',
-          timestamp: new Date().toISOString(),
-          error: true
-        }]);
-        setTimeout(() => {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
-        }, 2000);
-        return;
-      }
-
-      const data = await response.json();
 
       if (data?.error_code === 'OPENAI_KEY_MISSING') {
         setMessages(prev => [...prev, {
@@ -323,7 +272,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
         return;
       }
 
-      if (!response.ok || data?.success === false || data?.error) {
+      if (data?.success === false || data?.error) {
         const errorContent = data?.reply || data?.content || data?.error || data?.detail || 'AI chat error. Please try again.';
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -371,6 +320,7 @@ const AIChatPanel = ({ onAdminUnlock }) => {
         timestamp: new Date().toISOString(),
         error: true
       }]);
+      notifyError(err);
     } finally {
       setLoading(false);
     }

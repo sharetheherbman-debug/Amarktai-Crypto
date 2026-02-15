@@ -1,13 +1,8 @@
 import React from 'react';
 import { toast } from 'sonner';
-import axios from 'axios';
-import { API_BASE } from '../../lib/api.js';
-
-const API = API_BASE;
+import { put, notifyError } from '../../lib/apiClient';
 
 export const SystemModesSection = ({ systemModes, setSystemModes, token, onEmergencyStop }) => {
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
-
   const toggleSystemMode = async (mode) => {
     const newValue = !systemModes[mode];
     
@@ -26,10 +21,11 @@ export const SystemModesSection = ({ systemModes, setSystemModes, token, onEmerg
     }
     
     try {
-      await axios.put(`${API}/system/mode`, { mode, enabled: newValue }, axiosConfig);
+      await put('/system/mode', { mode, enabled: newValue });
     } catch (err) {
       console.error('Mode toggle error:', err);
       toast.error('Failed to update mode');
+      notifyError(err);
     }
   };
 

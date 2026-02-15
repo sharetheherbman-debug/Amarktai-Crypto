@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Pause, Square, RotateCw, AlertCircle } from 'lucide-react';
+import { post, notifyError } from '../lib/apiClient';
 
 /**
  * Bot Lifecycle Controls Component
@@ -14,20 +15,11 @@ const BotLifecycleControls = ({ bot, onAction, compact = false }) => {
     setError(null);
 
     try {
-      const response = await fetch(`/api/bots/${bot.id}/${action}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          reason: `Manual ${action} by user`
-        })
+      const data = await post(`/bots/${bot.id}/${action}`, {
+        reason: `Manual ${action} by user`
       });
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
+      if (data?.success) {
         if (onAction) {
           onAction(action, data);
         }
@@ -37,6 +29,7 @@ const BotLifecycleControls = ({ bot, onAction, compact = false }) => {
       }
     } catch (err) {
       setError(`Error: ${err.message}`);
+      notifyError(err);
     } finally {
       setLoading(false);
     }

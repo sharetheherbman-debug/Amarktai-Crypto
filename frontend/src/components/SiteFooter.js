@@ -1,7 +1,8 @@
 export default function SiteFooter() {
+  const year = new Date().getFullYear();
   return (
     <footer className="site-footer">
-      Part of Amarktai Network — For personal use only.
+      © {year} Part of Amarktai Network — For personal use only.
     </footer>
   );
 }

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { toast } from 'sonner';
 import { Line } from 'react-chartjs-2';
 import {
@@ -23,14 +22,19 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import BotQuarantineSection from '../components/Dashboard/BotQuarantineSection';
 import BotTrainingSection from '../components/Dashboard/BotTrainingSection';
 import TrainingQuarantineSection from '../components/Dashboard/TrainingQuarantineSection';
-import { API_BASE, wsUrl } from '../lib/api.js';
+import { wsUrl } from '../lib/api.js';
 import { formatTimestamp } from '../utils/time.js';
 import { useRealtimeEvent } from '../hooks/useRealtime';
 import { useDashboardData, normalizeLivePrices, getBotStatus } from '../hooks/useDashboardData';
-import { post, get } from '../lib/apiClient';
+import apiClient, { post, get, notifyError } from '../lib/apiClient';
 import realtimeClient from '../lib/realtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
+import GlassCard from '@/ui/components/GlassCard';
+import SectionHeader from '@/ui/components/SectionHeader';
+import Badge from '@/ui/components/Badge';
+import ModalConfirm from '@/ui/components/ModalConfirm';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/ui/components/Drawer';
 
 ChartJS.register(
   CategoryScale,
@@ -43,7 +47,8 @@ ChartJS.register(
   Filler
 );
 
-const API = API_BASE;
+const API = '';
+const axios = apiClient;
 // Admin password is verified on backend only - no hardcoded password in frontend
 // Backend validates against ADMIN_PASSWORD environment variable
 const APP_VERSION = '1.0.6'; // Increment this to force cache clear
@@ -130,7 +135,7 @@ const formatSpawnReason = (reason) => {
     const pattern = /\b(need|have)\s+(-?\d+(?:\.\d+)?)\s*([a-zA-Z]+)/gi;
     let match;
     while ((match = pattern.exec(details)) !== null) {
-      const label = match[1].toLowerCase() === 'need' ? 'need' : 'current';
+      const label = match[1].toLowerCase() === 'need' ? 'Need' : 'Currently';
       const amount = match[2];
       const currencyCode = match[3].toUpperCase();
       const formattedAmount = currencyCode === 'ZAR'
@@ -139,7 +144,7 @@ const formatSpawnReason = (reason) => {
       detailsParts.push(`${label} ${formattedAmount}`);
     }
     if (detailsParts.length) {
-      details = detailsParts.join(' • ');
+      details = detailsParts.join(', ');
     } else {
       details = toTitleCase(details.replace(/[-_]+/g, ' ').toLowerCase());
     }
@@ -150,7 +155,7 @@ const formatSpawnReason = (reason) => {
 const formatReasonInline = (reason) => {
   const info = formatSpawnReason(reason);
   if (!info.details) return info.title;
-  return `${info.title}: ${info.details}`;
+  return `${info.title} — ${info.details}`;
 };
 
 export default function Dashboard() {
@@ -161,6 +166,8 @@ export default function Dashboard() {
   const [metricsTab, setMetricsTab] = useState('flokx'); // Tab state for Metrics section - default to Flokx Alerts
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
   const [profitsTab, setProfitsTab] = useState('metrics'); // Tab state for Profits & Performance parent section
+  const [botStatusFilter, setBotStatusFilter] = useState('all');
+  const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   // Admin panel state - Hidden by default each session, only shown after password unlock
   // Do NOT persist across sessions - user must unlock each time
   const [showAdmin, setShowAdmin] = useState(false);
@@ -435,14 +442,33 @@ export default function Dashboard() {
       loadSystemStats();
       loadProfitData();
       // REMOVED: Duplicate setupRealTimeConnections() call
-      
-      // Update live prices every 5 seconds
-      const priceInterval = setInterval(() => {
+
+      let priceInterval;
+      const startPolling = () => {
         loadLivePrices();
-      }, 5000);
-      
+        priceInterval = setInterval(loadLivePrices, 4000);
+      };
+
+      const stopPolling = () => {
+        if (priceInterval) {
+          clearInterval(priceInterval);
+        }
+      };
+
+      const handleVisibility = () => {
+        if (document.hidden) {
+          stopPolling();
+        } else {
+          startPolling();
+        }
+      };
+
+      startPolling();
+      document.addEventListener('visibilitychange', handleVisibility);
+
       return () => {
-        clearInterval(priceInterval);
+        stopPolling();
+        document.removeEventListener('visibilitychange', handleVisibility);
         // Don't close WebSocket here, it's managed by the first useEffect
       };
     }
@@ -1292,6 +1318,7 @@ export default function Dashboard() {
       setRiskStatus(res);
     } catch (err) {
       console.error('Risk status fetch error:', err);
+      notifyError(err);
     }
   };
 
@@ -1301,6 +1328,7 @@ export default function Dashboard() {
       setAutoSpawnStatus(res);
     } catch (err) {
       console.error('Auto-spawn status fetch error:', err);
+      notifyError(err);
       setAutoSpawnStatus(null);
     }
   };
@@ -1311,6 +1339,7 @@ export default function Dashboard() {
       setAutopilotGrowthStatus(res.data);
     } catch (err) {
       console.error('Autopilot growth status fetch error:', err);
+      notifyError(err);
       setAutopilotGrowthStatus(null);
     }
   };
@@ -1321,6 +1350,7 @@ export default function Dashboard() {
       setAutopilotReinvestStatus(res.data);
     } catch (err) {
       console.error('Autopilot reinvest status fetch error:', err);
+      notifyError(err);
       setAutopilotReinvestStatus(null);
     }
   };
@@ -2047,11 +2077,11 @@ export default function Dashboard() {
     }
   };
 
-  const handleEmergencyStop = async () => {
-    if (!window.confirm('🚨 EMERGENCY STOP: This will immediately stop ALL bots and trading activity. Continue?')) {
-      return;
-    }
-    
+  const handleEmergencyStop = () => {
+    setShowEmergencyConfirm(true);
+  };
+
+  const executeEmergencyStop = async () => {
     try {
       await axios.post(`${API}/system/emergency-stop`, {}, axiosConfig);
       showNotification('🚨 EMERGENCY STOP ACTIVATED - All systems halted', 'error');
@@ -2060,6 +2090,9 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Emergency stop error:', err);
       showNotification('Emergency stop failed', 'error');
+      notifyError(err);
+    } finally {
+      setShowEmergencyConfirm(false);
     }
   };
 
@@ -3074,11 +3107,23 @@ export default function Dashboard() {
   const renderWelcome = () => (
     <section className="section active">
       <div className="card welcome-container">
-        <img src="/assets/ai/ai-grid.svg" alt="" className="welcome-watermark" />
-        <div className="welcome-header">
-          <h2 style={{color: '#ffffff'}}>Welcome, {user?.first_name || 'User'}</h2>
-          <p>Control your AI trading system with natural language.</p>
-        </div>
+        <SectionHeader
+          title={`Welcome, ${user?.first_name || 'Trader'}`}
+          subtitle="Control your AI trading system with quick actions or natural language."
+          action={(
+            <div className="welcome-actions">
+              <button type="button" className="btn-secondary" onClick={() => showSection('api')}>
+                API Setup
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => showSection('bots')}>
+                Create Bot
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => showSection('system')}>
+                System Mode
+              </button>
+            </div>
+          )}
+        />
         
         {/* AI Tools Toggle Button */}
         <div style={{marginBottom: '16px'}}>
@@ -3251,11 +3296,33 @@ export default function Dashboard() {
       if (!Number.isFinite(numeric)) return NOT_AVAILABLE;
       return `R${numeric.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
+    const formatStatusValue = (value) => {
+      if (value === null || value === undefined || value === '') return NOT_AVAILABLE;
+      if (typeof value === 'boolean') return value ? 'Active' : 'Idle';
+      if (typeof value === 'string') return humanizeReason(value);
+      if (typeof value === 'object') {
+        return value.status || value.state || value.mode || NOT_AVAILABLE;
+      }
+      return String(value);
+    };
+    const autonomyItems = [
+      { label: 'Autopilot', value: systemModes.autopilot },
+      { label: 'Scheduler', value: autonomyStatus?.scheduler || autonomyStatus?.scheduler_status },
+      { label: 'Self-Healing', value: autonomyStatus?.self_healing || autonomyStatus?.bodyguard || riskStatus?.bodyguard_lock?.active },
+      { label: 'Learning', value: learningStatus?.status || learningStatus?.mode || learningStatus?.active }
+    ];
+    const lastAlert = Array.isArray(flokxAlerts) && flokxAlerts.length > 0 ? flokxAlerts[0] : null;
+    const lastEventTitle = lastAlert?.title || lastAlert?.pair || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
+    const lastEventDetail = lastAlert?.message || lastAlert?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');
+    const lastEventTime = lastAlert?.timestamp ? new Date(lastAlert.timestamp).toLocaleString() : formatOverviewDate(overviewData.lastTradeTime);
 
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: '#ffffff'}}>System Overview</h2>
+          <SectionHeader
+            title="Overview"
+            subtitle="System live view, autonomy status, and real-time pricing."
+          />
 
           {/* Risk Status Banner */}
           {riskStatus?.emergency_stop?.active && (
@@ -3392,78 +3459,83 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="overview-container">
-            <div className="overview-pane overview-image">
+          <div className="overview-grid">
+            <div className="overview-image-card">
               <img src="/assets/background.jpg" alt="Trading workspace" className="overview-image-asset" />
             </div>
-            <div className="overview-pane overview-content">
-              <div className="overview-scroll">
-                <div className="overview-tiles">
-                  <div className="overview-tile">
-                    <span>Total Profit</span>
-                    <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                      {formatZAR(overviewData.totalProfit)}
-                    </strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Today's Trades</span>
-                    <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Open Positions</span>
-                    <strong>{safeNumber(overviewData.openPositions, 0)}</strong>
-                  </div>
-                  <div className="overview-tile">
-                    <span>Win Rate</span>
-                    <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
-                  </div>
+            <div className="overview-live-grid">
+              <GlassCard className="overview-card">
+                <div className="overview-card-header">
+                  <h3>Live Luno Prices</h3>
+                  <span className="overview-card-meta">Updated {metrics.lastUpdate}</span>
                 </div>
-
-                <div className="overview-status-grid">
-                  <div className="status-item">
-                    <span>System Mode</span>
-                    <strong>{overviewData.systemMode?.toUpperCase() || 'PAPER'}</strong>
-                  </div>
-                  <div className="status-item">
-                    <span>AI Status</span>
-                    <strong>{aiKeyConfigured ? 'Connected' : 'Not configured'}</strong>
-                  </div>
-                  <div className="status-item">
-                    <span>Last Trade</span>
-                    <strong>{formatOverviewDate(overviewData.lastTradeTime)}</strong>
-                  </div>
-                  <div className="status-item">
-                    <span>Realtime Feed</span>
-                    <strong>{connectionStatus.ws === 'Connected' ? 'Connected' : 'Disconnected'}</strong>
-                  </div>
-                </div>
-
-                <div className="overview-live-header">
-                  <div>
-                    <h3>Realtime Luno Live Prices</h3>
-                    <p>Streaming spot prices for primary ZAR pairs.</p>
-                  </div>
-                  <span className="overview-live-update">Last update: {metrics.lastUpdate}</span>
-                </div>
-                <div className="overview-live-prices">
+                <div className="overview-price-list">
                   {pricePairs.map(({ label, key }) => {
                     const entry = livePrices?.[key] || {};
                     const change = Number(entry.change || 0);
                     return (
-                      <div key={label} className="overview-live-card">
-                        <span className="overview-live-label">{label}</span>
-                        <strong className="overview-live-price">{formatLivePrice(entry.price)}</strong>
-                        <span
-                          className="overview-live-change"
-                          style={{ color: change >= 0 ? 'var(--success)' : 'var(--error)' }}
-                        >
+                      <div key={label} className="overview-price-row">
+                        <div>
+                          <span>{label}</span>
+                          <strong>{formatLivePrice(entry.price)}</strong>
+                        </div>
+                        <span className={`overview-price-change ${change >= 0 ? 'up' : 'down'}`}>
                           {change >= 0 ? '+' : ''}{safeToFixed(change, 2)}%
                         </span>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              </GlassCard>
+
+              <GlassCard className="overview-card">
+                <div className="overview-card-header">
+                  <h3>Autonomy Status</h3>
+                  <span className="overview-card-meta">{aiKeyConfigured ? 'AI Connected' : 'AI Offline'}</span>
+                </div>
+                <div className="overview-status-list">
+                  {autonomyItems.map(item => (
+                    <div key={item.label} className="overview-status-row">
+                      <span>{item.label}</span>
+                      <strong>{formatStatusValue(item.value)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+
+              <GlassCard className="overview-card">
+                <div className="overview-card-header">
+                  <h3>Today So Far</h3>
+                  <span className="overview-card-meta">{overviewData.systemMode?.toUpperCase() || modeLabel}</span>
+                </div>
+                <div className="overview-summary-grid">
+                  <div>
+                    <span>Trades</span>
+                    <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Win Rate</span>
+                    <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
+                  </div>
+                  <div>
+                    <span>Net P&amp;L</span>
+                    <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+                      {formatZAR(overviewData.totalProfit)}
+                    </strong>
+                  </div>
+                </div>
+              </GlassCard>
+
+              <GlassCard className="overview-card">
+                <div className="overview-card-header">
+                  <h3>Last Notable Event</h3>
+                  <span className="overview-card-meta">{lastEventTime}</span>
+                </div>
+                <div className="overview-event">
+                  <strong>{lastEventTitle}</strong>
+                  <p>{lastEventDetail}</p>
+                </div>
+              </GlassCard>
             </div>
           </div>
         </div>
@@ -6273,7 +6345,10 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: 'var(--text)'}}>🔑 API Setup</h2>
+          <SectionHeader
+            title="🔑 API Setup"
+            subtitle="Manage provider credentials and run key tests from a single command center view."
+          />
           <div className="api-setup-split">
             <div className="api-setup-panel">
               <APIKeySettings />
@@ -6287,11 +6362,21 @@ export default function Dashboard() {
   const renderApiSetup = renderAPIKeys;
 
   const renderBots = () => {
-    const filteredBots = bots.filter(bot => platformFilter === 'all' || bot.exchange === platformFilter);
+    const matchesStatusFilter = (bot) => {
+      const status = getBotStatus(bot);
+      if (botStatusFilter === 'active') return status === 'active';
+      if (botStatusFilter === 'paused') return ['paused', 'paused_ready', 'paused_by_user'].includes(status);
+      if (botStatusFilter === 'training') return status?.includes('train') || bot?.training_complete === false;
+      if (botStatusFilter === 'quarantined') return status?.includes('quarantine') || bot?.quarantine_active || bot?.in_quarantine;
+      return true;
+    };
+    const filteredBots = bots.filter(bot =>
+      (platformFilter === 'all' || bot.exchange === platformFilter) && matchesStatusFilter(bot)
+    );
     const resolvedSelectedBotId = filteredBots.some(bot => bot.id === selectedBotDetailId)
       ? selectedBotDetailId
-      : filteredBots[0]?.id;
-    const selectedBot = filteredBots.find(bot => bot.id === resolvedSelectedBotId) || null;
+      : null;
+    const selectedBot = resolvedSelectedBotId ? filteredBots.find(bot => bot.id === resolvedSelectedBotId) : null;
     const selectedBotMode = selectedBot?.trading_mode || selectedBot?.mode || 'paper';
     const selectedIsLive = selectedBotMode === 'live';
     const selectedStatus = selectedBot ? getBotStatus(selectedBot) : null;
@@ -6371,7 +6456,28 @@ export default function Dashboard() {
     return (
       <section className="section active">
         <div className="card">
-          <h2 style={{color: 'var(--text)'}}>🤖 Bot Management</h2>
+          <SectionHeader
+            title="🤖 Bot Management"
+            subtitle="Track active bots, pause states, and drill into detailed bot telemetry."
+          />
+          <div className="bot-filter-row">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'active', label: 'Active' },
+              { id: 'paused', label: 'Paused' },
+              { id: 'training', label: 'Training' },
+              { id: 'quarantined', label: 'Quarantined' }
+            ].map(filter => (
+              <button
+                key={filter.id}
+                type="button"
+                className={`bot-filter-chip ${botStatusFilter === filter.id ? 'active' : ''}`}
+                onClick={() => setBotStatusFilter(filter.id)}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
           <div className="bot-tabs">
             <button
               className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}
@@ -6562,77 +6668,86 @@ export default function Dashboard() {
                     })
                   )}
                 </div>
-                <div className="bot-detail">
-                  {!selectedBot ? (
-                    <div className="bot-empty">Select a bot to see details.</div>
-                  ) : (
-                    <>
-                      <div className="bot-detail-header">
-                        <div>
-                          <h4>{selectedBot.name || 'Bot Detail'}</h4>
-                          <span>
-                            {selectedExchangeLabel} • {selectedIsLive ? 'Live' : 'Paper'} • {selectedStatusLabel}
-                          </span>
+                <Drawer
+                  open={Boolean(selectedBot)}
+                  onOpenChange={(open) => {
+                    if (!open) {
+                      setSelectedBotDetailId(null);
+                    }
+                  }}
+                >
+                  <DrawerContent className="bot-detail-drawer">
+                    {selectedBot && (
+                      <>
+                        <DrawerHeader>
+                          <DrawerTitle>{selectedBot.name || 'Bot Detail'}</DrawerTitle>
+                        </DrawerHeader>
+                        <div className="bot-detail-header">
+                          <div>
+                            <span>
+                              {selectedExchangeLabel} • {selectedIsLive ? 'Live' : 'Paper'} • {selectedStatusLabel}
+                            </span>
+                          </div>
+                          <span className={`bot-status-pill ${selectedStatusTone}`}>{selectedStatusLabel}</span>
                         </div>
-                        <span className={`bot-status-pill ${selectedStatusTone}`}>{selectedStatusLabel}</span>
-                      </div>
-                      {selectedPauseReasonDisplay !== NOT_AVAILABLE && (
-                        <div className="bot-detail-alert">
-                          <strong>Pause reason:</strong> {selectedPauseReasonDisplay}
-                        </div>
-                      )}
-                      <div className="bot-detail-tabs">
-                        {['overview', 'performance', 'risk', 'trades', 'settings'].map(tab => (
-                          <button
-                            key={tab}
-                            type="button"
-                            className={`bot-detail-tab ${botDetailTab === tab ? 'active' : ''}`}
-                            onClick={() => setBotDetailTab(tab)}
-                          >
-                            {tab}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="bot-detail-body">
-                        {botDetailTab === 'overview' && renderBotDetailGrid(botDetailSections.overview)}
-                        {botDetailTab === 'performance' && renderBotDetailGrid(botDetailSections.performance)}
-                        {botDetailTab === 'risk' && renderBotDetailGrid(botDetailSections.risk)}
-                        {botDetailTab === 'trades' && renderBotDetailGrid(botDetailSections.trades)}
-                        {botDetailTab === 'settings' && (
-                          <div className="bot-detail-settings">
-                            {renderBotDetailGrid(botDetailSections.settings)}
-                            <div className="bot-detail-raw">
-                              {Object.entries(selectedBot).map(([key, value]) => (
-                                <div key={key} className="bot-detail-row">
-                                  <span className="bot-detail-key">{toTitleCase(key.replace(/_/g, ' '))}</span>
-                                  <span className="bot-detail-value">{formatDetailValue(value)}</span>
-                                </div>
-                              ))}
-                            </div>
+                        {selectedPauseReasonDisplay !== NOT_AVAILABLE && (
+                          <div className="bot-detail-alert">
+                            <strong>Pause reason:</strong> {selectedPauseReasonDisplay}
                           </div>
                         )}
-                      </div>
-                      <div className="bot-detail-actions">
-                        {selectedIsPaused && (
-                          <button onClick={() => handleResumeBot(selectedBot.id)}>
-                            ▶ Resume
+                        <div className="bot-detail-tabs">
+                          {['overview', 'performance', 'risk', 'trades', 'settings'].map(tab => (
+                            <button
+                              key={tab}
+                              type="button"
+                              className={`bot-detail-tab ${botDetailTab === tab ? 'active' : ''}`}
+                              onClick={() => setBotDetailTab(tab)}
+                            >
+                              {tab}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="bot-detail-body">
+                          {botDetailTab === 'overview' && renderBotDetailGrid(botDetailSections.overview)}
+                          {botDetailTab === 'performance' && renderBotDetailGrid(botDetailSections.performance)}
+                          {botDetailTab === 'risk' && renderBotDetailGrid(botDetailSections.risk)}
+                          {botDetailTab === 'trades' && renderBotDetailGrid(botDetailSections.trades)}
+                          {botDetailTab === 'settings' && (
+                            <div className="bot-detail-settings">
+                              {renderBotDetailGrid(botDetailSections.settings)}
+                              <div className="bot-detail-raw">
+                                {Object.entries(selectedBot).map(([key, value]) => (
+                                  <div key={key} className="bot-detail-row">
+                                    <span className="bot-detail-key">{toTitleCase(key.replace(/_/g, ' '))}</span>
+                                    <span className="bot-detail-value">{formatDetailValue(value)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="bot-detail-actions">
+                          {selectedIsPaused && (
+                            <button onClick={() => handleResumeBot(selectedBot.id)}>
+                              ▶ Resume
+                            </button>
+                          )}
+                          {!selectedIsPaused && selectedCanStart && (
+                            <button onClick={() => handleStartBot(selectedBot.id)}>
+                              🚀 Start
+                            </button>
+                          )}
+                          <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
+                            {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
                           </button>
-                        )}
-                        {!selectedIsPaused && selectedCanStart && (
-                          <button onClick={() => handleStartBot(selectedBot.id)}>
-                            🚀 Start
+                          <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
+                            Delete
                           </button>
-                        )}
-                        <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
-                          {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
-                        </button>
-                        <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
+                        </div>
+                      </>
+                    )}
+                  </DrawerContent>
+                </Drawer>
               </div>
             </div>
           )}
@@ -7049,6 +7164,19 @@ export default function Dashboard() {
     );
   };
 
+  const modeLabel = systemModes.liveTrading ? 'LIVE' : 'PAPER';
+  const modeTone = systemModes.liveTrading ? 'warning' : 'info';
+  const realtimeConnected = connectionStatus.ws === 'Connected';
+  const realtimeLabel = realtimeConnected ? 'Connected' : 'Reconnecting';
+  const realtimeTone = realtimeConnected ? 'success' : 'warning';
+  const riskLabel = riskStatus?.emergency_stop?.active
+    ? 'Paused'
+    : (riskStatus?.daily_loss_lock?.active || riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active)
+      ? 'Guarded'
+      : 'OK';
+  const riskTone = riskLabel === 'OK' ? 'success' : riskLabel === 'Guarded' ? 'warning' : 'error';
+  const userInitial = user?.first_name?.[0] || user?.email?.[0] || 'U';
+
   return (
     <div className="app">
       {/* Sidebar - Desktop */}
@@ -7082,36 +7210,24 @@ export default function Dashboard() {
       {!isMobile && (
         <header className="topbar">
           <div className="topbar-brand">
-            <h1>Amarktai Crypto</h1>
+            <div className="topbar-title">Executive Command Center</div>
+            <span className="topbar-subtitle">Realtime Ops &amp; Risk Control</span>
           </div>
           <div className="top-actions">
-            <div className="status-indicator">
-              <span>{`Hello, ${user?.first_name || 'Trader'}`}</span>
-            </div>
-            <div className="status-indicator" style={{padding: '4px 12px', background: systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? 'var(--success)' : 'var(--error)', borderRadius: '6px', fontWeight: 600}}>
-              <span>{systemHealth.errors === 0 && connectionStatus.api === 'Connected' ? '✓ System Healthy' : '⚠ System Issues'}</span>
-            </div>
-            <div className="status-indicator">
-              <span>API</span>
-              <div className={`status-dot ${connectionStatus.api === 'Connected' ? 'ok' : 'err'}`}></div>
-            </div>
-            <div className="status-indicator">
-              <span>SSE</span>
-              <div className={`status-dot ${connectionStatus.sse === 'Connected' ? 'ok' : 'err'}`}></div>
-            </div>
-            <div className="status-indicator">
-              <span>WS</span>
-              <span style={{
-                marginLeft: '4px',
-                color: connectionStatus.ws === 'Connected' ? 'var(--success)' : 'var(--muted)',
-                fontWeight: 600
-              }}>
-                {connectionStatus.ws === 'Connected' ? 'Connected' : 'Disconnected'}
-              </span>
-              <div className={`status-dot ${connectionStatus.ws === 'Connected' ? 'ok' : 'err'}`}></div>
-            </div>
-            <div className="status-indicator">
-              <span>RTT: {wsRtt}</span>
+            <Badge variant={modeTone} className="topbar-badge">
+              {modeLabel} MODE
+            </Badge>
+            <Badge variant={realtimeTone} className="topbar-badge">
+              {realtimeLabel}
+            </Badge>
+            <Badge variant={riskTone} className="topbar-badge">
+              Risk {riskLabel}
+            </Badge>
+            <button className="emergency-btn" onClick={handleEmergencyStop}>
+              Emergency Stop
+            </button>
+            <div className="user-chip">
+              <span>{userInitial}</span>
             </div>
             <button className="logout-btn" onClick={handleLogout}>Logout</button>
           </div>
@@ -7149,6 +7265,16 @@ export default function Dashboard() {
         {activeSection === 'profile' && renderProfile()}
         {activeSection === 'admin' && showAdmin && renderAdmin()}
       </main>
+
+      <ModalConfirm
+        open={showEmergencyConfirm}
+        onOpenChange={setShowEmergencyConfirm}
+        title="Confirm Emergency Stop"
+        description="Immediately halts all bots and trading activity across the system. Resume only when safe."
+        confirmLabel="Activate Emergency Stop"
+        confirmVariant="error"
+        onConfirm={executeEmergencyStop}
+      />
 
       {/* Bot Promotion Modal */}
       {showPromotionModal && eligibleBots.length > 0 && (

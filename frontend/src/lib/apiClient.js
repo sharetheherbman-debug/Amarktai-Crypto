@@ -10,6 +10,7 @@
  */
 
 import axios from 'axios';
+import { toast } from 'sonner';
 import { API_BASE } from './api';
 
 // Create axios instance with defaults
@@ -137,6 +138,8 @@ function normalizeError(error) {
 
   // Attach original error for debugging
   normalized.originalError = error;
+  normalized.response = error.response;
+  normalized.config = error.config;
 
   return normalized;
 }
@@ -152,7 +155,17 @@ export async function safeFetch(url, options = {}) {
     });
     return { data: response.data, error: null };
   } catch (error) {
+    if (options.notifyOnError) {
+      notifyError(error);
+    }
     return { data: null, error };
+  }
+}
+
+export function notifyError(error, fallback = 'Something went wrong') {
+  const message = error?.message || fallback;
+  if (message) {
+    toast.error(message);
   }
 }
 

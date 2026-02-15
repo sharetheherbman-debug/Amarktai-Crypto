@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../lib/api.js';
+import { get, notifyError } from '../lib/apiClient';
 
 const WalletOverview = () => {
   const [balances, setBalances] = useState(null);
   const [requirements, setRequirements] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  const backendUrl = API_BASE;
 
   useEffect(() => {
     loadWalletData();
@@ -17,19 +14,17 @@ const WalletOverview = () => {
 
   const loadWalletData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
       const [balancesRes, requirementsRes] = await Promise.all([
-        axios.get(`${backendUrl}/wallet/balances`, { headers }),
-        axios.get(`${backendUrl}/wallet/requirements`, { headers })
+        get('/wallet/balances'),
+        get('/wallet/requirements')
       ]);
 
-      setBalances(balancesRes.data);
-      setRequirements(requirementsRes.data);
+      setBalances(balancesRes);
+      setRequirements(requirementsRes);
       setLoading(false);
     } catch (err) {
       console.error('Wallet data load error:', err);
+      notifyError(err);
       setLoading(false);
     }
   };

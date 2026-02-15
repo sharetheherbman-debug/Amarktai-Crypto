@@ -1,18 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { toast } from 'sonner';
-import { API_BASE } from '../../lib/api.js';
-
-const API = API_BASE;
+import { get, notifyError } from '../../lib/apiClient';
 
 const TrainingQuarantineSection = () => {
   const [activeTab, setActiveTab] = useState('training'); // 'training' or 'quarantine'
   const [trainingHistory, setTrainingHistory] = useState([]);
   const [quarantinedBots, setQuarantinedBots] = useState([]);
   const [loading, setLoading] = useState(true);
-  const token = localStorage.getItem('token');
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
-  
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 10000); // Update every 10s
@@ -22,16 +16,17 @@ const TrainingQuarantineSection = () => {
   const fetchData = async () => {
     try {
       // Fetch training history
-      const trainingResponse = await axios.get(`${API}/training/history`, axiosConfig);
-      setTrainingHistory(trainingResponse.data.history || []);
+      const trainingResponse = await get('/training/history');
+      setTrainingHistory(trainingResponse.history || []);
       
       // Fetch quarantine status
-      const quarantineResponse = await axios.get(`${API}/quarantine/status`, axiosConfig);
-      setQuarantinedBots(quarantineResponse.data.quarantined_bots || []);
+      const quarantineResponse = await get('/quarantine/status');
+      setQuarantinedBots(quarantineResponse.quarantined_bots || []);
       
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch data:', error);
+      notifyError(error);
       setLoading(false);
     }
   };

@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import './APIKeySettings.css';
 import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
+import { get, post, del, notifyError } from '../lib/apiClient';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog';
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle
+} from '@/ui/components/Drawer';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
@@ -31,8 +32,6 @@ const APIKeySettings = () => {
   const [unsupportedProviders, setUnsupportedProviders] = useState({});
   const [requestCounter, setRequestCounter] = useState(0); // Track request order
   
-  const token = localStorage.getItem('token');
-
   const getProviderName = (providerId) =>
     PROVIDERS.find((provider) => provider.id === providerId)?.name;
 
@@ -103,40 +102,24 @@ const APIKeySettings = () => {
   
   const fetchAllProviders = async () => {
     try {
-      const response = await fetch('/api/keys/status', {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const data = await get('/keys/status');
+      const statusMap = normalizeStatusResponse(data);
+      const providerStatuses = PROVIDERS.map(provider => {
+        const statusInfo = statusMap[provider.id] || {};
+        const status = statusInfo.status || 'not_configured';
+        return {
+          provider: provider.id,
+          status,
+          status_display: getStatusDisplay(status, statusInfo.last_test_error),
+          last_test_error: statusInfo.last_test_error,
+          updated_at: statusInfo.updated_at,
+          last_tested_at: statusInfo.last_tested_at
+        };
       });
-      
-      if (response.status === 401 || response.status === 403) {
-        showMessage('error', 'Session expired. Please login again.');
-        setTimeout(() => {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
-        }, 2000);
-        return;
-      }
-      
-      if (response.ok) {
-        const data = await response.json();
-        const statusMap = normalizeStatusResponse(data);
-        const providerStatuses = PROVIDERS.map(provider => {
-          const statusInfo = statusMap[provider.id] || {};
-          const status = statusInfo.status || 'not_configured';
-          return {
-            provider: provider.id,
-            status,
-            status_display: getStatusDisplay(status, statusInfo.last_test_error),
-            last_test_error: statusInfo.last_test_error,
-            updated_at: statusInfo.updated_at,
-            last_tested_at: statusInfo.last_tested_at
-          };
-        });
-        setProviders(providerStatuses);
-      } else {
-        console.error('Failed to fetch providers');
-      }
+      setProviders(providerStatuses);
     } catch (error) {
       console.error('Error fetching providers:', error);
+      notifyError(error);
     }
   };
   
@@ -165,49 +148,23 @@ const APIKeySettings = () => {
     
     setLoading(true);
     try {
-      const response = await fetch('/api/keys/save', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          provider: providerId,
-          api_key: data.api_key,
-          api_secret: data.api_secret || null,
-          passphrase: data.passphrase || null
-        })
+      const result = await post('/keys/save', {
+        provider: providerId,
+        api_key: data.api_key,
+        api_secret: data.api_secret || null,
+        passphrase: data.passphrase || null
       });
-      
-      if (response.status === 401 || response.status === 403) {
-        showMessage('error', 'Session expired. Please login again.');
-        setTimeout(() => {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
-        }, 2000);
-        return;
-      }
-      
-      const result = await response.json();
-      
-      if (response.status === 404 || response.status === 501) {
-        markProviderUnsupported(providerId, providerName);
-        return;
-      }
 
-      if (response.ok) {
-        showMessage('success', result.message || 'API key saved successfully');
-        setFormData(prev => ({ ...prev, [providerId]: {} }));
-        fetchAllProviders();
-      } else {
-        showMessage('error', result.detail || 'Failed to save API key');
-      }
+      showMessage('success', result.message || 'API key saved successfully');
+      setFormData(prev => ({ ...prev, [providerId]: {} }));
+      fetchAllProviders();
     } catch (error) {
-      if (error.response?.status === 404 || error.response?.status === 501) {
+      if (error.status === 404 || error.status === 501) {
         markProviderUnsupported(providerId, providerName);
         return;
       }
       showMessage('error', 'Error saving API key: ' + error.message);
+      notifyError(error);
     } finally {
       setLoading(false);
     }
@@ -225,29 +182,7 @@ const APIKeySettings = () => {
     ));
     
     try {
-      const response = await fetch('/api/keys/test', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ provider: providerId })
-      });
-      
-      if (response.status === 401 || response.status === 403) {
-        showMessage('error', 'Session expired. Please login again.');
-        setTimeout(() => {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
-        }, 2000);
-        return;
-      }
-      if (response.status === 404 || response.status === 501) {
-        markProviderUnsupported(providerId, providerName);
-        return;
-      }
-      
-      const result = await response.json();
+      const result = await post('/keys/test', { provider: providerId });
       
       if (result.success) {
         // Optimistic update: immediately set to configured_valid before refetch
@@ -274,11 +209,12 @@ const APIKeySettings = () => {
       // Delayed refetch to confirm persisted state (don't overwrite optimistic update immediately)
       setTimeout(() => fetchAllProviders(), 500);
     } catch (error) {
-      if (error.response?.status === 404 || error.response?.status === 501) {
+      if (error.status === 404 || error.status === 501) {
         markProviderUnsupported(providerId, providerName);
         return;
       }
       showMessage('error', 'Error testing API key: ' + error.message);
+      notifyError(error);
       // Revert optimistic update on error
       fetchAllProviders();
     } finally {
@@ -301,32 +237,18 @@ const APIKeySettings = () => {
     ));
     
     try {
-      const response = await fetch(`/api/keys/${providerId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const result = await response.json();
-      
-      if (response.status === 404 || response.status === 501) {
-        markProviderUnsupported(providerId, providerName);
-        return;
-      }
-      if (response.ok) {
-        showMessage('success', result.message || 'API key deleted successfully');
-        // Refresh to confirm
-        setTimeout(() => fetchAllProviders(), 300);
-      } else {
-        showMessage('error', result.message || 'Failed to delete API key');
-        // Revert on error
-        fetchAllProviders();
-      }
+      const result = await del(`/keys/${providerId}`);
+
+      showMessage('success', result.message || 'API key deleted successfully');
+      // Refresh to confirm
+      setTimeout(() => fetchAllProviders(), 300);
     } catch (error) {
-      if (error.response?.status === 404 || error.response?.status === 501) {
+      if (error.status === 404 || error.status === 501) {
         markProviderUnsupported(providerId, providerName);
         return;
       }
       showMessage('error', 'Error deleting API key: ' + error.message);
+      notifyError(error);
       // Revert on error
       fetchAllProviders();
     } finally {
@@ -414,9 +336,6 @@ const APIKeySettings = () => {
           const statusDetails = isAvailable
             ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error)
             : 'Not available in this build';
-          const iconSrc = PLATFORM_CONFIG[provider.id]?.type === 'ai_provider'
-            ? '/assets/ai/ai-bot.svg'
-            : '/assets/ai/ai-grid.svg';
           const isConfigured = status !== 'not_configured';
 
           return (
@@ -433,7 +352,6 @@ const APIKeySettings = () => {
               <div className="api-key-card-header">
                 <div className="api-key-card-title">
                   <span className="api-key-icon">
-                    <img src={iconSrc} alt="" />
                     <span>{provider.icon}</span>
                   </span>
                   <div>
@@ -449,26 +367,26 @@ const APIKeySettings = () => {
                 <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : 'Not available in this build'}</span>
               </div>
 
-              <div className="api-key-card-actions">
-                <button
-                  type="button"
-                  onClick={() => setActiveProviderId(provider.id)}
-                  disabled={!isAvailable}
-                  className="api-key-button primary"
-                >
-                  Add/Update
-                </button>
-                {isAvailable && isConfigured && (
+                <div className="api-key-card-actions">
                   <button
                     type="button"
-                    onClick={() => testApiKey(provider.id)}
-                    disabled={loading}
-                    className="api-key-button ghost"
+                    onClick={() => setActiveProviderId(provider.id)}
+                    disabled={!isAvailable}
+                    className="api-key-button primary"
                   >
-                    Test
+                    {isConfigured ? 'Manage' : 'Add Key'}
                   </button>
-                )}
-              </div>
+                  {isAvailable && isConfigured && (
+                    <button
+                      type="button"
+                      onClick={() => testApiKey(provider.id)}
+                      disabled={loading}
+                      className="api-key-button ghost"
+                    >
+                      Test
+                    </button>
+                  )}
+                </div>
 
               {!isAvailable && (
                 <div className="api-key-disabled">
@@ -480,7 +398,7 @@ const APIKeySettings = () => {
         })}
       </div>
 
-      <Dialog
+      <Drawer
         open={Boolean(activeProviderId)}
         onOpenChange={(open) => {
           if (!open) {
@@ -488,15 +406,15 @@ const APIKeySettings = () => {
           }
         }}
       >
-        <DialogContent className="api-key-modal">
+        <DrawerContent className="api-key-modal">
           {activeProvider && (
             <>
-              <DialogHeader>
-                <DialogTitle>{activeProvider.name} API Keys</DialogTitle>
-                <DialogDescription>
+              <DrawerHeader>
+                <DrawerTitle>{activeProvider.name} API Keys</DrawerTitle>
+                <DrawerDescription>
                   Store or test your {activeProvider.name} credentials securely.
-                </DialogDescription>
-              </DialogHeader>
+                </DrawerDescription>
+              </DrawerHeader>
 
               {!isProviderAvailable(activeProvider.id) ? (
                 <div className="api-key-disabled">
@@ -571,8 +489,8 @@ const APIKeySettings = () => {
               )}
             </>
           )}
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
 
       <div className="api-key-security">
         <h4>ℹ️ Security Note</h4>

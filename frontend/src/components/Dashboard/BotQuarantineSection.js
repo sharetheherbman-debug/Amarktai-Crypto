@@ -1,14 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../../lib/api.js';
-
-const API = API_BASE;
+import { get, notifyError } from '../../lib/apiClient';
 
 const BotQuarantineSection = () => {
   const [quarantinedBots, setQuarantinedBots] = useState([]);
   const [loading, setLoading] = useState(true);
-  const token = localStorage.getItem('token');
-  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
   
   useEffect(() => {
     fetchQuarantineStatus();
@@ -18,11 +13,12 @@ const BotQuarantineSection = () => {
   
   const fetchQuarantineStatus = async () => {
     try {
-      const response = await axios.get(`${API}/quarantine/status`, axiosConfig);
-      setQuarantinedBots(response.data.quarantined_bots || []);
+      const data = await get('/quarantine/status');
+      setQuarantinedBots(data.quarantined_bots || []);
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch quarantine status:', error);
+      notifyError(error);
       setLoading(false);
     }
   };
