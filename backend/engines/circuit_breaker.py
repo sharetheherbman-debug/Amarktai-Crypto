@@ -274,15 +274,33 @@ class CircuitBreaker:
                 {"$set": {
                     "status": "paused",
                     "pause_reason": f"Circuit breaker: {reason}",
+                    "pause_reason_code": "CIRCUIT_BREAKER",
                     "paused_at": datetime.now(timezone.utc).isoformat(),
-                    "paused_by_system": True
+                    "paused_by_system": True,
+                    "last_intervention": {
+                        "source": "circuit_breaker",
+                        "rule": "critical_guard",
+                        "reason_code": "CIRCUIT_BREAKER",
+                        "threshold": None,
+                        "reason": reason,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
                 }}
             )
             
             # Place bot in quarantine for auto-retraining
             try:
                 from services.bot_quarantine import quarantine_service
-                await quarantine_service.quarantine_bot(bot_id, f"Circuit breaker: {reason}")
+                await quarantine_service.quarantine_bot(
+                    bot_id,
+                    f"Circuit breaker: {reason}",
+                    {
+                        "source": "circuit_breaker",
+                        "rule": "critical_guard",
+                        "reason_code": "CIRCUIT_BREAKER",
+                        "threshold": None
+                    }
+                )
             except Exception as e:
                 logger.warning(f"Failed to quarantine bot: {e}")
             

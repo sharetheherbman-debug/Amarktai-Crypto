@@ -20,10 +20,6 @@ function App() {
         <div className="app-shell">
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/features" element={<Navigate to="/" replace />} />
-            <Route path="/about" element={<Navigate to="/" replace />} />
-            <Route path="/terms" element={<Navigate to="/" replace />} />
-            <Route path="/privacy" element={<Navigate to="/" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route

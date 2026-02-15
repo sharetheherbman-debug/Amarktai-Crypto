@@ -18,12 +18,19 @@ QUARANTINE_DURATIONS = {
     4: None       # 4th pause: delete & regenerate
 }
 
+NON_STRATEGY_REASON_CODES = {
+    "MODE_DISABLED",
+    "NO_EXCHANGE_KEYS",
+    "UNSUPPORTED_EXCHANGE",
+    "USER_PAUSED"
+}
+
 class BotQuarantineService:
     def __init__(self):
         self.running = False
         self.check_interval = 60  # Check every minute
         
-    async def quarantine_bot(self, bot_id: str, reason: str) -> Dict:
+    async def quarantine_bot(self, bot_id: str, reason: str, metadata: Optional[Dict] = None) -> Dict:
         """
         Place bot in quarantine with auto-retraining
         
@@ -36,10 +43,23 @@ class BotQuarantineService:
             }
         """
         try:
+            metadata = metadata or {}
+
             # Get bot document
             bot = await db.bots_collection.find_one({"id": bot_id})
             if not bot:
                 return {"error": "Bot not found"}
+
+            trading_mode = str(bot.get("trading_mode") or bot.get("mode") or "paper").strip().lower()
+            is_paper = trading_mode.startswith("paper")
+            reason_code = str(metadata.get("reason_code") or reason or "").strip().upper().replace(" ", "_")
+
+            if is_paper and reason_code == "MODE_DISABLED":
+                return {
+                    "quarantine_count": bot.get("quarantine_count", 0),
+                    "action": "skipped",
+                    "message": "Paper bot not quarantined for MODE_DISABLED"
+                }
             
             # Increment quarantine count
             quarantine_count = bot.get("quarantine_count", 0) + 1
@@ -70,6 +90,8 @@ class BotQuarantineService:
             else:
                 # 1st/2nd/3rd pause: Quarantine with retraining
                 duration = QUARANTINE_DURATIONS[quarantine_count]
+                if is_paper and reason_code in NON_STRATEGY_REASON_CODES:
+                    duration = min(duration, 60)
                 retraining_until = datetime.now(timezone.utc) + timedelta(seconds=duration)
                 
                 logger.info(f"🔒 Bot {bot_id[:8]} entering quarantine #{quarantine_count} for {duration/3600:.1f} hours")
@@ -81,6 +103,19 @@ class BotQuarantineService:
                             "status": "quarantined",
                             "quarantine_count": quarantine_count,
                             "quarantine_reason": reason,
+                            "quarantine_reason_code": reason_code,
+                            "quarantine_source": metadata.get("source", "quarantine"),
+                            "quarantine_rule": metadata.get("rule", "manual_quarantine"),
+                            "quarantine_threshold": metadata.get("threshold"),
+                            "last_intervention": {
+                                "source": metadata.get("source", "quarantine"),
+                                "rule": metadata.get("rule", "manual_quarantine"),
+                                "reason_code": reason_code,
+                                "threshold": metadata.get("threshold"),
+                                "reason": reason,
+                                "mode": trading_mode,
+                                "timestamp": datetime.now(timezone.utc).isoformat()
+                            },
                             "quarantined_at": datetime.now(timezone.utc).isoformat(),
                             "retraining_until": retraining_until.isoformat(),
                             "quarantine_duration_seconds": duration

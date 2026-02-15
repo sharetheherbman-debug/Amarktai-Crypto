@@ -191,7 +191,7 @@ class BodyguardService:
                     risk_mode = "balanced"
             if not risk_mode:
                 risk_mode = "balanced"
-            trading_mode = bot.get('trading_mode', bot.get('mode', 'paper'))
+            trading_mode = str(bot.get('trading_mode', bot.get('mode', 'paper'))).strip().lower()
             risk_profile = (risk_mode or "balanced").lower()
             threshold = self._get_drawdown_threshold(trading_mode, risk_profile)
 
@@ -309,6 +309,29 @@ class BodyguardService:
                 if is_profitable:
                     logger.info(f"🛡️ Bodyguard: Not pausing profitable bot {bot.get('name')} despite {current_drawdown_pct:.1f}% drawdown - {profit_reason}")
                     return False, None
+
+                # Paper mode is informational unless catastrophic drawdown threshold is hit
+                if trading_mode.startswith('paper') and not extreme_drawdown:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {
+                            "last_intervention": {
+                                "source": "bodyguard",
+                                "rule": "drawdown_warning",
+                                "reason_code": "PAPER_INFO_ONLY",
+                                "threshold": threshold,
+                                "reason": f"Paper bot drawdown warning {current_drawdown_pct:.1f}% >= {threshold}%",
+                                "timestamp": now.isoformat()
+                            }
+                        }}
+                    )
+                    logger.info(
+                        "🛡️ Bodyguard info-only for paper bot %s: drawdown %.1f%% threshold %.1f%%",
+                        bot.get('name'),
+                        current_drawdown_pct,
+                        threshold
+                    )
+                    return False, None
                 
                 # Bot is not profitable and exceeds drawdown - pause it
                 daily_pnl = 0.0
@@ -372,10 +395,10 @@ class BodyguardService:
         try:
             bot_name = bot.get('name', 'Unknown')
             risk_mode = bot.get('risk_mode', 'balanced')
-            trading_mode = bot.get('trading_mode', 'paper')
+            trading_mode = str(bot.get('trading_mode', bot.get('mode', 'paper'))).strip().lower()
             
             # Determine action based on mode
-            if trading_mode == 'paper':
+            if trading_mode.startswith('paper'):
                 # Paper mode: Quarantine the bot (don't stop scheduler)
                 action = "quarantined"
                 action_description = "quarantined for retraining"
@@ -396,20 +419,35 @@ class BodyguardService:
                         "paused_by_system": True,
                         "paused_by": "bodyguard",
                         "pause_reason": f"Drawdown threshold breach ({risk_profile}): {current_drawdown_pct:.1f}% >= {threshold}%",
+                        "pause_reason_code": "BODYGUARD_DRAWDOWN_BREACH",
                         "bodyguard_pause_threshold": threshold,
                         "bodyguard_pause_drawdown": round(current_drawdown_pct, 2),
-                        "bodyguard_breach_count": 0
+                        "bodyguard_breach_count": 0,
+                        "last_intervention": {
+                            "source": "bodyguard",
+                            "rule": "drawdown_threshold",
+                            "reason_code": "BODYGUARD_DRAWDOWN_BREACH",
+                            "threshold": threshold,
+                            "reason": f"Drawdown threshold breach ({risk_profile})",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }
                     }
                 }
             )
             
             # If paper mode, quarantine the bot
-            if trading_mode == 'paper':
+            if trading_mode.startswith('paper'):
                 try:
                     from services.bot_quarantine import quarantine_service
                     quarantine_result = await quarantine_service.quarantine_bot(
                         bot_id,
-                        f"Bodyguard: {current_drawdown_pct:.1f}% drawdown >= {threshold}%"
+                        f"Bodyguard: {current_drawdown_pct:.1f}% drawdown >= {threshold}%",
+                        {
+                            "source": "bodyguard",
+                            "rule": "drawdown_threshold",
+                            "reason_code": "BODYGUARD_DRAWDOWN_BREACH",
+                            "threshold": threshold
+                        }
                     )
                     
                     # Create training job stub

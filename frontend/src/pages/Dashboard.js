@@ -7231,7 +7231,7 @@ export default function Dashboard() {
           <img
             src="/assets/logo.png"
             className="logo"
-            alt="Logo"
+            alt="Amarktai Crypto"
             onClick={() => showSection('overview')}
             style={{ cursor: 'pointer' }}
           />
@@ -7255,10 +7255,10 @@ export default function Dashboard() {
       {/* Topbar - Desktop */}
       {!isMobile && (
         <header className="topbar">
-          <div className="topbar-brand">
-            <div className="topbar-title">Executive Command Center</div>
-            <span className="topbar-subtitle">Realtime Ops &amp; Risk Control</span>
-          </div>
+            <div className="topbar-brand">
+              <div className="topbar-title">Amarktai Crypto</div>
+              <span className="topbar-subtitle">Realtime Ops &amp; Risk Control</span>
+            </div>
           <div className="top-actions">
             <Badge variant={modeTone} className="topbar-badge">
               {modeLabel} MODE
@@ -7287,7 +7287,7 @@ export default function Dashboard() {
             <img
               src="/assets/logo.png"
               className="mobile-logo"
-              alt="Logo"
+              alt="Amarktai Crypto"
             />
           </button>
           <div className="mobile-btns">
