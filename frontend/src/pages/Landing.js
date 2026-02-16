@@ -1,10 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import SiteFooter from '../components/SiteFooter';
+import AuthLayout from '../components/AuthLayout';
 import { Volume2, VolumeX } from 'lucide-react';
-import './Auth.css';
-import './Landing.css';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -78,7 +76,7 @@ export default function Landing() {
   };
 
   return (
-    <div className="auth-container landing-container">
+    <AuthLayout>
       <audio
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
@@ -96,34 +94,17 @@ export default function Landing() {
         {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
       </button>
 
-      <div className="auth-left">
-        <div className="auth-content bright-glass-panel">
-          <img src="/assets/logo.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
-          <h1 className="auth-title">Amarktai Crypto</h1>
-          <p className="landing-summary">
-            Intelligent crypto automation with safer paper-first execution.
-          </p>
-          <div className="landing-cta">
-            <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn">Login</Button>
-            <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">Register</Button>
-          </div>
+      <div className="auth-content bright-glass-panel">
+        <img src="/assets/logo.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
+        <h1 className="auth-title">Amarktai Crypto</h1>
+        <p className="landing-summary">
+          Self learning self healing autonomous trading
+        </p>
+        <div className="landing-cta">
+          <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn">Login</Button>
+          <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">Register</Button>
         </div>
       </div>
-
-      {/* Right Column - Video (rotated background) */}
-      <div className="auth-right landing-bg-rotated">
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster="/assets/poster.jpg"
-        >
-          <source src="/assets/background.mp4" type="video/mp4" />
-        </video>
-        <div className="auth-overlay" />
-      </div>
-      <SiteFooter />
-    </div>
+    </AuthLayout>
   );
 }

@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from 'lucide-react';
-import SiteFooter from '../components/SiteFooter';
-import './Auth.css';
+import AuthLayout from '../components/AuthLayout';
 import { post } from '../lib/apiClient';
 
 export default function Login() {
@@ -52,84 +51,66 @@ export default function Login() {
   };
 
   return (
-    <div className="auth-container">
-      {/* Left Column - Content */}
-      <div className="auth-left">
-        <div className="auth-content bright-glass-panel">
-          <img
-            src="/assets/logo.png"
-            alt="Amarktai Crypto"
-            className="auth-logo"
-            onClick={() => navigate('/')}
-          />
-          
-          <h1 className="auth-title">Login</h1>
+    <AuthLayout>
+      <div className="auth-content bright-glass-panel">
+        <img
+          src="/assets/logo.png"
+          alt="Amarktai Crypto"
+          className="auth-logo"
+          onClick={() => navigate('/')}
+        />
+        
+        <h1 className="auth-title">Login</h1>
 
-          <form onSubmit={handleSubmit} className="auth-form">
-            <div className="form-group">
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="form-group">
+            <Input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="Email"
+              required
+              className="auth-input"
+              data-testid="email-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <div className="password-wrapper">
               <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="Email"
+                type={showPassword ? 'text' : 'password'}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Password"
                 required
                 className="auth-input"
-                data-testid="email-input"
+                data-testid="password-input"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="eye-btn"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
+          </div>
 
-            <div className="form-group">
-              <div className="password-wrapper">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Password"
-                  required
-                  className="auth-input"
-                  data-testid="password-input"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="eye-btn"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
+          <Button
+            type="submit"
+            disabled={loading}
+            className="auth-submit-btn"
+            data-testid="submit-button"
+          >
+            {loading ? 'Logging in...' : 'Login'}
+          </Button>
+        </form>
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="auth-submit-btn"
-              data-testid="submit-button"
-            >
-              {loading ? 'Logging in...' : 'Login'}
-            </Button>
-          </form>
-
-          <p className="auth-alt-link">
-            Don't have an account?{' '}
-            <span onClick={() => navigate('/register')} className="link">Register</span>
-          </p>
-        </div>
+        <p className="auth-alt-link">
+          Don't have an account?{' '}
+          <span onClick={() => navigate('/register')} className="link">Register</span>
+        </p>
       </div>
-
-      {/* Right Column - Video */}
-      <div className="auth-right">
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster="/assets/poster.jpg"
-        >
-          <source src="/assets/background.mp4" type="video/mp4" />
-        </video>
-        <div className="auth-overlay" />
-      </div>
-      <SiteFooter />
-    </div>
+    </AuthLayout>
   );
 }
