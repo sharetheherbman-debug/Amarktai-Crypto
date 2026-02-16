@@ -319,6 +319,7 @@ export default function Dashboard() {
       profileData={profileData}
       handleProfileChange={handleProfileChange}
       handleProfileSave={handleProfileSave}
+      handleEmergencyStop={handleEmergencyStop}
     />
   );
 
@@ -545,7 +546,6 @@ export default function Dashboard() {
         <header className="topbar">
             <div className="topbar-brand">
               <div className="topbar-title">Amarktai Crypto</div>
-              <span className="topbar-subtitle">Realtime Ops &amp; Risk Control</span>
             </div>
           <div className="top-actions">
             <Badge variant={modeTone} className="topbar-badge">
@@ -557,12 +557,6 @@ export default function Dashboard() {
             <Badge variant={riskTone} className="topbar-badge">
               Risk {riskLabel}
             </Badge>
-            <button className="emergency-btn" onClick={handleEmergencyStop}>
-              Emergency Stop
-            </button>
-            <div className="user-chip">
-              <span>{userInitial}</span>
-            </div>
             <button className="logout-btn" onClick={handleLogout}>Logout</button>
           </div>
         </header>

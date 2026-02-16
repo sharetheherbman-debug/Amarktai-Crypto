@@ -1,6 +1,6 @@
 import SectionHeader from '@/ui/components/SectionHeader';
 
-export default function ProfileSection({ user, bots, formatDate, profileData, handleProfileChange, handleProfileSave }) {
+export default function ProfileSection({ user, bots, formatDate, profileData, handleProfileChange, handleProfileSave, handleEmergencyStop }) {
   return (
     <section className="section active">
       <div className="card">
@@ -82,6 +82,17 @@ export default function ProfileSection({ user, bots, formatDate, profileData, ha
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Emergency Stop - moved from top bar */}
+        <div style={{marginTop: '24px', padding: '16px', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)'}}>
+          <h3 style={{marginBottom: '12px', color: 'var(--error)'}}>⚠️ Emergency Controls</h3>
+          <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
+            Immediately halts all bots and trading activity across the system.
+          </p>
+          <button className="emergency-btn" onClick={handleEmergencyStop} style={{padding: '10px 24px', fontSize: '0.95rem'}}>
+            🛑 Emergency Stop
+          </button>
         </div>
       </div>
     </section>

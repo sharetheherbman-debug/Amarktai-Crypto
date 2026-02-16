@@ -241,14 +241,40 @@ export default function OverviewSection({
           </div>
         )}
 
+        {/* Totals Row */}
+        <div className="overview-totals-row">
+          <GlassCard className="overview-total-card">
+            <span>Total Profit</span>
+            <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+              {formatZAR(overviewData.totalProfit)}
+            </strong>
+          </GlassCard>
+          <GlassCard className="overview-total-card">
+            <span>Today Profit</span>
+            <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+              {formatZAR(overviewData.totalProfit)}
+            </strong>
+          </GlassCard>
+          <GlassCard className="overview-total-card">
+            <span>Trades</span>
+            <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
+          </GlassCard>
+          <GlassCard className="overview-total-card">
+            <span>Win Rate</span>
+            <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
+          </GlassCard>
+        </div>
+
         <div className="overview-grid">
-          <div className="overview-image-card">
-            <img src="/assets/background.jpg" alt="Trading workspace" className="overview-image-asset" />
+          <div className="overview-left-col">
+            <div className="overview-image-card">
+              <img src="/assets/background.jpg" alt="Trading workspace" className="overview-image-asset" />
+            </div>
           </div>
-          <div className="overview-live-grid">
+          <div className="overview-right-col">
             <GlassCard className="overview-card">
               <div className="overview-card-header">
-                <h3>Live Luno Prices</h3>
+                <h3>Live Prices</h3>
                 <span className="overview-card-meta">Updated {metrics.lastUpdate}</span>
               </div>
               <div className="overview-price-list">
@@ -282,29 +308,6 @@ export default function OverviewSection({
                     <strong>{formatStatusValue(item.value)}</strong>
                   </div>
                 ))}
-              </div>
-            </GlassCard>
-
-            <GlassCard className="overview-card">
-              <div className="overview-card-header">
-                <h3>Today So Far</h3>
-                <span className="overview-card-meta">{overviewData.systemMode?.toUpperCase() || modeLabel}</span>
-              </div>
-              <div className="overview-summary-grid">
-                <div>
-                  <span>Trades</span>
-                  <strong>{safeNumber(overviewData.todaysTrades, 0)}</strong>
-                </div>
-                <div>
-                  <span>Win Rate</span>
-                  <strong>{safeToFixed(overviewData.winRate, 1, '0.0')}%</strong>
-                </div>
-                <div>
-                  <span>Net P&amp;L</span>
-                  <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-                    {formatZAR(overviewData.totalProfit)}
-                  </strong>
-                </div>
               </div>
             </GlassCard>
 
