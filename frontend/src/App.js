@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import ErrorBoundary from './components/ErrorBoundary';
+import ConnectionStatus from './components/ConnectionStatus';
 import '@/App.css';
 
 function PrivateRoute({ children }) {
@@ -15,6 +16,7 @@ function PrivateRoute({ children }) {
 function App() {
   return (
     <div className="App">
+      <ConnectionStatus />
       <Toaster position="top-right" richColors />
       <BrowserRouter>
         <div className="app-shell">

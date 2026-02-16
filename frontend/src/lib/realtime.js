@@ -4,9 +4,15 @@
  * Handles WebSocket connections with JWT authentication and polling fallback.
  * Provides event bus for: trades, bots, balances, decisions, metrics, whale,
  * alerts, system_health, wallet, ai_tasks
+ * 
+ * Features:
+ * - Exponential backoff with jitter for reconnects
+ * - Circuit breaker integration
+ * - Automatic fallback: WebSocket → SSE → Polling
  */
 
 import { wsUrl, API_BASE } from './api';
+import { circuitBreaker } from './circuitBreaker';
 
 class RealtimeClient {
   constructor() {
@@ -174,9 +180,18 @@ class RealtimeClient {
   }
 
   /**
-   * Schedule reconnection with exponential backoff
+   * Schedule reconnection with exponential backoff + jitter
    */
   scheduleReconnect() {
+    // Check circuit breaker state
+    const cbState = circuitBreaker.getState();
+    if (cbState.isDown) {
+      console.log('⏸️  Circuit breaker is OPEN - pausing WebSocket reconnect');
+      // Check again after circuit breaker timeout
+      setTimeout(() => this.scheduleReconnect(), 5000);
+      return;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('❌ Max reconnect attempts reached - falling back to SSE');
       this.startSSE();
@@ -184,12 +199,13 @@ class RealtimeClient {
     }
 
     this.reconnectAttempts++;
-    const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-      this.maxReconnectDelay
-    );
+    
+    // Exponential backoff with jitter
+    const baseDelay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const jitter = Math.random() * 5000; // 0-5 seconds of random jitter
+    const delay = Math.min(baseDelay + jitter, this.maxReconnectDelay);
 
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    console.log(`🔄 Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
     setTimeout(() => {
       this.connectWebSocket();

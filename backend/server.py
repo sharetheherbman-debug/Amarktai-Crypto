@@ -363,6 +363,27 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler - prevents server crashes by returning JSON errors
+    All uncaught exceptions are caught here and returned as JSON 500 errors
+    """
+    # Log the full exception with traceback
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}", exc_info=True)
+    
+    # Return safe JSON error response (never crash the process)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "message": str(exc) if str(exc) else "An unexpected error occurred",
+            "path": str(request.url.path),
+            "method": request.method,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
