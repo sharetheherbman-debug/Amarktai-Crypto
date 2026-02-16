@@ -5,7 +5,7 @@ import './AuthLayout.css';
 /**
  * Shared layout component for Landing, Login, and Register pages
  * Features:
- * - LEFT PANEL (50%): Two blue colors blended at 45° diagonal gradient
+ * - LEFT PANEL (50%): Two blue colors blended at 135° diagonal gradient
  * - RIGHT PANEL (50%): Video background
  * - Responsive: Mobile shows video as background with dark overlay
  */
