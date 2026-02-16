@@ -267,3 +267,17 @@
   margin: 0 0 8px 0;
   color: var(--accent2);
 }
+
+/* Accordion body for inline key forms */
+.api-key-accordion-body {
+  margin-top: 12px;
+  padding: 16px;
+  background: rgba(10, 12, 20, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.api-key-card.expanded {
+  border-color: rgba(56, 189, 248, 0.4);
+}

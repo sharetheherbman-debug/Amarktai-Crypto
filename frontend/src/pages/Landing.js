@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
-import GlassCard from '@/ui/components/GlassCard';
-import SecondaryButton from '@/ui/components/SecondaryButton';
+import { Button } from '@/components/ui/button';
 import SiteFooter from '../components/SiteFooter';
 import { Volume2, VolumeX } from 'lucide-react';
+import './Auth.css';
 import './Landing.css';
 
 export default function Landing() {
@@ -78,7 +78,7 @@ export default function Landing() {
   };
 
   return (
-    <div className="landing-shell">
+    <div className="auth-container landing-container">
       <audio
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
@@ -96,39 +96,23 @@ export default function Landing() {
         {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
       </button>
 
-      <div className="landing-left">
-        <div className="landing-content bright-glass-panel">
-          <img src="/assets/logo.png" alt="Amarktai Crypto" className="landing-logo" />
-          <div className="landing-hero">
-            <span className="landing-kicker">Amarktai Crypto</span>
-            <h1>Intelligent crypto automation with safer paper-first execution.</h1>
-            <p>
-              Build, monitor, and tune AI trading bots with live diagnostics, adaptive protection,
-              and seamless progression from paper testing to production-ready strategies.
-            </p>
-          </div>
-          <div className="landing-feature-grid">
-            {[
-              { title: 'Autonomous AI', copy: 'Always-on decision engine with adaptive strategy tuning.' },
-              { title: 'Risk Guardrails', copy: 'Live loss locks, drawdown protection, and safety checks.' },
-              { title: 'Self-Healing Ops', copy: 'Automatic recovery, bot health checks, and alerts.' },
-              { title: 'Real-Time Intelligence', copy: 'Live pricing, trades, and performance telemetry.' }
-            ].map((feature) => (
-              <GlassCard key={feature.title} className="landing-feature-card">
-                <h3>{feature.title}</h3>
-                <p>{feature.copy}</p>
-              </GlassCard>
-            ))}
-          </div>
+      <div className="auth-left">
+        <div className="auth-content bright-glass-panel">
+          <img src="/assets/logo.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
+          <h1 className="auth-title">Amarktai Crypto</h1>
+          <p className="landing-summary">
+            Intelligent crypto automation with safer paper-first execution.
+          </p>
           <div className="landing-cta">
-            <SecondaryButton onClick={() => navigate('/login')}>Login</SecondaryButton>
-            <button className="btn-primary" onClick={() => navigate('/register')}>Register</button>
+            <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn">Login</Button>
+            <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">Register</Button>
           </div>
         </div>
       </div>
-      <div className="landing-right">
+
+      {/* Right Column - Video (rotated background) */}
+      <div className="auth-right landing-bg-rotated">
         <video
-          className="landing-video"
           autoPlay
           muted
           loop
@@ -137,7 +121,7 @@ export default function Landing() {
         >
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
-        <div className="page-overlay" />
+        <div className="auth-overlay" />
       </div>
       <SiteFooter />
     </div>

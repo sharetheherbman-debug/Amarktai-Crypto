@@ -3,13 +3,6 @@ import './APIKeySettings.css';
 import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
 import { get, post, del, notifyError } from '../lib/apiClient';
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle
-} from '@/ui/components/Drawer';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
@@ -41,16 +34,6 @@ const APIKeySettings = () => {
     }
     return !unsupportedProviders[providerId];
   };
-
-  const activeProvider = useMemo(
-    () => PROVIDERS.find((provider) => provider.id === activeProviderId),
-    [PROVIDERS, activeProviderId]
-  );
-
-  const activeProviderStatus = useMemo(
-    () => providers.find((status) => status.provider === activeProviderId),
-    [providers, activeProviderId]
-  );
 
   const normalizeStatusResponse = (data) => {
     if (data?.status_map && Object.keys(data.status_map).length > 0) {
@@ -307,8 +290,6 @@ const APIKeySettings = () => {
     }
     return { label: 'Not configured', tone: 'muted' };
   };
-
-  const activeStatus = activeProviderStatus?.status || 'not_configured';
   
   return (
     <div className="api-key-settings">
@@ -341,15 +322,14 @@ const APIKeySettings = () => {
           return (
             <div
               key={provider.id}
-              className={`api-key-card ${!isAvailable ? 'disabled' : ''}`}
+              className={`api-key-card ${!isAvailable ? 'disabled' : ''} ${activeProviderId === provider.id ? 'expanded' : ''}`}
               aria-disabled={!isAvailable}
-              onClick={() => {
-                if (isAvailable) {
-                  setActiveProviderId(provider.id);
-                }
-              }}
             >
-              <div className="api-key-card-header">
+              <div className="api-key-card-header" onClick={() => {
+                if (isAvailable) {
+                  setActiveProviderId(activeProviderId === provider.id ? null : provider.id);
+                }
+              }} style={{cursor: isAvailable ? 'pointer' : 'default'}}>
                 <div className="api-key-card-title">
                   <span className="api-key-icon">
                     <span>{provider.icon}</span>
@@ -359,7 +339,7 @@ const APIKeySettings = () => {
                     <span className={`api-key-badge ${statusBadge.tone}`}>{statusBadge.label}</span>
                   </div>
                 </div>
-                <span className="api-key-card-cta">{isAvailable ? 'Add/Update' : 'Unavailable'}</span>
+                <span className="api-key-card-cta">{isAvailable ? (activeProviderId === provider.id ? '▼' : 'Add/Update ▶') : 'Unavailable'}</span>
               </div>
 
               <div className="api-key-card-meta">
@@ -367,26 +347,61 @@ const APIKeySettings = () => {
                 <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : 'Not available in this build'}</span>
               </div>
 
-                <div className="api-key-card-actions">
-                  <button
-                    type="button"
-                    onClick={() => setActiveProviderId(provider.id)}
-                    disabled={!isAvailable}
-                    className="api-key-button primary"
-                  >
-                    {isConfigured ? 'Manage' : 'Add Key'}
-                  </button>
-                  {isAvailable && isConfigured && (
+              {/* Accordion: inline form when expanded */}
+              {activeProviderId === provider.id && isAvailable && (
+                <div className="api-key-accordion-body">
+                  <div className="api-key-fields">
+                    {provider.fields.map(field => (
+                      <div key={field} className="api-key-field">
+                        <label>
+                          {field === 'api_key' ? 'API Key' :
+                           field === 'api_secret' ? 'API Secret' :
+                           field === 'passphrase' ? 'Passphrase' : field}
+                        </label>
+                        <input
+                          type="password"
+                          value={formData[provider.id]?.[field] || ''}
+                          onChange={(e) => handleInputChange(provider.id, field, e.target.value)}
+                          placeholder={`Enter ${field.replace('_', ' ')}`}
+                          disabled={loading}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="api-key-actions">
                     <button
-                      type="button"
-                      onClick={() => testApiKey(provider.id)}
+                      onClick={() => saveApiKey(provider.id)}
                       disabled={loading}
-                      className="api-key-button ghost"
+                      className="api-key-button primary"
                     >
-                      Test
+                      {loading ? 'Saving...' : 'Save Key'}
                     </button>
+                    {isConfigured && (
+                      <>
+                        <button
+                          onClick={() => testApiKey(provider.id)}
+                          disabled={loading}
+                          className="api-key-button ghost"
+                        >
+                          Test
+                        </button>
+                        <button
+                          onClick={() => deleteApiKey(provider.id, provider.name)}
+                          disabled={loading}
+                          className="api-key-button danger"
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {providerStatus?.last_test_error && (
+                    <div className="api-key-error">
+                      Last error: {providerStatus.last_test_error}
+                    </div>
                   )}
                 </div>
+              )}
 
               {!isAvailable && (
                 <div className="api-key-disabled">
@@ -397,100 +412,6 @@ const APIKeySettings = () => {
           );
         })}
       </div>
-
-      <Drawer
-        open={Boolean(activeProviderId)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setActiveProviderId(null);
-          }
-        }}
-      >
-        <DrawerContent className="api-key-modal">
-          {activeProvider && (
-            <>
-              <DrawerHeader>
-                <DrawerTitle>{activeProvider.name} API Keys</DrawerTitle>
-                <DrawerDescription>
-                  Store or test your {activeProvider.name} credentials securely.
-                </DrawerDescription>
-              </DrawerHeader>
-
-              {!isProviderAvailable(activeProvider.id) ? (
-                <div className="api-key-disabled">
-                  Not available in this build.
-                </div>
-              ) : (
-                <>
-                  <div className="api-key-card-meta">
-                    <span>Status: {activeProviderStatus?.status_display || getStatusDisplay(activeStatus, activeProviderStatus?.last_test_error)}</span>
-                    <span>Last tested: {formatTimestamp(activeProviderStatus?.last_tested_at)}</span>
-                  </div>
-
-                  <div className="api-key-fields">
-                    {activeProvider.fields.map(field => (
-                      <div key={field} className="api-key-field">
-                        <label>
-                          {field === 'api_key' ? 'API Key' :
-                           field === 'api_secret' ? 'API Secret' :
-                           field === 'passphrase' ? 'Passphrase' : field}
-                        </label>
-                        <input
-                          type="password"
-                          value={formData[activeProvider.id]?.[field] || ''}
-                          onChange={(e) => handleInputChange(activeProvider.id, field, e.target.value)}
-                          placeholder={`Enter ${field.replace('_', ' ')}`}
-                          disabled={loading}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="api-key-actions">
-                    <button
-                      onClick={() => saveApiKey(activeProvider.id)}
-                      disabled={loading}
-                      className="api-key-button primary"
-                    >
-                      {loading ? 'Saving...' : 'Save Key'}
-                    </button>
-                    {activeStatus !== 'not_configured' && (
-                      <>
-                        <button
-                          onClick={() => testApiKey(activeProvider.id)}
-                          disabled={loading}
-                          className="api-key-button ghost"
-                        >
-                          Test
-                        </button>
-                        <button
-                          onClick={() => deleteApiKey(activeProvider.id, activeProvider.name)}
-                          disabled={loading}
-                          className="api-key-button danger"
-                        >
-                          Remove
-                        </button>
-                      </>
-                    )}
-                  </div>
-
-                  {activeProviderStatus?.last_test_error && (
-                    <div className="api-key-error">
-                      Last error: {activeProviderStatus.last_test_error}
-                    </div>
-                  )}
-                  <div className="api-key-meta-note">
-                    Updated: {formatTimestamp(activeProviderStatus?.updated_at)}
-                  </div>
-                  <div className="api-key-required">
-                    Required fields: {activeProvider.fields.join(', ')}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </DrawerContent>
-      </Drawer>
 
       <div className="api-key-security">
         <h4>ℹ️ Security Note</h4>

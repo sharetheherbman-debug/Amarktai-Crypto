@@ -79,7 +79,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .logo { 
-  width: 140px; 
+  width: 150px; 
   height: auto; 
   margin-bottom: 20px; 
   cursor: pointer; 
@@ -479,11 +479,48 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .amk-chat button.send:hover { opacity: 0.9; }
 .amk-chat button.send:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* OVERVIEW (50/50 SPLIT) */
+/* OVERVIEW (50/50 SPLIT — two-column: left no-scroll, right scrollable) */
+.overview-totals-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.overview-total-card {
+  padding: 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.overview-total-card span {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.overview-total-card strong {
+  font-size: 1.2rem;
+}
+
 .overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: 18px;
+}
+
+.overview-left-col {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.overview-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - var(--topbar-height) - 280px);
+  overflow-y: auto;
 }
 
 .overview-image-card {
@@ -492,7 +529,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   overflow: hidden;
   border: 1px solid var(--line);
   background: rgba(10, 12, 20, 0.6);
-  min-height: 360px;
+  height: 100%;
+  max-height: calc(100vh - var(--topbar-height) - 280px);
 }
 
 .overview-image-asset {
@@ -503,12 +541,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   display: block;
 }
 
-.overview-live-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.overview-card {
+.overview-right-col .overview-card {
   padding: 16px;
 }
 
@@ -2364,4 +2397,79 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   .trade-feed-list {
     max-height: none;
   }
+}
+
+/* AI Tool inline buttons */
+.ai-tool-btn {
+  padding: 8px 14px;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.8) 0%, rgba(56, 189, 248, 0.5) 100%);
+  color: #0b0d14;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: opacity 0.2s;
+}
+.ai-tool-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+  background: #666;
+}
+.ai-tool-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+/* Mobile-friendly chat */
+@media (max-width: 900px) {
+  .amk-chat {
+    min-height: auto;
+    max-height: calc(100vh - 160px);
+    max-height: calc(100dvh - 160px);
+  }
+  .amk-chat .amk-row {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+  }
+  .amk-chat-actions {
+    flex-wrap: wrap;
+  }
+  .overview-totals-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+  .overview-right-col {
+    max-height: none;
+    overflow-y: visible;
+  }
+  .overview-image-card {
+    max-height: 200px;
+  }
+}
+
+/* Bot accordion dropdown */
+.bot-list-item-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+.bot-list-item-wrapper.expanded {
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.bot-accordion-body {
+  padding: 16px;
+  background: rgba(10, 12, 20, 0.6);
+  border-top: 1px solid var(--line);
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Futuristic chart styling */
+.profit-kpi-grid .stat-card,
+.overview-total-card {
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.06), inset 0 1px 0 rgba(255,255,255,0.04);
 }
