@@ -251,8 +251,8 @@ export default function OverviewSection({
           </GlassCard>
           <GlassCard className="overview-total-card">
             <span>Today Profit</span>
-            <strong style={{color: safeNumber(overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
-              {formatZAR(overviewData.totalProfit)}
+            <strong style={{color: safeNumber(overviewData.todaysProfit ?? overviewData.totalProfit, 0) >= 0 ? 'var(--success)' : 'var(--error)'}}>
+              {formatZAR(overviewData.todaysProfit ?? overviewData.totalProfit)}
             </strong>
           </GlassCard>
           <GlassCard className="overview-total-card">

@@ -105,7 +105,7 @@ export default function Landing() {
           </p>
           <div className="landing-cta">
             <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn">Login</Button>
-            <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn" style={{background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.9), rgba(56, 189, 248, 0.6))'}}>Register</Button>
+            <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">Register</Button>
           </div>
         </div>
       </div>

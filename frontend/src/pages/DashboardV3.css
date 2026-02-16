@@ -2407,7 +2407,6 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  fontWeight: 600;
   font-size: 0.82rem;
   font-weight: 600;
   transition: opacity 0.2s;
