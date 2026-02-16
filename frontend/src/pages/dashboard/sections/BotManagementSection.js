@@ -259,7 +259,7 @@ export default function BotManagementSection({
               <div className="bot-form-stack">
                 <div className="bot-management-section">
                   <div className="bot-section-header">
-                    <h2 style={{fontSize: '1.1rem', marginBottom: '16px', color: 'var(--accent2)'}}>🤖 Create a New Bot</h2>
+                    <h2>🤖 Create a New Bot</h2>
                   </div>
                   <div className="bot-form-card">
                     <h3>Bot Configuration</h3>
@@ -322,7 +322,7 @@ export default function BotManagementSection({
 
                 <div className="bot-management-section">
                   <div className="bot-section-header">
-                    <h2 style={{fontSize: '1.1rem', marginBottom: '16px', color: 'var(--accent2)'}}>🔮 Fetch.ai uAgents</h2>
+                    <h2>🔮 Fetch.ai uAgents</h2>
                   </div>
                   <div className="bot-form-card">
                     <h3>Deploy Custom Agent</h3>
@@ -354,7 +354,7 @@ export default function BotManagementSection({
 
                 <div className="bot-management-section">
                   <div className="bot-section-header">
-                    <h2 style={{fontSize: '1.1rem', marginBottom: '16px', color: 'var(--accent2)'}}>🎯 FlokX Alert Bot</h2>
+                    <h2>🎯 FlokX Alert Bot</h2>
                   </div>
                   <div className="bot-form-card">
                     <h3>Configure Alert Bot</h3>

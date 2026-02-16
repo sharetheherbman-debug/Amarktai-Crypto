@@ -1686,6 +1686,12 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   margin-bottom: 12px;
 }
 
+.bot-section-header h2 {
+  font-size: 1.1rem;
+  margin-bottom: 16px;
+  color: var(--accent2);
+}
+
 .bot-preview-card {
   background: var(--glass);
   border: 1px solid var(--line);
