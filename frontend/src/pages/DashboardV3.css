@@ -2450,3 +2450,27 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
     max-height: 200px;
   }
 }
+
+/* Bot accordion dropdown */
+.bot-list-item-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+.bot-list-item-wrapper.expanded {
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.bot-accordion-body {
+  padding: 16px;
+  background: rgba(10, 12, 20, 0.6);
+  border-top: 1px solid var(--line);
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Futuristic chart styling */
+.profit-kpi-grid .stat-card,
+.overview-total-card {
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.06), inset 0 1px 0 rgba(255,255,255,0.04);
+}

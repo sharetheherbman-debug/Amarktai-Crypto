@@ -2,7 +2,6 @@ import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import PlatformSelector from '../../../components/PlatformSelector';
 import TrainingQuarantineSection from '../../../components/Dashboard/TrainingQuarantineSection';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/ui/components/Drawer';
 import { getBotStatus } from '../../../hooks/useDashboardData';
 import { getPlatformDisplayName, getPlatformIcon, SUPPORTED_PLATFORMS } from '../../../constants/platforms';
 import { getAllExchanges } from '../../../config/exchanges';
@@ -400,109 +399,98 @@ export default function BotManagementSection({
                     const isActive = botStatus === 'active';
                     const isPaused = ['paused', 'paused_ready'].includes(botStatus);
                     const statusTone = isActive ? 'ok' : (isPaused ? 'paused' : 'warn');
+                    const isExpanded = resolvedSelectedBotId === bot.id;
 
                     return (
-                      <button
-                        key={bot.id}
-                        type="button"
-                        className={`bot-list-item ${resolvedSelectedBotId === bot.id ? 'active' : ''}`}
-                        onClick={() => {
-                          setSelectedBotDetailId(bot.id);
-                          setBotDetailTab('overview');
-                        }}
-                      >
-                        <div className="bot-list-main">
-                          <strong>{bot.name || 'Bot'}</strong>
-                          <span className="bot-list-meta">
-                            {getPlatformDisplayName(bot.exchange) || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'}
-                          </span>
-                        </div>
-                        <span className={`bot-status-pill ${statusTone}`}>{statusLabel}</span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-              <Drawer
-                open={Boolean(selectedBot)}
-                onOpenChange={(open) => {
-                  if (!open) {
-                    setSelectedBotDetailId(null);
-                  }
-                }}
-              >
-                <DrawerContent className="bot-detail-drawer">
-                  {selectedBot && (
-                    <>
-                      <DrawerHeader>
-                        <DrawerTitle>{selectedBot.name || 'Bot Detail'}</DrawerTitle>
-                      </DrawerHeader>
-                      <div className="bot-detail-header">
-                        <div>
-                          <span>
-                            {selectedExchangeLabel} • {selectedIsLive ? 'Live' : 'Paper'} • {selectedStatusLabel}
-                          </span>
-                        </div>
-                        <span className={`bot-status-pill ${selectedStatusTone}`}>{selectedStatusLabel}</span>
-                      </div>
-                      {selectedPauseReasonDisplay !== NOT_AVAILABLE && (
-                        <div className="bot-detail-alert">
-                          <strong>Pause reason:</strong> {selectedPauseReasonDisplay}
-                        </div>
-                      )}
-                      <div className="bot-detail-tabs">
-                        {['overview', 'performance', 'risk', 'trades', 'settings'].map(tab => (
-                          <button
-                            key={tab}
-                            type="button"
-                            className={`bot-detail-tab ${botDetailTab === tab ? 'active' : ''}`}
-                            onClick={() => setBotDetailTab(tab)}
-                          >
-                            {tab}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="bot-detail-body">
-                        {botDetailTab === 'overview' && renderBotDetailGrid(botDetailSections.overview)}
-                        {botDetailTab === 'performance' && renderBotDetailGrid(botDetailSections.performance)}
-                        {botDetailTab === 'risk' && renderBotDetailGrid(botDetailSections.risk)}
-                        {botDetailTab === 'trades' && renderBotDetailGrid(botDetailSections.trades)}
-                        {botDetailTab === 'settings' && (
-                          <div className="bot-detail-settings">
-                            {renderBotDetailGrid(botDetailSections.settings)}
-                            <div className="bot-detail-raw">
-                              {Object.entries(selectedBot).map(([key, value]) => (
-                                <div key={key} className="bot-detail-row">
-                                  <span className="bot-detail-key">{toTitleCase(key.replace(/_/g, ' '))}</span>
-                                  <span className="bot-detail-value">{formatDetailValue(value)}</span>
-                                </div>
+                      <div key={bot.id} className={`bot-list-item-wrapper ${isExpanded ? 'expanded' : ''}`}>
+                        <button
+                          type="button"
+                          className={`bot-list-item ${isExpanded ? 'active' : ''}`}
+                          onClick={() => {
+                            setSelectedBotDetailId(isExpanded ? null : bot.id);
+                            setBotDetailTab('overview');
+                          }}
+                        >
+                          <div className="bot-list-main">
+                            <strong>{bot.name || 'Bot'}</strong>
+                            <span className="bot-list-meta">
+                              {getPlatformDisplayName(bot.exchange) || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'}
+                            </span>
+                          </div>
+                          <span className={`bot-status-pill ${statusTone}`}>{statusLabel}</span>
+                        </button>
+                        {/* Accordion detail dropdown */}
+                        {isExpanded && selectedBot && (
+                          <div className="bot-accordion-body">
+                            <div className="bot-detail-header">
+                              <div>
+                                <span>
+                                  {selectedExchangeLabel} • {selectedIsLive ? 'Live' : 'Paper'} • {selectedStatusLabel}
+                                </span>
+                              </div>
+                              <span className={`bot-status-pill ${selectedStatusTone}`}>{selectedStatusLabel}</span>
+                            </div>
+                            {selectedPauseReasonDisplay !== NOT_AVAILABLE && (
+                              <div className="bot-detail-alert">
+                                <strong>Pause reason:</strong> {selectedPauseReasonDisplay}
+                              </div>
+                            )}
+                            <div className="bot-detail-tabs">
+                              {['overview', 'performance', 'risk', 'trades', 'settings'].map(tab => (
+                                <button
+                                  key={tab}
+                                  type="button"
+                                  className={`bot-detail-tab ${botDetailTab === tab ? 'active' : ''}`}
+                                  onClick={() => setBotDetailTab(tab)}
+                                >
+                                  {tab}
+                                </button>
                               ))}
+                            </div>
+                            <div className="bot-detail-body">
+                              {botDetailTab === 'overview' && renderBotDetailGrid(botDetailSections.overview)}
+                              {botDetailTab === 'performance' && renderBotDetailGrid(botDetailSections.performance)}
+                              {botDetailTab === 'risk' && renderBotDetailGrid(botDetailSections.risk)}
+                              {botDetailTab === 'trades' && renderBotDetailGrid(botDetailSections.trades)}
+                              {botDetailTab === 'settings' && (
+                                <div className="bot-detail-settings">
+                                  {renderBotDetailGrid(botDetailSections.settings)}
+                                  <div className="bot-detail-raw">
+                                    {Object.entries(selectedBot).map(([key, value]) => (
+                                      <div key={key} className="bot-detail-row">
+                                        <span className="bot-detail-key">{toTitleCase(key.replace(/_/g, ' '))}</span>
+                                        <span className="bot-detail-value">{formatDetailValue(value)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="bot-detail-actions">
+                              {selectedIsPaused && (
+                                <button onClick={() => handleResumeBot(selectedBot.id)}>
+                                  ▶ Resume
+                                </button>
+                              )}
+                              {!selectedIsPaused && selectedCanStart && (
+                                <button onClick={() => handleStartBot(selectedBot.id)}>
+                                  🚀 Start
+                                </button>
+                              )}
+                              <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
+                                {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
+                              </button>
+                              <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
+                                Delete
+                              </button>
                             </div>
                           </div>
                         )}
                       </div>
-                      <div className="bot-detail-actions">
-                        {selectedIsPaused && (
-                          <button onClick={() => handleResumeBot(selectedBot.id)}>
-                            ▶ Resume
-                          </button>
-                        )}
-                        {!selectedIsPaused && selectedCanStart && (
-                          <button onClick={() => handleStartBot(selectedBot.id)}>
-                            🚀 Start
-                          </button>
-                        )}
-                        <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
-                          {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
-                        </button>
-                        <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </DrawerContent>
-              </Drawer>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         )}

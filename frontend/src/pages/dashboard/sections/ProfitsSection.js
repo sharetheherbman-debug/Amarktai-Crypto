@@ -53,15 +53,17 @@ const ProfitsSection = ({
     datasets: [{
       label: 'Profit (ZAR)',
       data: profitData?.values || [0, 0, 0, 0, 0, 0, 0],
-      borderColor: 'var(--success)',
-      backgroundColor: 'rgba(16, 185, 129, 0.2)',
+      borderColor: '#22c55e',
+      backgroundColor: 'rgba(34, 197, 94, 0.15)',
       fill: true,
       tension: 0.4,
-      pointRadius: 5,
+      pointRadius: 4,
       pointHoverRadius: 8,
-      pointBackgroundColor: 'var(--success)',
-      pointBorderColor: '#ffffff',
-      pointBorderWidth: 2
+      pointBackgroundColor: '#22c55e',
+      pointBorderColor: 'rgba(34, 197, 94, 0.6)',
+      pointBorderWidth: 2,
+      borderWidth: 2.5,
+      segment: { borderColor: ctx => ctx.p0.parsed.y > ctx.p1.parsed.y ? '#ef4444' : '#22c55e' }
     }]
   };
 
@@ -125,10 +127,10 @@ const ProfitsSection = ({
         />
 
         <div className="profit-kpi-grid">
-          <StatCard label="Net P&L" value={formatZAR(overviewData.totalProfit)} />
-          <StatCard label="Win Rate" value={safePercent(overviewData.winRate, 1)} />
+          <StatCard label="Net P&L" value={formatZAR(overviewData?.totalProfit)} />
+          <StatCard label="Win Rate" value={safePercent(overviewData?.winRate, 1)} />
           <StatCard label="Max Drawdown" value={maxDrawdown !== undefined && maxDrawdown !== null ? `${safeToFixed(maxDrawdown, 2)}%` : NOT_AVAILABLE} />
-          <StatCard label="Trades/Day" value={safeNumber(overviewData.todaysTrades, 0)} />
+          <StatCard label="Trades/Day" value={safeNumber(overviewData?.todaysTrades, 0)} />
           <StatCard label="Fees" value={feesValue !== null ? formatZAR(feesValue) : NOT_AVAILABLE} />
         </div>
         
@@ -399,7 +401,9 @@ const ProfitsSection = ({
               flexDirection: 'column'
             }}>
               {typeof window !== 'undefined' && (
-                <Line data={chartData} options={chartOptions} />
+                <ErrorBoundary title="Chart Error" message="Unable to render chart.">
+                  <Line data={chartData} options={chartOptions} />
+                </ErrorBoundary>
               )}
             </div>
           </div>
@@ -462,7 +466,7 @@ const ProfitsSection = ({
                     textAlign: 'center'
                   }}>
                     <div style={{fontSize: '0.75rem', color: 'var(--accent2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px'}}>Total P&L</div>
-                    <div style={{fontSize: '1.75rem', fontWeight: 700, color: equityData.total_pnl >= 0 ? 'var(--success)' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
+                    <div style={{fontSize: '1.75rem', fontWeight: 700, color: safeNumber(equityData.total_pnl, 0) >= 0 ? 'var(--success)' : '#ef4444', marginTop: '6px', display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '4px'}}>
                       R{safeToFixed(equityData.total_pnl, 2)}
                     </div>
                   </div>
