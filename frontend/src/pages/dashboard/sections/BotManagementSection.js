@@ -257,120 +257,135 @@ export default function BotManagementSection({
           <div className="bot-container">
             <div className="bot-left">
               <div className="bot-form-stack">
-                <div className="bot-form-card">
-                  <h3>Create New Bot</h3>
-                  <form onSubmit={handleCreateBot}>
-                    <div className="bot-form-grid">
-                      <div>
-                        <label htmlFor="bot-name">Bot Name</label>
-                        <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                <div className="bot-management-section">
+                  <div className="bot-section-header">
+                    <h2>🤖 Create a New Bot</h2>
+                  </div>
+                  <div className="bot-form-card">
+                    <h3>Bot Configuration</h3>
+                    <form onSubmit={handleCreateBot}>
+                      <div className="bot-form-grid">
+                        <div>
+                          <label htmlFor="bot-name">Bot Name</label>
+                          <input id="bot-name" name="bot-name" placeholder="My Trading Bot" type="text" required />
+                        </div>
+                        <div>
+                          <label htmlFor="bot-budget">Budget (Min R1000)</label>
+                          <input
+                            id="bot-budget"
+                            name="bot-budget"
+                            type="number"
+                            min="1000"
+                            step="100"
+                            defaultValue="1000"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="bot-exchange">Exchange Platform</label>
+                          <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
+                            {getAllExchanges().map(exchange => (
+                              <option
+                                key={exchange.id}
+                                value={exchange.id}
+                                disabled={exchange.comingSoon}
+                              >
+                                {exchange.icon} {exchange.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="bot-risk">Risk Mode</label>
+                          <select id="bot-risk" name="bot-risk">
+                            <option value="safe">Safe</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="aggressive">Aggressive</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="bot-strategy">Strategy Preset</label>
+                          <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
+                            <option value="adaptive">Adaptive Core</option>
+                            <option value="trend">Trend Follow</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                            <option value="scalping">Scalping</option>
+                          </select>
+                        </div>
+                        <div>
+                          <button type="submit">Create Bot (7 Day Learning)</button>
+                        </div>
                       </div>
-                      <div>
-                        <label htmlFor="bot-budget">Budget (Min R1000)</label>
-                        <input
-                          id="bot-budget"
-                          name="bot-budget"
-                          type="number"
-                          min="1000"
-                          step="100"
-                          defaultValue="1000"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="bot-exchange">Exchange Platform</label>
-                        <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
-                          {getAllExchanges().map(exchange => (
-                            <option
-                              key={exchange.id}
-                              value={exchange.id}
-                              disabled={exchange.comingSoon}
-                            >
-                              {exchange.icon} {exchange.displayName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="bot-risk">Risk Mode</label>
-                        <select id="bot-risk" name="bot-risk">
-                          <option value="safe">Safe</option>
-                          <option value="balanced">Balanced</option>
-                          <option value="aggressive">Aggressive</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="bot-strategy">Strategy Preset</label>
-                        <select id="bot-strategy" name="bot-strategy" defaultValue="adaptive">
-                          <option value="adaptive">Adaptive Core</option>
-                          <option value="trend">Trend Follow</option>
-                          <option value="mean_reversion">Mean Reversion</option>
-                          <option value="scalping">Scalping</option>
-                        </select>
-                      </div>
-                      <div>
-                        <button type="submit">Create Bot (7 Day Learning)</button>
-                      </div>
-                    </div>
-                  </form>
+                    </form>
+                  </div>
                 </div>
 
-                <div className="bot-form-card">
-                  <h3>Fetch.ai uAgents</h3>
-                  <form onSubmit={handleCreateUAgent}>
-                    <div className="bot-form-grid">
-                      <div>
-                        <label htmlFor="uagent-name">uAgent Name</label>
-                        <input id="uagent-name" name="uagent-name" placeholder="Custom Agent" type="text" required />
+                <div className="bot-management-section">
+                  <div className="bot-section-header">
+                    <h2>🔮 Fetch.ai uAgents</h2>
+                  </div>
+                  <div className="bot-form-card">
+                    <h3>Deploy Custom Agent</h3>
+                    <form onSubmit={handleCreateUAgent}>
+                      <div className="bot-form-grid">
+                        <div>
+                          <label htmlFor="uagent-name">uAgent Name</label>
+                          <input id="uagent-name" name="uagent-name" placeholder="Custom Agent" type="text" required />
+                        </div>
+                        <div>
+                          <label htmlFor="uagent-strategy">Strategy</label>
+                          <select id="uagent-strategy" name="uagent-strategy" defaultValue="adaptive">
+                            <option value="adaptive">Adaptive</option>
+                            <option value="trend">Trend</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="uagent-file">Upload File (.py)</label>
+                          <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
+                        </div>
+                        <div>
+                          <button type="submit">Deploy uAgent</button>
+                        </div>
                       </div>
-                      <div>
-                        <label htmlFor="uagent-strategy">Strategy</label>
-                        <select id="uagent-strategy" name="uagent-strategy" defaultValue="adaptive">
-                          <option value="adaptive">Adaptive</option>
-                          <option value="trend">Trend</option>
-                          <option value="mean_reversion">Mean Reversion</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="uagent-file">Upload File (.py)</label>
-                        <input id="uagent-file" name="uagent-file" type="file" accept=".py" required />
-                      </div>
-                      <div>
-                        <button type="submit">Deploy uAgent</button>
-                      </div>
-                    </div>
-                  </form>
+                    </form>
+                  </div>
                 </div>
 
-                <div className="bot-form-card">
-                  <h3>FlokX Alert Bot</h3>
-                  <form onSubmit={handleCreateFlokxBot}>
-                    <div className="bot-form-grid">
-                      <div>
-                        <label htmlFor="flokx-name">Bot Name</label>
-                        <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
+                <div className="bot-management-section">
+                  <div className="bot-section-header">
+                    <h2>🎯 FlokX Alert Bot</h2>
+                  </div>
+                  <div className="bot-form-card">
+                    <h3>Configure Alert Bot</h3>
+                    <form onSubmit={handleCreateFlokxBot}>
+                      <div className="bot-form-grid">
+                        <div>
+                          <label htmlFor="flokx-name">Bot Name</label>
+                          <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
+                        </div>
+                        <div>
+                          <label htmlFor="flokx-signal">Signal Type</label>
+                          <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
+                            <option value="momentum">Momentum</option>
+                            <option value="breakout">Breakout</option>
+                            <option value="mean_reversion">Mean Reversion</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="flokx-risk">Risk Level</label>
+                          <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
+                            <option value="safe">Safe</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="aggressive">Aggressive</option>
+                          </select>
+                        </div>
+                        <div>
+                          <button type="submit">Create FlokX Bot</button>
+                        </div>
                       </div>
-                      <div>
-                        <label htmlFor="flokx-signal">Signal Type</label>
-                        <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
-                          <option value="momentum">Momentum</option>
-                          <option value="breakout">Breakout</option>
-                          <option value="mean_reversion">Mean Reversion</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="flokx-risk">Risk Level</label>
-                        <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
-                          <option value="safe">Safe</option>
-                          <option value="balanced">Balanced</option>
-                          <option value="aggressive">Aggressive</option>
-                        </select>
-                      </div>
-                      <div>
-                        <button type="submit">Create FlokX Bot</button>
-                      </div>
-                    </div>
-                  </form>
+                    </form>
+                  </div>
                 </div>
               </div>
             </div>

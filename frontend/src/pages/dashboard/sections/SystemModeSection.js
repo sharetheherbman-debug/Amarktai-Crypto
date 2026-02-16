@@ -22,7 +22,7 @@ export default function SystemModeSection({
   toggleSystemMode,
 }) {
   const hasLiveBots = bots.some(b => b.trading_mode === 'live' && b.status === 'active');
-  const showPaperReset = true;
+  const showPaperReset = systemModes.paperTrading && !systemModes.liveTrading;
   const isPaperResetReady = paperResetValid && !paperResetChecking;
   const isPaperResetMode = systemModes.paperTrading && !systemModes.liveTrading;
 
@@ -108,29 +108,6 @@ export default function SystemModeSection({
             )}
           </div>
         )}
-        <div style={{marginTop: '24px', padding: '16px', background: 'var(--panel)', border: '2px solid var(--error)', borderRadius: '8px'}}>
-          <h3 style={{color: 'var(--error)', marginBottom: '8px'}}>🚨 Emergency Controls</h3>
-          <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
-            Immediately stop ALL bots and trading activity system-wide
-          </p>
-          <button
-            onClick={handleEmergencyStop}
-            style={{
-              padding: '12px 24px',
-              background: 'var(--error)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: 700,
-              fontSize: '1rem',
-              cursor: 'pointer',
-              width: '100%',
-              maxWidth: '300px'
-            }}
-          >
-            🚨 EMERGENCY STOP
-          </button>
-        </div>
       </div>
       {showPaperResetModal && (
         <div className="modal-overlay" onClick={() => setShowPaperResetModal(false)}>
