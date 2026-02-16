@@ -268,7 +268,7 @@ export default function OverviewSection({
         <div className="overview-grid">
           <div className="overview-left-col">
             <div className="overview-image-card">
-              <img src="/assets/background.jpg" alt="Trading workspace" className="overview-image-asset" />
+              <img src="/assets/overview.jpg" alt="Trading workspace" className="overview-image-asset" />
             </div>
           </div>
           <div className="overview-right-col">

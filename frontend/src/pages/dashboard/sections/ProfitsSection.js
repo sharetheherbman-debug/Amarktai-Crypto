@@ -125,14 +125,6 @@ const ProfitsSection = ({
           title="💹 Profits & Performance"
           subtitle="Track equity, drawdown, and performance metrics across bots."
         />
-
-        <div className="profit-kpi-grid">
-          <StatCard label="Net P&L" value={formatZAR(overviewData?.totalProfit)} />
-          <StatCard label="Win Rate" value={safePercent(overviewData?.winRate, 1)} />
-          <StatCard label="Max Drawdown" value={maxDrawdown !== undefined && maxDrawdown !== null ? `${safeToFixed(maxDrawdown, 2)}%` : NOT_AVAILABLE} />
-          <StatCard label="Trades/Day" value={safeNumber(overviewData?.todaysTrades, 0)} />
-          <StatCard label="Fees" value={feesValue !== null ? formatZAR(feesValue) : NOT_AVAILABLE} />
-        </div>
         
         {/* Horizontal Sub-tabs */}
         <div className="profit-tabs">

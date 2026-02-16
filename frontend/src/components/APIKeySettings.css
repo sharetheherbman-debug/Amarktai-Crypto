@@ -41,8 +41,26 @@
 
 .api-key-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--card-gap);
+}
+
+@media (min-width: 1200px) {
+  .api-key-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .api-key-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .api-key-grid {
+    grid-template-columns: repeat(1, 1fr);
+  }
 }
 
 .api-key-card {
