@@ -76,7 +76,7 @@ export default function Landing() {
   };
 
   return (
-    <AuthLayout videoRotated={true}>
+    <AuthLayout>
       <audio
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
