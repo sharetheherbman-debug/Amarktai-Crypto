@@ -3231,7 +3231,7 @@ export default function useDashboardState(navigate) {
     handleProfileChange,
     handleProfileSave,
     handleReinvestProfits,
-    handleRenameBotSubmit,
+    handleRenameBotSubmit: handleSaveBotName,
     handleResetBodyguardLock,
     handleResetDailyLossLock,
     handleResetPassword,
