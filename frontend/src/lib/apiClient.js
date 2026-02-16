@@ -7,11 +7,13 @@
  * - Timeout handling
  * - Retry strategy with exponential backoff
  * - Consistent error normalization
+ * - Global circuit breaker for backend down detection
  */
 
 import axios from 'axios';
 import { toast } from 'sonner';
 import { API_BASE } from './api';
+import { circuitBreaker } from './circuitBreaker';
 
 // Create axios instance with defaults
 const apiClient = axios.create({
@@ -22,9 +24,16 @@ const apiClient = axios.create({
   }
 });
 
-// Request interceptor - Add JWT token
+// Request interceptor - Add JWT token and check circuit breaker
 apiClient.interceptors.request.use(
   (config) => {
+    // Check circuit breaker
+    if (!circuitBreaker.isRequestAllowed()) {
+      const error = new Error('Circuit breaker is OPEN - backend appears down');
+      error.code = 'CIRCUIT_OPEN';
+      return Promise.reject(error);
+    }
+
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -39,11 +48,15 @@ apiClient.interceptors.request.use(
 // Response interceptor - Handle errors and retries
 apiClient.interceptors.response.use(
   (response) => {
-    // Successful response
+    // Successful response - notify circuit breaker
+    circuitBreaker.recordSuccess();
     return response;
   },
   async (error) => {
     const originalRequest = error.config;
+
+    // Record failure in circuit breaker
+    circuitBreaker.recordFailure(error);
 
     // Don't retry if already retried max times
     if (!originalRequest._retry) {
