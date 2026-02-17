@@ -10,9 +10,7 @@ import os
 
 class AIModelsRouter:
     def __init__(self):
-        # System fallback key
-        self.system_api_key = os.environ.get('OPENAI_API_KEY')
-        self.system_client = AsyncOpenAI(api_key=self.system_api_key) if self.system_api_key else None
+        # Note: OpenAI client is now created per-request via resolver
         # Map config model names to actual OpenAI models
         self.models = {
             'system_brain': 'gpt-4o',  # Best for strategic decisions
@@ -21,53 +19,27 @@ class AIModelsRouter:
             'chatops': 'gpt-4o'  # Best for chat
         }
     
-    async def get_client_for_user(self, user_id: str = None) -> AsyncOpenAI:
+    async def get_client_for_user(self, user_id: str = None):
         """Get OpenAI client for user - prefers per-user key, falls back to system key
         
         Args:
             user_id: User ID (optional). If not provided, uses system key
             
         Returns:
-            AsyncOpenAI client instance
+            Tuple of (AsyncOpenAI client or None, source string)
         """
-        if not user_id:
-            # No user_id provided, use system key
-            return self.system_client
-        
         try:
-            # Try to get user's OpenAI key
-            import database as db
-            from routes.api_key_management import decrypt_api_key
+            from services.openai_key_resolver import get_openai_client
             
-            user_key_doc = await db.api_keys_collection.find_one(
-                {"user_id": user_id, "provider": "openai"},
-                {"_id": 0, "api_key_encrypted": 1, "status": 1}
-            )
+            # Use the resolver
+            client, source = await get_openai_client(user_id)
+            logger.info(f"AI Router: OpenAI key resolved source={source} for user {user_id[:8] if user_id else 'system'}")
             
-            if user_key_doc and user_key_doc.get('api_key_encrypted'):
-                # Check if key is tested and valid
-                status = user_key_doc.get('status', '')
-                if status == 'test_ok':
-                    # Use per-user key
-                    user_api_key = decrypt_api_key(user_key_doc['api_key_encrypted'])
-                    client = AsyncOpenAI(api_key=user_api_key)
-                    logger.info(f"AI Router: Using per-user OpenAI key for user {user_id[:8] if user_id else 'unknown'}")
-                    return client
-                else:
-                    logger.warning(f"AI Router: User {user_id[:8]} has OpenAI key but status is {status}, using system key")
-            
-            # Fall back to system key
-            if self.system_client:
-                logger.info(f"AI Router: Using system OpenAI key for user {user_id[:8] if user_id else 'system'}")
-                return self.system_client
-            else:
-                logger.error(f"AI Router: No OpenAI key available for user {user_id[:8] if user_id else 'unknown'}")
-                return None
+            return client, source
                 
         except Exception as e:
             logger.error(f"AI Router: Error getting client for user {user_id[:8] if user_id else 'unknown'}: {e}")
-            # Fall back to system key on error
-            return self.system_client
+            return None, 'missing'
     
     async def system_brain_decision(self, prompt: str, context: dict, user_id: str = None) -> str:
         """
@@ -75,7 +47,7 @@ class AIModelsRouter:
         For: Autopilot decisions, risk management, strategic planning
         """
         try:
-            client = await self.get_client_for_user(user_id)
+            client, source = await self.get_client_for_user(user_id)
             if not client:
                 return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
@@ -88,7 +60,7 @@ Current system state:
 
 Think strategically. Consider long-term growth, risk mitigation, and optimal capital deployment."""
 
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.models['system_brain'],
                 messages=[
                     {"role": "system", "content": system_message},
@@ -109,7 +81,7 @@ Think strategically. Consider long-term growth, risk mitigation, and optimal cap
         For: Individual bot trading decisions, technical analysis
         """
         try:
-            client = await self.get_client_for_user(user_id)
+            client, source = await self.get_client_for_user(user_id)
             if not client:
                 return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
@@ -142,7 +114,7 @@ Focus on: Technical patterns, entry/exit timing, position sizing."""
         For: Daily summaries, performance reports, email content
         """
         try:
-            client = await self.get_client_for_user(user_id)
+            client, source = await self.get_client_for_user(user_id)
             if not client:
                 return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 
@@ -175,7 +147,7 @@ Focus on: Key metrics, insights, actionable recommendations."""
         For: Dashboard chat, real-time commands, user interaction
         """
         try:
-            client = await self.get_client_for_user(user_id)
+            client, source = await self.get_client_for_user(user_id)
             if not client:
                 return "OpenAI API key not configured. Please configure your OpenAI key in API Settings."
                 

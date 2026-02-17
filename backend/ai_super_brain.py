@@ -15,7 +15,7 @@ import os
 
 class AISuperBrain:
     def __init__(self):
-        self.openai_key = os.getenv('OPENAI_API_KEY', '')
+        # Note: OpenAI key is now resolved per-request via resolver
         self.insights_cache = {}
     
     async def generate_daily_insights(self, user_id: str) -> dict:
@@ -30,7 +30,7 @@ class AISuperBrain:
             patterns = await self._analyze_patterns(data)
             
             # Generate insights with AI
-            insights = await self._generate_ai_insights(data, patterns)
+            insights = await self._generate_ai_insights(data, patterns, user_id)
             
             result = {
                 "user_id": user_id,
@@ -120,14 +120,20 @@ class AISuperBrain:
             "worst_hour": min(hour_performance.items(), key=lambda x: x[1]['wins'])[0] if hour_performance else None
         }
     
-    async def _generate_ai_insights(self, data: dict, patterns: dict) -> str:
+    async def _generate_ai_insights(self, data: dict, patterns: dict, user_id: str = None) -> str:
         """Generate AI insights using LLM"""
-        if not self.openai_key:
-            return self._generate_basic_insights(patterns)
-        
         try:
+            from services.openai_key_resolver import resolve_openai_key
             import openai
-            openai.api_key = self.openai_key
+            
+            # Resolve OpenAI key
+            api_key, source = await resolve_openai_key(user_id)
+            if not api_key:
+                logger.info(f"OpenAI key resolved source={source} - using basic insights")
+                return self._generate_basic_insights(patterns)
+            
+            logger.info(f"OpenAI key resolved source={source} for AI insights")
+            openai.api_key = api_key
             
             prompt = f"""
 Analyze this crypto trading data and provide actionable insights:

@@ -16,47 +16,31 @@ import json
 
 class AIProductionHandler:
     def __init__(self):
-        # System fallback key (only used if user doesn't have a key)
-        self.system_api_key = os.environ.get('OPENAI_API_KEY')
-        self.system_client = AsyncOpenAI(api_key=self.system_api_key) if self.system_api_key else None
+        # Note: OpenAI client is now created per-request via resolver
+        pass
     
     async def get_openai_client(self, user_id: str) -> tuple[AsyncOpenAI, str]:
         """Get OpenAI client for user - prefers per-user key, falls back to system key
         
         Returns:
-            Tuple of (client, key_source) where key_source is 'user', 'system', or 'none'
+            Tuple of (client, key_source) where key_source is 'user', 'system', or 'missing'
         """
         try:
-            # Try to get user's OpenAI key
-            from services.keys_service import keys_service
-            user_key_data = await keys_service.get_user_api_key(user_id, 'openai', decrypt=True)
+            from services.openai_key_resolver import get_openai_client as resolver_get_client
             
-            if user_key_data and user_key_data.get('api_key'):
-                # Check if key is tested and valid
-                status = user_key_data.get('status', '')
-                if status == 'test_ok':
-                    # Use per-user key
-                    user_api_key = user_key_data['api_key']
-                    client = AsyncOpenAI(api_key=user_api_key)
-                    logger.info(f"Using per-user OpenAI key for user {user_id[:8]}")
-                    return client, 'user'
-                else:
-                    logger.warning(f"User {user_id[:8]} has OpenAI key but status is {status}, falling back to system key")
+            # Use the resolver
+            client, source = await resolver_get_client(user_id)
+            logger.info(f"OpenAI key resolved source={source} for AI production handler")
             
-            # Fall back to system key
-            if self.system_client:
-                logger.info(f"Using system OpenAI key for user {user_id[:8]} (no user key configured)")
-                return self.system_client, 'system'
+            if client:
+                return client, source
             else:
-                logger.error(f"No OpenAI key available for user {user_id[:8]} (no user key and no system key)")
-                return None, 'none'
+                logger.error(f"No OpenAI key available for user {user_id[:8]} source={source}")
+                return None, source
                 
         except Exception as e:
             logger.error(f"Error getting OpenAI client for user {user_id[:8]}: {e}")
-            # Fall back to system key on error
-            if self.system_client:
-                return self.system_client, 'system'
-            return None, 'none'
+            return None, 'missing'
         
     async def get_system_context(self, user_id: str) -> dict:
         """Get complete system state"""
