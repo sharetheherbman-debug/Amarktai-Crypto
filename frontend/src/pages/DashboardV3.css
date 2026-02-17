@@ -229,8 +229,8 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   background: var(--glass); 
   border: 1px solid var(--line); 
   border-radius: var(--radius); 
-  padding: 20px; 
-  margin-bottom: 16px;
+  padding: 24px; 
+  margin-bottom: 20px;
   backdrop-filter: blur(var(--blur));
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
 }
@@ -238,7 +238,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .card h2 {
   font-size: 1.4rem;
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -249,7 +249,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   font-size: 1.05rem;
   font-weight: 600;
   color: #ffffff;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .card h2 .balances {
@@ -1739,7 +1739,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   background: var(--glass); 
   border: 1px solid var(--line); 
   border-radius: var(--radius); 
-  padding: 16px; 
+  padding: 20px; 
 }
 
 .bot-summary-header {
@@ -1888,7 +1888,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 12px;
+  padding: 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2045,7 +2045,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2481,9 +2481,11 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   overflow: hidden;
 }
 .bot-accordion-body {
-  padding: 16px;
+  padding: 20px;
   background: rgba(10, 12, 20, 0.6);
   border-top: 1px solid var(--line);
+  animation: fadeIn 0.3s ease-out;
+}
   animation: fadeIn 0.3s ease-out;
 }
 
