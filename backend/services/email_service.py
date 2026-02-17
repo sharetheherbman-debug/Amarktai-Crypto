@@ -364,3 +364,7 @@ Amarktai Crypto (part of Amarktai Network)
 
 # Global instance
 email_service = EmailService()
+
+def get_email_service():
+    """Get email service singleton"""
+    return email_service

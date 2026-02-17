@@ -169,19 +169,20 @@ def parse_transfer_params(content: str) -> Dict[str, Any]:
 
 
 async def resolve_openai_key(user_id: str) -> tuple[Optional[str], str]:
-    """Resolve OpenAI API key using canonical priority."""
-    from routes.api_key_management import get_decrypted_key
-
-    key_data = await get_decrypted_key(user_id, "openai")
-    if key_data and key_data.get("api_key"):
-        return key_data.get("api_key"), "user"
-
-    if ALLOW_ENV_OPENAI_KEY:
-        env_key = os.getenv("OPENAI_API_KEY")
-        if env_key:
-            return env_key, "env"
-
-    return None, "none"
+    """
+    Resolve OpenAI API key using canonical priority.
+    
+    Uses the centralized resolver from services/openai_key_resolver.py
+    to ensure consistent behavior across all AI features.
+    """
+    from services.openai_key_resolver import resolve_openai_key as canonical_resolver
+    
+    api_key, source = await canonical_resolver(user_id)
+    
+    # Log the resolution for debugging
+    logger.info(f"AI Chat: OpenAI key resolved source={source} for user {user_id[:8] if user_id else 'system'}")
+    
+    return api_key, source
 
 
 def record_ai_error(code: str, message: str) -> None:
@@ -1479,17 +1480,20 @@ async def ai_chat(
                         key_source
                     )
                     
+                    # CRITICAL: Never block if key is missing - this violates the requirement
+                    # The resolver will have already fallen back to system key
                     if not user_api_key:
+                        # This should only happen if BOTH user and system keys are missing
                         return build_ai_error_response(
-                            status_code=409,
+                            status_code=503,
                             code="OPENAI_KEY_MISSING",
-                            message="Please set your OpenAI API key in API Setup.",
-                            user_message="Set your OpenAI API key in API Setup to enable Super Brain Chat.",
+                            message="OpenAI service unavailable - no API key configured (system or user)",
+                            user_message="AI features temporarily unavailable. Please contact support or configure your OpenAI key.",
                             system_state=system_state,
-                            key_source="none"
+                            key_source="missing"
                         )
                     
-                    # Use AsyncOpenAI client (openai>=1.x) with user's key
+                    # Use AsyncOpenAI client (openai>=1.x) with resolved key
                     from openai import AsyncOpenAI
                     
                     try:
@@ -1498,8 +1502,11 @@ async def ai_chat(
                         request_timeout = 30.0
                         logger.warning("Invalid OPENAI_TIMEOUT_SECONDS value, defaulting to 30s")
                     
-                    # Create client with user's API key
+                    # Create client with resolved API key (user or system)
                     client = AsyncOpenAI(api_key=user_api_key, timeout=request_timeout)
+                    
+                    # Log which key source is being used
+                    logger.info(f"AI Chat: Using OpenAI key source={key_source} for user {user_tag}")
                     
                     # MODEL FALLBACK - Same as keys/test
                     fallback_models = []
