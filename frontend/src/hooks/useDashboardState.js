@@ -2031,7 +2031,7 @@ export default function useDashboardState(navigate) {
       setPaperResetLoading(true);
       setPaperResetError('');
       const response = await axios.post(`${API}/api/admin/start-fresh`, { 
-        confirm: confirmPhrase,
+        confirmation_phrase: confirmPhrase,
         scope: 'paper_only',
         also_reset_risk_locks: true
       }, axiosConfig);

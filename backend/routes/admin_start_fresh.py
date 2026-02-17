@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 class StartFreshRequest(BaseModel):
-    confirm: str
+    confirmation_phrase: str
     scope: Literal["paper_only", "paper_and_bots"] = "paper_only"
     also_reset_risk_locks: bool = True
 
@@ -46,7 +46,7 @@ async def start_fresh(
         - Confirmation phrase: "START FRESH"
         
     Args:
-        confirm: Must be "START FRESH" (exact match)
+        confirmation_phrase: Must be "START FRESH" (exact match)
         scope: "paper_only" (default) or "paper_and_bots"
         also_reset_risk_locks: Whether to reset risk locks (default: true)
         
@@ -62,7 +62,7 @@ async def start_fresh(
     """
     try:
         # Verify confirmation phrase
-        if not request.confirm or request.confirm != "START FRESH":
+        if not request.confirmation_phrase or request.confirmation_phrase != "START FRESH":
             raise HTTPException(
                 status_code=400,
                 detail="Invalid confirmation phrase. Must be 'START FRESH' (exact match)"
@@ -220,7 +220,7 @@ async def start_fresh(
 
 class ResetUserDataRequest(BaseModel):
     """Request model for resetting specific user data"""
-    confirm: str
+    confirmation_phrase: str
     target_user_id: str
     wipe_bots: bool = True
     wipe_trades: bool = False
@@ -239,7 +239,7 @@ async def reset_user_data(
     Creates backup snapshot in audit logs before deletion.
     
     Args:
-        confirm: Must be "RESET USER DATA" (exact match)
+        confirmation_phrase: Must be "RESET USER DATA" (exact match)
         target_user_id: User ID to reset
         wipe_bots: Delete all bots (default: True)
         wipe_trades: Delete trade history (default: False)
@@ -259,7 +259,7 @@ async def reset_user_data(
     """
     try:
         # Verify confirmation phrase
-        if not request.confirm or request.confirm != "RESET USER DATA":
+        if not request.confirmation_phrase or request.confirmation_phrase != "RESET USER DATA":
             raise HTTPException(
                 status_code=400,
                 detail="Invalid confirmation phrase. Must be 'RESET USER DATA' (exact match)"

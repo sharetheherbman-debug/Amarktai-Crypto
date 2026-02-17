@@ -28,7 +28,7 @@ async def test_start_fresh_requires_confirmation(client, mock_admin_user):
     with patch('backend.routes.admin_start_fresh.require_admin', return_value=mock_admin_user):
         # Test with missing confirmation
         response = client.post('/api/admin/start-fresh', json={
-            "confirm": "",
+            "confirmation_phrase": "",
             "scope": "paper_only"
         })
         assert response.status_code == 400
@@ -36,7 +36,7 @@ async def test_start_fresh_requires_confirmation(client, mock_admin_user):
         
         # Test with wrong confirmation
         response = client.post('/api/admin/start-fresh', json={
-            "confirm": "DELETE ALL DATA",
+            "confirmation_phrase": "DELETE ALL DATA",
             "scope": "paper_only"
         })
         assert response.status_code == 400
@@ -65,7 +65,7 @@ async def test_start_fresh_success_with_correct_confirmation(client, mock_admin_
         
         # Test with correct confirmation
         response = client.post('/api/admin/start-fresh', json={
-            "confirm": "START FRESH",
+            "confirmation_phrase": "START FRESH",
             "scope": "paper_only",
             "also_reset_risk_locks": True
         })
@@ -101,7 +101,7 @@ async def test_reset_user_data_requires_confirmation(client, mock_admin_user):
     with patch('backend.routes.admin_start_fresh.require_admin', return_value=mock_admin_user):
         # Test with missing confirmation
         response = client.post('/api/admin/reset-user-data', json={
-            "confirm": "",
+            "confirmation_phrase": "",
             "target_user_id": "user_123",
             "wipe_bots": True
         })
@@ -110,7 +110,7 @@ async def test_reset_user_data_requires_confirmation(client, mock_admin_user):
         
         # Test with wrong confirmation
         response = client.post('/api/admin/reset-user-data', json={
-            "confirm": "RESET DATA",
+            "confirmation_phrase": "RESET DATA",
             "target_user_id": "user_123",
             "wipe_bots": True
         })
@@ -141,7 +141,7 @@ async def test_reset_user_data_response_schema(client, mock_admin_user):
         mock_db.audit_logs_collection.update_one = AsyncMock()
         
         response = client.post('/api/admin/reset-user-data', json={
-            "confirm": "RESET USER DATA",
+            "confirmation_phrase": "RESET USER DATA",
             "target_user_id": "user_123",
             "wipe_bots": True,
             "wipe_trades": False,
