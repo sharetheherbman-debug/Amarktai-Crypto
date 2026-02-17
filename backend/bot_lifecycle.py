@@ -24,8 +24,13 @@ class BotLifecycleManager:
         self.max_drawdown = 0.15  # 15%
     
     async def check_promotions(self):
-        """Check all bots ready for promotion from paper to live"""
+        """
+        Check all bots ready for promotion from paper to live.
+        Only promotes if AUTO_PROMOTE_LIVE=true, otherwise marks as eligible.
+        """
         try:
+            from config import AUTO_PROMOTE_LIVE, ENABLE_LIVE_TRADING
+            
             # Get all user-created bots still in paper mode
             paper_bots = await db.bots_collection.find({
                 "origin": "user",
@@ -33,21 +38,39 @@ class BotLifecycleManager:
                 "status": "active"
             }, {"_id": 0}).to_list(1000)
             
-            promotions = []
+            eligible_bots = []
+            promoted_count = 0
+            
             for bot in paper_bots:
                 if await self._should_promote(bot):
-                    promotions.append(bot)
+                    eligible_bots.append(bot)
+                    
+                    # Mark as eligible
+                    await db.bots_collection.update_one(
+                        {"id": bot["id"]},
+                        {"$set": {
+                            "eligible_for_live": True,
+                            "eligible_since": datetime.now(timezone.utc).isoformat()
+                        }}
+                    )
+                    
+                    # Auto-promote if enabled
+                    if AUTO_PROMOTE_LIVE and ENABLE_LIVE_TRADING:
+                        await self._promote_bot(bot)
+                        promoted_count += 1
+                        logger.info(f"✅ Auto-promoted bot '{bot['name']}' to live trading")
+                    else:
+                        logger.info(f"📋 Bot '{bot['name']}' is eligible for live promotion (AUTO_PROMOTE_LIVE={AUTO_PROMOTE_LIVE})")
             
-            # Promote eligible bots
-            for bot in promotions:
-                await self._promote_bot(bot)
-                logger.info(f"✅ Promoted bot '{bot['name']}' to live trading")
-            
-            return len(promotions)
+            return {
+                "eligible_count": len(eligible_bots),
+                "promoted_count": promoted_count,
+                "auto_promote_enabled": AUTO_PROMOTE_LIVE
+            }
             
         except Exception as e:
             logger.error(f"Bot promotion check failed: {e}")
-            return 0
+            return {"eligible_count": 0, "promoted_count": 0, "error": str(e)}
     
     async def _should_promote(self, bot: dict) -> bool:
         """Check if bot meets promotion criteria"""
@@ -109,7 +132,32 @@ class BotLifecycleManager:
                 logger.info(f"Bot {bot['name']}: Profit factor too low ({profit_factor:.2f} < 1.2)")
                 return False
             
-            logger.info(f"Bot {bot['name']}: ✅ Eligible for promotion (win_rate={win_rate:.1%}, quality={avg_quality:.1f}/10, pf={profit_factor:.2f})")
+            # 7. Check circuit breaker status (must not be tripped)
+            circuit_breaker = await db.circuit_breaker_state.find_one({
+                "entity_type": "bot",
+                "entity_id": bot['id'],
+                "tripped": True,
+                "reset_at": None
+            })
+            
+            if circuit_breaker:
+                logger.info(f"Bot {bot['name']}: Circuit breaker is tripped - {circuit_breaker.get('trigger_reason')}")
+                return False
+            
+            # 8. Validate live API keys (if required)
+            from config import REQUIRE_API_KEYS_FOR_LIVE
+            if REQUIRE_API_KEYS_FOR_LIVE:
+                # Check if user has API keys for this exchange
+                api_keys = await db.api_keys_collection.find_one({
+                    "user_id": bot['user_id'],
+                    "exchange": bot['exchange']
+                })
+                
+                if not api_keys or not api_keys.get('api_key') or not api_keys.get('secret'):
+                    logger.info(f"Bot {bot['name']}: Missing API keys for {bot['exchange']}")
+                    return False
+            
+            logger.info(f"Bot {bot['name']}: ✅ Eligible for promotion (win_rate={win_rate:.1%}, pf={profit_factor:.2f})")
             return True
             
         except Exception as e:
@@ -149,10 +197,27 @@ class BotLifecycleManager:
                             "total_profit": 0.0,
                             "trades_count": 0,
                             "paper_performance": paper_performance,
-                            "live_started_at": datetime.now(timezone.utc).isoformat()
+                            "live_started_at": datetime.now(timezone.utc).isoformat(),
+                            "eligible_for_live": False  # Clear eligibility flag
                         }
                     }
                 )
+                
+                # Broadcast promotion to realtime events
+                try:
+                    from realtime_events import manager
+                    await manager.send_message(bot['user_id'], {
+                        "type": "bot_promoted",
+                        "bot_id": bot['id'],
+                        "bot_name": bot['name'],
+                        "from_mode": "paper",
+                        "to_mode": "live",
+                        "paper_performance": paper_performance,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast promotion event: {e}")
+                
                 logger.info(f"Bot '{bot['name']}' promoted to LIVE trading - Capital reset to R{initial_capital}")
             else:
                 logger.info(f"Bot '{bot['name']}' eligible but user not in live mode")
