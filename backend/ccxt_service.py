@@ -66,8 +66,23 @@ class CCXTService:
             return {}
     
     async def create_market_order(self, exchange: ccxt.Exchange, symbol: str, 
-                                 side: str, amount: float, paper_trading: bool = True) -> Dict:
-        """Create market order (paper or live)"""
+                                 side: str, amount: float, paper_trading: bool = True,
+                                 _internal_only: bool = False) -> Dict:
+        """
+        Create market order (paper or live)
+        
+        WARNING: This method should ONLY be called internally by OrderPipeline.
+        All external order requests must go through services/order_pipeline.py -> submit_order()
+        
+        Args:
+            _internal_only: Must be True to execute. Prevents direct external calls.
+        """
+        if not _internal_only:
+            raise RuntimeError(
+                "Direct order placement is not allowed. "
+                "All orders must go through OrderPipeline.submit_order() for safety gates. "
+                "This prevents bypassing: idempotency, fee coverage, rate limits, and circuit breakers."
+            )
         try:
             if paper_trading:
                 # Simulate paper trading

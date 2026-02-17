@@ -113,8 +113,22 @@ class LiveTradingEngine:
             return None
     
     async def place_market_order(self, exchange: ccxt.Exchange, symbol: str, 
-                                 side: str, amount: float) -> Optional[Dict]:
-        """Place real market order"""
+                                 side: str, amount: float, _internal_only: bool = False) -> Optional[Dict]:
+        """
+        Place real market order
+        
+        WARNING: This method should ONLY be called internally after OrderPipeline approval.
+        All external order requests must go through services/order_pipeline.py -> submit_order()
+        
+        Args:
+            _internal_only: Must be True to execute. Prevents direct external calls.
+        """
+        if not _internal_only:
+            raise RuntimeError(
+                "Direct order placement is not allowed. "
+                "All orders must go through OrderPipeline.submit_order() for safety gates."
+            )
+        
         try:
             order = await asyncio.to_thread(
                 exchange.create_market_order,

@@ -291,6 +291,147 @@ class OrderPipeline:
             result["rejection_reason"] = f"Internal error: {str(e)}"
             return result
     
+    async def execute_approved_order(
+        self,
+        order_id: str,
+        user_id: str,
+        bot_id: str,
+        exchange: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        order_type: str,
+        price: Optional[float] = None,
+        is_paper: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Execute an order that has already passed all 4 gates.
+        
+        This method should be called by trading engines AFTER getting approval
+        from submit_order(). It handles the actual execution through the
+        appropriate engine (paper or live) with the _internal_only flag.
+        
+        Args:
+            order_id: The approved order ID from submit_order()
+            ... (same as submit_order)
+        
+        Returns:
+            {
+                "success": bool,
+                "order_id": str,
+                "exchange_order_id": str (if live),
+                "execution_price": float,
+                "execution_amount": float,
+                "fees": dict,
+                "timestamp": str
+            }
+        """
+        try:
+            result = {
+                "success": False,
+                "order_id": order_id,
+                "error": None
+            }
+            
+            if is_paper:
+                # Execute via paper trading engine
+                from paper_trading_engine import paper_trading_engine
+                
+                execution = await paper_trading_engine.execute_approved_trade(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    exchange=exchange,
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    order_type=order_type,
+                    price=price
+                )
+                
+                if execution.get('success'):
+                    result["success"] = True
+                    result["execution_price"] = execution.get('price')
+                    result["execution_amount"] = execution.get('amount')
+                    result["fees"] = execution.get('fees', {})
+                    result["timestamp"] = execution.get('timestamp')
+                else:
+                    result["error"] = execution.get('error', 'Paper execution failed')
+            
+            else:
+                # Execute via live trading engine with _internal_only=True
+                from engines.trading_engine_live import TradingEngineLive
+                from ccxt_service import CCXTService
+                
+                # Get user's API keys
+                api_keys = await self.db['api_keys'].find_one({
+                    "user_id": user_id,
+                    "exchange": exchange
+                })
+                
+                if not api_keys:
+                    result["error"] = f"No API keys found for {exchange}"
+                    return result
+                
+                # Initialize exchange
+                ccxt_service = CCXTService()
+                exchange_instance = ccxt_service.init_exchange(
+                    exchange,
+                    api_keys['api_key'],
+                    api_keys['secret'],
+                    passphrase=api_keys.get('passphrase')
+                )
+                
+                # Execute with internal flag
+                live_engine = TradingEngineLive()
+                order = await live_engine.place_market_order(
+                    exchange=exchange_instance,
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    _internal_only=True  # CRITICAL: Bypass guard since we passed gates
+                )
+                
+                if order:
+                    result["success"] = True
+                    result["exchange_order_id"] = order.get('id')
+                    result["execution_price"] = order.get('price')
+                    result["execution_amount"] = order.get('amount')
+                    result["fees"] = order.get('fees', {})
+                    result["timestamp"] = order.get('timestamp')
+                else:
+                    result["error"] = "Live order execution failed"
+            
+            # Update pending order with execution result
+            await self.pending_orders.update_one(
+                {"order_id": order_id},
+                {"$set": {
+                    "state": "filled" if result["success"] else "failed",
+                    "execution_result": result,
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+            
+            # Record to ledger
+            await self.ledger.append_event(
+                user_id=user_id,
+                bot_id=bot_id,
+                event_type="order_executed" if result["success"] else "order_failed",
+                amount=amount,
+                currency=symbol.split('/')[0],
+                description=f"Order {order_id} {'executed' if result['success'] else 'failed'}",
+                metadata=result
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error executing approved order: {e}")
+            return {
+                "success": False,
+                "order_id": order_id,
+                "error": str(e)
+            }
+    
     async def _gate_a_idempotency(
         self, idempotency_key: str, user_id: str, bot_id: str,
         exchange: str, symbol: str, side: str, amount: float,

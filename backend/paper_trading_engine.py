@@ -1699,6 +1699,100 @@ class PaperTradingEngine:
             "luno_keys_available": self.luno_keys_available,
             "user_id": self.user_id
         }
+    
+    async def execute_approved_trade(
+        self,
+        user_id: str,
+        bot_id: str,
+        exchange: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        order_type: str = "market",
+        price: Optional[float] = None
+    ) -> Dict:
+        """
+        Execute a trade that has already been approved by OrderPipeline.
+        
+        This method handles paper trade execution AFTER all 4 gates have passed.
+        It simulates the trade with real market data and realistic fees/slippage.
+        
+        Args:
+            user_id: User ID
+            bot_id: Bot ID  
+            exchange: Exchange name
+            symbol: Trading pair
+            side: "buy" or "sell"
+            amount: Trade amount
+            order_type: "market" or "limit"
+            price: Limit price (optional)
+        
+        Returns:
+            {
+                "success": bool,
+                "price": float,
+                "amount": float,
+                "fees": dict,
+                "timestamp": str,
+                "error": str (if failed)
+            }
+        """
+        try:
+            # Get real market price
+            current_price = await self.get_real_price(symbol, exchange)
+            
+            if not current_price or current_price <= 0:
+                return {
+                    "success": False,
+                    "error": f"Could not fetch price for {symbol} on {exchange}"
+                }
+            
+            # Calculate execution price with slippage
+            slippage_pct = 0.001  # 0.1% slippage for paper
+            if side == "buy":
+                execution_price = current_price * (1 + slippage_pct)
+            else:
+                execution_price = current_price * (1 - slippage_pct)
+            
+            # Calculate fees (use realistic fee rates)
+            fee_rates = {
+                "luno": 0.001,  # 0.1%
+                "binance": 0.001,  # 0.1%
+                "kucoin": 0.001,  # 0.1%
+                "bybit": 0.001,  # 0.1%
+                "kraken": 0.0016,  # 0.16%
+                "bitget": 0.001,  # 0.1%
+                "gate": 0.002  # 0.2%
+            }
+            fee_rate = fee_rates.get(exchange.lower(), 0.001)
+            fee_amount = amount * execution_price * fee_rate
+            
+            # Build result
+            result = {
+                "success": True,
+                "price": execution_price,
+                "amount": amount,
+                "fees": {
+                    "currency": symbol.split('/')[1],
+                    "cost": fee_amount,
+                    "rate": fee_rate
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "slippage": slippage_pct,
+                "side": side,
+                "symbol": symbol,
+                "exchange": exchange
+            }
+            
+            logger.info(f"Paper trade executed: {side} {amount} {symbol} @ {execution_price}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Paper trade execution error: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
 # Global instance
 paper_engine = PaperTradingEngine()
