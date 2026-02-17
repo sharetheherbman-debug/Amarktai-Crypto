@@ -205,11 +205,19 @@ class EmailReportsService:
             
             # Generate AI summary if available
             ai_summary = ""
-            if self.ai_service and not is_healthy:
+            if not is_healthy:
                 try:
-                    # Call AI to analyze issues and recommend fixes
-                    prompt = f"""Analyze this system health data and provide brief actionable recommendations:
+                    # Use canonical key resolver - system key for admin reports
+                    from services.openai_key_resolver import get_openai_client
                     
+                    client, source = await get_openai_client(user_id=None)  # System key for admin reports
+                    
+                    if client:
+                        logger.info(f"Email Reports: Using OpenAI key source={source} for admin report")
+                        
+                        # Call AI to analyze issues and recommend fixes
+                        prompt = f"""Analyze this system health data and provide brief actionable recommendations:
+                        
 Issues detected:
 {chr(10).join(issues)}
 
@@ -220,15 +228,29 @@ Health data:
 
 Provide 2-3 short bullet points with recommended fixes."""
 
-                    ai_response = await self.ai_service.generate_completion(prompt, max_tokens=150)
-                    ai_summary = f"""
-                    <div style="background-color: #1e293b; border-left: 4px solid #60a5fa; padding: 16px; margin-top: 24px; border-radius: 4px;">
-                        <h4 style="margin: 0 0 12px 0; color: #60a5fa; font-size: 14px; font-weight: 600;">AI Recommendations</h4>
-                        <div style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
-                            {ai_response}
+                        response = await client.chat.completions.create(
+                            model="gpt-4o-mini",  # Use cheaper model for reports
+                            messages=[
+                                {"role": "system", "content": "You are a system administrator AI. Provide brief, actionable recommendations."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            max_tokens=150,
+                            temperature=0.7
+                        )
+                        
+                        ai_response = response.choices[0].message.content
+                        
+                        ai_summary = f"""
+                        <div style="background-color: #1e293b; border-left: 4px solid #60a5fa; padding: 16px; margin-top: 24px; border-radius: 4px;">
+                            <h4 style="margin: 0 0 12px 0; color: #60a5fa; font-size: 14px; font-weight: 600;">AI Recommendations</h4>
+                            <div style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
+                                {ai_response}
+                            </div>
                         </div>
-                    </div>
-                    """
+                        """
+                    else:
+                        logger.warning(f"Email Reports: No OpenAI key available for admin report (source={source})")
+                        
                 except Exception as e:
                     logger.warning(f"AI summary generation failed: {e}")
             
