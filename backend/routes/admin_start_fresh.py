@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 class StartFreshRequest(BaseModel):
-    confirm_phrase: str
+    confirmation_phrase: str
     scope: Literal["paper_only", "paper_and_bots"] = "paper_only"
     also_reset_risk_locks: bool = True
 
@@ -42,25 +42,30 @@ async def start_fresh(
     - Risk locks (if enabled)
     
     Requires:
-        - Admin privileges
-        - Confirmation phrase: "DELETE ALL TRADING DATA"
+        - Admin privileges via JWT (require_admin)
+        - Confirmation phrase: "START FRESH"
         
     Args:
-        confirm_phrase: Must be "DELETE ALL TRADING DATA"
+        confirmation_phrase: Must be "START FRESH" (exact match)
         scope: "paper_only" (default) or "paper_and_bots"
         also_reset_risk_locks: Whether to reset risk locks (default: true)
         
     Returns:
-        - success: bool
-        - summary: counts of deleted items
-        - audit_id: ID of audit log entry
+        - ok: bool (true on success)
+        - message: str
+        - deleted: dict with counts of deleted items
+        
+    Raises:
+        - 400: Missing or incorrect confirmation phrase
+        - 403: Non-admin user
+        - 500: Database errors
     """
     try:
         # Verify confirmation phrase
-        if request.confirm_phrase != "DELETE ALL TRADING DATA":
+        if not request.confirmation_phrase or request.confirmation_phrase != "START FRESH":
             raise HTTPException(
                 status_code=400,
-                detail="Invalid confirmation phrase. Must be 'DELETE ALL TRADING DATA'"
+                detail="Invalid confirmation phrase. Must be 'START FRESH' (exact match)"
             )
         
         summary = {
@@ -198,9 +203,9 @@ async def start_fresh(
         )
         
         return {
-            "success": True,
+            "ok": True,
             "message": "Start Fresh completed successfully",
-            "summary": summary,
+            "deleted": summary,
             "audit_id": audit_entry["id"],
             "timestamp": audit_entry["timestamp"],
             "scope": request.scope
@@ -215,6 +220,7 @@ async def start_fresh(
 
 class ResetUserDataRequest(BaseModel):
     """Request model for resetting specific user data"""
+    confirmation_phrase: str
     target_user_id: str
     wipe_bots: bool = True
     wipe_trades: bool = False
@@ -233,22 +239,32 @@ async def reset_user_data(
     Creates backup snapshot in audit logs before deletion.
     
     Args:
+        confirmation_phrase: Must be "RESET USER DATA" (exact match)
         target_user_id: User ID to reset
         wipe_bots: Delete all bots (default: True)
         wipe_trades: Delete trade history (default: False)
         wipe_keys: Delete API keys (default: False)
         
     Returns:
-        success: bool
-        summary: dict with deletion counts
+        ok: bool (true on success)
+        message: str
+        deleted: dict with deletion counts
         backup_id: audit log ID for recovery
         
     Raises:
+        400: Missing/incorrect confirmation or validation errors
         403: If user is not admin
         404: If target user not found
         500: On database errors
     """
     try:
+        # Verify confirmation phrase
+        if not request.confirmation_phrase or request.confirmation_phrase != "RESET USER DATA":
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid confirmation phrase. Must be 'RESET USER DATA' (exact match)"
+            )
+        
         # Verify target user exists
         target_user = await db.users_collection.find_one(
             {"_id": request.target_user_id},
@@ -343,9 +359,9 @@ async def reset_user_data(
         )
         
         return {
-            "success": True,
+            "ok": True,
             "message": f"User data reset completed for {request.target_user_id}",
-            "summary": deleted_counts,
+            "deleted": deleted_counts,
             "backup_id": backup_id,
             "timestamp": audit_entry["timestamp"],
             "target_user": {
@@ -419,9 +435,11 @@ async def user_self_reset_bots(
         await db.audit_logs_collection.insert_one(audit_entry)
         
         return {
-            "success": True,
+            "ok": True,
             "message": "Your bots have been reset",
-            "bots_deleted": result.deleted_count
+            "deleted": {
+                "bots": result.deleted_count
+            }
         }
         
     except HTTPException:

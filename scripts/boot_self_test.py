@@ -15,6 +15,7 @@ Exit codes:
 
 import sys
 import os
+import re
 from pathlib import Path
 
 # Add backend to path
@@ -26,14 +27,19 @@ def test_python_syntax():
     print("🔍 Testing Python syntax...")
     backend_py_files = list(backend_dir.rglob("*.py"))
     
+    # Compile regex pattern for paths to exclude
+    exclude_pattern = re.compile(r'(__pycache__|\.venv|venv/|\.git/)')
+    
     errors = []
+    checked_count = 0
     for py_file in backend_py_files:
-        # Skip __pycache__ and virtual environments
-        if "__pycache__" in str(py_file) or "venv" in str(py_file) or ".venv" in str(py_file):
+        # Skip files matching exclude pattern (works on both Unix and Windows paths)
+        if exclude_pattern.search(str(py_file)):
             continue
-            
+        
+        checked_count += 1
         try:
-            with open(py_file, 'r') as f:
+            with open(py_file, 'r', encoding='utf-8') as f:
                 compile(f.read(), str(py_file), 'exec')
         except SyntaxError as e:
             errors.append(f"  ❌ {py_file.relative_to(backend_dir)}: {e}")
@@ -44,7 +50,7 @@ def test_python_syntax():
             print(error)
         return False
     else:
-        print(f"  ✅ All {len(backend_py_files)} Python files compile successfully")
+        print(f"  ✅ All {checked_count} Python files compile successfully")
         return True
 
 def test_critical_imports():
