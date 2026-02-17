@@ -2486,8 +2486,6 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   border-top: 1px solid var(--line);
   animation: fadeIn 0.3s ease-out;
 }
-  animation: fadeIn 0.3s ease-out;
-}
 
 /* Futuristic chart styling */
 .profit-kpi-grid .stat-card,

@@ -64,6 +64,7 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
+  /* Changed to visible to prevent dropdown clipping when expanded */
   overflow: visible;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   display: flex;

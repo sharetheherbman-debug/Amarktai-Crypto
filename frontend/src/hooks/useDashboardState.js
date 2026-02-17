@@ -260,6 +260,7 @@ export default function useDashboardState(navigate) {
   const [selectedBotId, setSelectedBotId] = useState('');
   const [filteredAdminBots, setFilteredAdminBots] = useState([]);
   const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
+  const [tradesErrorShown, setTradesErrorShown] = useState(false);
   
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
@@ -1365,22 +1366,21 @@ export default function useDashboardState(navigate) {
       // Handle both array responses and wrapped responses
       const trades = Array.isArray(res.data) ? res.data : (res.data.trades || res.data.data || []);
       setRecentTrades(trades);
-      // Clear any previous error
-      if (window.tradesErrorToast) {
-        window.tradesErrorToast = null;
-      }
+      // Clear error state on success
+      setTradesErrorShown(false);
     } catch (err) {
       console.error('Recent trades fetch error:', err);
       const statusCode = err.response?.status || 'Network Error';
       const endpoint = '/api/trades/recent';
       const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
       
-      // Show persistent error banner/toast
-      if (!window.tradesErrorToast) {
-        window.tradesErrorToast = toast.error(
+      // Show error toast only once per error state
+      if (!tradesErrorShown) {
+        toast.error(
           `Failed to load trades (${statusCode}): ${errorMsg} • Endpoint: ${endpoint}`,
           { duration: 10000 }
         );
+        setTradesErrorShown(true);
       }
     }
   };

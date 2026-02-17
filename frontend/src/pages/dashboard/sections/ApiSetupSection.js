@@ -5,7 +5,7 @@ import APIKeySettings from '../../../components/APIKeySettings';
 export default function ApiSetupSection() {
   return (
     <section className="section active">
-      <div className="card" style={{padding: '24px'}}>
+      <div className="card">
         <SectionHeader
           title="🔑 API Setup"
           subtitle="Configure AI providers and exchange credentials with improved layout"

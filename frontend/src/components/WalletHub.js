@@ -276,7 +276,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
               ✅ Luno Key: Valid
               {keysStatus?.luno?.last_tested_at && (
                 <span style={{ marginLeft: '8px', opacity: 0.8 }}>
-                  • Last checked: {new Date(keysStatus.luno.last_tested_at).toLocaleString()}
+                  • Last checked: {new Date(keysStatus.luno.last_tested_at).toLocaleString('en-US')}
                 </span>
               )}
             </div>
