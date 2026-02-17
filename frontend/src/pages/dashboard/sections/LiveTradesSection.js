@@ -642,5 +642,3 @@ export default function LiveTradesSection({
     </section>
   );
 }
-  );
-}
