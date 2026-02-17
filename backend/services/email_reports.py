@@ -345,6 +345,12 @@ Provide 2-3 short bullet points with recommended fixes."""
             # Build HTML
             from email_templates.templates import get_base_template
             
+            # Determine currency based on primary exchange
+            currency_symbol = "R"  # Default ZAR for Luno
+            primary_exchange = bots[0].get('exchange', 'luno').lower() if bots else 'luno'
+            if primary_exchange in ['binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']:
+                currency_symbol = "$"  # USD for international exchanges
+            
             profit_color = "#10b981" if total_profit >= 0 else "#ef4444"
             profit_sign = "+" if total_profit >= 0 else ""
             
@@ -362,7 +368,7 @@ Provide 2-3 short bullet points with recommended fixes."""
                 <div style="text-align: center;">
                     <div style="color: #94a3b8; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">24h P&L</div>
                     <div style="color: {profit_color}; font-size: 36px; font-weight: 700; margin-bottom: 4px;">
-                        {profit_sign}R{abs(total_profit):.2f}
+                        {profit_sign}{currency_symbol}{abs(total_profit):.2f}
                     </div>
                     <div style="color: #64748b; font-size: 14px;">
                         {winning_trades}W / {losing_trades}L · {win_rate:.1f}% Win Rate
@@ -375,7 +381,7 @@ Provide 2-3 short bullet points with recommended fixes."""
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 12px 0; border-bottom: 1px solid #1e293b; color: #94a3b8; font-size: 14px;">Total Equity</td>
-                        <td style="padding: 12px 0; border-bottom: 1px solid #1e293b; color: #ffffff; font-size: 14px; text-align: right; font-weight: 600;">R{total_equity:.2f}</td>
+                        <td style="padding: 12px 0; border-bottom: 1px solid #1e293b; color: #ffffff; font-size: 14px; text-align: right; font-weight: 600;">{currency_symbol}{total_equity:.2f}</td>
                     </tr>
                     <tr>
                         <td style="padding: 12px 0; border-bottom: 1px solid #1e293b; color: #94a3b8; font-size: 14px;">Trades (24h)</td>

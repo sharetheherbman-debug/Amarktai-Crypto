@@ -983,9 +983,11 @@ class OrderPipeline:
                 amounts = [t.get("amount", 0) for t in recent_trades]
                 # Check if all amounts are very similar (within 5%)
                 if max(amounts) - min(amounts) < 0.05 * sum(amounts) / len(amounts):
-                    # Check if amounts are small
+                    # Check if amounts are small (less than $10 USD equivalent)
+                    # Note: This is a rough heuristic. In production, should use actual
+                    # exchange min-notional values and real-time conversion rates.
                     avg_amount = sum(amounts) / len(amounts)
-                    if avg_amount * 100 < 10:  # Less than $10 equivalent
+                    if avg_amount * 100 < 10:  # Heuristic: amount * 100 USD < $10
                         current_score += 15
                         spam_doc["violations"].append({
                             "type": "tiny_repetitive_orders",

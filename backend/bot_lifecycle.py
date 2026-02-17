@@ -137,7 +137,10 @@ class BotLifecycleManager:
                 "entity_type": "bot",
                 "entity_id": bot['id'],
                 "tripped": True,
-                "reset_at": None
+                "$or": [
+                    {"reset_at": None},
+                    {"reset_at": {"$exists": False}}
+                ]
             })
             
             if circuit_breaker:

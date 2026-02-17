@@ -40,17 +40,18 @@ class AIScheduler:
             # Get all users
             users = await db.users_collection.find({}, {"_id": 0, "id": 1}).to_list(1000)
             
+            # 2. Check bot promotions (7-day paper → live)
+            # Note: check_promotions() checks ALL bots, not per-user
+            try:
+                result = await bot_lifecycle.check_promotions()
+                if result.get('promoted_count', 0) > 0:
+                    logger.info(f"✅ Promoted {result['promoted_count']} bots")
+            except Exception as e:
+                logger.error(f"Bot lifecycle error: {e}")
+            
             for user in users:
                 user_id = user['id']
                 logger.info(f"Processing AI for user: {user_id[:8]}...")
-                
-                # 2. Check bot promotions (7-day paper → live)
-                try:
-                    result = await bot_lifecycle.check_promotions()
-                    if result.get('promoted_count', 0) > 0:
-                        logger.info(f"✅ Promoted {result['promoted_count']} bots")
-                except Exception as e:
-                    logger.error(f"Bot lifecycle error: {e}")
                 
                 # 3. Rank bot performance
                 try:

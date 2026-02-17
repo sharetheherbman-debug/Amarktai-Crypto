@@ -263,6 +263,8 @@ class SignalEngine:
         
         Combines:
         - ML predicted change (scaled by confidence)
+          Note: ml_change_pct is expected in percentage format (e.g., 2.0 for 2%)
+          Converted to bps by multiplying by 100
         - Regime trend alignment
         - Alpha fusion score
         - Bot historical average profit
@@ -270,7 +272,7 @@ class SignalEngine:
         edge = 0.0
         
         # 1. ML prediction contribution
-        ml_change_pct = ml.get('predicted_change', 0.0)
+        ml_change_pct = ml.get('predicted_change', 0.0)  # Expected: percentage (e.g., 2.0 for 2%)
         ml_confidence = ml.get('confidence', 0.5)
         ml_edge = ml_change_pct * 100 * ml_confidence  # Convert % to bps, scale by confidence
         

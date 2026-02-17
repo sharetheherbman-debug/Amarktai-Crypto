@@ -101,6 +101,30 @@ async def test_promotion_requires_7_days(lifecycle_manager, eligible_bot, mock_d
 
 
 @pytest.mark.asyncio
+async def test_promotion_exactly_7_days_boundary(lifecycle_manager, eligible_bot, mock_db, profitable_trades):
+    """Test that promotion works for bot created exactly 7 days ago (boundary condition)"""
+    # Bot created exactly 7 days ago
+    boundary_bot = eligible_bot.copy()
+    boundary_bot["created_at"] = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    
+    with patch('bot_lifecycle.db', mock_db):
+        mock_db.trades_collection.count_documents = AsyncMock(return_value=30)
+        mock_db.trades_collection.find = MagicMock(return_value=AsyncMock(to_list=AsyncMock(return_value=profitable_trades)))
+        mock_db.circuit_breaker_state.find_one = AsyncMock(return_value=None)
+        mock_db.api_keys_collection.find_one = AsyncMock(return_value={
+            "user_id": "user_abc",
+            "exchange": "binance",
+            "api_key": "key",
+            "secret": "secret"
+        })
+        
+        with patch('bot_lifecycle.config.REQUIRE_API_KEYS_FOR_LIVE', False):
+            should_promote = await lifecycle_manager._should_promote(boundary_bot)
+            
+            assert should_promote is True
+
+
+@pytest.mark.asyncio
 async def test_promotion_requires_min_trades(lifecycle_manager, eligible_bot, mock_db, profitable_trades):
     """Test that promotion requires at least 25 trades"""
     with patch('bot_lifecycle.db', mock_db):

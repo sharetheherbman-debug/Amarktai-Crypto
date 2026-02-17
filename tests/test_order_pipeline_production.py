@@ -146,7 +146,7 @@ async def test_per_exchange_daily_caps_binance(order_pipeline, mock_ledger):
 async def test_bot_cooldown_15_seconds(order_pipeline, mock_db, mock_ledger):
     """Test that bot cooldown enforces 15s between orders"""
     # Mock that last order was 10 seconds ago
-    last_order_time = datetime.utcnow() - timedelta(seconds=10)
+    last_order_time = datetime.now(timezone.utc) - timedelta(seconds=10)
     
     mock_collection = AsyncMock()
     mock_collection.find_one = AsyncMock(return_value={
