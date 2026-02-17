@@ -247,13 +247,9 @@ export default function useDashboardState(navigate) {
   const [showAITools, setShowAITools] = useState(false); // Toggle AI tools submenu
   const [eligibleBots, setEligibleBots] = useState([]);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
-  const [paperResetPassword, setPaperResetPassword] = useState('');
   const [paperResetError, setPaperResetError] = useState('');
   const [paperResetLoading, setPaperResetLoading] = useState(false);
-  const [paperResetValid, setPaperResetValid] = useState(false);
-  const [paperResetChecking, setPaperResetChecking] = useState(false);
   const [showPaperResetModal, setShowPaperResetModal] = useState(false);
-  const [paperResetUnavailable, setPaperResetUnavailable] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
@@ -664,9 +660,6 @@ export default function useDashboardState(navigate) {
 
   useEffect(() => {
     if (!isPaperResetMode) {
-      setPaperResetPassword('');
-      setPaperResetValid(false);
-      setPaperResetChecking(false);
       setPaperResetError('');
       setShowPaperResetModal(false);
     }
@@ -678,41 +671,6 @@ export default function useDashboardState(navigate) {
     const priceInterval = setInterval(loadLivePrices, 5000);
     return () => clearInterval(priceInterval);
   }, [token, loadLivePrices]);
-
-  useEffect(() => {
-    if (!isPaperResetMode) {
-      return undefined;
-    }
-    if (!paperResetPassword) {
-      setPaperResetValid(false);
-      setPaperResetError('');
-      return undefined;
-    }
-    const timer = setTimeout(async () => {
-      try {
-        setPaperResetChecking(true);
-        const response = await axios.post(
-          `${API}/system/paper-reset/validate`,
-          { password: paperResetPassword },
-          axiosConfig
-        );
-        const isValid = Boolean(response?.data?.valid);
-        setPaperResetValid(isValid);
-        setPaperResetError(isValid ? '' : 'Confirmation password does not match.');
-      } catch (err) {
-        const statusCode = err.response?.status;
-        setPaperResetValid(false);
-        if (statusCode === 404 || statusCode === 501) {
-          setPaperResetError('Reset not available in this build.');
-        } else {
-          setPaperResetError('Password validation failed. Please try again.');
-        }
-      } finally {
-        setPaperResetChecking(false);
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [paperResetPassword, isPaperResetMode, axiosConfig]);
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -2064,56 +2022,66 @@ export default function useDashboardState(navigate) {
     }
   };
 
-  const handlePaperReset = async () => {
-    if (!paperResetPassword) {
-      setPaperResetError('Enter the confirmation password to continue.');
+  const handlePaperReset = async (confirmPhrase) => {
+    if (!confirmPhrase || confirmPhrase !== 'START FRESH') {
+      setPaperResetError('Please type "START FRESH" to confirm.');
       return;
     }
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
-      toast.success('Paper session reset completed.');
-      setPaperResetPassword('');
-      setShowPaperResetModal(false);
-      setChatMessages([]);
-      setBots([]);
-      setRecentTrades([]);
-      setAutoSpawnStatus(null);
-      setAutopilotGrowthStatus(null);
-      setAutopilotReinvestStatus(null);
-      setCountdown(null);
-      setCustomCountdowns([]);
-      setOverviewData({
-        totalProfit: 0,
-        todaysTrades: 0,
-        openPositions: 0,
-        winRate: 0,
-        activeBots: 0,
-        paperWalletTotal: 0,
-        paperWalletAllocated: 0,
-        lastTradeTime: null,
-        systemMode: 'paper',
-        lastRebalance: NOT_AVAILABLE,
-        nextReinvest: NOT_AVAILABLE
-      });
-      setMetrics({
-        totalProfit: 'R0.00',
-        activeBots: '0 / 0',
-        exposure: '0%',
-        riskLevel: NOT_AVAILABLE,
-        aiSentiment: NOT_AVAILABLE,
-        lastUpdate: NOT_AVAILABLE
-      });
-      refreshAllDashboardData();
+      const response = await axios.post(`${API}/api/admin/start-fresh`, { 
+        confirm: confirmPhrase,
+        scope: 'paper_only',
+        also_reset_risk_locks: true
+      }, axiosConfig);
+      
+      if (response.data.ok) {
+        toast.success(response.data.message || 'Reset runtime completed successfully');
+        setShowPaperResetModal(false);
+        // Clear dashboard state
+        setChatMessages([]);
+        setBots([]);
+        setRecentTrades([]);
+        setAutoSpawnStatus(null);
+        setAutopilotGrowthStatus(null);
+        setAutopilotReinvestStatus(null);
+        setCountdown(null);
+        setCustomCountdowns([]);
+        setOverviewData({
+          totalProfit: 0,
+          todaysTrades: 0,
+          openPositions: 0,
+          winRate: 0,
+          activeBots: 0,
+          paperWalletTotal: 0,
+          paperWalletAllocated: 0,
+          lastTradeTime: null,
+          systemMode: 'paper',
+          lastRebalance: NOT_AVAILABLE,
+          nextReinvest: NOT_AVAILABLE
+        });
+        setMetrics({
+          totalProfit: 'R0.00',
+          activeBots: '0 / 0',
+          exposure: '0%',
+          riskLevel: NOT_AVAILABLE,
+          aiSentiment: NOT_AVAILABLE,
+          lastUpdate: NOT_AVAILABLE
+        });
+        refreshAllDashboardData();
+      } else {
+        setPaperResetError(response.data.message || 'Reset failed');
+      }
     } catch (err) {
       const statusCode = err.response?.status;
-      if (statusCode === 404 || statusCode === 501) {
-        setPaperResetError('Reset not available in this build.');
-        setPaperResetUnavailable(true);
-        return;
+      if (statusCode === 403) {
+        setPaperResetError('Access denied. Admin privileges required.');
+      } else if (statusCode === 400) {
+        setPaperResetError(err.response?.data?.detail || 'Invalid confirmation phrase or request.');
+      } else {
+        setPaperResetError(extractErrorMessage(err, 'Reset runtime failed. Please try again.'));
       }
-      setPaperResetError(extractErrorMessage(err, 'Paper reset failed'));
     } finally {
       setPaperResetLoading(false);
     }
@@ -3263,11 +3231,8 @@ export default function useDashboardState(navigate) {
     newCountdownAmount,
     newCountdownLabel,
     overviewData,
-    paperResetChecking,
     paperResetError,
     paperResetLoading,
-    paperResetPassword,
-    paperResetValid,
     platformFilter,
     profileData,
     profitData,
@@ -3301,8 +3266,6 @@ export default function useDashboardState(navigate) {
     setNewCountdownAmount,
     setNewCountdownLabel,
     setPaperResetError,
-    setPaperResetPassword,
-    setPaperResetValid,
     setPlatformFilter,
     setProfitsTab,
     setSelectedBotDetailId,

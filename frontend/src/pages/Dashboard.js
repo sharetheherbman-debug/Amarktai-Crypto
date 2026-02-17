@@ -382,15 +382,10 @@ export default function Dashboard() {
       handleEmergencyStop={handleEmergencyStop}
       handlePaperReset={handlePaperReset}
       handleRiskProfileChange={handleRiskProfileChange}
-      paperResetChecking={paperResetChecking}
-      paperResetError={paperResetError}
       paperResetLoading={paperResetLoading}
-      paperResetPassword={paperResetPassword}
-      paperResetValid={paperResetValid}
+      paperResetError={paperResetError}
       riskProfile={riskProfile}
       setPaperResetError={setPaperResetError}
-      setPaperResetPassword={setPaperResetPassword}
-      setPaperResetValid={setPaperResetValid}
       setShowPaperResetModal={setShowPaperResetModal}
       showPaperResetModal={showPaperResetModal}
       systemModes={systemModes}

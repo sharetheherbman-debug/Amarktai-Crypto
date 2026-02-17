@@ -1,3 +1,4 @@
+import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 
 const NOT_AVAILABLE = 'Not available';
@@ -7,15 +8,10 @@ export default function SystemModeSection({
   handleEmergencyStop,
   handlePaperReset,
   handleRiskProfileChange,
-  paperResetChecking,
-  paperResetError,
   paperResetLoading,
-  paperResetPassword,
-  paperResetValid,
+  paperResetError,
   riskProfile,
   setPaperResetError,
-  setPaperResetPassword,
-  setPaperResetValid,
   setShowPaperResetModal,
   showPaperResetModal,
   systemModes,
@@ -23,8 +19,8 @@ export default function SystemModeSection({
 }) {
   const hasLiveBots = bots.some(b => b.trading_mode === 'live' && b.status === 'active');
   const showPaperReset = systemModes.paperTrading && !systemModes.liveTrading;
-  const isPaperResetReady = paperResetValid && !paperResetChecking;
   const isPaperResetMode = systemModes.paperTrading && !systemModes.liveTrading;
+  const [confirmPhrase, setConfirmPhrase] = React.useState('');
 
   return (
     <section className="section active">
@@ -94,8 +90,7 @@ export default function SystemModeSection({
             <button
               onClick={() => {
                 setPaperResetError('');
-                setPaperResetPassword('');
-                setPaperResetValid(false);
+                setConfirmPhrase('');
                 setShowPaperResetModal(true);
               }}
               disabled={!isPaperResetMode || paperResetLoading}
@@ -112,38 +107,64 @@ export default function SystemModeSection({
       {showPaperResetModal && (
         <div className="modal-overlay" onClick={() => setShowPaperResetModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{marginTop: 0}}>Confirm Paper Reset</h3>
-            <p style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
-              Enter the confirmation password to reset paper bots, trades, and training funds.
+            <h3 style={{marginTop: 0}}>⚠️ Confirm Reset Runtime</h3>
+            <p style={{color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px'}}>
+              This will permanently delete all paper trading bots, trades, and analytics data. This action cannot be undone.
             </p>
+            <div style={{
+              padding: '12px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '6px',
+              marginBottom: '16px',
+              fontSize: '0.85rem',
+              color: 'var(--error)'
+            }}>
+              <strong>⚠️ Warning:</strong> All paper bots, trade history, and performance data will be permanently deleted.
+            </div>
             <div className="system-reset-input" style={{marginTop: '16px'}}>
-              <label htmlFor="paper-reset-password-modal">Confirmation Password</label>
+              <label htmlFor="confirm-phrase-modal" style={{display: 'block', marginBottom: '8px', fontWeight: 600}}>
+                Type <strong style={{color: 'var(--accent)'}}>START FRESH</strong> to confirm:
+              </label>
               <input
-                id="paper-reset-password-modal"
-                type="password"
-                value={paperResetPassword}
-                onChange={(e) => setPaperResetPassword(e.target.value)}
-                placeholder="Enter confirmation password"
+                id="confirm-phrase-modal"
+                type="text"
+                value={confirmPhrase}
+                onChange={(e) => setConfirmPhrase(e.target.value)}
+                placeholder="START FRESH"
+                autoComplete="off"
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: 'var(--panel)',
+                  border: '1px solid var(--line)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '1rem'
+                }}
               />
-              <span className="system-reset-hint">Reset remains unavailable in live trading.</span>
             </div>
             {paperResetError && (
-              <div className="system-reset-error">
+              <div className="system-reset-error" style={{marginTop: '12px'}}>
                 {paperResetError}
               </div>
             )}
             <div style={{display: 'flex', gap: '12px', marginTop: '20px', flexWrap: 'wrap'}}>
               <button
                 className="system-reset-button"
-                onClick={handlePaperReset}
-                disabled={!isPaperResetReady || paperResetLoading}
+                onClick={() => handlePaperReset(confirmPhrase)}
+                disabled={confirmPhrase !== 'START FRESH' || paperResetLoading}
+                style={{
+                  opacity: confirmPhrase !== 'START FRESH' ? 0.5 : 1,
+                  cursor: confirmPhrase !== 'START FRESH' ? 'not-allowed' : 'pointer'
+                }}
               >
-                {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Confirm Reset'}
+                {paperResetLoading ? 'Resetting...' : 'Confirm Reset'}
               </button>
               <button
                 onClick={() => {
                   setShowPaperResetModal(false);
-                  setPaperResetPassword('');
+                  setConfirmPhrase('');
                   setPaperResetError('');
                 }}
                 style={{
