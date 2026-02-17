@@ -62,10 +62,8 @@ sections.forEach(section => {
     return;
   }
   
-  // Check for React import
-  if (!content.includes("import React")) {
-    console.log(`⚠️  ${section} - Missing React import (may be okay)`);
-  }
+  // Note: React 17+ doesn't require explicit React imports for JSX
+  // so we don't check for it
   
   console.log(`✅ ${section}`);
 });
