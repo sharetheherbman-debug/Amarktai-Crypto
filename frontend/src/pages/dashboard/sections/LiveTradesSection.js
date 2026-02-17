@@ -37,12 +37,14 @@ export default function LiveTradesSection({
     localStorage.getItem('liveTradesTimeRange') || '24h'
   );
   const [compactMode, setCompactMode] = React.useState(false);
-  const [currentPage, setCurrentPage] = React.useState(() =>
-    parseInt(localStorage.getItem('liveTradesCurrentPage') || '1', 10)
-  );
-  const [itemsPerPage, setItemsPerPage] = React.useState(() =>
-    parseInt(localStorage.getItem('liveTradesItemsPerPage') || '20', 10)
-  );
+  const [currentPage, setCurrentPage] = React.useState(() => {
+    const saved = parseInt(localStorage.getItem('liveTradesCurrentPage'), 10);
+    return (saved && saved > 0) ? saved : 1;
+  });
+  const [itemsPerPage, setItemsPerPage] = React.useState(() => {
+    const saved = parseInt(localStorage.getItem('liveTradesItemsPerPage'), 10);
+    return (saved && [20, 50, 100].includes(saved)) ? saved : 20;
+  });
   const [lastPollTime, setLastPollTime] = React.useState(new Date());
   const [searchQuery, setSearchQuery] = React.useState('');
   const [sortColumn, setSortColumn] = React.useState(() =>

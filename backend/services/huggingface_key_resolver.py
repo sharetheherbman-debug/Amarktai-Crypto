@@ -59,11 +59,13 @@ async def resolve_huggingface_key(user_id: Optional[str]) -> Tuple[Optional[str]
                 if key_data and key_data.get("api_key"):
                     user_key = key_data.get("api_key", "").strip()
                     if user_key:
-                        logger.info(f"HuggingFace key resolved source=user for user {user_id[:8]}")
+                        uid_short = user_id[:8] if user_id and len(user_id) >= 8 else user_id or 'unknown'
+                        logger.info(f"HuggingFace key resolved source=user for user {uid_short}")
                         return user_key, "user"
             except Exception as e:
                 # Don't fail if user key lookup fails - fall through to system key
-                logger.warning(f"Failed to get user HuggingFace key for {user_id[:8] if user_id else 'unknown'}: {e}")
+                uid_short = user_id[:8] if user_id and len(user_id) >= 8 else user_id or 'unknown'
+                logger.warning(f"Failed to get user HuggingFace key for {uid_short}: {e}")
         
         # Step 2: Try system environment variables
         # Check both HUGGINGFACE_API_KEY and HF_API_KEY (common aliases)
@@ -72,16 +74,19 @@ async def resolve_huggingface_key(user_id: Optional[str]) -> Tuple[Optional[str]
             system_key = os.getenv("HF_API_KEY", "").strip()
         
         if system_key:
-            logger.info(f"HuggingFace key resolved source=system for user {user_id[:8] if user_id else 'system'}")
+            uid_short = user_id[:8] if user_id and len(user_id) >= 8 else user_id or 'system'
+            logger.info(f"HuggingFace key resolved source=system for user {uid_short}")
             return system_key, "system"
         
         # Step 3: No key available
-        logger.warning(f"HuggingFace key resolved source=missing for user {user_id[:8] if user_id else 'system'}")
+        uid_short = user_id[:8] if user_id and len(user_id) >= 8 else user_id or 'system'
+        logger.warning(f"HuggingFace key resolved source=missing for user {uid_short}")
         return None, "missing"
         
     except Exception as e:
         # Never raise - return missing on any error
-        logger.error(f"Error resolving HuggingFace key for user {user_id[:8] if user_id else 'system'}: {e}")
+        uid_short = user_id[:8] if user_id and len(user_id) >= 8 else user_id or 'system'
+        logger.error(f"Error resolving HuggingFace key for user {uid_short}: {e}")
         return None, "missing"
 
 
