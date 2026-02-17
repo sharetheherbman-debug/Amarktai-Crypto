@@ -1,5 +1,6 @@
 import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
+import apiClient from '../../../lib/apiClient';
 
 const NOT_AVAILABLE = 'Not available';
 
@@ -9,17 +10,46 @@ const FetchAISection = () => {
   const [isActive, setIsActive] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [lastUpdate, setLastUpdate] = React.useState(null);
+  const [error, setError] = React.useState(null);
+
+  const tradingPairs = ['BTC/USD', 'ETH/USD', 'BTC/ZAR', 'ETH/ZAR'];
 
   const loadFetchAIData = async () => {
     setLoading(true);
+    setError(null);
     try {
-      // TODO: Implement actual API calls
-      // For now, show placeholder
-      setIsActive(false);
+      // Check Fetch.ai status
+      const statusResponse = await apiClient.get('/api/fetchai/status');
+      const statusData = statusResponse.data;
+      
+      setIsActive(statusData.configured && statusData.active);
+      
+      if (statusData.configured) {
+        // Fetch signals for multiple pairs
+        const signalPromises = tradingPairs.map(async (pair) => {
+          try {
+            const response = await apiClient.get(`/api/fetchai/signals/${pair}`);
+            return response.data.signals;
+          } catch (err) {
+            console.error(`Failed to fetch signals for ${pair}:`, err);
+            return null;
+          }
+        });
+        
+        const signalResults = await Promise.all(signalPromises);
+        const validSignals = signalResults.filter(s => s !== null);
+        setSignals(validSignals);
+        setLastUpdate(new Date());
+      } else {
+        setSignals([]);
+      }
+      
+      // Agents are not implemented yet - placeholder
       setAgents([]);
-      setSignals([]);
     } catch (error) {
       console.error('Failed to load Fetch.ai data:', error);
+      setError(error.response?.data?.message || error.message || 'Failed to load Fetch.ai data');
+      setIsActive(false);
     } finally {
       setLoading(false);
     }
@@ -27,7 +57,14 @@ const FetchAISection = () => {
 
   React.useEffect(() => {
     loadFetchAIData();
-  }, []);
+    // Auto-refresh every 30 seconds when active
+    const interval = setInterval(() => {
+      if (isActive) {
+        loadFetchAIData();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isActive]);
 
   const getSignalColor = (signal) => {
     if (!signal) return 'var(--muted)';
@@ -61,6 +98,18 @@ const FetchAISection = () => {
             <p style={{color: 'var(--muted)', marginBottom: '20px', maxWidth: '600px', margin: '0 auto 20px'}}>
               Connect your Fetch.ai API key to access AI-powered market signals, autonomous agents, and predictive analytics for your trading strategy.
             </p>
+            {error && (
+              <div style={{
+                padding: '12px',
+                marginBottom: '20px',
+                background: 'var(--error-bg)',
+                color: 'var(--error)',
+                borderRadius: '6px',
+                fontSize: '0.9rem'
+              }}>
+                {error}
+              </div>
+            )}
             <button 
               onClick={() => window.location.hash = '#/dashboard?section=api'}
               style={{
