@@ -267,9 +267,38 @@ export default function OverviewSection({
 
         <div className="overview-grid">
           <div className="overview-left-col">
-            <div className="overview-image-card">
-              <img src="/assets/overview.jpg" alt="Trading workspace" className="overview-image-asset" />
+            <div className="overview-image-card" style={{
+              position: 'relative',
+              overflow: 'hidden',
+              borderRadius: '8px',
+              height: '100%',
+              minHeight: '400px'
+            }}>
+              <img 
+                src="/assets/overview.jpg" 
+                alt="Trading workspace" 
+                className="overview-image-asset"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: 'center',
+                  display: 'block'
+                }}
+              />
             </div>
+            
+            {/* Last Notable Event - moved below image, inline with autonomy status */}
+            <GlassCard className="overview-card" style={{marginTop: '16px'}}>
+              <div className="overview-card-header">
+                <h3>Last Notable Event</h3>
+                <span className="overview-card-meta">{lastEventTime}</span>
+              </div>
+              <div className="overview-event">
+                <strong>{lastEventTitle}</strong>
+                <p style={{margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--muted)'}}>{lastEventDetail}</p>
+              </div>
+            </GlassCard>
           </div>
           <div className="overview-right-col">
             <GlassCard className="overview-card">
@@ -308,17 +337,6 @@ export default function OverviewSection({
                     <strong>{formatStatusValue(item.value)}</strong>
                   </div>
                 ))}
-              </div>
-            </GlassCard>
-
-            <GlassCard className="overview-card">
-              <div className="overview-card-header">
-                <h3>Last Notable Event</h3>
-                <span className="overview-card-meta">{lastEventTime}</span>
-              </div>
-              <div className="overview-event">
-                <strong>{lastEventTitle}</strong>
-                <p>{lastEventDetail}</p>
               </div>
             </GlassCard>
           </div>
