@@ -30,6 +30,8 @@ import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
+import FetchAISection from './dashboard/sections/FetchAISection';
+import FlokxSection from './dashboard/sections/FlokxSection';
 
 ChartJS.register(
   CategoryScale,
@@ -506,6 +508,22 @@ export default function Dashboard() {
     />
   );
 
+  const renderFetchAI = () => (
+    <FetchAISection />
+  );
+
+  const renderFlokx = () => (
+    <FlokxSection
+      flokxAlerts={flokxAlerts}
+      flokxStatus={flokxStatus}
+      formatDate={formatDate}
+      getAlertColor={getAlertColor}
+      isFlokxActive={isFlokxActive}
+      loadFlokxAlerts={loadFlokxAlerts}
+      showSection={showSection}
+    />
+  );
+
 
   return (
     <div className="app">
@@ -521,11 +539,14 @@ export default function Dashboard() {
           />
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
+            <a href="#" className={activeSection === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('overview'); }}>📊 Overview</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
+            <a href="#" className={activeSection === 'fetchai' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('fetchai'); }}>🤖 Fetch.ai</a>
+            <a href="#" className={activeSection === 'flokx' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('flokx'); }}>🦊 Flokx</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
             <a href="#" className={activeSection === 'wallet' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('wallet'); }}>💰 Wallet Hub</a>
             <a href="#" className={activeSection === 'profile' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('profile'); }}>👤 Profile</a>
@@ -609,6 +630,16 @@ export default function Dashboard() {
         {activeSection === 'trades' && (
           <ErrorBoundary title="Live Trades section error" message="Unable to load Live Trades section.">
             {renderLiveTradeFeed()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'fetchai' && (
+          <ErrorBoundary title="Fetch.ai section error" message="Unable to load Fetch.ai section.">
+            {renderFetchAI()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'flokx' && (
+          <ErrorBoundary title="Flokx section error" message="Unable to load Flokx section.">
+            {renderFlokx()}
           </ErrorBoundary>
         )}
         {activeSection === 'countdown' && (
