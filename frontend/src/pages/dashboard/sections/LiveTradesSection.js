@@ -24,6 +24,7 @@ export default function LiveTradesSection({
   tradeBotFilter,
   tradeExchangeFilter,
   tradePairFilter,
+  bots = [],
 }) {
   const [sideFilter, setSideFilter] = React.useState('all');
   const [statusFilter, setStatusFilter] = React.useState('all');
@@ -31,6 +32,14 @@ export default function LiveTradesSection({
   const [compactMode, setCompactMode] = React.useState(false);
   const [currentPage, setCurrentPage] = React.useState(1);
   const [itemsPerPage] = React.useState(20);
+  const [lastPollTime, setLastPollTime] = React.useState(new Date());
+
+  // Update last poll time when trades change
+  React.useEffect(() => {
+    if (recentTrades.length > 0) {
+      setLastPollTime(new Date());
+    }
+  }, [recentTrades]);
 
   // Extract unique values for filters
   const exchanges = Array.from(new Set(recentTrades.map(trade => trade.exchange?.toLowerCase()).filter(Boolean)));
@@ -368,8 +377,20 @@ export default function LiveTradesSection({
         <div className="trade-feed-layout">
           <div className="trade-feed-list" style={{flex: compactMode ? '1' : '0 0 300px'}}>
             {paginatedTrades.length === 0 ? (
-              <div className="live-trades-empty" style={{padding: '40px', textAlign: 'center'}}>
-                <p style={{color: 'var(--muted)'}}>📭 No trades match this filter yet.</p>
+              <div className="live-trades-empty" style={{padding: '40px', textAlign: 'center', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
+                <div style={{fontSize: '2rem', marginBottom: '12px'}}>📭</div>
+                <p style={{color: 'var(--text)', fontWeight: '600', marginBottom: '8px'}}>No trades match this filter</p>
+                <p style={{color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '16px'}}>
+                  {recentTrades.length === 0 ? 'No trades have been executed yet.' : 'Try adjusting your filters to see more trades.'}
+                </p>
+                <div style={{padding: '12px', background: 'var(--glass)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--muted)', marginTop: '16px'}}>
+                  <div style={{marginBottom: '4px'}}>
+                    <strong style={{color: 'var(--text)'}}>Active Bots:</strong> {bots.filter(b => b.status === 'active' || b.state === 'active').length} / {bots.length}
+                  </div>
+                  <div>
+                    <strong style={{color: 'var(--text)'}}>Last Poll:</strong> {lastPollTime.toLocaleTimeString()}
+                  </div>
+                </div>
               </div>
             ) : (
               paginatedTrades.map((trade, idx) => {

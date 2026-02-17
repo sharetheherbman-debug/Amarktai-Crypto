@@ -406,6 +406,7 @@ export default function Dashboard() {
       tradeBotFilter={tradeBotFilter}
       tradeExchangeFilter={tradeExchangeFilter}
       tradePairFilter={tradePairFilter}
+      bots={bots}
     />
   );
 

@@ -191,11 +191,29 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
     );
   }
 
-  // Check if user has any keys saved
+  // Check if user has any keys saved - check actual key status
+  const [keysStatus, setKeysStatus] = React.useState({});
+  
+  React.useEffect(() => {
+    const loadKeysStatus = async () => {
+      try {
+        const data = await get('/keys/status');
+        const statusMap = data?.status_map || {};
+        setKeysStatus(statusMap);
+      } catch (err) {
+        console.error('Keys status fetch error:', err);
+      }
+    };
+    loadKeysStatus();
+  }, []);
+  
   const masterWallet = balances?.master_wallet || {};
   const exchanges = requirements?.requirements || {};
-  const hasAnyKeys = Object.keys(exchanges).length > 0;
-  const showKeysPrompt = !hasAnyKeys && !loading;
+  
+  // Check if Luno key is valid - only show prompt if no valid Luno key
+  const lunoStatus = keysStatus?.luno?.status || keysStatus?.luno || 'not_configured';
+  const hasValidLunoKey = lunoStatus === 'configured_valid' || lunoStatus === 'test_ok';
+  const showKeysPrompt = !hasValidLunoKey && !loading;
 
   return (
     <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -235,7 +253,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         </div>
       )}
 
-      {/* Master Luno Wallet */}
       <div style={{
         background: 'var(--glass)',
         borderRadius: '16px',
@@ -245,7 +262,26 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         border: '1px solid var(--line)',
         boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
       }}>
-        <h2 style={{ marginBottom: '20px', fontSize: '1.5rem' }}>🏦 Master Luno Wallet</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>🏦 Master Luno Wallet</h2>
+          {hasValidLunoKey && (
+            <div style={{ 
+              padding: '6px 12px', 
+              background: 'rgba(34, 197, 94, 0.15)', 
+              border: '1px solid rgba(34, 197, 94, 0.4)',
+              borderRadius: '6px',
+              fontSize: '0.85rem',
+              color: 'var(--success)'
+            }}>
+              ✅ Luno Key: Valid
+              {keysStatus?.luno?.last_tested_at && (
+                <span style={{ marginLeft: '8px', opacity: 0.8 }}>
+                  • Last checked: {new Date(keysStatus.luno.last_tested_at).toLocaleString()}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Total Balance (ZAR)</div>

@@ -1362,9 +1362,26 @@ export default function useDashboardState(navigate) {
   const loadRecentTrades = async () => {
     try {
       const res = await axios.get(`${API}/trades/recent?limit=50`, axiosConfig);
-      setRecentTrades(res.data.trades || []);
+      // Handle both array responses and wrapped responses
+      const trades = Array.isArray(res.data) ? res.data : (res.data.trades || res.data.data || []);
+      setRecentTrades(trades);
+      // Clear any previous error
+      if (window.tradesErrorToast) {
+        window.tradesErrorToast = null;
+      }
     } catch (err) {
       console.error('Recent trades fetch error:', err);
+      const statusCode = err.response?.status || 'Network Error';
+      const endpoint = '/api/trades/recent';
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      
+      // Show persistent error banner/toast
+      if (!window.tradesErrorToast) {
+        window.tradesErrorToast = toast.error(
+          `Failed to load trades (${statusCode}): ${errorMsg} • Endpoint: ${endpoint}`,
+          { duration: 10000 }
+        );
+      }
     }
   };
 
