@@ -24,24 +24,13 @@ class AIModelRouter:
             'fallback': 'gpt-4o'        # Fallback if primary fails
         }
         
-        # Initialize clients
-        self.openai_client = None
-        
-        # Get API keys from environment
-        self.openai_key = os.environ.get('OPENAI_API_KEY')
-        
-        if self.openai_key:
-            try:
-                openai.api_key = self.openai_key
-                self.openai_client = openai
-                logger.info("✅ OpenAI client initialized")
-            except Exception as e:
-                logger.error(f"Failed to init OpenAI client: {e}")
+        # Note: OpenAI client is now created per-request via resolver
     
     async def chat_completion(self, messages: List[Dict], 
                              mode: str = 'balanced',
                              max_tokens: int = 1000,
-                             temperature: float = 0.7) -> Dict:
+                             temperature: float = 0.7,
+                             user_id: str = None) -> Dict:
         """
         Get chat completion from appropriate model
         
@@ -50,17 +39,24 @@ class AIModelRouter:
             mode: 'fast', 'balanced', 'deep', 'fallback'
             max_tokens: Max tokens in response
             temperature: Randomness (0-1)
+            user_id: User ID for key resolution (optional)
         
         Returns:
             {"content": str, "model": str, "tokens": int}
         """
         try:
+            from services.openai_key_resolver import resolve_openai_key
+            
             model = self.models.get(mode, self.models['balanced'])
             
-            if self.openai_client:
+            # Resolve OpenAI key
+            api_key, source = await resolve_openai_key(user_id)
+            if api_key:
+                logger.info(f"OpenAI key resolved source={source} for AI router")
                 try:
+                    openai.api_key = api_key
                     response = await asyncio.to_thread(
-                        self.openai_client.ChatCompletion.create,
+                        openai.ChatCompletion.create,
                         model=model,
                         messages=messages,
                         max_tokens=max_tokens,
@@ -77,7 +73,8 @@ class AIModelRouter:
                     logger.error(f"OpenAI client failed: {e}")
                     raise
             
-            # No client available
+            # No key available
+            logger.warning(f"OpenAI key resolved source={source} - AI unavailable")
             return {
                 "content": "AI service unavailable - no API keys configured",
                 "model": "none",
