@@ -24,6 +24,19 @@ class AIScheduler:
         logger.info("🧠 Starting nightly AI cycle...")
         
         try:
+            # 1. Send admin health report (to amarktainetwork@gmail.com only)
+            try:
+                from services.email_reports import get_email_reports_service
+                from services.email_service import get_email_service
+                
+                email_service = get_email_service()
+                email_reports = get_email_reports_service(db.get_database(), email_service)
+                
+                await email_reports.send_daily_admin_health_report()
+                logger.info("📧 ✅ Admin health report sent")
+            except Exception as e:
+                logger.error(f"Admin email report error: {e}")
+            
             # Get all users
             users = await db.users_collection.find({}, {"_id": 0, "id": 1}).to_list(1000)
             
@@ -31,29 +44,29 @@ class AIScheduler:
                 user_id = user['id']
                 logger.info(f"Processing AI for user: {user_id[:8]}...")
                 
-                # 1. Check bot promotions (7-day paper → live)
+                # 2. Check bot promotions (7-day paper → live)
                 try:
-                    promoted = await bot_lifecycle.check_promotions(user_id)
-                    if promoted:
-                        logger.info(f"✅ Promoted {len(promoted)} bots for {user_id[:8]}")
+                    result = await bot_lifecycle.check_promotions()
+                    if result.get('promoted_count', 0) > 0:
+                        logger.info(f"✅ Promoted {result['promoted_count']} bots")
                 except Exception as e:
-                    logger.error(f"Bot lifecycle error for {user_id[:8]}: {e}")
+                    logger.error(f"Bot lifecycle error: {e}")
                 
-                # 2. Rank bot performance
+                # 3. Rank bot performance
                 try:
                     ranked = await performance_ranker.rank_bots(user_id)
                     logger.info(f"✅ Ranked {len(ranked)} bots for {user_id[:8]}")
                 except Exception as e:
                     logger.error(f"Performance ranking error for {user_id[:8]}: {e}")
                 
-                # 3. Reallocate capital (reward winners, reduce losers)
+                # 4. Reallocate capital (reward winners, reduce losers)
                 try:
                     result = await capital_allocator.reallocate_capital(user_id)
                     logger.info(f"✅ Reallocated capital for {user_id[:8]}: {result.get('message', 'OK')}")
                 except Exception as e:
                     logger.error(f"Capital allocation error for {user_id[:8]}: {e}")
                 
-                # 4. AI Super Brain analysis (once per week)
+                # 5. AI Super Brain analysis (once per week)
                 if datetime.now(timezone.utc).weekday() == 0:  # Monday
                     try:
                         insights = await ai_super_brain.generate_insights(user_id)
@@ -61,7 +74,7 @@ class AIScheduler:
                     except Exception as e:
                         logger.error(f"Super Brain error for {user_id[:8]}: {e}")
                 
-                # 5. DNA Evolution (once per week, spawn new bots)
+                # 6. DNA Evolution (once per week, spawn new bots)
                 if datetime.now(timezone.utc).weekday() == 6:  # Sunday
                     try:
                         result = await bot_dna_evolution.evolve_generation(user_id)
@@ -69,6 +82,19 @@ class AIScheduler:
                             logger.info(f"✅ Evolved {result['evolved']} new bots for {user_id[:8]}")
                     except Exception as e:
                         logger.error(f"DNA evolution error for {user_id[:8]}: {e}")
+            
+            # 7. Send user performance reports (to all users)
+            try:
+                from services.email_reports import get_email_reports_service
+                from services.email_service import get_email_service
+                
+                email_service = get_email_service()
+                email_reports = get_email_reports_service(db.get_database(), email_service)
+                
+                result = await email_reports.send_daily_user_performance_reports()
+                logger.info(f"📧 ✅ User performance reports: {result['success_count']} sent")
+            except Exception as e:
+                logger.error(f"User email reports error: {e}")
             
             self.last_run = datetime.now(timezone.utc)
             logger.info("🧠 ✅ Nightly AI cycle complete!")
