@@ -26,18 +26,88 @@ export default function LiveTradesSection({
   tradePairFilter,
   bots = [],
 }) {
-  const [sideFilter, setSideFilter] = React.useState('all');
-  const [statusFilter, setStatusFilter] = React.useState('all');
-  const [timeRange, setTimeRange] = React.useState('24h');
+  // Load from localStorage or use defaults
+  const [sideFilter, setSideFilter] = React.useState(() => 
+    localStorage.getItem('liveTradesSideFilter') || 'all'
+  );
+  const [statusFilter, setStatusFilter] = React.useState(() =>
+    localStorage.getItem('liveTradesStatusFilter') || 'all'
+  );
+  const [timeRange, setTimeRange] = React.useState(() =>
+    localStorage.getItem('liveTradesTimeRange') || '24h'
+  );
   const [compactMode, setCompactMode] = React.useState(false);
-  const [currentPage, setCurrentPage] = React.useState(1);
-  const [itemsPerPage] = React.useState(20);
+  const [currentPage, setCurrentPage] = React.useState(() => {
+    const saved = parseInt(localStorage.getItem('liveTradesCurrentPage'), 10);
+    return (saved && saved > 0) ? saved : 1;
+  });
+  const [itemsPerPage, setItemsPerPage] = React.useState(() => {
+    const saved = parseInt(localStorage.getItem('liveTradesItemsPerPage'), 10);
+    return (saved && [20, 50, 100].includes(saved)) ? saved : 20;
+  });
   const [lastPollTime, setLastPollTime] = React.useState(new Date());
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [sortColumn, setSortColumn] = React.useState(() =>
+    localStorage.getItem('liveTradesSortColumn') || 'timestamp'
+  );
+  const [sortDirection, setSortDirection] = React.useState(() =>
+    localStorage.getItem('liveTradesSortDirection') || 'desc'
+  );
+  const [newTradeIds, setNewTradeIds] = React.useState(new Set());
 
-  // Update last poll time when trades change
+  // Persist filter state to localStorage
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesSideFilter', sideFilter);
+  }, [sideFilter]);
+
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesStatusFilter', statusFilter);
+  }, [statusFilter]);
+
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesTimeRange', timeRange);
+  }, [timeRange]);
+
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesCurrentPage', currentPage.toString());
+  }, [currentPage]);
+
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesItemsPerPage', itemsPerPage.toString());
+  }, [itemsPerPage]);
+
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesSortColumn', sortColumn);
+  }, [sortColumn]);
+
+  React.useEffect(() => {
+    localStorage.setItem('liveTradesSortDirection', sortDirection);
+  }, [sortDirection]);
+
+  // Track new trades and highlight them
+  const previousTradeIdsRef = React.useRef(new Set());
   React.useEffect(() => {
     if (recentTrades.length > 0) {
       setLastPollTime(new Date());
+      
+      // Detect new trades
+      const currentIds = new Set(recentTrades.map(t => t.id));
+      const previousIds = previousTradeIdsRef.current;
+      const newIds = new Set([...currentIds].filter(id => !previousIds.has(id)));
+      
+      if (newIds.size > 0) {
+        setNewTradeIds(newIds);
+        // Clear highlight after 5 seconds
+        setTimeout(() => {
+          setNewTradeIds(prev => {
+            const updated = new Set(prev);
+            newIds.forEach(id => updated.delete(id));
+            return updated;
+          });
+        }, 5000);
+      }
+      
+      previousTradeIdsRef.current = currentIds;
     }
   }, [recentTrades]);
 
@@ -61,7 +131,7 @@ export default function LiveTradesSection({
   };
 
   const filteredTrades = React.useMemo(() => {
-    return recentTrades.filter((trade) => {
+    let filtered = recentTrades.filter((trade) => {
       const tradeExchange = trade.exchange?.toLowerCase();
       if (tradeExchangeFilter !== 'all' && tradeExchange !== tradeExchangeFilter) return false;
       if (tradeBotFilter !== 'all' && trade.bot_name !== tradeBotFilter) return false;
@@ -81,9 +151,56 @@ export default function LiveTradesSection({
         if (cutoff && new Date(trade.timestamp) < cutoff) return false;
       }
       
+      // Search filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const searchableText = [
+          trade.id,
+          trade.bot_name,
+          trade.symbol,
+          trade.exchange,
+          trade.side,
+          trade.status
+        ].join(' ').toLowerCase();
+        
+        if (!searchableText.includes(query)) return false;
+      }
+      
       return true;
     });
-  }, [recentTrades, tradeExchangeFilter, tradeBotFilter, tradePairFilter, sideFilter, statusFilter, timeRange]);
+
+    // Apply sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aVal = a[sortColumn];
+        let bVal = b[sortColumn];
+        
+        // Handle timestamp sorting
+        if (sortColumn === 'timestamp') {
+          aVal = new Date(aVal).getTime();
+          bVal = new Date(bVal).getTime();
+        }
+        
+        // Handle numeric sorting
+        if (sortColumn === 'amount' || sortColumn === 'price' || sortColumn === 'profit_loss' || sortColumn === 'fee') {
+          aVal = parseFloat(aVal) || 0;
+          bVal = parseFloat(bVal) || 0;
+        }
+        
+        // Handle string sorting
+        if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = (bVal || '').toLowerCase();
+        }
+        
+        if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return filtered;
+  }, [recentTrades, tradeExchangeFilter, tradeBotFilter, tradePairFilter, sideFilter, statusFilter, timeRange, searchQuery, sortColumn, sortDirection]);
 
   // Pagination
   const totalPages = Math.ceil(filteredTrades.length / itemsPerPage);
@@ -95,7 +212,17 @@ export default function LiveTradesSection({
   // Reset to page 1 when filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [tradeExchangeFilter, tradeBotFilter, tradePairFilter, sideFilter, statusFilter, timeRange]);
+  }, [tradeExchangeFilter, tradeBotFilter, tradePairFilter, sideFilter, statusFilter, timeRange, searchQuery]);
+
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      // Toggle direction
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
 
   const resolvedTradeId = paginatedTrades.some(trade => trade.id === selectedTradeId)
     ? selectedTradeId
@@ -157,7 +284,7 @@ export default function LiveTradesSection({
           alignItems: 'center',
           justifyContent: 'space-between'
         }}>
-          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center'}}>
             <button
               onClick={refreshTrades}
               style={{
@@ -205,9 +332,51 @@ export default function LiveTradesSection({
             >
               {compactMode ? '📋 Standard' : '📑 Compact'}
             </button>
+            
+            {/* Page Size Selector */}
+            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <span style={{fontSize: '0.9rem', color: 'var(--muted)'}}>Show:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => setItemsPerPage(parseInt(e.target.value, 10))}
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--panel)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--line)',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
           </div>
-          <div style={{fontSize: '0.9rem', color: 'var(--muted)', fontWeight: 600}}>
-            {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''} found
+          
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+            {/* Search Box */}
+            <input
+              type="text"
+              placeholder="Search trades..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                padding: '8px 12px',
+                background: 'var(--panel)',
+                color: 'var(--text)',
+                border: '1px solid var(--line)',
+                borderRadius: '6px',
+                fontSize: '0.9rem',
+                minWidth: '200px'
+              }}
+            />
+            <div style={{fontSize: '0.9rem', color: 'var(--muted)', fontWeight: 600}}>
+              {filteredTrades.length} trade{filteredTrades.length !== 1 ? 's' : ''} found
+            </div>
           </div>
         </div>
 

@@ -3127,6 +3127,8 @@ routers_to_mount = [
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
     ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
+    ("routes.huggingface", "HuggingFace Integration"),  # NEW - HuggingFace AI models
+    ("routes.fetchai", "Fetch.ai Integration"),  # NEW - Fetch.ai market signals
 ]
 
 # Mount realtime router only if enabled via feature flag
