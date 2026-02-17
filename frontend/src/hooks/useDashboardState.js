@@ -260,6 +260,7 @@ export default function useDashboardState(navigate) {
   const [selectedBotId, setSelectedBotId] = useState('');
   const [filteredAdminBots, setFilteredAdminBots] = useState([]);
   const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
+  const [tradesErrorShown, setTradesErrorShown] = useState(false);
   
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
@@ -1362,9 +1363,25 @@ export default function useDashboardState(navigate) {
   const loadRecentTrades = async () => {
     try {
       const res = await axios.get(`${API}/trades/recent?limit=50`, axiosConfig);
-      setRecentTrades(res.data.trades || []);
+      // Handle both array responses and wrapped responses
+      const trades = Array.isArray(res.data) ? res.data : (res.data.trades || res.data.data || []);
+      setRecentTrades(trades);
+      // Clear error state on success
+      setTradesErrorShown(false);
     } catch (err) {
       console.error('Recent trades fetch error:', err);
+      const statusCode = err.response?.status || 'Network Error';
+      const endpoint = '/api/trades/recent';
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      
+      // Show error toast only once per error state
+      if (!tradesErrorShown) {
+        toast.error(
+          `Failed to load trades (${statusCode}): ${errorMsg} • Endpoint: ${endpoint}`,
+          { duration: 10000 }
+        );
+        setTradesErrorShown(true);
+      }
     }
   };
 
@@ -2030,7 +2047,7 @@ export default function useDashboardState(navigate) {
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      const response = await axios.post(`${API}/api/admin/start-fresh`, { 
+      const response = await axios.post(`${API}/admin/start-fresh`, { 
         confirmation_phrase: confirmPhrase,
         scope: 'paper_only',
         also_reset_risk_locks: true
