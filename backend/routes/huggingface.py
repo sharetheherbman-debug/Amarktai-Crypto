@@ -36,20 +36,40 @@ async def test_connection(user_id: str = Depends(get_current_user)):
     
     Returns:
         Status of connection test with user info if successful
+        Returns 200 with not_configured status if no key is configured
     """
     try:
         result = await test_huggingface_connection(user_id)
         
+        # If error is due to missing key, return not_configured status (200 OK)
+        if result["status"] == "error" and "No HuggingFace API key configured" in result.get("message", ""):
+            return {
+                "status": "not_configured",
+                "message": "No HuggingFace API key configured",
+                "source": result.get("source", "missing"),
+                "configured": False
+            }
+        
+        # If other error, still return it but don't raise HTTP exception
         if result["status"] == "error":
-            raise HTTPException(status_code=400, detail=result)
+            return {
+                "status": "error",
+                "message": result.get("message", "Connection test failed"),
+                "source": result.get("source", "unknown"),
+                "configured": True
+            }
         
         return result
         
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Test connection error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return graceful error response instead of 500
+        return {
+            "status": "error",
+            "message": str(e),
+            "source": "unknown",
+            "configured": False
+        }
 
 
 @router.get("/api/huggingface/models")

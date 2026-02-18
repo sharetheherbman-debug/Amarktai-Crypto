@@ -140,6 +140,30 @@ if [ -n "$TOKEN" ]; then
         "$API_BASE/api/system/live-eligibility" || echo "000")
     assert_status 200 "$RESPONSE" "GET /api/system/live-eligibility"
     
+    # Test wallet requirements endpoint
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API_BASE/api/wallet/requirements" || echo "000")
+    assert_status 200 "$RESPONSE" "GET /api/wallet/requirements"
+    
+    # Test wallet funding-plans endpoint
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API_BASE/api/wallet/funding-plans" || echo "000")
+    assert_status 200 "$RESPONSE" "GET /api/wallet/funding-plans"
+    
+    # Test autopilot growth status endpoint (should return 200 even if disabled)
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API_BASE/api/autopilot/growth/status" || echo "000")
+    assert_status 200 "$RESPONSE" "GET /api/autopilot/growth/status"
+    
+    # Test huggingface test-connection endpoint (should return 200 with not_configured)
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $TOKEN" \
+        "$API_BASE/api/huggingface/test-connection" || echo "000")
+    assert_status 200 "$RESPONSE" "GET /api/huggingface/test-connection"
+    
     echo ""
     
     echo "=================================================="
@@ -176,7 +200,7 @@ if [ -n "$TOKEN" ]; then
     echo ""
 else
     echo "⚠️  Skipping authenticated tests (no token available)"
-    ((SKIPPED+=5))  # 5 authenticated tests skipped
+    ((SKIPPED+=9))  # 9 authenticated tests skipped
     echo ""
 fi
 
@@ -222,6 +246,38 @@ if [ -f "frontend/public/assets/logo2.png" ]; then
     ((PASSED++))
 else
     echo "❌ FAIL: logo2.png not found in frontend/public/assets/"
+    ((FAILED++))
+fi
+echo ""
+
+echo "=================================================="
+echo "TEST 11: Server Stability Check (90 seconds)"
+echo "=================================================="
+echo "Testing if backend stays running continuously..."
+echo "Making periodic health checks over 90 seconds..."
+
+STABILITY_PASSED=true
+for i in {1..10}; do
+    echo -n "Check $i/10: "
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_BASE/api/health/ping" 2>/dev/null || echo "000")
+    if [ "$RESPONSE" -eq "200" ]; then
+        echo "✓ OK"
+    else
+        echo "✗ FAILED (HTTP $RESPONSE)"
+        STABILITY_PASSED=false
+        break
+    fi
+    # Sleep 9 seconds between checks (10 checks x 9s = 90s total wait time)
+    if [ $i -lt 10 ]; then
+        sleep 9
+    fi
+done
+
+if [ "$STABILITY_PASSED" = true ]; then
+    echo "✅ PASS: Server remained stable for 90 seconds"
+    ((PASSED++))
+else
+    echo "❌ FAIL: Server became unstable or exited during test"
     ((FAILED++))
 fi
 echo ""

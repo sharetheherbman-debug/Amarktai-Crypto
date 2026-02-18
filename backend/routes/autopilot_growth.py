@@ -20,15 +20,37 @@ router = APIRouter(prefix="/api/autopilot", tags=["Autopilot Growth"])
 @router.get("/growth/status")
 async def growth_status(user_id: str = Depends(get_current_user)):
     try:
+        # Check if autopilot is enabled
+        from config import ENABLE_AUTOPILOT
+        if not ENABLE_AUTOPILOT:
+            return {
+                "status": "disabled",
+                "message": "Autopilot growth is disabled",
+                "enabled": False,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        
         if db.db is None:
-            raise HTTPException(status_code=503, detail="Database not connected")
+            return {
+                "status": "not_configured",
+                "message": "Database not connected",
+                "enabled": False,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        
         service = AutopilotGrowthService(db.db, user_id)
         return await service.get_growth_status()
     except HTTPException:
         raise
     except Exception as exc:
         logger.error(f"Growth status error: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+        # Return graceful error response instead of 500
+        return {
+            "status": "error",
+            "message": str(exc),
+            "enabled": False,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
 
 
 @router.post("/growth/trigger")
