@@ -12,11 +12,26 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   const [paperActionLoading, setPaperActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [keysStatus, setKeysStatus] = useState({});
   const lastUpdate = useLastUpdate('wallet');
 
   useEffect(() => {
     loadWalletData();
   }, [platformFilter]);
+
+  // Load API keys status
+  useEffect(() => {
+    const loadKeysStatus = async () => {
+      try {
+        const data = await get('/keys/status');
+        const statusMap = data?.status_map || {};
+        setKeysStatus(statusMap);
+      } catch (err) {
+        console.error('Keys status fetch error:', err);
+      }
+    };
+    loadKeysStatus();
+  }, []);
 
   const loadWalletData = async () => {
     try {
@@ -142,6 +157,16 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
     }
   };
 
+  // Compute values needed for rendering
+  const masterWallet = balances?.master_wallet || {};
+  const exchanges = requirements?.requirements || {};
+  
+  // Check if Luno key is valid - only show prompt if no valid Luno key
+  const lunoStatus = keysStatus?.luno?.status || keysStatus?.luno || 'not_configured';
+  const hasValidLunoKey = lunoStatus === 'configured_valid' || lunoStatus === 'test_ok';
+  const showKeysPrompt = !hasValidLunoKey && !loading;
+
+  // Render loading state
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
@@ -151,11 +176,28 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
     );
   }
 
+  // Render error state with detailed information
   if (error) {
+    // Parse error to determine type
+    const statusCode = error.match(/\((\d{3})\)/)?.[1];
+    let errorTitle = 'Backend Error Fetching Balances';
+    let errorHint = 'Please check your connection and try again.';
+    
+    if (statusCode === '401' || statusCode === '403') {
+      errorTitle = 'Login Required';
+      errorHint = 'Please log in again to access wallet data.';
+    } else if (statusCode === '404') {
+      errorTitle = 'Endpoint Not Found';
+      errorHint = 'The wallet service endpoint is not available.';
+    } else if (statusCode === '500') {
+      errorTitle = 'Temporarily Unavailable';
+      errorHint = 'The wallet service is experiencing issues. We\'re working on it.';
+    }
+
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
         <div style={{ fontSize: '2rem', marginBottom: '20px', color: '#e74c3c' }}>⚠️</div>
-        <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>Backend Error Fetching Balances</p>
+        <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>{errorTitle}</p>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px' }}>{error}</p>
         <div style={{
           padding: '12px',
@@ -173,6 +215,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
             <li>No exchange API keys configured yet</li>
             <li>Backend wallet service not responding</li>
             <li>Database connection issue</li>
+            <li>{errorHint}</li>
           </ul>
         </div>
         <button onClick={loadWalletData} style={{ 
@@ -190,30 +233,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
       </div>
     );
   }
-
-  // Check if user has any keys saved - check actual key status
-  const [keysStatus, setKeysStatus] = useState({});
-  
-  useEffect(() => {
-    const loadKeysStatus = async () => {
-      try {
-        const data = await get('/keys/status');
-        const statusMap = data?.status_map || {};
-        setKeysStatus(statusMap);
-      } catch (err) {
-        console.error('Keys status fetch error:', err);
-      }
-    };
-    loadKeysStatus();
-  }, []);
-  
-  const masterWallet = balances?.master_wallet || {};
-  const exchanges = requirements?.requirements || {};
-  
-  // Check if Luno key is valid - only show prompt if no valid Luno key
-  const lunoStatus = keysStatus?.luno?.status || keysStatus?.luno || 'not_configured';
-  const hasValidLunoKey = lunoStatus === 'configured_valid' || lunoStatus === 'test_ok';
-  const showKeysPrompt = !hasValidLunoKey && !loading;
 
   return (
     <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>

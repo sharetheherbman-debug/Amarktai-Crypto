@@ -95,7 +95,7 @@ export default function Landing() {
       </button>
 
       <div className="auth-content bright-glass-panel">
-        <img src="/assets/logo2.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
+        <img src="/assets/logo3.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
         <h1 className="auth-title">Amarktai Crypto</h1>
         <p className="landing-summary">
           AI-Powered Autonomous Trading • Self-Learning • Self-Healing • 24/7 Market Intelligence
