@@ -2002,49 +2002,30 @@ async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
         logger.error(f"Flokx alerts error: {e}")
         return {"alerts": [], "count": 0}
 
-@api_router.post("/autopilot/enable")
-async def enable_autopilot(user_id: str = Depends(get_current_user)):
-    """Enable autopilot mode"""
-    try:
-        await db.system_modes_collection.update_one(
-            {"user_id": user_id},
-            {"$set": {"autopilot": True}},
-            upsert=True
-        )
-        logger.info(f"Autopilot enabled for user {user_id}")
-        return {"message": "Autopilot enabled", "autopilot": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/autopilot/disable")
-async def disable_autopilot(user_id: str = Depends(get_current_user)):
-    """Disable autopilot mode"""
-    try:
-        await db.system_modes_collection.update_one(
-            {"user_id": user_id},
-            {"$set": {"autopilot": False}},
-            upsert=True
-        )
-        logger.info(f"Autopilot disabled for user {user_id}")
-        return {"message": "Autopilot disabled", "autopilot": False}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# REMOVED: Duplicate autopilot enable/disable routes
+# These are now handled by routes/autopilot_control.py to avoid route collision
+# The router version provides better persistence and realtime event broadcasting
 
 @api_router.get("/autopilot/settings")
 async def get_autopilot_settings(user_id: str = Depends(get_current_user)):
-    """Get autopilot settings"""
+    """Get autopilot settings - reads from canonical user document"""
     try:
-        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
-        if not modes:
+        # Use users_collection for consistency with autopilot_control.py
+        user = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "autopilot_enabled": 1, "autopilot_settings": 1}
+        )
+        
+        if not user:
             return {
-                "autopilot": True,
+                "autopilot": False,
                 "reinvest_percentage": 80,
                 "spawn_threshold": 1000,
                 "max_bots": 50
             }
         
         return {
-            "autopilot": modes.get('autopilot', True),
+            "autopilot": user.get('autopilot_enabled', False),
             "reinvest_percentage": 80,
             "spawn_threshold": 1000,
             "max_bots": 50

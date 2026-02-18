@@ -288,6 +288,149 @@ def resolve_action_reply(action: str, tool_result: Optional[Dict[str, Any]]) -> 
         return reason
     return reply or f"Action '{action}' failed."
 
+
+async def generate_degraded_response(user_message: str, user_id: str, system_state: Dict) -> Dict[str, Any]:
+    """
+    Generate a basic response without OpenAI key by analyzing user intent
+    and querying database directly for common information requests.
+    
+    Args:
+        user_message: The user's chat message
+        user_id: User ID for potential future personalization
+        system_state: Current system state with bots, capital, modes, etc.
+    
+    Returns:
+        Dict with response content, metadata, and degraded_mode flag
+    """
+    message_lower = user_message.lower()
+    
+    # Pattern matching for common queries
+    response_parts = []
+    
+    # System status query
+    if any(word in message_lower for word in ["status", "overview", "summary", "health", "how are things"]):
+        bots_info = system_state.get("bots", {})
+        capital_info = system_state.get("capital", {})
+        modes = system_state.get("system_modes", {})
+        
+        response_parts.append("📊 **System Status**")
+        response_parts.append(f"• Bots: {bots_info.get('total', 0)} total ({bots_info.get('active', 0)} active, {bots_info.get('paused', 0)} paused)")
+        response_parts.append(f"• Capital: ${capital_info.get('total', 0):,.2f}")
+        response_parts.append(f"• Total Profit: ${capital_info.get('total_profit', 0):,.2f}")
+        response_parts.append(f"• Mode: {'Live Trading' if modes.get('liveTrading') else 'Paper Trading'}")
+        response_parts.append(f"• Autopilot: {'Enabled' if modes.get('autopilot') else 'Disabled'}")
+    
+    # Wallet/balance query
+    elif any(word in message_lower for word in ["wallet", "balance", "capital", "money", "funds"]):
+        capital_info = system_state.get("capital", {})
+        budget_status = system_state.get("budget_status", {})
+        
+        response_parts.append("💰 **Wallet Summary**")
+        response_parts.append(f"• Total Capital: ${capital_info.get('total', 0):,.2f}")
+        response_parts.append(f"• Total Profit/Loss: ${capital_info.get('total_profit', 0):,.2f}")
+        
+        if budget_status:
+            response_parts.append("\n**Exchange Budgets:**")
+            for exchange, data in budget_status.items():
+                if isinstance(data, dict):
+                    allocated = data.get('allocated', 0)
+                    available = data.get('available', 0)
+                    response_parts.append(f"• {exchange.title()}: ${allocated:,.2f} allocated, ${available:,.2f} available")
+    
+    # Bot query
+    elif any(word in message_lower for word in ["bot", "trading bot", "bots"]):
+        bots_info = system_state.get("bots", {})
+        
+        response_parts.append("🤖 **Bot Status**")
+        response_parts.append(f"• Total Bots: {bots_info.get('total', 0)}")
+        response_parts.append(f"• Active: {bots_info.get('active', 0)}")
+        response_parts.append(f"• Paused: {bots_info.get('paused', 0)}")
+        response_parts.append(f"• Stopped: {bots_info.get('stopped', 0)}")
+    
+    # Performance query
+    elif any(word in message_lower for word in ["performance", "profit", "loss", "pnl", "trades"]):
+        capital_info = system_state.get("capital", {})
+        perf_info = system_state.get("recent_performance", {})
+        
+        response_parts.append("📈 **Performance Summary**")
+        response_parts.append(f"• Total Profit/Loss: ${capital_info.get('total_profit', 0):,.2f}")
+        response_parts.append(f"• Recent Trades: {perf_info.get('recent_trades_count', 0)}")
+        response_parts.append(f"• Recent PnL: ${perf_info.get('recent_pnl', 0):,.2f}")
+    
+    # Autopilot query
+    elif "autopilot" in message_lower:
+        modes = system_state.get("system_modes", {})
+        autopilot_enabled = modes.get("autopilot", False)
+        
+        response_parts.append("🚀 **Autopilot Status**")
+        response_parts.append(f"• Status: {'✅ Enabled' if autopilot_enabled else '❌ Disabled'}")
+        if autopilot_enabled:
+            response_parts.append("• Autopilot is actively managing your trading strategies")
+        else:
+            response_parts.append("• Enable autopilot to allow AI-driven trading decisions")
+    
+    # Mode query (live/paper)
+    elif any(word in message_lower for word in ["mode", "paper", "live", "trading mode"]):
+        modes = system_state.get("system_modes", {})
+        
+        response_parts.append("⚙️ **Trading Mode**")
+        if modes.get("liveTrading"):
+            response_parts.append("• Mode: 🔴 **LIVE TRADING**")
+            response_parts.append("• Real money is being used for trades")
+        else:
+            response_parts.append("• Mode: 📝 **PAPER TRADING**")
+            response_parts.append("• Simulated trading with virtual funds")
+    
+    # Events query
+    elif any(word in message_lower for word in ["event", "alert", "notification", "recent", "latest"]):
+        perf_info = system_state.get("recent_performance", {})
+        
+        response_parts.append("📅 **Recent Events**")
+        response_parts.append(f"• Recent Trades: {perf_info.get('recent_trades_count', 0)}")
+        response_parts.append("• Check the Dashboard for detailed event history")
+    
+    # Learning/AI query
+    elif any(word in message_lower for word in ["learn", "learning", "ai", "intelligence", "smart"]):
+        response_parts.append("🧠 **AI Learning Status**")
+        response_parts.append("• Basic system monitoring active")
+        response_parts.append("• Advanced AI learning requires OpenAI key")
+        response_parts.append("• Add API key in Settings → API Keys for full intelligence")
+    
+    # Generic/help query
+    else:
+        response_parts.append("👋 **AI Chat (Basic Mode)**")
+        response_parts.append("\nI can help you with:")
+        response_parts.append("• System status and overview")
+        response_parts.append("• Wallet balance and capital")
+        response_parts.append("• Bot status and management")
+        response_parts.append("• Performance and trading results")
+        response_parts.append("• Autopilot and trading mode info")
+        response_parts.append("\nTry asking: 'show status' or 'what's my balance?'")
+    
+    # Add footer note about OpenAI key
+    response_parts.append("\n---")
+    response_parts.append("ℹ️ *Advanced intelligence requires OpenAI key - add in Settings → API Keys*")
+    
+    response_text = "\n".join(response_parts)
+    
+    return {
+        "success": True,
+        "role": "assistant",
+        "content": response_text,
+        "reply": response_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system_state": system_state,
+        "key_source": "degraded_mode",
+        "degraded_mode": True,
+        "action_meta": {
+            "action_attempted": False,
+            "action_name": None,
+            "action_result": None,
+            "reason": None
+        }
+    }
+
+
 async def create_confirmation_record(
     user_id: str,
     action: str,
@@ -1480,18 +1623,35 @@ async def ai_chat(
                         key_source
                     )
                     
-                    # CRITICAL: Never block if key is missing - this violates the requirement
+                    # CRITICAL: Never block if key is missing - use degraded mode instead
                     # The resolver will have already fallen back to system key
                     if not user_api_key:
-                        # This should only happen if BOTH user and system keys are missing
-                        return build_ai_error_response(
-                            status_code=503,
-                            code="OPENAI_KEY_MISSING",
-                            message="OpenAI service unavailable - no API key configured (system or user)",
-                            user_message="AI features temporarily unavailable. Please contact support or configure your OpenAI key.",
-                            system_state=system_state,
-                            key_source="missing"
+                        # Use degraded mode - provide basic responses without OpenAI
+                        logger.info(f"AI Chat: Using degraded mode (no OpenAI key) for user {user_tag}")
+                        degraded_response = await generate_degraded_response(content, user_id, system_state)
+                        
+                        # Store assistant response in chat history
+                        assistant_msg = {
+                            "user_id": user_id,
+                            "role": "assistant",
+                            "content": degraded_response["content"],
+                            "timestamp": degraded_response["timestamp"],
+                            "key_source": "degraded_mode"
+                        }
+                        await db.chat_messages_collection.insert_one(assistant_msg)
+                        
+                        # Send real-time update
+                        await manager.send_personal_message(
+                            json.dumps({
+                                "type": "ai_chat_response",
+                                "message": degraded_response["content"],
+                                "timestamp": degraded_response["timestamp"],
+                                "degraded_mode": True
+                            }),
+                            user_id
                         )
+                        
+                        return JSONResponse(content=degraded_response)
                     
                     # Use AsyncOpenAI client (openai>=1.x) with resolved key
                     from openai import AsyncOpenAI

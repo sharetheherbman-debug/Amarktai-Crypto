@@ -143,18 +143,22 @@ async def resolve_current_user(current_user) -> str:
     )
 
 def get_admin_password() -> str:
-    """Get admin password from environment with consistent default.
+    """Get admin password from environment with NO default for security.
     
     Returns:
         Admin password string
         
     Raises:
-        ValueError: If ADMIN_PASSWORD is empty string (misconfiguration)
+        ValueError: If ADMIN_PASSWORD is not set or empty (security requirement)
     """
-    admin_password = os.getenv("ADMIN_PASSWORD", "Ashmor12@")
+    admin_password = os.getenv("ADMIN_PASSWORD")
     
-    if admin_password == "":
-        raise ValueError("ADMIN_PASSWORD environment variable is set but empty")
+    if not admin_password or admin_password == "":
+        raise ValueError(
+            "ADMIN_PASSWORD environment variable is required for admin access. "
+            "Set ADMIN_PASSWORD in your .env file for production deployment. "
+            "This is a security requirement - no default password is allowed."
+        )
     
     return admin_password
 

@@ -95,10 +95,12 @@ export default function Landing() {
       </button>
 
       <div className="auth-content bright-glass-panel">
-        <img src="/assets/logo3.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
+        <img src="/assets/logo3.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" style={{ width: '150px', height: '150px' }} />
+        <p className="text-sm text-gray-400 mb-2">Welcome to</p>
         <h1 className="auth-title">Amarktai Crypto</h1>
         <p className="landing-summary">
-          AI-Powered Autonomous Trading • Self-Learning • Self-Healing • 24/7 Market Intelligence
+          Real-Time AI Trading, Built for Control<br />
+          Self-Learning • Self-Healing • 24/7 Market Intelligence
         </p>
         <div className="landing-cta">
           <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn">Login</Button>

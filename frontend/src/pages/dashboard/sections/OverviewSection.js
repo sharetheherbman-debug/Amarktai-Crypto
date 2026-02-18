@@ -290,13 +290,28 @@ export default function OverviewSection({
             
             {/* Last Notable Event - moved below image, inline with autonomy status */}
             <GlassCard className="overview-card" style={{marginTop: '16px'}}>
-              <div className="overview-card-header">
+              <div className="overview-card-header" style={{padding: '16px'}}>
                 <h3>Last Notable Event</h3>
                 <span className="overview-card-meta">{lastEventTime}</span>
               </div>
-              <div className="overview-event" style={{padding: '12px 0', overflowWrap: 'break-word', wordWrap: 'break-word'}}>
-                <strong>{lastEventTitle}</strong>
-                <p style={{margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', overflowWrap: 'break-word', wordWrap: 'break-word'}}>{lastEventDetail}</p>
+              <div className="overview-event" style={{
+                padding: '0 16px 16px 16px',
+                overflowWrap: 'break-word',
+                wordWrap: 'break-word',
+                wordBreak: 'break-word',
+                hyphens: 'auto'
+              }}>
+                <strong style={{display: 'block', marginBottom: '8px', lineHeight: '1.4'}}>{lastEventTitle}</strong>
+                <p style={{
+                  margin: '0',
+                  fontSize: '0.85rem',
+                  color: 'var(--muted)',
+                  overflowWrap: 'break-word',
+                  wordWrap: 'break-word',
+                  wordBreak: 'break-word',
+                  hyphens: 'auto',
+                  lineHeight: '1.5'
+                }}>{lastEventDetail}</p>
               </div>
             </GlassCard>
           </div>
