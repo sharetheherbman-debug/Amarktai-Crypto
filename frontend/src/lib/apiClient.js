@@ -229,4 +229,8 @@ export async function patch(url, data = {}, config = {}) {
   return response.data;
 }
 
+// Named export for components that prefer it
+export { apiClient };
+
+// Default export for backward compatibility
 export default apiClient;
