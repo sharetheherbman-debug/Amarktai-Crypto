@@ -532,7 +532,7 @@ export default function Dashboard() {
       {!isMobile && (
         <aside className="sidebar">
           <img
-            src="/assets/logo.png"
+            src="/assets/logo2.png"
             className="logo"
             alt="Amarktai Crypto"
             onClick={() => showSection('overview')}
@@ -581,7 +581,7 @@ export default function Dashboard() {
         <div className="mobile-topbar">
           <button className="mobile-logo-btn" onClick={() => showSection('overview')}>
             <img
-              src="/assets/logo.png"
+              src="/assets/logo2.png"
               className="mobile-logo"
               alt="Amarktai Crypto"
             />
