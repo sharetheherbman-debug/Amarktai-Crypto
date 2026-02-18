@@ -33,6 +33,7 @@ import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
 import FlokxSection from './dashboard/sections/FlokxSection';
 import AutopilotStatusSection from './dashboard/sections/AutopilotStatusSection';
+import HuggingFaceSection from './dashboard/sections/HuggingFaceSection';
 
 ChartJS.register(
   CategoryScale,
@@ -514,6 +515,10 @@ export default function Dashboard() {
     <FetchAISection />
   );
 
+  const renderHuggingFace = () => (
+    <HuggingFaceSection />
+  );
+
   const renderFlokx = () => (
     <FlokxSection
       flokxAlerts={flokxAlerts}
@@ -640,6 +645,11 @@ export default function Dashboard() {
         {activeSection === 'fetchai' && (
           <ErrorBoundary title="Fetch.ai section error" message="Unable to load Fetch.ai section.">
             {renderFetchAI()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'huggingface' && (
+          <ErrorBoundary title="HuggingFace section error" message="Unable to load HuggingFace section.">
+            {renderHuggingFace()}
           </ErrorBoundary>
         )}
         {activeSection === 'flokx' && (
