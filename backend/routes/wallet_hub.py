@@ -687,7 +687,15 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
         total_required = sum(req['required_capital'] for req in requirements.values())
         total_available = sum(req['available_capital'] for req in requirements.values())
         
-        wallet_summary = await wallet_summary_service.get_summary(user_id)
+        # Get wallet summary with error handling
+        wallet_summary = {}
+        try:
+            wallet_summary = await wallet_summary_service.get_summary(user_id)
+            if not wallet_summary:
+                wallet_summary = {}
+        except Exception as e:
+            logger.warning(f"Failed to get wallet summary: {e}")
+            wallet_summary = {}
 
         return {
             "user_id": user_id,
@@ -705,7 +713,7 @@ async def get_capital_requirements(user_id: str = Depends(get_current_user)):
                 "shortfall_zar": wallet_summary.get("shortfall_zar"),
                 "status": wallet_summary.get("status")
             },
-            "timestamp": balances.get('timestamp') if balances else datetime.now(timezone.utc).isoformat()
+            "timestamp": balances.get('timestamp', datetime.now(timezone.utc).isoformat()) if balances else datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:

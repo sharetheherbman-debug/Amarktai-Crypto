@@ -257,8 +257,8 @@ echo "Testing if backend stays running continuously..."
 echo "Making periodic health checks over 90 seconds..."
 
 STABILITY_PASSED=true
-for i in {1..9}; do
-    echo -n "Check $i/9: "
+for i in {1..10}; do
+    echo -n "Check $i/10: "
     RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_BASE/api/health/ping" 2>/dev/null || echo "000")
     if [ "$RESPONSE" -eq "200" ]; then
         echo "✓ OK"
@@ -267,7 +267,10 @@ for i in {1..9}; do
         STABILITY_PASSED=false
         break
     fi
-    sleep 10
+    # Sleep 9 seconds between checks (10 checks x 9s = 90s total wait time)
+    if [ $i -lt 10 ]; then
+        sleep 9
+    fi
 done
 
 if [ "$STABILITY_PASSED" = true ]; then

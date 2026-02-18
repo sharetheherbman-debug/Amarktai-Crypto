@@ -8,9 +8,12 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, List
 import logging
 from datetime import datetime, timezone
+import psutil
+import shutil
 
 from auth import require_admin
 import database as db
+from config.platforms import SUPPORTED_PLATFORMS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["Enhanced Admin"])
@@ -222,12 +225,8 @@ async def get_system_stats(admin_id: str = Depends(require_admin)):
     Returns CPU, RAM, disk usage, and system health.
     Requires admin role.
     """
-    import psutil
-    import shutil
-    
     try:
         # Get user statistics
-        from config.platforms import SUPPORTED_PLATFORMS
         
         total_users = await db.users_collection.count_documents({})
         blocked_users = await db.users_collection.count_documents({
