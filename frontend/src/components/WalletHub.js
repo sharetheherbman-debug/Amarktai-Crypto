@@ -192,9 +192,9 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   }
 
   // Check if user has any keys saved - check actual key status
-  const [keysStatus, setKeysStatus] = React.useState({});
+  const [keysStatus, setKeysStatus] = useState({});
   
-  React.useEffect(() => {
+  useEffect(() => {
     const loadKeysStatus = async () => {
       try {
         const data = await get('/keys/status');
