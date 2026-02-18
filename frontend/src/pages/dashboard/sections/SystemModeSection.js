@@ -2,6 +2,7 @@ import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import { apiClient } from '@/lib/apiClient';
 import { toast } from 'sonner';
+import AutopilotInsightsPanel from './AutopilotInsightsPanel';
 
 const NOT_AVAILABLE = 'Not available';
 
@@ -266,156 +267,12 @@ export default function SystemModeSection({
           )}
         </div>
 
-        {/* Autopilot Growth & Reinvest Status */}
-        <div style={{marginTop: '20px', padding: '16px', background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '8px'}}>
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '12px'
-          }}>
-            <div style={{fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px'}}>
-              🤖 Autopilot Status
-            </div>
-            <button
-              onClick={() => setShowAutopilotDetails(!showAutopilotDetails)}
-              style={{
-                padding: '4px 12px',
-                background: 'var(--panel)',
-                color: 'var(--text)',
-                border: '1px solid var(--line)',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: 600
-              }}
-            >
-              {showAutopilotDetails ? '▼ Hide Details' : '▶ Show Details'}
-            </button>
-          </div>
-
-          {autopilotGrowth && autopilotReinvest ? (
-            <div>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                gap: '12px',
-                marginBottom: '12px'
-              }}>
-                <div>
-                  <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '4px'}}>Growth</div>
-                  <div style={{
-                    fontWeight: 600,
-                    color: autopilotGrowth.enabled ? 'var(--success)' : 'var(--error)'
-                  }}>
-                    {autopilotGrowth.enabled ? '✓ Enabled' : '✗ Disabled'}
-                  </div>
-                </div>
-                
-                <div>
-                  <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '4px'}}>Reinvest</div>
-                  <div style={{
-                    fontWeight: 600,
-                    color: autopilotReinvest.enabled ? 'var(--success)' : 'var(--error)'
-                  }}>
-                    {autopilotReinvest.enabled ? '✓ Enabled' : '✗ Disabled'}
-                  </div>
-                </div>
-                
-                <div>
-                  <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '4px'}}>Milestone</div>
-                  <div style={{fontSize: '0.85rem', color: 'var(--text)', fontWeight: 600}}>
-                    R {autopilotGrowth.profit_threshold_zar?.toFixed(0) || '0'}
-                  </div>
-                </div>
-              </div>
-
-              {showAutopilotDetails && autopilotGrowth.platforms && (
-                <div style={{marginTop: '16px'}}>
-                  <div style={{fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)', marginBottom: '12px'}}>
-                    Per-Exchange Status
-                  </div>
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '12px'
-                  }}>
-                    {Object.keys(autopilotGrowth.platforms).map(platform => {
-                      const growth = autopilotGrowth.platforms[platform];
-                      const reinvest = autopilotReinvest.platforms[platform];
-                      const progressPct = growth.next_threshold_zar > 0
-                        ? Math.min(100, (growth.realized_profit_zar / growth.next_threshold_zar) * 100)
-                        : 0;
-
-                      return (
-                        <div
-                          key={platform}
-                          style={{
-                            padding: '12px',
-                            background: 'var(--panel)',
-                            border: '1px solid var(--line)',
-                            borderRadius: '6px'
-                          }}
-                        >
-                          <div style={{
-                            fontSize: '0.9rem',
-                            fontWeight: 600,
-                            color: 'var(--text)',
-                            marginBottom: '8px',
-                            textTransform: 'capitalize'
-                          }}>
-                            {platform}
-                          </div>
-                          
-                          <div style={{fontSize: '0.8rem', marginBottom: '4px'}}>
-                            <span style={{color: 'var(--muted)'}}>Bots: </span>
-                            <span style={{color: 'var(--text)', fontWeight: 500}}>
-                              {growth.bots_current} / {growth.bots_max}
-                            </span>
-                          </div>
-                          
-                          <div style={{fontSize: '0.8rem', marginBottom: '4px'}}>
-                            <span style={{color: 'var(--muted)'}}>Profit: </span>
-                            <span style={{color: 'var(--text)', fontWeight: 500}}>
-                              R {growth.realized_profit_zar?.toFixed(0) || '0'}
-                            </span>
-                          </div>
-                          
-                          <div style={{marginTop: '8px'}}>
-                            <div style={{
-                              width: '100%',
-                              height: '4px',
-                              background: 'var(--glass)',
-                              borderRadius: '2px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{
-                                width: `${progressPct}%`,
-                                height: '100%',
-                                background: progressPct >= 100 ? 'var(--success)' : 'var(--accent2)',
-                                transition: 'width 0.3s ease'
-                              }} />
-                            </div>
-                            <div style={{fontSize: '0.7rem', color: 'var(--muted)', marginTop: '2px'}}>
-                              {progressPct.toFixed(0)}% to next spawn
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '12px'}}>
-                Autopilot spawns new bots when profit milestones are reached and reinvests excess profit into top performers.
-              </div>
-            </div>
-          ) : (
-            <div style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
-              Loading autopilot status...
-            </div>
-          )}
+        {/* Autopilot Insights Panel - Replaces inline status display */}
+        <div style={{marginTop: '20px'}}>
+          <AutopilotInsightsPanel onRefresh={() => {
+            fetchSelfHealingStatus();
+            fetchAutopilotStatus();
+          }} />
         </div>
 
         {showPaperReset && (
