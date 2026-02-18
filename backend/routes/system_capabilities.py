@@ -45,22 +45,31 @@ async def get_system_capabilities(user_id: str = Depends(get_current_user)):
         has_huggingface = bool(os.getenv("HUGGINGFACE_API_KEY"))
         has_fetchai = bool(os.getenv("FETCHAI_API_KEY"))
         
-        # Check exchange keys from user's key collection
+        # Check exchange keys from user's key collection (single query)
         exchange_keys = {}
         if user_keys:
-            # Get all fields except _id and user_id
-            for key in ["luno_key", "luno_secret", "binance_key", "binance_secret", 
-                       "kucoin_key", "kucoin_secret", "bybit_key", "bybit_secret",
-                       "kraken_key", "kraken_secret", "bitget_key", "bitget_secret",
-                       "gate_key", "gate_secret"]:
-                # Reconstruct key data from database
-                try:
-                    key_doc = await db.api_keys_collection.find_one(
-                        {"user_id": user_id},
-                        {"_id": 0, key: 1}
-                    )
-                    exchange_keys[key] = bool(key_doc and key_doc.get(key))
-                except Exception:
+            # Fetch all keys in one query
+            key_fields = ["luno_key", "luno_secret", "binance_key", "binance_secret", 
+                         "kucoin_key", "kucoin_secret", "bybit_key", "bybit_secret",
+                         "kraken_key", "kraken_secret", "bitget_key", "bitget_secret",
+                         "gate_key", "gate_secret"]
+            projection = {"_id": 0, "user_id": 1}
+            projection.update({key: 1 for key in key_fields})
+            
+            try:
+                key_doc = await db.api_keys_collection.find_one(
+                    {"user_id": user_id},
+                    projection
+                )
+                if key_doc:
+                    for key in key_fields:
+                        exchange_keys[key] = bool(key_doc.get(key))
+                else:
+                    for key in key_fields:
+                        exchange_keys[key] = False
+            except Exception as e:
+                logger.error(f"Error fetching exchange keys: {e}")
+                for key in key_fields:
                     exchange_keys[key] = False
         
         # Determine exchange configuration status

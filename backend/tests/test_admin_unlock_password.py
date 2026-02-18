@@ -137,7 +137,7 @@ async def test_admin_unlock_misconfigured_password(mock_db, mock_audit_logger):
         request = AdminUnlockRequest(password="AnyPassword")
         
         with pytest.raises(HTTPException) as exc_info:
-            await unlock_admin_unlock(request, current_user_id=user_id)
+            await unlock_admin_panel(request, current_user_id=user_id)
         
         assert exc_info.value.status_code == 500
         assert "Server configuration error" in str(exc_info.value.detail)
