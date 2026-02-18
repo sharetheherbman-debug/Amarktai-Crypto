@@ -32,8 +32,6 @@ import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection'
 import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
 import FlokxSection from './dashboard/sections/FlokxSection';
-import AutopilotStatusSection from './dashboard/sections/AutopilotStatusSection';
-import HuggingFaceSection from './dashboard/sections/HuggingFaceSection';
 
 ChartJS.register(
   CategoryScale,
@@ -515,10 +513,6 @@ export default function Dashboard() {
     <FetchAISection />
   );
 
-  const renderHuggingFace = () => (
-    <HuggingFaceSection />
-  );
-
   const renderFlokx = () => (
     <FlokxSection
       flokxAlerts={flokxAlerts}
@@ -549,7 +543,6 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
-            <a href="#" className={activeSection === 'autopilot' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('autopilot'); }}>🤖 Autopilot Status</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
@@ -627,11 +620,6 @@ export default function Dashboard() {
             {renderSystemMode()}
           </ErrorBoundary>
         )}
-        {activeSection === 'autopilot' && (
-          <ErrorBoundary title="Autopilot Status section error" message="Unable to load Autopilot Status section.">
-            <AutopilotStatusSection />
-          </ErrorBoundary>
-        )}
         {activeSection === 'graphs' && (
           <ErrorBoundary title="Profits section error" message="Unable to load Profits section.">
             {renderProfitGraphs()}
@@ -645,11 +633,6 @@ export default function Dashboard() {
         {activeSection === 'fetchai' && (
           <ErrorBoundary title="Fetch.ai section error" message="Unable to load Fetch.ai section.">
             {renderFetchAI()}
-          </ErrorBoundary>
-        )}
-        {activeSection === 'huggingface' && (
-          <ErrorBoundary title="HuggingFace section error" message="Unable to load HuggingFace section.">
-            {renderHuggingFace()}
           </ErrorBoundary>
         )}
         {activeSection === 'flokx' && (

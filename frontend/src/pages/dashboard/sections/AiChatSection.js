@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import AIToolsPanel from './AIToolsPanel';
 
 export default function AiChatSection({
   chatMessages, chatEndRef, chatInput, setChatInput, chatSending, awaitingPassword,
@@ -7,6 +8,8 @@ export default function AiChatSection({
   handleTriggerLearning, handleEvolveBots, handleGetInsights, handlePredictPrice, handleReinvestProfits
 }) {
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  
   return (
     <div className="amk-chat">
       <div className="amk-chat-toolbar">
@@ -73,6 +76,21 @@ export default function AiChatSection({
           >
             📊 Analytics {showAnalytics ? '▼' : '▶'}
           </button>
+          <button
+            onClick={() => setShowAdvancedTools(!showAdvancedTools)}
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.8rem',
+              background: showAdvancedTools ? 'rgba(168, 85, 247, 0.4)' : 'rgba(168, 85, 247, 0.15)',
+              color: 'var(--text)',
+              border: '1px solid rgba(168, 85, 247, 0.4)',
+              borderRadius: '999px',
+              cursor: 'pointer',
+              fontWeight: 600
+            }}
+          >
+            🔧 Advanced AI {showAdvancedTools ? '▼' : '▶'}
+          </button>
         </div>
         <div className={`amk-chat-indicator ${chatSending ? 'active' : ''}`}>
           {chatSending ? 'Sending...' : 'Ready'}
@@ -125,6 +143,11 @@ export default function AiChatSection({
             {aiTaskLoading === 'reinvest' ? '⏳ Reinvesting...' : '💰 Reinvest Profits'}
           </button>
         </div>
+      )}
+
+      {/* Advanced AI Tools Panel (HuggingFace, Fetch.ai, Flokx) */}
+      {showAdvancedTools && (
+        <AIToolsPanel />
       )}
 
       <div className="amk-chat-box">
