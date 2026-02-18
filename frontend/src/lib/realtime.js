@@ -183,6 +183,12 @@ class RealtimeClient {
    * Schedule reconnection with exponential backoff + jitter
    */
   scheduleReconnect() {
+    // Don't reconnect if no token
+    if (!this.token) {
+      console.log('⏸️  No token available - skipping reconnect');
+      return;
+    }
+
     // Check circuit breaker state
     const cbState = circuitBreaker.getState();
     if (cbState.isDown) {
@@ -216,6 +222,12 @@ class RealtimeClient {
    * Start SSE (Server-Sent Events) fallback
    */
   startSSE() {
+    // Don't start SSE if no token
+    if (!this.token) {
+      console.log('⏸️  No token available - skipping SSE');
+      return;
+    }
+
     if (this.connectionMode === 'sse') {
       return; // Already using SSE
     }
@@ -273,6 +285,12 @@ class RealtimeClient {
    * Start polling fallback
    */
   startPolling() {
+    // Don't start polling if no token
+    if (!this.token) {
+      console.log('⏸️  No token available - skipping polling');
+      return;
+    }
+
     if (this.connectionMode === 'polling') {
       return; // Already polling
     }

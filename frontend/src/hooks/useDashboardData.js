@@ -4,6 +4,19 @@ import { formatTimestamp } from '../lib/dateUtils.js';
 import realtimeClient from '../lib/realtime';
 
 /**
+ * Helper function to get token from localStorage
+ * Returns null if no token exists
+ */
+const getToken = () => {
+  try {
+    return localStorage.getItem('token') || null;
+  } catch (error) {
+    console.error('Error reading token:', error);
+    return null;
+  }
+};
+
+/**
  * Normalize live price responses into a pair->price map.
  *
  * Accepts either array responses from /api/prices/live or
@@ -213,21 +226,34 @@ export const useDashboardData = (token) => {
   }, [loadBots, loadMetrics, loadSystemModes, loadRecentTrades, loadCountdown, loadLivePrices, loadSystemStatus]);
 
   useEffect(() => {
-    if (!token) return;
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken || !token) {
+      return undefined;
+    }
+
     const intervalMs = 4000;
     loadLivePrices();
     loadMetrics();
     loadSystemStatus();
     const interval = setInterval(() => {
-      loadLivePrices();
-      loadMetrics();
-      loadSystemStatus();
+      // Double-check token still exists before each poll
+      if (getToken()) {
+        loadLivePrices();
+        loadMetrics();
+        loadSystemStatus();
+      }
     }, intervalMs);
     return () => clearInterval(interval);
   }, [token, loadLivePrices, loadMetrics, loadSystemStatus]);
 
   useEffect(() => {
-    if (!token) return;
+    // Guard: Only connect realtime if token exists
+    const currentToken = getToken();
+    if (!currentToken || !token) {
+      return undefined;
+    }
+
     realtimeClient.connect(token);
     const unsubscribePrices = realtimeClient.on('prices_update', (payload) => {
       const pricesPayload = payload?.prices || payload?.data?.prices || payload?.data;

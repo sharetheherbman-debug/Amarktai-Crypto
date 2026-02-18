@@ -9,6 +9,19 @@ import { useRealtimeEvent } from './useRealtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 
+/**
+ * Helper function to get token from localStorage
+ * Returns null if no token exists
+ */
+const getToken = () => {
+  try {
+    return localStorage.getItem('token') || null;
+  } catch (error) {
+    console.error('Error reading token:', error);
+    return null;
+  }
+};
+
 const API = '';
 const axios = apiClient;
 const APP_VERSION = '1.0.6';
@@ -689,16 +702,31 @@ export default function useDashboardState(navigate) {
 
   // Check Flokx status
   useEffect(() => {
-    if (!token) return undefined;
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken || !token) {
+      return undefined;
+    }
+
     loadFlokxStatus();
-    const interval = setInterval(loadFlokxStatus, 30000);
+    const interval = setInterval(() => {
+      // Double-check token before each poll
+      if (getToken()) {
+        loadFlokxStatus();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [token]);
 
   useEffect(() => {
     if (isFlokxActive) {
       loadFlokxAlerts();
-      const interval = setInterval(loadFlokxAlerts, 30000);
+      const interval = setInterval(() => {
+        // Check token before each poll
+        if (getToken()) {
+          loadFlokxAlerts();
+        }
+      }, 30000);
       return () => clearInterval(interval);
     }
     setFlokxAlerts([]);
@@ -706,6 +734,13 @@ export default function useDashboardState(navigate) {
   }, [isFlokxActive]);
 
   const setupRealTimeConnections = () => {
+    // Guard: Only setup connections if token exists
+    const currentToken = getToken();
+    if (!currentToken) {
+      console.log('⏸️  No token available - skipping WebSocket setup');
+      return;
+    }
+
     console.log('✅ Initializing WebSocket connection...');
     
     // Also connect the realtime client for API key events
@@ -2693,8 +2728,19 @@ export default function useDashboardState(navigate) {
 
   // Auto-refresh RL metrics every 30 seconds
   useEffect(() => {
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken) {
+      return undefined;
+    }
+
     fetchRLMetrics();
-    const interval = setInterval(fetchRLMetrics, 30000);
+    const interval = setInterval(() => {
+      // Double-check token before each poll
+      if (getToken()) {
+        fetchRLMetrics();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -2996,25 +3042,37 @@ export default function useDashboardState(navigate) {
 
   // Load admin data when admin panel is shown
   useEffect(() => {
-    if (showAdmin) {
-      loadAllUsers();
-      loadSystemStats();
-      loadStorageData();
-      loadAdminUsers();
-      loadAdminBots();
-      loadAdminHealth();
-      loadEmergencyOverrideStatus();
+    // Guard: Only run if token exists and admin panel is shown
+    const currentToken = getToken();
+    if (!currentToken || !showAdmin) {
+      return;
     }
+
+    loadAllUsers();
+    loadSystemStats();
+    loadStorageData();
+    loadAdminUsers();
+    loadAdminBots();
+    loadAdminHealth();
+    loadEmergencyOverrideStatus();
   }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
 
   useEffect(() => {
-    if (!showAdmin) return undefined;
+    // Guard: Only poll if token exists and admin panel is shown
+    const currentToken = getToken();
+    if (!currentToken || !showAdmin) {
+      return undefined;
+    }
+
     const interval = setInterval(() => {
-      loadSystemStats();
-      loadAdminUsers();
-      loadAdminBots();
-      loadAdminHealth();
-      loadEmergencyOverrideStatus();
+      // Double-check token before each poll
+      if (getToken()) {
+        loadSystemStats();
+        loadAdminUsers();
+        loadAdminBots();
+        loadAdminHealth();
+        loadEmergencyOverrideStatus();
+      }
     }, 15000);
     return () => clearInterval(interval);
   }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
