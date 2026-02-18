@@ -12,7 +12,7 @@ from auth import get_current_user
 from fetchai_integration import fetchai
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(prefix="/api/fetchai", tags=["Fetch.ai"])
 
 
 async def get_fetchai_key(user_id: str) -> Optional[str]:
@@ -29,7 +29,7 @@ async def get_fetchai_key(user_id: str) -> Optional[str]:
         return None
 
 
-@router.get("/api/fetchai/test-connection")
+@router.get("/test-connection")
 async def test_connection(user_id: str = Depends(get_current_user)):
     """
     Test Fetch.ai API connection with user's key.
@@ -73,7 +73,7 @@ async def test_connection(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/fetchai/signals/{pair}")
+@router.get("/signals/{pair}")
 async def get_signals(
     pair: str,
     user_id: str = Depends(get_current_user)
@@ -109,7 +109,7 @@ async def get_signals(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/fetchai/recommendation/{pair}")
+@router.get("/recommendation/{pair}")
 async def get_recommendation(
     pair: str,
     risk_level: str = "moderate",
@@ -148,7 +148,7 @@ async def get_recommendation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/fetchai/status")
+@router.get("/status")
 async def get_status(user_id: str = Depends(get_current_user)):
     """
     Get Fetch.ai integration status.

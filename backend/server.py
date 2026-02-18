@@ -2407,43 +2407,8 @@ async def create_flokx_alert(data: dict, user_id: str = Depends(get_current_user
         logger.error(f"FLOKx alert error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/fetchai/signals/{pair}")
-async def get_fetchai_signals(pair: str, user_id: str = Depends(get_current_user)):
-    """Get Fetch.ai market signals"""
-    try:
-        from fetchai_integration import fetchai
-        signals = await fetchai.fetch_market_signals(pair.replace('-', '/'))
-        return signals
-    except Exception as e:
-        logger.error(f"Fetch.ai signals error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/fetchai/recommendation/{pair}")
-async def get_fetchai_recommendation(pair: str, risk_level: str = "moderate", user_id: str = Depends(get_current_user)):
-    """Get Fetch.ai trading recommendation"""
-    try:
-        from fetchai_integration import fetchai
-        recommendation = await fetchai.get_trading_recommendation(pair.replace('-', '/'), risk_level)
-        return recommendation
-    except Exception as e:
-        logger.error(f"Fetch.ai recommendation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/fetchai/test-connection")
-async def test_fetchai_connection(user_id: str = Depends(get_current_user)):
-    """Test Fetch.ai API connection"""
-    try:
-        from fetchai_integration import fetchai
-        import os
-        api_key = os.environ.get('FETCHAI_API_KEY', '')
-        if not api_key:
-            return {"connected": False, "message": "No Fetch.ai API key configured"}
-        
-        result = await fetchai.test_connection(api_key)
-        return {"connected": result, "message": "Connected to Fetch.ai" if result else "Connection failed"}
-    except Exception as e:
-        logger.error(f"Fetch.ai connection test error: {e}")
-        return {"connected": False, "message": str(e)}
+# NOTE: Fetch.ai endpoints moved to routes/fetchai.py to avoid collision
+# The routes are now registered via include_router() below
 
 # ==== SERVER-SENT EVENTS (SSE) ENDPOINTS ====
 
