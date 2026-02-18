@@ -32,6 +32,7 @@ import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection'
 import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
 import FlokxSection from './dashboard/sections/FlokxSection';
+import AutopilotStatusSection from './dashboard/sections/AutopilotStatusSection';
 
 ChartJS.register(
   CategoryScale,
@@ -543,6 +544,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
+            <a href="#" className={activeSection === 'autopilot' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('autopilot'); }}>🤖 Autopilot Status</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
@@ -618,6 +620,11 @@ export default function Dashboard() {
         {activeSection === 'system' && (
           <ErrorBoundary title="System Mode section error" message="Unable to load System Mode section.">
             {renderSystemMode()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'autopilot' && (
+          <ErrorBoundary title="Autopilot Status section error" message="Unable to load Autopilot Status section.">
+            <AutopilotStatusSection />
           </ErrorBoundary>
         )}
         {activeSection === 'graphs' && (
