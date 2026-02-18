@@ -18,15 +18,24 @@ def test_admin_enhanced_imports_timedelta():
     except ImportError:
         pytest.skip("routes.admin_enhanced dependencies not installed")
     
-    # Check that timedelta is imported at module level
+    # Check that timedelta is available at module level (imported correctly)
+    import ast
     import inspect
+    
     source = inspect.getsource(admin_enhanced_module)
+    tree = ast.parse(source)
     
-    # Should have timedelta in the top-level imports
-    lines = source.split('\n')
-    top_imports = [line for line in lines[:30] if 'from datetime import' in line]
+    # Find all top-level import statements
+    top_level_imports = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))]
     
-    has_timedelta = any('timedelta' in line for line in top_imports)
+    has_timedelta = False
+    for node in top_level_imports:
+        if isinstance(node, ast.ImportFrom) and node.module == 'datetime':
+            imported_names = [alias.name for alias in node.names]
+            if 'timedelta' in imported_names:
+                has_timedelta = True
+                break
+    
     assert has_timedelta, "timedelta must be imported at the top level of admin_enhanced.py"
 
 
@@ -50,13 +59,22 @@ def test_system_stats_no_inline_timedelta_imports():
     except ImportError:
         pytest.skip("routes.admin_enhanced dependencies not installed")
     
+    import ast
     import inspect
+    
     source = inspect.getsource(admin_enhanced_module)
+    tree = ast.parse(source)
     
-    # Count inline timedelta imports (after the first 30 lines which are top-level imports)
-    lines = source.split('\n')[30:]
-    inline_imports = [line for line in lines if 'from datetime import' in line and 'timedelta' in line]
-    
-    assert len(inline_imports) == 0, \
-        f"Found {len(inline_imports)} inline timedelta imports. All imports should be at the top level."
+    # Find all function definitions
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            # Check for imports inside the function
+            for stmt in ast.walk(node):
+                if isinstance(stmt, ast.ImportFrom) and stmt.module == 'datetime':
+                    imported_names = [alias.name for alias in stmt.names]
+                    if 'timedelta' in imported_names:
+                        pytest.fail(
+                            f"Found inline timedelta import in function '{node.name}'. "
+                            f"All imports should be at the top level."
+                        )
 
