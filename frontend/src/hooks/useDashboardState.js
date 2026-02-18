@@ -406,11 +406,13 @@ export default function useDashboardState(navigate) {
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('navigateToSection', handleNavigateToSection);
-      if (wsRef.current) {
-        wsRef.current.close();
+      if (wsRef.current?.rttInterval) {
+        clearInterval(wsRef.current.rttInterval);
         wsInitializedRef.current = false;
       }
       if (sseRef.current) sseRef.current.close();
+      // Disconnect realtime client
+      realtimeClient.disconnect();
     };
   }, []);
   
@@ -741,88 +743,56 @@ export default function useDashboardState(navigate) {
       return;
     }
 
-    console.log('✅ Initializing WebSocket connection...');
+    console.log('✅ Initializing WebSocket connection via realtimeClient...');
     
-    // Also connect the realtime client for API key events
+    // Connect using the centralized realtime client (no duplicate WebSocket)
     if (token) {
       realtimeClient.connect(token);
-    }
-    
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
-    
-    const connectWebSocket = () => {
-      try {
-        // Use shared helper to build same-origin WS URL (wss:// on HTTPS)
-        const wsEndpoint = `${wsUrl()}?token=${token}`;
-        wsRef.current = new WebSocket(wsEndpoint);
+      
+      // Subscribe to connection status events
+      realtimeClient.on('connection', (data) => {
+        const isConnected = data.status === 'connected';
+        setConnectionStatus(prev => ({
+          ...prev,
+          ws: isConnected ? 'Connected' : 'Disconnected',
+          sse: isConnected ? 'Connected' : 'Disconnected'
+        }));
+        console.log('🔌 Connection status:', data.status, 'mode:', data.mode);
         
-        wsRef.current.onopen = () => {
-          reconnectAttempts = 0; // Reset on successful connection
-          setConnectionStatus(prev => ({ ...prev, ws: 'Connected', sse: 'Connected' }));
-          console.log('✅ WebSocket connected');
+        if (isConnected) {
           refreshAllDashboardData();
-          
-          const pingInterval = setInterval(() => {
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              const startTime = Date.now();
-              wsRef.current.send(JSON.stringify({ 
-                type: 'ping', 
-                timestamp: startTime 
-              }));
-            }
-          }, 20000); // Ping every 20 seconds
-          
-          wsRef.current.pingInterval = pingInterval;
-        };
-        
-        wsRef.current.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'pong') {
-              const rtt = Date.now() - data.timestamp;
-              setWsRtt(`${rtt}ms`);
-            } else {
-              handleRealTimeUpdate(data);
-            }
-          } catch (err) {
-            console.error('WebSocket message parse error:', err);
-          }
-        };
-        
-        wsRef.current.onclose = () => {
-          setConnectionStatus(prev => ({ ...prev, ws: 'Disconnected', sse: 'Disconnected' }));
+        }
+      });
+      
+      // Subscribe to all event types and route through handleRealTimeUpdate
+      const eventTypes = [
+        'connection_established', 'ping', 'pong', 'metrics', 'bot_status', 
+        'balance', 'live_prices', 'prices_update', 'overview_update', 
+        'bots_update', 'trades_update', 'notification', 'chat_response', 
+        'trade_executed', 'bot_created', 'bot_updated', 'bot_deleted',
+        'alert', 'system_health', 'wallet_update', 'ai_task_update',
+        'api_key_added', 'api_key_updated', 'api_key_deleted'
+      ];
+      
+      eventTypes.forEach(eventType => {
+        realtimeClient.on(eventType, (data) => {
+          // Route through existing handleRealTimeUpdate function
+          handleRealTimeUpdate({ type: eventType, ...data });
+        });
+      });
+      
+      // Monitor RTT from realtime client status
+      const rttInterval = setInterval(() => {
+        const status = realtimeClient.getStatus();
+        if (status.rtt) {
+          setWsRtt(`${status.rtt}ms`);
+        } else if (!status.connected) {
           setWsRtt(NOT_AVAILABLE);
-          
-          // Only reconnect if under max attempts
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            setTimeout(() => {
-              console.log(`Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-              connectWebSocket();
-            }, 5000);
-          } else {
-            console.log('❌ Max reconnect attempts reached');
-          }
-        };
-        
-        wsRef.current.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          setConnectionStatus(prev => ({ ...prev, ws: 'Error', sse: 'Error' }));
-        };
-      } catch (err) {
-        console.error('WebSocket connection error:', err);
-        setConnectionStatus(prev => ({ ...prev, ws: 'Error', sse: 'Error' }));
-      }
-    };
-    
-    // Only use WebSocket (SSE disabled due to auth issues)
-    try {
-      connectWebSocket();
-    } catch (err) {
-      console.error('Failed to initialize WebSocket:', err);
-      setConnectionStatus({ ws: 'Error', sse: 'Error', api: 'Connected' });
+        }
+      }, 5000);
+      
+      // Store interval for cleanup
+      wsRef.current = { rttInterval };
     }
   };
 
@@ -848,6 +818,11 @@ export default function useDashboardState(navigate) {
       case 'ping':
         // Handle ping messages - update last seen timestamp silently
         setSseLastUpdate(new Date().toISOString());
+        break;
+      
+      case 'pong':
+        // Handle pong messages - RTT is monitored via realtimeClient.getStatus()
+        // No action needed here as RTT interval in setupRealTimeConnections handles it
         break;
       
       case 'metrics':
