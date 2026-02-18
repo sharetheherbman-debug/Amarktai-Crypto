@@ -58,6 +58,13 @@ apiClient.interceptors.response.use(
     // Record failure in circuit breaker
     circuitBreaker.recordFailure(error);
 
+    // Guard: Only retry if we have a valid config object (502 errors may not have config)
+    if (!originalRequest) {
+      console.warn('⚠️ No request config available for retry (possibly 502/gateway error)');
+      const normalizedError = normalizeError(error);
+      return Promise.reject(normalizedError);
+    }
+
     // Don't retry if already retried max times
     if (!originalRequest._retry) {
       originalRequest._retry = 0;

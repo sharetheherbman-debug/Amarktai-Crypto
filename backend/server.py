@@ -3073,10 +3073,10 @@ routers_to_mount = [
     ("routes.phase8_endpoints", "Phase 8"),
     ("routes.capital_tracking_endpoints", "Capital Tracking"),
     ("routes.emergency_stop_endpoints", "Emergency Stop"),
-    ("routes.wallet_endpoints", "Wallet Hub"),
+    # REMOVED: routes.wallet_endpoints - duplicate of wallet_hub (keep enhanced version)
     ("routes.wallet_hub", "Wallet Hub Enhanced"),  # NEW - All 5 exchanges
     # REMOVED: routes.system_health_endpoints - has duplicate /health/ping
-    ("routes.admin_endpoints", "Admin"),
+    # REMOVED: routes.admin_endpoints - duplicate of admin_enhanced (keep enhanced version)
     ("routes.admin_enhanced", "Admin Enhanced"),  # NEW - User dropdown, bot profit/loss
     ("routes.admin_start_fresh", "Admin Start Fresh"),  # NEW - Start Fresh wipe endpoint
     ("routes.risk_management", "Risk Management"),  # NEW - Daily loss lock control
@@ -3096,7 +3096,7 @@ routers_to_mount = [
     ("routes.market_api", "Market API"),  # Live market prices for BTC/ZAR, ETH/ZAR, XRP/ZAR
     ("routes.prices", "Prices API"),  # NEW - Frontend-friendly /api/prices/live endpoint
     ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests
-    ("routes.ai_chat", "AI Chat"),
+    # REMOVED: routes.ai_chat - duplicate of chat_enhanced (keep enhanced version)
     ("routes.chat_enhanced", "AI Chat Enhanced"),  # NEW - Clear on refresh, daily summary
     ("routes.two_factor_auth", "2FA"),
     ("routes.genetic_algorithm", "Genetic Algorithm"),
