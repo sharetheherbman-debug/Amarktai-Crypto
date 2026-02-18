@@ -79,7 +79,7 @@ class AutonomousScheduler:
                             logger.error(f"Bot ranking failed for user {user_id}: {e}")
                     
                     except Exception as e:
-                        logger.error(f"Hourly tasks failed for user {user.get('id', 'unknown')}: {e}")
+                        logger.error(f"Hourly tasks failed for user {user.get('id', 'unknown')} (sub-task error): {e}")
                         continue  # Continue with next user
                 
                 logger.info("✅ Hourly tasks completed")
