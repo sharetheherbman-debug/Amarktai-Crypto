@@ -25,6 +25,7 @@ echo ""
 # Track test results
 PASSED=0
 FAILED=0
+SKIPPED=0
 
 # Helper function for test assertions
 assert_status() {
@@ -65,6 +66,7 @@ if [ -f "/var/log/amarktai/backend.log" ]; then
     fi
 else
     echo "⚠️  SKIP: Log file not found (check backend startup manually)"
+    ((SKIPPED++))
 fi
 echo ""
 
@@ -105,6 +107,7 @@ if [ "$LOGIN_STATUS" -eq "200" ]; then
 else
     echo "⚠️  SKIP: Login failed (HTTP $LOGIN_STATUS). Using guest tests only."
     echo "   Note: Create test user: $TEST_EMAIL before running authenticated tests"
+    ((SKIPPED++))
 fi
 echo ""
 
@@ -173,6 +176,7 @@ if [ -n "$TOKEN" ]; then
     echo ""
 else
     echo "⚠️  Skipping authenticated tests (no token available)"
+    ((SKIPPED+=5))  # 5 authenticated tests skipped
     echo ""
 fi
 
@@ -193,6 +197,7 @@ if [ -f ".env" ]; then
     fi
 else
     echo "⚠️  SKIP: .env file not found"
+    ((SKIPPED++))
 fi
 echo ""
 
@@ -205,6 +210,7 @@ if [ -d "frontend/build" ] || [ -d "frontend/dist" ]; then
 else
     echo "⚠️  INFO: Frontend build directory not found"
     echo "   Run: cd frontend && npm run build"
+    ((SKIPPED++))
 fi
 echo ""
 
@@ -223,13 +229,19 @@ echo ""
 echo "=================================================="
 echo "📊 TEST SUMMARY"
 echo "=================================================="
-TOTAL=$((PASSED + FAILED))
-echo "Passed: $PASSED/$TOTAL"
-echo "Failed: $FAILED/$TOTAL"
+TOTAL=$((PASSED + FAILED + SKIPPED))
+echo "Total Tests: $TOTAL"
+echo "Passed: $PASSED"
+echo "Failed: $FAILED"
+echo "Skipped: $SKIPPED"
 echo ""
 
-if [ $FAILED -eq 0 ]; then
+if [ $FAILED -eq 0 ] && [ $SKIPPED -eq 0 ]; then
     echo "✅ ALL TESTS PASSED - Ready for production deployment!"
+    exit 0
+elif [ $FAILED -eq 0 ]; then
+    echo "⚠️  ALL EXECUTABLE TESTS PASSED - Some tests skipped (review above)"
+    echo "   Skipped tests may need manual verification"
     exit 0
 else
     echo "❌ SOME TESTS FAILED - Review errors before deploying"
