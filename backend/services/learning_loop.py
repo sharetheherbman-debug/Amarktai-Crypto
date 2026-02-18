@@ -1,6 +1,7 @@
 """
 Nightly Learning Loop Scheduler (guarded by ENABLE_LEARNING_LOOP).
 Performs bounded parameter reweighting and stores audit data.
+Integrated with RL Agent for adaptive parameter optimization.
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 import database as db
+from services.rl_agent import get_rl_agent
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,20 @@ class LearningLoop:
             for user in users:
                 await self._run_for_user(user.get("id"), dry_run=dry_run)
             self.last_run = datetime.now(timezone.utc)
+            
+            # Persist RL agent state after all users processed
+            try:
+                rl_agent = get_rl_agent()
+                rl_state = rl_agent.save_state()
+                await db.db.rl_agent_state.replace_one(
+                    {"_id": "global"},
+                    {"_id": "global", **rl_state},
+                    upsert=True
+                )
+                logger.info(f"📚 RL Agent state persisted: {rl_agent.episodes} episodes")
+            except Exception as e:
+                logger.warning(f"RL state persistence failed: {e}")
+            
             logger.info("📚 Learning loop complete")
             try:
                 from services.autonomy_heartbeat import heartbeat_registry
@@ -140,6 +156,86 @@ class LearningLoop:
         }
 
         await db.learning_metrics_collection.insert_one(metrics_doc)
+
+        # ========== RL Agent Integration ==========
+        # Update RL agent with performance metrics and get recommendations
+        rl_agent = get_rl_agent()
+        
+        # Calculate reward signal from performance
+        reward = rl_agent.calculate_reward(
+            profit=net_pnl,
+            sharpe_ratio=None,  # Calculate Sharpe if needed
+            max_drawdown=drawdown_max,
+            win_rate=win_rate,
+            trades_count=total_trades
+        )
+        
+        # Create state representation
+        state = {
+            'profit': net_pnl,
+            'win_rate': win_rate,
+            'sharpe': 0.0,  # Calculate Sharpe if needed
+            'trades': total_trades
+        }
+        
+        # Update RL policy with experience
+        # Get previous state from last run if available
+        try:
+            last_run = await db.learning_runs_collection.find_one(
+                {"user_id": user_id, "status": {"$in": ["applied", "skipped"]}},
+                sort=[("completed_at", -1)]
+            )
+            if last_run:
+                prev_metrics = last_run.get("metrics", {})
+                prev_state = {
+                    'profit': prev_metrics.get('net_pnl', 0),
+                    'win_rate': prev_metrics.get('win_rate', 50),
+                    'sharpe': 0.0,
+                    'trades': prev_metrics.get('total_trades', 0)
+                }
+                prev_params = last_run.get("previous_params", {})
+                
+                # Select action based on previous state
+                action = rl_agent.select_action(prev_state)
+                
+                # Update policy with experience
+                rl_agent.update_policy(prev_state, action, reward, state)
+                rl_agent.episodes += 1
+                
+                logger.info(f"📚 RL Agent updated: episode {rl_agent.episodes}, reward {reward:.2f}")
+        except Exception as e:
+            logger.warning(f"RL policy update skipped: {e}")
+        
+        # Get RL recommendations for parameter adjustments
+        rl_recommendations = []
+        try:
+            current_params = {
+                'stop_loss_pct': stop_loss * 100,  # Convert to percentage
+                'take_profit_pct': 10.0,  # Default if not set
+                'position_size_multiplier': trade_size,
+                'risk_per_trade_pct': 2.0,  # Default if not set
+                'cooldown_minutes': cooldown * 60  # Convert multiplier to minutes estimate
+            }
+            
+            performance_metrics = {
+                'total_profit': net_pnl,
+                'win_rate': win_rate,
+                'sharpe_ratio': None,
+                'max_drawdown': drawdown_max or 0,
+                'trades_count': total_trades
+            }
+            
+            rl_recommendations = rl_agent.generate_recommendations(
+                current_params,
+                performance_metrics
+            )
+            
+            if rl_recommendations:
+                logger.info(f"📚 RL generated {len(rl_recommendations)} recommendations for user {user_id}")
+        except Exception as e:
+            logger.warning(f"RL recommendations generation skipped: {e}")
+        
+        # ========== End RL Agent Integration ==========
 
         min_trades_required = max(int(os.getenv("LEARNING_MIN_TRADES", "50")), 50)
         if total_trades < min_trades_required:

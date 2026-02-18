@@ -2,6 +2,7 @@ import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import PlatformSelector from '../../../components/PlatformSelector';
 import TrainingQuarantineSection from '../../../components/Dashboard/TrainingQuarantineSection';
+import LearningResultsModal from './LearningResultsModal';
 import { getBotStatus } from '../../../hooks/useDashboardData';
 import { getPlatformDisplayName, getPlatformIcon, SUPPORTED_PLATFORMS } from '../../../constants/platforms';
 import { getAllExchanges } from '../../../config/exchanges';
@@ -195,6 +196,23 @@ export default function BotManagementSection({
     : 'warn';
   const selectedIsPaused = selectedBot ? ['paused', 'paused_ready'].includes(selectedStatus) : false;
   const selectedCanStart = selectedBot ? ['stopped', 'inactive', 'unknown'].includes(selectedStatus) : false;
+
+  // Learning modal state
+  const [learningModalOpen, setLearningModalOpen] = React.useState(false);
+  const [learningBotId, setLearningBotId] = React.useState(null);
+  const [learningBotName, setLearningBotName] = React.useState('');
+
+  const openLearningModal = (bot) => {
+    setLearningBotId(bot.id);
+    setLearningBotName(bot.name || `Bot ${bot.id}`);
+    setLearningModalOpen(true);
+  };
+
+  const closeLearningModal = () => {
+    setLearningModalOpen(false);
+    setLearningBotId(null);
+    setLearningBotName('');
+  };
 
   const renderBotDetailGrid = (items) => (
     <div className="bot-detail-grid">
@@ -495,6 +513,9 @@ export default function BotManagementSection({
                               <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
                                 {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
                               </button>
+                              <button onClick={() => openLearningModal(selectedBot)}>
+                                📚 Learning Report
+                              </button>
                               <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
                                 Delete
                               </button>
@@ -584,6 +605,19 @@ export default function BotManagementSection({
           </div>
         )}
       </div>
+
+      {/* Learning Results Modal */}
+      {learningModalOpen && (
+        <LearningResultsModal
+          botId={learningBotId}
+          botName={learningBotName}
+          onClose={closeLearningModal}
+          onApplied={() => {
+            closeLearningModal();
+            // Optionally refresh bot data here
+          }}
+        />
+      )}
     </section>
   );
 }

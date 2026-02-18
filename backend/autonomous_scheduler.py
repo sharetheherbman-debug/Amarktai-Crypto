@@ -109,8 +109,8 @@ class AutonomousScheduler:
                 # self_learning.run_daily_analysis()
                 
                 logger.info("Running daily healing checks...")
-                # AI Bodyguard + Self-Healing
-                # self_healing.scan_all_users()
+                # AI Bodyguard + Self-Healing - runs daily scans of all users
+                await self_healing.scan_all_users()
                 
                 logger.info("Running auto-promotion check...")
                 # Check all bots for 7-day promotion eligibility

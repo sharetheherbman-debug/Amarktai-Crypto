@@ -9,6 +9,19 @@ import { useRealtimeEvent } from './useRealtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 
+/**
+ * Helper function to get token from localStorage
+ * Returns null if no token exists
+ */
+const getToken = () => {
+  try {
+    return localStorage.getItem('token') || null;
+  } catch (error) {
+    console.error('Error reading token:', error);
+    return null;
+  }
+};
+
 const API = '';
 const axios = apiClient;
 const APP_VERSION = '1.0.6';
@@ -231,6 +244,10 @@ export default function useDashboardState(navigate) {
   const [autonomyStatus, setAutonomyStatus] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
   const [learningStatus, setLearningStatus] = useState(null);
+  // RL Agent State
+  const [rlMetrics, setRlMetrics] = useState(null);
+  const [rlLoading, setRlLoading] = useState(false);
+  const [rlRecommendations, setRlRecommendations] = useState({});
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
@@ -685,16 +702,31 @@ export default function useDashboardState(navigate) {
 
   // Check Flokx status
   useEffect(() => {
-    if (!token) return undefined;
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken || !token) {
+      return undefined;
+    }
+
     loadFlokxStatus();
-    const interval = setInterval(loadFlokxStatus, 30000);
+    const interval = setInterval(() => {
+      // Double-check token before each poll
+      if (getToken()) {
+        loadFlokxStatus();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [token]);
 
   useEffect(() => {
     if (isFlokxActive) {
       loadFlokxAlerts();
-      const interval = setInterval(loadFlokxAlerts, 30000);
+      const interval = setInterval(() => {
+        // Check token before each poll
+        if (getToken()) {
+          loadFlokxAlerts();
+        }
+      }, 30000);
       return () => clearInterval(interval);
     }
     setFlokxAlerts([]);
@@ -702,6 +734,13 @@ export default function useDashboardState(navigate) {
   }, [isFlokxActive]);
 
   const setupRealTimeConnections = () => {
+    // Guard: Only setup connections if token exists
+    const currentToken = getToken();
+    if (!currentToken) {
+      console.log('⏸️  No token available - skipping WebSocket setup');
+      return;
+    }
+
     console.log('✅ Initializing WebSocket connection...');
     
     // Also connect the realtime client for API key events
@@ -2615,6 +2654,9 @@ export default function useDashboardState(navigate) {
       }]);
       
       showNotification('✅ AI Learning complete!', 'success');
+      
+      // Also refresh RL metrics after learning
+      await fetchRLMetrics();
     } catch (err) {
       const errorMsg = err.response?.data?.detail || 'Learning failed';
       setChatMessages(prev => [...prev, { 
@@ -2627,6 +2669,80 @@ export default function useDashboardState(navigate) {
       setAiTaskLoading(null);
     }
   };
+
+  // RL Agent Functions
+  const fetchRLMetrics = async () => {
+    try {
+      setRlLoading(true);
+      const response = await axios.get(`${API}/ai/rl-status`, axiosConfig);
+      setRlMetrics(response.data.rl_agent);
+    } catch (err) {
+      console.error('Failed to fetch RL metrics:', err);
+      // Gracefully handle if endpoint doesn't exist
+      setRlMetrics(null);
+    } finally {
+      setRlLoading(false);
+    }
+  };
+
+  const getRLRecommendations = async (botId) => {
+    try {
+      const response = await axios.get(`${API}/ai/rl-recommendations/${botId}`, axiosConfig);
+      setRlRecommendations(prev => ({
+        ...prev,
+        [botId]: response.data
+      }));
+      return response.data;
+    } catch (err) {
+      console.error(`Failed to get RL recommendations for bot ${botId}:`, err);
+      showNotification('Failed to get RL recommendations', 'error');
+      return null;
+    }
+  };
+
+  const applyRLAdjustments = async (botId, adjustments) => {
+    try {
+      showNotification('⚙️ Applying RL adjustments...', 'info');
+      
+      // Apply adjustments via phase6 endpoint
+      const response = await axios.post(
+        `${API}/phase6/learning/apply-adjustments/${botId}`,
+        { adjustments },
+        axiosConfig
+      );
+      
+      showNotification('✅ RL adjustments applied successfully!', 'success');
+      
+      // Refresh bot state and RL metrics
+      await refreshBotState();
+      await fetchRLMetrics();
+      
+      return response.data;
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || 'Failed to apply adjustments';
+      showNotification(`❌ ${errorMsg}`, 'error');
+      console.error('Apply RL adjustments error:', err);
+      return null;
+    }
+  };
+
+  // Auto-refresh RL metrics every 30 seconds
+  useEffect(() => {
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken) {
+      return undefined;
+    }
+
+    fetchRLMetrics();
+    const interval = setInterval(() => {
+      // Double-check token before each poll
+      if (getToken()) {
+        fetchRLMetrics();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // PHASE 10: Additional AI Tool Handlers
   const handleEvolveBots = async () => {
@@ -2926,25 +3042,37 @@ export default function useDashboardState(navigate) {
 
   // Load admin data when admin panel is shown
   useEffect(() => {
-    if (showAdmin) {
-      loadAllUsers();
-      loadSystemStats();
-      loadStorageData();
-      loadAdminUsers();
-      loadAdminBots();
-      loadAdminHealth();
-      loadEmergencyOverrideStatus();
+    // Guard: Only run if token exists and admin panel is shown
+    const currentToken = getToken();
+    if (!currentToken || !showAdmin) {
+      return;
     }
+
+    loadAllUsers();
+    loadSystemStats();
+    loadStorageData();
+    loadAdminUsers();
+    loadAdminBots();
+    loadAdminHealth();
+    loadEmergencyOverrideStatus();
   }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
 
   useEffect(() => {
-    if (!showAdmin) return undefined;
+    // Guard: Only poll if token exists and admin panel is shown
+    const currentToken = getToken();
+    if (!currentToken || !showAdmin) {
+      return undefined;
+    }
+
     const interval = setInterval(() => {
-      loadSystemStats();
-      loadAdminUsers();
-      loadAdminBots();
-      loadAdminHealth();
-      loadEmergencyOverrideStatus();
+      // Double-check token before each poll
+      if (getToken()) {
+        loadSystemStats();
+        loadAdminUsers();
+        loadAdminBots();
+        loadAdminHealth();
+        loadEmergencyOverrideStatus();
+      }
     }, 15000);
     return () => clearInterval(interval);
   }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
@@ -3153,6 +3281,7 @@ export default function useDashboardState(navigate) {
     aiStatus,
     aiTaskLoading,
     allUsers,
+    applyRLAdjustments,
     autoSpawnStatus,
     autonomyStatus,
     autopilotReinvestStatus,
@@ -3185,11 +3314,13 @@ export default function useDashboardState(navigate) {
     equityData,
     equityRange,
     executeEmergencyStop,
+    fetchRLMetrics,
     filteredAdminBots,
     flokxAlerts,
     flokxStatus,
     formatDate,
     getAlertColor,
+    getRLRecommendations,
     graphPeriod,
     handleBlockUser,
     handleBotSetup,
@@ -3262,6 +3393,9 @@ export default function useDashboardState(navigate) {
     riskProfile,
     riskStatus,
     riskTone,
+    rlLoading,
+    rlMetrics,
+    rlRecommendations,
     selectedBotDetailId,
     selectedBotId,
     selectedTradeId,
