@@ -2008,19 +2008,24 @@ async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/autopilot/settings")
 async def get_autopilot_settings(user_id: str = Depends(get_current_user)):
-    """Get autopilot settings"""
+    """Get autopilot settings - reads from canonical user document"""
     try:
-        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
-        if not modes:
+        # Use users_collection for consistency with autopilot_control.py
+        user = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "autopilot_enabled": 1, "autopilot_settings": 1}
+        )
+        
+        if not user:
             return {
-                "autopilot": True,
+                "autopilot": False,
                 "reinvest_percentage": 80,
                 "spawn_threshold": 1000,
                 "max_bots": 50
             }
         
         return {
-            "autopilot": modes.get('autopilot', True),
+            "autopilot": user.get('autopilot_enabled', False),
             "reinvest_percentage": 80,
             "spawn_threshold": 1000,
             "max_bots": 50
