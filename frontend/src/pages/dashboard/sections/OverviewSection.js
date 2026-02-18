@@ -275,8 +275,8 @@ export default function OverviewSection({
               minHeight: '400px'
             }}>
               <img 
-                src="/assets/logo2.png" 
-                alt="Amarktai Crypto Logo" 
+                src="/assets/overview.jpg" 
+                alt="Trading workspace" 
                 className="overview-image-asset"
                 style={{
                   width: '100%',
