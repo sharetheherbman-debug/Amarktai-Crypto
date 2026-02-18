@@ -67,8 +67,8 @@ class AutonomousScheduler:
                         # 1. Check bot promotions
                         try:
                             promotions = await bot_lifecycle.check_promotions()
-                            if promotions > 0:
-                                logger.info(f"Promoted {promotions} bots for user {user_id}")
+                            if isinstance(promotions, dict) and promotions.get('promoted_count', 0) > 0:
+                                logger.info(f"Promoted {promotions['promoted_count']} bots for user {user_id}")
                         except Exception as e:
                             logger.error(f"Bot promotion check failed for user {user_id}: {e}")
                         
