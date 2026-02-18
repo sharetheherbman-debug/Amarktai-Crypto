@@ -3098,6 +3098,7 @@ routers_to_mount = [
     ("routes.ai_rl", "AI/RL Status"),  # NEW - Reinforcement Learning agent status and control
     ("routes.ai_status", "AI Configuration Status"),  # NEW - OpenAI key status for dashboard compatibility
     ("routes.autopilot_config", "Autopilot Configuration"),  # NEW - User-configurable autopilot settings per exchange
+    ("routes.system_capabilities", "System Capabilities"),  # NEW - Unified capabilities and missing keys status
 ]
 
 # Mount realtime router only if enabled via feature flag

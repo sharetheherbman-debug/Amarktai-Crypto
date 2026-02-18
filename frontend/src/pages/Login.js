@@ -54,7 +54,7 @@ export default function Login() {
     <AuthLayout>
       <div className="auth-content bright-glass-panel">
         <img
-          src="/assets/logo2.png"
+          src="/assets/logo3.png"
           alt="Amarktai Crypto"
           className="auth-logo"
           onClick={() => navigate('/')}

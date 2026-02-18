@@ -294,9 +294,9 @@ export default function OverviewSection({
                 <h3>Last Notable Event</h3>
                 <span className="overview-card-meta">{lastEventTime}</span>
               </div>
-              <div className="overview-event">
+              <div className="overview-event" style={{padding: '12px 0', overflowWrap: 'break-word', wordWrap: 'break-word'}}>
                 <strong>{lastEventTitle}</strong>
-                <p style={{margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--muted)'}}>{lastEventDetail}</p>
+                <p style={{margin: '6px 0 0 0', fontSize: '0.85rem', color: 'var(--muted)', overflowWrap: 'break-word', wordWrap: 'break-word'}}>{lastEventDetail}</p>
               </div>
             </GlassCard>
           </div>
