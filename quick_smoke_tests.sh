@@ -28,12 +28,12 @@ echo ""
 
 # Test 2: Check type-safe wallet balance handling in capital_allocator.py
 echo "Test 2: Type-Safe Wallet Balance Handling"
-if grep -q "isinstance(available_zar, dict)" backend/engines/capital_allocator.py && \
-   grep -q "if isinstance(available_zar.get('value')" backend/engines/capital_allocator.py; then
-    echo -e "${GREEN}✅ PASS${NC}: Type-safe dict handling exists in capital_allocator"
+if grep -q "def extract_numeric_balance" backend/engines/capital_allocator.py && \
+   grep -q "self.extract_numeric_balance(wallet_data" backend/engines/capital_allocator.py; then
+    echo -e "${GREEN}✅ PASS${NC}: Type-safe helper method exists in capital_allocator"
     PASSED=$((PASSED + 1))
 else
-    echo -e "${RED}❌ FAIL${NC}: Type-safe dict handling missing"
+    echo -e "${RED}❌ FAIL${NC}: Type-safe helper method missing"
     FAILED=$((FAILED + 1))
 fi
 echo ""
