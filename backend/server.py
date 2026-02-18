@@ -3096,6 +3096,7 @@ routers_to_mount = [
     ("routes.fetchai", "Fetch.ai Integration"),  # NEW - Fetch.ai market signals
     ("routes.agents", "Agent Management"),  # NEW - Fetch.ai/FlokX agent creation and monitoring
     ("routes.ai_rl", "AI/RL Status"),  # NEW - Reinforcement Learning agent status and control
+    ("routes.ai_status", "AI Configuration Status"),  # NEW - OpenAI key status for dashboard compatibility
     ("routes.autopilot_config", "Autopilot Configuration"),  # NEW - User-configurable autopilot settings per exchange
 ]
 

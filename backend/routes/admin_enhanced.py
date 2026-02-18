@@ -7,7 +7,7 @@ Adds user dropdown support and per-bot profit/loss indicators.
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, List
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import psutil
 import shutil
 
@@ -107,7 +107,6 @@ async def get_user_bots_detailed(
             pnl_pct = ((net_pnl / initial_capital) * 100) if initial_capital > 0 else 0
             
             # Get today's performance
-            from datetime import timedelta
             today_start = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(hour=0, minute=0, second=0)
             
             trades_today_cursor = db.trades_collection.find({
@@ -186,7 +185,6 @@ async def get_admin_dashboard_stats(admin_id: str = Depends(require_admin)):
         system_net_pnl = total_capital - initial_capital
         
         # Get recent activity (last 24 hours)
-        from datetime import timedelta
         last_24h = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         
         trades_24h = await db.trades_collection.count_documents({
