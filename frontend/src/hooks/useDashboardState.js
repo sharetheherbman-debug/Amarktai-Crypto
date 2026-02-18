@@ -231,6 +231,10 @@ export default function useDashboardState(navigate) {
   const [autonomyStatus, setAutonomyStatus] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
   const [learningStatus, setLearningStatus] = useState(null);
+  // RL Agent State
+  const [rlMetrics, setRlMetrics] = useState(null);
+  const [rlLoading, setRlLoading] = useState(false);
+  const [rlRecommendations, setRlRecommendations] = useState({});
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
@@ -2615,6 +2619,9 @@ export default function useDashboardState(navigate) {
       }]);
       
       showNotification('✅ AI Learning complete!', 'success');
+      
+      // Also refresh RL metrics after learning
+      await fetchRLMetrics();
     } catch (err) {
       const errorMsg = err.response?.data?.detail || 'Learning failed';
       setChatMessages(prev => [...prev, { 
@@ -2627,6 +2634,69 @@ export default function useDashboardState(navigate) {
       setAiTaskLoading(null);
     }
   };
+
+  // RL Agent Functions
+  const fetchRLMetrics = async () => {
+    try {
+      setRlLoading(true);
+      const response = await axios.get(`${API}/ai/rl-status`, axiosConfig);
+      setRlMetrics(response.data.rl_agent);
+    } catch (err) {
+      console.error('Failed to fetch RL metrics:', err);
+      // Gracefully handle if endpoint doesn't exist
+      setRlMetrics(null);
+    } finally {
+      setRlLoading(false);
+    }
+  };
+
+  const getRLRecommendations = async (botId) => {
+    try {
+      const response = await axios.get(`${API}/ai/rl-recommendations/${botId}`, axiosConfig);
+      setRlRecommendations(prev => ({
+        ...prev,
+        [botId]: response.data
+      }));
+      return response.data;
+    } catch (err) {
+      console.error(`Failed to get RL recommendations for bot ${botId}:`, err);
+      showNotification('Failed to get RL recommendations', 'error');
+      return null;
+    }
+  };
+
+  const applyRLAdjustments = async (botId, adjustments) => {
+    try {
+      showNotification('⚙️ Applying RL adjustments...', 'info');
+      
+      // Apply adjustments via phase6 endpoint
+      const response = await axios.post(
+        `${API}/phase6/learning/apply-adjustments/${botId}`,
+        { adjustments },
+        axiosConfig
+      );
+      
+      showNotification('✅ RL adjustments applied successfully!', 'success');
+      
+      // Refresh bot state and RL metrics
+      await refreshBotState();
+      await fetchRLMetrics();
+      
+      return response.data;
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || 'Failed to apply adjustments';
+      showNotification(`❌ ${errorMsg}`, 'error');
+      console.error('Apply RL adjustments error:', err);
+      return null;
+    }
+  };
+
+  // Auto-refresh RL metrics every 30 seconds
+  useEffect(() => {
+    fetchRLMetrics();
+    const interval = setInterval(fetchRLMetrics, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // PHASE 10: Additional AI Tool Handlers
   const handleEvolveBots = async () => {
@@ -3153,6 +3223,7 @@ export default function useDashboardState(navigate) {
     aiStatus,
     aiTaskLoading,
     allUsers,
+    applyRLAdjustments,
     autoSpawnStatus,
     autonomyStatus,
     autopilotReinvestStatus,
@@ -3185,11 +3256,13 @@ export default function useDashboardState(navigate) {
     equityData,
     equityRange,
     executeEmergencyStop,
+    fetchRLMetrics,
     filteredAdminBots,
     flokxAlerts,
     flokxStatus,
     formatDate,
     getAlertColor,
+    getRLRecommendations,
     graphPeriod,
     handleBlockUser,
     handleBotSetup,
@@ -3262,6 +3335,9 @@ export default function useDashboardState(navigate) {
     riskProfile,
     riskStatus,
     riskTone,
+    rlLoading,
+    rlMetrics,
+    rlRecommendations,
     selectedBotDetailId,
     selectedBotId,
     selectedTradeId,
