@@ -3129,6 +3129,8 @@ routers_to_mount = [
     ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
     ("routes.huggingface", "HuggingFace Integration"),  # NEW - HuggingFace AI models
     ("routes.fetchai", "Fetch.ai Integration"),  # NEW - Fetch.ai market signals
+    ("routes.agents", "Agent Management"),  # NEW - Fetch.ai/FlokX agent creation and monitoring
+    ("routes.ai_rl", "AI/RL Status"),  # NEW - Reinforcement Learning agent status and control
 ]
 
 # Mount realtime router only if enabled via feature flag
