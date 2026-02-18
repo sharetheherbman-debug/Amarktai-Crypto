@@ -57,6 +57,7 @@ export default function Login() {
           src="/assets/logo3.png"
           alt="Amarktai Crypto"
           className="auth-logo"
+          style={{ width: '150px', height: '150px' }}
           onClick={() => navigate('/')}
         />
         
