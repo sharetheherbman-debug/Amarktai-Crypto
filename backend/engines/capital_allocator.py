@@ -49,6 +49,42 @@ class CapitalAllocator:
             return False
         return bot_count < max_bots
     
+    @staticmethod
+    def extract_numeric_balance(wallet_data: Dict, user_id: str = None) -> float:
+        """
+        Type-safe extraction of available balance from wallet data.
+        Handles malformed data where available_zar might be a dict instead of a number.
+        
+        Args:
+            wallet_data: Wallet data dict from wallet_manager
+            user_id: Optional user ID for logging context
+            
+        Returns:
+            Available balance as float, or 0 if extraction fails
+        """
+        try:
+            if wallet_data.get('error'):
+                return 0.0
+            
+            available_zar = wallet_data.get('available_zar', 0)
+            
+            # Handle case where available_zar is a dict (malformed data)
+            if isinstance(available_zar, dict):
+                if user_id:
+                    logger.warning(f"Malformed wallet data for user {user_id}: available_zar is dict, extracting nested value")
+                else:
+                    logger.warning("Malformed wallet data: available_zar is dict, extracting nested value")
+                    
+                nested_value = available_zar.get('value', 0)
+                return float(nested_value) if isinstance(nested_value, (int, float)) else 0.0
+            
+            # Normal case: available_zar is already a number
+            return float(available_zar) if isinstance(available_zar, (int, float)) else 0.0
+            
+        except Exception as e:
+            logger.error(f"Error extracting balance from wallet data: {e}")
+            return 0.0
+    
     async def get_bot_performance_tier(self, bot: Dict) -> str:
         """Determine performance tier for a bot"""
         try:
@@ -326,8 +362,12 @@ class CapitalAllocator:
                 try:
                     from engines.wallet_manager import wallet_manager
                     wallet_data = await wallet_manager.get_master_balance(user_id)
-                    available_funds = wallet_data.get('available_zar', 0) if not wallet_data.get('error') else 0
-                except:
+                    available_funds = self.extract_numeric_balance(wallet_data, user_id)
+                    # Use fallback minimum for reinvestment if no balance
+                    if available_funds <= 0:
+                        available_funds = 1000
+                except Exception as e:
+                    logger.warning(f"Could not get wallet balance: {e}")
                     available_funds = 1000  # Fallback minimum
                 
                 # Calculate reinvestment amount
@@ -455,10 +495,10 @@ class CapitalAllocator:
             try:
                 from engines.wallet_manager import wallet_manager
                 wallet_data = await wallet_manager.get_master_balance(user_id)
-                available_funds = wallet_data.get('available_zar', 0) if not wallet_data.get('error') else 0
-            except:
+                available_funds = self.extract_numeric_balance(wallet_data, user_id)
+            except Exception as e:
+                logger.warning(f"Could not get wallet balance: {e}")
                 available_funds = 0
-                logger.warning("Could not get wallet balance, using 0")
             
             # Check each exchange for spawn eligibility
             for exchange in SUPPORTED_EXCHANGES:
