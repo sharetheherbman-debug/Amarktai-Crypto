@@ -321,3 +321,153 @@ async def summarize_text(
     except Exception as e:
         logger.error(f"Summarize error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/huggingface/classify")
+async def classify_text(
+    data: dict,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Perform zero-shot classification on text using HuggingFace.
+    
+    Allows classifying text into custom categories without training.
+    Uses facebook/bart-large-mnli or similar zero-shot models.
+    
+    Args:
+        data: Dictionary containing:
+            - text (str): Text to classify
+            - labels (list): List of classification labels
+            - model (str, optional): Model to use (default: facebook/bart-large-mnli)
+            
+    Returns:
+        Classification results with labels and scores
+    """
+    try:
+        text = data.get("text")
+        labels = data.get("labels", [])
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="Text is required")
+        
+        if not labels or len(labels) == 0:
+            raise HTTPException(status_code=400, detail="At least one label is required")
+        
+        model = data.get("model", "facebook/bart-large-mnli")
+        
+        client, source = await get_huggingface_client(user_id, model=model)
+        
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "No HuggingFace API key configured",
+                    "source": source
+                }
+            )
+        
+        # Perform zero-shot classification
+        try:
+            result = client.zero_shot_classification(
+                text,
+                labels,
+                multi_label=False
+            )
+            
+            return {
+                "success": True,
+                "text": text,
+                "labels": result.get("labels", []),
+                "scores": result.get("scores", []),
+                "model": model,
+                "source": source
+            }
+            
+        except Exception as e:
+            logger.error(f"Classification failed: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Classification failed: {str(e)}"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Classify error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/huggingface/embeddings")
+async def generate_embeddings(
+    data: dict,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Generate text embeddings using HuggingFace sentence transformers.
+    
+    Useful for semantic similarity, clustering, and RL feature extraction.
+    Uses sentence-transformers/all-MiniLM-L6-v2 or similar models.
+    
+    Args:
+        data: Dictionary containing:
+            - text (str): Text to generate embeddings for
+            - model (str, optional): Model to use (default: sentence-transformers/all-MiniLM-L6-v2)
+            
+    Returns:
+        Embedding vector as a list of floats
+    """
+    try:
+        text = data.get("text")
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="Text is required")
+        
+        model = data.get("model", "sentence-transformers/all-MiniLM-L6-v2")
+        
+        client, source = await get_huggingface_client(user_id, model=model)
+        
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "No HuggingFace API key configured",
+                    "source": source
+                }
+            )
+        
+        # Generate embeddings
+        try:
+            result = client.feature_extraction(text)
+            
+            # HuggingFace returns nested lists, flatten to 1D vector
+            if isinstance(result, list) and len(result) > 0:
+                if isinstance(result[0], list):
+                    # Take mean pooling if multiple token embeddings
+                    import numpy as np
+                    embeddings = np.mean(result, axis=0).tolist()
+                else:
+                    embeddings = result
+            else:
+                embeddings = []
+            
+            return {
+                "success": True,
+                "text": text,
+                "embeddings": embeddings,
+                "dimensions": len(embeddings),
+                "model": model,
+                "source": source
+            }
+            
+        except Exception as e:
+            logger.error(f"Embeddings generation failed: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Embeddings generation failed: {str(e)}"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Embeddings error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
