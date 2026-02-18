@@ -293,6 +293,14 @@ async def generate_degraded_response(user_message: str, user_id: str, system_sta
     """
     Generate a basic response without OpenAI key by analyzing user intent
     and querying database directly for common information requests.
+    
+    Args:
+        user_message: The user's chat message
+        user_id: User ID for potential future personalization
+        system_state: Current system state with bots, capital, modes, etc.
+    
+    Returns:
+        Dict with response content, metadata, and degraded_mode flag
     """
     message_lower = user_message.lower()
     
