@@ -22,6 +22,9 @@ from services.transfer_state_machine import transfer_state_machine
 from services.paper_wallet_service import paper_wallet_service
 from services.system_mode_service import system_mode_service
 from engines.wallet_manager import wallet_manager
+from engines.funding_plan_manager import funding_plan_manager
+from config.exchange_config import get_required_fields, get_deposit_requirements
+from services.wallet_summary_service import wallet_summary_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
@@ -578,4 +581,213 @@ async def get_pending_approvals(
         raise
     except Exception as e:
         logger.error(f"Get pending approvals error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/requirements")
+async def get_capital_requirements(user_id: str = Depends(get_current_user)):
+    """
+    Get capital requirements per exchange based on active bots.
+    Returns required exchanges, required fields per exchange, whether keys are present,
+    and deposit requirements if applicable.
+    """
+    try:
+        # Safe check for collection initialization
+        if db.bots_collection is None:
+            logger.warning("bots_collection not initialized")
+            return {
+                "user_id": user_id,
+                "requirements": {},
+                "summary": {
+                    "total_required": 0,
+                    "total_available": 0,
+                    "overall_health": "unknown"
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "note": "Collections not initialized"
+            }
+        
+        mode = await system_mode_service.get_current_mode(user_id)
+
+        # Get all active bots in current mode
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": "active", "trading_mode": mode},
+            {"_id": 0}
+        ).to_list(1000)
+        
+        # Get user's API keys to check what's configured
+        api_keys_present = {}
+        try:
+            user_keys = await db.api_keys_collection.find(
+                {"user_id": user_id},
+                {"_id": 0, "provider": 1, "exchange": 1}
+            ).to_list(100)
+            
+            for key in user_keys:
+                provider = key.get('provider') or key.get('exchange')
+                if provider:
+                    api_keys_present[provider.lower()] = True
+        except Exception as e:
+            logger.warning(f"Could not fetch API keys: {e}")
+        
+        # Calculate required capital per exchange
+        requirements = {}
+        
+        for bot in bots:
+            exchange = bot.get('exchange', 'unknown').lower()
+            initial_capital = bot.get('initial_capital')
+            capital = initial_capital if initial_capital is not None else bot.get('current_capital', 0)
+            
+            if exchange not in requirements:
+                requirements[exchange] = {
+                    "exchange": exchange,
+                    "required_capital": 0,
+                    "bots_count": 0,
+                    "available_capital": 0,
+                    "surplus_deficit": 0,
+                    "health": "unknown",
+                    "api_key_present": api_keys_present.get(exchange, False),
+                    "required_fields": get_required_fields(exchange),
+                    "deposit_requirements": get_deposit_requirements(exchange)
+                }
+            
+            requirements[exchange]['required_capital'] += capital
+            requirements[exchange]['bots_count'] += 1
+        
+        # Initialize balances to None
+        balances = None
+        
+        # Get actual balances (safe check for collection)
+        if db.wallet_balances_collection is not None:
+            balances = await db.wallet_balances_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0}
+            )
+            
+            if balances:
+                for exchange, req in requirements.items():
+                    exchange_balance = balances.get('exchanges', {}).get(exchange, {})
+                    available = exchange_balance.get('zar_balance', 0)
+                    req['available_capital'] = available
+                    req['surplus_deficit'] = available - req['required_capital']
+                    
+                    # Determine health
+                    if req['surplus_deficit'] >= 1000:
+                        req['health'] = 'healthy'
+                    elif req['surplus_deficit'] >= 0:
+                        req['health'] = 'adequate'
+                    elif req['surplus_deficit'] >= -500:
+                        req['health'] = 'warning'
+                    else:
+                        req['health'] = 'critical'
+        else:
+            logger.warning("wallet_balances_collection not initialized")
+        
+        # Calculate summary
+        total_required = sum(req['required_capital'] for req in requirements.values())
+        total_available = sum(req['available_capital'] for req in requirements.values())
+        
+        wallet_summary = await wallet_summary_service.get_summary(user_id)
+
+        return {
+            "user_id": user_id,
+            "requirements": requirements,
+            "summary": {
+                "total_required": round(total_required, 2),
+                "total_available": round(total_available, 2),
+                "overall_health": "healthy" if total_available >= total_required else "warning",
+                "exchanges_count": len(requirements),
+                "keys_configured": sum(1 for req in requirements.values() if req['api_key_present']),
+                "mode": wallet_summary.get("mode"),
+                "required_funds_zar": wallet_summary.get("required_funds_zar"),
+                "available_wallet_zar": wallet_summary.get("available_wallet_zar"),
+                "reserved_funds_zar": wallet_summary.get("reserved_funds_zar"),
+                "shortfall_zar": wallet_summary.get("shortfall_zar"),
+                "status": wallet_summary.get("status")
+            },
+            "timestamp": balances.get('timestamp') if balances else datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Get capital requirements error: {e}")
+        # Return safe default instead of 500
+        return {
+            "user_id": user_id,
+            "requirements": {},
+            "summary": {
+                "total_required": 0,
+                "total_available": 0,
+                "overall_health": "error"
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e)
+        }
+
+
+@router.get("/funding-plans")
+async def get_funding_plans(
+    status: str = None,
+    user_id: str = Depends(get_current_user)
+):
+    """Get all funding plans for user"""
+    try:
+        plans = await funding_plan_manager.get_user_funding_plans(
+            user_id,
+            status=status
+        )
+        
+        return {
+            "user_id": user_id,
+            "plans": plans,
+            "count": len(plans)
+        }
+        
+    except Exception as e:
+        logger.error(f"Get funding plans error: {e}")
+        # Return safe default instead of 500
+        return {
+            "user_id": user_id,
+            "plans": [],
+            "count": 0,
+            "error": str(e)
+        }
+
+
+@router.get("/funding-plans/{plan_id}")
+async def get_funding_plan(plan_id: str, user_id: str = Depends(get_current_user)):
+    """Get specific funding plan"""
+    try:
+        plan = await funding_plan_manager.get_funding_plan(plan_id)
+        
+        if not plan:
+            raise HTTPException(status_code=404, detail="Funding plan not found")
+        
+        # Verify ownership
+        if plan.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this plan")
+        
+        return plan
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get funding plan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/funding-plans/{plan_id}/cancel")
+async def cancel_funding_plan(plan_id: str, user_id: str = Depends(get_current_user)):
+    """Cancel a funding plan"""
+    try:
+        result = await funding_plan_manager.cancel_funding_plan(plan_id, user_id)
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Cancellation failed"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cancel funding plan error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
