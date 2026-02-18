@@ -313,3 +313,30 @@ rl_agent = RLAgent()
 def get_rl_agent() -> RLAgent:
     """Get the global RL agent instance."""
     return rl_agent
+
+
+async def initialize_rl_agent():
+    """
+    Initialize RL agent by loading state from database.
+    Should be called on server startup.
+    """
+    try:
+        import database as db
+        
+        if db.db is None:
+            logger.warning("Database not connected, RL agent starting with default state")
+            return
+        
+        # Load state from database
+        state_doc = await db.db.rl_agent_state.find_one({"_id": "global"})
+        
+        if state_doc:
+            # Remove MongoDB _id field
+            state_doc.pop('_id', None)
+            rl_agent.load_state(state_doc)
+            logger.info(f"✅ RL Agent initialized from database: {rl_agent.episodes} episodes")
+        else:
+            logger.info("ℹ️ RL Agent starting fresh (no saved state found)")
+    except Exception as e:
+        logger.error(f"Failed to initialize RL agent from database: {e}")
+        logger.info("RL Agent starting with default state")
