@@ -215,6 +215,68 @@ class SelfHealingSystem:
             logger.error(f"Scan all bots error: {e}", exc_info=True)
             # Never crash - log and continue
     
+    async def scan_all_users(self):
+        """
+        Scan all users and their bots for issues - wrapper for daily scheduler
+        NEVER crash the system - catches all exceptions
+        """
+        try:
+            logger.info("🛡️ Starting daily self-healing scan for all users")
+            
+            # Get all users
+            users = await db.users_collection.find({}, {"_id": 0, "id": 1}).to_list(1000)
+            
+            scanned_users = 0
+            total_issues_fixed = 0
+            
+            for user in users:
+                try:
+                    user_id = user.get('id')
+                    if not user_id:
+                        continue
+                    
+                    # Get user's active bots
+                    bots = await db.bots_collection.find(
+                        {"user_id": user_id, "status": "active"},
+                        {"_id": 0}
+                    ).to_list(1000)
+                    
+                    user_issues_fixed = 0
+                    
+                    for bot in bots:
+                        try:
+                            # Run all detection rules
+                            for detection_rule in self.detection_rules:
+                                is_rogue, issue = await detection_rule(bot)
+                                
+                                if is_rogue:
+                                    logger.warning(f"⚠️ Rogue bot detected: {bot.get('name')} (user {user_id}) - {issue}")
+                                    
+                                    # Auto-fix
+                                    if await self.fix_rogue_bot(bot, issue):
+                                        user_issues_fixed += 1
+                                    
+                                    break  # Stop checking other rules for this bot
+                        except Exception as bot_error:
+                            logger.error(f"Error scanning bot {bot.get('id', 'unknown')} for user {user_id}: {bot_error}")
+                            continue  # Continue with next bot
+                    
+                    if user_issues_fixed > 0:
+                        logger.info(f"🛡️ Self-Healing: Fixed {user_issues_fixed} issues for user {user_id}")
+                        total_issues_fixed += user_issues_fixed
+                    
+                    scanned_users += 1
+                    
+                except Exception as user_error:
+                    logger.error(f"Error scanning user {user.get('id', 'unknown')}: {user_error}")
+                    continue  # Continue with next user
+            
+            logger.info(f"✅ Daily self-healing scan complete: {scanned_users} users scanned, {total_issues_fixed} issues fixed")
+            
+        except Exception as e:
+            logger.error(f"Scan all users error: {e}", exc_info=True)
+            # Never crash - log and continue
+    
     async def healing_loop(self):
         """Main self-healing loop - runs every 30 minutes - NEVER crash"""
         logger.info("🛡️ Self-Healing system started")

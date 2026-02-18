@@ -165,6 +165,7 @@ ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'true').lower() == 'true'  # 
 # Live Trading Gate Requirements
 REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 'true'
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'
+AUTO_PROMOTE_LIVE = os.getenv('AUTO_PROMOTE_LIVE', 'false').lower() == 'true'  # Auto-promote eligible bots from paper to live daily
 
 # Supported Exchanges for Paper Trading
 # Import from canonical source: backend/config/platforms.py
@@ -193,5 +194,5 @@ __all__ = [
     'ENABLE_AUTOPILOT_GROWTH', 'ENABLE_AUTOPILOT_REINVEST',
     'AUTOPILOT_PROFIT_MILESTONE_ZAR', 'AUTOPILOT_REINVEST_MIN_ZAR',
     'AUTOPILOT_MAX_BOTS_PER_PLATFORM',
-    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'PAPER_SUPPORTED_EXCHANGES'
+    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'AUTO_PROMOTE_LIVE', 'PAPER_SUPPORTED_EXCHANGES'
 ]

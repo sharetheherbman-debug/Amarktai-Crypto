@@ -326,8 +326,19 @@ class CapitalAllocator:
                 try:
                     from engines.wallet_manager import wallet_manager
                     wallet_data = await wallet_manager.get_master_balance(user_id)
-                    available_funds = wallet_data.get('available_zar', 0) if not wallet_data.get('error') else 0
-                except:
+                    # Type-safe extraction: ensure we get a number, not a dict
+                    if not wallet_data.get('error'):
+                        available_zar = wallet_data.get('available_zar', 0)
+                        # Handle case where available_zar is a dict (malformed data)
+                        if isinstance(available_zar, dict):
+                            logger.warning(f"Malformed wallet data for user {user_id}: available_zar is dict, extracting nested value")
+                            available_funds = float(available_zar.get('value', 0) if isinstance(available_zar.get('value'), (int, float)) else 0)
+                        else:
+                            available_funds = float(available_zar) if isinstance(available_zar, (int, float)) else 0
+                    else:
+                        available_funds = 1000  # Fallback minimum
+                except Exception as e:
+                    logger.warning(f"Could not get wallet balance: {e}")
                     available_funds = 1000  # Fallback minimum
                 
                 # Calculate reinvestment amount
@@ -455,10 +466,20 @@ class CapitalAllocator:
             try:
                 from engines.wallet_manager import wallet_manager
                 wallet_data = await wallet_manager.get_master_balance(user_id)
-                available_funds = wallet_data.get('available_zar', 0) if not wallet_data.get('error') else 0
-            except:
+                # Type-safe extraction: ensure we get a number, not a dict
+                if not wallet_data.get('error'):
+                    available_zar = wallet_data.get('available_zar', 0)
+                    # Handle case where available_zar is a dict (malformed data)
+                    if isinstance(available_zar, dict):
+                        logger.warning(f"Malformed wallet data for user {user_id}: available_zar is dict, extracting nested value")
+                        available_funds = float(available_zar.get('value', 0) if isinstance(available_zar.get('value'), (int, float)) else 0)
+                    else:
+                        available_funds = float(available_zar) if isinstance(available_zar, (int, float)) else 0
+                else:
+                    available_funds = 0
+            except Exception as e:
+                logger.warning(f"Could not get wallet balance: {e}")
                 available_funds = 0
-                logger.warning("Could not get wallet balance, using 0")
             
             # Check each exchange for spawn eligibility
             for exchange in SUPPORTED_EXCHANGES:
