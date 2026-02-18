@@ -168,20 +168,20 @@ async def unlock_admin_panel(
         if not password:
             raise HTTPException(status_code=400, detail="Password is required")
         
-        # Get admin password from environment (defaults to Ashmor12@ if not set)
-        admin_password = os.getenv('ADMIN_PASSWORD', 'Ashmor12@')
+        # Import centralized verification from auth.py
+        from auth import verify_admin_password, get_admin_password
         
-        if not admin_password or not admin_password.strip():
-            logger.error("ADMIN_PASSWORD environment variable is empty")
+        # Verify password using centralized function
+        try:
+            is_valid = await verify_admin_password(password)
+        except ValueError as e:
+            logger.error(f"Admin password misconfiguration: {e}")
             raise HTTPException(
                 status_code=500, 
-                detail="Server configuration error: Admin password not configured"
+                detail="Server configuration error: Admin password not configured properly"
             )
         
-        admin_password = admin_password.strip()
-        
-        # Case-insensitive and whitespace-tolerant comparison
-        if password.lower() != admin_password.lower():
+        if not is_valid:
             # Log failed attempt
             await audit_logger.log_event(
                 event_type="admin_unlock_failed",
@@ -1375,9 +1375,17 @@ async def change_admin_password(
         current_password = request.current_password.strip()
         new_password = request.new_password.strip()
         
-        # Verify current password
-        admin_password = os.getenv('ADMIN_PASSWORD')
-        if not admin_password or current_password.lower() != admin_password.lower():
+        # Import centralized verification from auth.py
+        from auth import verify_admin_password
+        
+        # Verify current password using centralized function
+        try:
+            is_valid = await verify_admin_password(current_password)
+        except ValueError as e:
+            logger.error(f"Admin password misconfiguration: {e}")
+            raise HTTPException(status_code=500, detail="Server configuration error")
+        
+        if not is_valid:
             raise HTTPException(status_code=403, detail="Current password incorrect")
         
         # Hash new password

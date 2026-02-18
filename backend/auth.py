@@ -142,10 +142,42 @@ async def resolve_current_user(current_user) -> str:
         detail=f"Unsupported current_user type: {type(current_user)}"
     )
 
+def get_admin_password() -> str:
+    """Get admin password from environment with consistent default.
+    
+    Returns:
+        Admin password string
+        
+    Raises:
+        ValueError: If ADMIN_PASSWORD is empty string (misconfiguration)
+    """
+    admin_password = os.getenv("ADMIN_PASSWORD", "Ashmor12@")
+    
+    if admin_password == "":
+        raise ValueError("ADMIN_PASSWORD environment variable is set but empty")
+    
+    return admin_password
+
 async def verify_admin_password(password: str) -> bool:
-    """Verify admin password"""
-    admin_password = os.getenv("ADMIN_PASSWORD", "ashmor12@")
-    return password == admin_password
+    """Verify admin password - case-insensitive comparison.
+    
+    Args:
+        password: Password to verify
+        
+    Returns:
+        True if password matches, False otherwise
+        
+    Raises:
+        ValueError: If admin password is misconfigured (empty string)
+    """
+    try:
+        admin_password = get_admin_password()
+    except ValueError as e:
+        logger.error(f"Admin password misconfiguration: {e}")
+        raise
+    
+    # Case-insensitive and whitespace-tolerant comparison
+    return password.strip().lower() == admin_password.strip().lower()
 
 async def is_admin(user_id: str) -> bool:
     """Check if user has admin privileges - never crashes"""
