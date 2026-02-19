@@ -19,6 +19,7 @@ from services.bot_runtime_state import bot_runtime_state
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
+from utils.env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
@@ -419,8 +420,8 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         # 2. Check trading mode is enabled (Paper or Live)
         # Validate that the bot's trading mode (paper/live) is enabled in environment config
         # This prevents starting bots in modes that are disabled system-wide
-        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
-        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        paper_trading_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+        live_trading_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
         
         if trading_mode == 'paper' and not paper_trading_enabled:
             return _blocked_response(
@@ -781,8 +782,9 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             return _blocked_response("resume", bot, blocker)
 
         trading_mode = bot.get('trading_mode', 'paper')
-        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
-        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        # Use env_bool for proper parsing of truthy values (1, true, yes, on)
+        paper_trading_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+        live_trading_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
         modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
             return _blocked_response(
@@ -937,8 +939,9 @@ async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             )
 
         trading_mode = bot.get('trading_mode', 'paper')
-        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
-        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        # Use env_bool for proper parsing of truthy values (1, true, yes, on)
+        paper_trading_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+        live_trading_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
         modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
             return _blocked_response(
