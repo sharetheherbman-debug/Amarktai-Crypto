@@ -3027,3 +3027,33 @@ async def get_trade_queue_state(admin_id: str = Depends(require_admin)):
     except Exception as e:
         logger.error(f"Trade queue state error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/status")
+async def get_scheduler_status(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    Get trading scheduler status (admin-only diagnostic endpoint)
+    
+    Returns scheduler state including:
+    - running status
+    - last tick timestamp
+    - next tick timestamp  
+    - total tick count
+    - check interval
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+        
+        status = trading_scheduler.get_status()
+        
+        return {
+            "success": True,
+            "scheduler": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
