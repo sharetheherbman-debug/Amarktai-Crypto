@@ -12,6 +12,7 @@ from typing import Dict
 from auth import get_current_user
 import database as db
 from realtime_events import manager
+from core.feature_flags import can_resume_bot
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -98,6 +99,7 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
     
     Sets bot status to 'active' and emits realtime event.
     If bot is already active, returns success without error.
+    Checks trading mode gates before allowing resume.
     """
     try:
         # Check bot exists and belongs to user
@@ -130,6 +132,14 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
                 "message": "Bot already active",
                 "idempotent": True
             }
+        
+        # Check trading mode gates using unified feature flags
+        can_resume, block_reason = await can_resume_bot(bot, user_id)
+        if not can_resume:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot resume bot: {block_reason}"
+            )
         
         # Update bot status to active
         await db.bots_collection.update_one(

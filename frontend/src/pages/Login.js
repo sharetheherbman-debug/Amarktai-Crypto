@@ -54,14 +54,16 @@ export default function Login() {
     <AuthLayout>
       <div className="auth-content bright-glass-panel">
         <img
-          src="/assets/final-logo.png"
+          src="/assets/final-logo-v2.png"
           alt="Amarktai Crypto"
           className="auth-logo"
-          style={{ width: '150px', height: '150px' }}
+          style={{ width: '200px', height: '200px' }}
           onClick={() => navigate('/')}
         />
         
-        <h1 className="auth-title">Login</h1>
+        <h1 className="auth-title">
+          Log in to Amarkt<span className="brand-ai">AI</span>
+        </h1>
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">

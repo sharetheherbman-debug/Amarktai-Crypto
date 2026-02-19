@@ -559,7 +559,7 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
                     return None
             return None
 
-        enabled = os.getenv('ENABLE_AUTO_SPAWN', '0') == '1' or os.getenv('AUTOPILOT_ENABLED', '0') == '1'
+        enabled = env_bool('ENABLE_AUTO_SPAWN', False) or env_bool('AUTOPILOT_ENABLED', False) or env_bool('ENABLE_AUTOPILOT', False)
         profit_threshold = float(PROFIT_THRESHOLD_ZAR)
         cooldown_minutes = getattr(config, "AUTO_SPAWN_COOLDOWN_MINUTES", 60)
         max_spawns_per_day = getattr(config, "AUTO_SPAWN_MAX_PER_DAY", 2)

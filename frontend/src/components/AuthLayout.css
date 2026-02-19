@@ -11,7 +11,7 @@
   overflow: hidden;
 }
 
-/* LEFT PANEL - Diagonal blue gradient (45 degrees) */
+/* LEFT PANEL - Multi-color gradient (not just blue) */
 .auth-left {
   flex: 1;
   position: relative;
@@ -19,11 +19,13 @@
   align-items: center;
   justify-content: center;
   padding: 40px;
-  /* Two blue colors blended at 45 degree diagonal */
+  /* 3-4 color blended gradient (purple to blue to teal) */
   background: linear-gradient(
     135deg,
-    rgba(17, 29, 70, 0.95) 0%, 
-    rgba(26, 44, 98, 0.85) 100%
+    rgba(88, 28, 135, 0.85) 0%,
+    rgba(29, 78, 216, 0.80) 35%,
+    rgba(6, 95, 70, 0.75) 75%,
+    rgba(15, 23, 42, 0.85) 100%
   );
   z-index: 2;
 }
@@ -53,7 +55,8 @@
 .auth-overlay {
   position: absolute;
   inset: 0;
-  background: var(--media-overlay);
+  /* Lighter overlay - reduced opacity */
+  background: rgba(0, 0, 0, 0.35);
   z-index: 1;
 }
 
@@ -81,14 +84,38 @@
 
 /* Logo */
 .auth-logo {
-  width: 100px;
-  height: 100px;
+  width: 200px;
+  height: 200px;
   cursor: pointer;
   transition: transform 0.3s ease;
 }
 
 .auth-logo:hover {
   transform: scale(1.05);
+}
+
+/* Branding - "AI" in blue */
+.brand-ai {
+  color: #3b82f6;
+  font-weight: 700;
+}
+
+/* Landing page header */
+.landing-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.landing-welcome {
+  font-size: 1rem;
+  color: rgba(156, 163, 175, 0.9);
+  margin: 0;
+}
+
+.landing-brand {
+  margin-top: 0;
 }
 
 /* Title and Step */
@@ -265,8 +292,8 @@
 
 /* Landing page specific styles */
 .landing-logo-lg {
-  width: 120px !important;
-  height: 120px !important;
+  width: 200px !important;
+  height: 200px !important;
 }
 
 .landing-summary {

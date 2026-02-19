@@ -532,11 +532,11 @@ export default function Dashboard() {
       {!isMobile && (
         <aside className="sidebar">
           <img
-            src="/assets/final-logo.png"
+            src="/assets/final-logo-v2.png"
             className="logo"
             alt="Amarktai Crypto"
             onClick={() => showSection('overview')}
-            style={{ cursor: 'pointer' }}
+            style={{ cursor: 'pointer', width: '200px', height: '200px' }}
           />
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
@@ -559,7 +559,9 @@ export default function Dashboard() {
       {!isMobile && (
         <header className="topbar">
             <div className="topbar-brand">
-              <div className="topbar-title">Amarktai Crypto</div>
+              <div className="topbar-title">
+                Amarkt<span style={{ color: '#3b82f6', fontWeight: '700' }}>AI</span>
+              </div>
             </div>
           <div className="top-actions">
             <Badge variant={modeTone} className="topbar-badge">
