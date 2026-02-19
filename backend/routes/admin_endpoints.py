@@ -3057,3 +3057,33 @@ async def get_scheduler_status(
     except Exception as e:
         logger.error(f"Scheduler status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/status")
+async def get_learning_scheduler_status(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    Get nightly learning scheduler status (admin-only diagnostic endpoint)
+    
+    Returns scheduler state including:
+    - enabled status and reason
+    - running status
+    - last run timestamp and status
+    - schedule hour
+    - live learning flag
+    """
+    try:
+        from services.nightly_learning_scheduler import nightly_learning_scheduler
+        
+        status = nightly_learning_scheduler.get_status()
+        
+        return {
+            "success": True,
+            "learning_scheduler": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Learning scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
