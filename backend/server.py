@@ -3036,6 +3036,7 @@ routers_to_mount = [
     ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
+    ("routes.live_readiness", "Live Readiness Check"),  # NEW - Per-exchange readiness diagnostics
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
     ("routes.metrics_api", "Metrics API"),  # Trade cadence and countdown
     ("routes.learning_jobs", "Learning Jobs"),  # Nightly learning triggers
