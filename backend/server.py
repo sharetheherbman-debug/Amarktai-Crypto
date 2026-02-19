@@ -3028,7 +3028,7 @@ routers_to_mount = [
     ("routes.risk_management", "Risk Management"),  # NEW - Daily loss lock control
     ("routes.dashboard_overview", "Dashboard Overview"),  # NEW - Consolidated overview stats
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
-    ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
+    # REMOVED: routes.bot_control - duplicate of bot_lifecycle (pause/resume/start/status endpoints)
     ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
     ("routes.autopilot_growth", "Autopilot Growth"),  # NEW - Growth + reinvest
     ("routes.autonomy_control", "Autonomy Control"),  # NEW - Autonomy status + controls
