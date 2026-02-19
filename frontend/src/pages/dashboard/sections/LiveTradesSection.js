@@ -584,25 +584,25 @@ export default function LiveTradesSection({
                       transition: 'all 0.2s'
                     }}
                   >
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                      <div>
-                        <strong style={{fontSize: compactMode ? '0.85rem' : '0.95rem'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px'}}>
+                      <div style={{flex: 1, minWidth: 0}}>
+                        <strong style={{fontSize: compactMode ? '0.85rem' : '0.95rem', display: 'block', marginBottom: '4px'}}>
                           {trade.bot_name || 'Bot'}
                         </strong>
-                        <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px'}}>
+                        <div style={{fontSize: '0.75rem', color: 'var(--muted)', lineHeight: '1.4'}}>
                           {trade.symbol || NOT_AVAILABLE} • {getPlatformDisplayName(trade.exchange?.toLowerCase())}
                         </div>
                       </div>
-                      <div className="trade-row-meta" style={{textAlign: 'right'}}>
+                      <div className="trade-row-meta" style={{textAlign: 'right', flexShrink: 0}}>
                         <span 
                           className={`trade-side ${sideLabel}`}
                           style={{
                             display: 'inline-block',
-                            padding: '3px 8px',
+                            padding: '4px 10px',
                             borderRadius: '4px',
                             fontSize: '0.7rem',
                             fontWeight: 600,
-                            marginBottom: '4px',
+                            marginBottom: '6px',
                             textTransform: 'uppercase',
                             background: sideLabel === 'buy' ? 'var(--success)' : sideLabel === 'sell' ? 'var(--error)' : 'var(--muted)',
                             color: 'white'
@@ -613,7 +613,7 @@ export default function LiveTradesSection({
                         <div 
                           className={`trade-profit ${isWin ? 'win' : 'loss'}`}
                           style={{
-                            fontSize: '0.85rem',
+                            fontSize: '0.9rem',
                             fontWeight: 600,
                             color: isWin ? 'var(--success)' : 'var(--error)'
                           }}

@@ -2,12 +2,26 @@
 
 **Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 7 major exchanges.
 
-> 📚 **Companion Docs:** [DEPLOY.md](DEPLOY.md) | [VERIFICATION.md](VERIFICATION.md) | [ACCEPTANCE_TESTS.md](ACCEPTANCE_TESTS.md)
+> 📚 **Documentation:** All documentation is now centralized in the [`docs/`](docs/) folder. See [`docs/INDEX.md`](docs/INDEX.md) for a complete index.
 
 [![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 [![Real-time](https://img.shields.io/badge/realtime-WebSocket%20%2B%20SSE-blue)]()
 [![Platforms](https://img.shields.io/badge/platforms-7%20exchanges-orange)]()
 [![ToS Safe](https://img.shields.io/badge/ToS-compliant-success)]()
+
+---
+
+## 📚 **Documentation**
+
+**All documentation is centralized in the [`docs/`](docs/) folder.**
+
+### Quick Links
+- **[Complete Documentation Index](docs/INDEX.md)** - Single source of truth for all docs
+- **[Quick Start Guide](docs/QUICK_START.md)** - Get started quickly
+- **[Installation Guide](docs/INSTALL.md)** - Complete installation instructions
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Production deployment
+- **[API Contract](docs/API_CONTRACT.md)** - API endpoints and contracts
+- **[Architecture Map](docs/ARCHITECTURE_MAP.md)** - System architecture
 
 ---
 
@@ -22,7 +36,7 @@
 
 ### Production Deployment
 - **Installation Guide**: [`docs/INSTALL.md`](docs/INSTALL.md)
-- **Deliverables & Status**: [`docs/DELIVERABLES.md`](docs/DELIVERABLES.md)
+- **Deployment Checklist**: [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md)
 - **Systemd Service**: [`docs/examples/amarktai.service`](docs/examples/amarktai.service)
 - **Nginx Config**: [`docs/examples/nginx.conf`](docs/examples/nginx.conf)
 
@@ -35,8 +49,6 @@
   - LetsEncrypt: `/etc/letsencrypt/live` and `/etc/letsencrypt/archive` should remain `root:root` (private keys `600`).
 - **Nightly learning timer**: install `docs/examples/amarktai-nightly-learning.service` and `.timer`.
   - Enable with `sudo systemctl enable --now amarktai-nightly-learning.timer`
-
----
 
 ## ✨ **Key Features - Production-Ready**
 
