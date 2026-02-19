@@ -50,10 +50,19 @@ class TradingScheduler:
         self.check_interval = 10  # Check every 10 seconds for ready trades
         self.last_heartbeat = None
         self.heartbeat_interval = 10  # Emit heartbeat every 10 seconds
+        self.last_tick = None  # Track last execution time
+        self.next_tick = None  # Track next scheduled execution
+        self.tick_count = 0    # Count total ticks
         
     async def execute_bot_trades(self):
         """Execute trades using staggered queue - CONTINUOUS OPERATION"""
         try:
+            # Update tick tracking
+            from datetime import datetime, timezone, timedelta
+            self.last_tick = datetime.now(timezone.utc)
+            self.next_tick = self.last_tick + timedelta(seconds=self.check_interval)
+            self.tick_count += 1
+            
             logger.debug("⏱️ execute_bot_trades start")
             
             # Check system gate first
@@ -586,6 +595,9 @@ class TradingScheduler:
         """Start the trading scheduler"""
         if not self.is_running:
             self.is_running = True
+            self.last_tick = None
+            self.next_tick = None
+            self.tick_count = 0
             self.task = asyncio.create_task(self.trading_loop())
             logger.info("✅ Trading scheduler started - continuous staggered execution")
     
@@ -595,6 +607,17 @@ class TradingScheduler:
         if self.task:
             self.task.cancel()
         logger.info("🔴 Trading scheduler stopped")
+    
+    def get_status(self) -> dict:
+        """Get scheduler status for diagnostics"""
+        return {
+            "running": self.is_running,
+            "last_tick": self.last_tick.isoformat() if self.last_tick else None,
+            "next_tick": self.next_tick.isoformat() if self.next_tick else None,
+            "tick_count": self.tick_count,
+            "check_interval_seconds": self.check_interval,
+            "task_active": self.task is not None and not self.task.done() if self.task else False
+        }
 
 # Global instance
 trading_scheduler = TradingScheduler()
