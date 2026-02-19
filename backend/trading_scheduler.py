@@ -54,6 +54,8 @@ class TradingScheduler:
     async def execute_bot_trades(self):
         """Execute trades using staggered queue - CONTINUOUS OPERATION"""
         try:
+            logger.debug("⏱️ execute_bot_trades start")
+            
             # Check system gate first
             should_run, gate_reason = system_gate.validate_scheduler_tick()
             if not should_run:
@@ -269,16 +271,21 @@ class TradingScheduler:
                 return
             
             # Process ready trades from queue
+            logger.debug("🔍 Checking trade queue for ready trades...")
             for _ in range(5):  # Process up to 5 trades per cycle
                 trade_request = await trade_staggerer.get_next_trade()
                 
                 if not trade_request:
+                    logger.debug("📭 No trade ready in queue")
                     break
+                
+                logger.info(f"📤 Dequeued trade: bot_id={trade_request.get('bot_id', 'unknown')}")
                 
                 bot_id = trade_request['bot_id']
                 bot = next((b for b in active_bots if b['id'] == bot_id), None)
                 
                 if not bot:
+                    logger.warning(f"⚠️ Bot {bot_id} not found in active bots, skipping trade")
                     continue
                 
                 # PHASE 4B/4C: Validate trading mode gates BEFORE execution
@@ -286,7 +293,7 @@ class TradingScheduler:
                     can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(bot_id, bot)
                     
                     if not can_trade:
-                        logger.warning(f"⛔ {bot['name']} - Trading blocked: {reason}")
+                        logger.warning(f"⛔ {bot['name']} - Trading blocked (gate): {reason}")
                         # Don't execute - mark reason
                         continue
                     
@@ -298,12 +305,15 @@ class TradingScheduler:
                 
                 # Execute trade based on mode
                 try:
+                    logger.debug(f"🔄 Executing trade for {bot['name']} (bot_id={bot_id})")
+                    
                     # Check both 'mode' and 'trading_mode' for backwards compatibility
                     mode = bot.get('mode') or bot.get('trading_mode', 'paper')
                     is_paper_mode = str(mode).strip().lower().startswith('paper')
                     
                     # Register trade start
                     await trade_staggerer.register_trade_start(bot_id, bot.get('exchange'))
+                    logger.debug(f"📝 Registered trade start for {bot['name']}")
                     
                     if is_paper_mode:
                         # Paper trading
@@ -330,6 +340,7 @@ class TradingScheduler:
                     
                     # Register trade complete
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
+                    logger.debug(f"✅ Registered trade complete for {bot['name']}")
                     
                     # Send WebSocket update via rt_events for enhanced tracking
                     if result and isinstance(result, dict):
@@ -361,7 +372,7 @@ class TradingScheduler:
                         })
                     
                 except Exception as e:
-                    logger.error(f"Trade execution error for {bot['name']}: {e}")
+                    logger.error(f"❌ Trade execution error for {bot['name']}: {e}", exc_info=True)
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
             
             # Add new trades to queue

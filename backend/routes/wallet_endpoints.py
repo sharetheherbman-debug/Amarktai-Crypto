@@ -21,6 +21,120 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
 
 
+@router.get("/status")
+async def get_wallet_status(user_id: str = Depends(get_current_user)):
+    """Get comprehensive wallet status including paper balances, live balances, and required funding
+    
+    This is the single source-of-truth wallet endpoint that returns:
+    - Paper wallet balances and ledger totals
+    - Live wallet balances (if enabled and keys present)
+    - Required funding to go live based on active bots
+    
+    Returns:
+        paper_balances: dict - Paper trading balances by exchange and asset
+        live_balances: dict - Live exchange balances (if configured)
+        required_funding: dict - Required capital to go live
+        mode: str - Current trading mode (paper/live)
+        funding_status: str - Whether adequately funded (ok/shortfall/not_configured)
+        timestamp: str - Status timestamp
+    """
+    try:
+        # Get current mode
+        mode = await system_mode_service.get_current_mode(user_id)
+        
+        # Get paper balances
+        paper_balances = {}
+        if db.paper_balances_collection:
+            paper_doc = await db.paper_balances_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0}
+            )
+            if paper_doc:
+                paper_balances = paper_doc.get("balances", {})
+        
+        # Get live balances (if keys configured)
+        live_balances = {}
+        live_status = "not_configured"
+        try:
+            # Check if API keys exist
+            api_keys = await db.api_keys_collection.find(
+                {"user_id": user_id},
+                {"_id": 0, "exchange": 1}
+            ).to_list(100)
+            
+            if api_keys:
+                live_status = "configured"
+                # Try to fetch live balances
+                balance_result = await wallet_manager.get_master_balance(user_id)
+                if not balance_result.get("error"):
+                    live_balances = balance_result
+                    live_status = "ok"
+                else:
+                    live_status = "error"
+        except Exception as e:
+            logger.warning(f"Could not fetch live balances: {e}")
+            live_status = "error"
+        
+        # Get required funding
+        required_funding = {"total": 0.0, "by_platform": {}, "bot_count": 0}
+        try:
+            bots = await db.bots_collection.find(
+                {
+                    "user_id": user_id,
+                    "status": {"$ne": "deleted"},
+                    "deleted_at": {"$exists": False}
+                },
+                {"_id": 0, "initial_capital": 1, "platform": 1, "exchange": 1}
+            ).to_list(1000)
+            
+            total_required = 0.0
+            by_platform = {}
+            
+            for bot in bots:
+                capital = bot.get("initial_capital", 0)
+                platform = (bot.get("platform") or bot.get("exchange", "unknown")).lower()
+                
+                total_required += capital
+                by_platform[platform] = by_platform.get(platform, 0.0) + capital
+            
+            by_platform = {k: round(v, 2) for k, v in by_platform.items() if v > 0}
+            required_funding = {
+                "total": round(total_required, 2),
+                "by_platform": by_platform,
+                "bot_count": len(bots)
+            }
+        except Exception as e:
+            logger.warning(f"Could not calculate required funding: {e}")
+        
+        # Determine funding status
+        funding_status = "not_configured"
+        if mode == "paper":
+            funding_status = "paper_mode"
+        elif live_status == "ok":
+            # Check if we have enough funds
+            total_live = live_balances.get("total_zar", 0)
+            total_required = required_funding.get("total", 0)
+            if total_live >= total_required:
+                funding_status = "ok"
+            else:
+                funding_status = "shortfall"
+        
+        return {
+            "success": True,
+            "mode": mode,
+            "paper_balances": paper_balances,
+            "live_balances": live_balances,
+            "live_status": live_status,
+            "required_funding": required_funding,
+            "funding_status": funding_status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Wallet status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def build_paper_wallet_status_summary(user_id: str):
     """Return paper wallet status summary."""
     summary = await wallet_summary_service.get_summary(user_id)

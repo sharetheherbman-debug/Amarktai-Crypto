@@ -546,6 +546,7 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
     try:
         import os
         import config
+        from utils.env_utils import env_bool
         from rules import SUPPORTED_EXCHANGES, check_bot_cap_limit, get_reason_message, PROFIT_THRESHOLD_ZAR
         from profit_ledger import profit_ledger
 
