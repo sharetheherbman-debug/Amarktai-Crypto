@@ -97,7 +97,7 @@ async def get_wallet_status(user_id: str = Depends(get_current_user)):
                 total_required += capital
                 by_platform[platform] = by_platform.get(platform, 0.0) + capital
             
-            by_platform = {k: round(v, 2) for k, v in by_platform.items() if v > 0}
+            by_platform = {k: round(v, 2) for k, v in by_platform.items() if v != 0}  # Remove zero values; negative values are kept for debugging
             required_funding = {
                 "total": round(total_required, 2),
                 "by_platform": by_platform,

@@ -325,7 +325,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
             <div>
               <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Required Capital</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                R{(walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                R{(walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
             
@@ -333,7 +333,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
               <div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Available Funds</div>
                 <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                  R{(walletStatus.live_balances.total_zar || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  R{(walletStatus.live_balances.total_zar || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
             )}

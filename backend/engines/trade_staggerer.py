@@ -246,7 +246,7 @@ class TradeStaggerer:
             locks = {}
             for bot_id, timestamp in self.active_trades.items():
                 age_seconds = (now - timestamp).total_seconds()
-                locks[bot_id[:8]] = {
+                locks[bot_id] = {  # Use full bot_id to avoid collisions
                     "started_at": timestamp.isoformat(),
                     "age_seconds": int(age_seconds)
                 }
@@ -269,7 +269,7 @@ class TradeStaggerer:
             sample_items = []
             for item in list(self.trade_queue)[:5]:
                 sample_items.append({
-                    "bot_id": item['bot_id'][:8] + "...",
+                    "bot_id": item['bot_id'][:12] + "...",  # Show more characters to reduce collision risk
                     "exchange": item['exchange'],
                     "priority": item.get('priority', 0),
                     "queued_at": item['queued_at']
