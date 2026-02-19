@@ -85,14 +85,16 @@ export default function Register() {
     <AuthLayout>
       <div className="auth-content bright-glass-panel">
         <img
-          src="/assets/final-logo.png"
+          src="/assets/final-logo-v2.png"
           alt="Amarktai Crypto"
           className="auth-logo"
-          style={{ width: '150px', height: '150px' }}
+          style={{ width: '200px', height: '200px' }}
           onClick={() => navigate('/')}
         />
         
-        <h1 className="auth-title">Create Account</h1>
+        <h1 className="auth-title">
+          Create Your Amarkt<span className="brand-ai">AI</span> Account
+        </h1>
         <p className="auth-step">Step {step} of 4</p>
 
         <form onSubmit={handleSubmit} className="auth-form">

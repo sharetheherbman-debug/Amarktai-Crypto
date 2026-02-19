@@ -26,7 +26,7 @@ export default function AuthLayout({ children, videoRotated = false }) {
           playsInline
           poster="/assets/poster.jpg"
         >
-          <source src="/assets/background.mp4" type="video/mp4" />
+          <source src="/assets/amarktai-network-final.mp4" type="video/mp4" />
         </video>
         <div className="auth-overlay" />
       </div>
