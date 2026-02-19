@@ -384,9 +384,45 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
+# ============================================================================
+# CORS MIDDLEWARE - Security hardened with environment-based origins
+# ============================================================================
+
+def get_cors_origins() -> list[str]:
+    """Get CORS allowed origins from environment"""
+    import os
+    
+    # Get configured origins from env
+    origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '')
+    origins = []
+    
+    if origins_env:
+        # Parse comma-separated list
+        origins = [origin.strip() for origin in origins_env.split(',') if origin.strip()]
+    
+    # Add development origins if enabled
+    enable_dev = os.getenv('ENABLE_DEV_CORS', 'false').lower() == 'true'
+    if enable_dev:
+        dev_origins = [
+            'http://localhost:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:5173',
+        ]
+        origins.extend(dev_origins)
+        logger.info(f"⚠️ CORS: Development origins enabled: {dev_origins}")
+    
+    # Fallback to wildcard if no origins configured (dev mode)
+    if not origins:
+        logger.warning("⚠️ CORS: No origins configured, defaulting to wildcard ['*'] - INSECURE FOR PRODUCTION")
+        return ["*"]
+    
+    logger.info(f"✅ CORS: Allowed origins: {origins}")
+    return origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -3028,7 +3064,7 @@ routers_to_mount = [
     ("routes.risk_management", "Risk Management"),  # NEW - Daily loss lock control
     ("routes.dashboard_overview", "Dashboard Overview"),  # NEW - Consolidated overview stats
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
-    ("routes.bot_control", "Bot Control"),  # NEW - Pause/Resume/Start endpoints
+    # REMOVED: routes.bot_control - duplicate of bot_lifecycle (pause/resume/start/status endpoints)
     ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
     ("routes.autopilot_growth", "Autopilot Growth"),  # NEW - Growth + reinvest
     ("routes.autonomy_control", "Autonomy Control"),  # NEW - Autonomy status + controls
@@ -3036,6 +3072,7 @@ routers_to_mount = [
     ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
+    ("routes.live_readiness", "Live Readiness Check"),  # NEW - Per-exchange readiness diagnostics
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
     ("routes.metrics_api", "Metrics API"),  # Trade cadence and countdown
     ("routes.learning_jobs", "Learning Jobs"),  # Nightly learning triggers

@@ -218,6 +218,88 @@ class TradeStaggerer:
             logger.error(f"Get queue status error: {e}")
             return {"error": str(e)}
     
+    async def get_queue_state(self) -> Dict:
+        """Get detailed queue state for diagnostics (admin-only)
+        
+        Returns:
+            queue_size: Number of trades in queue
+            next_eligible: When next trade can execute
+            locks: Active trade locks by bot_id
+            cooldowns: Last trade time per exchange
+            sample_items: Redacted sample of queue items
+            exchange_stats: Statistics per exchange
+        """
+        try:
+            # Calculate next eligible time
+            next_eligible = None
+            now = datetime.now(timezone.utc)
+            
+            # Check minimum wait times across all exchanges
+            for exchange, last_time in self.last_trade_per_exchange.items():
+                if last_time:
+                    limits = self.exchange_limits.get(exchange, self.exchange_limits['binance'])
+                    next_time = last_time + timedelta(seconds=limits['min_delay'])
+                    if not next_eligible or next_time < next_eligible:
+                        next_eligible = next_time
+            
+            # Build locks info (active trades)
+            locks = {}
+            for bot_id, timestamp in self.active_trades.items():
+                age_seconds = (now - timestamp).total_seconds()
+                locks[bot_id] = {  # Use full bot_id to avoid collisions
+                    "started_at": timestamp.isoformat(),
+                    "age_seconds": int(age_seconds)
+                }
+            
+            # Build cooldowns info
+            cooldowns = {}
+            for exchange, last_time in self.last_trade_per_exchange.items():
+                if last_time:
+                    limits = self.exchange_limits.get(exchange, {})
+                    age_seconds = (now - last_time).total_seconds()
+                    remaining = max(0, limits.get('min_delay', 0) - int(age_seconds))
+                    cooldowns[exchange] = {
+                        "last_trade": last_time.isoformat(),
+                        "age_seconds": int(age_seconds),
+                        "remaining_seconds": remaining,
+                        "min_delay": limits.get('min_delay', 0)
+                    }
+            
+            # Sample queue items (redacted)
+            sample_items = []
+            for item in list(self.trade_queue)[:5]:
+                sample_items.append({
+                    "bot_id": item['bot_id'][:12] + "...",  # Show more characters to reduce collision risk
+                    "exchange": item['exchange'],
+                    "priority": item.get('priority', 0),
+                    "queued_at": item['queued_at']
+                })
+            
+            # Exchange stats
+            exchange_stats = {}
+            for exchange, limits in self.exchange_limits.items():
+                concurrent = self.concurrent_trades_per_exchange.get(exchange, 0)
+                exchange_stats[exchange] = {
+                    "concurrent_trades": concurrent,
+                    "max_concurrent": limits['max_concurrent'],
+                    "min_delay_seconds": limits['min_delay'],
+                    "last_trade": self.last_trade_per_exchange.get(exchange, None).isoformat() if self.last_trade_per_exchange.get(exchange) else None
+                }
+            
+            return {
+                "queue_size": len(self.trade_queue),
+                "active_trades_count": len(self.active_trades),
+                "next_eligible": next_eligible.isoformat() if next_eligible else None,
+                "locks": locks,
+                "cooldowns": cooldowns,
+                "sample_items": sample_items,
+                "exchange_stats": exchange_stats
+            }
+            
+        except Exception as e:
+            logger.error(f"Get queue state error: {e}")
+            return {"error": str(e)}
+    
     async def clear_stale_trades(self):
         """Clean up stale active trades (e.g., if trade crashed)"""
         try:

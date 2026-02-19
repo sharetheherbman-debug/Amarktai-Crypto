@@ -50,10 +50,21 @@ class TradingScheduler:
         self.check_interval = 10  # Check every 10 seconds for ready trades
         self.last_heartbeat = None
         self.heartbeat_interval = 10  # Emit heartbeat every 10 seconds
+        self.last_tick = None  # Track last execution time
+        self.next_tick = None  # Track next scheduled execution
+        self.tick_count = 0    # Count total ticks
         
     async def execute_bot_trades(self):
         """Execute trades using staggered queue - CONTINUOUS OPERATION"""
         try:
+            # Update tick tracking
+            from datetime import datetime, timezone, timedelta
+            self.last_tick = datetime.now(timezone.utc)
+            self.next_tick = self.last_tick + timedelta(seconds=self.check_interval)
+            self.tick_count += 1
+            
+            logger.debug("⏱️ execute_bot_trades start")
+            
             # Check system gate first
             should_run, gate_reason = system_gate.validate_scheduler_tick()
             if not should_run:
@@ -269,16 +280,21 @@ class TradingScheduler:
                 return
             
             # Process ready trades from queue
+            logger.debug("🔍 Checking trade queue for ready trades...")
             for _ in range(5):  # Process up to 5 trades per cycle
                 trade_request = await trade_staggerer.get_next_trade()
                 
                 if not trade_request:
+                    logger.debug("📭 No trade ready in queue")
                     break
+                
+                logger.info(f"📤 Dequeued trade: bot_id={trade_request.get('bot_id', 'unknown')}")
                 
                 bot_id = trade_request['bot_id']
                 bot = next((b for b in active_bots if b['id'] == bot_id), None)
                 
                 if not bot:
+                    logger.warning(f"⚠️ Bot {bot_id} not found in active bots, skipping trade")
                     continue
                 
                 # PHASE 4B/4C: Validate trading mode gates BEFORE execution
@@ -286,7 +302,7 @@ class TradingScheduler:
                     can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(bot_id, bot)
                     
                     if not can_trade:
-                        logger.warning(f"⛔ {bot['name']} - Trading blocked: {reason}")
+                        logger.warning(f"⛔ {bot['name']} - Trading blocked (gate): {reason}")
                         # Don't execute - mark reason
                         continue
                     
@@ -298,12 +314,15 @@ class TradingScheduler:
                 
                 # Execute trade based on mode
                 try:
+                    logger.debug(f"🔄 Executing trade for {bot['name']} (bot_id={bot_id})")
+                    
                     # Check both 'mode' and 'trading_mode' for backwards compatibility
                     mode = bot.get('mode') or bot.get('trading_mode', 'paper')
                     is_paper_mode = str(mode).strip().lower().startswith('paper')
                     
                     # Register trade start
                     await trade_staggerer.register_trade_start(bot_id, bot.get('exchange'))
+                    logger.debug(f"📝 Registered trade start for {bot['name']}")
                     
                     if is_paper_mode:
                         # Paper trading
@@ -330,6 +349,7 @@ class TradingScheduler:
                     
                     # Register trade complete
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
+                    logger.debug(f"✅ Registered trade complete for {bot['name']}")
                     
                     # Send WebSocket update via rt_events for enhanced tracking
                     if result and isinstance(result, dict):
@@ -361,7 +381,7 @@ class TradingScheduler:
                         })
                     
                 except Exception as e:
-                    logger.error(f"Trade execution error for {bot['name']}: {e}")
+                    logger.error(f"❌ Trade execution error for {bot['name']}: {e}", exc_info=True)
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
             
             # Add new trades to queue
@@ -575,6 +595,9 @@ class TradingScheduler:
         """Start the trading scheduler"""
         if not self.is_running:
             self.is_running = True
+            self.last_tick = None
+            self.next_tick = None
+            self.tick_count = 0
             self.task = asyncio.create_task(self.trading_loop())
             logger.info("✅ Trading scheduler started - continuous staggered execution")
     
@@ -584,6 +607,17 @@ class TradingScheduler:
         if self.task:
             self.task.cancel()
         logger.info("🔴 Trading scheduler stopped")
+    
+    def get_status(self) -> dict:
+        """Get scheduler status for diagnostics"""
+        return {
+            "running": self.is_running,
+            "last_tick": self.last_tick.isoformat() if self.last_tick else None,
+            "next_tick": self.next_tick.isoformat() if self.next_tick else None,
+            "tick_count": self.tick_count,
+            "check_interval_seconds": self.check_interval,
+            "task_active": self.task is not None and not self.task.done() if self.task else False
+        }
 
 # Global instance
 trading_scheduler = TradingScheduler()

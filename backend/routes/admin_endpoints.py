@@ -148,6 +148,11 @@ class SystemResetRequest(BaseModel):
     confirm_token: Optional[str] = Field(None, description="Optional confirmation token")
 
 
+class RuntimeResetRequest(BaseModel):
+    confirmation_phrase: str = Field(..., description="Confirmation phrase required for reset")
+    mode: str = Field("paper", description="Mode to reset: paper or live")
+
+
 @router.post("/unlock")
 async def unlock_admin_panel(
     request: AdminUnlockRequest,
@@ -324,6 +329,83 @@ async def reset_system_zero(
         "message": "System reset completed (users + API keys preserved)",
         "cleared_collections": cleared,
         "skipped_collections": skipped,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/runtime/reset")
+async def runtime_reset(
+    request: RuntimeResetRequest,
+    admin_id: str = Depends(require_admin),
+):
+    """Admin-only runtime reset for paper trading (wipes bots/trades/runtime but preserves users/keys)
+    
+    This is a safe reset that:
+    - Clears bot configurations
+    - Clears trade history
+    - Clears runtime state
+    - Preserves user accounts
+    - Preserves API keys
+    
+    Requires confirmation phrase: "CONFIRM RUNTIME RESET"
+    """
+    EXPECTED_PHRASE = "CONFIRM RUNTIME RESET"
+    provided = (request.confirmation_phrase or "").strip().upper()
+    
+    if provided != EXPECTED_PHRASE:
+        return {
+            "success": False,
+            "requires_confirmation": True,
+            "confirmation_phrase": EXPECTED_PHRASE,
+            "message": "Confirmation required for runtime reset."
+        }
+    
+    # Collections to clear for runtime reset
+    runtime_collections = [
+        "bots_collection",
+        "trades_collection",
+        "bot_runtime_state_collection",
+        "bot_locks_collection",
+        "trade_queue_collection",
+        "paper_trades_collection",
+        "paper_balances_collection",
+        "system_state_collection",
+    ]
+    
+    # Protected collections that must NOT be cleared
+    protected = {"users_collection", "api_keys_collection"}
+    
+    cleared = []
+    skipped = []
+    errors = []
+    
+    for name in runtime_collections:
+        collection = getattr(db, name, None)
+        if collection is None:
+            skipped.append({"collection": name, "reason": "not_initialized"})
+            continue
+        try:
+            result = await collection.delete_many({})
+            cleared.append({"collection": name, "deleted_count": result.deleted_count})
+            logger.info(f"Runtime reset: cleared {name} ({result.deleted_count} documents)")
+        except Exception as e:
+            errors.append({"collection": name, "error": str(e)})
+            logger.error(f"Runtime reset error in {name}: {e}")
+    
+    await log_admin_action(
+        admin_id=admin_id,
+        action="runtime_reset",
+        target_type="system",
+        target_id="runtime",
+        details={"mode": request.mode, "cleared": cleared, "skipped": skipped, "errors": errors},
+    )
+    
+    return {
+        "success": True,
+        "message": f"Runtime reset completed for {request.mode} mode (users + API keys preserved)",
+        "cleared_collections": cleared,
+        "skipped_collections": skipped,
+        "errors": errors,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -2911,3 +2993,97 @@ async def clear_emergency_stop_user_override(
     except Exception as e:
         logger.warning(f"Emergency stop clear override realtime broadcast failed: {e}")
     return {"success": True, "per_user": overrides.get("per_user", {})}
+
+
+@router.get("/trade-queue/state")
+async def get_trade_queue_state(admin_id: str = Depends(require_admin)):
+    """Admin-only diagnostic endpoint for trade queue state
+    
+    Returns:
+        queue_size: int - Number of trades queued
+        next_eligible: str - Timestamp when next trade can execute
+        locks: dict - Current locks by bot_id
+        cooldowns: dict - Current cooldowns by exchange
+        sample_items: list - Small sample of queued items (redacted)
+        timestamp: str - State snapshot timestamp
+    """
+    try:
+        from engines.trade_staggerer import trade_staggerer
+        
+        # Get queue state
+        state = await trade_staggerer.get_queue_state()
+        
+        return {
+            "success": True,
+            "queue_size": state.get("queue_size", 0),
+            "next_eligible": state.get("next_eligible"),
+            "locks": state.get("locks", {}),
+            "cooldowns": state.get("cooldowns", {}),
+            "sample_items": state.get("sample_items", []),
+            "exchange_stats": state.get("exchange_stats", {}),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Trade queue state error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/status")
+async def get_scheduler_status(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    Get trading scheduler status (admin-only diagnostic endpoint)
+    
+    Returns scheduler state including:
+    - running status
+    - last tick timestamp
+    - next tick timestamp  
+    - total tick count
+    - check interval
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+        
+        status = trading_scheduler.get_status()
+        
+        return {
+            "success": True,
+            "scheduler": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/status")
+async def get_learning_scheduler_status(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    Get nightly learning scheduler status (admin-only diagnostic endpoint)
+    
+    Returns scheduler state including:
+    - enabled status and reason
+    - running status
+    - last run timestamp and status
+    - schedule hour
+    - live learning flag
+    """
+    try:
+        from services.nightly_learning_scheduler import nightly_learning_scheduler
+        
+        status = nightly_learning_scheduler.get_status()
+        
+        return {
+            "success": True,
+            "learning_scheduler": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Learning scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -37,6 +37,7 @@ class AutonomyControlRequest(BaseModel):
 
 class AutonomyRunRequest(BaseModel):
     confirmation_phrase: Optional[str] = None
+    confirmation: Optional[str] = None  # Backward compatibility with frontend
     allow_live: bool = False
 
 
@@ -229,7 +230,11 @@ async def run_autonomy_now(
     request: AutonomyRunRequest,
     user_id: str = Depends(get_current_user),
 ):
-    confirmation = await _require_confirmation(CONFIRM_RUN, request.confirmation_phrase)
+    # Support both confirmation_phrase and confirmation for backward compatibility
+    provided_confirmation = request.confirmation_phrase or request.confirmation
+    logger.debug(f"Run-now confirmation received: confirmation_phrase={request.confirmation_phrase}, confirmation={request.confirmation}")
+    
+    confirmation = await _require_confirmation(CONFIRM_RUN, provided_confirmation)
     if confirmation:
         return confirmation
 

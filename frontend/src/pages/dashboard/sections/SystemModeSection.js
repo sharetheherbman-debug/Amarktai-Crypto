@@ -25,6 +25,12 @@ export default function SystemModeSection({
   const isPaperResetMode = systemModes.paperTrading && !systemModes.liveTrading;
   const [confirmPhrase, setConfirmPhrase] = React.useState('');
   
+  // Runtime reset state
+  const [showRuntimeResetModal, setShowRuntimeResetModal] = React.useState(false);
+  const [runtimeResetPhrase, setRuntimeResetPhrase] = React.useState('');
+  const [runtimeResetLoading, setRuntimeResetLoading] = React.useState(false);
+  const [runtimeResetResult, setRuntimeResetResult] = React.useState(null);
+  
   // Self-healing state
   const [selfHealingStatus, setSelfHealingStatus] = React.useState(null);
   const [loadingSelfHealing, setLoadingSelfHealing] = React.useState(false);
@@ -100,6 +106,39 @@ export default function SystemModeSection({
     setSelfHealingAction(action);
     setConfirmSelfHealing('');
     setShowSelfHealingModal(true);
+  };
+
+  const handleRuntimeReset = async () => {
+    if (runtimeResetPhrase !== 'CONFIRM RUNTIME RESET') {
+      toast.error('Please enter the exact confirmation phrase');
+      return;
+    }
+    
+    setRuntimeResetLoading(true);
+    setRuntimeResetResult(null);
+    
+    try {
+      const response = await apiClient.post('/admin/runtime/reset', {
+        confirmation_phrase: runtimeResetPhrase,
+        mode: 'paper'
+      });
+      
+      setRuntimeResetResult(response.data);
+      toast.success('Runtime reset completed successfully');
+      setRuntimeResetPhrase('');
+      
+      // Close modal after showing result for a moment
+      setTimeout(() => {
+        setShowRuntimeResetModal(false);
+        setRuntimeResetResult(null);
+      }, 3000);
+      
+    } catch (err) {
+      console.error('Runtime reset failed:', err);
+      toast.error(err.response?.data?.detail || 'Failed to reset runtime');
+    } finally {
+      setRuntimeResetLoading(false);
+    }
   };
 
   return (
@@ -273,6 +312,32 @@ export default function SystemModeSection({
             fetchSelfHealingStatus();
             fetchAutopilotStatus();
           }} />
+        </div>
+
+        {/* Runtime Reset (Admin) */}
+        <div style={{marginTop: '20px', padding: '16px', background: 'var(--glass)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px'}}>
+          <div style={{fontWeight: 700, marginBottom: '12px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px'}}>
+            🔄 Runtime Reset (Admin)
+          </div>
+          <div style={{fontSize: '0.9rem', color: 'var(--muted)', marginBottom: '12px'}}>
+            Safely reset paper trading runtime (bots, trades, queues) while preserving users and API keys.
+          </div>
+          <button
+            onClick={() => setShowRuntimeResetModal(true)}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '6px',
+              background: 'rgba(239, 68, 68, 0.2)',
+              color: '#ef4444',
+              border: '1px solid #ef4444',
+              fontSize: '0.9rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            Reset Runtime
+          </button>
         </div>
 
         {showPaperReset && (
@@ -464,6 +529,129 @@ export default function SystemModeSection({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Runtime Reset Modal */}
+      {showRuntimeResetModal && (
+        <div className="modal-overlay" onClick={() => setShowRuntimeResetModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{maxWidth: '500px'}}>
+            <h3 style={{marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px'}}>
+              ⚠️ Runtime Reset
+            </h3>
+            
+            {!runtimeResetResult ? (
+              <>
+                <p style={{color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px'}}>
+                  This will safely reset the paper trading runtime by clearing:
+                </p>
+                <ul style={{color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px', paddingLeft: '20px'}}>
+                  <li>All bots (configurations)</li>
+                  <li>Trade history and queues</li>
+                  <li>Runtime state and locks</li>
+                  <li>Paper balances</li>
+                </ul>
+                <p style={{color: 'var(--success)', fontSize: '0.9rem', marginBottom: '16px', fontWeight: 600}}>
+                  ✓ User accounts and API keys will be preserved
+                </p>
+                <p style={{color: 'var(--error)', fontSize: '0.9rem', marginBottom: '16px', fontWeight: 600}}>
+                  ⚠️ This action cannot be undone
+                </p>
+                
+                <div style={{marginBottom: '16px'}}>
+                  <label style={{display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)'}}>
+                    Type "CONFIRM RUNTIME RESET" to proceed:
+                  </label>
+                  <input
+                    type="text"
+                    value={runtimeResetPhrase}
+                    onChange={(e) => setRuntimeResetPhrase(e.target.value)}
+                    placeholder="CONFIRM RUNTIME RESET"
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--line)',
+                      background: 'var(--panel)',
+                      color: 'var(--text)',
+                      fontSize: '0.9rem'
+                    }}
+                    autoFocus
+                  />
+                </div>
+                
+                <div style={{display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
+                  <button
+                    onClick={() => {
+                      setShowRuntimeResetModal(false);
+                      setRuntimeResetPhrase('');
+                      setRuntimeResetResult(null);
+                    }}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--line)',
+                      background: 'transparent',
+                      color: 'var(--text)',
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRuntimeReset}
+                    disabled={runtimeResetLoading || runtimeResetPhrase !== 'CONFIRM RUNTIME RESET'}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: runtimeResetPhrase === 'CONFIRM RUNTIME RESET' ? '#ef4444' : 'rgba(239, 68, 68, 0.3)',
+                      color: 'white',
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      cursor: (runtimeResetLoading || runtimeResetPhrase !== 'CONFIRM RUNTIME RESET') ? 'not-allowed' : 'pointer',
+                      opacity: (runtimeResetLoading || runtimeResetPhrase !== 'CONFIRM RUNTIME RESET') ? 0.5 : 1
+                    }}
+                  >
+                    {runtimeResetLoading ? 'Resetting...' : 'Reset Runtime'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '8px',
+                  background: 'rgba(34, 197, 94, 0.1)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{color: 'var(--success)', fontWeight: 600, marginBottom: '8px'}}>
+                    ✓ Reset Completed Successfully
+                  </div>
+                  {runtimeResetResult.cleared_collections && (
+                    <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
+                      Cleared {runtimeResetResult.cleared_collections.length} collections:
+                      <ul style={{marginTop: '8px', paddingLeft: '20px'}}>
+                        {runtimeResetResult.cleared_collections.slice(0, 5).map((item) => (
+                          <li key={item.collection}>
+                            {item.collection.replace('_collection', '')}: {item.deleted_count} documents
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+                <div style={{textAlign: 'center'}}>
+                  <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
+                    This dialog will close automatically...
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
