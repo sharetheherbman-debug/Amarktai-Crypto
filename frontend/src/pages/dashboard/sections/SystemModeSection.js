@@ -636,8 +636,8 @@ export default function SystemModeSection({
                     <div style={{fontSize: '0.85rem', color: 'var(--muted)'}}>
                       Cleared {runtimeResetResult.cleared_collections.length} collections:
                       <ul style={{marginTop: '8px', paddingLeft: '20px'}}>
-                        {runtimeResetResult.cleared_collections.slice(0, 5).map((item, idx) => (
-                          <li key={idx}>
+                        {runtimeResetResult.cleared_collections.slice(0, 5).map((item) => (
+                          <li key={item.collection}>
                             {item.collection.replace('_collection', '')}: {item.deleted_count} documents
                           </li>
                         ))}

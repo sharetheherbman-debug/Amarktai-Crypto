@@ -90,11 +90,13 @@ class ExchangeReadiness:
                 "message": "Connection successful"
             }
             
-            # Check 3: Balance available
+            // Check 3: Balance available
             total_balance_usd = 0
             for currency, data in balance.items():
                 if isinstance(data, dict) and 'total' in data:
-                    total_balance_usd += data.get('total', 0) * 1  # Simplified
+                    # Note: Simplified balance calculation - in production, would need
+                    # proper currency-to-USD conversion rates via price feed
+                    total_balance_usd += data.get('total', 0)  # Assumes USD or converts at 1:1
             
             if total_balance_usd > 0:
                 result["checks"]["balance"] = {

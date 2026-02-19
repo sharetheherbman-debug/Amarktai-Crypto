@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Play, Pause, Square, RefreshCw } from 'lucide-react';
-import { getPlatformDisplayName, getPlatformIcon } from '../../../constants/platforms';
+import { getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 
 const NOT_AVAILABLE = 'Not available';
 

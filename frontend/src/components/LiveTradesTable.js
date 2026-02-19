@@ -403,15 +403,17 @@ export default function LiveTradesTable({ trades = [], bots = [], onRefresh }) {
                   </td>
                 </tr>
               ) : (
-                filteredTrades.map((trade, index) => {
+                filteredTrades.map((trade) => {
                   const statusBadge = getStatusBadge(trade.status);
                   const pnl = trade.profit_loss || trade.pnl || trade.profit || 0;
                   const isProfitable = pnl > 0;
                   const isHighlighted = highlightedTrades.has(trade.bot_id);
+                  // Use trade.id or create stable key from trade properties
+                  const tradeKey = trade.id || `${trade.timestamp}-${trade.bot_id}-${trade.pair}`;
                   
                   return (
                     <tr
-                      key={trade.id || index}
+                      key={tradeKey}
                       style={{
                         borderBottom: '1px solid var(--line)',
                         background: isHighlighted ? 'rgba(34, 197, 94, 0.1)' : 'transparent',
