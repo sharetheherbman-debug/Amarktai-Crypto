@@ -28,7 +28,10 @@ paper_reset_attempts = defaultdict(lambda: {"count": 0, "reset_at": datetime.now
 def get_paper_reset_password() -> str:
     reset_password = os.getenv("PAPER_RESET_PASSWORD")
     if not reset_password:
-        raise HTTPException(status_code=500, detail="Paper reset password not configured")
+        raise HTTPException(
+            status_code=500, 
+            detail="Paper reset password not configured. Set PAPER_RESET_PASSWORD environment variable to enable runtime reset functionality."
+        )
     return reset_password
 
 
