@@ -3,6 +3,7 @@ import SectionHeader from '@/ui/components/SectionHeader';
 import PlatformSelector from '../../../components/PlatformSelector';
 import TrainingQuarantineSection from '../../../components/Dashboard/TrainingQuarantineSection';
 import LearningResultsModal from './LearningResultsModal';
+import BotFleet from '../../../components/BotFleet';
 import { getBotStatus } from '../../../hooks/useDashboardData';
 import { getPlatformDisplayName, getPlatformIcon, SUPPORTED_PLATFORMS } from '../../../constants/platforms';
 import { getAllExchanges } from '../../../config/exchanges';
@@ -252,6 +253,12 @@ export default function BotManagementSection({
         </div>
         <div className="bot-tabs">
           <button
+            className={`bot-tab ${botManagementTab === 'fleet' ? 'active' : ''}`}
+            onClick={() => setBotManagementTab('fleet')}
+          >
+            Bot Fleet
+          </button>
+          <button
             className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('creation')}
           >
@@ -270,6 +277,25 @@ export default function BotManagementSection({
             Spawn Status
           </button>
         </div>
+
+        {botManagementTab === 'fleet' && (
+          <BotFleet
+            bots={filteredBots}
+            onControl={async (botId, action) => {
+              if (action === 'start') {
+                await handleStartBot(botId);
+              } else if (action === 'pause') {
+                await handleToggleBotMode(botId);
+              } else if (action === 'resume') {
+                await handleResumeBot(botId);
+              } else if (action === 'delete') {
+                await handleDeleteBot(botId);
+              }
+            }}
+            controlLoading={botControlLoading}
+            autoRefresh={true}
+          />
+        )}
 
         {botManagementTab === 'creation' && (
           <div className="bot-container">
