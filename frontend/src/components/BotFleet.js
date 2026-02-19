@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Play, Pause, Square, RefreshCw } from 'lucide-react';
 import { getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
+import { useRealtimeEvent } from '../hooks/useRealtime';
 
 const NOT_AVAILABLE = 'Not available';
 
@@ -356,6 +357,28 @@ export default function BotFleet({ bots, onControl, controlLoading, autoRefresh 
   const [expandedBots, setExpandedBots] = useState(new Set());
   const [isAutoRefresh, setIsAutoRefresh] = useState(autoRefresh);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [botUpdateTrigger, setBotUpdateTrigger] = useState(0);
+  
+  // WebSocket subscriptions for real-time bot updates
+  useRealtimeEvent('bot_paused', (data) => {
+    console.log('Bot paused event received:', data);
+    setBotUpdateTrigger(prev => prev + 1);
+  }, []);
+  
+  useRealtimeEvent('bot_resumed', (data) => {
+    console.log('Bot resumed event received:', data);
+    setBotUpdateTrigger(prev => prev + 1);
+  }, []);
+  
+  useRealtimeEvent('bot_created', (data) => {
+    console.log('Bot created event received:', data);
+    setBotUpdateTrigger(prev => prev + 1);
+  }, []);
+  
+  useRealtimeEvent('bot_updated', (data) => {
+    console.log('Bot updated event received:', data);
+    setBotUpdateTrigger(prev => prev + 1);
+  }, []);
   
   useEffect(() => {
     if (isAutoRefresh) {
