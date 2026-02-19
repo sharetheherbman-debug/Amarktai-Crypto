@@ -7,6 +7,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   const [requirements, setRequirements] = useState(null);
   const [fundingPlans, setFundingPlans] = useState([]);
   const [paperWallet, setPaperWallet] = useState(null);
+  const [walletStatus, setWalletStatus] = useState(null); // New: comprehensive wallet status
   const [paperDepositAmount, setPaperDepositAmount] = useState('');
   const [paperDepositCurrency, setPaperDepositCurrency] = useState('ZAR');
   const [paperActionLoading, setPaperActionLoading] = useState(false);
@@ -38,8 +39,12 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
       setLoading(true);
       setError(null);
       
-      // Load balances, requirements, and funding plans in parallel with safe defaults
-      const [balancesData, requirementsData, plansData, paperWalletData] = await Promise.all([
+      // Load comprehensive wallet status (new endpoint) plus existing data in parallel
+      const [statusData, balancesData, requirementsData, plansData, paperWalletData] = await Promise.all([
+        get('/wallet/status').catch(err => {
+          console.error('Wallet status fetch error:', err);
+          return null; // Safe default
+        }),
         get('/wallet/balances').catch(err => {
           console.error('Balance fetch error:', err);
           return { master_wallet: {}, last_updated: null }; // Safe default
@@ -58,6 +63,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         })
       ]);
 
+      setWalletStatus(statusData);
       setBalances(balancesData || {});
       setRequirements(requirementsData || {});
       setFundingPlans(plansData.plans || []);
@@ -70,6 +76,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
       setLoading(false);
       
       // Initialize to safe defaults even on error
+      setWalletStatus(null);
       setBalances({});
       setRequirements({});
       setFundingPlans([]);
@@ -269,6 +276,75 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
           >
             ➕ Add Exchange Keys
           </button>
+        </div>
+      )}
+
+      {/* Required Funding Status - New comprehensive display */}
+      {walletStatus && (
+        <div style={{
+          background: 'var(--glass)',
+          borderRadius: '16px',
+          padding: '20px',
+          marginBottom: '24px',
+          color: 'var(--text)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem' }}>💼 Funding Status</h3>
+            <div style={{
+              padding: '6px 12px',
+              background: walletStatus.funding_status === 'ok' ? 'rgba(34, 197, 94, 0.15)' :
+                          walletStatus.funding_status === 'shortfall' ? 'rgba(239, 68, 68, 0.15)' :
+                          'rgba(156, 163, 175, 0.15)',
+              border: `1px solid ${walletStatus.funding_status === 'ok' ? 'rgba(34, 197, 94, 0.4)' :
+                                   walletStatus.funding_status === 'shortfall' ? 'rgba(239, 68, 68, 0.4)' :
+                                   'rgba(156, 163, 175, 0.4)'}`,
+              borderRadius: '6px',
+              fontSize: '0.85rem',
+              color: walletStatus.funding_status === 'ok' ? 'var(--success)' :
+                     walletStatus.funding_status === 'shortfall' ? 'var(--error)' :
+                     'var(--muted)',
+              fontWeight: 600
+            }}>
+              {walletStatus.funding_status === 'ok' ? '✅ Fully Funded' :
+               walletStatus.funding_status === 'shortfall' ? '⚠️ Funding Required' :
+               walletStatus.funding_status === 'paper_mode' ? '📝 Paper Mode' :
+               '❓ Not Configured'}
+            </div>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Mode</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                {walletStatus.mode === 'paper' ? '📝 Paper' : '🔴 Live'}
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Required Capital</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                R{(walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            
+            {walletStatus.live_status === 'ok' && walletStatus.live_balances?.total_zar !== undefined && (
+              <div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Available Funds</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                  R{(walletStatus.live_balances.total_zar || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+            )}
+            
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                {walletStatus.required_funding?.bot_count || 0}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
