@@ -12,6 +12,7 @@ import os
 from auth import get_current_user
 from routes.system_mode import get_system_mode
 from utils.env_utils import env_bool
+from core.feature_flags import get_effective_flags, get_env_flags
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -23,26 +24,36 @@ router = APIRouter(prefix="/api/system", tags=["System Status"])
 async def get_system_status(user_id: str = Depends(get_current_user)):
     """
     Get system status including:
-    - Feature flags (trading, schedulers, autopilot)
-    - Trading mode flags (paper/live)
+    - Effective feature flags (considering ENV + system mode)
+    - Trading mode flags (paper/live) with reasons
     - Scheduler running status
     - Last trade time
-    - Last tick time
     - Database health
     """
     try:
-        # Get feature flags using consistent parsing
+        # Get effective flags using the unified feature flags service
+        effective_flags = await get_effective_flags(user_id)
+        
+        # Get environment-level flags for reference
+        env_flags = get_env_flags()
+        
+        # Build feature flags response with both effective and env flags
         feature_flags = {
-            "enable_trading": env_bool('ENABLE_TRADING', False),
+            "enable_trading": env_flags['enable_trading'],
             "enable_schedulers": env_bool('ENABLE_SCHEDULERS', False),
-            "enable_autopilot": env_bool('ENABLE_AUTOPILOT', False),
-            "enable_ccxt": env_bool('ENABLE_CCXT', True)
+            "enable_autopilot": effective_flags['enable_autopilot'],
+            "enable_ccxt": env_bool('ENABLE_CCXT', True),
+            # Add effective trading mode flags
+            "enable_paper_trading": effective_flags['enable_paper_trading'],
+            "enable_live_trading": effective_flags['enable_live_trading'],
         }
         
-        # Get trading mode flags (paper/live) - these are separate from feature flags
+        # Trading mode flags with reasons for transparency
         trading_mode_flags = {
-            "paper_trading": env_bool('PAPER_TRADING', False),
-            "live_trading": env_bool('LIVE_TRADING', False)
+            "paper_trading": effective_flags['enable_paper_trading'],
+            "live_trading": effective_flags['enable_live_trading'],
+            "effective_mode": effective_flags['effective_mode'],
+            "reasons": effective_flags['reasons']
         }
         
         # Check scheduler status - Safe handling like system_health.py
