@@ -90,7 +90,7 @@ class ExchangeReadiness:
                 "message": "Connection successful"
             }
             
-            // Check 3: Balance available
+            # Check 3: Balance available
             total_balance_usd = 0
             for currency, data in balance.items():
                 if isinstance(data, dict) and 'total' in data:
