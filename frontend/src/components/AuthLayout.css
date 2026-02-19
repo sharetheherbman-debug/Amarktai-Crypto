@@ -19,7 +19,7 @@
   align-items: center;
   justify-content: center;
   padding: 40px;
-  /* 3-4 color blended gradient (purple to blue to teal) */
+  /* 3-4 color blended gradient (purple to blue to teal) with animated breathing effect */
   background: linear-gradient(
     135deg,
     rgba(88, 28, 135, 0.85) 0%,
@@ -28,6 +28,40 @@
     rgba(15, 23, 42, 0.85) 100%
   );
   z-index: 2;
+  /* Remove any potential border artifacts */
+  border: none;
+  border-left: none;
+}
+
+/* Add subtle animated gradient shimmer at the center blend */
+.auth-left::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(96, 165, 250, 0.4) 20%,
+    rgba(139, 92, 246, 0.5) 50%,
+    rgba(96, 165, 250, 0.4) 80%,
+    transparent 100%
+  );
+  animation: breathingGlow 3s ease-in-out infinite;
+  z-index: 3;
+}
+
+@keyframes breathingGlow {
+  0%, 100% {
+    opacity: 0.6;
+    filter: blur(2px);
+  }
+  50% {
+    opacity: 1;
+    filter: blur(4px);
+  }
 }
 
 /* RIGHT PANEL - Video */
@@ -42,7 +76,7 @@
 .auth-right video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain; /* Changed from cover to show full video frame */
   position: relative;
   z-index: 0;
 }
