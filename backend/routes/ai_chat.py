@@ -2085,11 +2085,13 @@ async def get_daily_greeting(user_id: str = Depends(get_current_user)):
         
         user_name = user.get("name", "User")
         
-        # Check last greeting timestamp
-        last_greeting = await db.chat_sessions_collection.find_one(
-            {"user_id": user_id},
-            {"_id": 0}
-        )
+        # Check last greeting timestamp (skip if collection is unavailable)
+        last_greeting = None
+        if db.chat_sessions_collection is not None:
+            last_greeting = await db.chat_sessions_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0}
+            )
         
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2242,17 +2244,18 @@ Keep it conversational, under 150 words. Use emojis sparingly."""
         }
         await db.chat_messages_collection.insert_one(greeting_msg)
         
-        # Update session record
-        await db.chat_sessions_collection.update_one(
-            {"user_id": user_id},
-            {
-                "$set": {
-                    "last_greeting_at": now.isoformat(),
-                    "last_session_start": now.isoformat()
-                }
-            },
-            upsert=True
-        )
+        # Update session record (skip if collection is unavailable)
+        if db.chat_sessions_collection is not None:
+            await db.chat_sessions_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "last_greeting_at": now.isoformat(),
+                        "last_session_start": now.isoformat()
+                    }
+                },
+                upsert=True
+            )
         
         return {
             "role": "assistant",

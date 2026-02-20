@@ -34,6 +34,7 @@ paper_ledger_collection = None
 # System modes and chat
 system_modes_collection = None
 chat_messages_collection = None
+chat_sessions_collection = None
 
 # Lifecycle and monitoring
 bot_lifecycle_collection = None
@@ -187,7 +188,7 @@ async def setup_collections():
     """
     global users_collection, bots_collection, trades_collection
     global api_keys_collection, alerts_collection, sessions_collection
-    global system_config_collection, system_modes_collection, chat_messages_collection
+    global system_config_collection, system_modes_collection, chat_messages_collection, chat_sessions_collection
     global bot_lifecycle_collection, bot_metrics_collection, system_metrics_collection
     global bot_runtime_state_collection
     global training_jobs_collection
@@ -230,6 +231,7 @@ async def setup_collections():
     # System modes and chat
     system_modes_collection = db.system_modes
     chat_messages_collection = db.chat_messages
+    chat_sessions_collection = db.chat_sessions
     
     # Lifecycle and monitoring
     bot_lifecycle_collection = db.bot_lifecycle
@@ -363,6 +365,8 @@ async def init_db():
         if chat_messages_collection is not None:
             await chat_messages_collection.create_index("user_id")
             await chat_messages_collection.create_index("timestamp")
+        if chat_sessions_collection is not None:
+            await chat_sessions_collection.create_index("user_id", unique=True)
         if chatops_confirmations_collection is not None:
             await chatops_confirmations_collection.create_index("confirmation_id", unique=True)
             await chatops_confirmations_collection.create_index("user_id")
