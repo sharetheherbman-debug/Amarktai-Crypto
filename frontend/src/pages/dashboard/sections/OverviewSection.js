@@ -89,9 +89,9 @@ export default function OverviewSection({
   };
   const autonomyItems = [
     { label: 'Autopilot', value: systemModes.autopilot },
-    { label: 'Scheduler', value: autonomyStatus?.scheduler || autonomyStatus?.scheduler_status },
-    { label: 'Self-Healing', value: autonomyStatus?.self_healing || autonomyStatus?.bodyguard || riskStatus?.bodyguard_lock?.active },
-    { label: 'Learning', value: learningStatus?.status || learningStatus?.mode || learningStatus?.active }
+    { label: 'Scheduler', value: autonomyStatus?.subsystems?.trading_scheduler?.status || autonomyStatus?.scheduler || autonomyStatus?.scheduler_status },
+    { label: 'Self-Healing', value: autonomyStatus?.subsystems?.self_heal?.status || autonomyStatus?.self_healing || (riskStatus?.bodyguard_lock?.active ? 'active' : undefined) },
+    { label: 'Learning', value: autonomyStatus?.subsystems?.learning_loop?.status || learningStatus?.status || learningStatus?.mode || (learningStatus?.active ? 'active' : undefined) }
   ];
   const lastAlert = Array.isArray(flokxAlerts) && flokxAlerts.length > 0 ? flokxAlerts[0] : null;
   const lastEventTitle = lastAlert?.title || lastAlert?.pair || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
@@ -338,7 +338,14 @@ export default function OverviewSection({
             <GlassCard className="overview-card">
               <div className="overview-card-header">
                 <h3>Autonomy Status</h3>
-                <span className="overview-card-meta">{aiKeyConfigured ? 'AI Connected' : 'AI Offline'}</span>
+                <span className="overview-card-meta">
+                  {aiKeyConfigured ? 'AI Connected' : 'AI Key Not Set'}
+                  {' · '}
+                  {autonomyStatus?.subsystems
+                    ? (Object.values(autonomyStatus.subsystems).some(s => s?.running) ? 'Systems Running' : 'Systems Idle')
+                    : 'Status Unavailable'
+                  }
+                </span>
               </div>
               <div className="overview-status-list">
                 {autonomyItems.map(item => (

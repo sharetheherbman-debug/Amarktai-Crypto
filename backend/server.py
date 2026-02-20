@@ -653,13 +653,21 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     """Batch create bots with distribution - enforces bot caps and profit gating"""
     from uuid import uuid4
     from rules import check_bot_cap_limit, validate_exchange, get_reason_message
+    from rules.bot_rules import get_max_bots_for_exchange
     from json_utils import serialize_list
     
     count = data.get('count', 10)
     capital_per_bot = data.get('capital_per_bot', 1000)
-    safe_count = data.get('safe_count', 6)
-    risky_count = data.get('risky_count', 2)
-    aggressive_count = data.get('aggressive_count', 2)
+    # Only use explicit per-mode counts if provided; otherwise allocate entire count to safe_count
+    explicit_split = 'safe_count' in data or 'risky_count' in data or 'aggressive_count' in data
+    if explicit_split:
+        safe_count = data.get('safe_count', 0)
+        risky_count = data.get('risky_count', 0)
+        aggressive_count = data.get('aggressive_count', 0)
+    else:
+        safe_count = count
+        risky_count = 0
+        aggressive_count = 0
     exchange = data.get('exchange', 'luno').lower()
     
     # Validate exchange
@@ -675,13 +683,14 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     })
     
     total_bots_requested = safe_count + risky_count + aggressive_count
+    exchange_cap = get_max_bots_for_exchange(exchange)
     
     # Check if adding these bots would exceed the cap
     can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id)
     if not can_create:
         raise HTTPException(
             status_code=400, 
-            detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}"
+            detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}, Cap: {exchange_cap}"
         )
     
     bots_to_create = []

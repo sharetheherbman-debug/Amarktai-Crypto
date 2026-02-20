@@ -36,37 +36,37 @@ EXCHANGE_BOT_LIMITS = {
 
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 75,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_LUNO', '400')),
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BINANCE', '500')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KUCOIN', '1000')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BYBIT', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'kraken': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KRAKEN', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 500
     },
     'bitget': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BITGET', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     },
     'gate': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_GATE', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }
@@ -109,6 +109,8 @@ EXCHANGE_DAILY_TRADE_LIMITS = {
 # Autopilot settings (configurable via env vars)
 # Bot Spawning Logic - SEPARATED THRESHOLDS for clarity
 BOT_SPAWN_PROFIT_THRESHOLD_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_THRESHOLD_ZAR', '1000'))  # Spawn new bot when profit reaches this
+AUTO_SPAWN_COOLDOWN_MINUTES = int(os.getenv('AUTO_SPAWN_COOLDOWN_MINUTES', '60'))
+AUTO_SPAWN_MAX_PER_DAY = int(os.getenv('AUTO_SPAWN_MAX_PER_DAY', '2'))
 NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '500'))  # Capital to give new bot
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold
 NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
@@ -180,7 +182,8 @@ __all__ = [
     'PAPER_MIN_ORDERBOOK_NOTIONAL', 'PAPER_PAIR_WHITELIST', 'PAPER_PAIR_WHITELIST_ENABLED',
     'PAPER_STALE_EXIT_MINUTES',
     'EXCHANGE_DAILY_TRADE_LIMITS',
-    'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',
+    'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',
+    'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',
     'NEW_BOT_CAPITAL', 'MAX_TOTAL_BOTS', 'TOP_PERFORMERS_COUNT',
     'EVOLUTION_MUTATION_RATE', 'QUARANTINE_THRESHOLD',
     'AI_MODELS',

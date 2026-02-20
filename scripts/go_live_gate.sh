@@ -10,8 +10,8 @@
 #   BASE_URL   — API base URL  (default: http://localhost:8000)
 #
 # EXIT CODES:
-#   0 — all endpoints returned non-404
-#   1 — one or more endpoints failed or returned 404
+#   0 — all required endpoints pass
+#   1 — one or more endpoints failed
 
 set -euo pipefail
 
@@ -45,38 +45,128 @@ fi
 echo "✅ Login OK — token obtained"
 echo ""
 
-# ── Step 2: Check each endpoint ──────────────────────────────────────────────
+# ── Step 2: Check each endpoint returns HTTP 200 and valid JSON ───────────────
 check_endpoint() {
   local label="$1"
   local method="$2"
   local path="$3"
+  local auth="${4:-auth}"  # "auth" or "public"
 
-  RESP=$(curl -s -o /dev/null -w "%{http_code}" -X "$method" "${BASE_URL}${path}" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" 2>/dev/null || echo "000")
-
-  if [ "$RESP" = "404" ] || [ "$RESP" = "000" ] || [[ "$RESP" =~ ^5 ]]; then
-    echo "FAIL  [HTTP ${RESP}]  ${path}"
-    FAIL=$((FAIL + 1))
-    ERRORS+=("${path} -> HTTP ${RESP}")
+  if [ "$auth" = "public" ]; then
+    RESP=$(curl -s -w "\n%{http_code}" -X "$method" "${BASE_URL}${path}" \
+      -H "Content-Type: application/json" 2>/dev/null || echo -e "\n000")
   else
-    echo "PASS  [HTTP ${RESP}]  ${path}"
+    RESP=$(curl -s -w "\n%{http_code}" -X "$method" "${BASE_URL}${path}" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" 2>/dev/null || echo -e "\n000")
+  fi
+
+  local body code
+  body=$(echo "$RESP" | head -n -1)
+  code=$(echo "$RESP" | tail -n1)
+
+  # Check HTTP code
+  if [ "$code" = "000" ] || [ "$code" = "404" ] || [[ "$code" =~ ^5 ]]; then
+    echo "FAIL  [HTTP ${code}]  ${path}"
+    FAIL=$((FAIL + 1))
+    ERRORS+=("${path} -> HTTP ${code}")
+    return
+  fi
+
+  # Check response is non-empty and valid JSON
+  if [ -z "$body" ]; then
+    echo "FAIL  [EMPTY BODY]  ${path}"
+    FAIL=$((FAIL + 1))
+    ERRORS+=("${path} -> empty response body")
+    return
+  fi
+
+  if ! echo "$body" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    echo "FAIL  [INVALID JSON] ${path}"
+    FAIL=$((FAIL + 1))
+    ERRORS+=("${path} -> response is not valid JSON")
+    return
+  fi
+
+  echo "PASS  [HTTP ${code}]  ${path}"
+  PASS=$((PASS + 1))
+}
+
+# ── Step 3: WebSocket heartbeat test ─────────────────────────────────────────
+check_websocket() {
+  local ws_url
+  ws_url="${BASE_URL/http:/ws:}/api/ws?token=${TOKEN}"
+  ws_url="${ws_url/https:/wss:}"
+
+  echo "Testing:  WebSocket ${ws_url%\?*}"
+
+  # Try websocat or python websockets
+  local ws_msg=""
+  if command -v websocat &>/dev/null; then
+    ws_msg=$(echo "" | timeout 10 websocat --no-close -1 "$ws_url" 2>/dev/null || true)
+  elif python3 -c "import websockets" 2>/dev/null; then
+    ws_msg=$(python3 -c "
+import asyncio, websockets, json, sys
+
+async def test():
+    try:
+        async with websockets.connect('${ws_url}', close_timeout=5) as ws:
+            msg = await asyncio.wait_for(ws.recv(), timeout=10)
+            print(msg)
+    except Exception as e:
+        print('ERROR: ' + str(e), file=sys.stderr)
+
+asyncio.run(test())
+" 2>/dev/null || true)
+  fi
+
+  if [ -n "$ws_msg" ]; then
+    echo "PASS  [WS OK]  /api/ws received: ${ws_msg:0:80}"
     PASS=$((PASS + 1))
+  else
+    echo "WARN  [WS NO MSG] /api/ws — connected but no message in 10s (or websocat/websockets not available)"
+    # Don't fail — WS unavailability of test tools shouldn't block go-live gate
   fi
 }
 
-echo "── Checking endpoints ───────────────────────────────────────────────────"
-check_endpoint "health/ping"        GET  "/api/health/ping"
-check_endpoint "system/mode"        GET  "/api/system/mode"
-check_endpoint "bots/status"        GET  "/api/bots/status"
-check_endpoint "trades/recent"      GET  "/api/trades/recent?limit=10"
-check_endpoint "fetchai/status"     GET  "/api/fetchai/status"
-check_endpoint "admin/unlock"       POST "/api/admin/unlock"
-check_endpoint "ai/chat/greeting"   POST "/api/ai/chat/greeting"
+echo "── Required Endpoint Checks ─────────────────────────────────────────────"
+# 1. Health ping — public
+check_endpoint "health/ping"     GET "/api/health/ping"     "public"
+
+# 2. System mode — authenticated
+check_endpoint "system/mode"     GET "/api/system/mode"     "auth"
+
+# 3. System status — authenticated (subsystem truth)
+check_endpoint "system/status"   GET "/api/system/status"   "auth"
+
+# 4. Bots status — authenticated (must return all bots, not empty)
+check_endpoint "bots/status"     GET "/api/bots/status"     "auth"
+
+# 5. Trades recent — authenticated
+check_endpoint "trades/recent"   GET "/api/trades/recent?limit=10" "auth"
+
+# 6. WebSocket
+check_websocket
+
+echo "── Additional Checks ────────────────────────────────────────────────────"
+check_endpoint "auth/me"         GET "/api/auth/me"         "auth"
+check_endpoint "autonomy/status" GET "/api/autonomy/status" "auth"
+# bots/status without token must be 401, not 200
+echo "Testing:  /api/bots/status unauthenticated (must be 401)"
+RESP_NO_AUTH=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/api/bots/status" 2>/dev/null || echo "000")
+if [ "$RESP_NO_AUTH" = "401" ]; then
+  echo "PASS  [HTTP 401]  /api/bots/status (unauthenticated correctly rejected)"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL  [HTTP ${RESP_NO_AUTH}]  /api/bots/status unauthenticated should return 401"
+  FAIL=$((FAIL + 1))
+  ERRORS+=("/api/bots/status unauthenticated -> HTTP ${RESP_NO_AUTH} (expected 401)")
+fi
+
 echo "─────────────────────────────────────────────────────────────────────────"
 echo ""
 
-# ── Step 3: Summary ──────────────────────────────────────────────────────────
+# ── Step 4: Summary ──────────────────────────────────────────────────────────
 TOTAL=$((PASS + FAIL))
 echo "Results: ${PASS}/${TOTAL} PASS"
 

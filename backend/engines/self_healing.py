@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import database as db
 from logger_config import logger
-from config import MAX_HOURLY_LOSS_PERCENT, MAX_DRAWDOWN_PERCENT
+from config import MAX_HOURLY_LOSS_PERCENT, MAX_DRAWDOWN_PERCENT, EXCHANGE_TRADE_LIMITS
 
 
 class SelfHealingSystem:
@@ -120,10 +120,15 @@ class SelfHealingSystem:
         """Detect abnormal trading patterns (too many trades)"""
         try:
             daily_count = bot.get('daily_trade_count', 0)
+            exchange = bot.get('exchange', 'binance').lower()
+            
+            # Use exchange-specific limit from config (imported at module level)
+            limits = EXCHANGE_TRADE_LIMITS.get(exchange, EXCHANGE_TRADE_LIMITS.get('binance', {}))
+            abnormal_limit = limits.get('max_trades_per_bot_per_day', 400)
             
             # Check if bot is trying to exceed daily limit
-            if daily_count >= 50:
-                return True, f"🚨 Abnormal trading: {daily_count} trades today (limit: 50)"
+            if daily_count >= abnormal_limit:
+                return True, f"🚨 Abnormal trading: {daily_count} trades today (limit: {abnormal_limit})"
             
             return False, "OK"
         

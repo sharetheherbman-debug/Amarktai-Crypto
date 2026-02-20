@@ -493,7 +493,6 @@ export default function BotFleet({ bots, onControl, controlLoading, autoRefresh 
       
       {/* Bot List */}
       <div style={{
-        maxHeight: '600px',
         overflowY: 'auto',
         paddingRight: '4px'
       }}>

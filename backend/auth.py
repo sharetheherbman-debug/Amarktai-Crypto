@@ -52,12 +52,19 @@ def decode_token(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)) -> str:
     """Get current user ID from JWT token - returns string user_id
     
     Supports both "sub" (JWT standard) and "user_id" (legacy) fields for backward compatibility.
     Always returns a string user_id, never a dict.
+    Raises 401 when Authorization header is missing or token is invalid.
     """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     payload = decode_token(token)
     

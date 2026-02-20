@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
 import { filterByPlatform, getPlatformIcon, getPlatformName } from '../lib/platforms';
 import { get } from '../lib/apiClient';
@@ -31,25 +31,34 @@ function mapTrade(t) {
 export default function LiveTradesPanel({ platformFilter = 'all' }) {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const lastUpdate = useLastUpdate('trades');
 
-  // Load initial trades
-  useEffect(() => {
-    loadInitialTrades();
-  }, []);
-
-  const loadInitialTrades = async () => {
+  const loadInitialTrades = useCallback(async () => {
     try {
       const data = await get('/trades/recent?limit=50');
       // Backend returns { success, trades:[...] } or a bare array
       const raw = Array.isArray(data) ? data : (data?.trades || []);
       setTrades(raw.map(mapTrade).filter(Boolean));
-      setLoading(false);
-    } catch (error) {
-      console.error('Failed to load trades:', error);
+      setError(null);
+    } catch (err) {
+      console.error('Failed to load trades:', err);
+      setError(err?.message || 'Failed to load trades');
+    } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load initial trades
+  useEffect(() => {
+    loadInitialTrades();
+  }, [loadInitialTrades]);
+
+  // Polling fallback every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(loadInitialTrades, 30000);
+    return () => clearInterval(interval);
+  }, [loadInitialTrades]);
 
   // Subscribe to real-time trade updates
   useRealtimeEvent('trades', (newTrade) => {
@@ -98,6 +107,25 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
         <div className="p-6">
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="live-trades-panel h-full">
+        <div className="p-6">
+          <div className="flex flex-col items-center justify-center h-64 text-center gap-3">
+            <p className="text-red-400 font-medium">Failed to load trades</p>
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <button
+              onClick={loadInitialTrades}
+              className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent/50 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         </div>
       </Card>
