@@ -53,13 +53,9 @@ export default function Login() {
   return (
     <AuthLayout>
       <div className="auth-content bright-glass-panel">
-        <img
-          src="/assets/final-logo-v2.png"
-          alt="Amarktai Crypto"
-          className="auth-logo"
-          style={{ width: '200px', height: '200px' }}
-          onClick={() => navigate('/')}
-        />
+        <div className="auth-logo-placeholder" style={{ width: '120px', height: '60px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#3b82f6', fontWeight: '700', fontSize: '1.2rem' }} onClick={() => navigate('/')}>
+          Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
+        </div>
         
         <h1 className="auth-title">
           Log in to Amarkt<span className="brand-ai">AI</span>

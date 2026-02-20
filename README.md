@@ -11,6 +11,36 @@
 
 ---
 
+## ✅ **Go-Live Gate**
+
+Before going live, run the verification gate script to confirm all critical API endpoints are reachable and return non-404:
+
+```bash
+EMAIL=user@example.com PASSWORD=secret bash scripts/go_live_gate.sh
+```
+
+Optional — override the API base URL (defaults to `http://localhost:8000`):
+
+```bash
+BASE_URL=https://amarktai.online EMAIL=user@example.com PASSWORD=secret bash scripts/go_live_gate.sh
+```
+
+The script:
+1. Logs in using `EMAIL` + `PASSWORD` environment variables to obtain a JWT.
+2. Calls each of these endpoints and reports **PASS** / **FAIL** per endpoint:
+   - `GET  /api/health/ping`
+   - `GET  /api/system/mode`
+   - `GET  /api/bots/status`
+   - `GET  /api/trades/recent?limit=10`
+   - `GET  /api/fetchai/status`
+   - `POST /api/admin/unlock`
+   - `POST /api/ai/chat/greeting`
+3. Exits **0** (all PASS) or **non-zero** (any FAIL).
+
+This script is the single definition of "the system works". It must return all PASS before go-live.
+
+---
+
 ## 📚 **Documentation**
 
 **All documentation is centralized in the [`docs/`](docs/) folder.**

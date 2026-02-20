@@ -95,7 +95,9 @@ export default function Landing() {
       </button>
 
       <div className="auth-content bright-glass-panel">
-        <img src="/assets/final-logo-v2.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" style={{ width: '200px', height: '200px' }} />
+        <div className="auth-logo-placeholder" style={{ width: '120px', height: '60px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.2rem' }}>
+          Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
+        </div>
         <div className="landing-header">
           <p className="landing-welcome">Welcome to</p>
           <h1 className="auth-title landing-brand">

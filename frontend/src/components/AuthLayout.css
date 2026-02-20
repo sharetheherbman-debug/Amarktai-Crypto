@@ -28,43 +28,11 @@
     rgba(15, 23, 42, 0.85) 100%
   );
   z-index: 2;
-  /* Remove any potential border artifacts */
   border: none;
-  border-left: none;
+  outline: none;
 }
 
-/* Add subtle animated gradient shimmer at the center blend */
-.auth-left::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(96, 165, 250, 0.4) 20%,
-    rgba(139, 92, 246, 0.5) 50%,
-    rgba(96, 165, 250, 0.4) 80%,
-    transparent 100%
-  );
-  animation: breathingGlow 3s ease-in-out infinite;
-  z-index: 3;
-}
-
-@keyframes breathingGlow {
-  0%, 100% {
-    opacity: 0.6;
-    filter: blur(2px);
-  }
-  50% {
-    opacity: 1;
-    filter: blur(4px);
-  }
-}
-
-/* RIGHT PANEL - Video */
+/* RIGHT PANEL - Flat dark placeholder */
 .auth-right {
   flex: 1;
   position: relative;
@@ -73,25 +41,8 @@
   justify-content: center;
 }
 
-.auth-right video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain; /* Changed from cover to show full video frame */
-  position: relative;
-  z-index: 0;
-}
-
-.auth-right-rotated video {
-  transform: scale(1.15) rotate(45deg);
-  transform-origin: center center;
-}
-
-.auth-overlay {
-  position: absolute;
-  inset: 0;
-  /* Lighter overlay - reduced opacity */
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 1;
+.auth-right-placeholder {
+  background: #0a0f1e;
 }
 
 /* Content wrapper */
