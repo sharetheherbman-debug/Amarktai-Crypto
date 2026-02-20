@@ -532,13 +532,13 @@ export default function Dashboard() {
       {/* Sidebar - Desktop */}
       {!isMobile && (
         <aside className="sidebar">
-          <img
-            src="/assets/final-logo-v2.png"
+          <div
             className="logo"
-            alt="Amarktai Crypto"
             onClick={() => showSection('overview')}
-            style={{ cursor: 'pointer', width: '200px', height: '200px' }}
-          />
+            style={{ cursor: 'pointer', width: '120px', height: '50px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.1rem', margin: '12px auto' }}
+          >
+            Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
+          </div>
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
@@ -583,11 +583,12 @@ export default function Dashboard() {
       {isMobile && (
         <div className="mobile-topbar">
           <button className="mobile-logo-btn" onClick={() => showSection('overview')}>
-            <img
-              src="/assets/final-logo.png"
+            <div
               className="mobile-logo"
-              alt="Amarktai Crypto"
-            />
+              style={{ width: '80px', height: '32px', background: '#1e293b', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '0.9rem' }}
+            >
+              Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
+            </div>
           </button>
           <div className="mobile-btns">
             <button className="mobile-btn" onClick={() => showSection('welcome')}>Welcome</button>

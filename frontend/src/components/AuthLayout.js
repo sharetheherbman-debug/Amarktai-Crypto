@@ -5,9 +5,9 @@ import './AuthLayout.css';
 /**
  * Shared layout component for Landing, Login, and Register pages
  * Features:
- * - LEFT PANEL (50%): Two blue colors blended at 135° diagonal gradient
- * - RIGHT PANEL (50%): Video background
- * - Responsive: Mobile shows video as background with dark overlay
+ * - LEFT PANEL (50%): Gradient content area
+ * - RIGHT PANEL (50%): Flat dark placeholder (media removed for stability)
+ * - Responsive: Mobile shows dark background with dark overlay
  */
 export default function AuthLayout({ children, videoRotated = false }) {
   return (
@@ -17,22 +17,12 @@ export default function AuthLayout({ children, videoRotated = false }) {
         {children}
       </div>
 
-      {/* Right Column - Video */}
-      <div className={`auth-right ${videoRotated ? 'auth-right-rotated' : ''}`}>
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster="/assets/poster.jpg"
-        >
-          <source src="/assets/amarktai-network-final.mp4" type="video/mp4" />
-        </video>
-        <div className="auth-overlay" />
-      </div>
+      {/* Right Column - Flat dark placeholder (no video) */}
+      <div className="auth-right auth-right-placeholder" />
 
       {/* Footer */}
       <SiteFooter />
     </div>
   );
 }
+

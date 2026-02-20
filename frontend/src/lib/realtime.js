@@ -134,6 +134,15 @@ class RealtimeClient {
 
     // Emit to listeners
     this.emit(type, data);
+
+    // Alias backend event names to the canonical frontend names expected by
+    // components (e.g. LiveTradesPanel listens on 'trades', not 'trade_executed').
+    if (type === 'trade_executed') {
+      this.emit('trades', data);
+    }
+    if (type === 'balance_updated') {
+      this.emit('balances', data);
+    }
   }
 
   /**

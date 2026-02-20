@@ -1,10 +1,3 @@
-/**
- * LiveTradesPanel Component
- * 
- * Left panel (50%) showing live trades stream with real-time updates
- * Supports platform filtering and displays trade details
- */
-
 import { useState, useEffect } from 'react';
 import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
 import { filterByPlatform, getPlatformIcon, getPlatformName } from '../lib/platforms';
@@ -12,6 +5,28 @@ import { get } from '../lib/apiClient';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import './LiveTradesPanel.css';
+
+/**
+ * Normalize a trade object from the backend into a consistent shape.
+ * The backend may return fields under different names depending on the exchange.
+ * This function never assumes any key exists.
+ */
+function mapTrade(t) {
+  if (!t || typeof t !== 'object') return null;
+  return {
+    // Spread original fields first so normalized aliases override them
+    ...t,
+    platform: t.exchange   || t.platform,
+    pair:     t.pair       || t.symbol,
+    type:     t.side       || t.trade_type,
+    quantity: t.qty        || t.amount       || 0,
+    total:    t.trade_amount || t.entry_value || 0,
+    pnl:      t.net_profit  || t.net_pnl     || t.net_pnl_quote || null,
+    timestamp: t.timestamp  || t.opened_at   || t.created_at,
+    status:   t.status,
+    price:    t.price,
+  };
+}
 
 export default function LiveTradesPanel({ platformFilter = 'all' }) {
   const [trades, setTrades] = useState([]);
@@ -26,7 +41,9 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
   const loadInitialTrades = async () => {
     try {
       const data = await get('/trades/recent?limit=50');
-      setTrades(data.trades || []);
+      // Backend returns { success, trades:[...] } or a bare array
+      const raw = Array.isArray(data) ? data : (data?.trades || []);
+      setTrades(raw.map(mapTrade).filter(Boolean));
       setLoading(false);
     } catch (error) {
       console.error('Failed to load trades:', error);
@@ -36,7 +53,7 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
 
   // Subscribe to real-time trade updates
   useRealtimeEvent('trades', (newTrade) => {
-    setTrades(prev => [newTrade, ...prev].slice(0, 50));
+    setTrades(prev => [mapTrade(newTrade) || newTrade, ...prev].slice(0, 50));
   }, []);
 
   // Filter trades by platform
@@ -124,27 +141,27 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{getPlatformIcon(trade.platform)}</span>
                     <div>
-                      <p className="font-medium">{trade.symbol}</p>
+                      <p className="font-medium">{trade.pair || 'Unknown pair'}</p>
                       <p className="text-xs text-muted-foreground">
                         {getPlatformName(trade.platform)}
                       </p>
                     </div>
                   </div>
                   <Badge className={getStatusBadge(trade.status)}>
-                    {trade.status}
+                    {trade.status || 'unknown'}
                   </Badge>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Side</p>
-                    <p className={`font-medium uppercase ${getSideColor(trade.side)}`}>
-                      {trade.side}
+                    <p className={`font-medium uppercase ${getSideColor(trade.type)}`}>
+                      {trade.type || '—'}
                     </p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Quantity</p>
-                    <p className="font-medium">{trade.quantity}</p>
+                    <p className="font-medium">{trade.quantity ?? '—'}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Price</p>
@@ -176,3 +193,4 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
     </Card>
   );
 }
+

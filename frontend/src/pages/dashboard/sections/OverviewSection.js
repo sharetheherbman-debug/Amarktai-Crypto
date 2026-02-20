@@ -272,20 +272,15 @@ export default function OverviewSection({
               overflow: 'hidden',
               borderRadius: '8px',
               height: '100%',
-              minHeight: '400px'
+              minHeight: '400px',
+              background: '#0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#334155',
+              fontSize: '0.9rem'
             }}>
-              <img 
-                src="/assets/overview.jpg" 
-                alt="Trading workspace" 
-                className="overview-image-asset"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  objectPosition: 'center',
-                  display: 'block'
-                }}
-              />
+              Trading Overview
             </div>
             
             {/* Last Notable Event - moved below image, inline with autonomy status */}
