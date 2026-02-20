@@ -81,7 +81,7 @@ export default function Landing() {
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
         loop
-        preload="auto"
+        preload="none"
       />
 
       {/* Sound Control */}

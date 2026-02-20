@@ -19,7 +19,7 @@ const FetchAISection = () => {
     setError(null);
     try {
       // Check Fetch.ai status
-      const statusResponse = await apiClient.get('/api/fetchai/status');
+      const statusResponse = await apiClient.get('/fetchai/status');
       const statusData = statusResponse.data;
       
       setIsActive(statusData.configured && statusData.active);
@@ -28,7 +28,7 @@ const FetchAISection = () => {
         // Fetch signals for multiple pairs
         const signalPromises = tradingPairs.map(async (pair) => {
           try {
-            const response = await apiClient.get(`/api/fetchai/signals/${pair}`);
+            const response = await apiClient.get(`/fetchai/signals/${pair}`);
             return response.data.signals;
           } catch (err) {
             console.error(`Failed to fetch signals for ${pair}:`, err);

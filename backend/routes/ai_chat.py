@@ -1953,7 +1953,9 @@ async def ai_chat(
         )
 
 
-@router.get("/status")
+# NOTE: GET /status disabled here - canonical version is in routes/ai_status.py (already mounted).
+# Served at /api/ai/chat/status to avoid collision.
+@router.get("/chat/status")
 async def get_ai_status(user_id: str = Depends(get_current_user)):
     """Return AI configuration status for the authenticated user."""
     data = await build_ai_status(user_id)
