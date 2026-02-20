@@ -55,7 +55,7 @@ check_endpoint() {
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" 2>/dev/null || echo "000")
 
-  if [ "$RESP" = "404" ] || [ "$RESP" = "000" ]; then
+  if [ "$RESP" = "404" ] || [ "$RESP" = "000" ] || [[ "$RESP" =~ ^5 ]]; then
     echo "FAIL  [HTTP ${RESP}]  ${path}"
     FAIL=$((FAIL + 1))
     ERRORS+=("${path} -> HTTP ${RESP}")
