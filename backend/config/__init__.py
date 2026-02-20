@@ -36,37 +36,37 @@ EXCHANGE_BOT_LIMITS = {
 
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 75,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_LUNO', '400')),
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BINANCE', '500')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KUCOIN', '1000')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BYBIT', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'kraken': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KRAKEN', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 500
     },
     'bitget': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BITGET', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     },
     'gate': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_GATE', '800')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }

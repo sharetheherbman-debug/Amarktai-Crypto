@@ -95,38 +95,38 @@ EXCHANGE_BOT_LIMITS = {
     'gate': 10
 }
 
-# Trading limits - Per exchange (Safety caps per upgrade guide)
-# NOTE: These are SAFETY CAPS to protect exchanges and user accounts.
-# ACTUAL ENFORCED LIMITS are in exchange_limits.py (50 per bot per day).
-# The rate_limiter.py uses exchange_limits.py as the authoritative source.
+# Trading limits - Per exchange (Safety caps)
+# These match the values in exchange_limits.py (the authoritative source for exchange API limits).
+# The config/__init__.py EXCHANGE_TRADE_LIMITS is used by trade_limiter.py.
+# Override per exchange via MAX_TRADES_PER_BOT_DAILY_<EXCHANGE> env vars.
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 400,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 400,
+        'max_trades_per_exchange_per_day': 2000,
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 500,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 500,
+        'max_trades_per_exchange_per_day': 5000,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 1000,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 1000,
+        'max_trades_per_exchange_per_day': 10000,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 1000,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 800,
+        'max_trades_per_exchange_per_day': 8000,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bitget': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 800,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 800,
+        'max_trades_per_exchange_per_day': 8000,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }

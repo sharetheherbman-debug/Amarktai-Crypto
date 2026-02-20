@@ -30,6 +30,7 @@
   z-index: 2;
   border: none;
   outline: none;
+  box-shadow: none;
 }
 
 /* RIGHT PANEL - Flat dark placeholder */
@@ -62,6 +63,7 @@
 .bright-glass-panel {
   background: rgba(12, 19, 44, 0.66);
   border: 1px solid rgba(125, 211, 252, 0.22);
+  border-left: none;
   border-radius: 18px;
   backdrop-filter: blur(18px);
   box-shadow: 0 14px 30px rgba(2, 6, 23, 0.45);
