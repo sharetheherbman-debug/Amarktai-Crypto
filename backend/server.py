@@ -412,8 +412,13 @@ def get_cors_origins() -> list[str]:
         origins.extend(dev_origins)
         logger.info(f"⚠️ CORS: Development origins enabled: {dev_origins}")
     
-    # Fallback to wildcard if no origins configured (dev mode)
+    # Fallback: secure prod origins or dev wildcard
     if not origins:
+        environment = os.getenv('ENVIRONMENT', 'production').lower()
+        if environment == 'production':
+            prod_origins = ['https://amarktai.online', 'https://www.amarktai.online']
+            logger.info(f"✅ CORS: Production mode — using default prod origins: {prod_origins}")
+            return prod_origins
         logger.warning("⚠️ CORS: No origins configured, defaulting to wildcard ['*'] - INSECURE FOR PRODUCTION")
         return ["*"]
     
@@ -2160,119 +2165,8 @@ async def get_mode_stats(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.delete("/admin/users/{target_user_id}")
-async def delete_user(target_user_id: str, user_id: str = Depends(get_current_user)):
-    """Hard delete user and all associated data (admin only)"""
-    try:
-        # Don't allow self-deletion
-        if target_user_id == user_id:
-            raise HTTPException(status_code=400, detail="Cannot delete yourself")
-        
-        # Check if user exists
-        user_to_delete = await db.users_collection.find_one({"id": target_user_id})
-        if not user_to_delete:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Hard delete: Remove user and ALL associated data
-        # 1. Delete all user's bots
-        await db.bots_collection.delete_many({"user_id": target_user_id})
-        
-        # 2. Delete all user's trades
-        await db.trades_collection.delete_many({"user_id": target_user_id})
-        
-        # 3. Delete all user's API keys
-        await db.api_keys_collection.delete_many({"user_id": target_user_id})
-        
-        # 4. Delete all user's chat messages
-        await db.chat_messages_collection.delete_many({"user_id": target_user_id})
-        
-        # 5. Delete all user's alerts
-        await db.alerts_collection.delete_many({"user_id": target_user_id})
-        
-        # 6. Delete user's system modes
-        await db.system_modes_collection.delete_many({"user_id": target_user_id})
-        
-        # 7. Finally, delete the user
-        result = await db.users_collection.delete_one({"id": target_user_id})
-        
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="User deletion failed")
-        
-        logger.info(f"Admin deleted user: {target_user_id} (email: {user_to_delete.get('email')})")
-        
-        return {
-            "message": "User and all associated data deleted successfully",
-            "deleted_user_id": target_user_id,
-            "deleted_user_email": user_to_delete.get('email')
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Delete user error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.put("/admin/users/{target_user_id}/block")
-async def block_unblock_user(target_user_id: str, data: dict, user_id: str = Depends(get_current_user)):
-    """Block or unblock a user (admin only)"""
-    try:
-        blocked = data.get('blocked', True)
-        
-        # Don't allow blocking yourself
-        if target_user_id == user_id:
-            raise HTTPException(status_code=400, detail="Cannot block yourself")
-        
-        result = await db.users_collection.update_one(
-            {"id": target_user_id},
-            {"$set": {"blocked": blocked}}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        action = "blocked" if blocked else "unblocked"
-        logger.info(f"Admin {action} user: {target_user_id}")
-        
-        return {
-            "message": f"User {action} successfully",
-            "user_id": target_user_id,
-            "blocked": blocked
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Block/unblock user error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.put("/admin/users/{target_user_id}/password")
-async def admin_change_password(target_user_id: str, data: dict, user_id: str = Depends(get_current_user)):
-    """Admin change user password (admin only)"""
-    try:
-        new_password = data.get('new_password')
-        if not new_password or len(new_password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-        
-        # Hash the new password
-        hashed = get_password_hash(new_password)
-        
-        result = await db.users_collection.update_one(
-            {"id": target_user_id},
-            {"$set": {"password_hash": hashed}}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        logger.info(f"Admin changed password for user: {target_user_id}")
-        
-        return {
-            "message": "Password changed successfully",
-            "user_id": target_user_id
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Admin password change error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# NOTE: Removed inline DELETE /admin/users/{id}, PUT /admin/users/{id}/block,
+# and PUT /admin/users/{id}/password - canonical versions in routes/admin_endpoints.py
 
 # ==== AUTONOMOUS SYSTEMS ENDPOINTS ====
 
@@ -3059,6 +2953,7 @@ routers_to_mount = [
     ("routes.wallet_hub", "Wallet Hub Enhanced"),  # NEW - All 5 exchanges
     # REMOVED: routes.system_health_endpoints - has duplicate /health/ping
     # REMOVED: routes.admin_endpoints - duplicate of admin_enhanced (keep enhanced version)
+    ("routes.admin_endpoints", "Admin Endpoints"),  # RESTORED - unlock, runtime/reset, bots, users
     ("routes.admin_enhanced", "Admin Enhanced"),  # NEW - User dropdown, bot profit/loss
     ("routes.admin_start_fresh", "Admin Start Fresh"),  # NEW - Start Fresh wipe endpoint
     ("routes.risk_management", "Risk Management"),  # NEW - Daily loss lock control
@@ -3080,6 +2975,7 @@ routers_to_mount = [
     ("routes.prices", "Prices API"),  # NEW - Frontend-friendly /api/prices/live endpoint
     ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests
     # REMOVED: routes.ai_chat - duplicate of chat_enhanced (keep enhanced version)
+    ("routes.ai_chat", "AI Chat"),  # RESTORED - /api/ai/chat/greeting, /api/ai/chat
     ("routes.chat_enhanced", "AI Chat Enhanced"),  # NEW - Clear on refresh, daily summary
     ("routes.two_factor_auth", "2FA"),
     ("routes.genetic_algorithm", "Genetic Algorithm"),

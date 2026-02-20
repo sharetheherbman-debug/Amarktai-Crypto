@@ -912,7 +912,9 @@ async def force_logout_user(
 # BOT OVERRIDE ENDPOINTS
 # ============================================================================
 
-@router.get("/system-stats")
+# GET /system-stats canonical version is in routes/admin_enhanced.py (already mounted).
+# This extended version is available at /system-stats-extended to avoid collision.
+@router.get("/system-stats-extended")
 async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
     """
     Get comprehensive system statistics including VPS resources

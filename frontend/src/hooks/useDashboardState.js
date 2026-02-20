@@ -423,16 +423,14 @@ export default function useDashboardState(navigate) {
       loadProfitData();
       // REMOVED: Duplicate setupRealTimeConnections() call
 
-      let priceInterval;
+      // NOTE: Price polling is handled by useDashboardData (4s interval).
+      // Only do an initial load here; no interval to avoid triple polling.
       const startPolling = () => {
         loadLivePrices();
-        priceInterval = setInterval(loadLivePrices, 4000);
       };
 
       const stopPolling = () => {
-        if (priceInterval) {
-          clearInterval(priceInterval);
-        }
+        // no-op: interval owned by useDashboardData
       };
 
       const handleVisibility = () => {
@@ -685,12 +683,7 @@ export default function useDashboardState(navigate) {
     }
   }, [isPaperResetMode]);
 
-  useEffect(() => {
-    if (!token) return undefined;
-    loadLivePrices();
-    const priceInterval = setInterval(loadLivePrices, 5000);
-    return () => clearInterval(priceInterval);
-  }, [token, loadLivePrices]);
+  // NOTE: Price polling is handled by useDashboardData (4s interval). Removed duplicate interval here.
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -746,8 +739,9 @@ export default function useDashboardState(navigate) {
     console.log('✅ Initializing WebSocket connection via realtimeClient...');
     
     // Connect using the centralized realtime client (no duplicate WebSocket)
+    // NOTE: connection is owned by useDashboardData; this block only subscribes
     if (token) {
-      realtimeClient.connect(token);
+      // Do NOT call realtimeClient.connect(token) here - useDashboardData owns the connection
       
       // Subscribe to connection status events
       realtimeClient.on('connection', (data) => {
@@ -769,9 +763,10 @@ export default function useDashboardState(navigate) {
         'connection_established', 'ping', 'pong', 'metrics', 'bot_status', 
         'balance', 'live_prices', 'prices_update', 'overview_update', 
         'bots_update', 'trades_update', 'notification', 'chat_response', 
-        'trade_executed', 'bot_created', 'bot_updated', 'bot_deleted',
+        'trade_executed', 'trade_opened', 'trade_closed', 'bot_created', 'bot_updated', 'bot_deleted',
         'alert', 'system_health', 'wallet_update', 'ai_task_update',
-        'api_key_added', 'api_key_updated', 'api_key_deleted'
+        'api_key_added', 'api_key_updated', 'api_key_deleted',
+        'balance_updated', 'transfer_updated'
       ];
       
       eventTypes.forEach(eventType => {
@@ -1131,6 +1126,27 @@ export default function useDashboardState(navigate) {
         }
         break;
       
+      case 'balance_updated':
+        // Backend emits balance_updated - treat same as 'balance'
+        setBalances(prev => ({ ...prev, ...(data.balance || data.payload || data) }));
+        break;
+
+      case 'trade_opened':
+      case 'trade_closed':
+        // Backend emits trade_opened/closed - treat same as trade_executed
+        setRecentTrades(prev => {
+          const tradeExists = prev.some(t => t.id === data.trade?.id);
+          if (tradeExists) return prev;
+          return [{ ...data.trade, timestamp: new Date().toISOString() }, ...prev.slice(0, 49)];
+        });
+        loadMetrics();
+        break;
+
+      case 'transfer_updated':
+        // Wallet transfer state change - refresh profit data
+        loadProfitData(graphPeriod);
+        break;
+
       default:
         // Rate-limited debug logging for unknown message types
         const now = Date.now();
@@ -2061,11 +2077,11 @@ export default function useDashboardState(navigate) {
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      const response = await axios.post(`${API}/api/admin/start-fresh`, { 
+      const response = await apiClient.post('/admin/start-fresh', { 
         confirmation_phrase: confirmPhrase,
         scope: 'paper_only',
         also_reset_risk_locks: true
-      }, axiosConfig);
+      });
       
       if (response.data.ok) {
         toast.success(response.data.message || 'Reset runtime completed successfully');
@@ -2879,7 +2895,7 @@ export default function useDashboardState(navigate) {
     
     try {
       setAiTaskLoading('email');
-      const result = await post('/admin/email/broadcast', { subject, message });
+      const result = await post('/admin/email-all-users', { subject, message });
       toast.success(`✅ Sent to ${result.sent || 0} users (${result.failed || 0} failed)`);
     } catch (err) {
       const errorMsg = err.message || 'Failed to send emails';
@@ -3078,9 +3094,8 @@ export default function useDashboardState(navigate) {
 
     setActionLoading(prev => ({ ...prev, [`reset-${userId}`]: true }));
     try {
-      await axios.post(`${API}/admin/users/${userId}/reset-password`, 
-        { new_password: newPassword }, 
-        axiosConfig
+      await apiClient.post(`/admin/users/${userId}/reset-password`, 
+        { new_password: newPassword }
       );
       showNotification('Password reset successfully', 'success');
     } catch (err) {
