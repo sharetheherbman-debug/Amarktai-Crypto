@@ -1136,6 +1136,33 @@ async def _handle_report_last_errors(user_id: str, params: Dict[str, Any]) -> Di
     return {"success": True, "data": errors, "message": "Last error summary retrieved."}
 
 
+async def _handle_start_bot(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("start_bot", params, user_id)
+    return {"success": data.get("success", False), "data": data, "message": "Bot start requested."}
+
+
+async def _handle_emergency_stop(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("emergency_stop", params, user_id)
+    return {"success": data.get("success", False), "data": data, "message": "Emergency stop activated."}
+
+
+async def _handle_toggle_autopilot(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("toggle_autopilot", params, user_id)
+    enabled = data.get("enabled", bool(params.get("enabled", False)))
+    return {"success": data.get("success", False), "data": data, "message": f"Autopilot {'enabled' if enabled else 'disabled'}."}
+
+
+async def _handle_switch_mode(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("switch_mode", params, user_id)
+    mode = data.get("mode") or params.get("mode") or "unknown"
+    return {"success": data.get("success", False), "data": data, "message": f"Switched to {mode} mode."}
+
+
+async def _handle_reset_risk_locks(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("reset_risk_locks", params, user_id)
+    return {"success": data.get("success", False), "data": data, "message": "Risk locks reset."}
+
+
 ACTION_REGISTRY = {
     "get_system_status": {
         "description": "Fetch system status and health summary.",
@@ -1303,6 +1330,40 @@ ACTION_REGISTRY = {
         "params": [],
         "requires_confirmation": False,
         "handler": _handle_report_last_errors,
+    },
+    "start_bot": {
+        "description": "Start (activate) a bot by ID.",
+        "params": ["bot_id"],
+        "requires_confirmation": True,
+        "handler": _handle_start_bot,
+    },
+    "emergency_stop": {
+        "description": "Activate emergency stop: immediately pause all bots and halt trading.",
+        "params": [],
+        "requires_confirmation": True,
+        "confirmation_phrase": "CONFIRM EMERGENCY STOP",
+        "handler": _handle_emergency_stop,
+    },
+    "toggle_autopilot": {
+        "description": "Enable or disable autopilot mode.",
+        "params": ["enabled"],
+        "requires_confirmation": True,
+        "confirmation_phrase": CONFIRM_AUTOPILOT,
+        "handler": _handle_toggle_autopilot,
+    },
+    "switch_mode": {
+        "description": "Switch system trading mode (paper/live/autopilot). Alias for set_system_mode.",
+        "params": ["mode"],
+        "requires_confirmation": True,
+        "confirmation_phrase": CONFIRM_LIVE_TRADING,
+        "handler": _handle_switch_mode,
+    },
+    "reset_risk_locks": {
+        "description": "Reset all risk locks (daily loss lock, bodyguard lock).",
+        "params": [],
+        "requires_confirmation": True,
+        "confirmation_phrase": CONFIRM_RESET_RISK,
+        "handler": _handle_reset_risk_locks,
     },
 }
 
