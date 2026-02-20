@@ -10,7 +10,7 @@ from typing import Optional, Dict, TypedDict
 import logging
 import os
 
-from auth import get_current_user, get_optional_user
+from auth import get_current_user
 import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
@@ -175,13 +175,13 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
 
 @router.get("/status")
 async def get_bots_status(
-    user_id: Optional[str] = Depends(get_optional_user),
+    user_id: str = Depends(get_current_user),
     meta: Optional[int] = 0,
 ):
     """Get bot status list with states for bot management
     
-    Returns all bots with detailed status including training states
-    Unauthenticated requests receive empty defaults.
+    Returns all bots with detailed status including training states.
+    Requires authentication; unauthenticated requests receive 401.
     
     Args:
         user_id: Current user ID (from auth)
@@ -197,10 +197,6 @@ async def get_bots_status(
             content={"detail": "Bots collection unavailable"},
         )
     exchange_counts = {exchange: 0 for exchange in all_exchanges}
-    if not user_id:
-        if meta:
-            return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
-        return _bots_status_payload([], exchange_counts, all_exchanges)
 
     try:
         bots = await collection.find(
