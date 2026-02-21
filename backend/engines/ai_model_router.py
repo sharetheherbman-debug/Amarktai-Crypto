@@ -10,8 +10,47 @@ from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import logging
 import os
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception,
+    before_sleep_log,
+)
+import logging as _logging
 
 logger = logging.getLogger(__name__)
+
+
+def _is_retryable_openai_error(exc: Exception) -> bool:
+    """Return True for transient OpenAI errors (429/5xx/timeout). False for auth/bad request."""
+    try:
+        from openai import RateLimitError, APIStatusError, APITimeoutError, APIConnectionError
+        if isinstance(exc, (RateLimitError, APITimeoutError, APIConnectionError)):
+            return True
+        if isinstance(exc, APIStatusError):
+            return exc.status_code in (500, 502, 503, 504)
+        return False
+    except ImportError:
+        return False
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=30, jitter=2),
+    retry=retry_if_exception(_is_retryable_openai_error),
+    before_sleep=before_sleep_log(logger, _logging.WARNING),
+    reraise=True,
+)
+async def _call_openai_with_retry(client, model: str, messages, max_tokens: int, temperature: float):
+    """Call OpenAI with automatic retry on transient errors."""
+    return await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
 
 class AIModelRouter:
     def __init__(self):
@@ -51,11 +90,8 @@ class AIModelRouter:
             if client:
                 logger.info(f"OpenAI client resolved source={source} for AI router")
                 try:
-                    response = await client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
+                    response = await _call_openai_with_retry(
+                        client, model, messages, max_tokens, temperature
                     )
 
                     return {

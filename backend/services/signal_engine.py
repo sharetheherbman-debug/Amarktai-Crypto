@@ -21,6 +21,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Module-level singleton for AlphaFusionEngine — instantiated once on first use
+_alpha_fusion_instance = None
+_alpha_fusion_lock = None
+
 
 @dataclass
 class SignalOutput:
@@ -229,21 +233,26 @@ class SignalEngine:
             return {'direction': 'neutral', 'confidence': 0.3, 'predicted_change': 0.0, 'is_simulated': True}
     
     async def _get_alpha_signal(self, symbol: str) -> Dict[str, Any]:
-        """Get alpha fusion signal from AlphaFusionEngine.
-
-        Calls ``engines.alpha_fusion_engine.AlphaFusionEngine.get_portfolio_signals``
-        when available.  Falls back to a neutral stub if the engine fails.
-        """
+        """Get alpha fusion signal. Uses module-level singleton to avoid re-instantiation per call."""
+        global _alpha_fusion_instance, _alpha_fusion_lock
         _neutral = {'score': 0.0, 'confidence': 0.3, 'position_multiplier': 1.0}
         try:
             from engines.alpha_fusion_engine import AlphaFusionEngine
         except ImportError as ie:
             logger.warning(f"AlphaFusionEngine not importable: {ie}")
             return _neutral
+
+        # Lazy init singleton (thread-safe with asyncio lock)
+        if _alpha_fusion_instance is None:
+            import asyncio
+            if _alpha_fusion_lock is None:
+                _alpha_fusion_lock = asyncio.Lock()
+            async with _alpha_fusion_lock:
+                if _alpha_fusion_instance is None:
+                    _alpha_fusion_instance = AlphaFusionEngine()
+
         try:
-            engine = AlphaFusionEngine()
-            # get_portfolio_signals expects a list; returns dict[symbol -> FusedSignal]
-            signals = await engine.get_portfolio_signals([symbol])
+            signals = await _alpha_fusion_instance.get_portfolio_signals([symbol])
             fused = signals.get(symbol)
             if fused is None:
                 return _neutral

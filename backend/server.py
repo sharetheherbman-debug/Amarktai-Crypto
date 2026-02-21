@@ -90,6 +90,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"📊 Paper Trading: {'ON' if paper_trading else 'OFF'}")
     logger.info(f"🔴 Live Trading: {'ON' if live_trading else 'OFF'}")
     logger.info(f"🤖 Autopilot: {'ON' if autopilot else 'OFF'}")
+    if not os.getenv("METRICS_TOKEN", "").strip():
+        logger.critical(
+            "METRICS_TOKEN not set — /api/metrics requires JWT auth. "
+            "Set METRICS_TOKEN env var for standard Prometheus scraping."
+        )
     logger.info("="*80)
     
     # =========================================================================
@@ -136,16 +141,13 @@ async def lifespan(app: FastAPI):
             logger.error("❌ Boot selftest failed - some collections not initialized")
             # Continue anyway - collections may be initialized lazily
         
-        # ========================================================================
-        # STEP 1.5: Run startup migrations to fix schema drift
-        # ========================================================================
+        # STEP 1.5: Run all startup migrations
         try:
-            from migrations.fix_user_id_field import run_startup_migrations
-            await run_startup_migrations(db)
+            from migrations._runner import run_all_migrations
+            await run_all_migrations(db)
             logger.info("✅ Startup migrations completed")
         except Exception as migration_error:
             logger.warning(f"⚠️ Startup migrations failed (non-fatal): {migration_error}")
-            # Continue - migrations are best-effort repairs
             
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)
@@ -1789,13 +1791,85 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
 # The canonical implementation delegates to routes/market_api.py for data.
 
 @api_router.get("/wallet/deposit-address")
-async def get_deposit_address(user_id: str = Depends(get_current_user)):
-    """Get deposit address - placeholder"""
-    return {
-        "address": "N/A - Connect your exchange API keys first",
-        "network": "BTC",
-        "note": "Paper trading mode - no real deposits needed"
-    }
+async def get_deposit_address(
+    exchange: str = "luno",
+    currency: str = "BTC",
+    user_id: str = Depends(get_current_user),
+):
+    """Fetch deposit address for a currency from the user's configured exchange."""
+    from utils.env_utils import env_bool
+
+    # Gate: must have live trading enabled or at least paper mode with exchange key
+    if not env_bool("ENABLE_LIVE_TRADING", False) and not env_bool("ENABLE_PAPER_TRADING", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Trading is not enabled. Enable ENABLE_LIVE_TRADING or ENABLE_PAPER_TRADING and configure exchange API keys.",
+        )
+
+    # Get exchange API key
+    try:
+        from services.keys_service import keys_service
+        creds = await keys_service.get_user_api_key(user_id, exchange)
+    except Exception as key_err:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {exchange} API key configured. Add your exchange API key in Settings → API Keys.",
+        )
+
+    if not creds:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {exchange} API key configured. Add your exchange API key in Settings → API Keys.",
+        )
+
+    # Try CCXT
+    try:
+        import ccxt
+        exchange_lower = exchange.lower()
+        exchange_cls = getattr(ccxt, exchange_lower, None)
+        if exchange_cls is None:
+            raise HTTPException(status_code=501, detail=f"Exchange '{exchange}' is not supported by CCXT.")
+
+        # Build CCXT instance with user credentials
+        api_key = creds.get("api_key") or creds if isinstance(creds, str) else None
+        api_secret = creds.get("api_secret") or creds.get("secret") if isinstance(creds, dict) else None
+
+        ex = exchange_cls({
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+        })
+
+        # fetch_deposit_address is blocking — run in thread
+        import asyncio
+        addr_info = await asyncio.wait_for(
+            asyncio.to_thread(ex.fetch_deposit_address, currency),
+            timeout=15,
+        )
+        return {
+            "exchange": exchange,
+            "currency": currency,
+            "address": addr_info.get("address"),
+            "tag": addr_info.get("tag"),
+            "network": addr_info.get("network") or currency,
+            "info": addr_info.get("info", {}),
+        }
+
+    except HTTPException:
+        raise
+    except ccxt.NotSupported:
+        raise HTTPException(
+            status_code=501,
+            detail=f"Exchange '{exchange}' does not support deposit address fetching via API.",
+        )
+    except ccxt.AuthenticationError as e:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Authentication failed for {exchange}: {e}. Check your API key and permissions.",
+        )
+    except Exception as e:
+        logger.error(f"Deposit address fetch failed for {exchange}/{currency}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch deposit address: {e}")
 
 # ============================================================================
 # ADMIN
@@ -1965,50 +2039,68 @@ async def get_eligible_bots(user_id: str = Depends(get_current_user)):
 
 @api_router.post("/bots/confirm-live-switch")
 async def confirm_live_switch(data: dict, user_id: str = Depends(get_current_user)):
-    """Confirm switching eligible bots to live trading with user confirmation"""
+    """Confirm switching eligible bots to live trading. Requires 2FA."""
     try:
+        import pyotp
+        # --- 2FA Gate ---
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not user.get("two_factor_enabled", False):
+            raise HTTPException(
+                status_code=403,
+                detail="2FA is required before switching to live trading. Enable 2FA in your security settings first.",
+            )
+        totp_code = str(data.get("totp_code", "")).strip()
+        if not totp_code:
+            raise HTTPException(
+                status_code=400,
+                detail="totp_code is required in request body when switching to live trading.",
+            )
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA secret not found. Please re-enable 2FA.")
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(totp_code, valid_window=1):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code. Please check your authenticator app.")
+        # --- End 2FA Gate ---
+
         from engines.promotion_engine import promotion_engine
-        
-        luno_funded = data.get('luno_funded', False)
-        bot_ids = data.get('bot_ids', [])
-        
+
+        luno_funded = data.get("luno_funded", False)
+        bot_ids = data.get("bot_ids", [])
+
         if not luno_funded:
             return {
                 "switched": 0,
-                "message": "⚠️ Please fund your exchange wallet before switching to live trading"
+                "message": "⚠️ Please fund your exchange wallet before switching to live trading",
             }
-        
-        # Promote each bot
+
         results = []
         for bot_id in bot_ids:
             result = await promotion_engine.promote_to_live(bot_id, user_confirmed=True)
-            if result['success']:
+            if result["success"]:
                 results.append(result)
-        
+
         if results:
-            # Enable live trading mode
             await db.system_modes_collection.update_one(
                 {"user_id": user_id},
                 {"$set": {"liveTrading": True}},
-                upsert=True
+                upsert=True,
             )
-            
-            # Send WebSocket notification
             from websocket_manager import manager
             await manager.send_message(user_id, {"type": "force_refresh"})
-            
             return {
                 "switched": len(results),
                 "message": f"🚀 Promoted {len(results)} bot(s) to LIVE trading!",
-                "bots": results
+                "bots": results,
             }
-        
-        return {
-            "switched": 0,
-            "message": "❌ No bots were eligible for promotion"
-        }
+
+        return {"switched": 0, "message": "❌ No bots were eligible for promotion"}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Live switch error: {e}")
+        logger.error(f"Live switch error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2726,15 +2818,39 @@ async def admin_emergency_resume(user_id: str = Depends(get_current_user)):
 # ============================================================================
 
 @api_router.get("/metrics")
-async def get_prometheus_metrics():
-    """Expose Prometheus metrics for Grafana"""
+async def get_prometheus_metrics(request: Request):
+    """Expose Prometheus metrics. Protected by METRICS_TOKEN if set, otherwise JWT required."""
+    from fastapi.responses import Response
+    metrics_token = os.getenv("METRICS_TOKEN", "").strip()
+
+    if metrics_token:
+        # Prometheus-friendly auth: Bearer token check
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return Response(
+                content="Unauthorized: provide 'Authorization: Bearer <METRICS_TOKEN>'",
+                status_code=401,
+                media_type="text/plain",
+            )
+        provided = auth_header.removeprefix("Bearer ").strip()
+        if provided != metrics_token:
+            return Response(content="Unauthorized: invalid METRICS_TOKEN", status_code=401, media_type="text/plain")
+    else:
+        # No METRICS_TOKEN — require JWT (original behavior)
+        try:
+            from auth import decode_token
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return Response(content="Unauthorized", status_code=401, media_type="text/plain")
+            token = auth_header.removeprefix("Bearer ").strip()
+            decode_token(token)  # Will raise if invalid
+        except Exception:
+            return Response(content="Unauthorized: JWT required (set METRICS_TOKEN for Prometheus)", status_code=401, media_type="text/plain")
+
     try:
         from engines.prometheus_metrics import prometheus_metrics
-        from fastapi.responses import Response
-        
         content, content_type = prometheus_metrics.export_metrics()
         return Response(content=content, media_type=content_type)
-        
     except Exception as e:
         logger.error(f"Metrics export failed: {e}")
         raise HTTPException(status_code=500, detail="Metrics export failed")
@@ -2932,6 +3048,52 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin
             "error": str(e),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+@api_router.get("/diagnostics/sentiment-news")
+async def diagnostics_sentiment_news(user_id: str = Depends(get_current_user)):
+    """News source diagnostics for sentiment analyzer"""
+    try:
+        from engines.sentiment_analyzer import sentiment_analyzer
+        return await sentiment_analyzer.get_news_diagnostics()
+    except Exception as e:
+        logger.error(f"Sentiment news diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/diagnostics/learning-last-run")
+async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)):
+    """Learning loop last run diagnostics"""
+    try:
+        last_run = await db.learning_runs_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0},
+            sort=[("completed_at", -1)],
+        )
+        if not last_run:
+            return {"last_run_ts": None, "bots_updated_count": 0, "errors_count": 0, "status": "never_run"}
+        return {
+            "last_run_ts": last_run.get("completed_at"),
+            "bots_updated_count": last_run.get("changes_applied", 0),
+            "errors_count": 1 if last_run.get("status") == "error" else 0,
+            "status": last_run.get("status"),
+            "run_id": last_run.get("run_id"),
+            "summary": last_run.get("summary"),
+        }
+    except Exception as e:
+        logger.error(f"Learning diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/diagnostics/migrations")
+async def diagnostics_migrations(user_id: str = Depends(get_current_user)):
+    """Migration runner status"""
+    try:
+        from migrations._runner import get_migration_status
+        return get_migration_status()
+    except Exception as e:
+        logger.error(f"Migration diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Mount API router (includes auth and other inline endpoints)
 app.include_router(api_router, prefix="/api")

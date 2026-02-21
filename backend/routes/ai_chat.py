@@ -1652,6 +1652,25 @@ async def ai_chat(
             request_action
         )
 
+        # --- Per-user rate limiting ---
+        from services.rate_limiter import ai_rate_limiter
+        bypass = os.getenv("ADMIN_RATE_LIMIT_BYPASS", "false").lower() == "true" and await _is_admin_user(user_id)
+        allowed, used, retry_after = await ai_rate_limiter.check_and_record(
+            key=user_id or "anonymous", bypass=bypass
+        )
+        if not allowed:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limit_exceeded",
+                    "message": f"AI chat rate limit reached ({ai_rate_limiter._get_limit()} requests/hour). Please wait before sending more messages.",
+                    "retry_after_seconds": retry_after,
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        # --- End rate limiting ---
+
         if not confirmation_token and content:
             match = UUID_PATTERN.search(content)
             if match:
