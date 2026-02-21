@@ -420,9 +420,20 @@ class TradingScheduler:
             capital = bot.get('current_capital', 1000)
             trade_size = capital * multiplier
             
-            # Determine trade side (buy or sell)
-            import random
-            side = 'buy' if random.random() > 0.5 else 'sell'
+            # Determine trade side using market regime
+            # Prefer regime detector over random coin flip
+            try:
+                from engines.regime_detector import regime_detector
+                regime = await regime_detector.detect_regime(exchange, pair)
+                regime_name = regime.regime.value if hasattr(regime, 'regime') else str(regime)
+                if regime_name in ('bull', 'trending_up', 'strong_bull'):
+                    side = 'buy'
+                elif regime_name in ('bear', 'trending_down', 'strong_bear'):
+                    side = 'sell'
+                else:
+                    side = 'buy'  # Default to buy in neutral/unknown regimes
+            except Exception:
+                side = 'buy'  # Safe default — avoid random
             
             # Calculate amount
             # For live trading, we need to get real price first

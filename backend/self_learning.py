@@ -243,7 +243,7 @@ class SelfLearningSystem:
                              for ld in learning_data) / len(learning_data)
             
             # Get all user bots
-            bots = await self.db.bots.find({'user_id': user_id, 'status': 'active'}).to_list(1000)
+            bots = await self.db.bots_collection.find({'user_id': user_id, 'status': 'active'}).to_list(1000)
             
             for bot in bots:
                 adjustments = {}
@@ -264,7 +264,7 @@ class SelfLearningSystem:
                 
                 # Apply adjustments
                 if adjustments:
-                    await self.db.bots.update_one(
+                    await self.db.bots_collection.update_one(
                         {'id': bot['id']},
                         {'$set': adjustments}
                     )
@@ -299,7 +299,7 @@ class SelfLearningSystem:
             """
             
             # Create alert
-            await self.db.alerts.insert_one({
+            await self.db.alerts_collection.insert_one({
                 'user_id': user_id,
                 'type': 'learning',
                 'severity': 'low',

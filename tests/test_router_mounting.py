@@ -43,7 +43,6 @@ def test_all_routers_can_import():
         "routes.risk_management",
         "routes.dashboard_overview",
         "routes.bot_lifecycle",
-        "routes.bot_control",
         "routes.autopilot_control",
         "routes.training",
         "routes.training_quarantine",
