@@ -218,16 +218,10 @@ class LiveTradingEngine:
                     # Fallback to default prices if exchange unavailable
                     current_price = 1000000 if 'BTC' in symbol else 50000
                 
-                # Calculate realistic outcome
+                # Use real current price for both entry and exit (instantaneous paper fill)
+                # This avoids random drift and gives honest paper P&L based on actual prices
                 entry_price = current_price
-                
-                # Simulate a realistic exit (small price movement)
-                import random
-                if side == 'buy':
-                    # Simulate 0.5-2% price movement
-                    exit_price = entry_price * random.uniform(1.005, 1.02)
-                else:
-                    exit_price = entry_price * random.uniform(0.98, 0.995)
+                exit_price = current_price  # Paper fill at market price — no random slippage
                 
                 # Calculate fees (exchange-specific)
                 fee_rates = {
