@@ -5,6 +5,9 @@ Combines HuggingFace Inference API with keyword scoring for robust results.
 """
 
 import asyncio
+import os
+import aiohttp
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
@@ -75,6 +78,14 @@ class SentimentAnalyzer:
         # Store analyzed content
         self.sentiment_history: Dict[str, List[SentimentScore]] = {}
 
+        # News and sentiment caches
+        self._news_cache: Dict[str, tuple] = {}  # coin -> (fetched_at, articles, status)
+        self._news_cache_ttl = int(os.getenv("NEWS_CACHE_TTL_SECONDS", "300"))
+        self._last_news_error: Optional[str] = None
+        self._news_source: str = "none"
+        self._sentiment_cache: Dict[str, tuple] = {}  # coin -> (cached_at, AggregatedSentiment)
+        self._sentiment_cache_ttl = int(os.getenv("SENTIMENT_CACHE_TTL_SECONDS", "300"))
+
         # Sentiment keywords for rule-based fallback
         self.bullish_keywords = [
             'bullish', 'surge', 'rally', 'breakout', 'moon', 'pump',
@@ -87,6 +98,16 @@ class SentimentAnalyzer:
             'ban', 'hack', 'scandal', 'investigation', 'fraud',
             'lawsuit', 'bankruptcy', 'bear market', 'correction'
         ]
+
+    @property
+    def news_status(self) -> dict:
+        """Return current news source configuration status."""
+        key = os.getenv("CRYPTONEWS_API_KEY", "").strip()
+        return {
+            "configured": bool(key),
+            "source": "cryptocompare" if key else "none",
+            "cache_ttl_seconds": self._news_cache_ttl,
+        }
 
     async def _call_huggingface(self, text: str, user_id: Optional[str] = None) -> Optional[float]:
         """
@@ -229,55 +250,93 @@ class SentimentAnalyzer:
     
     async def fetch_news(self, coin: str = "BTC", limit: int = 10) -> List[NewsArticle]:
         """
-        Fetch recent news articles (simulated for now)
-        
-        Args:
-            coin: Cryptocurrency to fetch news for
-            limit: Maximum number of articles
-            
-        Returns:
-            List of NewsArticle
+        Fetch recent news articles from CryptoCompare (if CRYPTONEWS_API_KEY set)
+        or return an empty list with a clear status (never fake data).
+
+        Caches results for NEWS_CACHE_TTL_SECONDS (default 300).
         """
-        # In production, integrate with actual news APIs like:
-        # - CryptoCompare News API
-        # - NewsAPI
-        # - CoinGecko News
-        # - Twitter API for social sentiment
-        
-        # Simulated news for demonstration
-        articles = []
-        
-        sample_news = [
-            {
-                'title': f'{coin} Price Surges on Institutional Adoption',
-                'content': f'{coin} has seen significant institutional investment this week, with major funds announcing positions.',
-                'source': 'CryptoNews'
-            },
-            {
-                'title': f'Regulatory Concerns Impact {coin} Market',
-                'content': f'New regulatory proposals have created uncertainty in the {coin} market, leading to volatility.',
-                'source': 'CoinTelegraph'
-            },
-            {
-                'title': f'{coin} Network Upgrade Completed Successfully',
-                'content': f'The latest {coin} network upgrade has been implemented, improving scalability and efficiency.',
-                'source': 'Decrypt'
-            }
-        ]
-        
-        for i, news in enumerate(sample_news[:limit]):
-            article = NewsArticle(
-                timestamp=datetime.now(timezone.utc) - timedelta(hours=i),
-                title=news['title'],
-                content=news['content'],
-                source=news['source'],
-                url=f"https://example.com/article-{i}",
-                coins_mentioned=[coin]
-            )
-            articles.append(article)
-        
+        now = datetime.now(timezone.utc)
+        cache_key = coin.upper()
+        cached = self._news_cache.get(cache_key)
+        if cached:
+            fetched_at, articles, _ = cached
+            age = (now - fetched_at).total_seconds()
+            if age < self._news_cache_ttl:
+                return articles[:limit]
+
+        api_key = os.getenv("CRYPTONEWS_API_KEY", "").strip()
+        if not api_key:
+            self._last_news_error = "CRYPTONEWS_API_KEY not configured"
+            self._news_source = "none"
+            self._news_cache[cache_key] = (now, [], "news_source_unconfigured")
+            return []
+
+        url = "https://min-api.cryptocompare.com/data/v2/news/"
+        params = {"lang": "EN", "categories": coin}
+        headers = {"authorization": f"Apikey {api_key}"}
+        articles: List[NewsArticle] = []
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, params=params, headers=headers) as resp:
+                    if resp.status == 429:
+                        self._last_news_error = "CryptoCompare rate-limited (429)"
+                        logger.warning("CryptoCompare news API rate-limited")
+                        # Return stale cache if available
+                        if cached:
+                            return cached[1][:limit]
+                        return []
+                    if resp.status != 200:
+                        self._last_news_error = f"CryptoCompare HTTP {resp.status}"
+                        logger.warning(f"CryptoCompare news API error: {resp.status}")
+                        return []
+                    data = await resp.json()
+                    raw_articles = data.get("Data", [])
+                    for item in raw_articles[:limit]:
+                        published_on = item.get("published_on", 0)
+                        ts = datetime.fromtimestamp(published_on, tz=timezone.utc) if published_on else now
+                        article = NewsArticle(
+                            timestamp=ts,
+                            title=item.get("title", ""),
+                            content=item.get("body", item.get("title", ""))[:1000],
+                            source=item.get("source", "CryptoCompare"),
+                            url=item.get("url", ""),
+                            coins_mentioned=[t.strip() for t in item.get("categories", coin).split("|") if t.strip()],
+                        )
+                        articles.append(article)
+            self._last_news_error = None
+            self._news_source = "cryptocompare"
+            self._news_cache[cache_key] = (now, articles, "ok")
+            logger.info(f"Fetched {len(articles)} real news articles for {coin} from CryptoCompare")
+        except asyncio.TimeoutError:
+            self._last_news_error = "CryptoCompare request timed out"
+            logger.warning("CryptoCompare news API timed out")
+        except Exception as e:
+            self._last_news_error = str(e)
+            logger.error(f"CryptoCompare news fetch failed: {e}")
+
         return articles
-    
+
+    async def get_news_diagnostics(self) -> dict:
+        """Return news fetch status for the diagnostics endpoint."""
+        key = os.getenv("CRYPTONEWS_API_KEY", "").strip()
+        # Get the most recently cached entry across all coins
+        last_fetch_ts = None
+        total_articles = 0
+        for coin_key, (fetched_at, articles, _) in self._news_cache.items():
+            total_articles += len(articles)
+            if last_fetch_ts is None or fetched_at > last_fetch_ts:
+                last_fetch_ts = fetched_at
+        return {
+            "configured": bool(key),
+            "source": "cryptocompare" if key else "none",
+            "articles_count": total_articles,
+            "last_fetch_ts": last_fetch_ts.isoformat() if last_fetch_ts else None,
+            "last_error": self._last_news_error,
+            "cache_ttl_seconds": self._news_cache_ttl,
+        }
+
+
     async def analyze_coin_sentiment(
         self,
         coin: str,
@@ -293,6 +352,14 @@ class SentimentAnalyzer:
         Returns:
             AggregatedSentiment
         """
+        now_ts = datetime.now(timezone.utc)
+        cached_entry = self._sentiment_cache.get(coin.upper())
+        if cached_entry:
+            cached_at, cached_result = cached_entry
+            if (now_ts - cached_at).total_seconds() < self._sentiment_cache_ttl:
+                logger.debug(f"Sentiment cache hit for {coin}")
+                return cached_result
+
         # Fetch recent news
         articles = await self.fetch_news(coin, limit=20)
         
@@ -380,6 +447,7 @@ class SentimentAnalyzer:
             f"-> {recommendation}"
         )
         
+        self._sentiment_cache[coin.upper()] = (datetime.now(timezone.utc), result)
         return result
     
     async def get_sentiment_summary(self) -> Dict[str, Dict]:

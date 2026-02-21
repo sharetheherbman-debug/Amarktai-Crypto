@@ -124,50 +124,96 @@ async def optimize_strategy(
     """
     try:
         logger.info(f"Optimizing strategy for user {user_id[:8]}")
-        
+
         # Validate dates
         try:
             start = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
             end = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
-            
             if start >= end:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Start date must be before end date"
-                )
-                
+                raise HTTPException(status_code=400, detail="Start date must be before end date")
         except ValueError as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid date format: {str(e)}"
-            )
-        
-        # Run optimization (simplified - would do grid search in production)
-        # TODO: Implement full grid search optimization with parameter combinations
-        # For now, return a sample optimization result based on best_params heuristic
-        best_params = {
-            "risk_mode": "balanced",
-            "stop_loss": 0.05,
-            "take_profit": 0.10,
-            "position_size": 0.15
-        }
-        
-        # Run backtest with best params
-        result = await backtest_engine.backtest_strategy(
-            strategy_params=best_params,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            initial_capital=request.initial_capital
-        )
-        
+            raise HTTPException(status_code=400, detail=f"Invalid date format: {str(e)}")
+
+        # Small bounded parameter grid (max 27 combinations)
+        # risk_mode × stop_loss × take_profit
+        from itertools import product as iterproduct
+
+        risk_modes = request.parameter_ranges.get("risk_mode", ["safe", "balanced", "risky"])
+        stop_losses = request.parameter_ranges.get("stop_loss", [0.03, 0.05, 0.08])
+        take_profits = request.parameter_ranges.get("take_profit", [0.06, 0.10, 0.15])
+
+        # Clamp to max 30 combos
+        all_combos = list(iterproduct(risk_modes[:3], stop_losses[:3], take_profits[:3]))
+        MAX_COMBOS = 30
+        combos = all_combos[:MAX_COMBOS]
+
+        metric = request.optimization_metric  # e.g. "sharpe_ratio", "total_return", "win_rate"
+
+        best_result = None
+        best_score = float('-inf')
+        all_results = []
+
+        timeout_per_run = 5.0  # seconds per backtest run
+        import asyncio as _asyncio
+
+        for risk_mode, stop_loss, take_profit in combos:
+            params = {
+                "risk_mode": risk_mode,
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "position_size": 0.15,
+            }
+            try:
+                result = await _asyncio.wait_for(
+                    backtest_engine.backtest_strategy(
+                        strategy_params=params,
+                        start_date=request.start_date,
+                        end_date=request.end_date,
+                        initial_capital=request.initial_capital,
+                    ),
+                    timeout=timeout_per_run,
+                )
+                metrics = result.get("metrics", {})
+                raw = metrics.get(metric)
+                if raw is None:
+                    raw = metrics.get("total_return")
+                score = raw if raw is not None else 0.0
+                all_results.append({
+                    "parameters": params,
+                    "score": score,
+                    "metric": metric,
+                    "metrics": metrics,
+                    "is_simulated": result.get("is_simulated", True),
+                })
+                if score > best_score:
+                    best_score = score
+                    best_result = result
+                    best_result["_params"] = params
+            except _asyncio.TimeoutError:
+                logger.warning(f"Backtest combo {params} timed out")
+                continue
+            except Exception as combo_err:
+                logger.warning(f"Backtest combo {params} failed: {combo_err}")
+                continue
+
+        if not all_results:
+            raise HTTPException(status_code=500, detail="All parameter combinations failed or timed out.")
+
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+
         return {
             "success": True,
-            "best_parameters": best_params,
-            "optimization_metric": request.optimization_metric,
-            "backtest_result": result,
-            "tested_combinations": 1  # Would be more in real grid search
+            "best_parameters": best_result.get("_params") if best_result else all_results[0]["parameters"],
+            "best_score": best_score,
+            "optimization_metric": metric,
+            "grid_search": True,
+            "tested_combinations": len(all_results),
+            "max_combinations": MAX_COMBOS,
+            "all_results": all_results,
+            "is_simulated": True,
+            "simulation_note": "Results are based on statistical simulation, not real historical CCXT data.",
+            "best_backtest_result": best_result,
         }
-        
     except HTTPException:
         raise
     except Exception as e:

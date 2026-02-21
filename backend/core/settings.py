@@ -354,9 +354,23 @@ def startup_self_check() -> None:
         'ENCRYPTION_KEY': settings.active_encryption_key,
     }
     
+    _WEAK_SECRETS = {"your-secret-key", "secret", "change-me", "changeme",
+                     "your-secret-key-change-in-production"}
+    environment = os.getenv("ENVIRONMENT", "").lower()
     for key, value in required_keys.items():
-        if not value or value == 'your-secret-key-change-in-production':
-            errors.append(f"❌ Missing or invalid required env key: {key}")
+        if not value:
+            errors.append(f"❌ Missing required env key: {key}")
+        elif key == 'JWT_SECRET' and (len(value) < 32 or value in _WEAK_SECRETS):
+            msg = (
+                f"❌ JWT_SECRET is too weak (length {len(value)} < 32) or uses a known default. "
+                "Set a strong random secret of at least 32 characters."
+            )
+            if environment == "production":
+                errors.append(msg)
+            else:
+                print(f"⚠️  Warning: {msg}")
+        elif key != 'JWT_SECRET' and value in _WEAK_SECRETS:
+            errors.append(f"❌ {key} is using a known-insecure default value")
     
     # Check 2: Exchange limits consistency
     for exchange in SUPPORTED_EXCHANGES:

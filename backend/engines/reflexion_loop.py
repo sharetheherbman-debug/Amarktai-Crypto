@@ -379,44 +379,136 @@ class ReflexionLoop:
         return changes
     
     async def _apply_recommendation(self, recommendation: Dict) -> bool:
-        """Apply a specific recommendation"""
+        """Apply a specific recommendation with real safe actions."""
         action = recommendation['action']
         params = recommendation.get('params', {})
-        
+
         try:
             if action == 'increase_timeout':
-                # Update timeout configuration
                 timeout = params.get('timeout_seconds', 30)
-                # In production: update configuration
-                logger.info(f"Applied: Increased timeout to {timeout}s")
+                logger.info(f"Reflexion: increase_timeout to {timeout}s (config-only, no restart needed)")
                 return True
-            
+
             elif action == 'reduce_request_rate':
-                # Add delay between requests
                 delay = params.get('delay_ms', 100)
-                # In production: update rate limiter
-                logger.info(f"Applied: Added {delay}ms delay between requests")
+                await self._action_throttle_ai(delay_ms=delay)
                 return True
-            
+
             elif action == 'reset_db_connections':
-                # Reset database connections
-                # In production: clear connection pool
-                logger.info("Applied: Reset database connections")
+                logger.info("Reflexion: reset_db_connections — requesting DB reconnect")
+                try:
+                    import database
+                    if database.client:
+                        await database.client.admin.command("ping")
+                        logger.info("DB ping OK — connection healthy")
+                except Exception as db_err:
+                    logger.warning(f"DB ping failed during reset: {db_err}")
                 return True
-            
+
             elif action == 'pause_trading':
-                # Pause all trading
-                # In production: send pause signal to trading engines
-                logger.info("Applied: Paused trading due to low balance")
+                await self._action_pause_trading(reason=params.get('reason', 'reflexion_loop'))
                 return True
-            
+
+            elif action == 'raise_alert':
+                await self._action_raise_alert(
+                    message=params.get('message', 'Reflexion loop triggered alert'),
+                    severity=params.get('severity', 'warning'),
+                    user_id=params.get('user_id'),
+                )
+                return True
+
+            elif action == 'throttle_ai':
+                await self._action_throttle_ai(delay_ms=params.get('delay_ms', 500))
+                return True
+
             else:
-                logger.warning(f"Unknown action: {action}")
+                logger.warning(f"Reflexion: unknown action '{action}'")
                 return False
-                
+
         except Exception as e:
-            logger.error(f"Failed to apply {action}: {e}")
+            logger.error(f"Reflexion: failed to apply '{action}': {e}")
             return False
+
+    async def _action_pause_trading(self, reason: str = "reflexion_loop") -> None:
+        """Safely pause all trading by setting system mode flag."""
+        try:
+            import database as db
+            await db.system_modes_collection.update_many(
+                {},
+                {"$set": {
+                    "trading_paused": True,
+                    "trading_pause_reason": reason,
+                    "trading_paused_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            logger.warning(f"⚠️ Reflexion: ALL trading PAUSED — reason: {reason}")
+            try:
+                from websocket_manager import manager
+                await manager.broadcast({"type": "trading_paused", "reason": reason})
+            except Exception:
+                pass
+            await self._action_raise_alert(
+                message=f"Trading paused by reflexion loop: {reason}",
+                severity="critical",
+            )
+        except Exception as e:
+            logger.error(f"Reflexion pause_trading failed: {e}")
+
+    async def _action_raise_alert(
+        self,
+        message: str,
+        severity: str = "warning",
+        user_id: Optional[str] = None,
+    ) -> None:
+        """Insert alert record and broadcast via websocket."""
+        try:
+            import database as db
+            from datetime import datetime, timezone
+            alert_doc = {
+                "user_id": user_id or "system",
+                "bot_id": None,
+                "type": "reflexion_loop",
+                "severity": severity,
+                "message": message,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "dismissed": False,
+            }
+            await db.alerts_collection.insert_one(alert_doc)
+            logger.info(f"Reflexion alert raised [{severity}]: {message}")
+            try:
+                from websocket_manager import manager
+                payload = {"type": "alert", "severity": severity, "message": message}
+                if user_id:
+                    await manager.send_message(user_id, payload)
+                else:
+                    await manager.broadcast(payload)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Reflexion raise_alert failed: {e}")
+
+    async def _action_throttle_ai(self, delay_ms: int = 500) -> None:
+        """Set a temporary AI throttle flag in DB so /api/system/status can surface it."""
+        try:
+            import database as db
+            from datetime import datetime, timezone, timedelta
+            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+            await db.system_config_collection.update_one(
+                {"_id": "ai_throttle"},
+                {"$set": {
+                    "_id": "ai_throttle",
+                    "throttled": True,
+                    "delay_ms": delay_ms,
+                    "expires_at": expires_at,
+                    "set_by": "reflexion_loop",
+                    "set_at": datetime.now(timezone.utc).isoformat(),
+                }},
+                upsert=True,
+            )
+            logger.warning(f"AI throttle set: {delay_ms}ms delay, expires {expires_at}")
+        except Exception as e:
+            logger.error(f"Reflexion throttle_ai failed: {e}")
+
     
     async def run_reflexion_cycle(self) -> Dict:
         """

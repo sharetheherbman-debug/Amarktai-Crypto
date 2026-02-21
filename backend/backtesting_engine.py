@@ -1,8 +1,13 @@
 """
 Backtesting Engine
 - Test strategies on historical data
-- Performance simulation
+- Performance simulation (SIMULATED — uses statistical random walk, not real CCXT candles)
 - Strategy optimization
+
+NOTE: The current implementation uses a Monte Carlo / random-walk simulation to
+approximate historical performance.  Results are labelled ``is_simulated=True``
+and must NOT be used to drive live trading decisions.  A real CCXT-based
+backtester is tracked in the upgrade list (R4).
 """
 
 import asyncio
@@ -37,6 +42,8 @@ class BacktestingEngine:
                 "initial_capital": initial_capital,
                 "trades": trades,
                 "metrics": metrics,
+                "is_simulated": True,  # Random-walk simulation — not real historical CCXT data
+                "simulation_note": "Results are based on statistical simulation, not real market data.",
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
             

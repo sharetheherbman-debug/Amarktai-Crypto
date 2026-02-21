@@ -283,6 +283,11 @@ class AIBodyguard:
     async def create_alert(self, user_id: str, bot_id: str, severity: str, message: str):
         """Create an alert in the database"""
         try:
+            import database as db_module
+            collection = db_module.alerts_collection
+            if collection is None:
+                logger.warning("alerts_collection not available — alert not persisted")
+                return
             alert = {
                 'user_id': user_id,
                 'bot_id': bot_id,
@@ -290,33 +295,88 @@ class AIBodyguard:
                 'severity': severity,
                 'message': message,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'dismissed': False
+                'dismissed': False,
             }
-            
-            await self.db.alerts.insert_one(alert)
-            logger.info(f"Alert created: {message}")
-            
+            await collection.insert_one(alert)
+            # Broadcast via websocket
+            try:
+                from websocket_manager import manager
+                await manager.send_message(user_id, {
+                    'type': 'alert',
+                    'severity': severity,
+                    'message': message,
+                })
+            except Exception:
+                pass
+            logger.info(f"Bodyguard alert created [{severity}]: {message}")
         except Exception as e:
             logger.error(f"Alert creation error: {e}")
-            
+
     async def self_heal(self):
-        """Self-healing capabilities"""
+        """Safe recovery: quarantine problematic bots, raise alerts, optional restart."""
         try:
-            # Check if backend is responsive
-            # In production, this would check health endpoints, restart services, etc.
-            logger.info("🔧 Running self-healing checks...")
-            
-            # Example: Check database connection
+            logger.info("🔧 Bodyguard self-healing checks...")
+            import database as db_module
+
+            # 1. Verify DB connection
+            db_ok = False
             try:
-                await self.db.users.count_documents({})
-                logger.info("✅ Database connection healthy")
+                if db_module.client:
+                    await db_module.client.admin.command("ping")
+                    db_ok = True
+                    logger.info("✅ DB connection healthy")
             except Exception as e:
-                logger.error(f"❌ Database connection issue: {e}")
-                # In production: attempt reconnection, send alerts
-                
+                logger.error(f"❌ DB unhealthy: {e}")
+                await self.create_alert("system", "system", "critical", f"Database connection failed: {e}")
+
+            if not db_ok:
+                return  # Can't do further checks without DB
+
+            # 2. Quarantine bots stuck in error state > 10 minutes.
+            # Filter also handles bots missing updated_at by requiring the field to exist.
+            try:
+                from datetime import timedelta
+                threshold = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+                result = await db_module.bots_collection.update_many(
+                    {
+                        "status": "error",
+                        "updated_at": {"$exists": True, "$lt": threshold},
+                    },
+                    {"$set": {"status": "quarantined", "quarantine_reason": "bodyguard_self_heal"}},
+                )
+                if result.modified_count:
+                    logger.warning(f"Bodyguard quarantined {result.modified_count} error bot(s)")
+                    await self.create_alert(
+                        "system", "system", "warning",
+                        f"Bodyguard quarantined {result.modified_count} bot(s) stuck in error state",
+                    )
+            except Exception as e:
+                logger.error(f"Bot quarantine step failed: {e}")
+
+            # 3. Optional: restart systemd service (ENABLE_SELF_HEAL_RESTART=false by default)
+            if os.getenv("ENABLE_SELF_HEAL_RESTART", "false").lower() == "true":
+                logger.critical(
+                    "ENABLE_SELF_HEAL_RESTART=true — requesting systemd restart of amarktai-api"
+                )
+                await self.create_alert(
+                    "system", "system", "critical",
+                    "Bodyguard requesting service restart via systemd (ENABLE_SELF_HEAL_RESTART=true)",
+                )
+                try:
+                    import subprocess
+                    subprocess.Popen(
+                        ["systemctl", "restart", "amarktai-api"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except Exception as restart_err:
+                    logger.error(f"systemd restart failed: {restart_err}")
+            else:
+                logger.info("Self-heal: operator intervention required (ENABLE_SELF_HEAL_RESTART=false)")
+
         except Exception as e:
             logger.error(f"Self-healing error: {e}")
-            
+
     def stop(self):
         """Stop monitoring"""
         self.monitoring = False

@@ -439,6 +439,23 @@ class LearningLoop:
                 {"$set": {"strategy_version_id": strategy_version_id}}
             )
 
+        # Persist learned parameters directly to bot documents
+        if changes and improvement_ok and not dry_run and not rollback:
+            try:
+                await db.bots_collection.update_many(
+                    {"user_id": user_id, "status": {"$ne": "deleted"}},
+                    {"$set": {
+                        "learned_trade_size_multiplier": trade_size,
+                        "learned_cooldown_multiplier": cooldown,
+                        "learned_stop_loss_pct": stop_loss,
+                        "last_learning_run_id": run_id,
+                        "last_learning_applied_at": window_end.isoformat(),
+                    }},
+                )
+                logger.info(f"Learning: persisted params to bot docs for user {user_id[:8]}")
+            except Exception as persist_err:
+                logger.warning(f"Learning: failed to persist params to bots: {persist_err}")
+
         report_letter = (
             "Learning summary:\n"
             f"- Trades analyzed: {total_trades}\n"

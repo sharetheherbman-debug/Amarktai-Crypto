@@ -48,6 +48,16 @@ class RLAgent:
         self.total_reward = 0.0
         self.policy_updates = 0
         self.reward_history = []
+
+        # Seed numpy RNG for reproducibility when RL_SEED is set
+        import os
+        rl_seed_str = os.getenv("RL_SEED", "").strip()
+        if rl_seed_str:
+            try:
+                np.random.seed(int(rl_seed_str))
+                logger.info(f"RL agent: numpy seeded with RL_SEED={rl_seed_str}")
+            except ValueError:
+                logger.warning(f"RL_SEED='{rl_seed_str}' is not a valid integer, ignoring")
         
         logger.info("RL Agent initialized")
     

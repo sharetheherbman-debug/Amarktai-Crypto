@@ -231,11 +231,27 @@ class RiskManagement:
                         await self.close_position(bot_id)
                         continue
                     
-                    # Get current price (simulated for now)
-                    import random
+                    # Get current price from CCXT or DB snapshot
                     position = self.active_positions[bot_id]
-                    # Simulate price movement around entry
-                    current_price = position['entry_price'] * random.uniform(0.95, 1.08)
+                    current_price = None
+
+                    # Try to fetch live price from CCXT (async-safe via to_thread)
+                    try:
+                        import ccxt
+                        exchange_name = bot.get('exchange', 'binance').lower()
+                        pair = position.get('symbol', bot.get('trading_pair', 'BTC/USDT'))
+                        exchange_cls = getattr(ccxt, exchange_name, None)
+                        if exchange_cls:
+                            ex = exchange_cls({'enableRateLimit': True})
+                            ticker = await asyncio.to_thread(ex.fetch_ticker, pair)
+                            current_price = ticker.get('last') or ticker.get('close')
+                    except Exception as price_err:
+                        logger.debug(f"CCXT price fetch failed for risk monitor ({bot_id}): {price_err}")
+
+                    if current_price is None:
+                        # Use last known price from DB (stored in bot doc)
+                        current_price = bot.get('last_price') or position['entry_price']
+                        logger.debug(f"Risk monitor using cached/entry price for {bot_id}: {current_price}")
                     
                     # Check if exit triggered
                     exit_signal = await self.check_position(bot_id, current_price)
