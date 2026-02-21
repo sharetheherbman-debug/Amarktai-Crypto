@@ -2423,8 +2423,8 @@ async def sse_live_prices_stream(request: Request, user_id: str = Depends(get_cu
                                     ticker = await asyncio.to_thread(exchange.fetch_ticker, pair)
                                     change_24h = ticker.get('percentage', 0.0) or 0.0
                             except:
-                                # Fallback to simulated if ticker fetch fails
-                                change_24h = round(random.uniform(-2, 2), 2)
+                                # Fallback to 0.0 — unknown change is better than a random lie
+                                change_24h = 0.0
                             
                             prices[pair] = {
                                 "price": round(price, 2),

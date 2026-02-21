@@ -75,21 +75,24 @@ class FLOKxIntegration:
             return self._mock_coefficients(pair)
     
     def _mock_coefficients(self, pair: str) -> dict:
-        """Generate mock coefficients for testing"""
-        import random
-        
+        """Return a neutral, clearly-marked unavailable coefficient set.
+
+        NEVER returns random values — callers must check ``is_simulated=True``
+        and treat this as informational only, not a trading signal.
+        """
         return {
             "pair": pair,
-            "strength": round(random.uniform(40, 90), 2),
-            "volatility": round(random.uniform(10, 80), 2),
-            "sentiment": random.choice(["bullish", "bearish", "neutral"]),
-            "trend_score": round(random.uniform(30, 85), 2),
-            "volume_ratio": round(random.uniform(0.8, 2.5), 2),
-            "momentum": round(random.uniform(-50, 50), 2),
-            "support_level": round(random.uniform(0.95, 0.99), 4),
-            "resistance_level": round(random.uniform(1.01, 1.05), 4),
+            "strength": 0.0,
+            "volatility": 0.0,
+            "sentiment": "unavailable",
+            "trend_score": 0.0,
+            "volume_ratio": 1.0,
+            "momentum": 0.0,
+            "support_level": 0.0,
+            "resistance_level": 0.0,
+            "is_simulated": True,
+            "source": "unavailable",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "mock"
         }
     
     async def create_alert_from_coefficients(self, user_id: str, pair: str):

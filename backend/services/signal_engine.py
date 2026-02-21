@@ -229,19 +229,32 @@ class SignalEngine:
             return {'direction': 'neutral', 'confidence': 0.3, 'predicted_change': 0.0, 'is_simulated': True}
     
     async def _get_alpha_signal(self, symbol: str) -> Dict[str, Any]:
-        """Get alpha fusion signal"""
+        """Get alpha fusion signal from AlphaFusionEngine.
+
+        Calls ``engines.alpha_fusion_engine.AlphaFusionEngine.get_portfolio_signals``
+        when available.  Falls back to a neutral stub if the engine fails.
+        """
+        _neutral = {'score': 0.0, 'confidence': 0.3, 'position_multiplier': 1.0}
         try:
-            # Alpha fusion engine is complex, use simplified version
-            # In production, this would call engines/alpha_fusion_engine.py
+            from engines.alpha_fusion_engine import AlphaFusionEngine
+        except ImportError as ie:
+            logger.warning(f"AlphaFusionEngine not importable: {ie}")
+            return _neutral
+        try:
+            engine = AlphaFusionEngine()
+            # get_portfolio_signals expects a list; returns dict[symbol -> FusedSignal]
+            signals = await engine.get_portfolio_signals([symbol])
+            fused = signals.get(symbol)
+            if fused is None:
+                return _neutral
             return {
-                'score': 0.0,
-                'confidence': 0.5,
-                'position_multiplier': 1.0
+                'score': getattr(fused, 'alpha_signal', 0.0),
+                'confidence': getattr(fused, 'confidence', 0.3),
+                'position_multiplier': getattr(fused, 'position_size_multiplier', 1.0),
             }
-            
         except Exception as e:
-            logger.warning(f"Alpha fusion failed: {e}")
-            return {'score': 0.0, 'confidence': 0.3, 'position_multiplier': 1.0}
+            logger.warning(f"AlphaFusionEngine.get_portfolio_signals failed for {symbol}: {e}")
+            return _neutral
     
     async def _get_bot_history(self, bot_id: str) -> Dict[str, Any]:
         """Get bot historical performance"""
