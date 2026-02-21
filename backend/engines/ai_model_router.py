@@ -22,17 +22,27 @@ import logging as _logging
 logger = logging.getLogger(__name__)
 
 
+# Cache openai error classes at module level (graceful fallback if openai not installed)
+try:
+    from openai import RateLimitError as _OAIRateLimitError
+    from openai import APIStatusError as _OAIAPIStatusError
+    from openai import APITimeoutError as _OAIAPITimeoutError
+    from openai import APIConnectionError as _OAIAPIConnectionError
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OAIRateLimitError = _OAIAPIStatusError = _OAIAPITimeoutError = _OAIAPIConnectionError = None  # type: ignore
+    _OPENAI_AVAILABLE = False
+
+
 def _is_retryable_openai_error(exc: Exception) -> bool:
     """Return True for transient OpenAI errors (429/5xx/timeout). False for auth/bad request."""
-    try:
-        from openai import RateLimitError, APIStatusError, APITimeoutError, APIConnectionError
-        if isinstance(exc, (RateLimitError, APITimeoutError, APIConnectionError)):
-            return True
-        if isinstance(exc, APIStatusError):
-            return exc.status_code in (500, 502, 503, 504)
+    if not _OPENAI_AVAILABLE:
         return False
-    except ImportError:
-        return False
+    if isinstance(exc, (_OAIRateLimitError, _OAIAPITimeoutError, _OAIAPIConnectionError)):
+        return True
+    if isinstance(exc, _OAIAPIStatusError):
+        return exc.status_code in (500, 502, 503, 504)
+    return False
 
 
 @retry(

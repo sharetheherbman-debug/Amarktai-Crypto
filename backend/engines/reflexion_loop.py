@@ -438,7 +438,7 @@ class ReflexionLoop:
                 {"$set": {
                     "trading_paused": True,
                     "trading_pause_reason": reason,
-                    "trading_paused_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+                    "trading_paused_at": datetime.now(timezone.utc).isoformat(),
                 }},
             )
             logger.warning(f"⚠️ Reflexion: ALL trading PAUSED — reason: {reason}")

@@ -174,7 +174,10 @@ async def optimize_strategy(
                     timeout=timeout_per_run,
                 )
                 metrics = result.get("metrics", {})
-                score = metrics.get(metric, metrics.get("total_return", 0.0)) or 0.0
+                raw = metrics.get(metric)
+                if raw is None:
+                    raw = metrics.get("total_return")
+                score = raw if raw is not None else 0.0
                 all_results.append({
                     "parameters": params,
                     "score": score,

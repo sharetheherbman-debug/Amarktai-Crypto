@@ -1831,8 +1831,18 @@ async def get_deposit_address(
             raise HTTPException(status_code=501, detail=f"Exchange '{exchange}' is not supported by CCXT.")
 
         # Build CCXT instance with user credentials
-        api_key = creds.get("api_key") or creds if isinstance(creds, str) else None
-        api_secret = creds.get("api_secret") or creds.get("secret") if isinstance(creds, dict) else None
+        def _extract_credentials(raw) -> tuple:
+            """Extract (api_key, api_secret) from keys_service response (str or dict)."""
+            if isinstance(raw, str):
+                return raw, None
+            if isinstance(raw, dict):
+                return (
+                    raw.get("api_key") or raw.get("key") or raw.get("apiKey"),
+                    raw.get("api_secret") or raw.get("secret"),
+                )
+            return None, None
+
+        api_key, api_secret = _extract_credentials(creds)
 
         ex = exchange_cls({
             "apiKey": api_key,

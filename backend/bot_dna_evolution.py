@@ -18,7 +18,11 @@ from performance_ranker import performance_ranker
 import config
 
 _DNA_SEED = os.getenv("BOT_DNA_SEED", "").strip()
-_rng = random.Random(int(_DNA_SEED)) if _DNA_SEED else None
+try:
+    _rng = random.Random(int(_DNA_SEED)) if _DNA_SEED else None
+except ValueError:
+    logger.warning(f"BOT_DNA_SEED='{_DNA_SEED}' is not a valid integer — ignoring seed, using secrets")
+    _rng = None
 
 
 def _choice(seq):

@@ -332,12 +332,16 @@ class AIBodyguard:
             if not db_ok:
                 return  # Can't do further checks without DB
 
-            # 2. Quarantine bots that have been in an error state > 10 minutes
+            # 2. Quarantine bots stuck in error state > 10 minutes.
+            # Filter also handles bots missing updated_at by requiring the field to exist.
             try:
                 from datetime import timedelta
                 threshold = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
                 result = await db_module.bots_collection.update_many(
-                    {"status": "error", "updated_at": {"$lt": threshold}},
+                    {
+                        "status": "error",
+                        "updated_at": {"$exists": True, "$lt": threshold},
+                    },
                     {"$set": {"status": "quarantined", "quarantine_reason": "bodyguard_self_heal"}},
                 )
                 if result.modified_count:
