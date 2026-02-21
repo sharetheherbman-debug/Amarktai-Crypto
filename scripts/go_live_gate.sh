@@ -145,7 +145,20 @@ check_endpoint "bots/status"     GET "/api/bots/status"     "auth"
 # 5. Trades recent — authenticated
 check_endpoint "trades/recent"   GET "/api/trades/recent?limit=10" "auth"
 
-# 6. WebSocket
+# 6. AI chat greeting — must not 404/500
+check_endpoint "ai/chat/greeting" GET "/api/ai/chat/greeting" "auth"
+
+# 7. Diagnostics/realtime (optional but strongly preferred)
+DIAG_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/api/diagnostics/realtime" 2>/dev/null || echo "000")
+if [ "$DIAG_CODE" = "200" ]; then
+  echo "PASS  [HTTP 200]  /api/diagnostics/realtime"
+  PASS=$((PASS + 1))
+else
+  echo "WARN  [HTTP ${DIAG_CODE}]  /api/diagnostics/realtime (optional — check if route is mounted)"
+fi
+
+# 8. WebSocket
 check_websocket
 
 echo "── Additional Checks ────────────────────────────────────────────────────"
@@ -161,6 +174,35 @@ else
   echo "FAIL  [HTTP ${RESP_NO_AUTH}]  /api/bots/status unauthenticated should return 401"
   FAIL=$((FAIL + 1))
   ERRORS+=("/api/bots/status unauthenticated -> HTTP ${RESP_NO_AUTH} (expected 401)")
+fi
+
+# JWT secret strength check
+echo "Testing:  JWT_SECRET strength"
+JWT_LEN=${#JWT_SECRET}
+if [ "${JWT_LEN}" -ge 32 ] 2>/dev/null; then
+  echo "PASS  JWT_SECRET length: ${JWT_LEN} (>= 32 chars)"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL  JWT_SECRET is missing or too short (length=${JWT_LEN}, need >= 32)"
+  FAIL=$((FAIL + 1))
+  ERRORS+=("JWT_SECRET length ${JWT_LEN} < 32")
+fi
+
+# No /api/api/ double-path in frontend source
+FRONTEND_SRC="$(dirname "$0")/../frontend/src"
+echo "Testing:  No /api/api/ double-paths in frontend"
+if [ -d "$FRONTEND_SRC" ]; then
+  DOUBLE_API=$(grep -r '/api/api/' "$FRONTEND_SRC" --include='*.js' --include='*.jsx' -l 2>/dev/null | wc -l || echo 0)
+  if [ "$DOUBLE_API" -eq 0 ]; then
+    echo "PASS  No /api/api/ double-path in frontend/src"
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL  /api/api/ double-path found in ${DOUBLE_API} file(s)"
+    FAIL=$((FAIL + 1))
+    ERRORS+=("/api/api/ double-path in $DOUBLE_API source file(s)")
+  fi
+else
+  echo "WARN  frontend/src not found — skipping double-path check (build-only env)"
 fi
 
 echo "─────────────────────────────────────────────────────────────────────────"

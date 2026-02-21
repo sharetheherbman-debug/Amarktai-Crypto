@@ -419,9 +419,24 @@ def get_cors_origins() -> list[str]:
             prod_origins = ['https://amarktai.online', 'https://www.amarktai.online']
             logger.info(f"✅ CORS: Production mode — using default prod origins: {prod_origins}")
             return prod_origins
-        logger.warning("⚠️ CORS: No origins configured, defaulting to wildcard ['*'] - INSECURE FOR PRODUCTION")
+        logger.critical(
+            "🚨 CORS WILDCARD ['*'] ACTIVE — all origins are allowed. "
+            "This is INSECURE and must NOT be used in production. "
+            "Set CORS_ALLOWED_ORIGINS or ENVIRONMENT=production to restrict origins."
+        )
         return ["*"]
     
+    # Refuse wildcard if somehow included in CORS_ALLOWED_ORIGINS in production
+    environment = os.getenv('ENVIRONMENT', 'production').lower()
+    if environment == 'production' and '*' in origins:
+        logger.critical(
+            "🚨 CORS wildcard '*' found in CORS_ALLOWED_ORIGINS for production environment. "
+            "Removing wildcard and using default prod origins instead."
+        )
+        origins = [o for o in origins if o != '*']
+        if not origins:
+            origins = ['https://amarktai.online', 'https://www.amarktai.online']
+
     logger.info(f"✅ CORS: Allowed origins: {origins}")
     return origins
 

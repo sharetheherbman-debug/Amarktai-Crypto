@@ -8,7 +8,9 @@ Implements reconnect/replay logic
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Header
 from typing import Optional
 import logging
+import asyncio
 import jwt
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,24 @@ async def websocket_endpoint(
     logger.info(f"✅ WebSocket connection ACCEPTED for user {user_id[:8]}... (client: {websocket.client})")
     await manager.connect(websocket, user_id, last_event_id)
     
+    async def _heartbeat():
+        """Send server-initiated ping every 10 seconds to keep connection alive."""
+        try:
+            while True:
+                await asyncio.sleep(10)
+                try:
+                    await websocket.send_json({
+                        "type": "ping",
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                except Exception as exc:
+                    logger.debug(f"Heartbeat send failed for user {user_id[:8]}...: {exc}")
+                    break
+        except asyncio.CancelledError:
+            pass
+    
+    heartbeat_task = asyncio.create_task(_heartbeat())
+    
     try:
         # Keep connection alive and handle messages
         while True:
@@ -95,6 +115,8 @@ async def websocket_endpoint(
                     'type': 'pong',
                     'timestamp': data.get('timestamp')
                 })
+            elif data.get('type') == 'pong':
+                pass  # Client acknowledged our server ping
             elif data.get('type') == 'request_replay':
                 # Client requests replay from specific sequence
                 last_seq = data.get('last_sequence', last_event_id or 0)
@@ -105,5 +127,6 @@ async def websocket_endpoint(
     except Exception as e:
         logger.error(f"❌ WebSocket ERROR for user {user_id[:8]}...: {e}")
     finally:
+        heartbeat_task.cancel()
         manager.disconnect(websocket, user_id)
         logger.info(f"🔌 WebSocket cleanup complete for user {user_id[:8]}...")

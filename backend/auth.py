@@ -12,6 +12,48 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")  # Allow override via env
 ALGORITHM = JWT_ALGORITHM  # Keep for backward compatibility
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
+# Approved JWT algorithms — prevents downgrade to 'none' or insecure variants
+_ALLOWED_JWT_ALGORITHMS = {"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256"}
+if JWT_ALGORITHM not in _ALLOWED_JWT_ALGORITHMS:
+    raise ValueError(
+        f"JWT_ALGORITHM '{JWT_ALGORITHM}' is not in the approved list: "
+        f"{sorted(_ALLOWED_JWT_ALGORITHMS)}"
+    )
+
+# ── JWT secret validation ───────────────────────────────────────────────────
+# Production MUST have a strong secret (>=32 chars).  Non-production environments
+# may run with a weak/missing secret after emitting a clearly visible warning.
+_MIN_SECRET_LENGTH = 32
+_KNOWN_WEAK_SECRETS = {"your-secret-key", "secret", "change-me", "changeme",
+                       "your-secret-key-change-in-production"}
+
+def _validate_jwt_secret() -> None:
+    environment = os.getenv("ENVIRONMENT", "").lower()
+    secret = JWT_SECRET or ""
+    is_weak = (len(secret) < _MIN_SECRET_LENGTH or secret in _KNOWN_WEAK_SECRETS)
+    if not is_weak:
+        return  # All good
+
+    _logger = logging.getLogger(__name__)
+    if environment == "production":
+        msg = (
+            "FATAL: JWT_SECRET is missing or too weak (must be >= 32 characters). "
+            "Set a strong JWT_SECRET in your .env file before starting the server. "
+            "Refusing to start in production with a weak JWT secret."
+        )
+        _logger.critical(msg)
+        raise RuntimeError(msg)
+    else:
+        _logger.warning(
+            "⚠️  JWT_SECRET is weak or using default (length=%d). "
+            "This is only tolerated in non-production environments. "
+            "Set ENVIRONMENT=production to enforce the 32-char minimum.",
+            len(secret),
+        )
+
+_validate_jwt_secret()
+# ────────────────────────────────────────────────────────────────────────────
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)

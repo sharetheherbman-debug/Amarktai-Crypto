@@ -13,6 +13,7 @@ Used by OrderPipeline Gate B to replace placeholder expected_edge_bps.
 """
 
 import asyncio
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -194,17 +195,38 @@ class SignalEngine:
             return {'regime': 'unknown', 'confidence': 0.3, 'volatility': 'moderate'}
     
     async def _get_ml_prediction(self, symbol: str) -> Dict[str, Any]:
-        """Get ML price prediction"""
+        """Get ML price prediction.
+
+        Returns the prediction dict.  If the predictor signals an error or
+        marks the result as simulated (``is_simulated=True``), the returned
+        dict will carry ``is_simulated=True`` so ``_compute_edge`` can zero-weight
+        the contribution when ENABLE_LIVE_TRADING is active.
+        """
         try:
             from ml_predictor import MLPredictor
-            
+            import os
+
             predictor = MLPredictor()
             prediction = await predictor.predict_price(symbol.replace('/', '_'))
+
+            # Propagate error / simulated flag to the edge computation layer
+            if prediction.get('error') or prediction.get('is_simulated'):
+                logger.warning(
+                    f"ML prediction for {symbol} is unavailable or simulated: "
+                    f"{prediction.get('error', 'is_simulated=True')}"
+                )
+                return {
+                    'direction': 'neutral',
+                    'confidence': 0.0,
+                    'predicted_change': 0.0,
+                    'is_simulated': True,
+                }
+
             return prediction
-            
+
         except Exception as e:
             logger.warning(f"ML prediction failed: {e}")
-            return {'direction': 'neutral', 'confidence': 0.3, 'predicted_change': 0.0}
+            return {'direction': 'neutral', 'confidence': 0.3, 'predicted_change': 0.0, 'is_simulated': True}
     
     async def _get_alpha_signal(self, symbol: str) -> Dict[str, Any]:
         """Get alpha fusion signal"""
@@ -268,10 +290,20 @@ class SignalEngine:
         - Regime trend alignment
         - Alpha fusion score
         - Bot historical average profit
+
+        When ENABLE_LIVE_TRADING=true, any simulated signal source receives zero weight
+        to prevent fabricated data from driving real order decisions.
         """
-        edge = 0.0
-        
+        live_trading_active = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+
         # 1. ML prediction contribution
+        ml_is_simulated = ml.get('is_simulated', False)
+        if live_trading_active and ml_is_simulated:
+            logger.debug("ML signal is simulated/unavailable — zeroing weight for live trading")
+            ml_weight = 0.0
+        else:
+            ml_weight = self.ml_weight
+
         ml_change_pct = ml.get('predicted_change', 0.0)  # Expected: percentage (e.g., 2.0 for 2%)
         ml_confidence = ml.get('confidence', 0.5)
         ml_edge = ml_change_pct * 100 * ml_confidence  # Convert % to bps, scale by confidence
@@ -279,12 +311,12 @@ class SignalEngine:
         # Align with side (if predicting up and we're buying, it's positive)
         ml_direction = ml.get('direction', 'neutral')
         if (side == 'buy' and ml_direction == 'up') or (side == 'sell' and ml_direction == 'down'):
-            edge += ml_edge * self.ml_weight
+            edge += ml_edge * ml_weight
         elif ml_direction == 'neutral':
-            edge += abs(ml_edge) * 0.5 * self.ml_weight
+            edge += abs(ml_edge) * 0.5 * ml_weight
         else:
             # Prediction against our direction, negative edge
-            edge += ml_edge * self.ml_weight * -0.5
+            edge += ml_edge * ml_weight * -0.5
         
         # 2. Regime contribution
         regime_type = regime.get('regime', 'unknown')
