@@ -157,6 +157,11 @@ All AI commands are issued via the natural-language chat panel (`Welcome` sectio
 | `diagnostics_realtime` | "Diagnostics", "System diagnostics", "Realtime status" | Live diagnostics: bots, connections, errors |
 | `report_last_errors` | "Show errors", "What went wrong?", "Last errors" | Last known errors from all subsystems |
 | `open_admin_tools` | "Open admin", "Admin tools" | Unlocks admin panel for current session |
+| `get_portfolio_summary` | "Portfolio summary", "Show equity", "What's my PnL?" | Full portfolio: equity, realized PnL, fees, drawdown, win rate |
+| `get_win_rate` | "Win rate", "What's my win rate?", "Win rate this month" | Win rate and trade count for a period (today/7d/30d/all) |
+| `get_drawdown` | "Drawdown", "What's my drawdown?", "Max drawdown" | Current and maximum drawdown percentages |
+| `get_countdown` | "Countdown to goal", "How long to reach my target?", "Days to R10k" | Countdown to profit target with days-to-target estimate |
+| `predict_price` | "Predict BTC price", "Price prediction for ETH/ZAR" | ML price prediction for a trading pair |
 
 ### Action Commands (confirmation required)
 
@@ -181,6 +186,9 @@ All AI commands are issued via the natural-language chat panel (`Welcome` sectio
 | `disable_learning_loop` | Reply with confirmation_id | "Disable learning", "Stop learning loop" | Disables the AI self-learning loop (admin only) |
 | `set_risk_mode` | None (no confirmation) | "Set risk to safe", "Switch to risky mode" | Changes risk profile for user or bot |
 | `create_bot` | None (no confirmation) | "Create a bot on Binance", "Make a new paper bot called Alpha" | Creates a new trading bot |
+| `delete_bot` | `CONFIRM DELETE BOT` | "Delete bot Alpha", "Remove bot [name]" | Permanently deletes a bot (soft delete, preserves history) |
+| `trigger_reinvestment` | Reply with confirmation_id | "Reinvest profits", "Trigger reinvestment cycle" | Triggers manual profit reinvestment cycle |
+| `evolve_bots` | Reply with confirmation_id | "Evolve bots", "Run genetic algorithm", "Improve bot strategies" | Runs genetic algorithm evolution to improve bot parameters |
 
 ### AI Quick-Action Buttons (AI Tools Panel)
 These functions are accessible via the **🧠 AI Tools** button in the Welcome section:

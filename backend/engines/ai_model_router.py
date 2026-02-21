@@ -13,8 +13,6 @@ import os
 
 logger = logging.getLogger(__name__)
 
-import openai
-
 class AIModelRouter:
     def __init__(self):
         self.models = {
@@ -45,24 +43,21 @@ class AIModelRouter:
             {"content": str, "model": str, "tokens": int}
         """
         try:
-            from services.openai_key_resolver import resolve_openai_key
-            
+            from services.openai_key_resolver import get_openai_client
+
             model = self.models.get(mode, self.models['balanced'])
-            
-            # Resolve OpenAI key
-            api_key, source = await resolve_openai_key(user_id)
-            if api_key:
-                logger.info(f"OpenAI key resolved source={source} for AI router")
+
+            client, source = await get_openai_client(user_id)
+            if client:
+                logger.info(f"OpenAI client resolved source={source} for AI router")
                 try:
-                    openai.api_key = api_key
-                    response = await asyncio.to_thread(
-                        openai.ChatCompletion.create,
+                    response = await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         max_tokens=max_tokens,
-                        temperature=temperature
+                        temperature=temperature,
                     )
-                    
+
                     return {
                         "content": response.choices[0].message.content,
                         "model": model,
@@ -72,9 +67,9 @@ class AIModelRouter:
                 except Exception as e:
                     logger.error(f"OpenAI client failed: {e}")
                     raise
-            
+
             # No key available
-            logger.warning(f"OpenAI key resolved source={source} - AI unavailable")
+            logger.warning(f"OpenAI client resolved source={source} - AI unavailable")
             return {
                 "content": "AI service unavailable - no API keys configured",
                 "model": "none",
@@ -82,7 +77,7 @@ class AIModelRouter:
                 "source": "none",
                 "error": "No AI client available"
             }
-            
+
         except Exception as e:
             logger.error(f"Chat completion error: {e}")
             return {

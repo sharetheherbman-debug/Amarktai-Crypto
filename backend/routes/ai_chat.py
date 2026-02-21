@@ -1163,6 +1163,138 @@ async def _handle_reset_risk_locks(user_id: str, params: Dict[str, Any]) -> Dict
     return {"success": data.get("success", False), "data": data, "message": "Risk locks reset."}
 
 
+async def _handle_get_portfolio_summary(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    from services.ledger_service import get_ledger_service
+    import database as _db
+    ledger = get_ledger_service(_db.db)
+    equity = await ledger.compute_equity(user_id)
+    realized_pnl = await ledger.compute_realized_pnl(user_id)
+    fees_total = await ledger.compute_fees_paid(user_id)
+    current_dd, max_dd = await ledger.compute_drawdown(user_id)
+    win_rate = await ledger.calculate_win_rate(user_id)
+    data = {
+        "equity": round(equity, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "fees_total": round(fees_total, 2),
+        "drawdown_current_pct": round(current_dd, 2),
+        "drawdown_max_pct": round(max_dd, 2),
+        "win_rate_pct": round(win_rate * 100, 2) if win_rate is not None else None,
+    }
+    return {"success": True, "data": data, "message": "Portfolio summary retrieved."}
+
+
+async def _handle_get_win_rate(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    period = params.get("period", "30d")
+    if period not in {"today", "7d", "30d", "all"}:
+        period = "30d"
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    now = _dt.now(_tz.utc)
+    if period == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "7d":
+        start = now - _td(days=7)
+    elif period == "30d":
+        start = now - _td(days=30)
+    else:
+        start = _dt(2020, 1, 1, tzinfo=_tz.utc)
+    trades = await db.trades_collection.find(
+        {"user_id": user_id, "timestamp": {"$gte": start.isoformat()}},
+        {"_id": 0, "net_pnl": 1, "profit_loss": 1}
+    ).to_list(10000)
+    if not trades:
+        return {"success": True, "data": {"period": period, "total_trades": 0, "win_rate_pct": 0}, "message": "No trades found."}
+    wins = [t for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0]
+    win_rate = round(len(wins) / len(trades) * 100, 1)
+    return {"success": True, "data": {"period": period, "total_trades": len(trades), "wins": len(wins), "win_rate_pct": win_rate}, "message": f"Win rate for {period}: {win_rate}%"}
+
+
+async def _handle_get_drawdown(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    from services.ledger_service import get_ledger_service
+    import database as _db
+    ledger = get_ledger_service(_db.db)
+    current_dd, max_dd = await ledger.compute_drawdown(user_id)
+    return {"success": True, "data": {"current_drawdown_pct": round(current_dd, 2), "max_drawdown_pct": round(max_dd, 2)}, "message": f"Current drawdown: {current_dd:.1f}%, Max: {max_dd:.1f}%"}
+
+
+async def _handle_get_countdown(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    target = float(params.get("target_amount", 10000))
+    bots = await db.bots_collection.find(
+        {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+        {"_id": 0, "current_capital": 1, "initial_capital": 1}
+    ).to_list(1000)
+    equity = sum(b.get("current_capital", 0) for b in bots)
+    initial = sum(b.get("initial_capital", 0) for b in bots)
+    net_pnl = equity - initial
+    remaining = max(0.0, target - net_pnl)
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    first_trade = await db.trades_collection.find_one({"user_id": user_id}, {"_id": 0, "timestamp": 1})
+    days_elapsed = 0
+    if first_trade and first_trade.get("timestamp"):
+        try:
+            start = _dt.fromisoformat(first_trade["timestamp"].replace("Z", "+00:00"))
+            days_elapsed = max(1, (_dt.now(_tz.utc) - start).days)
+        except Exception:
+            logger.warning("Invalid timestamp format in first trade record — days_elapsed defaulting to 0")
+    avg_daily = net_pnl / days_elapsed if days_elapsed > 0 else 0
+    days_to_target = round(remaining / avg_daily) if avg_daily > 0 else None
+    return {
+        "success": True,
+        "data": {
+            "target_amount": target,
+            "net_pnl_total": round(net_pnl, 2),
+            "remaining": round(remaining, 2),
+            "avg_daily_pnl": round(avg_daily, 2),
+            "days_elapsed": days_elapsed,
+            "days_to_target": days_to_target,
+        },
+        "message": f"R{net_pnl:.2f} earned, R{remaining:.2f} remaining to target R{target:.0f}."
+    }
+
+
+async def _handle_trigger_reinvestment(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from services.daily_reinvestment import get_reinvestment_service
+        import database as _db
+        reinvest_service = get_reinvestment_service(_db.db)
+        result = await reinvest_service.execute_reinvestment(user_id=user_id, manual_trigger=True)
+        return {"success": True, "data": result, "message": "Profit reinvestment cycle triggered."}
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Reinvestment trigger failed."}
+
+
+async def _handle_delete_bot(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    bot_id = params.get("bot_id")
+    if not bot_id:
+        return {"success": False, "error": "bot_id is required."}
+    bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0, "name": 1})
+    if not bot:
+        return {"success": False, "error": "Bot not found."}
+    from datetime import datetime as _dt, timezone as _tz
+    await db.bots_collection.update_one(
+        {"id": bot_id},
+        {"$set": {"status": "deleted", "deleted": True, "is_deleted": True, "deleted_at": _dt.now(_tz.utc).isoformat(), "deleted_by": user_id}},
+    )
+    return {"success": True, "message": f"Bot '{bot.get('name', bot_id)}' deleted successfully."}
+
+
+async def _handle_evolve_bots(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    from bot_dna_evolution import BotDNAEvolution
+    evolution = BotDNAEvolution()
+    result = await evolution.evolve_bots(user_id)
+    return {"success": True, "data": result, "message": f"Evolution complete. {result.get('evolved_count', 0)} bots evolved."}
+
+
+async def _handle_predict_price(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    pair = params.get("pair", "BTC/ZAR")
+    try:
+        from ml_predictor import MLPredictor
+        predictor = MLPredictor()
+        result = await predictor.predict(pair, user_id=user_id)
+        return {"success": True, "data": result, "message": f"Price prediction for {pair} generated."}
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": f"Price prediction failed for {pair}."}
+
+
 ACTION_REGISTRY = {
     "get_system_status": {
         "description": "Fetch system status and health summary.",
@@ -1364,6 +1496,55 @@ ACTION_REGISTRY = {
         "requires_confirmation": True,
         "confirmation_phrase": CONFIRM_RESET_RISK,
         "handler": _handle_reset_risk_locks,
+    },
+    "get_portfolio_summary": {
+        "description": "Get full portfolio summary: equity, realized PnL, fees, drawdown, win rate.",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_get_portfolio_summary,
+    },
+    "get_win_rate": {
+        "description": "Get win rate and trade statistics for a time period.",
+        "params": ["period"],
+        "requires_confirmation": False,
+        "handler": _handle_get_win_rate,
+    },
+    "get_drawdown": {
+        "description": "Get current and maximum drawdown percentages.",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_get_drawdown,
+    },
+    "get_countdown": {
+        "description": "Get countdown to profit target with days-to-target estimate.",
+        "params": ["target_amount"],
+        "requires_confirmation": False,
+        "handler": _handle_get_countdown,
+    },
+    "trigger_reinvestment": {
+        "description": "Trigger a manual profit reinvestment cycle.",
+        "params": [],
+        "requires_confirmation": True,
+        "handler": _handle_trigger_reinvestment,
+    },
+    "delete_bot": {
+        "description": "Soft-delete a bot by ID (preserves history, removes from active use).",
+        "params": ["bot_id"],
+        "requires_confirmation": True,
+        "confirmation_phrase": "CONFIRM DELETE BOT",
+        "handler": _handle_delete_bot,
+    },
+    "evolve_bots": {
+        "description": "Run genetic algorithm evolution to improve bot strategies.",
+        "params": [],
+        "requires_confirmation": True,
+        "handler": _handle_evolve_bots,
+    },
+    "predict_price": {
+        "description": "Run ML price prediction for a trading pair.",
+        "params": ["pair"],
+        "requires_confirmation": False,
+        "handler": _handle_predict_price,
     },
 }
 
