@@ -51,6 +51,7 @@ class LifecycleManager:
             'enable_realtime': env_bool('ENABLE_REALTIME', True),
             'enable_learning_loop': env_bool('ENABLE_LEARNING_LOOP', False),
             'enable_daily_reports': env_bool('ENABLE_DAILY_REPORTS', False),
+            'enable_nightly_learning': env_bool('ENABLE_NIGHTLY_LEARNING', False),
         }
         logger.info(f"🎚️ Feature flags: {self.feature_flags}")
         
@@ -131,6 +132,14 @@ class LifecycleManager:
                 instance_name="learning_loop",
                 enabled_flag="enable_learning_loop",
                 create_task=True
+            ),
+            # Nightly Learning Scheduler (APScheduler-based, runs at 2 AM)
+            SubsystemDefinition(
+                name="Nightly Learning Scheduler",
+                module_path="services.nightly_learning_scheduler",
+                instance_name="nightly_learning_scheduler",
+                enabled_flag="enable_nightly_learning",
+                start_method="start",
             ),
             # Daily Admin Reports
             SubsystemDefinition(

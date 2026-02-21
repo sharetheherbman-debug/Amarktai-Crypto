@@ -17,9 +17,9 @@ class AIModelRouter:
     def __init__(self):
         self.models = {
             'fast': 'gpt-4o',           # Fast responses, good quality
-            'balanced': 'gpt-5.1',      # Best balance of speed and intelligence
-            'deep': 'gpt-5.1',          # Deep reasoning (same as balanced for now)
-            'fallback': 'gpt-4o'        # Fallback if primary fails
+            'balanced': 'gpt-4o',       # Best available model
+            'deep': 'gpt-4o',           # Deep reasoning
+            'fallback': 'gpt-4o-mini'   # Lightweight fallback
         }
         
         # Note: OpenAI client is now created per-request via resolver

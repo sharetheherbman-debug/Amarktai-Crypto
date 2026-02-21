@@ -9,7 +9,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Header
 from typing import Optional
 import logging
 import jwt
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +32,9 @@ async def get_user_id_from_token(token: Optional[str]) -> Optional[str]:
         if token.startswith("Bearer "):
             token = token[7:]
         
-        # Decode JWT
-        secret = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
-        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        # Decode JWT using the canonical secret from auth.py
+        from auth import JWT_SECRET, JWT_ALGORITHM
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         
         return payload.get('sub')
         

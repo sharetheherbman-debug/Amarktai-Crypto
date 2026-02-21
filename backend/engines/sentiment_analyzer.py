@@ -1,17 +1,15 @@
 """
 Sentiment Analysis Module
-Uses LLMs (DeepSeek/FinBERT) to extract sentiment from news and social media
-Combines textual insights with quantitative signals
+Uses HuggingFace (FinBERT/distilbert) for sentiment analysis with keyword fallback.
+Combines HuggingFace Inference API with keyword scoring for robust results.
 """
 
-import aiohttp
 import asyncio
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from enum import Enum
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -63,89 +61,80 @@ class AggregatedSentiment:
 
 class SentimentAnalyzer:
     """
-    Analyzes market sentiment from news and social media
-    Provides trading signals based on textual sentiment
+    Analyzes market sentiment from news and social media.
+    Primary: HuggingFace InferenceClient (FinBERT / distilbert-sst2)
+    Fallback: keyword-based scoring
     """
-    
-    def __init__(self, openai_api_key: Optional[str] = None):
-        """
-        Initialize sentiment analyzer
-        
-        Args:
-            openai_api_key: OpenAI API key for GPT-based analysis
-        """
-        self.openai_api_key = openai_api_key
-        
+
+    # HuggingFace model for financial sentiment (FinBERT)
+    HF_SENTIMENT_MODEL = "ProsusAI/finbert"
+    # Lightweight fallback model
+    HF_FALLBACK_MODEL = "distilbert-base-uncased-finetuned-sst-2-english"
+
+    def __init__(self):
         # Store analyzed content
         self.sentiment_history: Dict[str, List[SentimentScore]] = {}
-        
-        # News sources (simplified)
-        self.news_sources = [
-            'https://cryptonews.com',
-            'https://cointelegraph.com',
-            'https://decrypt.co'
-        ]
-        
-        # Sentiment keywords
+
+        # Sentiment keywords for rule-based fallback
         self.bullish_keywords = [
             'bullish', 'surge', 'rally', 'breakout', 'moon', 'pump',
             'adoption', 'institutional', 'breakthrough', 'all-time high',
             'ATH', 'bull run', 'accumulation', 'upgrade', 'partnership'
         ]
-        
+
         self.bearish_keywords = [
             'bearish', 'crash', 'dump', 'collapse', 'regulation',
             'ban', 'hack', 'scandal', 'investigation', 'fraud',
             'lawsuit', 'bankruptcy', 'bear market', 'correction'
         ]
-    
-    async def _call_openai(self, prompt: str) -> Optional[str]:
+
+    async def _call_huggingface(self, text: str, user_id: Optional[str] = None) -> Optional[float]:
         """
-        Call OpenAI API for sentiment analysis
-        
-        Args:
-            prompt: Text to analyze
-            
+        Call HuggingFace Inference API for financial sentiment.
+        Uses FinBERT (ProsusAI/finbert) which returns positive/negative/neutral labels.
+
         Returns:
-            AI response or None
+            Score in [-1.0, 1.0] or None if unavailable
         """
-        if not self.openai_api_key:
-            return None
-        
         try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    'Authorization': f'Bearer {self.openai_api_key}',
-                    'Content-Type': 'application/json'
-                }
-                
-                data = {
-                    'model': 'gpt-3.5-turbo',
-                    'messages': [
-                        {
-                            'role': 'system',
-                            'content': 'You are a financial sentiment analyzer. Analyze the sentiment of crypto news and provide a score from -1 (very bearish) to 1 (very bullish).'
-                        },
-                        {
-                            'role': 'user',
-                            'content': prompt
-                        }
-                    ],
-                    'temperature': 0.3,
-                    'max_tokens': 100
-                }
-                
-                async with session.post(
-                    'https://api.openai.com/v1/chat/completions',
-                    headers=headers,
-                    json=data
-                ) as resp:
-                    if resp.status == 200:
-                        result = await resp.json()
-                        return result['choices'][0]['message']['content']
+            from services.huggingface_key_resolver import get_huggingface_client
+
+            # Try FinBERT first, fall back to distilbert-sst2
+            for model in (self.HF_SENTIMENT_MODEL, self.HF_FALLBACK_MODEL):
+                client, source = await get_huggingface_client(user_id, model=model)
+                if not client:
+                    logger.debug(f"HuggingFace key source={source} — skipping sentiment model {model}")
+                    return None
+
+                try:
+                    results = client.text_classification(text[:512])
+                    if not results:
+                        continue
+
+                    label = results[0].get("label", "").upper()
+                    # score is the model's confidence in [0.0, 1.0]
+                    confidence = float(results[0].get("score", 0.5))
+                    # Clamp to [0, 1] to be safe
+                    confidence = max(0.0, min(1.0, confidence))
+
+                    # FinBERT labels: positive / negative / neutral
+                    # SST-2 labels: POSITIVE / NEGATIVE
+                    # Transform to [-1.0, 1.0]: confidence maps to signal strength
+                    if label == "POSITIVE":
+                        # Map [0.5, 1.0] confidence to [0.0, 1.0] sentiment score
+                        return round((confidence - 0.5) * 2.0, 3)
+                    elif label == "NEGATIVE":
+                        return round(-((confidence - 0.5) * 2.0), 3)
+                    else:
+                        # NEUTRAL or unknown label
+                        return 0.0
+                except Exception as model_err:
+                    logger.warning(f"HuggingFace model {model} failed: {model_err}")
+                    continue
+
         except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
-        
+            logger.error(f"HuggingFace sentiment call failed: {e}")
+
         return None
     
     def _keyword_based_sentiment(self, text: str) -> Tuple[float, List[str]]:
@@ -181,44 +170,34 @@ class SentimentAnalyzer:
         self,
         text: str,
         source: str = "unknown",
-        use_ai: bool = True
+        use_ai: bool = True,
+        user_id: Optional[str] = None,
     ) -> SentimentScore:
         """
-        Analyze sentiment of text
-        
+        Analyze sentiment of text.
+        Primary: HuggingFace FinBERT via InferenceClient
+        Fallback: keyword-based scoring
+
         Args:
             text: Text to analyze
             source: Source of text
-            use_ai: Whether to use AI for analysis
-            
+            use_ai: Whether to attempt AI-based analysis
+            user_id: Optional user ID for key resolution
+
         Returns:
             SentimentScore
         """
-        # Keyword-based analysis (fallback)
+        # Keyword-based analysis (always computed as fallback)
         keyword_score, keywords = self._keyword_based_sentiment(text)
-        
-        # AI-based analysis (primary)
-        ai_score = None
-        if use_ai and self.openai_api_key:
-            prompt = f"Analyze the sentiment of this crypto news (score from -1 to 1):\n\n{text[:500]}"
-            ai_response = await self._call_openai(prompt)
-            
-            if ai_response:
-                # Extract score from response
-                try:
-                    # Look for number between -1 and 1
-                    numbers = re.findall(r'-?\d+\.?\d*', ai_response)
-                    for num in numbers:
-                        score_val = float(num)
-                        if -1 <= score_val <= 1:
-                            ai_score = score_val
-                            break
-                except:
-                    pass
-        
-        # Use AI score if available, otherwise keyword score
-        final_score = ai_score if ai_score is not None else keyword_score
-        
+
+        # HuggingFace-based analysis (primary)
+        hf_score = None
+        if use_ai:
+            hf_score = await self._call_huggingface(text, user_id=user_id)
+
+        # Use HuggingFace score if available, otherwise keyword score
+        final_score = hf_score if hf_score is not None else keyword_score
+
         # Classify sentiment
         if final_score >= 0.6:
             sentiment = SentimentType.VERY_BULLISH
@@ -230,25 +209,23 @@ class SentimentAnalyzer:
             sentiment = SentimentType.BEARISH
         else:
             sentiment = SentimentType.NEUTRAL
-        
-        # Confidence based on agreement between methods
-        if ai_score is not None:
-            agreement = 1.0 - abs(ai_score - keyword_score) / 2.0
-            confidence = min(0.9, agreement)
+
+        # Confidence: higher when HuggingFace and keywords agree
+        if hf_score is not None:
+            agreement = 1.0 - abs(hf_score - keyword_score) / 2.0
+            confidence = min(0.92, max(0.5, agreement))
         else:
-            confidence = 0.5  # Lower confidence without AI
-        
-        result = SentimentScore(
+            confidence = 0.45  # Lower confidence without AI
+
+        return SentimentScore(
             timestamp=datetime.now(timezone.utc),
             text=text[:200],
             sentiment=sentiment,
             score=final_score,
             confidence=confidence,
             keywords=keywords,
-            source=source
+            source=source,
         )
-        
-        return result
     
     async def fetch_news(self, coin: str = "BTC", limit: int = 10) -> List[NewsArticle]:
         """
@@ -427,8 +404,53 @@ class SentimentAnalyzer:
                     'recommendation': sentiment.recommendation,
                     'timestamp': sentiment.timestamp.isoformat()
                 }
-        
+
         return summary
+
+    async def get_overall_sentiment(self) -> Optional[Dict]:
+        """
+        Get aggregated overall market sentiment across tracked coins.
+        Called by compatibility_endpoints.py.
+
+        Returns:
+            Dict with keys: sentiment, score, recommendation, sources_analyzed, timestamp
+            or None if no data available
+        """
+        summary = await self.get_sentiment_summary()
+
+        if not summary:
+            return None
+
+        # Aggregate across all coins
+        scores = [v['score'] for v in summary.values()]
+        avg_score = sum(scores) / len(scores)
+        sources_analyzed = sum(v['article_count'] for v in summary.values())
+
+        # Determine overall sentiment label
+        if avg_score >= 0.5:
+            sentiment = SentimentType.VERY_BULLISH.value
+            recommendation = 'buy'
+        elif avg_score >= 0.2:
+            sentiment = SentimentType.BULLISH.value
+            recommendation = 'buy'
+        elif avg_score <= -0.5:
+            sentiment = SentimentType.VERY_BEARISH.value
+            recommendation = 'sell'
+        elif avg_score <= -0.2:
+            sentiment = SentimentType.BEARISH.value
+            recommendation = 'sell'
+        else:
+            sentiment = SentimentType.NEUTRAL.value
+            recommendation = 'hold'
+
+        return {
+            'sentiment': sentiment,
+            'score': round(avg_score, 3),
+            'recommendation': recommendation,
+            'sources_analyzed': sources_analyzed,
+            'coins': list(summary.keys()),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }
 
 
 # Global instance
