@@ -2,23 +2,61 @@
 # smoke_bodyguard_loop.sh — verify bodyguard reset stops the lock loop
 #
 # Usage:
-#   ./smoke_bodyguard_loop.sh [BASE_URL] [ADMIN_TOKEN]
-#   Env vars: BASE_URL, ADMIN_TOKEN
+#   ./smoke_bodyguard_loop.sh [BASE_URL]
+#   Env vars: BASE_URL (default http://127.0.0.1:8000)
+#             AMK_EMAIL + AMK_PASSWORD  — auto-login to obtain a bearer token
+#             ADMIN_TOKEN               — use a pre-existing bearer token (fallback)
 #
-# On VPS:
-#   BASE_URL=http://localhost:8000 ADMIN_TOKEN=<token> ./smoke_bodyguard_loop.sh
+# Examples:
+#   AMK_EMAIL=admin@example.com AMK_PASSWORD=secret ./smoke_bodyguard_loop.sh
+#   BASE_URL=http://127.0.0.1:8000 AMK_EMAIL=admin@example.com AMK_PASSWORD=secret ./smoke_bodyguard_loop.sh
 
 set -euo pipefail
 
-BASE_URL="${1:-${BASE_URL:-http://localhost:8000}}"
-ADMIN_TOKEN="${2:-${ADMIN_TOKEN:-}}"
+BASE_URL="${1:-${BASE_URL:-http://127.0.0.1:8000}}"
 
-if [ -z "$ADMIN_TOKEN" ]; then
-    echo "ERROR: ADMIN_TOKEN must be set (env or second argument)"
-    exit 2
-fi
+# ---------------------------------------------------------------------------
+# Acquire bearer token: prefer AMK_EMAIL/AMK_PASSWORD login, fall back to
+# a pre-set ADMIN_TOKEN env var.
+# ---------------------------------------------------------------------------
+_acquire_token() {
+    local email="${AMK_EMAIL:-}"
+    local password="${AMK_PASSWORD:-}"
+    local static_token="${ADMIN_TOKEN:-}"
 
-AUTH_HEADER="Authorization: Bearer $ADMIN_TOKEN"
+    if [ -n "$email" ] && [ -n "$password" ]; then
+        local resp
+        resp=$(curl -sf --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${email}\",\"password\":\"${password}\"}" \
+            "${BASE_URL}/api/auth/login" 2>/dev/null) || {
+            echo "ERROR: Login request to ${BASE_URL}/api/auth/login failed" >&2
+            return 1
+        }
+        local token
+        token=$(python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])" <<< "$resp" 2>/dev/null) || {
+            echo "ERROR: Could not extract access_token from login response" >&2
+            return 1
+        }
+        if [ -z "$token" ]; then
+            echo "ERROR: access_token is empty in login response" >&2
+            return 1
+        fi
+        echo "$token"
+        return 0
+    fi
+
+    if [ -n "$static_token" ]; then
+        echo "$static_token"
+        return 0
+    fi
+
+    echo "ERROR: Set AMK_EMAIL+AMK_PASSWORD or ADMIN_TOKEN to authenticate" >&2
+    return 1
+}
+
+ADMIN_TOKEN="$(_acquire_token)"
+AUTH_HEADER="Authorization: Bearer ${ADMIN_TOKEN}"
 
 echo "=== Smoke: Bodyguard Lock Loop ==="
 echo "    BASE_URL: $BASE_URL"

@@ -204,7 +204,7 @@ class BodyguardService:
             # --- Post-reset grace period: never re-lock within N minutes of an admin reset ---
             bodyguard_reset_at = self._parse_datetime(bot.get("bodyguard_reset_at"))
             if bodyguard_reset_at:
-                grace_minutes = int(os.getenv("BODYGUARD_POST_RESET_GRACE_MINUTES", "5"))
+                grace_minutes = int(os.getenv("BODYGUARD_POST_RESET_GRACE_MINUTES", "30"))
                 if (now - bodyguard_reset_at).total_seconds() < grace_minutes * 60:
                     logger.debug(
                         "🛡️ Bodyguard grace period active for bot %s — skipping check", bot.get("name")
