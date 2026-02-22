@@ -36,9 +36,34 @@ export default function Login() {
       localStorage.clear();
       sessionStorage.clear();
       
-      // TASK B - Use access_token from standardized auth response
-      localStorage.setItem('token', response.access_token);
-      localStorage.setItem('user', JSON.stringify(response.user));
+      // Support both access_token (standard) and token (legacy) fields
+      const accessToken = response.access_token || response.token;
+      if (!accessToken) {
+        toast.error('Login failed: no token received from server.');
+        return;
+      }
+      localStorage.setItem('token', accessToken);
+      localStorage.setItem('user', JSON.stringify(response.user || {}));
+      
+      // DEV: Log token metadata for debugging session issues
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          const parts = accessToken.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(atob(parts[1]));
+            const expTs = payload.exp;
+            const nowTs = Math.floor(Date.now() / 1000);
+            const remainSecs = expTs ? expTs - nowTs : null;
+            console.debug(
+              `[Auth] Token stored | length=${accessToken.length}` +
+              ` | exp=${expTs ? new Date(expTs * 1000).toISOString() : 'N/A'}` +
+              ` | remaining=${remainSecs !== null ? remainSecs + 's' : 'N/A'}`
+            );
+          }
+        } catch (_) {
+          console.debug('[Auth] Token stored (could not decode for debug)');
+        }
+      }
       
       toast.success('Welcome back!');
       navigate('/dashboard');

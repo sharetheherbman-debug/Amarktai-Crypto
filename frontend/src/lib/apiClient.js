@@ -89,21 +89,28 @@ apiClient.interceptors.response.use(
       return apiClient(originalRequest);
     }
 
-    // Handle 401 Unauthorized - token expired
+    // Handle 401 Unauthorized — token expired or force-logout
     if (error.response?.status === 401) {
-      console.error('❌ Unauthorized - token may be expired');
-      
+      const detail = error.response?.data?.detail;
+      const isForceLogout = detail === 'FORCE_LOGOUT';
+
+      if (isForceLogout) {
+        console.warn('🚪 Admin force-logout triggered');
+      } else {
+        console.error('❌ Unauthorized - session expired or invalid token');
+      }
+
       // Clear token
       localStorage.removeItem('token');
-      
+
       // Only redirect if not already on login page
-      // Note: In a real SPA with React Router, consider using a callback or event
       if (!window.location.pathname.includes('/login')) {
-        console.log('🔀 Redirecting to login...');
-        // Emit event for React Router to handle
-        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-        
-        // Fallback: direct redirect after delay to allow event handling
+        const reason = isForceLogout ? 'force_logout' : 'session_expired';
+        console.log(`🔀 Redirecting to login (reason: ${reason})...`);
+        // Emit event for React Router to handle — carry reason so UI can show correct message
+        window.dispatchEvent(new CustomEvent('auth:unauthorized', { detail: { reason } }));
+
+        // Fallback: direct redirect after a short delay to allow event handling
         setTimeout(() => {
           if (!window.location.pathname.includes('/login')) {
             window.location.href = '/login';

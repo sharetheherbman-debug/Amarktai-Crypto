@@ -1873,9 +1873,11 @@ async def get_deposit_address(
             detail=f"Exchange '{exchange}' does not support deposit address fetching via API.",
         )
     except ccxt.AuthenticationError as e:
+        # 400 (not 401) — JWT is valid; the exchange API key/secret is wrong or missing.
+        # Reserve 401 for JWT auth failures only.
         raise HTTPException(
-            status_code=401,
-            detail=f"Authentication failed for {exchange}: {e}. Check your API key and permissions.",
+            status_code=400,
+            detail=f"Authentication failed for {exchange}: requires valid apiKey credential. Check your API key and permissions.",
         )
     except Exception as e:
         logger.error(f"Deposit address fetch failed for {exchange}/{currency}: {e}")

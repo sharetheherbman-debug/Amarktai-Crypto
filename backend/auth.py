@@ -100,6 +100,7 @@ async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] =
     Supports both "sub" (JWT standard) and "user_id" (legacy) fields for backward compatibility.
     Always returns a string user_id, never a dict.
     Raises 401 when Authorization header is missing or token is invalid.
+    Also checks force_logout flag — if set, returns 401 with detail="FORCE_LOGOUT".
     """
     if not credentials:
         raise HTTPException(
@@ -118,6 +119,26 @@ async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] =
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+
+    # Check force_logout flag — one-time kill switch set by admin
+    try:
+        import database as db
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "force_logout": 1}
+        )
+        if user_doc and user_doc.get("force_logout"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="FORCE_LOGOUT",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Never crash auth on a DB error — log and continue
+        logger.warning("force_logout check failed (DB error): %s", exc)
+
     return user_id
 
 async def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(optional_security)) -> Optional[str]:
