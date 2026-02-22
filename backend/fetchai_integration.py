@@ -6,9 +6,12 @@ Fetch.ai Integration
 
 import asyncio
 import aiohttp
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from logger_config import logger
 import database as db
+
+# Rate-limit "key not configured" warnings to once per 10 minutes
+_WARN_INTERVAL = timedelta(minutes=10)
 
 
 class FetchAIIntegration:
@@ -16,6 +19,7 @@ class FetchAIIntegration:
         self.api_key = None
         self.api_url = "https://api.fetch.ai/v1"
         self.cache = {}
+        self._last_missing_key_warn: datetime | None = None
     
     def set_credentials(self, api_key: str):
         """Set Fetch.ai API credentials"""
@@ -44,7 +48,10 @@ class FetchAIIntegration:
     async def fetch_market_signals(self, pair: str = "BTC/USD") -> dict:
         """Fetch AI-powered market signals from Fetch.ai"""
         if not self.api_key:
-            logger.warning("Fetch.ai API key not configured — returning unavailable signal")
+            now = datetime.now(timezone.utc)
+            if self._last_missing_key_warn is None or (now - self._last_missing_key_warn) >= _WARN_INTERVAL:
+                logger.warning("Fetch.ai API key not configured — signals unavailable (this warning appears at most once per 10 min)")
+                self._last_missing_key_warn = now
             return self._unavailable_signal(pair)
         
         try:

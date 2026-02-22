@@ -7,9 +7,12 @@ FLOKx Integration
 
 import asyncio
 import aiohttp
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from logger_config import logger
 import database as db
+
+# Rate-limit "key not configured" warnings to once per 10 minutes
+_WARN_INTERVAL = timedelta(minutes=10)
 
 
 class FLOKxIntegration:
@@ -17,6 +20,7 @@ class FLOKxIntegration:
         self.api_key = None  # Will be set from user credentials
         self.api_url = "https://api.flokx.io/v1"
         self.cache = {}
+        self._last_missing_key_warn: datetime | None = None
     
     def set_credentials(self, api_key: str):
         """Set FLOKx API credentials"""
@@ -46,7 +50,10 @@ class FLOKxIntegration:
     async def fetch_market_coefficients(self, pair: str = "BTC/USD") -> dict:
         """Fetch market intelligence coefficients from FLOKx"""
         if not self.api_key:
-            logger.warning("FLOKx API key not configured")
+            now = datetime.now(timezone.utc)
+            if self._last_missing_key_warn is None or (now - self._last_missing_key_warn) >= _WARN_INTERVAL:
+                logger.warning("FLOKx API key not configured — signals unavailable (this warning appears at most once per 10 min)")
+                self._last_missing_key_warn = now
             return self._mock_coefficients(pair)
         
         try:

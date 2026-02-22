@@ -141,18 +141,41 @@ async def get_paper_wallet_balances(user_id: str) -> Dict:
 
 @router.get("/paper")
 async def get_paper_wallet(user_id: str = Depends(get_current_user)):
-    """Get paper wallet balances and totals."""
+    """Get paper wallet balances and summary.
+
+    Returns both the legacy balance breakdown **and** the wallet_summary_service fields
+    so that callers get consistent numbers regardless of which field they read:
+
+    - available_wallet_zar: funds available for new trades
+    - allocated_funds_zar:  funds currently deployed in open positions
+    - reserved_funds_zar:   funds held back by risk/circuit-breaker rules
+    - required_funds_zar:   minimum capital needed to run all active bots
+    - shortfall_zar:        max(0, required - available)
+    - status:               'ok' | 'shortfall' | 'not_configured'
+    """
+    summary = await wallet_summary_service.get_summary(user_id)
     available = await paper_wallet_service.get_balances(user_id)
     allocated = await get_paper_wallet_allocated_balances(user_id)
     totals = await get_paper_wallet_balances(user_id)
     total_value = sum(float(value or 0) for value in totals.values())
+
     return {
+        "success": True,
+        "mode": summary.get("mode", "paper"),
+        # Canonical wallet_summary fields
+        "available_wallet_zar": summary.get("available_wallet_zar", round(total_value, 2)),
+        "allocated_funds_zar": summary.get("allocated_funds_zar", 0.0),
+        "reserved_funds_zar": summary.get("reserved_funds_zar", 0.0),
+        "required_funds_zar": summary.get("required_funds_zar", 0.0),
+        "shortfall_zar": summary.get("shortfall_zar", 0.0),
+        "status": summary.get("status", "ok"),
+        # Legacy balance breakdown (kept for backward compatibility)
         "user_id": user_id,
         "available": available.get("balances", {}),
         "allocated": allocated,
         "balances": totals,
         "total": round(total_value, 2),
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
