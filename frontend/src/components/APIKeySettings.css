@@ -340,3 +340,14 @@
 .api-key-card.expanded {
   border-color: rgba(56, 189, 248, 0.4);
 }
+
+/* Section headings for Exchanges / AI Providers */
+.api-key-section-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 20px 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+

@@ -19,6 +19,7 @@ from auth import get_current_user, require_admin
 from utils.bot_state import normalize_bot_state
 from services.wallet_summary_service import wallet_summary_service
 from services.emergency_stop_override_service import emergency_stop_override_service
+from services.bot_filters import bot_not_deleted_filter
 import database as db
 from engines.audit_logger import audit_logger
 from json_utils import serialize_doc, serialize_list
@@ -417,9 +418,9 @@ async def admin_status(admin_id: str = Depends(require_admin)):
         modes = await db.system_modes_collection.find_one({"user_id": admin_id}, {"_id": 0}) or {}
 
         total_users = await db.users_collection.count_documents({})
-        total_bots = await db.bots_collection.count_documents({"status": {"$ne": "deleted"}})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        paused_bots = await db.bots_collection.count_documents({"status": "paused"})
+        total_bots = await db.bots_collection.count_documents(bot_not_deleted_filter())
+        active_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "active"}))
+        paused_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "paused"}))
         total_trades = await db.trades_collection.count_documents({})
 
         from trading_scheduler import trading_scheduler
@@ -484,8 +485,11 @@ async def get_all_users(admin_id: str = Depends(require_admin)):
                 "gate": any(k.get("provider") == "gate" for k in api_keys),
             }
             
-            # Get bots summary
-            bots_cursor = db.bots_collection.find({"user_id": user_id}, {"_id": 0, "exchange": 1, "trading_mode": 1, "status": 1})
+            # Get bots summary (exclude deleted)
+            bots_cursor = db.bots_collection.find(
+                bot_not_deleted_filter({"user_id": user_id}),
+                {"_id": 0, "exchange": 1, "trading_mode": 1, "status": 1}
+            )
             bots = await bots_cursor.to_list(1000)
             
             # Count by exchange
@@ -968,11 +972,7 @@ async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
         })
         active_users = max(total_users - blocked_users, 0)
 
-        bot_filter = {
-            "status": {"$ne": "deleted"},
-            "deleted": {"$ne": True},
-            "deleted_at": {"$exists": False}
-        }
+        bot_filter = bot_not_deleted_filter()
         total_bots = await db.bots_collection.count_documents(bot_filter)
         active_bots = await db.bots_collection.count_documents({**bot_filter, "status": "active"})
         paused_bots = await db.bots_collection.count_documents({**bot_filter, "status": "paused"})
@@ -1223,16 +1223,16 @@ async def get_system_stats(admin_user_id: str = Depends(verify_admin)):
         active_users = await db.users_collection.count_documents({"status": "active"})
         blocked_users = await db.users_collection.count_documents({"status": "blocked"})
         
-        total_bots = await db.bots_collection.count_documents({})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        live_bots = await db.bots_collection.count_documents({"mode": "live"})
+        total_bots = await db.bots_collection.count_documents(bot_not_deleted_filter())
+        active_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "active"}))
+        live_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"$or": [{"mode": "live"}, {"trading_mode": "live"}]}))
         
         total_trades = await db.trades_collection.count_documents({})
         live_trades = await db.trades_collection.count_documents({"is_paper": False})
         
-        # Calculate total profit across all users
+        # Calculate total profit across all active bots
         all_bots = await db.bots_collection.find(
-            {},
+            bot_not_deleted_filter(),
             {"_id": 0, "total_profit": 1}
         ).to_list(10000)
         total_profit = sum(b.get('total_profit', 0) for b in all_bots)
@@ -1616,18 +1616,12 @@ async def get_all_bots_admin(
     admin_id: str = Depends(require_admin)
 ):
     """
-    Get all bots (admin view) with comprehensive details
-    - Bot info (id, name, user, exchange, mode, status)
-    - Pause information (reason, timestamp)
-    - Capital and profit/loss
-    
-    Args:
-        mode: Filter by trading mode ('paper' or 'live')
-        user_id: Filter by specific user (optional)
+    Get all bots (admin view) with comprehensive details — excludes deleted bots.
+    Use GET /api/admin/bots/archived to see deleted bots.
     """
     try:
-        # Build query
-        query = {}
+        # Build query — always exclude deleted bots
+        query = bot_not_deleted_filter()
         if mode:
             query["trading_mode"] = mode
         if user_id:
@@ -1663,7 +1657,7 @@ async def get_all_bots_admin(
             enriched_bots.append(enriched_bot)
         
         # Sort by name
-        enriched_bots.sort(key=lambda b: b["name"])
+        enriched_bots.sort(key=lambda b: b["name"] or "")
         
         return {
             "bots": enriched_bots,
@@ -1672,6 +1666,60 @@ async def get_all_bots_admin(
         
     except Exception as e:
         logger.error(f"Get all bots admin error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bots/archived")
+async def get_archived_bots(
+    user_id: Optional[str] = None,
+    admin_id: str = Depends(require_admin)
+):
+    """Admin-only: return soft-deleted (archived) bots.
+    
+    These are bots with status='deleted' or is_deleted=True.
+    Normal queries never include these; this endpoint provides explicit access.
+    """
+    try:
+        query: dict = {
+            "$or": [
+                {"status": "deleted"},
+                {"is_deleted": True},
+                {"deleted_at": {"$exists": True}},
+            ]
+        }
+        if user_id:
+            query["user_id"] = user_id
+
+        bots_cursor = db.bots_collection.find(query, {"_id": 0})
+        bots = await bots_cursor.to_list(10000)
+
+        enriched = []
+        for bot in bots:
+            bot_user_id = bot.get("user_id")
+            user_doc = await db.users_collection.find_one(
+                {"id": bot_user_id},
+                {"_id": 0, "email": 1, "first_name": 1}
+            )
+            enriched.append({
+                "bot_id": bot.get("id"),
+                "name": bot.get("name"),
+                "user_id": bot_user_id,
+                "username": user_doc.get("first_name") if user_doc else "Unknown",
+                "email": user_doc.get("email") if user_doc else "Unknown",
+                "exchange": bot.get("exchange"),
+                "mode": bot.get("trading_mode", "paper"),
+                "status": bot.get("status"),
+                "deleted_at": bot.get("deleted_at"),
+                "deleted_by": bot.get("deleted_by"),
+                "current_capital": bot.get("current_capital", 0),
+                "profit_loss": bot.get("total_profit", 0),
+            })
+
+        enriched.sort(key=lambda b: b.get("deleted_at") or "0000-00-00", reverse=True)
+        return {"bots": enriched, "total": len(enriched)}
+
+    except Exception as e:
+        logger.error(f"Get archived bots error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

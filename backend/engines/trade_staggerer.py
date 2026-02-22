@@ -130,6 +130,18 @@ class TradeStaggerer:
                 
                 bot_id = trade_request['bot_id']
                 exchange = trade_request['exchange']
+
+                # Drop entry immediately if bot is no longer active in DB
+                try:
+                    bot_doc = await db.bots_collection.find_one(
+                        {"id": bot_id, "status": "active"}, {"_id": 0, "id": 1}
+                    )
+                    if not bot_doc:
+                        bot_id_display = str(bot_id)[:8] if bot_id else 'unknown'
+                        logger.info(f"🗑️ Discarding queue entry for inactive/deleted bot {bot_id_display}")
+                        continue
+                except Exception:
+                    pass  # If DB check fails, fall through to normal logic
                 
                 can_execute, reason = await self.can_execute_now(bot_id, exchange)
                 
@@ -143,7 +155,8 @@ class TradeStaggerer:
                     if age_minutes < 30:  # Only re-queue if less than 30 minutes old
                         self.trade_queue.append(trade_request)
                     else:
-                        logger.warning(f"⏰ Dropped stale trade request: {bot_id[:8]} (age: {age_minutes:.1f}m)")
+                        bot_id_display = str(bot_id)[:8] if bot_id else 'unknown'
+                        logger.warning(f"⏰ Dropped stale trade request: {bot_id_display} (age: {age_minutes:.1f}m)")
             
             return None
             

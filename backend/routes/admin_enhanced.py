@@ -14,6 +14,7 @@ import shutil
 from auth import require_admin
 import database as db
 from config.platforms import SUPPORTED_PLATFORMS
+from services.bot_filters import bot_not_deleted_filter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["Enhanced Admin"])
@@ -40,10 +41,9 @@ async def get_users_list(admin_id: str = Depends(require_admin)):
             user_id = user.get("id")
             
             # Count bots for this user
-            bot_count = await db.bots_collection.count_documents({
-                "user_id": user_id,
-                "status": {"$nin": ["deleted"]}
-            })
+            bot_count = await db.bots_collection.count_documents(
+                bot_not_deleted_filter({"user_id": user_id})
+            )
             
             enriched_users.append({
                 "user_id": user_id,
@@ -87,10 +87,7 @@ async def get_user_bots_detailed(
         
         # Get all bots for this user (excluding deleted)
         bots_cursor = db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$nin": ["deleted"]}
-            },
+            bot_not_deleted_filter({"user_id": user_id}),
             {"_id": 0}
         )
         bots = await bots_cursor.to_list(1000)
@@ -165,17 +162,17 @@ async def get_admin_dashboard_stats(admin_id: str = Depends(require_admin)):
         total_users = await db.users_collection.count_documents({})
         
         # Bot stats
-        total_bots = await db.bots_collection.count_documents({"status": {"$nin": ["deleted"]}})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        paused_bots = await db.bots_collection.count_documents({"status": "paused"})
-        quarantined_bots = await db.bots_collection.count_documents({"status": "quarantined"})
+        total_bots = await db.bots_collection.count_documents(bot_not_deleted_filter())
+        active_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "active"}))
+        paused_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "paused"}))
+        quarantined_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "quarantined"}))
         
         # Trading stats
         total_trades = await db.trades_collection.count_documents({})
         
         # Calculate system-wide profit/loss
         bots_cursor = db.bots_collection.find(
-            {"status": {"$nin": ["deleted"]}},
+            bot_not_deleted_filter(),
             {"_id": 0, "current_capital": 1, "initial_capital": 1}
         )
         all_bots = await bots_cursor.to_list(10000)
@@ -232,11 +229,7 @@ async def get_system_stats(admin_id: str = Depends(require_admin)):
         })
         active_users = max(total_users - blocked_users, 0)
         
-        bot_filter = {
-            "status": {"$ne": "deleted"},
-            "deleted": {"$ne": True},
-            "deleted_at": {"$exists": False}
-        }
+        bot_filter = bot_not_deleted_filter()
         total_bots = await db.bots_collection.count_documents(bot_filter)
         active_bots = await db.bots_collection.count_documents({**bot_filter, "status": "active"})
         paused_bots = await db.bots_collection.count_documents({**bot_filter, "status": "paused"})

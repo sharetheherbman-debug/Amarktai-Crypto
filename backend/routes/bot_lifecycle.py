@@ -1430,8 +1430,8 @@ async def delete_bot(
         # Broadcast realtime events
         from services.realtime_service import realtime_service
         
-        # Bot deleted event
-        await rt_events.bot_deleted(user_id, bot_name)
+        # Bot deleted event (include bot_id so frontend can immediately remove it)
+        await rt_events.bot_deleted(user_id, bot_name, bot_id=bot_id)
         await audit_logger.log_bot_action("deleted", user_id, bot_id, bot_name)
         
         # Update overview, profits, and platform stats
