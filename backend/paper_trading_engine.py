@@ -724,11 +724,43 @@ class PaperTradingEngine:
             max_drawdown_pct = bot_data.get('max_drawdown_pct', 0.15)  # 15%
             circuit_breaker_loss_pct = bot_data.get('circuit_breaker_loss_pct', 0.10)  # 10%
             
-            # Check circuit breaker - daily loss limit
-            daily_pnl_pct = ((current_capital - initial_capital) / initial_capital) if initial_capital > 0 else 0
+            # Check circuit breaker - TRUE daily loss limit using per-day baseline.
+            # We store 'daily_capital_baseline' and 'daily_baseline_date' on the bot doc.
+            # If the date is stale (new day) or missing, we reinitialise the baseline to
+            # current_capital so daily_pnl_pct starts at 0 — no false trip.
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stored_baseline_date = bot_data.get('daily_baseline_date')
+            stored_baseline = bot_data.get('daily_capital_baseline')
+
+            if (
+                not stored_baseline_date
+                or stored_baseline_date != today_str
+                or not stored_baseline
+                or stored_baseline <= 0
+            ):
+                # New day or first run — initialise baseline; no trip
+                equity_start_of_day = current_capital if current_capital > 0 else (initial_capital or 1000)
+                try:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {
+                            "daily_capital_baseline": equity_start_of_day,
+                            "daily_baseline_date": today_str
+                        }}
+                    )
+                except Exception:
+                    pass
+                daily_pnl_pct = 0.0
+            else:
+                equity_start_of_day = stored_baseline
+                daily_pnl_pct = (current_capital - equity_start_of_day) / equity_start_of_day
+
             if daily_pnl_pct < -circuit_breaker_loss_pct:
-                logger.warning(f"Circuit breaker triggered: {bot_data['name'][:15]} - daily loss {daily_pnl_pct*100:.1f}% exceeds {circuit_breaker_loss_pct*100:.1f}%")
-                return {"success": False, "bot_id": bot_id, "error": f"Circuit breaker: daily loss limit exceeded"}
+                logger.warning(
+                    f"Circuit breaker triggered: {bot_data['name'][:15]} - "
+                    f"daily loss {daily_pnl_pct*100:.1f}% exceeds {circuit_breaker_loss_pct*100:.1f}%"
+                )
+                return {"success": False, "bot_id": bot_id, "error": "Circuit breaker: daily loss limit exceeded"}
             
             # Check max drawdown
             max_drawdown = bot_data.get('max_drawdown', 0)

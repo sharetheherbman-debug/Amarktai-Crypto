@@ -281,6 +281,8 @@ class TradingScheduler:
             
             # Process ready trades from queue
             logger.debug("🔍 Checking trade queue for ready trades...")
+            # Build a fast lookup set of active bot IDs to detect stale queue entries
+            active_bot_ids = {b['id'] for b in active_bots}
             for _ in range(5):  # Process up to 5 trades per cycle
                 trade_request = await trade_staggerer.get_next_trade()
                 
@@ -294,7 +296,10 @@ class TradingScheduler:
                 bot = next((b for b in active_bots if b['id'] == bot_id), None)
                 
                 if not bot:
-                    logger.warning(f"⚠️ Bot {bot_id} not found in active bots, skipping trade")
+                    # Stale queue entry – discard it (do NOT re-queue) so it stops repeating
+                    logger.warning(
+                        f"⚠️ Bot {bot_id} not found in active bots – discarding stale queue entry"
+                    )
                     continue
                 
                 # PHASE 4B/4C: Validate trading mode gates BEFORE execution
@@ -478,10 +483,16 @@ class TradingScheduler:
             # Calculate amount
             # For live trading, we need to get real price first
             
-            # Check if user has API keys for this exchange
+            # Check if user has API keys for this exchange (also check legacy 'provider' field)
+            # Guard: never treat AI providers as exchanges
+            from config.platforms import SUPPORTED_PLATFORMS as _SUPPORTED_PLATFORMS
+            if exchange.lower() not in _SUPPORTED_PLATFORMS:
+                logger.warning(f"Exchange '{exchange}' is not a supported exchange – aborting live trade")
+                return {"success": False, "bot_id": bot['id'], "skip_reason": f"Unsupported exchange: {exchange}"}
+
             api_key_doc = await db.api_keys_collection.find_one({
                 "user_id": bot['user_id'],
-                "exchange": exchange
+                "$or": [{"exchange": exchange}, {"provider": exchange}]
             }, {"_id": 0})
             
             if not api_key_doc:
@@ -507,13 +518,39 @@ class TradingScheduler:
                 logger.warning(f"LiveGate blocked trade: {violations}")
                 return None
 
+            # Compute trade amount using position sizing logic instead of hardcoded value
+            trade_amount = None
+            skip_reason = None
+            try:
+                from engines.position_sizing import PositionSizer
+                sizer = PositionSizer()
+                sizing = await sizer.get_recommended_position_size(bot['id'], pair)
+                if "error" not in sizing:
+                    recommended_usd = sizing.get("recommended_position_size", 0)
+                    # Convert USD position size to base asset amount using a price estimate
+                    price_estimate = await paper_engine.get_real_price(pair, exchange)
+                    if price_estimate and price_estimate > 0 and recommended_usd > 0:
+                        trade_amount = recommended_usd / price_estimate
+                    else:
+                        logger.warning(f"Could not compute trade amount for {pair} on {exchange} – no price")
+                        skip_reason = "Cannot compute trade amount: price unavailable"
+                else:
+                    skip_reason = f"Position sizing error: {sizing.get('error')}"
+            except Exception as e:
+                skip_reason = f"Position sizing exception: {e}"
+
+            if trade_amount is None or trade_amount <= 0:
+                effective_reason = skip_reason or "Amount could not be determined"
+                logger.warning(f"Skipping live trade for {bot.get('name')}: {effective_reason}")
+                return {"success": False, "bot_id": bot['id'], "skip_reason": effective_reason}
+
             # Execute trade via live engine
             trade_result = await live_trading_engine.execute_trade(
                 bot_id=bot['id'],
                 bot_data=bot,
                 symbol=pair,
                 side=side,
-                amount=0.001,  # Small amount for testing
+                amount=trade_amount,
                 price=None,  # Market order
                 paper_mode=False  # LIVE MODE
             )
