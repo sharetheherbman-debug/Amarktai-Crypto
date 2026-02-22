@@ -1384,13 +1384,21 @@ class PaperTradingEngine:
             if open_trade:
                 trade_result = await self._close_open_trade(bot_id, bot_data, open_trade)
                 if not trade_result:
-                    return None
+                    return {"success": False, "skip_reason": "open_trade_close_failed"}
                 existing_trade_id = open_trade.get("id") or open_trade.get("trade_id")
                 entry_recorded = bool(open_trade.get("entry_ledger_recorded", False))
             else:
                 trade_result = await self.execute_smart_trade(bot_id, bot_data)
                 if not trade_result.get('success'):
-                    return None
+                    return {
+                        "success": False,
+                        "skip_reason": (
+                            trade_result.get("skip_reason")
+                            or trade_result.get("error")
+                            or "trade_rejected"
+                        ),
+                        "diagnostics": trade_result,
+                    }
 
                 if trade_result.get("status") == "open":
                     # Record open trade and exit (do not close immediately)
@@ -1705,7 +1713,7 @@ class PaperTradingEngine:
             
         except Exception as e:
             logger.error(f"Cycle error: {e}")
-            return None
+            return {"success": False, "skip_reason": f"cycle_error: {e}", "error": str(e)}
     
     async def cleanup(self):
         """Alias for close_exchanges"""

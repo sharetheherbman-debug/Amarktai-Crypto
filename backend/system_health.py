@@ -170,7 +170,12 @@ class SystemHealth:
         
         # Deduct if services not running
         for service, info in status.get("services", {}).items():
-            if info.get("status") != "running" and info.get("status") != "active":
+            # services values can be plain strings (e.g. "running") or dicts
+            if isinstance(info, dict):
+                svc_status = info.get("status", info.get("health", "unknown"))
+            else:
+                svc_status = str(info)
+            if svc_status not in ("running", "active", "healthy"):
                 score -= 15
         
         # Deduct if no trades
@@ -191,11 +196,18 @@ async def get_system_health():
         # Simplify for admin endpoint
         services_status = {}
         for service_name, service_data in full_status.get("services", {}).items():
-            services_status[service_name] = service_data.get("health", "unknown")
+            # service_data can be a plain string ("running") or a dict with a "health" key
+            if isinstance(service_data, dict):
+                services_status[service_name] = service_data.get("health", "unknown")
+            else:
+                services_status[service_name] = str(service_data) if service_data else "unknown"
         
         # Add AI systems
         for ai_name, ai_data in full_status.get("ai_systems", {}).items():
-            services_status[ai_name] = ai_data.get("health", "unknown")
+            if isinstance(ai_data, dict):
+                services_status[ai_name] = ai_data.get("health", "unknown")
+            else:
+                services_status[ai_name] = str(ai_data) if ai_data else "unknown"
         
         # Calculate simple health score
         healthy_count = sum(1 for status in services_status.values() if status == "healthy")
