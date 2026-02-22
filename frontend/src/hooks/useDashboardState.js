@@ -1517,7 +1517,7 @@ export default function useDashboardState(navigate) {
 
   const loadStorageData = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/admin/storage`, axiosConfig);
+      const res = await axios.get(`${API}/admin/user-storage`, axiosConfig);
       setStorageData(res.data);
       setStorageError(null);
     } catch (err) {

@@ -22,6 +22,7 @@ from services.live_gate_service import live_gate_service
 from utils.trading_gates import TradingGateError, enforce_live_trading_gates
 from utils.trading_mode import resolve_bot_trading_mode
 from services.bot_runtime_state import bot_runtime_state
+from services.bot_filters import bot_not_deleted_filter
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +74,9 @@ class TradingScheduler:
             
             logger.info("📊 Paper tick start")
             
-            # Get all active bots
+            # Get all active bots (guaranteed non-deleted)
             active_bots = await db.bots_collection.find(
-                {"status": "active"},
+                bot_not_deleted_filter({"status": "active"}),
                 {"_id": 0}
             ).to_list(1000)
             
