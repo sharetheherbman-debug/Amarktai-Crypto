@@ -201,6 +201,16 @@ class BodyguardService:
             threshold = self._get_drawdown_threshold(trading_mode, risk_profile)
             now = datetime.now(timezone.utc)
 
+            # --- Post-reset grace period: never re-lock within N minutes of an admin reset ---
+            bodyguard_reset_at = self._parse_datetime(bot.get("bodyguard_reset_at"))
+            if bodyguard_reset_at:
+                grace_minutes = int(os.getenv("BODYGUARD_POST_RESET_GRACE_MINUTES", "5"))
+                if (now - bodyguard_reset_at).total_seconds() < grace_minutes * 60:
+                    logger.debug(
+                        "🛡️ Bodyguard grace period active for bot %s — skipping check", bot.get("name")
+                    )
+                    return False, None
+
             created_at = self._parse_datetime(bot.get("created_at"))
             runtime_seconds = (now - created_at).total_seconds() if created_at else 0
             trades_count = int(bot.get("trades_count") or 0)
@@ -227,13 +237,23 @@ class BodyguardService:
 
             equity_peak = bot.get('equity_peak', current_equity)
             
-            # If no equity peak set, initialize it
+            # If no equity peak set (or if it would produce an incorrect baseline), initialize it.
+            # Use max(initial_capital, current_equity) so a bot that starts with 500 is not
+            # instantly flagged for a 50% drawdown against a default 1000 peak.
             if not bot.get('equity_peak'):
+                raw_initial = bot.get('initial_capital')
+                raw_starting = bot.get('starting_capital')
+                if raw_initial is not None:
+                    initial_capital = float(raw_initial)
+                elif raw_starting is not None:
+                    initial_capital = float(raw_starting)
+                else:
+                    initial_capital = current_equity
+                equity_peak = max(initial_capital, current_equity)
                 await db.bots_collection.update_one(
                     {"id": bot_id},
-                    {"$set": {"equity_peak": current_equity}}
+                    {"$set": {"equity_peak": equity_peak}}
                 )
-                equity_peak = current_equity
             
             # Calculate drawdown percentage
             if equity_peak > 0:

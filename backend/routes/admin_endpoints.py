@@ -1987,47 +1987,93 @@ async def reset_bot_locks(
     admin_id: str = Depends(require_admin),
     req: Request = None
 ):
-    """Reset safety lock flags for a bot (admin-only)."""
+    """Reset safety lock flags for a bot (admin-only).
+
+    After reset the bot becomes active again and the bodyguard is given a
+    grace period so it cannot immediately re-lock.  equity_peak is aligned
+    to the current capital so the next drawdown calculation starts from a
+    fresh baseline.
+    """
     try:
         bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
 
+        # Determine a fresh equity baseline: prefer current_capital, fall back to initial_capital.
+        current_capital = bot.get("current_capital") or bot.get("initial_capital") or 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+
         await db.bots_collection.update_one(
             {"id": bot_id},
             {
                 "$set": {
-                    "status": "paused",
-                    "pause_reason": request.reason,
-                    "paused_at": datetime.now(timezone.utc).isoformat(),
+                    # Make bot tradeable immediately
+                    "status": "active",
                     "paused_by_system": False,
                     "paused_by_bodyguard": False,
-                    "requires_manual_reset": False
+                    "requires_manual_reset": False,
+                    # Re-baseline equity so bodyguard drawdown calculation starts clean
+                    "equity_peak": current_capital,
+                    "current_drawdown_pct": 0,
+                    # Grace-period timestamp: bodyguard will not re-lock for N minutes after this
+                    "bodyguard_reset_at": now_iso,
+                    # Reset breach counter
+                    "bodyguard_breach_count": 0,
                 },
                 "$unset": {
+                    "pause_reason": "",
+                    "pause_reason_code": "",
+                    "paused_at": "",
+                    "paused_by": "",
                     "quarantine_reason": "",
+                    "quarantine_reason_code": "",
                     "quarantined_at": "",
                     "retraining_until": "",
+                    "quarantine_duration_seconds": "",
                     "bodyguard_pause_threshold": "",
-                    "bodyguard_pause_drawdown": ""
-                }
+                    "bodyguard_pause_drawdown": "",
+                    "bodyguard_last_pause_at": "",
+                    "bodyguard_last_breach_at": "",
+                    "bodyguard_warmup": "",
+                    "bodyguard_warmup_reason": "",
+                    "training_job_id": "",
+                },
             }
         )
+
+        # Cancel any pending training jobs for this bot so they don't hold the lock
+        try:
+            await db.training_jobs_collection.update_many(
+                {"bot_id": bot_id, "status": {"$in": ["pending", "running"]}},
+                {"$set": {"status": "cancelled", "cancelled_at": now_iso, "cancelled_by": "admin_reset_locks"}}
+            )
+        except Exception:
+            pass
+
+        # Emit realtime event so the dashboard reflects the new state immediately
+        try:
+            from realtime_events import rt_events
+            updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+            user_id_for_event = (updated_bot or bot).get("user_id", "")
+            await rt_events.bot_status_changed(user_id_for_event, bot_id, "active", "admin_reset_locks")
+        except Exception:
+            pass
 
         await log_admin_action(
             admin_id=admin_id,
             action="reset_bot_locks",
             target_type="bot",
             target_id=bot_id,
-            details={"reason": request.reason},
+            details={"reason": request.reason, "equity_baseline_reset_to": current_capital},
             request=req
         )
 
         return {
             "success": True,
             "bot_id": bot_id,
-            "status": "paused",
-            "message": "Bot safety locks reset. Resume manually when ready."
+            "status": "active",
+            "equity_peak_reset_to": current_capital,
+            "message": "Bot safety locks cleared. Bot is now active with a fresh equity baseline.",
         }
     except HTTPException:
         raise
