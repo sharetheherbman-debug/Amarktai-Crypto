@@ -922,7 +922,7 @@ async def clear_force_logout(
     try:
         result = await db.users_collection.update_one(
             {"id": user_id},
-            {"$unset": {"force_logout": "", "force_logout_at": "", "force_logout_by": ""}}
+            {"$unset": {"force_logout": 1, "force_logout_at": 1, "force_logout_by": 1}}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="User not found")

@@ -150,7 +150,7 @@ echo ""
 echo "9) GET /api/wallet/deposit-address"
 if [ -z "$TOKEN" ]; then warn "Skipped (no token)"; else
   STATUS=$(check_http "wallet/deposit-address" "$BASE/api/wallet/deposit-address?exchange=luno&currency=BTC" GET "" "$TOKEN")
-  if [ "$STATUS" = "200" ] || [ "$STATUS" = "400" ] || [ "$STATUS" = "422" ] || [ "$STATUS" = "400" ]; then
+  if [ "$STATUS" = "200" ] || [ "$STATUS" = "400" ] || [ "$STATUS" = "422" ]; then
     pass "wallet/deposit-address → $STATUS (200 if keys present, 400/422 if missing — both valid)"
   elif [ "$STATUS" = "401" ]; then
     fail "wallet/deposit-address → 401 (WRONG: should be 400/422 for missing keys, not 401)"

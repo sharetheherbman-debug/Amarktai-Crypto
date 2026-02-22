@@ -57,7 +57,7 @@ export default function Login() {
             console.debug(
               `[Auth] Token stored | length=${accessToken.length}` +
               ` | exp=${expTs ? new Date(expTs * 1000).toISOString() : 'N/A'}` +
-              ` | remaining=${remainSecs != null ? remainSecs + 's' : 'N/A'}`
+              ` | remaining=${remainSecs !== null ? remainSecs + 's' : 'N/A'}`
             );
           }
         } catch (_) {
