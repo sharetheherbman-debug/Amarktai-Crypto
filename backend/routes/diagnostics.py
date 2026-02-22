@@ -570,12 +570,18 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
 
         total_available = 0
         try:
-            from engines.wallet_manager import wallet_manager
-            wallet_balance = await wallet_manager.get_master_balance(user_id)
-            if 'total_zar' in wallet_balance:
-                total_available = wallet_balance['total_zar']
+            from services.wallet_summary_service import wallet_summary_service
+            wallet_summary = await wallet_summary_service.get_summary(user_id)
+            total_available = float(wallet_summary.get('available_wallet_zar', 0) or 0)
         except Exception as e:
             logger.warning(f"Auto-spawn wallet balance fallback: {e}")
+            try:
+                from engines.wallet_manager import wallet_manager
+                wallet_balance = await wallet_manager.get_master_balance(user_id)
+                if 'total_zar' in wallet_balance:
+                    total_available = wallet_balance['total_zar']
+            except Exception as e2:
+                logger.warning(f"Auto-spawn wallet balance secondary fallback: {e2}")
 
         bot_capital_requirement = float(os.getenv('BOT_INITIAL_CAPITAL_ZAR', '1000'))
         now = datetime.now(timezone.utc)

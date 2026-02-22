@@ -59,6 +59,9 @@ async def test_connection(user_id: str = Depends(get_current_user)):
                 "configured": True
             }
         
+        # Success - ensure configured flag is present
+        if result.get("status") == "success":
+            result["configured"] = True
         return result
         
     except Exception as e:

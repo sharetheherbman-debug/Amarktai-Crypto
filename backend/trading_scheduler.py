@@ -340,6 +340,34 @@ class TradingScheduler:
                             profit = trade.get('profit_loss', 0)
                             logger.info(f"✅ Trade inserted: id={trade_id}, profit={profit:.2f}")
                             logger.info(f"📡 Realtime event emitted: trade_id={trade_id}")
+                            # Clear any previous order error on successful trade
+                            await db.bots_collection.update_one(
+                                {"id": bot_id},
+                                {"$set": {
+                                    "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_trade_simulated_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_order_error": None
+                                }}
+                            )
+                        elif result is None or (isinstance(result, dict) and not result.get('success', True)):
+                            # Trade was attempted but blocked/failed - record diagnostics
+                            err_msg = result.get('error') if isinstance(result, dict) else "No trade result"
+                            reason_msg = result.get('skip_reason') or err_msg if isinstance(result, dict) else err_msg
+                            logger.debug(f"⚠️ Paper trade skipped for {bot['name']}: {reason_msg}")
+                            await db.bots_collection.update_one(
+                                {"id": bot_id},
+                                {"$set": {
+                                    "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_order_error": reason_msg
+                                }}
+                            )
+                        else:
+                            # Tick happened but no trade (e.g. open position)
+                            await db.bots_collection.update_one(
+                                {"id": bot_id},
+                                {"$set": {"last_tick_at": datetime.now(timezone.utc).isoformat()}}
+                            )
                     else:
                         # LIVE TRADING - Use live_trading_engine
                         logger.info(f"🔴 LIVE TRADING: {bot['name']} on {bot.get('exchange')}")
@@ -383,6 +411,18 @@ class TradingScheduler:
                 except Exception as e:
                     logger.error(f"❌ Trade execution error for {bot['name']}: {e}", exc_info=True)
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
+                    # Surface the error into bot document for diagnostics
+                    try:
+                        await db.bots_collection.update_one(
+                            {"id": bot_id},
+                            {"$set": {
+                                "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
+                                "last_order_error": str(e)
+                            }}
+                        )
+                    except Exception:
+                        pass
             
             # Add new trades to queue
             for bot in active_bots:
