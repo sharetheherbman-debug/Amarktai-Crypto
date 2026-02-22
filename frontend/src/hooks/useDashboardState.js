@@ -421,7 +421,6 @@ export default function useDashboardState(navigate) {
   useEffect(() => {
     if (token && user) {
       refreshAllDashboardData();
-      loadSystemStats();
       loadProfitData();
       // REMOVED: Duplicate setupRealTimeConnections() call
 
@@ -464,12 +463,14 @@ export default function useDashboardState(navigate) {
       if (realtimeFallback) {
         loadSystemHealth();
         loadCountdown();
-        loadSystemStats();
+        if (showAdmin) {
+          loadSystemStats();
+        }
       }
     }, 10000);
     
     return () => clearInterval(interval);
-  }, [token, user, realtimeFallback]);
+  }, [token, user, realtimeFallback, showAdmin]);
 
   useEffect(() => {
     if (!token) return;
