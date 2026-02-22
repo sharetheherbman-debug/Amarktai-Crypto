@@ -166,9 +166,17 @@ async def get_status(user_id: str = Depends(get_current_user)):
             # Test if connection is active
             is_active = await fetchai.test_connection(api_key)
         
+        if is_active:
+            status_str = "active"
+        elif not is_configured:
+            status_str = "not_configured"
+        else:
+            status_str = "configured"
+
         return {
             "success": True,
             "configured": is_configured,
+            "status": status_str,
             "active": is_active,
             "message": "Fetch.ai is active" if is_active else (
                 "Fetch.ai is configured but not responding" if is_configured else

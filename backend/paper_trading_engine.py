@@ -872,6 +872,7 @@ class PaperTradingEngine:
                     trend = 'bearish'  # Strong SELL signal overrides
 
             # EDGE GATE: Require expected move to clear costs + buffer
+            # Skip the gate when the ML prediction has no real data (is_simulated=True)
             slippage_rate = PAPER_SLIPPAGE_BPS / 10000
             latency_rate = PAPER_LATENCY_BPS / 10000
             exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
@@ -882,7 +883,8 @@ class PaperTradingEngine:
             estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
             edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
 
-            if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:
+            ml_is_simulated = prediction.get("is_simulated", False)
+            if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
                 return {
                     "success": False,
                     "bot_id": bot_id,
@@ -901,26 +903,49 @@ class PaperTradingEngine:
                 }
             
             # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
-            # Only trade if at least 2 AI sources have decent confidence
+            # Only count AI sources that are non-simulated (i.e. real data available).
+            # When external APIs (FLOKx / Fetch.ai) are not configured their data is marked
+            # is_simulated=True and must not inflate or block the gate.
             total_confidence = 0
             confidence_sources = 0
-            
+            available_sources = 0  # how many non-simulated sources exist
+
+            # Market regime is always locally computed
+            available_sources += 1
             if regime.get('confidence', 0) > 0.5:
                 total_confidence += regime.get('confidence', 0)
                 confidence_sources += 1
-            if prediction.get('confidence', 0) > 0.6:
-                total_confidence += prediction.get('confidence', 0)
-                confidence_sources += 1
-            if fetchai_data.get('confidence', 0) > 60:
-                total_confidence += (fetchai_data.get('confidence', 0) / 100)
-                confidence_sources += 1
-            if flokx_data.get('strength', 0) > 60:
-                total_confidence += (flokx_data.get('strength', 0) / 100)
-                confidence_sources += 1
-            
-            # Require at least 2 sources with average confidence > 65%
-            if confidence_sources < 2 or (total_confidence / max(confidence_sources, 1)) < 0.65:
-                logger.debug(f"Trade quality filter: Skipping low-confidence trade (sources: {confidence_sources}, avg: {total_confidence/max(confidence_sources,1):.2%})")
+
+            # ML predictor uses public CCXT data — count only when not simulated
+            if not prediction.get('is_simulated', False):
+                available_sources += 1
+                if prediction.get('confidence', 0) > 0.6:
+                    total_confidence += prediction.get('confidence', 0)
+                    confidence_sources += 1
+
+            # Fetch.ai — only count when configured (not simulated)
+            if not fetchai_data.get('is_simulated', True):
+                available_sources += 1
+                if fetchai_data.get('confidence', 0) > 60:
+                    total_confidence += (fetchai_data.get('confidence', 0) / 100)
+                    confidence_sources += 1
+
+            # FLOKx — only count when configured (not simulated)
+            if not flokx_data.get('is_simulated', True):
+                available_sources += 1
+                if flokx_data.get('strength', 0) > 60:
+                    total_confidence += (flokx_data.get('strength', 0) / 100)
+                    confidence_sources += 1
+
+            # Require at least 1 confident source when ≤2 sources are available,
+            # or at least 2 when 3+ sources are available.
+            min_sources_required = 1 if available_sources <= 2 else 2
+            avg_confidence = total_confidence / max(confidence_sources, 1)
+            if confidence_sources < min_sources_required or avg_confidence < 0.65:
+                logger.debug(
+                    f"Trade quality filter: Skipping low-confidence trade "
+                    f"(available={available_sources}, contributing={confidence_sources}, avg={avg_confidence:.2%})"
+                )
                 return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             
             # Position sizing - OPTIMIZED for quality over quantity

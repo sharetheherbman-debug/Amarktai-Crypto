@@ -2390,6 +2390,7 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
         return {
             "success": True,
             "configured": configured,
+            "status": "configured" if configured else "not_configured",
             "last_tested_at": last_tested_at,
             "last_error": last_error,
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -2399,6 +2400,7 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
         return {
             "success": False,
             "configured": False,
+            "status": "not_configured",
             "last_tested_at": None,
             "last_error": str(e),
             "timestamp": datetime.now(timezone.utc).isoformat()
