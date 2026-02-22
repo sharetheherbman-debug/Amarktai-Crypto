@@ -150,6 +150,7 @@ export default function Dashboard() {
     loadAdminUsers,
     loadChatHistory,
     loadFlokxAlerts,
+    loadRecentTrades,
     loadingBots,
     loadingUsers,
     metrics,
@@ -172,6 +173,8 @@ export default function Dashboard() {
     realtimeLabel,
     realtimeTone,
     recentTrades,
+    tradesLoadError,
+    tradesLoading,
     riskLabel,
     riskProfile,
     riskStatus,
@@ -398,6 +401,8 @@ export default function Dashboard() {
   const renderLiveTradeFeed = () => (
     <LiveTradesSection
       recentTrades={recentTrades}
+      tradesLoadError={tradesLoadError}
+      tradesLoading={tradesLoading}
       selectedTradeId={selectedTradeId}
       setSelectedTradeId={setSelectedTradeId}
       setTradeBotFilter={setTradeBotFilter}

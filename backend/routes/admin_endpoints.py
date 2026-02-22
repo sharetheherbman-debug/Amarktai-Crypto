@@ -908,6 +908,41 @@ async def force_logout_user(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/users/{user_id}/clear-force-logout")
+async def clear_force_logout(
+    user_id: str,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Clear force_logout flag for a user (admin only).
+
+    This is a one-time kill switch — once an admin force-logs a user out,
+    that user cannot authenticate again until this endpoint is called.
+    """
+    try:
+        result = await db.users_collection.update_one(
+            {"id": user_id},
+            {"$unset": {"force_logout": "", "force_logout_at": "", "force_logout_by": ""}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        await log_admin_action(
+            admin_id=admin_id,
+            action="clear_force_logout",
+            target_type="user",
+            target_id=user_id,
+            details={},
+            request=req
+        )
+        return {"success": True, "message": "Force logout cleared for user", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Clear force logout error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # BOT OVERRIDE ENDPOINTS
 # ============================================================================

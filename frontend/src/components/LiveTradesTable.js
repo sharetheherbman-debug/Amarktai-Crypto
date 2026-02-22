@@ -54,7 +54,7 @@ const getStatusBadge = (status) => {
   return statusMap[normalized] || { text: status || 'Unknown', color: '#9ca3af', bg: 'rgba(156, 163, 175, 0.15)' };
 };
 
-export default function LiveTradesTable({ trades = [], bots = [], onRefresh }) {
+export default function LiveTradesTable({ trades = [], bots = [], onRefresh, loadError, isLoading }) {
   const [filters, setFilters] = useState({
     exchange: 'all',
     bot: 'all',
@@ -359,6 +359,39 @@ export default function LiveTradesTable({ trades = [], bots = [], onRefresh }) {
         </div>
       )}
       
+      {/* Error Banner */}
+      {loadError && (
+        <div style={{
+          padding: '12px 16px',
+          marginBottom: '12px',
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '8px',
+          color: '#ef4444',
+          fontSize: '0.9rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <span>⚠️ {loadError}</span>
+          <button
+            onClick={() => onRefresh && onRefresh()}
+            style={{
+              marginLeft: 'auto',
+              padding: '4px 12px',
+              borderRadius: '6px',
+              background: 'rgba(239, 68, 68, 0.2)',
+              color: '#ef4444',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              fontSize: '0.85rem',
+              cursor: 'pointer'
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Trades Table */}
       <div style={{
         background: 'var(--glass)',
@@ -399,7 +432,13 @@ export default function LiveTradesTable({ trades = [], bots = [], onRefresh }) {
               {filteredTrades.length === 0 ? (
                 <tr>
                   <td colSpan="9" style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-                    {hasActiveFilters ? 'No trades match the selected filters' : 'No trades yet'}
+                    {isLoading
+                      ? '⏳ Loading trades...'
+                      : loadError
+                        ? 'Could not load trades — see error above'
+                        : hasActiveFilters
+                          ? 'No trades match the selected filters'
+                          : 'No trades yet'}
                   </td>
                 </tr>
               ) : (

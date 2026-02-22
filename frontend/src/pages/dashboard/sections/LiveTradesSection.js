@@ -6,6 +6,8 @@ export default function LiveTradesSection({
   recentTrades,
   bots = [],
   loadRecentTrades,
+  tradesLoadError,
+  tradesLoading,
 }) {
   return (
     <section className="section active">
@@ -19,6 +21,8 @@ export default function LiveTradesSection({
           trades={recentTrades}
           bots={bots}
           onRefresh={loadRecentTrades}
+          loadError={tradesLoadError}
+          isLoading={tradesLoading}
         />
       </div>
     </section>

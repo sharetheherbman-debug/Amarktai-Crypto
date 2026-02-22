@@ -278,6 +278,8 @@ export default function useDashboardState(navigate) {
   const [filteredAdminBots, setFilteredAdminBots] = useState([]);
   const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
   const [tradesErrorShown, setTradesErrorShown] = useState(false);
+  const [tradesLoadError, setTradesLoadError] = useState(null);
+  const [tradesLoading, setTradesLoading] = useState(false);
   
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
@@ -1186,7 +1188,8 @@ export default function useDashboardState(navigate) {
     } catch (err) {
       console.error('User fetch error:', err);
       setConnectionStatus(prev => ({ ...prev, api: 'Disconnected' }));
-      if (err.response?.status === 401) navigate('/login');
+      // 401 is already handled globally by the apiClient interceptor (clears token + redirect).
+      // Do NOT duplicate the navigate('/login') here to avoid double-redirect races.
     }
   };
 
@@ -1391,11 +1394,13 @@ export default function useDashboardState(navigate) {
   };
 
   const loadRecentTrades = async () => {
+    setTradesLoading(true);
     try {
       const res = await axios.get(`${API}/trades/recent?limit=50`, axiosConfig);
       // Handle both array responses and wrapped responses
       const trades = Array.isArray(res.data) ? res.data : (res.data.trades || res.data.data || []);
       setRecentTrades(trades);
+      setTradesLoadError(null);
       // Clear error state on success
       setTradesErrorShown(false);
     } catch (err) {
@@ -1403,6 +1408,7 @@ export default function useDashboardState(navigate) {
       const statusCode = err.response?.status || 'Network Error';
       const endpoint = '/api/trades/recent';
       const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      setTradesLoadError(`Failed to load trades (${statusCode}): ${errorMsg}`);
       
       // Show error toast only once per error state
       if (!tradesErrorShown) {
@@ -1412,6 +1418,8 @@ export default function useDashboardState(navigate) {
         );
         setTradesErrorShown(true);
       }
+    } finally {
+      setTradesLoading(false);
     }
   };
 
@@ -3360,6 +3368,7 @@ export default function useDashboardState(navigate) {
     loadAdminUsers,
     loadChatHistory,
     loadFlokxAlerts,
+    loadRecentTrades,
     loadingBots,
     loadingUsers,
     metrics,
@@ -3379,6 +3388,8 @@ export default function useDashboardState(navigate) {
     realtimeLabel,
     realtimeTone,
     recentTrades,
+    tradesLoadError,
+    tradesLoading,
     riskLabel,
     riskProfile,
     riskStatus,
