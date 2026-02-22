@@ -316,7 +316,18 @@ async def get_bots_status(
                 "in_training": status in ['training', 'training_failed'] or bot.get('training_in_progress'),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
-                "stopped_at": bot.get('stopped_at')
+                "stopped_at": bot.get('stopped_at'),
+                # Per-bot diagnostics: populated by trading engine on each tick/decision
+                "last_tick_at": bot.get('last_tick_at') or bot.get('last_trade'),
+                "last_decision_at": bot.get('last_decision_at'),
+                "last_decision_reason": bot.get('last_decision_reason') or (
+                    "TRAINING_NOT_COMPLETE" if not bot.get('training_complete') and status == 'active' else None
+                ),
+                "last_market_price": bot.get('last_market_price'),
+                "last_strategy_signal": bot.get('last_strategy_signal'),
+                "last_order_attempt_at": bot.get('last_order_attempt_at'),
+                "last_order_error": bot.get('last_order_error'),
+                "last_trade_simulated_at": bot.get('last_trade_simulated_at') or bot.get('last_trade'),
             }
             enriched_bots.append(enriched_bot)
         

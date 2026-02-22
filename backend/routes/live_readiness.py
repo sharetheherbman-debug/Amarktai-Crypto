@@ -12,6 +12,7 @@ from auth import get_current_user
 import database as db
 from ccxt_service import CCXTService
 from routes.system_mode import check_live_readiness
+from routes.api_key_management import get_decrypted_key
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,10 @@ class ExchangeReadiness:
             "warnings": []
         }
         
-        # Check 1: API Key exists and valid
+        # Check 1: API Key exists and valid (stored under 'provider' or legacy 'exchange' field)
         key_doc = await db.api_keys_collection.find_one({
             "user_id": user_id,
-            "exchange": exchange_name
+            "$or": [{"exchange": exchange_name}, {"provider": exchange_name}]
         }, {"_id": 0})
         
         if not key_doc:
@@ -72,13 +73,22 @@ class ExchangeReadiness:
         
         # Check 2: Connection test
         try:
+            decrypted = await get_decrypted_key(user_id, exchange_name)
+            if not decrypted or not decrypted.get("api_key"):
+                result["checks"]["connection"] = {
+                    "status": "error",
+                    "message": "API key decryption failed or key incomplete"
+                }
+                result["errors"].append("API key unavailable for connection test")
+                return result
+
             ccxt_service = CCXTService()
             exchange = ccxt_service.init_exchange(
                 exchange_name,
-                key_doc['api_key'],
-                key_doc['api_secret'],
+                decrypted['api_key'],
+                decrypted.get('api_secret', ''),
                 testnet=False,
-                passphrase=key_doc.get('passphrase')
+                passphrase=decrypted.get('passphrase')
             )
             
             # Try to fetch balance to test connection
@@ -189,12 +199,14 @@ async def get_live_readiness(user_id: str = Depends(get_current_user)):
         # Get per-exchange readiness
         api_keys = await db.api_keys_collection.find(
             {"user_id": user_id},
-            {"_id": 0, "exchange": 1}
+            {"_id": 0, "exchange": 1, "provider": 1}
         ).to_list(100)
         
         exchanges = {}
         for key_doc in api_keys:
-            exchange_name = key_doc['exchange']
+            exchange_name = key_doc.get('exchange') or key_doc.get('provider')
+            if not exchange_name:
+                continue
             readiness = await ExchangeReadiness.check_exchange(user_id, exchange_name)
             exchanges[exchange_name] = readiness
         

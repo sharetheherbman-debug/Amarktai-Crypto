@@ -101,12 +101,15 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
         # Get system health
         db_health = await db.health_check()
         
-        # Get active bots count
+        # Get active bots count (exclude deleted bots, consistent with /api/bots/status)
         active_bots_count = 0
         try:
             active_bots_count = await db.bots_collection.count_documents({
                 "user_id": user_id,
-                "status": "active"
+                "status": "active",
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
             })
         except Exception as e:
             logger.error(f"Error counting active bots: {e}")
