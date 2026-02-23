@@ -168,7 +168,8 @@ except Exception as e:
 try:
     from services import daily_reinvestment
     has_run_func = hasattr(daily_reinvestment, 'run_daily_reinvestment') or \
-                   hasattr(daily_reinvestment, 'daily_reinvestment')
+                   hasattr(daily_reinvestment, 'daily_reinvestment') or \
+                   hasattr(daily_reinvestment, 'run_daily_cycle')
     if has_run_func:
         test_result("Daily Reinvestment", "pass", "Service with reinvestment logic")
     else:
@@ -475,6 +476,13 @@ print("=" * 80)
 
 # Exit with appropriate code
 if test_results['failed']:
-    sys.exit(1)
+    _audit_failed = True
 else:
-    sys.exit(0)
+    _audit_failed = False
+
+
+def test_comprehensive_audit_no_failures():
+    """Pytest-compatible test: assert that the comprehensive audit found no failures."""
+    assert not _audit_failed, (
+        f"Comprehensive audit failed. Failed checks: {test_results['failed']}"
+    )
