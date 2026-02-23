@@ -339,75 +339,19 @@ async def runtime_reset(
     request: RuntimeResetRequest,
     admin_id: str = Depends(require_admin),
 ):
-    """Admin-only runtime reset for paper trading (wipes bots/trades/runtime but preserves users/keys)
-    
-    This is a safe reset that:
-    - Clears bot configurations
-    - Clears trade history
-    - Clears runtime state
-    - Preserves user accounts
-    - Preserves API keys
-    
-    Requires confirmation phrase: "CONFIRM RUNTIME RESET"
+    """DEPRECATED: Use POST /api/admin/start-fresh instead.
+
+    This endpoint is kept for backward compatibility but redirects to the
+    canonical start-fresh flow.  The System Mode section is the single source
+    of truth for runtime resets.
     """
-    EXPECTED_PHRASE = "CONFIRM RUNTIME RESET"
-    provided = (request.confirmation_phrase or "").strip().upper()
-    
-    if provided != EXPECTED_PHRASE:
-        return {
-            "success": False,
-            "requires_confirmation": True,
-            "confirmation_phrase": EXPECTED_PHRASE,
-            "message": "Confirmation required for runtime reset."
-        }
-    
-    # Collections to clear for runtime reset
-    runtime_collections = [
-        "bots_collection",
-        "trades_collection",
-        "bot_runtime_state_collection",
-        "bot_locks_collection",
-        "trade_queue_collection",
-        "paper_trades_collection",
-        "paper_balances_collection",
-        "system_state_collection",
-    ]
-    
-    # Protected collections that must NOT be cleared
-    protected = {"users_collection", "api_keys_collection"}
-    
-    cleared = []
-    skipped = []
-    errors = []
-    
-    for name in runtime_collections:
-        collection = getattr(db, name, None)
-        if collection is None:
-            skipped.append({"collection": name, "reason": "not_initialized"})
-            continue
-        try:
-            result = await collection.delete_many({})
-            cleared.append({"collection": name, "deleted_count": result.deleted_count})
-            logger.info(f"Runtime reset: cleared {name} ({result.deleted_count} documents)")
-        except Exception as e:
-            errors.append({"collection": name, "error": str(e)})
-            logger.error(f"Runtime reset error in {name}: {e}")
-    
-    await log_admin_action(
-        admin_id=admin_id,
-        action="runtime_reset",
-        target_type="system",
-        target_id="runtime",
-        details={"mode": request.mode, "cleared": cleared, "skipped": skipped, "errors": errors},
-    )
-    
     return {
-        "success": True,
-        "message": f"Runtime reset completed for {request.mode} mode (users + API keys preserved)",
-        "cleared_collections": cleared,
-        "skipped_collections": skipped,
-        "errors": errors,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "success": False,
+        "deprecated": True,
+        "message": (
+            "This endpoint is deprecated. "
+            "Use POST /api/admin/start-fresh with confirmation_phrase='START FRESH'."
+        ),
     }
 
 

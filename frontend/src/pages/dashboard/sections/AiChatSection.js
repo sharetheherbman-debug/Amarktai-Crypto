@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import AIToolsPanel from './AIToolsPanel';
+import ErrorBoundary from '../../../components/ErrorBoundary';
 
 export default function AiChatSection({
   chatMessages, chatEndRef, chatInput, setChatInput, chatSending, awaitingPassword,
@@ -147,7 +148,9 @@ export default function AiChatSection({
 
       {/* Advanced AI Tools Panel (HuggingFace, Fetch.ai, Flokx) */}
       {showAdvancedTools && (
-        <AIToolsPanel />
+        <ErrorBoundary title="Advanced AI error" message="Unable to load Advanced AI tools. Please try again.">
+          <AIToolsPanel />
+        </ErrorBoundary>
       )}
 
       <div className="amk-chat-box">

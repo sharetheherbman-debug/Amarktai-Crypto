@@ -51,6 +51,8 @@ def _first_non_empty_value(record: Dict, keys: Iterable[str], default=None):
 
 def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional[Dict] = None) -> Dict:
     """Build a canonical trade record with required fields populated."""
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
     bot = bot or {}
     record = dict(trade)
     now = datetime.now(timezone.utc).isoformat()
@@ -61,8 +63,14 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
     if is_live is None:
         is_live = trading_mode == "live" or not record.get("is_paper", True)
 
+    # Resolve trade id – must never be None or empty
+    trade_id = record.get("id") or record.get("trade_id")
+    if not trade_id:
+        trade_id = str(uuid4())
+        _logger.warning("build_trade_record: id was missing, auto-generated %s", trade_id)
+
     record.update({
-        "id": record.get("id") or record.get("trade_id") or str(uuid4()),
+        "id": trade_id,
         "user_id": record_user_id,
         "bot_id": bot_id,
         "bot_name": record.get("bot_name") or bot.get("name") or "Unknown",
@@ -78,7 +86,7 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
         "is_live": is_live,
         "exchange_order_id": _first_non_empty_value(
             record,
-            ["exchange_order_id", "order_id", "orderId", "id"],
+            ["exchange_order_id", "order_id", "orderId"],
             ""
         ),
         "created_at": record.get("created_at") or record.get("timestamp") or now,

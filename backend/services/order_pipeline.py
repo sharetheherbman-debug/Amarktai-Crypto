@@ -987,6 +987,7 @@ class OrderPipeline:
 
             # 2. Insert a trade/fill record so dashboards and training can find it
             trade_doc = {
+                "id": str(uuid.uuid4()),
                 "user_id": user_id,
                 "bot_id": bot_id,
                 "order_id": order_id,

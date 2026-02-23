@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+import time
+from datetime import datetime, timezone
 
 from auth import get_current_user
 from services.huggingface_key_resolver import (
@@ -17,6 +19,11 @@ from services.huggingface_key_resolver import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# In-memory last-success tracking (per process, resets on restart)
+_hf_last_success: Optional[str] = None
+_hf_last_error: Optional[str] = None
+_hf_last_latency_ms: Optional[float] = None
 
 
 class HuggingFaceModelInfo(BaseModel):
@@ -493,4 +500,129 @@ async def generate_embeddings(
         raise
     except Exception as e:
         logger.error(f"Embeddings error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# HuggingFace Status + Minimal Infer Endpoints  (F1)
+# ============================================================================
+
+@router.get("/api/hf/status")
+async def get_hf_status(user_id: str = Depends(get_current_user)):
+    """
+    Get HuggingFace integration health/status.
+
+    Returns:
+        enabled: bool  – whether a HF key is configured
+        model: str     – model used for last health probe
+        last_success_at: ISO timestamp or null
+        last_error: last error message or null
+        latency_ms: latency of last successful inference or null
+    """
+    global _hf_last_success, _hf_last_error, _hf_last_latency_ms
+    try:
+        api_key, source = await resolve_huggingface_key(user_id)
+        enabled = bool(api_key)
+        model_id = "distilbert-base-uncased-finetuned-sst-2-english"
+
+        if enabled and _hf_last_success is None:
+            # Run a lightweight health probe on first call
+            t0 = time.monotonic()
+            try:
+                client, _ = await get_huggingface_client(user_id, model=model_id)
+                if client:
+                    _ = client.text_classification("market is up")
+                    _hf_last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
+                    _hf_last_success = datetime.now(timezone.utc).isoformat()
+                    _hf_last_error = None
+            except Exception as probe_err:
+                _hf_last_error = str(probe_err)
+
+        return {
+            "enabled": enabled,
+            "model": model_id,
+            "source": source,
+            "last_success_at": _hf_last_success,
+            "last_error": _hf_last_error,
+            "latency_ms": _hf_last_latency_ms,
+        }
+    except Exception as e:
+        logger.error(f"HF status error: {e}")
+        return {"enabled": False, "model": None, "last_success_at": None,
+                "last_error": str(e), "latency_ms": None}
+
+
+@router.post("/api/hf/infer")
+async def hf_infer(data: dict, user_id: str = Depends(get_current_user)):
+    """
+    Minimal safe HuggingFace inference endpoint.
+
+    Accepts:
+        text: str – input text (max 512 chars for safety)
+        task: str – "sentiment" | "summarize" | "classify" (default: sentiment)
+        labels: list[str] – required for task=classify
+        model: str – optional model override
+
+    Returns sanitised inference output.  Errors are returned as JSON (never 500).
+    """
+    global _hf_last_success, _hf_last_error, _hf_last_latency_ms
+
+    text = (data.get("text") or "").strip()[:512]
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required (max 512 chars)")
+
+    task = data.get("task", "sentiment").lower()
+    labels = data.get("labels") or []
+    model_override = data.get("model")
+
+    try:
+        DEFAULT_MODELS = {
+            "sentiment": "distilbert-base-uncased-finetuned-sst-2-english",
+            "summarize": "facebook/bart-large-cnn",
+            "classify": "facebook/bart-large-mnli",
+        }
+        model_id = model_override or DEFAULT_MODELS.get(task, DEFAULT_MODELS["sentiment"])
+        client, source = await get_huggingface_client(user_id, model=model_id)
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "No HuggingFace API key configured. Add your key in API Setup.",
+                        "action": "Add HF token"}
+            )
+
+        t0 = time.monotonic()
+        try:
+            if task == "summarize":
+                raw = client.summarization(text, parameters={"max_length": 150})
+                result = {"summary": raw[0].get("summary_text", "") if raw else ""}
+            elif task == "classify":
+                if not labels:
+                    raise HTTPException(status_code=400, detail="labels required for task=classify")
+                raw = client.zero_shot_classification(text, labels, multi_label=False)
+                result = {"labels": raw.get("labels", []), "scores": raw.get("scores", [])}
+            else:  # default: sentiment
+                raw = client.text_classification(text)
+                item = raw[0] if raw else {}
+                result = {"label": item.get("label"), "score": item.get("score")}
+
+            latency = round((time.monotonic() - t0) * 1000, 1)
+            _hf_last_latency_ms = latency
+            _hf_last_success = datetime.now(timezone.utc).isoformat()
+            _hf_last_error = None
+
+            return {"success": True, "task": task, "model": model_id,
+                    "source": source, "latency_ms": latency, "result": result}
+
+        except HTTPException:
+            raise
+        except Exception as infer_err:
+            _hf_last_error = str(infer_err)
+            logger.error(f"HF infer task={task} error: {infer_err}")
+            return {"success": False, "task": task, "model": model_id,
+                    "error": str(infer_err), "result": None}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"HF infer outer error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1478,3 +1478,212 @@ async def websocket_diagnostics():
     except Exception as e:
         logger.error(f"WebSocket diagnostics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Data Integrity Diagnostics  (C3)
+# ============================================================================
+
+@router.get("/data-integrity")
+async def get_data_integrity(user_id: str = Depends(get_current_user)):
+    """
+    Data integrity snapshot for rapid go-live debugging.
+
+    Returns:
+        - total_trades, paper_trades, live_trades
+        - filled_count, closed_count
+        - net_realized_pnl  (closed trades only, net_pnl field)
+        - current_paper_wallet_balance
+        - bots_current_capital_sum
+        - db_name   (safe – no credentials)
+    """
+    try:
+        # Trade counts
+        total_trades = 0
+        paper_trades = 0
+        live_trades = 0
+        filled_count = 0
+        closed_count = 0
+        net_realized_pnl = 0.0
+
+        if db.trades_collection is not None:
+            total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+            paper_trades = await db.trades_collection.count_documents({"user_id": user_id, "is_paper": True})
+            live_trades = await db.trades_collection.count_documents({"user_id": user_id, "is_live": True})
+            filled_count = await db.trades_collection.count_documents({"user_id": user_id, "status": "filled"})
+            closed_count = await db.trades_collection.count_documents({"user_id": user_id, "status": "closed"})
+
+            closed_cursor = db.trades_collection.find(
+                {"user_id": user_id, "status": "closed"},
+                {"net_pnl": 1, "profit_loss": 1, "_id": 0}
+            )
+            async for t in closed_cursor:
+                pnl = t.get("net_pnl") if t.get("net_pnl") is not None else t.get("profit_loss", 0)
+                net_realized_pnl += float(pnl or 0)
+
+        # Paper wallet balance
+        paper_wallet_balance = 0.0
+        try:
+            from services.paper_wallet_ledger import paper_wallet_ledger
+            balances = await paper_wallet_ledger.get_all_balances(user_id)
+            paper_wallet_balance = sum(float(v or 0) for v in balances.values())
+        except Exception:
+            pass
+
+        # Bots capital sum
+        bots_capital_sum = 0.0
+        if db.bots_collection is not None:
+            async for bot in db.bots_collection.find(
+                {"user_id": user_id, "status": {"$ne": "deleted"}},
+                {"current_capital": 1, "_id": 0}
+            ):
+                bots_capital_sum += float(bot.get("current_capital") or 0)
+
+        # Safe DB identity
+        db_name = "unknown"
+        try:
+            from database import _parse_mongo_config
+            _, db_name = _parse_mongo_config()
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "total_trades": total_trades,
+            "paper_trades": paper_trades,
+            "live_trades": live_trades,
+            "filled_count": filled_count,
+            "closed_count": closed_count,
+            "net_realized_pnl": round(net_realized_pnl, 2),
+            "paper_wallet_balance": round(paper_wallet_balance, 2),
+            "bots_current_capital_sum": round(bots_capital_sum, 2),
+            "db_name": db_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Data integrity diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# DB Diagnostics  (A1 – admin only)
+# ============================================================================
+
+@router.get("/db")
+async def get_db_diagnostics(user_id: str = Depends(get_current_user)):
+    """
+    Admin-level DB diagnostics endpoint.
+
+    Returns:
+        - effective mongo_uri_host (credentials redacted)
+        - db_name
+        - collections list
+        - key index summaries for trades
+        - document counts
+    """
+    from auth import require_admin
+    # Require admin – raise 403 if not
+    try:
+        from auth import is_admin as _is_admin
+        from database import db as _db_instance, client as _client
+        if not await _is_admin(user_id):
+            from fastapi import HTTPException as _HTTPException
+            raise _HTTPException(status_code=403, detail="Admin access required")
+    except ImportError:
+        pass
+
+    try:
+        from database import _parse_mongo_config, db as _db_instance, client as _client
+        mongo_url, db_name = _parse_mongo_config()
+
+        # Safe host
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(mongo_url)
+            safe_host = f"{parsed.hostname or 'unknown'}:{parsed.port or 27017}"
+        except Exception:
+            safe_host = "unknown"
+
+        # Collection list
+        collections = []
+        counts = {}
+        index_summary = {}
+
+        if _db_instance is not None:
+            collections = await _db_instance.list_collection_names()
+
+            # Count key collections
+            for cname in ("trades", "bots", "users", "api_keys"):
+                try:
+                    counts[cname] = await _db_instance[cname].count_documents({})
+                except Exception:
+                    counts[cname] = -1
+
+            # Index summary for trades
+            try:
+                trade_indexes = await _db_instance["trades"].index_information()
+                index_summary["trades"] = {
+                    name: {
+                        "key": info.get("key"),
+                        "unique": info.get("unique", False),
+                        "sparse": info.get("sparse", False),
+                    }
+                    for name, info in trade_indexes.items()
+                }
+            except Exception as idx_err:
+                index_summary["trades"] = {"error": str(idx_err)}
+
+        return {
+            "success": True,
+            "mongo_uri_host": safe_host,
+            "db_name": db_name,
+            "collections": sorted(collections),
+            "counts": counts,
+            "indexes": index_summary,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"DB diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Realtime Diagnostics  (A4)
+# ============================================================================
+
+@router.get("/realtime-status")
+async def get_realtime_status_summary(user_id: str = Depends(get_current_user)):
+    """
+    Realtime system diagnostics.
+
+    Returns:
+        - connected_users count
+        - total active connections
+        - last broadcast timestamps per event type (where tracked)
+    """
+    try:
+        from websocket_manager import manager as _ws_manager
+        active_connections_count = sum(
+            len(v) for v in _ws_manager.active_connections.values()
+        )
+        connected_users = list(_ws_manager.active_connections.keys())
+
+        # Try to get broadcast timestamps from realtime_events if available
+        broadcast_stats: dict = {}
+        try:
+            from realtime_events import rt_events as _rt
+            if hasattr(_rt, '_last_broadcast'):
+                broadcast_stats = _rt._last_broadcast
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "connected_users_count": len(connected_users),
+            "total_connections": active_connections_count,
+            "broadcast_stats": broadcast_stats,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Realtime diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
