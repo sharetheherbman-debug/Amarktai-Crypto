@@ -81,11 +81,19 @@ class PaperWalletService:
 
     async def reset(self, user_id: str) -> Dict:
         await self.init_db()
+        starting_balance = float(PAPER_STARTING_CAPITAL_ZAR)
+        # Capture balance before reset
+        existing = await self.collection.find_one(
+            {"user_id": user_id, "type": "paper"},
+            {"_id": 0, "balances": 1}
+        )
+        wallet_before = (existing or {}).get("balances", {})
+
         result = await self.collection.find_one_and_update(
             {"user_id": user_id, "type": "paper"},
             {
                 "$set": {
-                    "balances": {"ZAR": 0.0},
+                    "balances": {"ZAR": starting_balance},
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 },
                 "$setOnInsert": {
@@ -97,9 +105,12 @@ class PaperWalletService:
             upsert=True,
             return_document=ReturnDocument.AFTER
         )
+        wallet_after = result.get("balances") or {"ZAR": starting_balance}
         return {
-            "balances": result.get("balances") or {"ZAR": 0.0},
-            "total": 0.0
+            "balances": wallet_after,
+            "total": round(sum(float(v or 0) for v in wallet_after.values()), 2),
+            "wallet_before": wallet_before,
+            "wallet_after": wallet_after,
         }
 
     async def reserve_funds(self, user_id: str, amount: float, currency: str) -> Tuple[bool, str]:

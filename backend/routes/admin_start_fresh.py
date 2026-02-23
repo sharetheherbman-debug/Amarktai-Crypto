@@ -181,8 +181,23 @@ async def start_fresh(
             })
         except Exception as e:
             logger.warning(f"Could not delete training sessions: {e}")
+
+        # Step 5: Reset paper wallet to starting balance
+        wallet_before = {}
+        wallet_after = {}
+        try:
+            from services.paper_wallet_service import paper_wallet_service
+            wallet_result = await paper_wallet_service.reset(user_id)
+            wallet_before = wallet_result.get("wallet_before", {})
+            wallet_after = wallet_result.get("wallet_after", {})
+            logger.info(
+                f"Start Fresh: Paper wallet reset for user {user_id}: "
+                f"before={wallet_before} after={wallet_after}"
+            )
+        except Exception as wallet_err:
+            logger.warning(f"Could not reset paper wallet (non-critical): {wallet_err}")
         
-        # Step 5: Create audit log entry
+        # Step 6: Create audit log entry
         audit_entry = {
             "id": f"audit_{datetime.now(timezone.utc).timestamp()}",
             "user_id": user_id,
@@ -191,7 +206,9 @@ async def start_fresh(
             "details": {
                 "scope": request.scope,
                 "reset_risk_locks": request.also_reset_risk_locks,
-                "summary": summary
+                "summary": summary,
+                "wallet_before": wallet_before,
+                "wallet_after": wallet_after,
             }
         }
         
@@ -205,7 +222,10 @@ async def start_fresh(
         return {
             "ok": True,
             "message": "Start Fresh completed successfully",
+            "deleted_counts": summary,
             "deleted": summary,
+            "wallet_before": wallet_before,
+            "wallet_after": wallet_after,
             "audit_id": audit_entry["id"],
             "timestamp": audit_entry["timestamp"],
             "scope": request.scope

@@ -1688,3 +1688,141 @@ async def get_all_bots_diagnostics(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.exception("Get all bots diagnostics error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Seed 5 Luno Paper Bots (Gbot1..Gbot5)
+# ============================================================================
+
+_GBOT_DEFINITIONS = [
+    {"name": "Gbot1", "risk_mode": "safe"},
+    {"name": "Gbot2", "risk_mode": "safe"},
+    {"name": "Gbot3", "risk_mode": "balanced"},
+    {"name": "Gbot4", "risk_mode": "balanced"},
+    {"name": "Gbot5", "risk_mode": "aggressive"},
+]
+
+
+@router.post("/seed-luno-paper")
+async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
+    """
+    Seed 5 standard Luno paper-trading bots (Gbot1..Gbot5).
+
+    - Paper mode only; returns 400 if live trading is active.
+    - Idempotent: skips bots that already exist (same name + exchange + trading_mode).
+    - Allocates capital per bot from the paper wallet.
+    - Returns a JSON summary with bot IDs and created/existing status.
+    """
+    from uuid import uuid4
+    from services.paper_wallet_service import paper_wallet_service
+    from config import PAPER_STARTING_CAPITAL_ZAR
+
+    try:
+        # Guard: paper mode only
+        from routes.system_mode import get_system_mode
+        mode = await get_system_mode(user_id)
+        if mode.get("liveTrading"):
+            raise HTTPException(
+                status_code=400,
+                detail="Seeding paper bots is only allowed when live trading is OFF."
+            )
+
+        # Determine per-bot capital (1/5 of available paper wallet)
+        wallet = await paper_wallet_service.get_balances(user_id)
+        available_zar = float(wallet.get("balances", {}).get("ZAR", 0))
+        starting = float(PAPER_STARTING_CAPITAL_ZAR)
+        # Each bot gets 1/5 of available funds (min 500 ZAR, max starting/5)
+        per_bot_capital = max(500.0, min(available_zar / 5.0, starting / 5.0))
+
+        results = []
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        for bot_def in _GBOT_DEFINITIONS:
+            name = bot_def["name"]
+            risk_mode = bot_def["risk_mode"]
+
+            # Check if already exists (non-deleted)
+            existing = await db.bots_collection.find_one(
+                {
+                    "user_id": user_id,
+                    "name": name,
+                    "exchange": "luno",
+                    "trading_mode": "paper",
+                    "deleted_at": {"$exists": False},
+                },
+                {"_id": 0, "id": 1, "name": 1, "status": 1},
+            )
+            if existing:
+                results.append(
+                    {"name": name, "bot_id": existing["id"], "status": "existing"}
+                )
+                continue
+
+            # Try to reserve funds from paper wallet
+            reserved, reserve_msg = await paper_wallet_service.reserve_funds(
+                user_id, per_bot_capital, "ZAR"
+            )
+            if not reserved:
+                results.append(
+                    {"name": name, "bot_id": None, "status": "skipped", "reason": reserve_msg}
+                )
+                continue
+
+            bot_id = str(uuid4())
+            bot_doc = {
+                "id": bot_id,
+                "user_id": user_id,
+                "name": name,
+                "status": "active",
+                "exchange": "luno",
+                "pair": "BTC/ZAR",
+                "risk_mode": risk_mode,
+                "initial_capital": per_bot_capital,
+                "starting_capital": per_bot_capital,
+                "current_capital": per_bot_capital,
+                "peak_capital": per_bot_capital,
+                "allocated_capital": per_bot_capital,
+                "mode": "paper",
+                "trading_mode": "paper",
+                "trades_count": 0,
+                "daily_trade_count": 0,
+                "last_trade_time": None,
+                "win_count": 0,
+                "loss_count": 0,
+                "total_profit": 0,
+                "created_at": now_iso,
+                "paper_start_date": now_iso,
+                "paper_end_eligible_at": (
+                    datetime.now(timezone.utc) + timedelta(days=7)
+                ).isoformat(),
+                "learning_complete": False,
+                "seeded": True,
+            }
+
+            await db.bots_collection.insert_one(bot_doc)
+            logger.info(
+                f"Seeded Luno paper bot: {name} id={bot_id} capital={per_bot_capital} "
+                f"risk={risk_mode} user={user_id[:8]}"
+            )
+            results.append(
+                {"name": name, "bot_id": bot_id, "status": "created", "capital": per_bot_capital}
+            )
+
+        created = [r for r in results if r["status"] == "created"]
+        existing = [r for r in results if r["status"] == "existing"]
+        skipped = [r for r in results if r["status"] == "skipped"]
+
+        return {
+            "success": True,
+            "created": len(created),
+            "existing": len(existing),
+            "skipped": len(skipped),
+            "bots": results,
+            "timestamp": now_iso,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Seed Luno paper bots error")
+        raise HTTPException(status_code=500, detail=str(e))
