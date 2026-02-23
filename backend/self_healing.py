@@ -61,7 +61,7 @@ class SelfHealingSystem:
         """Check and recover database connection"""
         try:
             # Test connection
-            await db.command('ping')
+            await db.client.admin.command('ping')
             
             # Reset recovery counter on success
             if 'db_connection' in self.recovery_attempts:

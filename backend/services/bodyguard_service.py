@@ -214,7 +214,10 @@ class BodyguardService:
             created_at = self._parse_datetime(bot.get("created_at"))
             runtime_seconds = (now - created_at).total_seconds() if created_at else 0
             trades_count = int(bot.get("trades_count") or 0)
-            in_warmup = trades_count < MIN_TRADES_FOR_BODYGUARD and runtime_seconds < BODYGUARD_MIN_RUNTIME_SECONDS
+            # Warmup: either not enough trades OR not enough runtime (OR, not AND)
+            # A bot that has been running for days but has 0 trades has no equity history
+            # and must not be locked — insufficient data in either dimension triggers warmup.
+            in_warmup = trades_count < MIN_TRADES_FOR_BODYGUARD or runtime_seconds < BODYGUARD_MIN_RUNTIME_SECONDS
 
             exchange = bot.get('exchange', '').lower()
             pair = bot.get('pair', '')
@@ -296,17 +299,22 @@ class BodyguardService:
             # Check if currently active and drawdown exceeds threshold
             if bot_status == 'active' and current_drawdown_pct >= threshold:
                 if in_warmup:
+                    has_insufficient_trades = trades_count < MIN_TRADES_FOR_BODYGUARD
+                    reason = (
+                        f"Insufficient trade history ({trades_count}/{MIN_TRADES_FOR_BODYGUARD} trades)"
+                        if has_insufficient_trades else
+                        f"Warmup active ({trades_count}/{MIN_TRADES_FOR_BODYGUARD} trades, "
+                        f"{int(runtime_seconds)}/{BODYGUARD_MIN_RUNTIME_SECONDS}s)"
+                    )
                     await db.bots_collection.update_one(
                         {"id": bot_id},
                         {"$set": {
                             "bodyguard_warmup": True,
-                            "bodyguard_warmup_reason": (
-                                f"Warmup active ({trades_count}/{MIN_TRADES_FOR_BODYGUARD} trades, "
-                                f"{int(runtime_seconds)}/{BODYGUARD_MIN_RUNTIME_SECONDS}s)"
-                            )
+                            "bodyguard_warmup_reason": reason,
+                            "bodyguard_status": "insufficient_data" if has_insufficient_trades else "warmup",
                         }}
                     )
-                    logger.info("🛡️ Bodyguard warmup skip for bot %s", bot.get('name'))
+                    logger.info("🛡️ Bodyguard warmup/insufficient-data skip for bot %s: %s", bot.get('name'), reason)
                     return False, None
                 if last_pause_at:
                     cooldown_until = last_pause_at + timedelta(minutes=PAUSE_COOLDOWN_MINUTES)

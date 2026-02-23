@@ -2036,6 +2036,7 @@ async def reset_bot_locks(
                     "bodyguard_last_breach_at": "",
                     "bodyguard_warmup": "",
                     "bodyguard_warmup_reason": "",
+                    "bodyguard_status": "",
                     "training_job_id": "",
                 },
             }

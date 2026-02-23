@@ -4,13 +4,14 @@
 # Usage:
 #   ./smoke_paper_trade.sh [BASE_URL]
 #   Env vars: BASE_URL (default http://127.0.0.1:8000)
-#             AMK_EMAIL + AMK_PASSWORD  — auto-login to obtain a bearer token
-#             ADMIN_TOKEN               — use a pre-existing bearer token (fallback)
-#             WAIT_SECONDS              — how long to wait for trades (default 180)
+#             ADMIN_EMAIL + ADMIN_PASS   — auto-login to obtain a bearer token (preferred)
+#             AMK_EMAIL + AMK_PASSWORD   — alternate login env vars (backward compat)
+#             ADMIN_TOKEN                — use a pre-existing bearer token (fallback)
+#             WAIT_SECONDS               — how long to wait for trades (default 180)
 #
 # Examples:
-#   AMK_EMAIL=admin@example.com AMK_PASSWORD=secret ./smoke_paper_trade.sh
-#   BASE_URL=http://127.0.0.1:8000 AMK_EMAIL=admin@example.com AMK_PASSWORD=secret ./smoke_paper_trade.sh
+#   ADMIN_EMAIL=admin@example.com ADMIN_PASS=secret ./smoke_paper_trade.sh
+#   BASE_URL=http://127.0.0.1:8000 ADMIN_EMAIL=admin@example.com ADMIN_PASS=secret ./smoke_paper_trade.sh
 
 set -euo pipefail
 
@@ -18,12 +19,12 @@ BASE_URL="${1:-${BASE_URL:-http://127.0.0.1:8000}}"
 WAIT_SECONDS="${WAIT_SECONDS:-180}"
 
 # ---------------------------------------------------------------------------
-# Acquire bearer token: prefer AMK_EMAIL/AMK_PASSWORD login, fall back to
-# a pre-set ADMIN_TOKEN env var.
+# Acquire bearer token: prefer ADMIN_EMAIL/ADMIN_PASS login, fall back to
+# AMK_EMAIL/AMK_PASSWORD (backward compat), then to a pre-set ADMIN_TOKEN.
 # ---------------------------------------------------------------------------
 _acquire_token() {
-    local email="${AMK_EMAIL:-}"
-    local password="${AMK_PASSWORD:-}"
+    local email="${ADMIN_EMAIL:-${AMK_EMAIL:-}}"
+    local password="${ADMIN_PASS:-${AMK_PASSWORD:-}}"
     local static_token="${ADMIN_TOKEN:-}"
 
     if [ -n "$email" ] && [ -n "$password" ]; then
@@ -53,7 +54,7 @@ _acquire_token() {
         return 0
     fi
 
-    echo "ERROR: Set AMK_EMAIL+AMK_PASSWORD or ADMIN_TOKEN to authenticate" >&2
+    echo "ERROR: Set ADMIN_EMAIL+ADMIN_PASS (or AMK_EMAIL+AMK_PASSWORD) or ADMIN_TOKEN to authenticate" >&2
     return 1
 }
 
@@ -83,33 +84,41 @@ except:
 " 2>/dev/null || echo "unknown")
 echo "    System mode: $mode"
 
-# 2. Get an active paper bot
-bots_json=$(get_json "$BASE_URL/api/admin/bots")
+# 2. Get an active paper bot via /api/bots/status (verified correct endpoint)
+bots_json=$(get_json "$BASE_URL/api/bots/status")
 bot_id=$(python3 - <<'EOF'
 import sys, json
 raw = open('/dev/stdin').read()
 try:
     data = json.loads(raw)
-    bots = data if isinstance(data, list) else data.get('bots', data.get('data', []))
+    # /api/bots/status returns {"bots": [...], ...} or a list directly
+    bots = data.get('bots', data) if isinstance(data, dict) else data
+    if not isinstance(bots, list):
+        sys.exit(0)
     for b in bots:
         bmode = b.get('trading_mode') or b.get('mode', 'paper')
-        if str(bmode).lower().startswith('paper') and b.get('status') == 'active':
+        status = b.get('status', '') or b.get('state', '')
+        if str(bmode).lower().startswith('paper') and status == 'active':
             print(b['id'])
             sys.exit(0)
 except Exception as e:
-    pass
+    sys.stderr.write(f"Bot parse error: {e}\n")
 EOF
 <<< "$bots_json")
 
 if [ -z "$bot_id" ]; then
-    echo "SKIP — no active paper bot found"
-    exit 0
+    echo "FAIL — no active paper bot found via /api/bots/status (raw response below):"
+    echo "$bots_json" | head -c 500
+    echo ""
+    echo "  => Ensure at least one active paper bot exists before running this smoke test."
+    exit 1
 fi
 
 echo "[2] Target paper bot_id: $bot_id"
 
 # 3. Capture baseline trade count
-bot_json=$(get_json "$BASE_URL/api/admin/bots/$bot_id")
+bot_json=$(get_json "$BASE_URL/api/bots/$bot_id/status" 2>/dev/null || \
+           get_json "$BASE_URL/api/admin/bots/$bot_id" 2>/dev/null || echo "{}")
 baseline_count=$(python3 -c "
 import sys, json
 try:
@@ -129,7 +138,8 @@ final_trades_count="$baseline_count"
 
 while [ $SECONDS -lt $deadline ]; do
     sleep 10
-    bot_json=$(get_json "$BASE_URL/api/admin/bots/$bot_id")
+    bot_json=$(get_json "$BASE_URL/api/bots/$bot_id/status" 2>/dev/null || \
+               get_json "$BASE_URL/api/admin/bots/$bot_id" 2>/dev/null || echo "{}")
     current_count=$(python3 -c "
 import sys, json
 try:

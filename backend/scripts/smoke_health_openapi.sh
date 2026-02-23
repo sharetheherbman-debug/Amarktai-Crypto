@@ -5,12 +5,13 @@
 #   ./smoke_health_openapi.sh [BASE_URL]
 #   BASE_URL defaults to http://127.0.0.1:8000
 #   Env vars: BASE_URL
-#             AMK_EMAIL + AMK_PASSWORD  — auto-login to provide auth for protected endpoints
-#             ADMIN_TOKEN               — pre-existing bearer token (fallback)
+#             ADMIN_EMAIL + ADMIN_PASS   — auto-login to provide auth for protected endpoints (preferred)
+#             AMK_EMAIL + AMK_PASSWORD   — alternate login env vars (backward compat)
+#             ADMIN_TOKEN                — pre-existing bearer token (fallback)
 #
 # Examples:
 #   BASE_URL=http://127.0.0.1:8000 ./smoke_health_openapi.sh
-#   AMK_EMAIL=admin@example.com AMK_PASSWORD=secret ./smoke_health_openapi.sh
+#   ADMIN_EMAIL=admin@example.com ADMIN_PASS=secret ./smoke_health_openapi.sh
 
 set -euo pipefail
 
@@ -24,8 +25,8 @@ FAIL=0
 # that need auth will then skip or note the missing token.
 # ---------------------------------------------------------------------------
 _try_acquire_token() {
-    local email="${AMK_EMAIL:-}"
-    local password="${AMK_PASSWORD:-}"
+    local email="${ADMIN_EMAIL:-${AMK_EMAIL:-}}"
+    local password="${ADMIN_PASS:-${AMK_PASSWORD:-}}"
     local static_token="${ADMIN_TOKEN:-}"
 
     if [ -n "$email" ] && [ -n "$password" ]; then
@@ -120,7 +121,7 @@ check_protected_json() {
     }
 
     if [ "$http_code" -eq 401 ] || [ "$http_code" -eq 403 ]; then
-        echo "SKIP [$label] — HTTP $http_code (auth required; set AMK_EMAIL+AMK_PASSWORD to test fully)"
+        echo "SKIP [$label] — HTTP $http_code (auth required; set ADMIN_EMAIL+ADMIN_PASS to test fully)"
         PASS=$((PASS+1))
     elif [ "$http_code" -ge 200 ] && [ "$http_code" -lt 400 ]; then
         echo "PASS [$label] — HTTP $http_code (no auth needed, response OK)"
@@ -141,8 +142,8 @@ check_json "health/ping"        "$BASE_URL/api/health/ping"
 # Protected admin health endpoint — use token when available; accept 401 otherwise
 check_protected_json "admin/health-check" "$BASE_URL/api/admin/health-check"
 
-# OpenAPI JSON — server redirects /openapi.json → /api/openapi.json; follow with -L
-check_json "openapi.json"       "$BASE_URL/openapi.json" -L
+# OpenAPI JSON — check /api/openapi.json directly (no redirect needed)
+check_json "openapi.json"       "$BASE_URL/api/openapi.json"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
