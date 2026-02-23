@@ -23,16 +23,16 @@ from server import app
 import database as db
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 async def admin_token():
     """Create an admin user and return a bearer token."""
-    await db.connect()
+    # db.connect() is patched by conftest.py mock_database fixture - no real MongoDB needed
 
     from auth import get_password_hash, create_access_token
     from uuid import uuid4

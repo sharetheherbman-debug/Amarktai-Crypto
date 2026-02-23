@@ -94,6 +94,7 @@ async def submit_order(
             "gate_failed": result.get("gate_failed"),
             "rejection_reason": result.get("rejection_reason"),
             "execution_summary": result.get("execution_summary"),
+            "fill": result.get("fill"),
             "timestamp": datetime.utcnow().isoformat(),
             "data_source": "order_pipeline",
             "phase": "2_guardrails"

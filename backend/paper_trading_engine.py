@@ -1050,6 +1050,23 @@ class PaperTradingEngine:
                     "error": wallet_check_msg
                 }
             
+            # CLAMP trade_amount to the risk engine's allowed notional BEFORE validation.
+            # This prevents infinite "Trade size too large" rejection loops when the
+            # paper wallet balance is higher than the bot's current_capital record.
+            # Percentages mirror risk_engine.py's max_percent dict (single source of
+            # truth is risk_engine; these are intentionally kept in sync).
+            _risk_max_pct = {
+                "safe": 0.25, "balanced": 0.35, "risky": 0.45, "aggressive": 0.60,
+            }
+            _bot_capital_for_risk = bot_data.get("current_capital", paper_capital)
+            _max_allowed_notional = _bot_capital_for_risk * _risk_max_pct.get(risk_mode, 0.25)
+            if trade_amount > _max_allowed_notional and _max_allowed_notional > 0:
+                logger.debug(
+                    f"Clamping trade_amount from {trade_amount:.2f} to {_max_allowed_notional:.2f} "
+                    f"for {risk_mode} mode (bot capital {_bot_capital_for_risk:.2f})"
+                )
+                trade_amount = _max_allowed_notional
+
             # 2. CHECK RISK ENGINE
             risk_ok, risk_reason = await risk_engine.check_trade_risk(
                 user_id, bot_id, exchange, trade_amount, risk_mode
