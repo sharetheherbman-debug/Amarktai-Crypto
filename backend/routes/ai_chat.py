@@ -1797,6 +1797,7 @@ async def ai_chat(
         requires_confirmation = False
         confirmation_id = None
         handled_action = False
+        error_code = None
         action_meta = build_action_meta(None, None)
         action_success = False
 
@@ -1874,7 +1875,6 @@ async def ai_chat(
 
             if not handled_action:
                 # Generate AI response with OpenAI - CANONICAL KEY RETRIEVAL + MODEL FALLBACK
-                error_code = None
                 try:
                     user_api_key, key_source = await resolve_openai_key(user_id)
                     logger.info(

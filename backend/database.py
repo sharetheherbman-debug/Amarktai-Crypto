@@ -122,32 +122,55 @@ def _parse_mongo_config() -> tuple:
 
     Priority (first match wins):
     1. MONGO_URI  – may embed the DB name as the path component, e.g.
-       mongodb://host:27017/amarktai
-    2. MONGO_URL + DB_NAME  – explicit separate variables
-    3. Hardcoded defaults (localhost, amarktai)
+       mongodb://host:27017/amarktai_trading
+    2. MONGO_URL + MONGO_DB (or DB_NAME) – explicit separate variables
+    3. Hardcoded defaults (localhost, amarktai_trading)
+
+    Split-brain guard: if the resolved DB is "amarktai" but MONGO_DB/DB_NAME
+    are not explicitly set to "amarktai", a WARNING is emitted because
+    "amarktai_trading" is the authoritative production database.
 
     Returns:
-        (mongo_url, db_name) – the connection URL (without any embedded DB path
-        for the client, because Motor accepts the path) and the resolved DB name.
+        (mongo_url, db_name) – the connection URL and the resolved DB name.
     """
     mongo_uri = os.getenv("MONGO_URI", "").strip()
     if mongo_uri:
-        # Extract DB name from the URI path if present, e.g. /amarktai
+        # Extract DB name from the URI path if present, e.g. /amarktai_trading
         try:
             from urllib.parse import urlparse
             parsed = urlparse(mongo_uri)
             path_db = parsed.path.lstrip("/").split("?")[0].strip()
             if path_db:
+                _log_effective_mongo(mongo_uri, path_db)
                 return mongo_uri, path_db
         except Exception:
             pass
-        # MONGO_URI set but no DB path – fall through to DB_NAME
-        db_name = os.getenv("DB_NAME", "amarktai")
+        # MONGO_URI set but no DB path – fall through to MONGO_DB/DB_NAME
+        db_name = os.getenv("MONGO_DB", os.getenv("DB_NAME", "amarktai_trading"))
+        _log_effective_mongo(mongo_uri, db_name)
         return mongo_uri, db_name
 
     mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-    db_name = os.getenv("DB_NAME", "amarktai")
+    db_name = os.getenv("MONGO_DB", os.getenv("DB_NAME", "amarktai_trading"))
+    _log_effective_mongo(mongo_url, db_name)
     return mongo_url, db_name
+
+
+def _log_effective_mongo(mongo_url: str, db_name: str) -> None:
+    """Log the effective MongoDB connection (host only, no credentials)."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(mongo_url)
+        safe_host = f"{parsed.hostname}:{parsed.port or 27017}"
+    except Exception:
+        safe_host = "unknown"
+    logger.info(f"Effective MongoDB: host={safe_host} db={db_name}")
+    if db_name == "amarktai" and not os.getenv("ALLOW_AMARKTAI_DB"):
+        logger.warning(
+            "⚠️  Split-brain risk: resolved db='amarktai' but production db is "
+            "'amarktai_trading'. Set MONGO_URI/MONGO_DB=amarktai_trading or set "
+            "ALLOW_AMARKTAI_DB=1 to suppress this warning."
+        )
 
 
 async def connect():
@@ -159,7 +182,8 @@ async def connect():
 
     mongo_url, db_name = _parse_mongo_config()
 
-    # Log safe identity (host only, no credentials)
+    # Log safe identity (host only, no credentials) – _parse_mongo_config already
+    # emits the canonical "Effective MongoDB: host=... db=..." line.
     try:
         from urllib.parse import urlparse
         parsed = urlparse(mongo_url)
@@ -167,7 +191,6 @@ async def connect():
     except Exception:
         safe_host = "unknown"
     logger.info(f"🔌 Connecting to MongoDB host={safe_host}")
-    logger.info(f"🗄️  Mongo DB selected: {db_name}")
 
     try:
         client = AsyncIOMotorClient(mongo_url)
@@ -356,6 +379,23 @@ async def setup_collections():
 # Database Initialization (Indexes)
 # ============================================================================
 
+async def _safe_create_index(collection, keys, **kwargs):
+    """
+    Create an index idempotently.
+    - If an identical index already exists: silently succeeds.
+    - If an index with the same name but different spec exists (IndexKeySpecsConflict):
+      logs a WARNING instead of crashing startup.
+    """
+    try:
+        await collection.create_index(keys, **kwargs)
+    except Exception as e:
+        err_str = str(e)
+        if "IndexKeySpecsConflict" in err_str or "already exists with different" in err_str or "already exists with a different" in err_str:
+            logger.warning(f"⚠️ Index already exists with different spec (skipping): {e}")
+        else:
+            raise
+
+
 async def init_db():
     """
     Create database indexes for optimal performance
@@ -370,102 +410,106 @@ async def init_db():
         
         # User indexes
         if users_collection is not None:
-            await users_collection.create_index("id", unique=True)
-            await users_collection.create_index("email", unique=True)
+            await _safe_create_index(users_collection, "id", unique=True)
+            await _safe_create_index(users_collection, "email", unique=True)
         
         # Bot indexes
         if bots_collection is not None:
-            await bots_collection.create_index("id", unique=True)
-            await bots_collection.create_index("user_id")
-            await bots_collection.create_index([("user_id", 1), ("status", 1)])
+            await _safe_create_index(bots_collection, "id", unique=True)
+            await _safe_create_index(bots_collection, "user_id")
+            await _safe_create_index(bots_collection, [("user_id", 1), ("status", 1)])
         
         # Trade indexes
         if trades_collection is not None:
-            await trades_collection.create_index("id", unique=True, sparse=True)
-            await trades_collection.create_index("bot_id")
-            await trades_collection.create_index("user_id")
-            await trades_collection.create_index("timestamp")
-            await trades_collection.create_index([("bot_id", 1), ("timestamp", -1)])
+            await _safe_create_index(trades_collection, "id", unique=True, sparse=True)
+            await _safe_create_index(trades_collection, "bot_id")
+            await _safe_create_index(trades_collection, "user_id")
+            await _safe_create_index(trades_collection, "timestamp")
+            await _safe_create_index(trades_collection, [("bot_id", 1), ("timestamp", -1)])
         
         # API key indexes
         if api_keys_collection is not None:
-            await api_keys_collection.create_index("id", unique=True)
-            await api_keys_collection.create_index("user_id")
+            await _safe_create_index(api_keys_collection, "id", unique=True)
+            await _safe_create_index(api_keys_collection, "user_id")
         
         # Alert indexes
         if alerts_collection is not None:
-            await alerts_collection.create_index("user_id")
-            await alerts_collection.create_index("timestamp")
+            await _safe_create_index(alerts_collection, "user_id")
+            await _safe_create_index(alerts_collection, "timestamp")
         
         # Session indexes
         if sessions_collection is not None:
-            await sessions_collection.create_index("user_id")
-            await sessions_collection.create_index("created_at", expireAfterSeconds=86400)  # 24 hours
+            await _safe_create_index(sessions_collection, "user_id")
+            await _safe_create_index(sessions_collection, "created_at", expireAfterSeconds=86400)  # 24 hours
 
         # Chat indexes
         if chat_messages_collection is not None:
-            await chat_messages_collection.create_index("user_id")
-            await chat_messages_collection.create_index("timestamp")
+            await _safe_create_index(chat_messages_collection, "user_id")
+            await _safe_create_index(chat_messages_collection, "timestamp")
         if chat_sessions_collection is not None:
-            await chat_sessions_collection.create_index("user_id", unique=True)
+            await _safe_create_index(chat_sessions_collection, "user_id", unique=True)
         if chatops_confirmations_collection is not None:
-            await chatops_confirmations_collection.create_index("confirmation_id", unique=True)
-            await chatops_confirmations_collection.create_index("user_id")
-            await chatops_confirmations_collection.create_index("expires_at")
+            await _safe_create_index(chatops_confirmations_collection, "confirmation_id", unique=True)
+            await _safe_create_index(chatops_confirmations_collection, "user_id")
+            await _safe_create_index(chatops_confirmations_collection, "expires_at")
         
         # Bot lifecycle indexes
         if bot_lifecycle_collection is not None:
-            await bot_lifecycle_collection.create_index("bot_id")
-            await bot_lifecycle_collection.create_index("user_id")
-            await bot_lifecycle_collection.create_index("timestamp")
+            await _safe_create_index(bot_lifecycle_collection, "bot_id")
+            await _safe_create_index(bot_lifecycle_collection, "user_id")
+            await _safe_create_index(bot_lifecycle_collection, "timestamp")
         
         # Metrics indexes
         if bot_metrics_collection is not None:
-            await bot_metrics_collection.create_index("bot_id")
-            await bot_metrics_collection.create_index("timestamp")
+            await _safe_create_index(bot_metrics_collection, "bot_id")
+            await _safe_create_index(bot_metrics_collection, "timestamp")
         
         if system_metrics_collection is not None:
-            await system_metrics_collection.create_index("timestamp")
+            await _safe_create_index(system_metrics_collection, "timestamp")
         
         # Audit log indexes
         if audit_logs_collection is not None:
-            await audit_logs_collection.create_index("user_id")
-            await audit_logs_collection.create_index("action")
-            await audit_logs_collection.create_index("timestamp")
+            await _safe_create_index(audit_logs_collection, "user_id")
+            await _safe_create_index(audit_logs_collection, "action")
+            await _safe_create_index(audit_logs_collection, "timestamp")
         
         # Notification indexes
         if notifications_collection is not None:
-            await notifications_collection.create_index("user_id")
-            await notifications_collection.create_index("timestamp")
-            await notifications_collection.create_index([("user_id", 1), ("read", 1)])
+            await _safe_create_index(notifications_collection, "user_id")
+            await _safe_create_index(notifications_collection, "timestamp")
+            await _safe_create_index(notifications_collection, [("user_id", 1), ("read", 1)])
 
         if autopilot_milestones_collection is not None:
-            await autopilot_milestones_collection.create_index(
+            await _safe_create_index(
+                autopilot_milestones_collection,
                 [("user_id", 1), ("platform", 1), ("milestone_index", 1)],
                 unique=True
             )
-            await autopilot_milestones_collection.create_index(
+            await _safe_create_index(
+                autopilot_milestones_collection,
                 [("user_id", 1), ("platform", 1), ("triggered_at", -1)]
             )
 
         if autopilot_reinvest_events_collection is not None:
-            await autopilot_reinvest_events_collection.create_index(
+            await _safe_create_index(
+                autopilot_reinvest_events_collection,
                 [("user_id", 1), ("platform", 1), ("date_key", 1)],
                 unique=True
             )
-            await autopilot_reinvest_events_collection.create_index(
+            await _safe_create_index(
+                autopilot_reinvest_events_collection,
                 [("user_id", 1), ("platform", 1), ("created_at", -1)]
             )
         
         # Financial tracking indexes
         if wallet_balances_collection is not None:
-            await wallet_balances_collection.create_index("user_id")
-            await wallet_balances_collection.create_index("timestamp")
+            await _safe_create_index(wallet_balances_collection, "user_id")
+            await _safe_create_index(wallet_balances_collection, "timestamp")
         
         if capital_injections_collection is not None:
-            await capital_injections_collection.create_index("bot_id")
-            await capital_injections_collection.create_index("user_id")
-            await capital_injections_collection.create_index("timestamp")
+            await _safe_create_index(capital_injections_collection, "bot_id")
+            await _safe_create_index(capital_injections_collection, "user_id")
+            await _safe_create_index(capital_injections_collection, "timestamp")
         
         logger.info("✅ Database indexes created successfully")
         

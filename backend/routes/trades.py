@@ -292,3 +292,64 @@ async def get_live_trades(
     except Exception as e:
         logger.error(f"Get live trades error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/activity")
+async def get_trading_activity(user_id: str = Depends(get_current_user)):
+    """
+    Trading activity summary – lightweight probe for paper trading proof.
+
+    Returns:
+        active_bots: number of bots with status='active'
+        queued_trades: trades with status='pending'
+        last_trade_at: ISO timestamp of most recent trade (any status)
+        last_fill_at:  ISO timestamp of most recent filled/closed trade
+        last_tick_at:  ISO timestamp read from bot_runtime_state if available
+    """
+    try:
+        active_bots = await db.bots_collection.count_documents(
+            {"user_id": user_id, "status": "active", "deleted_at": {"$exists": False}}
+        )
+        queued_trades = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "pending"}
+        )
+
+        last_trade_doc = await db.trades_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "timestamp": 1},
+            sort=[("timestamp", -1)],
+        )
+        last_trade_at = (last_trade_doc or {}).get("timestamp")
+
+        last_fill_doc = await db.trades_collection.find_one(
+            {"user_id": user_id, "status": {"$in": ["filled", "closed", "completed"]}},
+            {"_id": 0, "timestamp": 1},
+            sort=[("timestamp", -1)],
+        )
+        last_fill_at = (last_fill_doc or {}).get("timestamp")
+
+        # Best-effort: read last_tick_at from bot_runtime_state
+        last_tick_at = None
+        try:
+            tick_doc = await db.bot_runtime_state_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "updated_at": 1},
+                sort=[("updated_at", -1)],
+            )
+            last_tick_at = (tick_doc or {}).get("updated_at")
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "active_bots": active_bots,
+            "queued_trades": queued_trades,
+            "last_trade_at": last_trade_at,
+            "last_fill_at": last_fill_at,
+            "last_tick_at": last_tick_at,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Trading activity error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

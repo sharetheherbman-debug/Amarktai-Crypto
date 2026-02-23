@@ -227,7 +227,10 @@ async def reset_paper_wallet(
     return {
         "success": True,
         "balances": result.get("balances", {}),
-        "total": result.get("total", 0)
+        "total": result.get("total", 0),
+        "wallet_before": result.get("wallet_before", {}),
+        "wallet_after": result.get("wallet_after", {}),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
