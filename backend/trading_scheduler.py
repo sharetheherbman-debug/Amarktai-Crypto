@@ -407,7 +407,7 @@ class TradingScheduler:
                         # Legacy WebSocket update (keep for backwards compatibility)
                         await manager.send_message(bot['user_id'], {
                             "type": "trade_executed",
-                            "bot_id": result['bot_id'],
+                            "bot_id": result.get('bot_id', bot_id),
                             "bot_name": bot['name'],
                             "new_capital": result.get('new_capital', 0),
                             "total_profit": result.get('total_profit', 0),

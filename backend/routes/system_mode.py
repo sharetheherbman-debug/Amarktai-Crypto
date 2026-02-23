@@ -332,7 +332,19 @@ async def get_mode(user_id: str = Depends(get_current_user)):
         elif mode.get("autopilot"):
             active_mode = "autopilot"
         else:
-            active_mode = "unknown"
+            # Default to paper — safe fallback; also corrects any stale doc where all flags are False
+            active_mode = "paper"
+            # Persist the correction so subsequent reads are consistent
+            if not mode.get("paperTrading"):
+                try:
+                    await db.system_modes_collection.update_one(
+                        {"user_id": user_id},
+                        {"$set": {"paperTrading": True, "liveTrading": False, "autopilot": False}},
+                        upsert=True
+                    )
+                    mode["paperTrading"] = True
+                except Exception:
+                    pass
         
         return {
             "success": True,
