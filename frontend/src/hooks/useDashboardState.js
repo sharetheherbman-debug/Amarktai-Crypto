@@ -3261,12 +3261,17 @@ export default function useDashboardState(navigate) {
   const realtimeConnected = connectionStatus.ws === 'Connected';
   const realtimeLabel = realtimeConnected ? 'Connected' : 'Reconnecting';
   const realtimeTone = realtimeConnected ? 'success' : 'warning';
-  const riskLabel = riskStatus?.emergency_stop?.active
-    ? 'Paused'
-    : (riskStatus?.daily_loss_lock?.active || riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active)
-      ? 'Guarded'
-      : 'OK';
-  const riskTone = riskLabel === 'OK' ? 'success' : riskLabel === 'Guarded' ? 'warning' : 'error';
+  // Guard: show neutral 'Checking...' until riskStatus is confirmed by the API.
+  // Without this guard the badge reads 'OK' before the first /risk/status response
+  // arrives, which would be a false positive in the topbar.
+  const riskLabel = riskStatus === null
+    ? 'Checking...'
+    : riskStatus?.emergency_stop?.active
+      ? 'Paused'
+      : (riskStatus?.daily_loss_lock?.active || riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active)
+        ? 'Guarded'
+        : 'OK';
+  const riskTone = riskLabel === 'OK' ? 'success' : riskLabel === 'Checking...' ? 'default' : riskLabel === 'Guarded' ? 'warning' : 'error';
   const userInitial = user?.first_name?.[0] || user?.email?.[0] || 'U';
 
   return {

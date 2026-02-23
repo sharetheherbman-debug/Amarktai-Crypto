@@ -291,9 +291,15 @@ class TradingScheduler:
                     logger.debug("📭 No trade ready in queue")
                     break
                 
-                logger.info(f"📤 Dequeued trade: bot_id={trade_request.get('bot_id', 'unknown')}")
-                
-                bot_id = trade_request['bot_id']
+                bot_id = trade_request.get('bot_id')
+                if not bot_id:
+                    logger.warning(
+                        f"⚠️ Malformed queue entry missing bot_id – dropping. payload={trade_request!r}"
+                    )
+                    continue
+
+                logger.info(f"📤 Dequeued trade: bot_id={bot_id}")
+
                 bot = next((b for b in active_bots if b['id'] == bot_id), None)
                 
                 if not bot:
