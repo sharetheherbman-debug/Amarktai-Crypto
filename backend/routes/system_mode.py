@@ -324,7 +324,7 @@ async def get_mode(user_id: str = Depends(get_current_user)):
     try:
         mode = await get_system_mode(user_id)
         
-        # Determine active mode string
+        # Determine active mode string (label only — never overwrite explicit user choice)
         if mode.get("paperTrading"):
             active_mode = "paper"
         elif mode.get("liveTrading"):
@@ -332,20 +332,12 @@ async def get_mode(user_id: str = Depends(get_current_user)):
         elif mode.get("autopilot"):
             active_mode = "autopilot"
         else:
-            # Default to paper — safe fallback; also corrects any stale doc where all flags are False
+            # All flags are False: user explicitly disabled paper trading.
+            # Return the actual state from the DB so the UI reflects reality.
+            # (The get_system_mode() helper already handles the "no document" case
+            # by inserting paperTrading=True defaults, so we never reach here on
+            # first load — only when the user has deliberately turned everything off.)
             active_mode = "paper"
-            # Persist the correction so subsequent reads are consistent
-            if not mode.get("paperTrading"):
-                try:
-                    await db.system_modes_collection.update_one(
-                        {"user_id": user_id},
-                        {"$set": {"paperTrading": True, "liveTrading": False, "autopilot": False}},
-                        upsert=True
-                    )
-                    mode["paperTrading"] = True
-                    logger.info("System mode corrected from unset/unknown to 'paper' for user %s", user_id[:8])
-                except Exception as correction_err:
-                    logger.warning("Could not persist system mode correction for user %s: %s", user_id[:8], correction_err)
         
         return {
             "success": True,
