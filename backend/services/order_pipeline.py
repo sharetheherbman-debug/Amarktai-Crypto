@@ -298,6 +298,23 @@ class OrderPipeline:
             await self._increment_trade_counters(user_id, bot_id, exchange)
             
             logger.info(f"Order {order_id} passed all 4 gates for bot {bot_id}")
+
+            # For paper orders, execute the fill immediately so the order reaches
+            # a terminal state (filled/failed) before returning to the caller.
+            if is_paper:
+                exec_result = await self._execute_paper_fill(
+                    order_id=order_id,
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    exchange=exchange,
+                    symbol=symbol,
+                    side=side,
+                    amount=amount,
+                    order_type=order_type,
+                    price=price,
+                )
+                result["fill"] = exec_result
+
             return result
             
         except Exception as e:
@@ -901,6 +918,164 @@ class OrderPipeline:
             
         except Exception as e:
             logger.error(f"Error incrementing counters: {e}")
+
+    async def _execute_paper_fill(
+        self,
+        order_id: str,
+        user_id: str,
+        bot_id: str,
+        exchange: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        order_type: str = "market",
+        price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a paper fill immediately after all gates have passed.
+
+        Updates:
+        - pending_orders state → "filled"
+        - trades collection (one record per fill)
+        - paper wallet balance (debit/credit the ZAR notional)
+        - bot runtime fields (trades_count, last_trade_simulated_at, last_market_price)
+        - ledger fill record (via ledger service)
+
+        Returns a dict summarising the fill result.
+        """
+        try:
+            from paper_trading_engine import paper_trading_engine
+            import database as db
+
+            execution = await paper_trading_engine.execute_approved_trade(
+                user_id=user_id,
+                bot_id=bot_id,
+                exchange=exchange,
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                order_type=order_type,
+                price=price,
+            )
+
+            now = datetime.utcnow()
+            fill_state = "filled" if execution.get("success") else "failed"
+
+            # 1. Update pending_orders to terminal state
+            if self.pending_orders is not None:
+                await self.pending_orders.update_one(
+                    {"order_id": order_id},
+                    {"$set": {
+                        "state": fill_state,
+                        "filled_at": now if fill_state == "filled" else None,
+                        "filled_price": execution.get("price"),
+                        "filled_qty": execution.get("amount"),
+                        "execution_result": execution,
+                        "updated_at": now,
+                    }},
+                )
+
+            if not execution.get("success"):
+                return {"success": False, "error": execution.get("error")}
+
+            exec_price = execution.get("price", 0.0) or 0.0
+            filled_qty = execution.get("amount", amount) or amount
+            fees = execution.get("fees", {})
+            fee_cost = fees.get("cost", 0.0) or 0.0
+            fee_currency = fees.get("currency", symbol.split("/")[1] if "/" in symbol else "ZAR")
+            notional = exec_price * filled_qty
+
+            # 2. Insert a trade/fill record so dashboards and training can find it
+            trade_doc = {
+                "user_id": user_id,
+                "bot_id": bot_id,
+                "order_id": order_id,
+                "exchange": exchange,
+                "pair": symbol,
+                "symbol": symbol,
+                "side": side,
+                "amount": filled_qty,
+                "entry_price": exec_price,
+                "fill_price": exec_price,
+                "notional": notional,
+                "fee": fee_cost,
+                "fee_currency": fee_currency,
+                "status": "closed",
+                "is_paper": True,
+                # Both fields kept for compatibility: net_pnl used by training/bodyguard,
+                # profit_loss used by legacy dashboard queries.  Round-trip PnL is
+                # zero here because the fill record represents only the entry side.
+                "net_pnl": 0.0,
+                "profit_loss": 0.0,
+                "timestamp": now.isoformat(),
+                "filled_at": now.isoformat(),
+            }
+            if db.trades_collection is not None:
+                await db.trades_collection.insert_one(trade_doc)
+
+            # 3. Update paper wallet balance
+            try:
+                from services.paper_wallet_ledger import paper_wallet_ledger
+                if side == "buy":
+                    # Debit ZAR for buy
+                    await paper_wallet_ledger.debit(bot_id, notional + fee_cost, "paper_order_buy")
+                else:
+                    # Credit ZAR for sell
+                    await paper_wallet_ledger.credit(bot_id, notional - fee_cost, "paper_order_sell")
+            except Exception as wallet_err:
+                logger.warning(f"Paper wallet update skipped for {order_id}: {wallet_err}")
+
+            # 4. Update bot runtime fields
+            try:
+                if db.bots_collection is not None:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$inc": {"trades_count": 1},
+                         "$set": {
+                             "last_trade_simulated_at": now.isoformat(),
+                             "last_market_price": exec_price,
+                         }},
+                    )
+            except Exception as bot_err:
+                logger.warning(f"Bot runtime update skipped for {order_id}: {bot_err}")
+
+            # 5. Record fill to ledger
+            try:
+                if self.ledger is not None:
+                    await self.ledger.append_fill(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        exchange=exchange,
+                        symbol=symbol,
+                        side=side,
+                        qty=filled_qty,
+                        price=exec_price,
+                        fee=fee_cost,
+                        fee_currency=fee_currency,
+                        timestamp=now,
+                        order_id=order_id,
+                        is_paper=True,
+                    )
+            except Exception as ledger_err:
+                logger.warning(f"Ledger fill skipped for {order_id}: {ledger_err}")
+
+            logger.info(
+                f"Paper fill executed: {order_id} {side} {filled_qty} {symbol} "
+                f"@ {exec_price} (notional R{notional:.2f})"
+            )
+            return {
+                "success": True,
+                "state": "filled",
+                "execution_price": exec_price,
+                "execution_amount": filled_qty,
+                "notional": notional,
+                "fees": fees,
+                "filled_at": now.isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"Paper fill execution error for {order_id}: {e}")
+            return {"success": False, "error": str(e)}
     
     async def get_pending_orders(
         self, user_id: Optional[str] = None, bot_id: Optional[str] = None
