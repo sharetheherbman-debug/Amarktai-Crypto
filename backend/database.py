@@ -124,7 +124,7 @@ def _parse_mongo_config() -> tuple:
     1. MONGO_URI  – may embed the DB name as the path component, e.g.
        mongodb://host:27017/amarktai
     2. MONGO_URL + DB_NAME  – explicit separate variables
-    3. Hardcoded defaults (localhost, amarktai_trading)
+    3. Hardcoded defaults (localhost, amarktai)
 
     Returns:
         (mongo_url, db_name) – the connection URL (without any embedded DB path
@@ -142,11 +142,11 @@ def _parse_mongo_config() -> tuple:
         except Exception:
             pass
         # MONGO_URI set but no DB path – fall through to DB_NAME
-        db_name = os.getenv("DB_NAME", "amarktai_trading")
+        db_name = os.getenv("DB_NAME", "amarktai")
         return mongo_uri, db_name
 
     mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27017")
-    db_name = os.getenv("DB_NAME", "amarktai_trading")
+    db_name = os.getenv("DB_NAME", "amarktai")
     return mongo_url, db_name
 
 
@@ -166,7 +166,8 @@ async def connect():
         safe_host = f"{parsed.hostname}:{parsed.port or 27017}"
     except Exception:
         safe_host = "unknown"
-    logger.info(f"🔌 Connecting to MongoDB host={safe_host} db={db_name}")
+    logger.info(f"🔌 Connecting to MongoDB host={safe_host}")
+    logger.info(f"🗄️  Mongo DB selected: {db_name}")
 
     try:
         client = AsyncIOMotorClient(mongo_url)
@@ -380,7 +381,7 @@ async def init_db():
         
         # Trade indexes
         if trades_collection is not None:
-            await trades_collection.create_index("id", unique=True)
+            await trades_collection.create_index("id", unique=True, sparse=True)
             await trades_collection.create_index("bot_id")
             await trades_collection.create_index("user_id")
             await trades_collection.create_index("timestamp")

@@ -15,7 +15,7 @@ load_dotenv()
 
 # Database
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+DB_NAME = os.getenv('DB_NAME', 'amarktai')
 
 # Security
 JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')

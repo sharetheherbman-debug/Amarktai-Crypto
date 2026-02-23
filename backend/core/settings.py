@@ -213,13 +213,13 @@ class SystemSettings:
                 _parsed = _urlparse(_mongo_uri)
                 _path_db = _parsed.path.lstrip('/').split('?')[0].strip()
                 self.MONGO_URL = _mongo_uri
-                self.DB_NAME = _path_db if _path_db else os.getenv('DB_NAME', 'amarktai_trading')
+                self.DB_NAME = _path_db if _path_db else os.getenv('DB_NAME', 'amarktai')
             except Exception:
                 self.MONGO_URL = _mongo_uri
-                self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+                self.DB_NAME = os.getenv('DB_NAME', 'amarktai')
         else:
             self.MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-            self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+            self.DB_NAME = os.getenv('DB_NAME', 'amarktai')
 
         
         # Security
