@@ -343,8 +343,9 @@ async def get_mode(user_id: str = Depends(get_current_user)):
                         upsert=True
                     )
                     mode["paperTrading"] = True
-                except Exception:
-                    pass
+                    logger.info("System mode corrected from unset/unknown to 'paper' for user %s", user_id[:8])
+                except Exception as correction_err:
+                    logger.warning("Could not persist system mode correction for user %s: %s", user_id[:8], correction_err)
         
         return {
             "success": True,

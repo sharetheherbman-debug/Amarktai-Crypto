@@ -238,7 +238,8 @@ def test_smoke_health_openapi_uses_api_openapi():
     assert "/api/openapi.json" in source, (
         "smoke_health_openapi.sh must check /api/openapi.json directly"
     )
-    # Must not use the redirect shortcut for the primary check
-    assert 'check_json "openapi.json"       "$BASE_URL/openapi.json" -L' not in source, (
-        "smoke_health_openapi.sh must not rely on /openapi.json redirect"
+    # Must not use the old redirect shortcut: -L flag with /openapi.json root path
+    import re
+    assert not re.search(r'check_json[^"]*"\$BASE_URL/openapi\.json".*-L', source), (
+        "smoke_health_openapi.sh must not rely on /openapi.json redirect (-L)"
     )

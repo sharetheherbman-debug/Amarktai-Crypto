@@ -299,10 +299,10 @@ class BodyguardService:
             # Check if currently active and drawdown exceeds threshold
             if bot_status == 'active' and current_drawdown_pct >= threshold:
                 if in_warmup:
-                    insufficient_data = trades_count < MIN_TRADES_FOR_BODYGUARD
+                    has_insufficient_trades = trades_count < MIN_TRADES_FOR_BODYGUARD
                     reason = (
                         f"Insufficient trade history ({trades_count}/{MIN_TRADES_FOR_BODYGUARD} trades)"
-                        if insufficient_data else
+                        if has_insufficient_trades else
                         f"Warmup active ({trades_count}/{MIN_TRADES_FOR_BODYGUARD} trades, "
                         f"{int(runtime_seconds)}/{BODYGUARD_MIN_RUNTIME_SECONDS}s)"
                     )
@@ -311,7 +311,7 @@ class BodyguardService:
                         {"$set": {
                             "bodyguard_warmup": True,
                             "bodyguard_warmup_reason": reason,
-                            "bodyguard_status": "insufficient_data" if insufficient_data else "warmup",
+                            "bodyguard_status": "insufficient_data" if has_insufficient_trades else "warmup",
                         }}
                     )
                     logger.info("🛡️ Bodyguard warmup/insufficient-data skip for bot %s: %s", bot.get('name'), reason)
