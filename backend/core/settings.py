@@ -204,9 +204,23 @@ class SystemSettings:
     """
     
     def __init__(self):
-        # Database
-        self.MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-        self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+        # Database – resolve from MONGO_URI first (may embed DB name), then MONGO_URL + DB_NAME
+        # This mirrors database._parse_mongo_config() so both modules agree.
+        _mongo_uri = os.getenv('MONGO_URI', '').strip()
+        if _mongo_uri:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                _parsed = _urlparse(_mongo_uri)
+                _path_db = _parsed.path.lstrip('/').split('?')[0].strip()
+                self.MONGO_URL = _mongo_uri
+                self.DB_NAME = _path_db if _path_db else os.getenv('DB_NAME', 'amarktai_trading')
+            except Exception:
+                self.MONGO_URL = _mongo_uri
+                self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+        else:
+            self.MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
+            self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+
         
         # Security
         self.JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -346,7 +360,16 @@ def startup_self_check() -> None:
     Called on application startup to validate configuration
     """
     errors = []
-    
+
+    # Log effective DB identity (redacted, no passwords)
+    try:
+        from urllib.parse import urlparse as _urlparse
+        _parsed = _urlparse(settings.MONGO_URL)
+        _safe_host = f"{_parsed.hostname or 'unknown'}:{_parsed.port or 27017}"
+    except Exception:
+        _safe_host = "unknown"
+    print(f"🗄️  Effective MongoDB: host={_safe_host} db={settings.DB_NAME}", flush=True)
+
     # Check 1: Required environment keys
     required_keys = {
         'MONGO_URL': settings.MONGO_URL,

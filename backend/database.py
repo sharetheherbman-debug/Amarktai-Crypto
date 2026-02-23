@@ -116,18 +116,58 @@ funding_plans = None  # Alias for funding_plans_collection
 # Database Connection Functions
 # ============================================================================
 
+def _parse_mongo_config() -> tuple:
+    """
+    Resolve MongoDB URL and database name from environment variables.
+
+    Priority (first match wins):
+    1. MONGO_URI  – may embed the DB name as the path component, e.g.
+       mongodb://host:27017/amarktai
+    2. MONGO_URL + DB_NAME  – explicit separate variables
+    3. Hardcoded defaults (localhost, amarktai_trading)
+
+    Returns:
+        (mongo_url, db_name) – the connection URL (without any embedded DB path
+        for the client, because Motor accepts the path) and the resolved DB name.
+    """
+    mongo_uri = os.getenv("MONGO_URI", "").strip()
+    if mongo_uri:
+        # Extract DB name from the URI path if present, e.g. /amarktai
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(mongo_uri)
+            path_db = parsed.path.lstrip("/").split("?")[0].strip()
+            if path_db:
+                return mongo_uri, path_db
+        except Exception:
+            pass
+        # MONGO_URI set but no DB path – fall through to DB_NAME
+        db_name = os.getenv("DB_NAME", "amarktai_trading")
+        return mongo_uri, db_name
+
+    mongo_url = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+    db_name = os.getenv("DB_NAME", "amarktai_trading")
+    return mongo_url, db_name
+
+
 async def connect():
     """
     Connect to MongoDB and initialize all collections
     This is the main entry point for database initialization
     """
     global client, db
-    
-    mongo_url = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-    db_name = os.getenv('DB_NAME', 'amarktai_trading')
-    
-    logger.info(f"🔌 Connecting to MongoDB at {mongo_url}")
-    
+
+    mongo_url, db_name = _parse_mongo_config()
+
+    # Log safe identity (host only, no credentials)
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(mongo_url)
+        safe_host = f"{parsed.hostname}:{parsed.port or 27017}"
+    except Exception:
+        safe_host = "unknown"
+    logger.info(f"🔌 Connecting to MongoDB host={safe_host} db={db_name}")
+
     try:
         client = AsyncIOMotorClient(mongo_url)
         db = client[db_name]
