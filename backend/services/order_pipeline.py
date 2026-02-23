@@ -1490,8 +1490,7 @@ class CircuitBreaker:
     def record_success(self) -> None:
         """Record a successful operation and reset failure count."""
         self.failures = 0
-        if self.failures == 0:
-            self.open = False
+        self.open = False
 
     def record_failure(self) -> None:
         """Record a failure; open circuit when threshold is reached."""

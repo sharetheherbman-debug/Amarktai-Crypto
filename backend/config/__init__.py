@@ -16,6 +16,16 @@ try:
 except ImportError:
     pass  # dotenv not available, use environment variables directly
 
+# Email (SMTP) – must mirror backend/config.py
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+SMTP_USER = os.getenv('SMTP_USER', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+FROM_EMAIL = os.getenv('FROM_EMAIL', SMTP_USER)
+FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Crypto')
+EMAIL_CONFIRMATION_TIMEOUT_HOURS = int(os.getenv('EMAIL_CONFIRMATION_TIMEOUT_HOURS', '24'))
+REQUIRE_EMAIL_CONFIRMATION = os.getenv('REQUIRE_EMAIL_CONFIRMATION', 'true').lower() == 'true'
+
 # Paper -> Live promotion criteria (most commonly imported)
 PAPER_TRAINING_DAYS = int(os.getenv('PAPER_TRAINING_DAYS', '7'))  # Must be 7 days minimum
 PAPER_STARTING_CAPITAL_ZAR = float(os.getenv('PAPER_STARTING_CAPITAL_ZAR', '30000'))  # Default paper starting capital
@@ -175,6 +185,8 @@ from config.platforms import SUPPORTED_PLATFORMS
 PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 7 exchanges supported
 
 __all__ = [
+    'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'FROM_EMAIL', 'FROM_NAME',
+    'EMAIL_CONFIRMATION_TIMEOUT_HOURS', 'REQUIRE_EMAIL_CONFIRMATION',
     'PAPER_TRAINING_DAYS', 'PAPER_STARTING_CAPITAL_ZAR', 'MIN_WIN_RATE', 'MIN_PROFIT_PERCENT', 'MIN_TRADES_FOR_PROMOTION',
     'EXCHANGE_BOT_LIMITS', 'EXCHANGE_TRADE_LIMITS',
     'MAX_TRADES_PER_BOT_PER_DAY', 'MAX_TRADES_PER_USER_PER_DAY', 'MIN_TRADE_PROFIT_THRESHOLD_ZAR',
