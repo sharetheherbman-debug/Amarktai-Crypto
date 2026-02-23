@@ -25,6 +25,8 @@ _hf_last_success: Optional[str] = None
 _hf_last_error: Optional[str] = None
 _hf_last_latency_ms: Optional[float] = None
 
+# Lightweight probe input used by the health check
+HF_HEALTH_PROBE_TEXT = "Bitcoin price is rising today."
 
 class HuggingFaceModelInfo(BaseModel):
     """HuggingFace model information"""
@@ -531,7 +533,7 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
             try:
                 client, _ = await get_huggingface_client(user_id, model=model_id)
                 if client:
-                    _ = client.text_classification("market is up")
+                    _ = client.text_classification(HF_HEALTH_PROBE_TEXT)
                     _hf_last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
                     _hf_last_success = datetime.now(timezone.utc).isoformat()
                     _hf_last_error = None

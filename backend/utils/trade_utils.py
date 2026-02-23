@@ -2,10 +2,12 @@
 Trade utilities for timestamp normalization and parsing.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Iterable, Union
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
 
 def parse_trade_timestamp(trade: dict) -> datetime:
     """Return a timezone-aware timestamp for a trade."""
@@ -51,8 +53,6 @@ def _first_non_empty_value(record: Dict, keys: Iterable[str], default=None):
 
 def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional[Dict] = None) -> Dict:
     """Build a canonical trade record with required fields populated."""
-    import logging as _logging
-    _logger = _logging.getLogger(__name__)
     bot = bot or {}
     record = dict(trade)
     now = datetime.now(timezone.utc).isoformat()
@@ -67,7 +67,7 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
     trade_id = record.get("id") or record.get("trade_id")
     if not trade_id:
         trade_id = str(uuid4())
-        _logger.warning("build_trade_record: id was missing, auto-generated %s", trade_id)
+        logger.warning("build_trade_record: id was missing, auto-generated %s", trade_id)
 
     record.update({
         "id": trade_id,

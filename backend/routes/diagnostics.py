@@ -1518,7 +1518,8 @@ async def get_data_integrity(user_id: str = Depends(get_current_user)):
                 {"net_pnl": 1, "profit_loss": 1, "_id": 0}
             )
             async for t in closed_cursor:
-                pnl = t.get("net_pnl") if t.get("net_pnl") is not None else t.get("profit_loss", 0)
+                _net_pnl = t.get("net_pnl")
+                pnl = _net_pnl if _net_pnl is not None else t.get("profit_loss", 0)
                 net_realized_pnl += float(pnl or 0)
 
         # Paper wallet balance
