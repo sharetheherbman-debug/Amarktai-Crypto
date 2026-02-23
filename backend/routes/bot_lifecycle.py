@@ -1171,7 +1171,8 @@ async def get_bot_detailed_status(bot_id: str, user_id: str = Depends(get_curren
         
         return {
             "bot": bot,
-            "status": {
+            "status": bot.get('status', 'unknown'),
+            "status_detail": {
                 "current_status": bot.get('status', 'unknown'),
                 "is_active": bot.get('status') == 'active',
                 "is_paused": bot.get('status') == 'paused',
