@@ -2073,6 +2073,8 @@ async def reset_bot_locks(
             "success": True,
             "bot_id": bot_id,
             "status": "active",
+            "paused_by_bodyguard": False,
+            "reason": request.reason,
             "equity_peak_reset_to": current_capital,
             "message": "Bot safety locks cleared. Bot is now active with a fresh equity baseline.",
         }
