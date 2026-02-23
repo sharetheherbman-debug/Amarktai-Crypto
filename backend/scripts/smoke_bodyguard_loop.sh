@@ -77,10 +77,10 @@ post_json() {
 # 1. List bots via /api/bots/status (verified correct endpoint)
 echo "[1] Fetching bot list from /api/bots/status..."
 bots_json=$(get_json "$BASE_URL/api/bots/status" 2>/dev/null || echo "{}")
-# Extract first locked/quarantined bot id using python
-bot_id=$(python3 - <<'EOF'
-import sys, json, os
-raw = open('/dev/stdin').read()
+# Extract first locked/quarantined bot id using python (passed via env var to avoid stdin/heredoc issues)
+bot_id=$(BOTS_JSON="$bots_json" python3 - <<'EOF'
+import json, os, sys
+raw = os.environ.get('BOTS_JSON', '{}')
 try:
     data = json.loads(raw)
     # /api/bots/status returns {"bots": [...], ...} or a list directly
@@ -104,7 +104,7 @@ try:
 except Exception as e:
     sys.stderr.write(f"Bot parse error: {e}\n")
 EOF
-<<< "$bots_json")
+)
 
 if [ -z "$bot_id" ]; then
     echo "FAIL — no bots found via /api/bots/status (raw response below):"

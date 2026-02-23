@@ -100,6 +100,12 @@ class TradeStaggerer:
     async def add_to_queue(self, bot_id: str, exchange: str, priority: int = 0):
         """Add a trade request to the queue"""
         try:
+            if not bot_id or not exchange:
+                logger.warning(
+                    f"⚠️ Rejecting malformed add_to_queue call: bot_id={bot_id!r}, exchange={exchange!r}"
+                )
+                return
+
             trade_request = {
                 "bot_id": bot_id,
                 "exchange": exchange,
@@ -128,8 +134,14 @@ class TradeStaggerer:
             for _ in range(len(self.trade_queue)):
                 trade_request = self.trade_queue.popleft()
                 
-                bot_id = trade_request['bot_id']
-                exchange = trade_request['exchange']
+                bot_id = trade_request.get('bot_id')
+                exchange = trade_request.get('exchange')
+
+                if not bot_id or not exchange:
+                    logger.warning(
+                        f"⚠️ Malformed queue entry – dropping. payload={trade_request!r}"
+                    )
+                    continue
 
                 # Drop entry immediately if bot is no longer active in DB
                 try:
@@ -219,9 +231,9 @@ class TradeStaggerer:
                 "concurrent_by_exchange": dict(self.concurrent_trades_per_exchange),
                 "queue_items": [
                     {
-                        "bot_id": item['bot_id'][:8],
-                        "exchange": item['exchange'],
-                        "queued_at": item['queued_at']
+                        "bot_id": (item.get('bot_id') or '')[:8],
+                        "exchange": item.get('exchange', ''),
+                        "queued_at": item.get('queued_at', '')
                     }
                     for item in list(self.trade_queue)[:10]  # Show first 10
                 ]
@@ -281,11 +293,12 @@ class TradeStaggerer:
             # Sample queue items (redacted)
             sample_items = []
             for item in list(self.trade_queue)[:5]:
+                bid = item.get('bot_id') or ''
                 sample_items.append({
-                    "bot_id": item['bot_id'][:12] + "...",  # Show more characters to reduce collision risk
-                    "exchange": item['exchange'],
+                    "bot_id": bid[:12] + "..." if len(bid) > 12 else bid,  # Show more characters to reduce collision risk
+                    "exchange": item.get('exchange', ''),
                     "priority": item.get('priority', 0),
-                    "queued_at": item['queued_at']
+                    "queued_at": item.get('queued_at', '')
                 })
             
             # Exchange stats
