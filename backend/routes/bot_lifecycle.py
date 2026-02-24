@@ -1760,6 +1760,18 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         wallet = await paper_wallet_service.get_balances(user_id)
         available_zar = float(wallet.get("balances", {}).get("ZAR", 0))
         starting = float(PAPER_STARTING_CAPITAL_ZAR)
+
+        # If the paper wallet is unfunded (balance is 0), auto-initialise it with
+        # PAPER_STARTING_CAPITAL_ZAR.  This mirrors what the dashboard does when the
+        # user clicks "Add Funds" for the first time, ensuring the seed endpoint works
+        # out-of-the-box in the same way the UI does.
+        if available_zar == 0 and starting > 0:
+            try:
+                await paper_wallet_service.fund(user_id, starting, "ZAR")
+                available_zar = starting
+            except Exception as _fund_err:
+                logger.warning(f"Auto-fund paper wallet failed for user {user_id}: {_fund_err}")
+
         # Each bot gets 1/5 of available funds (min 500 ZAR, max starting/5)
         per_bot_capital = max(500.0, min(available_zar / 5.0, starting / 5.0))
 

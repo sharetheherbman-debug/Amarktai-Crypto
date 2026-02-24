@@ -209,8 +209,8 @@ jobs:
           echo "Build output:"
           ls -lh build/ || true
         env:
-        CI: true
-        NODE_ENV: production
+          CI: true
+          NODE_ENV: production
     
       - name: Check build output
         run: |

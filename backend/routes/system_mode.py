@@ -361,6 +361,21 @@ class ModeToggleRequest(BaseModel):
     confirmation_token: Optional[str] = None
 
 
+class ModeSetRequest(BaseModel):
+    """Canonical request to set all mode flags at once.
+
+    Accepted by POST /api/system/mode.  Maps the human-readable boolean
+    fields to the internal storage flags (paperTrading / liveTrading / autopilot).
+
+    Rules:
+    - paper_trading and live_trading are mutually exclusive.
+    - autonomous (autopilot) may coexist with paper_trading.
+    """
+    paper_trading: bool = False
+    live_trading: bool = False
+    autonomous: bool = False
+
+
 class PaperResetRequest(BaseModel):
     """Request to reset paper trading data"""
     password: str
@@ -534,6 +549,81 @@ async def validate_paper_reset(
     if is_valid:
         reset_paper_reset_attempts(user_id)
     return {"valid": is_valid}
+
+
+@router.post("/mode")
+async def set_mode(
+    data: ModeSetRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Canonical API to set system mode from boolean flags.
+
+    Intended for scripts and automation.  Accepts:
+        {"paper_trading": true, "live_trading": false, "autonomous": true}
+
+    Rules
+    -----
+    - paper_trading and live_trading are mutually exclusive.
+    - autonomous may coexist with paper_trading (enables autopilot in paper mode).
+    - live_trading is refused if ENABLE_LIVE_TRADING env flag is false.
+
+    Returns the same shape as GET /api/system/mode.
+    """
+    if data.paper_trading and data.live_trading:
+        raise HTTPException(
+            status_code=400,
+            detail="paper_trading and live_trading are mutually exclusive"
+        )
+
+    if data.live_trading and not live_trading_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Live trading is globally disabled. Set ENABLE_LIVE_TRADING=true"
+        )
+
+    new_state = {
+        "paperTrading": data.paper_trading,
+        "liveTrading": data.live_trading,
+        "autopilot": data.autonomous,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": user_id,
+        "user_id": user_id,
+    }
+
+    await db.system_modes_collection.update_one(
+        {"user_id": user_id},
+        {"$set": new_state},
+        upsert=True
+    )
+
+    if data.live_trading:
+        effective_mode = "live"
+    elif data.paper_trading:
+        effective_mode = "paper"
+    elif data.autonomous:
+        effective_mode = "autopilot"
+    else:
+        effective_mode = "disabled"
+
+    logger.info(
+        f"📊 Mode set via POST /mode: paper={data.paper_trading} "
+        f"live={data.live_trading} autonomous={data.autonomous} "
+        f"by user {user_id[:8]}"
+    )
+
+    try:
+        await rt_events.mode_switched(user_id, effective_mode, new_state)
+    except Exception as e:
+        logger.warning(f"Failed to emit mode_switched event: {e}")
+
+    return {
+        "success": True,
+        "mode": effective_mode,
+        "paperTrading": new_state["paperTrading"],
+        "liveTrading": new_state["liveTrading"],
+        "autopilot": new_state["autopilot"],
+        "updated_at": new_state["updated_at"],
+    }
 
 
 @router.put("/mode")

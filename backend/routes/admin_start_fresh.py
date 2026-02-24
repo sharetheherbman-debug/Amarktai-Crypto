@@ -276,6 +276,165 @@ async def start_fresh(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/user/paper-start-fresh")
+async def user_paper_start_fresh(
+    request: StartFreshRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    User-safe paper reset (no admin required).
+
+    Wipes paper bots, trades, fills, telemetry, risk locks and resets
+    the paper wallet — identical scope to /api/admin/start-fresh but
+    scoped to "paper_only" and accessible by any authenticated user.
+
+    Requires:
+        - Valid JWT (get_current_user)
+        - confirmation_phrase == "START FRESH"
+        - scope must be "paper_only"
+
+    Returns:
+        ok: bool, message: str, deleted: dict
+    """
+    try:
+        if not request.confirmation_phrase or request.confirmation_phrase != "START FRESH":
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid confirmation phrase. Must be 'START FRESH' (exact match)"
+            )
+
+        # Force paper_only scope for user-safe reset
+        reset_risk_locks = request.also_reset_risk_locks
+
+        summary = {
+            "bots_deleted": 0,
+            "trades_deleted": 0,
+            "orders_deleted": 0,
+            "fills_deleted": 0,
+            "telemetry_deleted": 0,
+            "risk_locks_reset": 0
+        }
+
+        delete_timestamp = datetime.now(timezone.utc).isoformat()
+
+        result = await db.bots_collection.update_many(
+            {"user_id": user_id, "trading_mode": "paper", "deleted_at": {"$exists": False}},
+            {
+                "$set": {
+                    "status": "deleted",
+                    "deleted_at": delete_timestamp,
+                    "deleted_by": user_id,
+                    "deletion_reason": "user_paper_start_fresh"
+                }
+            }
+        )
+        summary["bots_deleted"] = result.modified_count
+
+        deleted_bots = await db.bots_collection.find(
+            {"user_id": user_id, "deletion_reason": "user_paper_start_fresh"},
+            {"_id": 0, "id": 1}
+        ).to_list(1000)
+        deleted_bot_ids = [bot["id"] for bot in deleted_bots if "id" in bot]
+
+        if deleted_bot_ids:
+            trades_result = await db.trades_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
+            summary["trades_deleted"] = trades_result.deleted_count
+
+            orders_result = await db.orders_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
+            summary["orders_deleted"] = orders_result.deleted_count
+
+            try:
+                fills_result = await db.db["fills_ledger"].delete_many({"bot_id": {"$in": deleted_bot_ids}})
+                summary["fills_deleted"] = fills_result.deleted_count
+            except Exception as e:
+                logger.warning(f"Could not delete fills: {e}")
+
+            try:
+                telemetry_result = await db.bot_metrics_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
+                summary["telemetry_deleted"] = telemetry_result.deleted_count
+            except Exception as e:
+                logger.warning(f"Could not delete telemetry: {e}")
+
+        _user_runtime_collections = [
+            ("balance_snapshots", db.balance_snapshots_collection),
+            ("paper_ledger", db.paper_ledger_collection),
+            ("bot_metrics", db.bot_metrics_collection),
+            ("bot_runtime_state", db.bot_runtime_state_collection),
+            ("bot_lifecycle", db.bot_lifecycle_collection),
+            ("performance_metrics", db.performance_metrics_collection),
+        ]
+        for coll_name, collection in _user_runtime_collections:
+            if collection is None:
+                continue
+            try:
+                await collection.delete_many({"user_id": user_id})
+            except Exception as e:
+                logger.warning(f"Could not clear {coll_name}: {e}")
+
+        if reset_risk_locks:
+            risk_result = await db.users_collection.update_one(
+                {"id": user_id},
+                {
+                    "$set": {
+                        "daily_loss_lock_active": False,
+                        "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
+                        "emergency_stop": False
+                    },
+                    "$unset": {
+                        "daily_loss_locked_at": "",
+                        "daily_loss_locked_reason": "",
+                        "daily_loss_pct": "",
+                        "daily_loss_day_key": ""
+                    }
+                }
+            )
+            if risk_result.modified_count > 0:
+                summary["risk_locks_reset"] = 1
+
+
+        wallet_before = {}
+        wallet_after = {}
+        try:
+            from services.paper_wallet_service import paper_wallet_service
+            wallet_result = await paper_wallet_service.reset(user_id)
+            wallet_before = wallet_result.get("wallet_before", {})
+            wallet_after = wallet_result.get("wallet_after", {})
+        except Exception as wallet_err:
+            logger.warning(f"Could not reset paper wallet (non-critical): {wallet_err}")
+
+        try:
+            if db.wallet_balances_collection is not None:
+                await db.wallet_balances_collection.delete_many({"user_id": user_id})
+        except Exception as e:
+            logger.warning(f"Could not purge wallet_balances: {e}")
+
+        try:
+            if db.capital_injections_collection is not None:
+                await db.capital_injections_collection.delete_many({"user_id": user_id})
+        except Exception as e:
+            logger.warning(f"Could not purge capital_injections: {e}")
+
+        logger.info(
+            f"User paper-start-fresh completed for user {user_id}: "
+            f"{summary['bots_deleted']} bots deleted"
+        )
+
+        return {
+            "ok": True,
+            "message": "Paper reset completed successfully",
+            "deleted": summary,
+            "wallet_before": wallet_before,
+            "wallet_after": wallet_after,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during user paper-start-fresh: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class ResetUserDataRequest(BaseModel):
     """Request model for resetting specific user data"""
     confirmation_phrase: str

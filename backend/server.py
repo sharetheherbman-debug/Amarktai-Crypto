@@ -58,6 +58,55 @@ api_router = APIRouter()
 api_router.include_router(auth_router)
 
 # ============================================================================
+# FLOKX BACKGROUND POLLER
+# Polls each user's configured Flokx key every 5 minutes and stores alerts
+# in alerts_collection with source="flokx" for the AI ensemble to consume.
+# ============================================================================
+
+_FLOKX_POLL_INTERVAL = 300  # 5 minutes
+
+
+async def _run_flokx_poller():
+    """Background task: poll Flokx per-user every 5 minutes."""
+    import asyncio
+    from datetime import datetime, timezone
+    while True:
+        try:
+            if db.api_keys_collection is None or db.alerts_collection is None:
+                await asyncio.sleep(_FLOKX_POLL_INTERVAL)
+                continue
+            # Fetch all configured Flokx keys
+            cursor = db.api_keys_collection.find({"provider": "flokx"}, {"user_id": 1, "encrypted_key": 1, "key": 1})
+            keys = await cursor.to_list(length=200)
+            if keys:
+                from routes.api_key_management import get_decrypted_key
+                from flokx_integration import FLOKxIntegration
+                for key_doc in keys:
+                    try:
+                        uid = key_doc.get("user_id")
+                        api_key = await get_decrypted_key(uid, "flokx")
+                        if not api_key:
+                            continue
+                        local_flokx = FLOKxIntegration()
+                        local_flokx.set_credentials(api_key)
+                        data = await local_flokx.fetch_market_coefficients("BTC/ZAR")
+                        await db.alerts_collection.insert_one({
+                            "user_id": uid,
+                            "source": "flokx",
+                            "pair": "BTC/ZAR",
+                            "data": data,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                    except Exception as e:
+                        logger.debug(f"Flokx poll error for user: {e}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Flokx poller error: {e}")
+        await asyncio.sleep(_FLOKX_POLL_INTERVAL)
+
+
+# ============================================================================
 # LIFESPAN CONTEXT - Startup and Shutdown
 # ============================================================================
 
@@ -242,6 +291,14 @@ async def lifespan(app: FastAPI):
         logger.info("💰 Balance Sync Service started")
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
+
+    # Start Flokx background polling (every 5 minutes per user)
+    try:
+        if os.environ.get("ENABLE_SCHEDULERS", "true").lower() == "true":
+            asyncio.create_task(_run_flokx_poller())
+            logger.info("🎯 Flokx background poller started (5-min interval)")
+    except Exception as e:
+        logger.warning(f"Could not start Flokx poller: {e}")
     
     logger.info("🚀 All autonomous systems operational")
     
@@ -2177,16 +2234,26 @@ async def get_wallet_mode_stats(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/alerts")
 async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
-    """Get FLOKx market alerts"""
+    """Get FLOKx market alerts using user's stored key"""
     try:
-        from flokx_integration import flokx
-        
-        # Get alerts for major pairs
+        from routes.api_key_management import get_decrypted_key
+        key_data = await get_decrypted_key(str(user_id), "flokx")
+        if not key_data or not key_data.get("api_key"):
+            return {
+                "alerts": [],
+                "count": 0,
+                "message": "FLOKx key not configured. Add your FLOKx API key in the Keys section.",
+                "configured": False,
+            }
+
+        from flokx_integration import FLOKxIntegration
+        local_flokx = FLOKxIntegration()
+        local_flokx.set_credentials(key_data["api_key"])
+
         pairs = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
         alerts = []
-        
         for pair in pairs:
-            data = await flokx.fetch_market_coefficients(pair)
+            data = await local_flokx.fetch_market_coefficients(pair)
             if data.get('strength', 0) > 75:
                 alerts.append({
                     "pair": pair,
@@ -2194,8 +2261,8 @@ async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
                     "message": f"{pair}: Strong {data.get('sentiment', 'signal')} ({data.get('strength', 0):.0f}%)",
                     "timestamp": data.get('timestamp')
                 })
-        
-        return {"alerts": alerts, "count": len(alerts)}
+
+        return {"alerts": alerts, "count": len(alerts), "configured": True}
     except Exception as e:
         logger.error(f"Flokx alerts error: {e}")
         return {"alerts": [], "count": 0}
@@ -2419,6 +2486,8 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
         return {
             "success": True,
             "configured": configured,
+            "key_present": configured,
+            "enabled": configured,
             "status": "configured" if configured else "not_configured",
             "last_tested_at": last_tested_at,
             "last_error": last_error,
@@ -2429,6 +2498,8 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
         return {
             "success": False,
             "configured": False,
+            "key_present": False,
+            "enabled": False,
             "status": "not_configured",
             "last_tested_at": None,
             "last_error": str(e),
@@ -2453,10 +2524,19 @@ async def test_flokx_connection(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/coefficients/{pair}")
 async def get_flokx_coefficients(pair: str, user_id: str = Depends(get_current_user)):
-    """Get FLOKx market intelligence coefficients"""
+    """Get FLOKx market intelligence coefficients using user's stored key"""
     try:
-        from flokx_integration import flokx
-        coeffs = await flokx.fetch_market_coefficients(pair.replace('-', '/'))
+        from routes.api_key_management import get_decrypted_key
+        key_data = await get_decrypted_key(str(user_id), "flokx")
+        if not key_data or not key_data.get("api_key"):
+            return {
+                "error": "FLOKx key not configured. Add your FLOKx API key in the Keys section.",
+                "configured": False,
+            }
+        from flokx_integration import FLOKxIntegration
+        local_flokx = FLOKxIntegration()
+        local_flokx.set_credentials(key_data["api_key"])
+        coeffs = await local_flokx.fetch_market_coefficients(pair.replace('-', '/'))
         return coeffs
     except Exception as e:
         logger.error(f"FLOKx error: {e}")
