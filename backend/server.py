@@ -1610,10 +1610,15 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         
         # Get current balance (paper or live based on mode)
         if is_live:
-            # For live mode, calculate from real exchange balances
-            # For now, use paper as fallback (implement live balance fetching later)
-            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
-            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
+            # Live mode: use wallet_summary_service which reads from wallet_manager / exchange data
+            try:
+                from services.wallet_summary_service import wallet_summary_service
+                live_bal = await wallet_summary_service._get_live_balance(user_id)
+            except Exception:
+                live_bal = 0.0
+            # Fall back to ledger equity if live balance unavailable
+            zar_balance = live_bal if live_bal > 0 else ledger_equity
+            btc_balance = 0.0
         else:
             # Paper mode
             zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
@@ -1806,7 +1811,7 @@ async def get_deposit_address(
     from utils.env_utils import env_bool
 
     # Gate: must have live trading enabled or at least paper mode with exchange key
-    if not env_bool("ENABLE_LIVE_TRADING", False) and not env_bool("ENABLE_PAPER_TRADING", False):
+    if not env_bool("ENABLE_LIVE_TRADING", False) and not env_bool("ENABLE_PAPER_TRADING", True):
         return {
             "status": "disabled",
             "reason": "trading_not_enabled",

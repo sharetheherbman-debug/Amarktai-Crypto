@@ -6,6 +6,7 @@ Production SMTP implementation with Gmail app password support
 """
 
 import logging
+import os
 import uuid
 import smtplib
 from email.mime.text import MIMEText
@@ -198,8 +199,9 @@ class EmailService:
             # Email content
             subject = f"Confirm Withdrawal: {amount} {currency}"
             
-            # Confirmation URL (would be frontend URL in production)
-            confirmation_url = f"https://your-domain.com/confirm-withdrawal?token={confirmation_token}"
+            # Confirmation URL — use FRONTEND_URL env var, falling back to production domain
+            _app_domain = os.getenv("FRONTEND_URL", "https://amarktai.online")
+            confirmation_url = f"{_app_domain}/confirm-withdrawal?token={confirmation_token}"
             
             body = f"""
 Withdrawal Confirmation Required

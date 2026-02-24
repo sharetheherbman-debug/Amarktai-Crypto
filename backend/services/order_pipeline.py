@@ -16,7 +16,7 @@ All order outcomes are recorded to the immutable ledger and broadcast to realtim
 import asyncio
 import uuid
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from collections import defaultdict
 import logging
@@ -243,7 +243,21 @@ class OrderPipeline:
             if gate_result.get("cached_result"):
                 return gate_result["cached_result"]
             
-            # GATE B: Fee Coverage Check (with SignalEngine)
+            # GATE B: Trade Limiter Check — enforce daily caps and cooldowns first
+            # (cheaper check and must enforce rate limits before any signal analysis)
+            gate_result = await self._check_trade_limits(
+                user_id=user_id, bot_id=bot_id, exchange=exchange,
+                symbol=symbol, amount=amount
+            )
+            if not gate_result["passed"]:
+                result["gate_failed"] = "trade_limiter"
+                result["rejection_reason"] = gate_result["reason"]
+                await self._record_rejection(idempotency_key, result)
+                await self._broadcast_rejection(user_id, bot_id, exchange, symbol, result)
+                return result
+            result["gates_passed"].append("trade_limiter")
+
+            # GATE C: Fee Coverage Check (with SignalEngine)
             gate_result = await self._check_fee_coverage(
                 user_id=user_id, bot_id=bot_id, exchange=exchange,
                 symbol=symbol, side=side, amount=amount,
@@ -257,19 +271,6 @@ class OrderPipeline:
                 return result
             result["gates_passed"].append("fee_coverage")
             result["execution_summary"] = gate_result.get("details", {})
-            
-            # GATE C: Trade Limiter Check (enhanced with new limits)
-            gate_result = await self._check_trade_limits(
-                user_id=user_id, bot_id=bot_id, exchange=exchange,
-                symbol=symbol, amount=amount
-            )
-            if not gate_result["passed"]:
-                result["gate_failed"] = "trade_limiter"
-                result["rejection_reason"] = gate_result["reason"]
-                await self._record_rejection(idempotency_key, result)
-                await self._broadcast_rejection(user_id, bot_id, exchange, symbol, result)
-                return result
-            result["gates_passed"].append("trade_limiter")
             
             # GATE D: Circuit Breaker Check
             gate_result = await self._check_circuit_breaker(
@@ -625,7 +626,7 @@ class OrderPipeline:
         5. Pattern-spam detection (excessive cancels, tiny orders, repeated re-quotes)
         """
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             today = now.date()
             exchange_lower = exchange.lower()
             
@@ -634,14 +635,17 @@ class OrderPipeline:
                 {"bot_id": bot_id},
                 sort=[("created_at", -1)]
             )
-            if last_order:
-                elapsed = (now - last_order["created_at"]).total_seconds()
-                if elapsed < self.bot_cooldown_seconds:
-                    return {
-                        "passed": False,
-                        "reason": f"Bot cooldown: {elapsed:.1f}s elapsed, {self.bot_cooldown_seconds}s required"
-                    }
-            
+            if last_order and isinstance(last_order, dict):
+                try:
+                    elapsed = (now - last_order["created_at"]).total_seconds()
+                    if elapsed < self.bot_cooldown_seconds:
+                        return {
+                            "passed": False,
+                            "reason": f"Bot cooldown: {elapsed:.1f}s elapsed, {self.bot_cooldown_seconds}s required"
+                        }
+                except (TypeError, AttributeError, KeyError):
+                    pass  # created_at missing or invalid; skip cooldown check
+
             # 2. Check rolling window cap
             window_start = now - timedelta(minutes=self.rolling_window_minutes)
             rolling_count = await self.rolling_windows.count_documents({
@@ -649,6 +653,9 @@ class OrderPipeline:
                 "exchange": exchange_lower,
                 "timestamp": {"$gte": window_start}
             })
+            if not isinstance(rolling_count, int):
+                logger.warning("rolling_windows.count_documents returned non-int (%s); defaulting to 0", type(rolling_count))
+                rolling_count = 0
             if rolling_count >= self.rolling_window_cap:
                 return {
                     "passed": False,
@@ -675,6 +682,9 @@ class OrderPipeline:
                 "exchange": exchange,
                 "status": {"$nin": ["deleted", "archived"]}
             })
+            if not isinstance(user_bots_on_exchange, int):
+                logger.warning("bots.count_documents returned non-int (%s); defaulting to 1", type(user_bots_on_exchange))
+                user_bots_on_exchange = 1
             
             # Calculate user cap: min(hard_cap, bot_count * per_bot_cap)
             per_bot_cap = self.per_bot_daily_caps.get(exchange_lower, 750)
@@ -1510,64 +1520,20 @@ class OrderPipeline:
                                     symbol: str, side: str, amount: float,
                                     price: Optional[float] = None,
                                     order_type: str = "market", **kwargs) -> Dict[str, Any]:
-        """Fee coverage check using helper methods so tests can patch them."""
-        try:
-            edge_bps = await self._calculate_edge_bps(
-                user_id=user_id, bot_id=bot_id, exchange=exchange,
-                symbol=symbol, side=side, amount=amount, price=price
-            )
-            total_cost_bps = await self._calculate_total_cost_bps(
-                exchange=exchange, symbol=symbol, order_type=order_type
-            )
-            if edge_bps >= total_cost_bps:
-                return {
-                    "passed": True,
-                    "edge_bps": edge_bps,
-                    "total_cost_bps": total_cost_bps,
-                    "details": {"edge_bps": edge_bps, "total_cost_bps": total_cost_bps}
-                }
-            return {
-                "passed": False,
-                "reason": f"Insufficient edge: {edge_bps:.1f} bps expected vs {total_cost_bps:.1f} bps costs",
-                "edge_bps": edge_bps,
-                "total_cost_bps": total_cost_bps,
-            }
-        except Exception as e:
-            logger.error(f"Error in fee coverage check: {e}")
-            return {"passed": False, "reason": f"Fee coverage check failed: {str(e)}"}
+        """Fee coverage check — delegates to _gate_b_fee_coverage (includes SignalEngine)."""
+        return await self._gate_b_fee_coverage(
+            user_id=user_id, bot_id=bot_id, exchange=exchange,
+            symbol=symbol, side=side, amount=amount,
+            order_type=order_type, price=price,
+        )
 
     async def _check_trade_limits(self, user_id: str, bot_id: str,
                                     exchange: str, **kwargs) -> Dict[str, Any]:
-        """Trade limits check using helper methods so tests can patch them."""
-        try:
-            # Bot daily limit
-            bot_count = await self._get_bot_daily_count(bot_id=bot_id, exchange=exchange)
-            bot_limit = self._get_bot_daily_limit(exchange=exchange)
-            if bot_count >= bot_limit:
-                return {
-                    "passed": False,
-                    "reason": f"Bot daily limit reached: {bot_count}/{bot_limit}"
-                }
-            # User daily limit
-            user_count = await self._get_user_daily_count(user_id=user_id, exchange=exchange)
-            user_limit = self._get_user_daily_limit(exchange=exchange)
-            if user_count >= user_limit:
-                return {
-                    "passed": False,
-                    "reason": f"User daily limit reached: {user_count}/{user_limit}"
-                }
-            # Burst protection
-            burst_count = await self._get_burst_count(user_id=user_id, exchange=exchange)
-            burst_limit = self._get_burst_limit()
-            if burst_count > burst_limit:
-                return {
-                    "passed": False,
-                    "reason": f"Burst protection: {burst_count} orders exceeds burst limit {burst_limit}"
-                }
-            return {"passed": True}
-        except Exception as e:
-            logger.error(f"Error in trade limits check: {e}")
-            return {"passed": False, "reason": f"Trade limiter check failed: {str(e)}"}
+        """Trade limits check — delegates to _gate_c_trade_limiter which uses ledger service."""
+        return await self._gate_c_trade_limiter(
+            user_id=user_id, bot_id=bot_id, exchange=exchange,
+            symbol=kwargs.get("symbol", ""), amount=kwargs.get("amount", 0)
+        )
 
     async def _check_circuit_breaker(self, user_id: str, bot_id: str,
                                        exchange: str = None, **kwargs) -> Dict[str, Any]:

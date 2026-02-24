@@ -6,6 +6,7 @@ Provides endpoints for HuggingFace API key management and model access.
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -540,12 +541,13 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
             }
 
         if _hf_last_success is None:
-            # Run a lightweight health probe on first call
+            # Run a lightweight health probe on first call.
+            # Use asyncio.to_thread so the blocking SDK call does not block the event loop.
             t0 = time.monotonic()
             try:
                 client, _ = await get_huggingface_client(user_id, model=model_id)
                 if client:
-                    _ = client.text_classification(HF_HEALTH_PROBE_TEXT)
+                    _ = await asyncio.to_thread(client.text_classification, HF_HEALTH_PROBE_TEXT)
                     _hf_last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
                     _hf_last_success = datetime.now(timezone.utc).isoformat()
                     _hf_last_error = None

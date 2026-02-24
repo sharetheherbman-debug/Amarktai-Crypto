@@ -21,11 +21,13 @@ from services.signal_engine import SignalEngine
 
 @pytest.fixture
 def mock_db():
-    """Mock database with collections"""
-    db = MagicMock()
-    
-    # Mock collections
-    db.__getitem__ = lambda self, key: {
+    """Mock database with collections.
+
+    Returns the same mock instance each time a collection is accessed by key so
+    that test setup via ``mock_db["bot_cooldowns"] = ...`` is visible to the
+    OrderPipeline that stored the reference at construction time.
+    """
+    _collections = {
         "pending_orders": AsyncMock(),
         "circuit_breaker_state": AsyncMock(),
         "bot_cooldowns": AsyncMock(),
@@ -33,8 +35,21 @@ def mock_db():
         "spam_scores": AsyncMock(),
         "bots": AsyncMock(),
         "trades": AsyncMock(),
-    }.get(key, AsyncMock())
-    
+    }
+    # Ensure default AsyncMock returns resolve to 0/None for count/find operations
+    _collections["bot_cooldowns"].find_one = AsyncMock(return_value=None)
+    _collections["rolling_windows"].count_documents = AsyncMock(return_value=0)
+    _collections["bots"].count_documents = AsyncMock(return_value=1)
+    _collections["circuit_breaker_state"].find_one = AsyncMock(return_value=None)
+    _collections["pending_orders"].find_one = AsyncMock(return_value=None)
+    _collections["pending_orders"].count_documents = AsyncMock(return_value=0)
+    _collections["spam_scores"].find_one = AsyncMock(return_value=None)
+    _collections["spam_scores"].update_one = AsyncMock()
+
+    db = MagicMock()
+    db.__getitem__ = lambda _, key: _collections.get(key, AsyncMock())
+    db.__setitem__ = lambda _, key, val: _collections.__setitem__(key, val)
+
     return db
 
 
@@ -84,6 +99,9 @@ def order_pipeline(mock_db, mock_ledger, mock_signal_engine):
         "BOT_COOLDOWN_SECONDS": 15,
         "ROLLING_WINDOW_CAP": 30,
         "ROLLING_WINDOW_MINUTES": 10,
+        # Low threshold so spam detection test triggers: 25 cancels adds +10 pts to spam score
+        # (cancel_count > 20 → score += 10; score 10 >= MAX_SPAM_SCORE 5 → detected)
+        "MAX_SPAM_SCORE": 5,
     }
     
     return OrderPipeline(
@@ -145,15 +163,12 @@ async def test_per_exchange_daily_caps_binance(order_pipeline, mock_ledger):
 @pytest.mark.asyncio
 async def test_bot_cooldown_15_seconds(order_pipeline, mock_db, mock_ledger):
     """Test that bot cooldown enforces 15s between orders"""
-    # Mock that last order was 10 seconds ago
+    # Mock that last order was 10 seconds ago — patch directly on the shared mock instance
     last_order_time = datetime.now(timezone.utc) - timedelta(seconds=10)
-    
-    mock_collection = AsyncMock()
-    mock_collection.find_one = AsyncMock(return_value={
+    mock_db["bot_cooldowns"].find_one = AsyncMock(return_value={
         "bot_id": "test_bot",
         "created_at": last_order_time
     })
-    mock_db["bot_cooldowns"] = mock_collection
     mock_ledger.get_trade_count = AsyncMock(return_value=0)
     
     result = await order_pipeline.submit_order(
@@ -177,12 +192,10 @@ async def test_bot_cooldown_15_seconds(order_pipeline, mock_db, mock_ledger):
 @pytest.mark.asyncio
 async def test_rolling_window_cap_30_orders(order_pipeline, mock_db, mock_ledger):
     """Test rolling window enforces 30 orders per 10 minutes"""
-    # Mock that bot has made 30 orders in last 10 minutes
-    mock_collection = AsyncMock()
-    mock_collection.count_documents = AsyncMock(return_value=30)
-    mock_collection.find_one = AsyncMock(return_value=None)  # No cooldown issue
-    mock_db["rolling_windows"] = mock_collection
-    mock_db["bot_cooldowns"].find_one = AsyncMock(return_value=None)
+    # Patch directly on the shared mock instances (replacing the whole collection
+    # would not affect self.rolling_windows which was captured at init time)
+    mock_db["rolling_windows"].count_documents = AsyncMock(return_value=30)
+    # bot_cooldowns.find_one already returns None by default from fixture
     mock_ledger.get_trade_count = AsyncMock(return_value=0)
     
     result = await order_pipeline.submit_order(
@@ -274,19 +287,11 @@ async def test_signal_engine_integration_gate_b(order_pipeline, mock_signal_engi
 @pytest.mark.asyncio
 async def test_spam_pattern_detection_excessive_cancels(order_pipeline, mock_db):
     """Test spam detection for excessive order cancels"""
-    # Mock excessive cancels (>20 in 1 hour)
-    mock_collection = AsyncMock()
-    mock_collection.count_documents = AsyncMock(return_value=25)
-    mock_collection.find_one = AsyncMock(return_value={
-        "entity_type": "bot",
-        "entity_id": "test_bot",
-        "score": 0,
-        "last_updated": datetime.utcnow(),
-        "violations": []
-    })
-    mock_collection.update_one = AsyncMock()
-    mock_db["pending_orders"] = mock_collection
-    
+    # Mock excessive cancels (>20 in 1 hour) — patch on existing shared instance
+    mock_db["pending_orders"].count_documents = AsyncMock(return_value=25)
+    mock_db["spam_scores"].find_one = AsyncMock(return_value=None)
+    mock_db["spam_scores"].update_one = AsyncMock()
+
     # Check spam patterns
     result = await order_pipeline._check_spam_patterns(
         user_id="test_user",

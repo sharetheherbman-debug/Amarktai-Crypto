@@ -5,6 +5,7 @@ Handles all email notifications with templates and async delivery
 
 import logging
 import asyncio
+import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -16,6 +17,9 @@ import config
 import database as db
 
 logger = logging.getLogger(__name__)
+
+# Frontend domain used in email links — configurable via FRONTEND_URL env var
+_APP_DOMAIN = os.getenv("FRONTEND_URL", "https://amarktai.online")
 
 
 class EmailTemplates:
@@ -146,7 +150,7 @@ class EmailTemplates:
                 
                 <p style="color: #7f8c8d; font-size: 14px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
                     This is an automated report from your Amarktai Crypto trading system (part of Amarktai Network).<br>
-                    <a href="https://your-domain.com/dashboard">View Dashboard</a>
+                    <a href="{_APP_DOMAIN}/dashboard">View Dashboard</a>
                 </p>
             </div>
         </body>
@@ -197,7 +201,7 @@ class EmailTemplates:
                 </div>
                 
                 <p style="margin: 20px 0;">
-                    <a href="https://your-domain.com/system-status" 
+                    <a href="{_APP_DOMAIN}/system-status" 
                        style="display: inline-block; padding: 12px 24px; background: {color}; color: white; 
                               text-decoration: none; border-radius: 5px; font-weight: bold;">
                         View System Status
@@ -442,7 +446,7 @@ class EnhancedEmailService:
             })
             
             # Generate email
-            confirmation_url = f"https://your-domain.com/confirm-withdrawal?token={confirmation_token}"
+            confirmation_url = f"{_APP_DOMAIN}/confirm-withdrawal?token={confirmation_token}"
             subject, html = self.templates.withdrawal_confirmation(
                 from_exchange=from_exchange,
                 to_exchange=to_exchange,
