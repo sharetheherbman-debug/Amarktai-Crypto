@@ -1828,6 +1828,7 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 "learning_complete": False,
                 "seeded": True,
                 "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
+            }
 
             await db.bots_collection.insert_one(bot_doc)
             logger.info(
