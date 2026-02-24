@@ -3,12 +3,16 @@
 # GO-LIVE EVIDENCE PACK — Amarktai Network
 # Validates all critical go-live endpoints and exits nonzero if any blocker remains.
 # Usage: BASE_URL=http://localhost:8000 TOKEN=<jwt> bash scripts/go_live_evidence_pack.sh
+#   OR:  BASE_URL=http://localhost:8000 AMK_EMAIL=admin@example.com AMK_PASSWORD=secret bash scripts/go_live_evidence_pack.sh
+# If TOKEN is not set, the script will attempt to login with AMK_EMAIL + AMK_PASSWORD.
 # =============================================================================
 
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8000}"
 TOKEN="${TOKEN:-}"
+AMK_EMAIL="${AMK_EMAIL:-}"
+AMK_PASSWORD="${AMK_PASSWORD:-}"
 
 PASS=0
 FAIL=0
@@ -17,6 +21,36 @@ RESULTS=()
 
 _TMPFILE=$(mktemp /tmp/go_live_evidence_pack.XXXXXX)
 trap 'rm -f "$_TMPFILE"' EXIT
+
+# ---------------------------------------------------------------------------
+# Auto-login: obtain TOKEN from AMK_EMAIL + AMK_PASSWORD if TOKEN is missing
+# ---------------------------------------------------------------------------
+if [ -z "$TOKEN" ] && [ -n "$AMK_EMAIL" ] && [ -n "$AMK_PASSWORD" ]; then
+  echo ""
+  echo "[0] Auto-login (TOKEN not set; using AMK_EMAIL + AMK_PASSWORD)"
+  _LOGIN_BODY=$(printf '{"email":"%s","password":"%s"}' "$AMK_EMAIL" "$AMK_PASSWORD")
+  _LOGIN_CODE=$(curl -s -o "$_TMPFILE" -w "%{http_code}" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$_LOGIN_BODY" \
+    "$BASE_URL/api/auth/login")
+  _LOGIN_RESP=$(cat "$_TMPFILE" 2>/dev/null)
+  if [ "$_LOGIN_CODE" -ge 200 ] && [ "$_LOGIN_CODE" -lt 300 ]; then
+    TOKEN=$(echo "$_LOGIN_RESP" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin).get('access_token',''))
+except Exception: print('')
+" 2>/dev/null)
+    if [ -n "$TOKEN" ]; then
+      echo "  ✅  Login successful — TOKEN obtained"
+    else
+      echo "  ❌  Login returned 2xx but no access_token in response"
+    fi
+  else
+    echo "  ❌  Login failed (HTTP $_LOGIN_CODE): $(echo "$_LOGIN_RESP" | head -c 200)"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -175,6 +209,7 @@ echo ""
 echo "============================================================"
 echo " AMARKTAI GO-LIVE EVIDENCE PACK"
 echo " Target: $BASE_URL"
+echo " Token:  $([ -n "$TOKEN" ] && echo 'SET' || echo 'NOT SET — protected endpoints will 401')"
 echo " Time:   $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo "============================================================"
 echo ""
@@ -199,16 +234,35 @@ check "hf/status exists (200)"       "$BASE_URL/api/hf/status"  "status"
 check "hf/status has enabled field"  "$BASE_URL/api/hf/status"  "enabled"
 check_not_value "hf/status must not return null status" "$BASE_URL/api/hf/status" "status" "null" "true"
 
-# 4. Wallet
+# 4. Wallet — explicit Bearer-token checks (same auth as /api/risk/status)
 echo ""
 echo "[4] Wallet"
-check "wallet/status exists (200)"   "$BASE_URL/api/wallet/status" "status" "false"
+check "wallet/status (200 with Bearer)"   "$BASE_URL/api/wallet/status" "mode"  "true"
+check "wallet/status has paper field"     "$BASE_URL/api/wallet/status" "paper" "true"
+check "wallet/paper (200 with Bearer)"    "$BASE_URL/api/wallet/paper"  "mode"  "false"
 
-# 5. Trading mode — paper must be enable-able
+# 5. Trading mode — paper must be enabled; uses same /api/system/mode endpoint the dashboard calls
 echo ""
 echo "[5] Trading Mode (C)"
 # The env layer should now default paper to allowed (True at env level)
-check "system/status has reasons"    "$BASE_URL/api/system/status" "reasons" "false"
+check "system/status has reasons"         "$BASE_URL/api/system/status" "reasons"      "false"
+# Check paper mode is active via the real mode endpoint the dashboard uses
+_mode_code=$(http_get "$BASE_URL/api/system/mode")
+_mode_body=$(cat "$_TMPFILE" 2>/dev/null)
+_paper_trading=$(echo "$_mode_body" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(str(d.get('paperTrading', '')).lower())
+except Exception: print('')
+" 2>/dev/null)
+if [ "$_paper_trading" = "true" ]; then
+  PASS=$((PASS + 1))
+  RESULTS+=("  ✅  PASS  system/mode: paperTrading=true (paper mode is enabled)")
+else
+  FAIL=$((FAIL + 1))
+  RESULTS+=("  ⚠️  WARN  system/mode: paperTrading='${_paper_trading}' (expected true for go-live paper run)")
+fi
 
 # 6. Check learning status does not claim 'optimized' with zero trades
 echo ""
