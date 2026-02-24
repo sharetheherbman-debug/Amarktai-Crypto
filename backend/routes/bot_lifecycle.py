@@ -1710,11 +1710,13 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
 
     - Paper mode only; returns 400 if live trading is active.
     - Idempotent: skips bots that already exist (same name + exchange + trading_mode).
-    - Allocates capital per bot from the paper wallet.
+    - Enforces MAX 5 bots: returns 409 if user already has >5 non-deleted luno paper bots.
+    - Allocates capital per bot via paper_wallet_ledger (creates ledger entries).
     - Returns a JSON summary with bot IDs and created/existing status.
     """
     from uuid import uuid4
     from services.paper_wallet_service import paper_wallet_service
+    from services.paper_wallet_ledger import paper_wallet_ledger
     from config import PAPER_STARTING_CAPITAL_ZAR
 
     try:
@@ -1725,6 +1727,33 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             raise HTTPException(
                 status_code=400,
                 detail="Seeding paper bots is only allowed when live trading is OFF."
+            )
+
+        _luno_paper_filter = {
+            "user_id": user_id,
+            "exchange": "luno",
+            "trading_mode": "paper",
+            "deleted_at": {"$exists": False},
+        }
+
+        # Guard: enforce MAX 5 bots
+        total_existing_count = await db.bots_collection.count_documents(_luno_paper_filter)
+        if total_existing_count > 5:
+            existing_bots = await db.bots_collection.find(
+                _luno_paper_filter,
+                {"_id": 0, "id": 1, "name": 1, "status": 1},
+            ).to_list(None)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "bot_limit_exceeded",
+                    "message": (
+                        f"User already has {total_existing_count} Luno paper bots "
+                        f"(max 5). No new bots created."
+                    ),
+                    "count": total_existing_count,
+                    "bots": existing_bots,
+                },
             )
 
         # Determine per-bot capital (1/5 of available paper wallet)
@@ -1758,9 +1787,11 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 )
                 continue
 
-            # Try to reserve funds from paper wallet
-            reserved, reserve_msg = await paper_wallet_service.reserve_funds(
-                user_id, per_bot_capital, "ZAR"
+            bot_id = str(uuid4())
+
+            # Reserve funds AND create ledger entry via paper_wallet_ledger
+            reserved, reserve_msg = await paper_wallet_ledger.reserve_funds(
+                user_id, bot_id, per_bot_capital, "ZAR"
             )
             if not reserved:
                 results.append(
@@ -1768,7 +1799,6 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 )
                 continue
 
-            bot_id = str(uuid4())
             bot_doc = {
                 "id": bot_id,
                 "user_id": user_id,
@@ -1809,13 +1839,13 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             )
 
         created = [r for r in results if r["status"] == "created"]
-        existing = [r for r in results if r["status"] == "existing"]
+        existing_results = [r for r in results if r["status"] == "existing"]
         skipped = [r for r in results if r["status"] == "skipped"]
 
         return {
             "success": True,
             "created": len(created),
-            "existing": len(existing),
+            "existing": len(existing_results),
             "skipped": len(skipped),
             "bots": results,
             "timestamp": now_iso,
