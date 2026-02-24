@@ -84,7 +84,7 @@ async def test_flokx(api_key: str, api_secret: Optional[str] = None) -> tuple[bo
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://api.flokx.ai/v1/status",
+                "https://api.flokx.io/v1/status",
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=10.0
             )
@@ -95,11 +95,17 @@ async def test_flokx(api_key: str, api_secret: Optional[str] = None) -> tuple[bo
                 return False, "Invalid API key"
             else:
                 return False, f"API returned status {response.status_code}"
-    except httpx.ConnectError:
-        # Flokx might not have a status endpoint, accept key if no connection
-        logger.warning("Flokx test endpoint not available, accepting key")
-        return True, None
+    except httpx.ConnectError as e:
+        err_str = str(e).lower()
+        if "name or service not known" in err_str or "domain name not found" in err_str or "nodename nor servname" in err_str or "errno -2" in err_str or "getaddrinfo" in err_str:
+            logger.warning(f"FLOKx DNS resolution failure: {e}")
+            return False, "service unreachable (DNS)"
+        logger.warning(f"FLOKx connection error: {e}")
+        return False, "service unreachable (connection error)"
     except Exception as e:
+        err_str = str(e).lower()
+        if "name or service not known" in err_str or "domain name not found" in err_str or "getaddrinfo" in err_str:
+            return False, "service unreachable (DNS)"
         return False, f"Test failed: {str(e)[:100]}"
 
 

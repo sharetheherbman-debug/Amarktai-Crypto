@@ -56,6 +56,7 @@ from config import (
     PAPER_PAIR_WHITELIST,
     PAPER_PAIR_WHITELIST_ENABLED,
     PAPER_STALE_EXIT_MINUTES,
+    PAPER_MAX_HOLD_MINUTES,
 )
 from realtime_events import rt_events
 
@@ -1283,6 +1284,10 @@ class PaperTradingEngine:
                 close_reason = "take_profit"
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
+            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
+                # Unconditional time exit: ensures trades close for win/loss accounting
+                # regardless of P&L direction. Fires before stale_exit.
+                close_reason = "time_exit"
             elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
 

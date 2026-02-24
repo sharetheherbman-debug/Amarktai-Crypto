@@ -156,6 +156,53 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
         except Exception:
             pass
 
+        # ── Active bots count (mode-aware) ───────────────────────────────────
+        active_bots_count = 0
+        required_capital = 0.0
+        try:
+            if db.bots_collection is not None:
+                bot_query = {"user_id": user_id, "status": {"$in": ["active", "running"]}}
+                if mode == "paper":
+                    bot_query["trading_mode"] = "paper"
+                else:
+                    bot_query["trading_mode"] = "live"
+                bot_docs = await db.bots_collection.find(
+                    bot_query, {"_id": 0, "initial_capital": 1, "current_capital": 1}
+                ).to_list(1000)
+                active_bots_count = len(bot_docs)
+                for b in bot_docs:
+                    cap = b.get("initial_capital") or b.get("current_capital") or 0
+                    required_capital += float(cap)
+        except Exception:
+            pass
+
+        # ── Funding status (mode-aware) ───────────────────────────────────────
+        # available_balance: paper ZAR cash (paper mode) or live balance total
+        if mode == "paper":
+            available_balance = round(paper_available, 2)
+        else:
+            # Live mode: try to get total live balance
+            available_balance = 0.0
+            try:
+                if live_balances:
+                    available_balance = float(
+                        live_balances.get("total_zar") or live_balances.get("total") or 0
+                    )
+            except Exception:
+                pass
+
+        deficit = round(max(0.0, required_capital - available_balance), 2)
+
+        # NOT_CONFIGURED: user has no bots configured for this mode at all
+        # UNFUNDED: bots exist but available_balance == 0
+        # FUNDED: available_balance > 0
+        if active_bots_count == 0 and available_balance == 0.0:
+            funding_status = "NOT_CONFIGURED"
+        elif available_balance == 0.0:
+            funding_status = "UNFUNDED"
+        else:
+            funding_status = "FUNDED"
+
         # ── Ledger invariants (best-effort) ───────────────────────────────────
         ledger_invariants_ok = True
         ledger_drift = 0.0
@@ -187,6 +234,13 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
 
         return {
             "mode": mode,
+            # ── Mode-aware summary (primary fields consumed by WalletHub UI) ──
+            "active_bots": active_bots_count,
+            "required_capital": round(required_capital, 2),
+            "available_balance": available_balance,
+            "deficit": deficit,
+            "funding_status": funding_status,
+            # ── Paper detail ─────────────────────────────────────────────────
             "paper": {
                 "available": round(paper_available, 2),
                 "allocated": round(paper_allocated, 2),
@@ -221,6 +275,11 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
         logger.error(f"Wallet status error: {e}", exc_info=True)
         return {
             "mode": "paper",
+            "active_bots": 0,
+            "required_capital": 0.0,
+            "available_balance": 0.0,
+            "deficit": 0.0,
+            "funding_status": "NOT_CONFIGURED",
             "paper": {"available": 0.0, "allocated": 0.0, "total": 0.0, "currency": "ZAR", "funded_status": "UNFUNDED", "as_of": now_iso},
             "live": {"supported_exchanges": [], "configured_exchanges": [], "balances": None, "as_of": now_iso},
             "ledger": {"invariants_ok": True, "drift": 0.0, "last_reconcile_at": None},

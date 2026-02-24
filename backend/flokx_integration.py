@@ -83,14 +83,21 @@ class FLOKxIntegration:
                         return self._mock_coefficients(pair)
         
         except Exception as e:
+            err_str = str(e).lower()
+            if ("name or service not known" in err_str or "domain name not found" in err_str
+                    or "getaddrinfo" in err_str or "nodename nor servname" in err_str
+                    or "errno -2" in err_str):
+                logger.error(f"FLOKx DNS resolution failure for {self.api_url}: {e}")
+                return self._mock_coefficients(pair, error_reason="service_unreachable_dns")
             logger.error(f"FLOKx fetch failed: {e}")
             return self._mock_coefficients(pair)
     
-    def _mock_coefficients(self, pair: str) -> dict:
+    def _mock_coefficients(self, pair: str, error_reason: str = "unavailable") -> dict:
         """Return a neutral, clearly-marked unavailable coefficient set.
 
         NEVER returns random values — callers must check ``is_simulated=True``
         and treat this as informational only, not a trading signal.
+        ``error_reason`` surfaces WHY data is unavailable (e.g. "service_unreachable_dns").
         """
         return {
             "pair": pair,
@@ -104,6 +111,7 @@ class FLOKxIntegration:
             "resistance_level": 0.0,
             "is_simulated": True,
             "source": "unavailable",
+            "error_reason": error_reason,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     

@@ -1938,3 +1938,173 @@ async def decision_trace(
         "recent_trades_count": len(recent_trades),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/last-tick-summary")
+async def last_tick_summary_v2(user_id: str = Depends(get_current_user)):
+    """Per-user summary of the last scheduler tick.
+
+    Returns deterministic counts derived from DB records so the response is
+    accurate even after a backend restart (unlike in-memory counters).
+
+    Fields:
+        last_tick_at        – when the scheduler last ran for any of this user's bots
+        bots_evaluated      – bots that had a runtime-state record updated in last tick
+        decisions_made      – bots that produced a trade decision (open or close attempt)
+        opens_attempted     – trade open records created in last 5 min window
+        opens_done          – opens that ended in status "open" (fill confirmed)
+        closes_attempted    – close attempts recorded (closed + failed in window)
+        closes_done         – trades transitioned to "closed"/"completed" in window
+        skips_by_reason     – {reason: count} for bots that were skipped
+        rejects_by_reason   – {reason: count} for bots with last_order_error set
+        last_error          – most recent last_order_error across all bots (or null)
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+        is_running = getattr(trading_scheduler, "is_running", False)
+        tick_count = getattr(trading_scheduler, "tick_count", 0)
+    except Exception:
+        is_running = False
+        tick_count = 0
+
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+    # Runtime state records for this user
+    try:
+        runtime_docs = await db.bot_runtime_state_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "bot_id": 1, "last_tick_at": 1, "last_decision": 1,
+             "last_order_error": 1, "updated_at": 1}
+        ).sort("updated_at", -1).to_list(200)
+    except Exception:
+        runtime_docs = []
+
+    last_tick_at = None
+    if runtime_docs:
+        raw = runtime_docs[0].get("updated_at") or runtime_docs[0].get("last_tick_at")
+        last_tick_at = raw.isoformat() if hasattr(raw, "isoformat") else raw
+
+    bots_evaluated = len(runtime_docs)
+
+    # Trade counts in window
+    try:
+        opens_attempted = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "$expr": {"$gt": [{"$ifNull": ["$opened_at", "$timestamp"]}, window_start]}
+        })
+        opens_done = await db.trades_collection.count_documents({
+            "user_id": user_id, "status": "open",
+            "$expr": {"$gt": [{"$ifNull": ["$opened_at", "$timestamp"]}, window_start]}
+        })
+        closes_done = await db.trades_collection.count_documents({
+            "user_id": user_id, "status": {"$in": ["closed", "completed"]},
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}
+        })
+        closes_failed = await db.trades_collection.count_documents({
+            "user_id": user_id, "status": "failed",
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}
+        })
+        closes_attempted = closes_done + closes_failed
+    except Exception:
+        opens_attempted = opens_done = closes_attempted = closes_done = closes_failed = 0
+
+    decisions_made = opens_attempted + closes_attempted
+
+    # Aggregate skip / reject reasons from runtime state
+    skips_by_reason: dict = {}
+    rejects_by_reason: dict = {}
+    last_error = None
+    for doc in runtime_docs:
+        err = doc.get("last_order_error")
+        if err:
+            rejects_by_reason[err] = rejects_by_reason.get(err, 0) + 1
+            if last_error is None:
+                last_error = err
+        decision = doc.get("last_decision")
+        if decision and isinstance(decision, dict):
+            skip = decision.get("skip_reason")
+            if skip:
+                skips_by_reason[skip] = skips_by_reason.get(skip, 0) + 1
+
+    return {
+        "success": True,
+        "scheduler_running": is_running,
+        "tick_count": tick_count,
+        "last_tick_at": last_tick_at,
+        "window_minutes": 5,
+        "bots_evaluated": bots_evaluated,
+        "decisions_made": decisions_made,
+        "opens_attempted": opens_attempted,
+        "opens_done": opens_done,
+        "closes_attempted": closes_attempted,
+        "closes_done": closes_done,
+        "skips_by_reason": skips_by_reason,
+        "rejects_by_reason": rejects_by_reason,
+        "last_error": last_error,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/open-trades")
+async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
+    """List open trades for the current user with diagnostic context.
+
+    Read-only. Shows per-trade: age, tp/sl prices, current price (cached),
+    next exit condition, and how far away it is.
+    """
+    try:
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "open"},
+            {"_id": 0}
+        ).sort([("opened_at", -1), ("_id", -1)]).to_list(200)
+    except Exception:
+        trades = []
+
+    now = datetime.now(timezone.utc)
+    enriched = []
+    for t in trades:
+        entry_time_raw = t.get("entry_time") or t.get("opened_at") or t.get("timestamp")
+        try:
+            entry_time = datetime.fromisoformat(str(entry_time_raw).replace("Z", "+00:00"))
+            age_minutes = round((now - entry_time).total_seconds() / 60, 1)
+        except Exception:
+            age_minutes = None
+
+        entry_price = float(t.get("entry_price") or t.get("price") or 0)
+        stop_loss_pct = float(t.get("stop_loss_pct", 0.02))
+        take_profit_pct = float(t.get("take_profit_pct", 0.03))
+        stop_loss_price = t.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct) if entry_price else None)
+        take_profit_price = t.get("take_profit_price") or (entry_price * (1 + take_profit_pct) if entry_price else None)
+
+        from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES
+        next_exit = "awaiting_signal"
+        if age_minutes is not None:
+            if age_minutes >= PAPER_MAX_HOLD_MINUTES:
+                next_exit = "time_exit_due"
+            elif age_minutes >= PAPER_STALE_EXIT_MINUTES:
+                next_exit = "stale_exit_eligible"
+            else:
+                remaining = round(PAPER_MAX_HOLD_MINUTES - age_minutes, 1)
+                next_exit = f"time_exit_in_{remaining}min"
+
+        enriched.append({
+            "id": t.get("id"),
+            "bot_id": t.get("bot_id"),
+            "pair": t.get("pair") or t.get("symbol"),
+            "exchange": t.get("exchange"),
+            "entry_price": entry_price,
+            "stop_loss_price": round(stop_loss_price, 6) if stop_loss_price else None,
+            "take_profit_price": round(take_profit_price, 6) if take_profit_price else None,
+            "age_minutes": age_minutes,
+            "next_exit": next_exit,
+            "opened_at": entry_time_raw,
+            "trade_amount": t.get("trade_amount"),
+            "data_source": t.get("data_source"),
+        })
+
+    return {
+        "success": True,
+        "open_trades_count": len(enriched),
+        "trades": enriched,
+        "timestamp": now.isoformat(),
+    }

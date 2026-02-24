@@ -414,6 +414,43 @@ async def user_paper_start_fresh(
         except Exception as e:
             logger.warning(f"Could not purge capital_injections: {e}")
 
+        # Reset equity/drawdown series and profit ledger
+        _graph_collections = [
+            ("equity_series", "equity_series"),
+            ("drawdown_series", "drawdown_series"),
+            ("profit_ledger", "profit_ledger"),
+            ("user_countdowns", "user_countdowns"),
+        ]
+        for coll_name, attr_name in _graph_collections:
+            try:
+                raw_coll = getattr(db, "db", None)
+                if raw_coll is not None:
+                    result = await raw_coll[coll_name].delete_many({"user_id": user_id})
+                    summary[f"{coll_name}_deleted"] = result.deleted_count
+            except Exception as e:
+                logger.warning(f"Could not purge {coll_name}: {e}")
+
+        # Compute post-reset invariants
+        post_reset = {}
+        try:
+            post_reset["active_bots"] = await db.bots_collection.count_documents(
+                {"user_id": user_id, "status": {"$in": ["active", "running"]}}
+            )
+            post_reset["open_positions"] = await db.trades_collection.count_documents(
+                {"user_id": user_id, "status": "open"}
+            )
+            post_reset["total_trades"] = await db.trades_collection.count_documents(
+                {"user_id": user_id}
+            )
+            post_reset["wallet_total"] = 0.0
+            from services.paper_wallet_service import paper_wallet_service as _pws
+            pw = await _pws.get_balances(user_id)
+            post_reset["wallet_total"] = float(
+                (pw.get("balances") or {}).get("ZAR", 0) or 0
+            )
+        except Exception as e:
+            logger.warning(f"Post-reset invariant check failed: {e}")
+
         logger.info(
             f"User paper-start-fresh completed for user {user_id}: "
             f"{summary['bots_deleted']} bots deleted"
@@ -425,6 +462,7 @@ async def user_paper_start_fresh(
             "deleted": summary,
             "wallet_before": wallet_before,
             "wallet_after": wallet_after,
+            "post_reset_invariants": post_reset,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
