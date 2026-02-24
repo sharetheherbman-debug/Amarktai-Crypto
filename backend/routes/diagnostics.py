@@ -12,6 +12,7 @@ from auth import get_current_user
 from websocket_manager import manager
 from realtime_events import rt_events
 import database as db
+from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -2076,7 +2077,6 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
         stop_loss_price = t.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct) if entry_price else None)
         take_profit_price = t.get("take_profit_price") or (entry_price * (1 + take_profit_pct) if entry_price else None)
 
-        from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES
         next_exit = "awaiting_signal"
         if age_minutes is not None:
             if age_minutes >= PAPER_MAX_HOLD_MINUTES:

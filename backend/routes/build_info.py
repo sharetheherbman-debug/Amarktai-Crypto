@@ -63,7 +63,7 @@ def get_git_dirty() -> bool:
     return False
 
 
-
+def _get_db_info() -> dict:
     """Return safe (credential-free) DB connection info."""
     try:
         from database import _parse_mongo_config

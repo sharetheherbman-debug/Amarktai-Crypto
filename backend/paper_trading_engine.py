@@ -1285,8 +1285,9 @@ class PaperTradingEngine:
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
             elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
-                # Unconditional time exit: ensures trades close for win/loss accounting
-                # regardless of P&L direction. Fires before stale_exit.
+                # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
+                # regardless of P&L direction. Unlike stale_exit, this does NOT require
+                # negative P&L, ensuring profitable trades also close for accounting.
                 close_reason = "time_exit"
             elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
