@@ -1688,3 +1688,253 @@ async def get_realtime_status_summary(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Realtime diagnostics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Phase 1 — Safe Read-only Trading Diagnostics
+# ============================================================================
+
+@router.get("/why-not-trading")
+async def why_not_trading(user_id: str = Depends(get_current_user)):
+    """Return ranked, truthful reasons why bots may not be trading.
+
+    Read-only. No side effects.
+
+    Checks (in priority order):
+    1. System mode (paper/live enabled?)
+    2. Scheduler running
+    3. Active bots count
+    4. Paper wallet funded
+    5. Risk locks / circuit breakers
+    6. Bots in quarantine
+    7. Bot-level blocks (no exchange key, unsupported exchange, paused)
+    """
+    reasons: list = []
+
+    # 1. System mode flags
+    try:
+        from services.system_mode_service import system_mode_service
+        mode = await system_mode_service.get_mode()
+        paper_on = mode.get("paperTrading", False)
+        autopilot = mode.get("autopilot", False)
+        if not paper_on:
+            reasons.append({"code": "PAPER_DISABLED", "severity": "critical",
+                             "message": "paperTrading mode is OFF — enable it in Settings"})
+        if not autopilot:
+            reasons.append({"code": "AUTOPILOT_OFF", "severity": "critical",
+                             "message": "autopilot is OFF — enable it in Settings"})
+    except Exception as e:
+        reasons.append({"code": "MODE_CHECK_ERROR", "severity": "warning", "message": str(e)})
+
+    # 2. Scheduler running
+    try:
+        from trading_scheduler import trading_scheduler
+        sched_running = getattr(trading_scheduler, "is_running", False)
+        if not sched_running:
+            reasons.append({"code": "SCHEDULER_STOPPED", "severity": "critical",
+                             "message": "Trading scheduler is not running"})
+    except Exception as e:
+        reasons.append({"code": "SCHEDULER_CHECK_ERROR", "severity": "warning", "message": str(e)})
+
+    # 3. Active bots
+    try:
+        active_bots = await db.bots_collection.count_documents(
+            {"user_id": user_id, "status": "active", "deleted_at": {"$exists": False}}
+        )
+        if active_bots == 0:
+            reasons.append({"code": "NO_ACTIVE_BOTS", "severity": "critical",
+                             "message": "No active bots found — create and start bots via dashboard"})
+    except Exception as e:
+        reasons.append({"code": "BOTS_CHECK_ERROR", "severity": "warning", "message": str(e)})
+
+    # 4. Paper wallet funded
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        wallet = await paper_wallet_service.get_wallet_status(user_id)
+        total = wallet.get("total", 0) if wallet else 0
+        if total == 0:
+            reasons.append({"code": "WALLET_UNFUNDED", "severity": "critical",
+                             "message": "Paper wallet balance is 0 — fund it via dashboard"})
+    except Exception as e:
+        reasons.append({"code": "WALLET_CHECK_ERROR", "severity": "warning", "message": str(e)})
+
+    # 5. Risk locks
+    try:
+        from risk_engine import risk_engine
+        if hasattr(risk_engine, "is_locked") and await risk_engine.is_locked(user_id):
+            reasons.append({"code": "RISK_LOCKED", "severity": "critical",
+                             "message": "Risk engine lock active — check risk dashboard"})
+    except Exception:
+        pass
+
+    # 6. Quarantine
+    try:
+        qcount = await db.bot_quarantine_collection.count_documents(
+            {"user_id": user_id, "status": "quarantined"}
+        ) if hasattr(db, "bot_quarantine_collection") else 0
+        if qcount > 0:
+            reasons.append({"code": "BOTS_IN_QUARANTINE", "severity": "warning",
+                             "message": f"{qcount} bot(s) in quarantine — review and release via dashboard"})
+    except Exception:
+        pass
+
+    # 7. Bot-level blocks (sample up to 20 active bots)
+    try:
+        from config import PAPER_SUPPORTED_EXCHANGES
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": "active", "deleted_at": {"$exists": False}},
+            {"_id": 0, "id": 1, "name": 1, "exchange": 1, "status": 1, "pause_reason": 1}
+        ).to_list(20)
+        unsupported = [b["name"] for b in bots if b.get("exchange", "").lower() not in PAPER_SUPPORTED_EXCHANGES]
+        if unsupported:
+            reasons.append({"code": "UNSUPPORTED_EXCHANGE", "severity": "warning",
+                             "message": f"Bots on unsupported exchange: {unsupported}"})
+    except Exception:
+        pass
+
+    status = "ok" if not reasons else ("critical" if any(r["severity"] == "critical" for r in reasons) else "warning")
+    return {
+        "success": True,
+        "status": status,
+        "reasons": reasons,
+        "reasons_count": len(reasons),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/last-tick")
+async def last_tick_summary(user_id: str = Depends(get_current_user)):
+    """Summary of the last scheduler tick for the current user.
+
+    Read-only. No side effects.
+
+    Returns:
+        last_tick_at: when the scheduler last ran (from bot_runtime_state)
+        bots_evaluated: count of bots that were evaluated
+        orders_attempted: count of orders attempted in last tick
+        fills_saved: count of fills saved in last tick
+        trades_opened: count of trades opened in last tick
+        trades_closed: count of trades closed in last tick
+        rejects: count of rejected/skipped orders with reasons
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+        last_tick = getattr(trading_scheduler, "last_tick", None)
+        tick_count = getattr(trading_scheduler, "tick_count", 0)
+        is_running = getattr(trading_scheduler, "is_running", False)
+    except Exception:
+        last_tick = None
+        tick_count = 0
+        is_running = False
+
+    # Get the most recent bot runtime state records for this user
+    try:
+        runtime_docs = await db.bot_runtime_state_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "bot_id": 1, "last_tick_at": 1, "last_decision": 1,
+             "last_order_error": 1, "updated_at": 1}
+        ).sort("updated_at", -1).to_list(50)
+    except Exception:
+        runtime_docs = []
+
+    last_tick_at = None
+    if runtime_docs:
+        raw = runtime_docs[0].get("updated_at") or runtime_docs[0].get("last_tick_at")
+        last_tick_at = raw.isoformat() if hasattr(raw, "isoformat") else raw
+    elif last_tick:
+        last_tick_at = last_tick.isoformat() if hasattr(last_tick, "isoformat") else str(last_tick)
+
+    bots_evaluated = len(runtime_docs)
+
+    # Count recent activity (last 5 minutes)
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    try:
+        trades_opened = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "open",
+             "$expr": {"$gt": [{"$ifNull": ["$opened_at", "$timestamp"]}, window_start]}}
+        )
+        trades_closed = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": {"$in": ["closed", "completed"]},
+             "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}}
+        )
+        trades_failed = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "failed",
+             "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}}
+        )
+    except Exception:
+        trades_opened = trades_closed = trades_failed = 0
+
+    rejects = [
+        {"bot_id": d.get("bot_id"), "reason": d.get("last_order_error")}
+        for d in runtime_docs
+        if d.get("last_order_error")
+    ]
+
+    return {
+        "success": True,
+        "scheduler_running": is_running,
+        "tick_count": tick_count,
+        "last_tick_at": last_tick_at,
+        "bots_evaluated": bots_evaluated,
+        "window_minutes": 5,
+        "trades_opened_in_window": trades_opened,
+        "trades_closed_in_window": trades_closed,
+        "trades_failed_in_window": trades_failed,
+        "rejects": rejects,
+        "rejects_count": len(rejects),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/decision-trace")
+async def decision_trace(
+    bot_id: str = None,
+    limit: int = 20,
+    user_id: str = Depends(get_current_user)
+):
+    """Read-only trace of last bot decisions and reasons.
+
+    Queries bot_runtime_state and recent trades to reconstruct
+    the decision history without requiring a separate decisions collection.
+
+    Read-only. No side effects.
+    """
+    # Runtime state (last known decision per bot)
+    query: dict = {"user_id": user_id}
+    if bot_id:
+        query["bot_id"] = bot_id
+
+    try:
+        runtime_docs = await db.bot_runtime_state_collection.find(
+            query,
+            {"_id": 0, "bot_id": 1, "last_tick_at": 1, "last_decision": 1,
+             "last_order_error": 1, "updated_at": 1, "open_position": 1}
+        ).sort("updated_at", -1).to_list(limit)
+    except Exception:
+        runtime_docs = []
+
+    # Recent trades for context
+    trade_query: dict = {"user_id": user_id}
+    if bot_id:
+        trade_query["bot_id"] = bot_id
+
+    try:
+        recent_trades = await db.trades_collection.find(
+            trade_query,
+            {"_id": 0, "id": 1, "bot_id": 1, "status": 1, "side": 1,
+             "pair": 1, "opened_at": 1, "closed_at": 1,
+             "net_pnl": 1, "trade_close_reason": 1, "skip_reason": 1,
+             "last_order_error": 1}
+        ).sort([("opened_at", -1), ("_id", -1)]).limit(limit).to_list(limit)
+    except Exception:
+        recent_trades = []
+
+    return {
+        "success": True,
+        "bot_id_filter": bot_id,
+        "runtime_states": runtime_docs,
+        "recent_trades": recent_trades,
+        "runtime_states_count": len(runtime_docs),
+        "recent_trades_count": len(recent_trades),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

@@ -1871,7 +1871,4 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/seed-paper-luno")
-async def seed_paper_luno_bots(user_id: str = Depends(get_current_user)):
-    """Alias for /seed-luno-paper — seeds 5 Luno paper bots (2 safe, 2 balanced, 1 aggressive)."""
-    return await seed_luno_paper_bots(user_id)
+
