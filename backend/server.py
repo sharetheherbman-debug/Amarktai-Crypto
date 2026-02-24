@@ -9,6 +9,8 @@ import logging
 import logging.config
 import os
 import asyncio
+import socket
+import aiohttp as _aiohttp
 import json
 import random
 import time
@@ -2468,10 +2470,6 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
     Returns actionable diagnostics: if DNS fails the status is
     'service_unreachable', not 'key_not_configured'.
     """
-    import socket
-    import aiohttp as _aiohttp
-    import os as _os
-
     try:
         from routes.keys import normalize_status
         from services.provider_registry import ProviderStatus
@@ -2497,14 +2495,14 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
 
     # --- DNS + HTTP reachability probe ---
     from flokx_integration import DEFAULT_FLOKX_BASE_URL
-    base_url = _os.getenv("FLOKX_BASE_URL", DEFAULT_FLOKX_BASE_URL).rstrip("/")
+    base_url = os.getenv("FLOKX_BASE_URL", DEFAULT_FLOKX_BASE_URL).rstrip("/")
     dns_ok = False
     http_ok = False
     reachability_error = None
     try:
         from urllib.parse import urlparse as _urlparse
         hostname = _urlparse(base_url).hostname or ""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, socket.getaddrinfo, hostname, None)
         dns_ok = True
     except Exception as _dns_err:

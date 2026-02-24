@@ -8,8 +8,8 @@ TOKEN="${TOKEN:-}"
 PASS=0; FAIL=0
 
 _hdr() { echo; echo "══════════════════════════════════════════"; echo "  $*"; echo "══════════════════════════════════════════"; }
-_ok()  { echo "  ✅  $*"; ((PASS++)) || true; }
-_err() { echo "  ❌  $*"; ((FAIL++)) || true; }
+_ok()  { echo "  ✅  $*"; PASS=$((PASS + 1)); }
+_err() { echo "  ❌  $*"; FAIL=$((FAIL + 1)); }
 
 _get() {
   local path="$1"

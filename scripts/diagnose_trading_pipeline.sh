@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # diagnose_trading_pipeline.sh — diagnose why trades are not appearing
 # Usage: BASE_URL=https://your-backend TOKEN=<jwt> bash scripts/diagnose_trading_pipeline.sh
-set -uo pipefail
+set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8000}"
 TOKEN="${TOKEN:-}"
