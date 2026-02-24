@@ -1771,7 +1771,7 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             risk_mode = bot_def["risk_mode"]
 
             # Check if already exists (non-deleted)
-            existing = await db.bots_collection.find_one(
+            existing_doc = await db.bots_collection.find_one(
                 {
                     "user_id": user_id,
                     "name": name,
@@ -1781,9 +1781,9 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 },
                 {"_id": 0, "id": 1, "name": 1, "status": 1},
             )
-            if existing:
+            if existing_doc:
                 results.append(
-                    {"name": name, "bot_id": existing["id"], "status": "existing"}
+                    {"name": name, "bot_id": existing_doc["id"], "status": "existing"}
                 )
                 continue
 
@@ -1839,13 +1839,13 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             )
 
         created = [r for r in results if r["status"] == "created"]
-        existing_results = [r for r in results if r["status"] == "existing"]
+        existing = [r for r in results if r["status"] == "existing"]
         skipped = [r for r in results if r["status"] == "skipped"]
 
         return {
             "success": True,
             "created": len(created),
-            "existing": len(existing_results),
+            "existing": len(existing),
             "skipped": len(skipped),
             "bots": results,
             "timestamp": now_iso,
