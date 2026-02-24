@@ -28,6 +28,38 @@ function mapTrade(t) {
   };
 }
 
+/**
+ * Stable merge of two trade lists keyed by trade id.
+ * Incoming trades override existing ones with the same key so poll results
+ * always reflect the latest server state without flickering reorders.
+ * Sorted descending by timestamp at the end; capped at 50 entries.
+ *
+ * @param {Array} existing - Current trade list (e.g. from state)
+ * @param {Array} incoming - New trades from poll or websocket
+ * @returns {Array} Deduped, sorted trade list
+ */
+export function mergeTrades(existing, incoming) {
+  const tradeKey = (t) => t.id || t.trade_id || `${t.timestamp}_${t.pair}_${t.bot_id}`;
+  const map = new Map();
+  existing.forEach(t => {
+    if (!t) return;
+    const key = tradeKey(t);
+    if (key) map.set(key, t);
+  });
+  incoming.forEach(t => {
+    if (!t) return;
+    const key = tradeKey(t);
+    if (key) map.set(key, t);
+  });
+  return Array.from(map.values())
+    .sort((a, b) => {
+      const ta = new Date(a.timestamp || 0).getTime();
+      const tb = new Date(b.timestamp || 0).getTime();
+      return tb - ta;
+    })
+    .slice(0, 50);
+}
+
 export default function LiveTradesPanel({ platformFilter = 'all' }) {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +71,11 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
       const data = await get('/trades/recent?limit=50');
       // Backend returns { success, trades:[...] } or a bare array
       const raw = Array.isArray(data) ? data : (data?.trades || []);
-      setTrades(raw.map(mapTrade).filter(Boolean));
+      // Do not overwrite state on empty poll responses – websocket may have
+      // injected recent trades that would be silently discarded.
+      if (raw.length === 0) return;
+      const mapped = raw.map(mapTrade).filter(Boolean);
+      setTrades(prev => mergeTrades(prev, mapped));
       setError(null);
     } catch (err) {
       console.error('Failed to load trades:', err);
@@ -60,9 +96,11 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
     return () => clearInterval(interval);
   }, [loadInitialTrades]);
 
-  // Subscribe to real-time trade updates
+  // Subscribe to real-time trade updates – merge into existing map so the
+  // list never flickers from a prepend/reorder on every websocket message.
   useRealtimeEvent('trades', (newTrade) => {
-    setTrades(prev => [mapTrade(newTrade) || newTrade, ...prev].slice(0, 50));
+    const mapped = mapTrade(newTrade);
+    if (mapped) setTrades(prev => mergeTrades(prev, [mapped]));
   }, []);
 
   // Filter trades by platform
