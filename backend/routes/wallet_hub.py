@@ -192,6 +192,7 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
                 "allocated": round(paper_allocated, 2),
                 "total": paper_total,
                 "currency": "ZAR",
+                "funded_status": "FUNDED" if paper_total > 0 else "UNFUNDED",
                 "as_of": now_iso,
             },
             "live": {
@@ -220,7 +221,7 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
         logger.error(f"Wallet status error: {e}", exc_info=True)
         return {
             "mode": "paper",
-            "paper": {"available": 0.0, "allocated": 0.0, "total": 0.0, "currency": "ZAR", "as_of": now_iso},
+            "paper": {"available": 0.0, "allocated": 0.0, "total": 0.0, "currency": "ZAR", "funded_status": "UNFUNDED", "as_of": now_iso},
             "live": {"supported_exchanges": [], "configured_exchanges": [], "balances": None, "as_of": now_iso},
             "ledger": {"invariants_ok": True, "drift": 0.0, "last_reconcile_at": None},
             "keys": {"exchanges": {}, "openai": False, "huggingface": False},
@@ -347,6 +348,7 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
         "required_funds_zar": summary.get("required_funds_zar", 0.0),
         "shortfall_zar": summary.get("shortfall_zar", 0.0),
         "status": summary.get("status", "ok"),
+        "funded_status": "FUNDED" if total_value > 0 else "UNFUNDED",
         # Legacy balance breakdown (kept for backward compatibility)
         "user_id": user_id,
         "available": available.get("balances", {}),
