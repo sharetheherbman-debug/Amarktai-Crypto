@@ -44,10 +44,13 @@ def get_env_flags() -> Dict[str, bool]:
     # Master trading switch
     enable_trading = env_bool('ENABLE_TRADING', False)
     
-    # Paper trading: Check both ENABLE_PAPER_TRADING and legacy PAPER_TRADING
+    # Paper trading: Check canonical ENABLE_PAPER_TRADING; also honour legacy PAPER_TRADING.
+    # Both default to True so paper is user-controllable via system mode unless an env var
+    # is explicitly set to false/0/no to hard-disable.  AND logic means both must be True
+    # for paper to be enabled; setting either one to false alone will disable it.
     enable_paper_trading = (
-        env_bool('ENABLE_PAPER_TRADING', False) or 
-        env_bool('PAPER_TRADING', False)
+        env_bool('ENABLE_PAPER_TRADING', True) and
+        env_bool('PAPER_TRADING', True)
     )
     
     # Live trading: Check both ENABLE_LIVE_TRADING and legacy LIVE_TRADING

@@ -515,6 +515,7 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
     Get HuggingFace integration health/status.
 
     Returns:
+        status: "connected" | "disabled" | "error"
         enabled: bool  – whether a HF key is configured
         model: str     – model used for last health probe
         last_success_at: ISO timestamp or null
@@ -527,7 +528,18 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
         enabled = bool(api_key)
         model_id = "distilbert-base-uncased-finetuned-sst-2-english"
 
-        if enabled and _hf_last_success is None:
+        if not enabled:
+            return {
+                "status": "disabled",
+                "enabled": False,
+                "model": model_id,
+                "source": source,
+                "last_success_at": None,
+                "last_error": "No HuggingFace API key configured",
+                "latency_ms": None,
+            }
+
+        if _hf_last_success is None:
             # Run a lightweight health probe on first call
             t0 = time.monotonic()
             try:
@@ -538,9 +550,21 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
                     _hf_last_success = datetime.now(timezone.utc).isoformat()
                     _hf_last_error = None
             except Exception as probe_err:
-                _hf_last_error = str(probe_err)
+                err_msg = str(probe_err)
+                # Store error for status reporting; probe will retry next request if still no success
+                _hf_last_error = err_msg
+                logger.warning("HF health probe failed: %s", err_msg[:200])
+
+        # Determine status field
+        if _hf_last_success is not None:
+            hf_status = "connected"
+        elif _hf_last_error:
+            hf_status = "error"
+        else:
+            hf_status = "disabled"
 
         return {
+            "status": hf_status,
             "enabled": enabled,
             "model": model_id,
             "source": source,
@@ -550,7 +574,7 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
         }
     except Exception as e:
         logger.error(f"HF status error: {e}")
-        return {"enabled": False, "model": None, "last_success_at": None,
+        return {"status": "error", "enabled": False, "model": None, "last_success_at": None,
                 "last_error": str(e), "latency_ms": None}
 
 
