@@ -1639,6 +1639,10 @@ async def ai_chat(
         }
     """
     try:
+        # Initialise error_code at the very top so it is always defined even if an
+        # exception is raised before line 1800 (prevents "cannot access local variable
+        # 'error_code' where it is not associated with a value" UnboundLocalError).
+        error_code = None
         content = message.get('message') or message.get('content', '')
         request_action = message.get('request_action', False)
         confirmation_token = message.get('confirmation_token') or message.get('confirmation_id')

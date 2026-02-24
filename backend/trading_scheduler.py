@@ -339,6 +339,10 @@ class TradingScheduler:
                     if is_paper_mode:
                         # Paper trading
                         logger.info(f"📊 Trade candidate: {bot['name']} on {bot.get('exchange')}")
+                        logger.info(
+                            f"▶️  PAPER_SUBMIT | {bot['name']} | bot_id={bot_id[:8]} | "
+                            f"exchange={bot.get('exchange')}"
+                        )
                         
                         result = await paper_engine.run_trading_cycle(
                             bot['id'],
@@ -348,10 +352,15 @@ class TradingScheduler:
                         
                         if result and result.get('trade'):
                             trade = result['trade']
-                            trade_id = trade.get('bot_id', 'unknown')
+                            # Use the trade's own id; fall back to bot_id only for logging
+                            trade_log_id = trade.get('id') or trade.get('trade_id') or bot_id
                             profit = trade.get('profit_loss', 0)
-                            logger.info(f"✅ Trade inserted: id={trade_id}, profit={profit:.2f}")
-                            logger.info(f"📡 Realtime event emitted: trade_id={trade_id}")
+                            trade_status = trade.get('status', 'unknown')
+                            logger.info(
+                                f"✅ PAPER_FILL | {bot['name']} | trade_id={trade_log_id} | "
+                                f"status={trade_status} | pnl={profit:.2f}"
+                            )
+                            logger.info(f"📡 Realtime event emitted: trade_id={trade_log_id}")
                             # Clear any previous order error on successful trade
                             await db.bots_collection.update_one(
                                 {"id": bot_id},
@@ -364,8 +373,20 @@ class TradingScheduler:
                         elif result is None or (isinstance(result, dict) and not result.get('success', True)):
                             # Trade was attempted but blocked/failed - record diagnostics
                             err_msg = result.get('error') if isinstance(result, dict) else "No trade result"
-                            reason_msg = result.get('skip_reason') or err_msg if isinstance(result, dict) else err_msg
-                            logger.debug(f"⚠️ Paper trade skipped for {bot['name']}: {reason_msg}")
+                            skip_reason = result.get('skip_reason') if isinstance(result, dict) else None
+                            reason_msg = skip_reason or err_msg or "unknown"
+                            # Map known skip reasons to stable codes for easy log grepping
+                            _SKIP_CODE_MAP = {
+                                "edge_gate": "SKIP_EDGE_GATE",
+                                "pair_not_allowed": "SKIP_PAIR_NOT_ALLOWED",
+                                "spread_too_wide": "SKIP_SPREAD_WIDE",
+                                "low_liquidity": "SKIP_LOW_LIQUIDITY",
+                                "open_trade_close_failed": "SKIP_OPEN_CLOSE_FAIL",
+                            }
+                            skip_code = _SKIP_CODE_MAP.get(skip_reason, "SKIP_OTHER")
+                            logger.info(
+                                f"⏭️  {skip_code} | {bot['name']} | {reason_msg}"
+                            )
                             await db.bots_collection.update_one(
                                 {"id": bot_id},
                                 {"$set": {

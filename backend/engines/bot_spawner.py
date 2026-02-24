@@ -204,7 +204,8 @@ class BotSpawner:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "daily_trade_count": 0,
                 "last_trade_time": None,
-                "auto_spawned": True  # Mark as auto-spawned
+                "auto_spawned": True,  # Mark as auto-spawned
+                "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
             }
             
             await db.bots_collection.insert_one(bot_doc)

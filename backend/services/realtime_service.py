@@ -130,10 +130,20 @@ class RealtimeService:
             logger.error(f"Error broadcasting trades update: {e}")
 
     async def broadcast_countdown_update(self, user_id: str):
-        """Broadcast countdown status update."""
+        """Broadcast countdown status update.
+
+        Calls ``get_countdown_status`` directly (bypassing FastAPI DI) so the
+        ``target`` parameter must be passed as a plain float – otherwise the
+        default value is a FastAPI ``Query`` descriptor object, which causes
+        ``TypeError: unsupported operand type(s) for -: 'Query' and 'float'``.
+        """
         try:
             from routes.ledger_endpoints import get_countdown_status
-            countdown = await get_countdown_status(current_user=user_id, db=db.db)
+            countdown = await get_countdown_status(
+                target=1_000_000.0,
+                current_user=user_id,
+                db=db.db,
+            )
             await manager.send_message(user_id, {
                 "type": "analytics_update",
                 "data": {"countdown": countdown},
@@ -141,6 +151,16 @@ class RealtimeService:
             })
         except Exception as e:
             logger.error(f"Error broadcasting countdown update: {e}")
+            # Degrade gracefully: send an offline/unknown status so the
+            # frontend does not lose its countdown widget entirely.
+            try:
+                await manager.send_message(user_id, {
+                    "type": "analytics_update",
+                    "data": {"countdown": {"ready": False, "status": "unknown", "error": str(e)}},
+                    "payload": {"countdown": {"ready": False, "status": "unknown"}},
+                })
+            except Exception:
+                pass
     
     async def broadcast_profits_update(self, user_id: str, reason: Optional[str] = None):
         """Broadcast profits/PnL update
