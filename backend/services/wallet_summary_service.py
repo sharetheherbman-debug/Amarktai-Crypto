@@ -65,25 +65,35 @@ class WalletSummaryService:
 
     async def _get_paper_balance(self, user_id: str) -> float:
         from services.paper_wallet_ledger import paper_wallet_ledger
+        from services.paper_wallet_service import paper_wallet_service
 
+        # Prefer the canonical paper_wallet_ledger (per-bot reserved balance)
         balance = await paper_wallet_ledger.get_user_balance(user_id)
         if balance is not None:
             await self._sync_paper_wallet_balance(user_id, balance)
             return balance
 
-        injected_capital = await self._get_injected_capital(user_id)
-        starting_balance = injected_capital if injected_capital > 0 else PAPER_STARTING_CAPITAL_ZAR
+        # Fall back to the direct wallet document (what paper_wallet_service writes)
+        try:
+            result = await paper_wallet_service.get_balances(user_id)
+            available = result.get("total", None)
+            if available is not None:
+                await self._sync_paper_wallet_balance(user_id, float(available))
+                return float(available)
+        except Exception as e:
+            logger.debug("paper_wallet_service.get_balances fallback failed: %s", e)
 
+        # Wallet does not exist yet – return 0 (UNFUNDED).
+        # Do NOT auto-create with PAPER_STARTING_CAPITAL_ZAR; the user must
+        # explicitly fund the wallet.
         if user_id not in self._warned_missing_wallets:
-            logger.warning(
-                "Paper wallet missing for user %s. Auto-creating with R%.2f",
+            logger.info(
+                "Paper wallet not yet funded for user %s. Returning 0.",
                 user_id[:8],
-                starting_balance
             )
             self._warned_missing_wallets.add(user_id)
 
-        await self._ensure_paper_wallet_doc(user_id, starting_balance)
-        return starting_balance
+        return 0.0
 
     async def _get_live_balance(self, user_id: str) -> float:
         wallet_doc = await self._get_wallet_doc(user_id) or {}

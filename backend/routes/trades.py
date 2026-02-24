@@ -65,24 +65,70 @@ async def get_trade_metrics(
 @router.get("/recent")
 async def get_recent_trades(
     limit: int = Query(50, ge=1, le=500),
+    since: Optional[str] = Query(None, description="ISO timestamp cursor – return only trades opened after this time"),
+    status: Optional[str] = Query(None, description="Filter by trade status (open/closed/failed/all)"),
     user_id: str = Depends(get_current_user)
 ):
     """
-    Get recent trades with date+time metrics
-    Frontend calls this endpoint to display trade history
-    
+    Get recent trades with date+time metrics.
+
+    Stable, deterministic feed:
+    - sorted by ``opened_at`` desc (falls back to ``timestamp`` then ``created_at``)
+    - optional ``since`` cursor for monotonic polling (no flicker)
+    - optional ``status`` filter
+
     Args:
         limit: Maximum number of trades to return (1-500)
+        since: ISO 8601 timestamp – only return trades with opened_at > since
+        status: Filter by status; "all" or omitted returns all statuses
         user_id: Current authenticated user
-        
+
     Returns:
-        List of trades with full timestamps and metrics
+        List of trades with full timestamps and metrics, newest first.
     """
     try:
+        match_filter: dict = {"user_id": user_id}
+
+        # Apply status filter (default excludes nothing – return all)
+        if status and status != "all":
+            match_filter["status"] = status
+
+        # Apply since cursor.  We must filter on the same field the pipeline
+        # uses for sorting (_sort_ts = opened_at ?? timestamp ?? created_at).
+        # Matching on a single consistent field prevents the ambiguity of
+        # "$or" across two fields with different semantics.
+        since_dt = None
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+                # Build the filter using the pipeline's own sort-key expression so
+                # inclusion and ordering are always consistent.
+                match_filter["$expr"] = {
+                    "$gt": [
+                        {
+                            "$ifNull": [
+                                "$opened_at",
+                                {"$ifNull": ["$timestamp", "$created_at"]}
+                            ]
+                        },
+                        since,
+                    ]
+                }
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid since timestamp: {since}")
+
         pipeline = [
-            {"$match": {"user_id": user_id}},
-            {"$addFields": {"_sort_ts": {"$ifNull": ["$timestamp", "$created_at"]}}},
-            {"$sort": {"_sort_ts": -1}},
+            {"$match": match_filter},
+            # Compute a stable sort key preferring opened_at then timestamp then created_at
+            {"$addFields": {
+                "_sort_ts": {
+                    "$ifNull": [
+                        "$opened_at",
+                        {"$ifNull": ["$timestamp", "$created_at"]}
+                    ]
+                }
+            }},
+            {"$sort": {"_sort_ts": -1, "_id": -1}},  # secondary sort by _id prevents ties flickering
             {"$limit": limit},
             {"$project": {"_id": 0, "_sort_ts": 0}},
         ]
@@ -96,7 +142,7 @@ async def get_recent_trades(
                 {"_id": 0, "id": 1, "name": 1, "exchange": 1, "pair": 1, "trading_mode": 1}
             ).to_list(1000)
             bot_names = {b.get("id"): b for b in bots}
-        
+
         normalized_trades = []
         # Ensure all trades have proper date+time fields
         for trade in trades:
@@ -108,12 +154,20 @@ async def get_recent_trades(
             normalized["time"] = dt.strftime("%H:%M:%S")
             normalized_trades.append(normalized)
 
+        # Cursor for next poll – the newest opened_at in this batch
+        next_cursor = None
+        if normalized_trades:
+            first = normalized_trades[0]
+            next_cursor = first.get("opened_at") or first.get("timestamp") or first.get("created_at")
+
         return {
             "success": True,
             "trades": normalized_trades,
             "total": len(normalized_trades),
             "count": len(normalized_trades),
             "limit": limit,
+            "since": since,
+            "next_cursor": next_cursor,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         

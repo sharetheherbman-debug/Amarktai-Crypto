@@ -31,10 +31,12 @@ class PaperWalletService:
         if wallet:
             return wallet
 
+        # Create an UNFUNDED wallet.  Balance starts at 0; the user must
+        # explicitly fund it via the fund() / deposit() methods.
         wallet = {
             "user_id": user_id,
             "type": "paper",
-            "balances": {"ZAR": float(PAPER_STARTING_CAPITAL_ZAR)},
+            "balances": {"ZAR": 0.0},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
@@ -80,8 +82,13 @@ class PaperWalletService:
         }
 
     async def reset(self, user_id: str) -> Dict:
+        """Reset paper wallet to ZERO balance (unfunded state).
+
+        Per hard requirement: after a reset the wallet must show balance=0 and
+        allocated=0.  The system remains UNFUNDED until the user explicitly
+        funds it via the /api/wallet/paper/fund endpoint.
+        """
         await self.init_db()
-        starting_balance = float(PAPER_STARTING_CAPITAL_ZAR)
         # Capture balance before reset
         existing = await self.collection.find_one(
             {"user_id": user_id, "type": "paper"},
@@ -93,7 +100,7 @@ class PaperWalletService:
             {"user_id": user_id, "type": "paper"},
             {
                 "$set": {
-                    "balances": {"ZAR": starting_balance},
+                    "balances": {"ZAR": 0.0},
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 },
                 "$setOnInsert": {
@@ -105,13 +112,23 @@ class PaperWalletService:
             upsert=True,
             return_document=ReturnDocument.AFTER
         )
-        wallet_after = result.get("balances") or {"ZAR": starting_balance}
+        wallet_after = result.get("balances") or {"ZAR": 0.0}
         return {
             "balances": wallet_after,
             "total": round(sum(float(v or 0) for v in wallet_after.values()), 2),
             "wallet_before": wallet_before,
             "wallet_after": wallet_after,
         }
+
+    async def fund(self, user_id: str, amount: float, currency: str = "ZAR") -> Dict:
+        """Explicitly fund the paper wallet (user action, not auto-init).
+
+        This is the ONLY path that should add starting capital.  It requires
+        ``amount > 0`` and logs an audit event via the caller.
+        """
+        if amount <= 0:
+            raise ValueError(f"Fund amount must be positive, got {amount}")
+        return await self.deposit(user_id, amount, currency)
 
     async def reserve_funds(self, user_id: str, amount: float, currency: str) -> Tuple[bool, str]:
         await self._ensure_wallet(user_id)

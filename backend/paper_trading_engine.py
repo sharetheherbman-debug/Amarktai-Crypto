@@ -1308,6 +1308,14 @@ class PaperTradingEngine:
 
             entry_value = float(open_trade.get("entry_value") or open_trade.get("trade_amount") or 0)
             exit_value = sum(fill["qty"] * fill["price"] for fill in exit_fills)
+            # If entry_value is missing (stale open trade), reconstruct from
+            # amount * entry_price so the trade can still be closed cleanly.
+            if entry_value <= 0 and crypto_amount > 0 and entry_price > 0:
+                entry_value = crypto_amount * entry_price
+                logger.warning(
+                    f"_close_open_trade: missing entry_value for trade "
+                    f"{open_trade.get('id', '?')}, reconstructed as {entry_value:.2f}"
+                )
             if entry_value <= 0 or exit_value <= 0:
                 return None
 
@@ -1405,6 +1413,27 @@ class PaperTradingEngine:
             if open_trade:
                 trade_result = await self._close_open_trade(bot_id, bot_data, open_trade)
                 if not trade_result:
+                    # Close returned None – the trade is stuck.  Mark it as
+                    # failed/abandoned so it doesn't block the bot forever.
+                    trade_id = open_trade.get("id") or open_trade.get("trade_id")
+                    if trade_id:
+                        try:
+                            await trades_collection.update_one(
+                                {"id": trade_id},
+                                {
+                                    "$set": {
+                                        "status": "failed",
+                                        "trade_close_reason": "close_failed_abandoned",
+                                        "closed_at": datetime.now(timezone.utc).isoformat(),
+                                        "last_order_error": "open_trade_close_failed",
+                                    }
+                                },
+                            )
+                            logger.warning(
+                                f"Bot {bot_id}: trade {trade_id} abandoned (close returned None)"
+                            )
+                        except Exception as abandon_err:
+                            logger.error(f"Bot {bot_id}: failed to abandon stuck trade: {abandon_err}")
                     return {"success": False, "skip_reason": "open_trade_close_failed"}
                 existing_trade_id = open_trade.get("id") or open_trade.get("trade_id")
                 entry_recorded = bool(open_trade.get("entry_ledger_recorded", False))
