@@ -392,6 +392,7 @@ async def user_paper_start_fresh(
                 summary["risk_locks_reset"] = 1
 
 
+        wallet_before = {}
         wallet_after = {}
         try:
             from services.paper_wallet_service import paper_wallet_service

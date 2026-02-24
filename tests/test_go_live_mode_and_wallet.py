@@ -199,9 +199,18 @@ async def test_set_balance_funds_to_30000():
     wb_col = MagicMock()
     wb_col.update_one = AsyncMock()
 
+    _summary = {"mode": "paper", "available_wallet_zar": 30000.0,
+                "allocated_funds_zar": 0.0, "reserved_funds_zar": 0.0,
+                "required_funds_zar": 0.0, "shortfall_zar": 0.0, "status": "ok"}
+
     with patch("database.wallets_collection", wallets_col), \
-         patch("database.wallet_balances_collection", wb_col):
-        # Reset singleton so init_db picks up mocks
+         patch("database.wallet_balances_collection", wb_col), \
+         patch("routes.wallet_hub.wallet_summary_service.get_summary",
+               new=AsyncMock(return_value=_summary)), \
+         patch("routes.wallet_hub.get_paper_wallet_allocated_balances",
+               new=AsyncMock(return_value={})), \
+         patch("routes.wallet_hub.get_paper_wallet_balances",
+               new=AsyncMock(return_value={"ZAR": 30000.0})):
         orig = pwm.paper_wallet_service.collection
         pwm.paper_wallet_service.collection = wallets_col
         try:
@@ -214,7 +223,6 @@ async def test_set_balance_funds_to_30000():
 
     assert result["success"] is True
     assert result["set_to"] == 30000.0
-    # Wallet must reflect 30000
     balance_in_store = wallets_col._stored[0]["balances"]["ZAR"]
     assert float(balance_in_store) == 30000.0
 
@@ -257,8 +265,18 @@ async def test_set_balance_zero_clears_wallet():
     wb_col = MagicMock()
     wb_col.update_one = AsyncMock()
 
+    _summary = {"mode": "paper", "available_wallet_zar": 0.0,
+                "allocated_funds_zar": 0.0, "reserved_funds_zar": 0.0,
+                "required_funds_zar": 0.0, "shortfall_zar": 0.0, "status": "ok"}
+
     with patch("database.wallets_collection", wallets_col), \
-         patch("database.wallet_balances_collection", wb_col):
+         patch("database.wallet_balances_collection", wb_col), \
+         patch("routes.wallet_hub.wallet_summary_service.get_summary",
+               new=AsyncMock(return_value=_summary)), \
+         patch("routes.wallet_hub.get_paper_wallet_allocated_balances",
+               new=AsyncMock(return_value={})), \
+         patch("routes.wallet_hub.get_paper_wallet_balances",
+               new=AsyncMock(return_value={"ZAR": 0.0})):
         orig = pwm.paper_wallet_service.collection
         pwm.paper_wallet_service.collection = wallets_col
         try:
