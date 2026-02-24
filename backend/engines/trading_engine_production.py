@@ -42,7 +42,7 @@ class TradingEngineProduction:
                 {"bots": db.bots_collection, "trades": db.trades_collection}
             )
 
-            if result:
+            if result and result.get("trade"):
                 await trade_limiter.record_trade(bot_id)
                 return True
             return False

@@ -203,6 +203,14 @@ async def connect():
         # Setup all collections
         await setup_collections()
         
+        # Deduplicate bots BEFORE creating the unique index so existing duplicates
+        # don't cause IndexKeySpecsConflict failures.
+        try:
+            from migrations.deduplicate_bots import run_dedup_on_startup
+            await run_dedup_on_startup()
+        except Exception as dedup_error:
+            logger.warning(f"Bot deduplication failed (non-critical): {dedup_error}")
+
         # Initialize database (create indexes)
         await init_db()
         
@@ -418,6 +426,14 @@ async def init_db():
             await _safe_create_index(bots_collection, "id", unique=True)
             await _safe_create_index(bots_collection, "user_id")
             await _safe_create_index(bots_collection, [("user_id", 1), ("status", 1)])
+            # Prevent duplicate named bots per user/exchange/mode (non-deleted only)
+            await _safe_create_index(
+                bots_collection,
+                [("user_id", 1), ("exchange", 1), ("trading_mode", 1), ("name", 1)],
+                unique=True,
+                partialFilterExpression={"deleted_at": {"$exists": False}},
+                name="uidx_bot_identity",
+            )
         
         # Trade indexes
         if trades_collection is not None:

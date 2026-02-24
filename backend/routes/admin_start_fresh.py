@@ -132,9 +132,9 @@ async def start_fresh(
             })
             summary["orders_deleted"] = orders_result.deleted_count
             
-            # Delete fills (if collection exists)
+            # Delete fills from fills_ledger collection (via raw db handle)
             try:
-                fills_result = await db.fills_collection.delete_many({
+                fills_result = await db.db["fills_ledger"].delete_many({
                     "bot_id": {"$in": deleted_bot_ids}
                 })
                 summary["fills_deleted"] = fills_result.deleted_count
@@ -143,13 +143,33 @@ async def start_fresh(
             
             # Delete bot telemetry/performance records
             try:
-                telemetry_result = await db.bot_performance_collection.delete_many({
+                telemetry_result = await db.bot_metrics_collection.delete_many({
                     "bot_id": {"$in": deleted_bot_ids}
                 })
                 summary["telemetry_deleted"] = telemetry_result.deleted_count
             except Exception as e:
                 logger.warning(f"Could not delete telemetry: {e}")
         
+        # Step 2b: Clear user-scoped runtime state and graph history
+        _user_runtime_collections = [
+            ("balance_snapshots", db.balance_snapshots_collection),
+            ("paper_ledger", db.paper_ledger_collection),
+            ("bot_metrics", db.bot_metrics_collection),
+            ("bot_runtime_state", db.bot_runtime_state_collection),
+            ("bot_lifecycle", db.bot_lifecycle_collection),
+            ("performance_metrics", db.performance_metrics_collection),
+        ]
+        for coll_name, collection in _user_runtime_collections:
+            if collection is None:
+                continue
+            try:
+                result = await collection.delete_many({"user_id": user_id})
+                logger.info(
+                    f"Start Fresh: cleared {result.deleted_count} docs from {coll_name}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not clear {coll_name}: {e}")
+
         # Step 3: Reset risk locks if requested
         if request.also_reset_risk_locks:
             risk_result = await db.users_collection.update_one(
@@ -176,7 +196,7 @@ async def start_fresh(
         
         # Step 4: Clear training/quarantine states
         try:
-            await db.training_sessions_collection.delete_many({
+            await db.training_jobs_collection.delete_many({
                 "user_id": user_id
             })
         except Exception as e:
