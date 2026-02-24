@@ -917,6 +917,10 @@ class PaperTradingEngine:
 
             ml_is_simulated = prediction.get("is_simulated", False)
             if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
+                logger.info(
+                    f"⏭️  SKIP_EDGE_GATE | {bot_data.get('name', bot_id[:8])} | "
+                    f"expected={expected_move_pct:.4f}% required={edge_required_pct:.4f}%"
+                )
                 return {
                     "success": False,
                     "bot_id": bot_id,
@@ -974,9 +978,9 @@ class PaperTradingEngine:
             min_sources_required = 1 if available_sources <= 2 else 2
             avg_confidence = total_confidence / max(confidence_sources, 1)
             if confidence_sources < min_sources_required or avg_confidence < 0.65:
-                logger.debug(
-                    f"Trade quality filter: Skipping low-confidence trade "
-                    f"(available={available_sources}, contributing={confidence_sources}, avg={avg_confidence:.2%})"
+                logger.info(
+                    f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
+                    f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%}"
                 )
                 return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             

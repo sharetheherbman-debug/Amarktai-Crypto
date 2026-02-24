@@ -115,7 +115,8 @@ class BotManager:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "paper_start_date": datetime.now(timezone.utc).isoformat(),
                 "paper_end_eligible_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-                "learning_complete": False
+                "learning_complete": False,
+                "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
             }
             
             await db.bots_collection.insert_one(bot)

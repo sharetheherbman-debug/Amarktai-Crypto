@@ -393,6 +393,8 @@ async def _safe_create_index(collection, keys, **kwargs):
     - If an identical index already exists: silently succeeds.
     - If an index with the same name but different spec exists (IndexKeySpecsConflict):
       logs a WARNING instead of crashing startup.
+    - If the MongoDB version does not support an expression in partialFilterExpression
+      (e.g. $not / $exists:false on older MongoDB): logs a WARNING instead of crashing.
     """
     try:
         await collection.create_index(keys, **kwargs)
@@ -400,6 +402,8 @@ async def _safe_create_index(collection, keys, **kwargs):
         err_str = str(e)
         if "IndexKeySpecsConflict" in err_str or "already exists with different" in err_str or "already exists with a different" in err_str:
             logger.warning(f"⚠️ Index already exists with different spec (skipping): {e}")
+        elif "Expression not supported" in err_str or "not supported in partial index" in err_str.lower():
+            logger.warning(f"⚠️ Partial index expression not supported on this MongoDB version (skipping): {e}")
         else:
             raise
 
@@ -426,12 +430,16 @@ async def init_db():
             await _safe_create_index(bots_collection, "id", unique=True)
             await _safe_create_index(bots_collection, "user_id")
             await _safe_create_index(bots_collection, [("user_id", 1), ("status", 1)])
-            # Prevent duplicate named bots per user/exchange/mode (non-deleted only)
+            # Prevent duplicate named bots per user/exchange/mode (non-deleted only).
+            # Use {"deleted_at": None} instead of {"deleted_at": {"$exists": False}} so the
+            # partial filter works on MongoDB versions that do not support $not/$exists:false
+            # in partialFilterExpression.  Active bots must have deleted_at set to null
+            # (not the field absent) for this index to cover them.
             await _safe_create_index(
                 bots_collection,
                 [("user_id", 1), ("exchange", 1), ("trading_mode", 1), ("name", 1)],
                 unique=True,
-                partialFilterExpression={"deleted_at": {"$exists": False}},
+                partialFilterExpression={"deleted_at": None},
                 name="uidx_bot_identity",
             )
         
