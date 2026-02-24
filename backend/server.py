@@ -1796,31 +1796,42 @@ async def get_deposit_address(
     currency: str = "BTC",
     user_id: str = Depends(get_current_user),
 ):
-    """Fetch deposit address for a currency from the user's configured exchange."""
+    """Fetch deposit address for a currency from the user's configured exchange.
+
+    Always returns HTTP 200.  When prerequisites are missing (no keys, trading
+    disabled) the response contains status="disabled" or status="unconfigured"
+    with address=null rather than raising a 4xx error.  This prevents the
+    frontend from logging console errors on every page load.
+    """
     from utils.env_utils import env_bool
 
     # Gate: must have live trading enabled or at least paper mode with exchange key
     if not env_bool("ENABLE_LIVE_TRADING", False) and not env_bool("ENABLE_PAPER_TRADING", False):
-        raise HTTPException(
-            status_code=400,
-            detail="Trading is not enabled. Enable ENABLE_LIVE_TRADING or ENABLE_PAPER_TRADING and configure exchange API keys.",
-        )
+        return {
+            "status": "disabled",
+            "reason": "trading_not_enabled",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+        }
 
     # Get exchange API key
+    creds = None
     try:
         from services.keys_service import keys_service
         creds = await keys_service.get_user_api_key(user_id, exchange)
-    except Exception as key_err:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No {exchange} API key configured. Add your exchange API key in Settings → API Keys.",
-        )
+    except Exception:
+        pass
 
     if not creds:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No {exchange} API key configured. Add your exchange API key in Settings → API Keys.",
-        )
+        return {
+            "status": "unconfigured",
+            "reason": f"no_{exchange}_api_key",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": f"Add your {exchange.upper()} API key in Settings → API Keys to enable deposits.",
+        }
 
     # Try CCXT
     try:
@@ -1828,7 +1839,13 @@ async def get_deposit_address(
         exchange_lower = exchange.lower()
         exchange_cls = getattr(ccxt, exchange_lower, None)
         if exchange_cls is None:
-            raise HTTPException(status_code=501, detail=f"Exchange '{exchange}' is not supported by CCXT.")
+            return {
+                "status": "error",
+                "reason": "exchange_not_supported",
+                "exchange": exchange,
+                "currency": currency,
+                "address": None,
+            }
 
         # Build CCXT instance with user credentials
         def _extract_credentials(raw) -> tuple:
@@ -1857,6 +1874,7 @@ async def get_deposit_address(
             timeout=15,
         )
         return {
+            "status": "ok",
             "exchange": exchange,
             "currency": currency,
             "address": addr_info.get("address"),
@@ -1865,23 +1883,34 @@ async def get_deposit_address(
             "info": addr_info.get("info", {}),
         }
 
-    except HTTPException:
-        raise
     except ccxt.NotSupported:
-        raise HTTPException(
-            status_code=501,
-            detail=f"Exchange '{exchange}' does not support deposit address fetching via API.",
-        )
+        return {
+            "status": "error",
+            "reason": "fetch_not_supported",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": f"{exchange.capitalize()} does not support deposit address fetching via API.",
+        }
     except ccxt.AuthenticationError as e:
-        # 400 (not 401) — JWT is valid; the exchange API key/secret is wrong or missing.
-        # Reserve 401 for JWT auth failures only.
-        raise HTTPException(
-            status_code=400,
-            detail=f"Authentication failed for {exchange}: requires valid apiKey credential. Check your API key and permissions.",
-        )
+        return {
+            "status": "error",
+            "reason": "auth_failed",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": f"Authentication failed for {exchange}. Check your API key and permissions.",
+        }
     except Exception as e:
         logger.error(f"Deposit address fetch failed for {exchange}/{currency}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch deposit address: {e}")
+        return {
+            "status": "error",
+            "reason": "fetch_failed",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": str(e),
+        }
 
 # ============================================================================
 # ADMIN

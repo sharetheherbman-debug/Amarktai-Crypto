@@ -3165,3 +3165,56 @@ async def get_learning_scheduler_status(
     except Exception as e:
         logger.error(f"Learning scheduler status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Admin: AI Chat Audit Trail ───────────────────────────────────────────────
+
+@router.get("/audit/chat")
+async def get_chat_audit(
+    user_id_filter: Optional[str] = None,
+    last_n: int = 100,
+    admin_id: str = Depends(require_admin),
+):
+    """Get AI chat message audit trail (admin only).
+
+    Query params:
+        user_id_filter: restrict to a single user (optional)
+        last_n: max number of records to return (default 100, max 500)
+
+    Returns messages with action_name, action_payload, action_result, error_code.
+    """
+    try:
+        limit = min(int(last_n), 500)
+        query: dict = {}
+        if user_id_filter:
+            query["user_id"] = user_id_filter
+
+        if db.chat_messages_collection is None:
+            return {"success": True, "messages": [], "count": 0, "note": "chat_messages collection not available"}
+
+        cursor = db.chat_messages_collection.find(
+            query, {"_id": 0}
+        ).sort("created_at", -1).limit(limit)
+        messages = await cursor.to_list(limit)
+
+        # Summarise per-user counts for the filtered set
+        user_summary: dict = {}
+        for msg in messages:
+            uid = msg.get("user_id", "unknown")
+            user_summary.setdefault(uid, {"messages": 0, "actions": 0, "errors": 0})
+            user_summary[uid]["messages"] += 1
+            if msg.get("action_name"):
+                user_summary[uid]["actions"] += 1
+            if msg.get("error_code"):
+                user_summary[uid]["errors"] += 1
+
+        return {
+            "success": True,
+            "messages": messages,
+            "count": len(messages),
+            "user_summary": user_summary,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Chat audit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
