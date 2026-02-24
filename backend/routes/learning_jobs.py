@@ -3,7 +3,7 @@ Learning Jobs Endpoints
 Run nightly learning loop manually (supports dry-run).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from datetime import datetime, timezone
 import logging
 import os
@@ -65,6 +65,18 @@ async def get_learning_status(user_id: str = Depends(get_current_user)):
                     db_state = "error"
                 else:
                     db_state = "idle"
+
+        # Always reflect actual closed-trade count so status is truthful even
+        # before the first learning run completes.
+        if db.trades_collection is not None:
+            try:
+                real_closed = await db.trades_collection.count_documents(
+                    {"user_id": user_id, "status": "closed"}
+                )
+                if real_closed > trades_analyzed:
+                    trades_analyzed = real_closed
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("Learning status lookup failed: %s", e)
         db_state = "error"
@@ -137,4 +149,33 @@ async def run_nightly_learning(
         "success": True,
         "dry_run": dry_run,
         "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.post("/run-now")
+async def run_learning_now(
+    payload: dict = Body(default={}),
+    user_id: str = Depends(get_current_user)
+):
+    """Force one learning run immediately (admin only, requires confirmed=true).
+
+    Body:
+        confirmed: bool  — must be true to proceed
+        dry_run:   bool  — if true, compute but do not apply changes (default false)
+    """
+    user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+    if not user or not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if not payload.get("confirmed"):
+        raise HTTPException(status_code=400, detail="confirmed=true required to force a learning run")
+
+    dry_run = bool(payload.get("dry_run", False))
+    await learning_loop.run_nightly_learning(dry_run=dry_run)
+    logger.info("Forced learning run by admin %s (dry_run=%s)", user_id[:8], dry_run)
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "message": "Learning run triggered",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }

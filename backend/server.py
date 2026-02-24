@@ -2463,7 +2463,15 @@ async def test_email_alert(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/status")
 async def get_flokx_status(user_id: str = Depends(get_current_user)):
-    """Get FLOKx key configuration status using canonical key store."""
+    """Get FLOKx configuration status AND test reachability (DNS + HTTP).
+
+    Returns actionable diagnostics: if DNS fails the status is
+    'service_unreachable', not 'key_not_configured'.
+    """
+    import socket
+    import aiohttp as _aiohttp
+    import os as _os
+
     try:
         from routes.keys import normalize_status
         from services.provider_registry import ProviderStatus
@@ -2482,29 +2490,59 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
             configured = False
             last_tested_at = None
             last_error = None
+    except Exception as _e:
+        configured = False
+        last_tested_at = None
+        last_error = str(_e)
 
-        return {
-            "success": True,
-            "configured": configured,
-            "key_present": configured,
-            "enabled": configured,
-            "status": "configured" if configured else "not_configured",
-            "last_tested_at": last_tested_at,
-            "last_error": last_error,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-    except Exception as e:
-        logger.error(f"FLOKx status error: {e}")
-        return {
-            "success": False,
-            "configured": False,
-            "key_present": False,
-            "enabled": False,
-            "status": "not_configured",
-            "last_tested_at": None,
-            "last_error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+    # --- DNS + HTTP reachability probe ---
+    from flokx_integration import DEFAULT_FLOKX_BASE_URL
+    base_url = _os.getenv("FLOKX_BASE_URL", DEFAULT_FLOKX_BASE_URL).rstrip("/")
+    dns_ok = False
+    http_ok = False
+    reachability_error = None
+    try:
+        from urllib.parse import urlparse as _urlparse
+        hostname = _urlparse(base_url).hostname or ""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, socket.getaddrinfo, hostname, None)
+        dns_ok = True
+    except Exception as _dns_err:
+        reachability_error = f"DNS resolution failed: {_dns_err}"
+
+    if dns_ok:
+        try:
+            async with _aiohttp.ClientSession() as _sess:
+                async with _sess.get(
+                    f"{base_url}/health",
+                    timeout=_aiohttp.ClientTimeout(total=5),
+                    allow_redirects=True,
+                ) as _resp:
+                    http_ok = _resp.status < 500
+        except Exception as _http_err:
+            reachability_error = f"HTTP probe failed: {_http_err}"
+
+    if not dns_ok or not http_ok:
+        service_status = "service_unreachable"
+    elif configured:
+        service_status = "configured"
+    else:
+        service_status = "not_configured"
+
+    return {
+        "success": True,
+        "configured": configured,
+        "key_present": configured,
+        "enabled": configured,
+        "status": service_status,
+        "dns_ok": dns_ok,
+        "http_ok": http_ok,
+        "reachability_error": reachability_error,
+        "base_url": base_url,
+        "last_tested_at": last_tested_at,
+        "last_error": last_error,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 @api_router.get("/flokx/test-connection")
 async def test_flokx_connection(user_id: str = Depends(get_current_user)):

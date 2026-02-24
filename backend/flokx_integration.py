@@ -6,6 +6,7 @@ FLOKx Integration
 """
 
 import asyncio
+import os
 import aiohttp
 from datetime import datetime, timezone, timedelta
 from logger_config import logger
@@ -14,11 +15,15 @@ import database as db
 # Rate-limit "key not configured" warnings to once per 10 minutes
 _WARN_INTERVAL = timedelta(minutes=10)
 
+# Base URL is configurable via env so staging / on-prem deployments can point
+# at a different host without code changes.
+DEFAULT_FLOKX_BASE_URL = "https://api.flokx.io/v1"
+
 
 class FLOKxIntegration:
     def __init__(self):
         self.api_key = None  # Will be set from user credentials
-        self.api_url = "https://api.flokx.io/v1"
+        self.api_url = os.getenv("FLOKX_BASE_URL", DEFAULT_FLOKX_BASE_URL).rstrip("/")
         self.cache = {}
         self._last_missing_key_warn: datetime | None = None
     

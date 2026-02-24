@@ -201,6 +201,100 @@ async def get_system_gates() -> dict:
         raise HTTPException(status_code=500, detail=f"Failed to get system gates: {str(e)}")
 
 
+_PAPER_RESET_CONFIRMATION_PHRASE = "RESET PAPER SANDBOX"
+
+
+@router.post("/paper-sandbox/reset")
+async def reset_paper_sandbox(
+    payload: Dict = Body(...),
+    user_id: str = Depends(get_current_user),
+):
+    """Hard reset the paper trading sandbox for the current user.
+
+    Clears bots (paper), bot_runtime_state, bot_events, bot_lifecycle,
+    trades, orders, fills, ledger, paper_ledger, equity/drawdown series,
+    countdown timers, and wallet caches.
+
+    Required body fields:
+        confirmed: true
+        confirmation_phrase: "RESET PAPER SANDBOX"
+
+    Returns delete counts per collection.
+    """
+    if not payload.get("confirmed"):
+        raise HTTPException(status_code=400, detail="confirmed=true required")
+
+    phrase = payload.get("confirmation_phrase", "")
+    if phrase.strip().upper() != _PAPER_RESET_CONFIRMATION_PHRASE:
+        raise HTTPException(
+            status_code=400,
+            detail=f'confirmation_phrase must be exactly "{_PAPER_RESET_CONFIRMATION_PHRASE}"',
+        )
+
+    user_filter = {"user_id": user_id}
+    paper_bot_filter = {"user_id": user_id, "trading_mode": "paper"}
+
+    results: Dict[str, int] = {}
+
+    async def _delete(collection_obj, filt: dict, label: str) -> int:
+        if collection_obj is None:
+            return 0
+        try:
+            r = await collection_obj.delete_many(filt)
+            return r.deleted_count
+        except Exception as exc:
+            logger.warning("paper-sandbox reset: failed to clear %s: %s", label, exc)
+            return 0
+
+    # Targeted paper-only deletes
+    results["bots"] = await _delete(db.bots_collection, paper_bot_filter, "bots")
+    results["bot_runtime_state"] = await _delete(db.bot_runtime_state_collection, user_filter, "bot_runtime_state")
+    results["bot_lifecycle"] = await _delete(db.bot_lifecycle_collection, user_filter, "bot_lifecycle")
+    results["trades"] = await _delete(db.trades_collection, {**user_filter, "trading_mode": "paper"}, "trades")
+    results["orders"] = await _delete(db.orders_collection, user_filter, "orders")
+    results["ledger"] = await _delete(db.ledger_collection, user_filter, "ledger")
+    results["paper_ledger"] = await _delete(db.paper_ledger_collection, user_filter, "paper_ledger")
+    results["user_countdowns"] = await _delete(db.user_countdowns_collection, user_filter, "user_countdowns")
+    results["wallet_balances"] = await _delete(db.wallet_balances_collection, user_filter, "wallet_balances")
+
+    # Collections that don't have module-level globals — access via raw db handle
+    raw_db = getattr(db, "db", None)
+    if raw_db is not None:
+        results["bot_events"] = await _delete(raw_db.bot_events, user_filter, "bot_events")
+        results["fills"] = await _delete(raw_db.fills, user_filter, "fills")
+        results["equity_series"] = await _delete(raw_db.equity_series, user_filter, "equity_series")
+        results["drawdown_series"] = await _delete(raw_db.drawdown_series, user_filter, "drawdown_series")
+
+    # Reset paper wallet balance to 0
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.reset(user_id)
+        results["paper_wallet"] = 1
+    except Exception as exc:
+        logger.warning("paper-sandbox reset: paper wallet reset failed: %s", exc)
+        results["paper_wallet"] = 0
+
+    # Audit log
+    try:
+        await db.audit_logs_collection.insert_one({
+            "user_id": user_id,
+            "action": "paper_sandbox_reset",
+            "details": results,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+
+    total_deleted = sum(v for v in results.values() if isinstance(v, int))
+    logger.info("Paper sandbox reset for user %s: %d documents cleared", user_id[:8], total_deleted)
+    return {
+        "success": True,
+        "deleted": results,
+        "total_deleted": total_deleted,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # REMOVED: Duplicate of live_trading_gate.py endpoint GET /api/system/live-eligibility
 # Use live_trading_gate.py instead
 
