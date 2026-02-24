@@ -99,9 +99,6 @@ async def get_learning_status(user_id: str = Depends(get_current_user)):
     if not enabled:
         disabled_reason = "ENABLE_LEARNING_LOOP=false"
 
-    return {
-        "success": True,
-        "enabled": enabled,
     last_run_resolved = last_run_at or (
         learning_loop.last_run.isoformat() if learning_loop.last_run else None
     )
