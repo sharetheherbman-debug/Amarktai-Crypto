@@ -14,6 +14,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
+# Stub out heavy optional dependencies so tests can import backend modules
+# without needing the full production environment installed.
+for _mod in ("ccxt", "ccxt.async_support", "ccxt_service", "tenacity"):
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
