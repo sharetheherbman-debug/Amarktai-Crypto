@@ -815,3 +815,47 @@ See LICENSE file for details.
 - [✅ Verification Script](deployment/verify.sh)
 - [🌐 Nginx Config](deployment/nginx-amarktai.conf)
 - [⚙️ Systemd Service](deployment/amarktai-api.service)
+
+---
+
+## 🚀 Go-Live Proof Commands
+
+```bash
+# 1. Login and get token
+TOKEN=$(curl -s -X POST http://YOUR_VPS:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"yourpassword"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# 2. Check wallet endpoints
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/wallet/paper
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/wallet/status
+
+# 3. Enable paper+autonomous mode
+curl -s -X POST http://YOUR_VPS:8000/api/system/mode \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"paper_trading":true,"live_trading":false,"autonomous":true}'
+
+# 4. Fund paper wallet to 30000 ZAR
+curl -s -X POST http://YOUR_VPS:8000/api/wallet/paper/set-balance \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"balance_zar":30000}'
+
+# 5. Seed 5 Luno paper bots
+curl -s -X POST http://YOUR_VPS:8000/api/bots/seed-luno-paper \
+  -H "Authorization: Bearer $TOKEN"
+
+# 6. Verify bots exist
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/bots/status
+
+# 7. Reset paper runtime (user-safe)
+curl -s -X POST http://YOUR_VPS:8000/api/user/paper-start-fresh \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmation_phrase":"START FRESH","scope":"paper_only","also_reset_risk_locks":true}'
+
+# 8. Run full evidence pack
+BASE_URL=http://YOUR_VPS:8000 AMK_EMAIL=admin@example.com AMK_PASSWORD=yourpassword \
+  bash scripts/go_live_evidence_pack.sh
+```

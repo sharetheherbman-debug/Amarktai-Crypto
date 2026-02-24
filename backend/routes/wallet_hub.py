@@ -61,6 +61,16 @@ class PaperFundRequest(BaseModel):
     confirmed: bool = False
 
 
+class PaperSetBalanceRequest(BaseModel):
+    """Request to set paper wallet to a specific balance.
+
+    Accepted by POST /api/wallet/paper/set-balance.
+    Resets the wallet to zero and then deposits the requested amount.
+    """
+    balance_zar: float
+    currency: str = "ZAR"
+
+
 @router.get("/status")
 async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
     """Comprehensive wallet status — single source of truth for frontend WalletHub.
@@ -398,6 +408,60 @@ async def reset_paper_wallet(
         "total": result.get("total", 0),
         "wallet_before": result.get("wallet_before", {}),
         "wallet_after": result.get("wallet_after", {}),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/paper/set-balance")
+async def set_paper_wallet_balance(
+    request: PaperSetBalanceRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Set paper wallet to a specific balance (reset then fund).
+
+    Canonical go-live endpoint for seeding demo capital.
+    Resets the wallet to zero then deposits the requested amount.
+
+    Args:
+        balance_zar: Target balance (>= 0).  0 just clears the wallet.
+        currency: Currency code (default ZAR).
+
+    Returns the same JSON shape as GET /api/wallet/paper.
+    """
+    if request.balance_zar < 0:
+        raise HTTPException(status_code=400, detail="balance_zar must be non-negative")
+    currency = (request.currency or "ZAR").strip().upper()
+    if not currency:
+        raise HTTPException(status_code=400, detail="currency must be a non-empty string")
+
+    # Reset to zero, then fund to requested amount
+    await paper_wallet_service.reset(user_id)
+    if request.balance_zar > 0:
+        await paper_wallet_service.fund(user_id, request.balance_zar, currency)
+
+    # Return current state — same shape as GET /paper
+    summary = await wallet_summary_service.get_summary(user_id)
+    available = await paper_wallet_service.get_balances(user_id)
+    allocated = await get_paper_wallet_allocated_balances(user_id)
+    totals = await get_paper_wallet_balances(user_id)
+    total_value = sum(float(v or 0) for v in totals.values())
+
+    return {
+        "success": True,
+        "mode": summary.get("mode", "paper"),
+        "available_wallet_zar": round(request.balance_zar, 2),
+        "allocated_funds_zar": summary.get("allocated_funds_zar", 0.0),
+        "reserved_funds_zar": summary.get("reserved_funds_zar", 0.0),
+        "required_funds_zar": summary.get("required_funds_zar", 0.0),
+        "shortfall_zar": summary.get("shortfall_zar", 0.0),
+        "status": summary.get("status", "ok"),
+        "user_id": user_id,
+        "available": available.get("balances", {}),
+        "allocated": allocated,
+        "balances": totals,
+        "total": round(total_value, 2),
+        "set_to": request.balance_zar,
+        "currency": currency,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

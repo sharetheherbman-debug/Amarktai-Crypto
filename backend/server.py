@@ -2177,16 +2177,26 @@ async def get_wallet_mode_stats(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/alerts")
 async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
-    """Get FLOKx market alerts"""
+    """Get FLOKx market alerts using user's stored key"""
     try:
-        from flokx_integration import flokx
-        
-        # Get alerts for major pairs
+        from routes.api_key_management import get_decrypted_key
+        key_data = await get_decrypted_key(str(user_id), "flokx")
+        if not key_data or not key_data.get("api_key"):
+            return {
+                "alerts": [],
+                "count": 0,
+                "message": "FLOKx key not configured. Add your FLOKx API key in the Keys section.",
+                "configured": False,
+            }
+
+        from flokx_integration import FLOKxIntegration
+        local_flokx = FLOKxIntegration()
+        local_flokx.set_credentials(key_data["api_key"])
+
         pairs = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
         alerts = []
-        
         for pair in pairs:
-            data = await flokx.fetch_market_coefficients(pair)
+            data = await local_flokx.fetch_market_coefficients(pair)
             if data.get('strength', 0) > 75:
                 alerts.append({
                     "pair": pair,
@@ -2194,8 +2204,8 @@ async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
                     "message": f"{pair}: Strong {data.get('sentiment', 'signal')} ({data.get('strength', 0):.0f}%)",
                     "timestamp": data.get('timestamp')
                 })
-        
-        return {"alerts": alerts, "count": len(alerts)}
+
+        return {"alerts": alerts, "count": len(alerts), "configured": True}
     except Exception as e:
         logger.error(f"Flokx alerts error: {e}")
         return {"alerts": [], "count": 0}
@@ -2419,6 +2429,8 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
         return {
             "success": True,
             "configured": configured,
+            "key_present": configured,
+            "enabled": configured,
             "status": "configured" if configured else "not_configured",
             "last_tested_at": last_tested_at,
             "last_error": last_error,
@@ -2429,6 +2441,8 @@ async def get_flokx_status(user_id: str = Depends(get_current_user)):
         return {
             "success": False,
             "configured": False,
+            "key_present": False,
+            "enabled": False,
             "status": "not_configured",
             "last_tested_at": None,
             "last_error": str(e),
@@ -2453,10 +2467,19 @@ async def test_flokx_connection(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/coefficients/{pair}")
 async def get_flokx_coefficients(pair: str, user_id: str = Depends(get_current_user)):
-    """Get FLOKx market intelligence coefficients"""
+    """Get FLOKx market intelligence coefficients using user's stored key"""
     try:
-        from flokx_integration import flokx
-        coeffs = await flokx.fetch_market_coefficients(pair.replace('-', '/'))
+        from routes.api_key_management import get_decrypted_key
+        key_data = await get_decrypted_key(str(user_id), "flokx")
+        if not key_data or not key_data.get("api_key"):
+            return {
+                "error": "FLOKx key not configured. Add your FLOKx API key in the Keys section.",
+                "configured": False,
+            }
+        from flokx_integration import FLOKxIntegration
+        local_flokx = FLOKxIntegration()
+        local_flokx.set_credentials(key_data["api_key"])
+        coeffs = await local_flokx.fetch_market_coefficients(pair.replace('-', '/'))
         return coeffs
     except Exception as e:
         logger.error(f"FLOKx error: {e}")
