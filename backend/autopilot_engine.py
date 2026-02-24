@@ -15,6 +15,11 @@ from utils.trading_gates import check_autopilot_gates
 
 logger = logging.getLogger(__name__)
 
+# Strategy optimization constants
+_CONSERVATIVE_STOP_LOSS_PCT = 8.0   # Tight stop in volatile/downtrend regimes
+_BALANCED_STOP_LOSS_PCT = 18.0      # Slightly wider stop in stable uptrend
+_MIN_STRATEGY_STOP_PCT = 2.0        # Hard floor for stop-loss
+
 class AutopilotEngine:
     def __init__(self):
         # Initialize scheduler immediately to prevent NoneType errors
@@ -571,36 +576,83 @@ class AutopilotEngine:
             return exchanges[0] if exchanges else 'binance'
             
     async def optimize_strategies(self):
-        """Optimize bot strategies based on market conditions"""
+        """Optimize bot strategies based on market conditions and ATR/regime data."""
         try:
             self._mark_tick("strategy_optimization")
             logger.info("🔧 Running strategy optimization...")
-            
+
             # Get all active bots
             bots = await self.db.bots.find({'status': 'active'}).to_list(10000)
-            
+
             for bot in bots:
+                bot_id = bot.get('id', '')
+                pair = bot.get('pair', 'BTC/ZAR')
+
                 # Analyze recent performance
-                trades = await self.db.trades.find({
-                    'bot_id': bot['id']
-                }).sort('timestamp', -1).limit(50).to_list(50)
-                
+                trades = await self.db.trades.find(
+                    {'bot_id': bot_id}
+                ).sort('timestamp', -1).limit(50).to_list(50)
+
                 if len(trades) < 10:
                     continue
-                    
-                # Calculate metrics
-                recent_win_rate = sum(1 for t in trades if t.get('profit_loss', 0) > 0) / len(trades) * 100
-                
-                # Adjust risk if underperforming
-                if recent_win_rate < 40:
-                    # Reduce risk
+
+                recent_wins = sum(1 for t in trades if t.get('profit_loss', 0) > 0)
+                recent_win_rate = recent_wins / len(trades) * 100
+
+                adjustments = {}
+
+                # --- ATR-based stop-loss sizing ---
+                try:
+                    from engines.atr_stops import ATRStopLoss
+                    atr_engine = ATRStopLoss()
+                    atr_value = await atr_engine.calculate_atr(bot_id, pair)
+                    if atr_value and atr_value > 0:
+                        # Derive stop-loss % from current price + ATR multiplier
+                        current_price = float(trades[0].get('entry_price') or trades[0].get('price') or 0)
+                        if current_price > 0:
+                            atr_pct = (atr_value / current_price) * 100
+                            # 2× ATR stop (clamped between 2% and 20%)
+                            atr_stop = min(max(atr_pct * 2.0, 2.0), 20.0)
+                            adjustments['stop_loss_percent'] = round(atr_stop, 2)
+                        else:
+                            logger.debug(f"Bot {bot_id}: skipping ATR stop — no valid price in recent trades")
+                except Exception as atr_err:
+                    logger.debug(f"ATR calculation skipped for {bot_id}: {atr_err}")
+
+                # --- Market regime adjustment ---
+                try:
+                    from engines.regime_detector import regime_detector
+                    regime_info = await regime_detector.detect_regime(pair)
+                    regime = regime_info.get('regime', '')
+                    if 'volatile' in regime or 'downtrend' in regime:
+                        # Conservative: tighten stop to CONSERVATIVE_STOP_LOSS_PCT
+                        adjustments['stop_loss_percent'] = min(
+                            adjustments.get('stop_loss_percent', _CONSERVATIVE_STOP_LOSS_PCT),
+                            _CONSERVATIVE_STOP_LOSS_PCT,
+                        )
+                        adjustments['risk_mode'] = 'safe'
+                    elif 'uptrend' in regime and 'stable' in regime:
+                        # Bullish: widen stop to BALANCED_STOP_LOSS_PCT for more room
+                        adjustments.setdefault('stop_loss_percent', _BALANCED_STOP_LOSS_PCT)
+                        adjustments['risk_mode'] = 'balanced'
+                except Exception as reg_err:
+                    logger.debug(f"Regime detection skipped for {bot_id}: {reg_err}")
+
+                # --- Win-rate fallback (original logic, only if ATR/regime gave nothing) ---
+                if not adjustments and recent_win_rate < 40:
                     new_stop_loss = min(bot.get('stop_loss_percent', 15) - 2, 20)
+                    adjustments['stop_loss_percent'] = max(new_stop_loss, _MIN_STRATEGY_STOP_PCT)
+
+                if adjustments:
                     await self.db.bots.update_one(
-                        {'id': bot['id']},
-                        {'$set': {'stop_loss_percent': new_stop_loss}}
+                        {'id': bot_id},
+                        {'$set': adjustments}
                     )
-                    logger.info(f"Bot {bot['id']}: Reduced risk (win rate: {recent_win_rate:.1f}%)")
-                    
+                    logger.info(
+                        f"Bot {bot_id}: strategy updated {adjustments} "
+                        f"(win_rate={recent_win_rate:.1f}%)"
+                    )
+
         except Exception as e:
             logger.error(f"Strategy optimization error: {e}")
             self.last_error = str(e)

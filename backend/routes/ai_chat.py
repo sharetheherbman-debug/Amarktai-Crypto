@@ -135,6 +135,19 @@ def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[st
         return {"action": "stop_bot"}
     if "reset" in content_lower and "risk" in content_lower:
         return {"action": "reset_risk_locks"}
+    if "fund" in content_lower and ("paper" in content_lower or "wallet" in content_lower or "demo" in content_lower):
+        import re
+        m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(?:zar|r\b|rand)?", content_lower)
+        amount = float(m.group(1).replace(",", "")) if m else 30000.0
+        return {"action": "fund_paper_wallet", "params": {"amount": amount}}
+    if ("reset" in content_lower or "clear" in content_lower or "start fresh" in content_lower) and ("paper" in content_lower or "session" in content_lower or "demo" in content_lower):
+        return {"action": "reset_paper_session"}
+    if "regime" in content_lower or ("market" in content_lower and "condition" in content_lower):
+        return {"action": "get_market_regime", "params": {"pair": "BTC/ZAR"}}
+    if "flokx" in content_lower and ("status" in content_lower or "check" in content_lower or "signal" in content_lower):
+        if "signal" in content_lower or "coefficient" in content_lower:
+            return {"action": "check_flokx_signals", "params": {"pair": "BTC/ZAR"}}
+        return {"action": "get_flokx_status"}
     if "autopilot" in content_lower:
         enabled = "disable" not in content_lower
         return {"action": "pause_autonomy_subsystem", "params": {"subsystem": "autopilot"}} if not enabled else {"action": "resume_autonomy_subsystem", "params": {"subsystem": "autopilot"}}
@@ -1295,6 +1308,132 @@ async def _handle_predict_price(user_id: str, params: Dict[str, Any]) -> Dict[st
         return {"success": False, "error": str(e), "message": f"Price prediction failed for {pair}."}
 
 
+async def _handle_fund_paper_wallet(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Fund the paper wallet to a specified ZAR amount via set-balance."""
+    amount = float(params.get("amount", 30000) or 30000)
+    if amount <= 0:
+        return {"success": False, "error": "amount must be positive", "message": "Please specify a positive amount."}
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.reset(user_id)
+        if amount > 0:
+            await paper_wallet_service.fund(user_id, amount, "ZAR")
+        return {
+            "success": True,
+            "message": f"Paper wallet funded with R{amount:,.2f} ZAR.",
+            "data": {"funded_amount": amount, "currency": "ZAR"},
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Failed to fund paper wallet."}
+
+
+async def _handle_reset_paper_session(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Reset the paper trading session: delete paper bots, trades, fills and reset wallet."""
+    try:
+        from datetime import timezone as tz
+        now = datetime.now(tz.utc).isoformat()
+        summary: Dict[str, int] = {}
+
+        # Soft-delete paper bots
+        if db.bots_collection is not None:
+            r = await db.bots_collection.update_many(
+                {"user_id": user_id, "trading_mode": "paper", "deleted_at": {"$exists": False}},
+                {"$set": {"status": "deleted", "deleted_at": now, "deleted_by": user_id, "deletion_reason": "chat_paper_reset"}},
+            )
+            summary["bots_deleted"] = r.modified_count
+
+        # Clear paper trades / fills
+        for col_attr, key in [
+            ("trades_collection", "trades_deleted"),
+            ("orders_collection", "orders_deleted"),
+            ("positions_collection", "positions_deleted"),
+        ]:
+            col = getattr(db, col_attr, None)
+            if col is not None:
+                r = await col.delete_many({"user_id": user_id, "mode": "paper"})
+                summary[key] = r.deleted_count
+
+        # Clear paper ledger
+        if db.paper_ledger_collection is not None:
+            r = await db.paper_ledger_collection.delete_many({"user_id": user_id})
+            summary["ledger_entries_deleted"] = r.deleted_count
+
+        # Reset paper wallet to zero
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.reset(user_id)
+        summary["wallet_reset"] = True
+
+        return {
+            "success": True,
+            "message": "Paper session reset: bots cleared, trades removed, wallet zeroed.",
+            "data": {"deleted": summary},
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Failed to reset paper session."}
+
+
+async def _handle_get_market_regime(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Return current market regime classification for a pair."""
+    pair = params.get("pair", "BTC/ZAR")
+    try:
+        from engines.regime_detector import regime_detector
+        result = await regime_detector.detect_regime(pair)
+        return {"success": True, "data": result, "message": f"Market regime for {pair}: {result.get('regime', 'unknown')}."}
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": f"Could not detect regime for {pair}."}
+
+
+async def _handle_get_flokx_status(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Return Flokx integration status for the calling user."""
+    try:
+        key_doc = await db.api_keys_collection.find_one(
+            {"user_id": str(user_id), "provider": "flokx"},
+            {"_id": 0, "status": 1, "last_tested_at": 1, "last_test_error": 1},
+        )
+        configured = bool(key_doc and key_doc.get("status") not in (None, "not_configured", ""))
+        last_poll_doc = None
+        if db.alerts_collection is not None:
+            last_poll_doc = await db.alerts_collection.find_one(
+                {"user_id": str(user_id), "source": "flokx"},
+                sort=[("timestamp", -1)],
+            )
+        return {
+            "success": True,
+            "data": {
+                "configured": configured,
+                "key_present": configured,
+                "enabled": configured,
+                "last_tested_at": key_doc.get("last_tested_at") if key_doc else None,
+                "last_error": key_doc.get("last_test_error") if key_doc else None,
+                "last_poll_at": last_poll_doc.get("timestamp") if last_poll_doc else None,
+            },
+            "message": "Flokx configured and polling." if configured else "Flokx key not configured. Add your key in the Keys section.",
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Could not fetch Flokx status."}
+
+
+async def _handle_check_flokx_signals(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch the latest Flokx market coefficient signals for a pair."""
+    pair = params.get("pair", "BTC/ZAR")
+    try:
+        from routes.api_key_management import get_decrypted_key
+        from flokx_integration import FLOKxIntegration
+        api_key = await get_decrypted_key(user_id, "flokx")
+        if not api_key:
+            return {
+                "success": False,
+                "message": "Flokx key not configured. Add your Flokx API key in the Keys section.",
+                "data": {"configured": False},
+            }
+        local_flokx = FLOKxIntegration()
+        local_flokx.set_credentials(api_key)
+        signals = await local_flokx.fetch_market_coefficients(pair)
+        return {"success": True, "data": signals, "message": f"Flokx signals retrieved for {pair}."}
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Failed to fetch Flokx signals."}
+
+
 ACTION_REGISTRY = {
     "get_system_status": {
         "description": "Fetch system status and health summary.",
@@ -1545,6 +1684,38 @@ ACTION_REGISTRY = {
         "params": ["pair"],
         "requires_confirmation": False,
         "handler": _handle_predict_price,
+    },
+    "fund_paper_wallet": {
+        "description": "Fund the paper wallet to a specified ZAR amount (reset then deposit). Defaults to 30000 ZAR.",
+        "params": ["amount"],
+        "requires_confirmation": True,
+        "confirmation_phrase": "CONFIRM FUND WALLET",
+        "handler": _handle_fund_paper_wallet,
+    },
+    "reset_paper_session": {
+        "description": "Reset the paper trading session: clears paper bots, trades, fills and resets wallet to zero.",
+        "params": [],
+        "requires_confirmation": True,
+        "confirmation_phrase": "START FRESH",
+        "handler": _handle_reset_paper_session,
+    },
+    "get_market_regime": {
+        "description": "Get current market regime classification (bullish/bearish/sideways/volatile) for a trading pair.",
+        "params": ["pair"],
+        "requires_confirmation": False,
+        "handler": _handle_get_market_regime,
+    },
+    "get_flokx_status": {
+        "description": "Get Flokx integration status: key present, last poll time, last error.",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_get_flokx_status,
+    },
+    "check_flokx_signals": {
+        "description": "Fetch the latest Flokx market coefficient signals for a trading pair.",
+        "params": ["pair"],
+        "requires_confirmation": False,
+        "handler": _handle_check_flokx_signals,
     },
 }
 

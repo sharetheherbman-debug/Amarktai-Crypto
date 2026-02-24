@@ -58,6 +58,55 @@ api_router = APIRouter()
 api_router.include_router(auth_router)
 
 # ============================================================================
+# FLOKX BACKGROUND POLLER
+# Polls each user's configured Flokx key every 5 minutes and stores alerts
+# in alerts_collection with source="flokx" for the AI ensemble to consume.
+# ============================================================================
+
+_FLOKX_POLL_INTERVAL = 300  # 5 minutes
+
+
+async def _run_flokx_poller():
+    """Background task: poll Flokx per-user every 5 minutes."""
+    import asyncio
+    from datetime import datetime, timezone
+    while True:
+        try:
+            if db.api_keys_collection is None or db.alerts_collection is None:
+                await asyncio.sleep(_FLOKX_POLL_INTERVAL)
+                continue
+            # Fetch all configured Flokx keys
+            cursor = db.api_keys_collection.find({"provider": "flokx"}, {"user_id": 1, "encrypted_key": 1, "key": 1})
+            keys = await cursor.to_list(length=200)
+            if keys:
+                from routes.api_key_management import get_decrypted_key
+                from flokx_integration import FLOKxIntegration
+                for key_doc in keys:
+                    try:
+                        uid = key_doc.get("user_id")
+                        api_key = await get_decrypted_key(uid, "flokx")
+                        if not api_key:
+                            continue
+                        local_flokx = FLOKxIntegration()
+                        local_flokx.set_credentials(api_key)
+                        data = await local_flokx.fetch_market_coefficients("BTC/ZAR")
+                        await db.alerts_collection.insert_one({
+                            "user_id": uid,
+                            "source": "flokx",
+                            "pair": "BTC/ZAR",
+                            "data": data,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+                    except Exception as e:
+                        logger.debug(f"Flokx poll error for user: {e}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning(f"Flokx poller error: {e}")
+        await asyncio.sleep(_FLOKX_POLL_INTERVAL)
+
+
+# ============================================================================
 # LIFESPAN CONTEXT - Startup and Shutdown
 # ============================================================================
 
@@ -242,6 +291,14 @@ async def lifespan(app: FastAPI):
         logger.info("💰 Balance Sync Service started")
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
+
+    # Start Flokx background polling (every 5 minutes per user)
+    try:
+        if os.environ.get("ENABLE_SCHEDULERS", "true").lower() == "true":
+            asyncio.create_task(_run_flokx_poller())
+            logger.info("🎯 Flokx background poller started (5-min interval)")
+    except Exception as e:
+        logger.warning(f"Could not start Flokx poller: {e}")
     
     logger.info("🚀 All autonomous systems operational")
     
