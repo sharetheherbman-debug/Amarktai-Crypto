@@ -238,7 +238,9 @@ class TestTradeLifecycleCloseResilience:
 
     @pytest.mark.asyncio
     async def test_stuck_open_trade_abandoned_in_cycle(self):
-        """When close returns None (no exit trigger), the trade must be marked failed."""
+        """When there is no exit trigger (price between SL and TP, fresh trade),
+        run_trading_cycle must return skip_reason=no_exit_signal and NOT mark the
+        trade as failed (this was the root cause of spurious open_trade_close_failed)."""
         from paper_trading_engine import PaperTradingEngine
 
         engine = PaperTradingEngine()
@@ -291,12 +293,75 @@ class TestTradeLifecycleCloseResilience:
         )
 
         assert result is not None
-        assert result.get("skip_reason") == "open_trade_close_failed"
+        # No exit signal must NOT produce open_trade_close_failed
+        assert result.get("skip_reason") != "open_trade_close_failed", (
+            "No exit signal must not produce open_trade_close_failed"
+        )
+        assert result.get("skip_reason") == "no_exit_signal", (
+            f"Expected skip_reason=no_exit_signal, got {result.get('skip_reason')}"
+        )
+        # Trade must NOT be marked as failed when there is simply no exit condition
+        assert not any(
+            update.get("$set", {}).get("status") == "failed"
+            for _, update in updated_docs
+        ), "No exit signal must not mark trade as failed"
+
+    @pytest.mark.asyncio
+    async def test_exception_in_close_marks_trade_failed(self):
+        """When _close_open_trade raises an exception, run_trading_cycle must mark
+        the trade as failed with last_order_error=open_trade_close_failed."""
+        from paper_trading_engine import PaperTradingEngine
+
+        engine = PaperTradingEngine()
+
+        # Simulate market provider raising an exception
+        async def broken_market_provider(symbol, exchange):
+            raise RuntimeError("Simulated market data failure")
+
+        engine.market_data_provider = broken_market_provider
+
+        open_trade = self._make_open_trade(with_entry_value=True)
+        open_trade["opened_at"] = datetime.now(timezone.utc).isoformat()
+
+        bot_data = {
+            "id": "bot_1",
+            "user_id": "u1",
+            "name": "TestBot",
+            "current_capital": 10000,
+        }
+
+        updated_docs = []
+
+        bots_collection = AsyncMock()
+        bots_collection.find_one.return_value = bot_data
+        trades_collection = AsyncMock()
+        trades_collection.find_one.return_value = open_trade
+
+        async def mock_update_one(query, update, *args, **kwargs):
+            updated_docs.append((query, update))
+            return MagicMock(modified_count=1)
+
+        trades_collection.update_one = mock_update_one
+
+        result = await engine.run_trading_cycle(
+            "bot_1",
+            bot_data,
+            {"bots": bots_collection, "trades": trades_collection},
+        )
+
+        assert result is not None
+        assert result.get("skip_reason") == "open_trade_close_failed", (
+            f"Exception in close must produce open_trade_close_failed, got {result.get('skip_reason')}"
+        )
         # Verify the stuck trade was marked failed
         assert any(
             update.get("$set", {}).get("status") == "failed"
             for _, update in updated_docs
-        ), "Expected stuck trade to be marked as failed"
+        ), "Exception in close path must mark trade as failed"
+        assert any(
+            update.get("$set", {}).get("last_order_error") == "open_trade_close_failed"
+            for _, update in updated_docs
+        ), "failed trade must have last_order_error=open_trade_close_failed"
 
 
 # ---------------------------------------------------------------------------

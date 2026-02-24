@@ -1256,7 +1256,12 @@ class PaperTradingEngine:
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
             if not current_price:
-                return None
+                return {
+                    "success": False,
+                    "skip_reason": "no_price_data",
+                    "status": "open",
+                    "diagnostics": {"symbol": symbol, "exchange": exchange},
+                }
 
             entry_price = open_trade.get("entry_price") or open_trade.get("price") or current_price
             stop_loss_pct = float(open_trade.get("stop_loss_pct", bot_data.get("stop_loss_pct", 0.02)))
@@ -1282,7 +1287,23 @@ class PaperTradingEngine:
                 close_reason = "stale_exit"
 
             if not close_reason:
-                return None
+                logger.info(
+                    f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
+                    f"age_min={age_minutes:.1f}"
+                )
+                return {
+                    "success": False,
+                    "skip_reason": "no_exit_signal",
+                    "status": "open",
+                    "diagnostics": {
+                        "current_price": current_price,
+                        "take_profit_price": take_profit_price,
+                        "stop_loss_price": stop_loss_price,
+                        "age_minutes": round(age_minutes, 2),
+                        "pnl_pct": round(pnl_pct, 3),
+                    },
+                }
 
             slippage_rate = float(open_trade.get("slippage_rate", PAPER_SLIPPAGE_BPS / 10000))
             latency_rate = PAPER_LATENCY_BPS / 10000
@@ -1317,7 +1338,12 @@ class PaperTradingEngine:
                     f"{open_trade.get('id', '?')}, reconstructed as {entry_value:.2f}"
                 )
             if entry_value <= 0 or exit_value <= 0:
-                return None
+                return {
+                    "success": False,
+                    "skip_reason": "invalid_values",
+                    "status": "open",
+                    "diagnostics": {"entry_value": entry_value, "exit_value": exit_value},
+                }
 
             avg_exit_price = exit_value / crypto_amount if crypto_amount else exit_price
             from utils.trade_utils import calculate_trade_pnl
@@ -1332,7 +1358,12 @@ class PaperTradingEngine:
 
             if not validate_trade_pnl(net_profit, bot_data.get("current_capital", 0)):
                 logger.error(f"P&L validation failed: net_profit={net_profit}")
-                return None
+                return {
+                    "success": False,
+                    "skip_reason": "pnl_validation_failed",
+                    "status": "open",
+                    "diagnostics": {"net_profit": net_profit},
+                }
 
             if net_profit > 0 and net_profit < MIN_TRADE_PROFIT_THRESHOLD_ZAR:
                 close_reason = "take_profit" if close_reason == "take_profit" else close_reason
@@ -1394,8 +1425,13 @@ class PaperTradingEngine:
             )
             return trade_result
         except Exception as e:
-            logger.error(f"Open trade close error: {e}")
-            return None
+            logger.error(f"Open trade close error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "skip_reason": "close_exception",
+                "failure_trace": str(e),
+                "status": "open",
+            }
     
     async def run_trading_cycle(self, bot_id: str, bot_data: Dict, db_collections: Dict):
         """Run trading cycle - accurate live simulation with risk controls and paper wallet enforcement"""
@@ -1412,29 +1448,55 @@ class PaperTradingEngine:
 
             if open_trade:
                 trade_result = await self._close_open_trade(bot_id, bot_data, open_trade)
-                if not trade_result:
-                    # Close returned None – the trade is stuck.  Mark it as
-                    # failed/abandoned so it doesn't block the bot forever.
-                    trade_id = open_trade.get("id") or open_trade.get("trade_id")
-                    if trade_id:
-                        try:
-                            await trades_collection.update_one(
-                                {"id": trade_id},
-                                {
-                                    "$set": {
-                                        "status": "failed",
-                                        "trade_close_reason": "close_failed_abandoned",
-                                        "closed_at": datetime.now(timezone.utc).isoformat(),
-                                        "last_order_error": "open_trade_close_failed",
-                                    }
-                                },
-                            )
-                            logger.warning(
-                                f"Bot {bot_id}: trade {trade_id} abandoned (close returned None)"
-                            )
-                        except Exception as abandon_err:
-                            logger.error(f"Bot {bot_id}: failed to abandon stuck trade: {abandon_err}")
-                    return {"success": False, "skip_reason": "open_trade_close_failed"}
+                # Treat unexpected None as a close exception (defensive fallback)
+                if trade_result is None:
+                    trade_result = {
+                        "success": False,
+                        "skip_reason": "close_exception",
+                        "failure_trace": "unexpected_none_return",
+                        "status": "open",
+                    }
+
+                skip_reason = trade_result.get("skip_reason")
+
+                if not trade_result.get("success"):
+                    if skip_reason == "close_exception":
+                        # Real exception in close path – mark trade as failed/abandoned
+                        trade_id = open_trade.get("id") or open_trade.get("trade_id")
+                        if trade_id:
+                            try:
+                                await trades_collection.update_one(
+                                    {"id": trade_id},
+                                    {
+                                        "$set": {
+                                            "status": "failed",
+                                            "trade_close_reason": "close_failed_abandoned",
+                                            "closed_at": datetime.now(timezone.utc).isoformat(),
+                                            "last_order_error": "open_trade_close_failed",
+                                            "failure_trace": trade_result.get(
+                                                "failure_trace", "close_exception"
+                                            ),
+                                        }
+                                    },
+                                )
+                                logger.warning(
+                                    f"Bot {bot_id}: trade {trade_id} abandoned "
+                                    f"(close exception: {trade_result.get('failure_trace')})"
+                                )
+                            except Exception as abandon_err:
+                                logger.error(
+                                    f"Bot {bot_id}: failed to mark stuck trade as failed: {abandon_err}"
+                                )
+                        return {"success": False, "skip_reason": "open_trade_close_failed"}
+                    else:
+                        # No exit condition met (no_exit_signal, no_price_data, etc.)
+                        # This is normal – trade stays open, bot continues next cycle.
+                        logger.info(
+                            f"SKIP_CLOSE bot={bot_id} trade={open_trade.get('id', '?')} "
+                            f"reason={skip_reason}"
+                        )
+                        return {"success": False, "skip_reason": skip_reason}
+
                 existing_trade_id = open_trade.get("id") or open_trade.get("trade_id")
                 entry_recorded = bool(open_trade.get("entry_ledger_recorded", False))
             else:

@@ -1634,9 +1634,16 @@ export default function useDashboardState(navigate) {
   const loadDepositAddress = async () => {
     try {
       const res = await axios.get(`${API}/wallet/deposit-address`, axiosConfig);
-      setDepositAddress(res.data);
+      // Backend always returns 200; handle soft-error statuses gracefully
+      const data = res.data || {};
+      if (data.status === 'disabled' || data.status === 'unconfigured') {
+        // Not an error — just not configured yet. Set a safe sentinel value.
+        setDepositAddress({ ...data, address: null });
+      } else {
+        setDepositAddress(data);
+      }
     } catch (err) {
-      console.error('Deposit address error:', err);
+      // Silently swallow — deposit address is non-critical for page load
     }
   };
 

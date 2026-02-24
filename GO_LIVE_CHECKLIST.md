@@ -26,6 +26,41 @@ purposes. Every item is actionable with zero ambiguity.
 | 5 | `ai_super_brain.py` | Same v0 API bug as above | Fixed _(previous PR)_ |
 | 6 | `self_learning.py` | `self.db.bots` / `self.db.alerts` — wrong collection attribute names → `AttributeError` every daily run | Fixed to `.bots_collection` / `.alerts_collection` _(previous PR)_ |
 | 7 | `routes/ai_chat.py` | 8 AI commands existed in backend but were not discoverable by the AI chat engine | Added to `ACTION_REGISTRY` _(previous PR)_ |
+| 8 | `paper_trading_engine.py` | `_close_open_trade` returned `None` for both "no exit condition" AND real exceptions; `run_trading_cycle` treated all `None` returns as fatal → spurious `open_trade_close_failed` on every tick where price was between SL/TP | `_close_open_trade` now returns a structured dict (`skip_reason`) for every path. Only `close_exception` marks a trade as failed; `no_exit_signal` just skips the cycle cleanly |
+| 9 | `components/LiveTradesPanel.js` | Polling overwrote entire trades state; websocket prepended → reorder/flicker on every poll tick when bots active | Added `mergeTrades` (keyed dedup + stable sort); polling merges rather than overwrites; empty poll responses no longer clear WS-injected trades |
+| 10 | `routes/ledger_endpoints.py` | No invariant-check endpoint existed for monitoring | Added `GET /api/ledger/invariants/check` returning `invariant_ok`, drift, available/allocated/total computed from ledger+open trades |
+
+---
+
+## ✅ Go-Live Proof Points
+
+Run the truth-pack script to verify all critical endpoints in one shot:
+
+```bash
+BASE_URL=http://localhost:8000 TOKEN=<your-jwt> bash scripts/go_live_truth_pack.sh
+```
+
+Expected output on a healthy system:
+
+```
+  ✅  PASS  Health ping
+  ✅  PASS  Bot status
+  ✅  PASS  Recent trades
+  ✅  PASS  Ledger fills
+  ✅  PASS  Paper wallet
+  ✅  PASS  Ledger invariants
+  ✅  PASS  HuggingFace test-connection
+  ✅  PASS  AI status
+  ✅  PASS  Learning status
+
+  ✅  ALL CHECKS PASSED — system is GO-LIVE ready
+```
+
+Key invariants that must hold:
+- `GET /api/ledger/invariants/check` → `invariant_ok: true` (total == available + allocated, within €0.01)
+- `GET /api/trades/recent` → trades sorted newest-first with no duplicate IDs in the response
+- `GET /api/learning/status` → `enabled: true` (requires `ENABLE_LEARNING_LOOP=true` env var)
+- Paper trading bot cycle → log shows `SKIP_NO_EXIT_SIGNAL` (not `open_trade_close_failed`) when price is between SL and TP
 
 ---
 
