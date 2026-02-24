@@ -50,6 +50,17 @@ class PaperResetRequest(BaseModel):
     confirm: bool = False
 
 
+class PaperFundRequest(BaseModel):
+    """Explicit paper wallet funding request.
+
+    Requires ``confirmed=True`` so the caller acknowledges they are adding
+    starting capital to the unfunded paper wallet.
+    """
+    amount: float
+    currency: str = "ZAR"
+    confirmed: bool = False
+
+
 @router.get("/health")
 async def get_wallet_health(user_id: str = Depends(get_current_user)):
     """
@@ -231,6 +242,80 @@ async def reset_paper_wallet(
         "wallet_before": result.get("wallet_before", {}),
         "wallet_after": result.get("wallet_after", {}),
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/paper/fund")
+async def fund_paper_wallet(
+    request: PaperFundRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Explicitly fund an unfunded paper wallet.
+
+    This is the ONLY legitimate way to add starting capital after a reset.
+    Requires ``confirmed=True`` and ``amount > 0``.
+    The event is logged in the audit log and capital_injections collection.
+
+    Args:
+        amount: Amount to fund in ``currency``
+        currency: Currency code (default ZAR)
+        confirmed: Must be True
+
+    Returns:
+        balances, total, funded_amount, ledger_event_id
+    """
+    if not request.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="confirmed must be true to fund paper wallet"
+        )
+    if request.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+    currency = (request.currency or "ZAR").strip().upper()
+    if not currency:
+        raise HTTPException(status_code=400, detail="currency must be a non-empty string")
+
+    result = await paper_wallet_service.fund(user_id, request.amount, currency)
+
+    # Record capital injection
+    from uuid import uuid4
+    injection_id = str(uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        if db.capital_injections_collection is not None:
+            await db.capital_injections_collection.insert_one({
+                "id": injection_id,
+                "user_id": user_id,
+                "amount": request.amount,
+                "currency": currency,
+                "source": "paper_fund",
+                "timestamp": now_iso,
+            })
+    except Exception as e:
+        logger.warning(f"Capital injection record failed: {e}")
+
+    try:
+        await db.audit_logs_collection.insert_one({
+            "user_id": user_id,
+            "action": "paper_wallet_funded",
+            "details": {
+                "amount": request.amount,
+                "currency": currency,
+                "injection_id": injection_id,
+            },
+            "timestamp": now_iso,
+        })
+    except Exception as e:
+        logger.warning(f"Paper wallet fund audit failed: {e}")
+
+    return {
+        "success": True,
+        "funded_amount": request.amount,
+        "currency": currency,
+        "balances": result.get("balances", {}),
+        "total": result.get("total", 0),
+        "injection_id": injection_id,
+        "timestamp": now_iso,
     }
 
 

@@ -202,7 +202,9 @@ async def start_fresh(
         except Exception as e:
             logger.warning(f"Could not delete training sessions: {e}")
 
-        # Step 5: Reset paper wallet to starting balance
+        # Step 5: Reset paper wallet to ZERO (hard requirement)
+        # Also purge wallet_balances cache and capital_injections so no phantom
+        # allocated/balance survives the wipe.
         wallet_before = {}
         wallet_after = {}
         try:
@@ -216,6 +218,22 @@ async def start_fresh(
             )
         except Exception as wallet_err:
             logger.warning(f"Could not reset paper wallet (non-critical): {wallet_err}")
+
+        # Purge wallet_balances cache so stale allocated figures are gone
+        try:
+            if db.wallet_balances_collection is not None:
+                await db.wallet_balances_collection.delete_many({"user_id": user_id})
+                logger.info(f"Start Fresh: Purged wallet_balances for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not purge wallet_balances: {e}")
+
+        # Purge capital injections so injected_capital sums to 0
+        try:
+            if db.capital_injections_collection is not None:
+                await db.capital_injections_collection.delete_many({"user_id": user_id})
+                logger.info(f"Start Fresh: Purged capital_injections for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not purge capital_injections: {e}")
         
         # Step 6: Create audit log entry
         audit_entry = {
