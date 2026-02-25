@@ -294,22 +294,21 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
             <h3 style={{ margin: 0, fontSize: '1.2rem' }}>💼 Funding Status</h3>
             <div style={{
               padding: '6px 12px',
-              background: walletStatus.funding_status === 'ok' ? 'rgba(34, 197, 94, 0.15)' :
-                          walletStatus.funding_status === 'shortfall' ? 'rgba(239, 68, 68, 0.15)' :
+              background: walletStatus.funding_status === 'FUNDED' ? 'rgba(34, 197, 94, 0.15)' :
+                          walletStatus.funding_status === 'UNFUNDED' ? 'rgba(239, 68, 68, 0.15)' :
                           'rgba(156, 163, 175, 0.15)',
-              border: `1px solid ${walletStatus.funding_status === 'ok' ? 'rgba(34, 197, 94, 0.4)' :
-                                   walletStatus.funding_status === 'shortfall' ? 'rgba(239, 68, 68, 0.4)' :
+              border: `1px solid ${walletStatus.funding_status === 'FUNDED' ? 'rgba(34, 197, 94, 0.4)' :
+                                   walletStatus.funding_status === 'UNFUNDED' ? 'rgba(239, 68, 68, 0.4)' :
                                    'rgba(156, 163, 175, 0.4)'}`,
               borderRadius: '6px',
               fontSize: '0.85rem',
-              color: walletStatus.funding_status === 'ok' ? 'var(--success)' :
-                     walletStatus.funding_status === 'shortfall' ? 'var(--error)' :
+              color: walletStatus.funding_status === 'FUNDED' ? 'var(--success)' :
+                     walletStatus.funding_status === 'UNFUNDED' ? 'var(--error)' :
                      'var(--muted)',
               fontWeight: 600
             }}>
-              {walletStatus.funding_status === 'ok' ? '✅ Fully Funded' :
-               walletStatus.funding_status === 'shortfall' ? '⚠️ Funding Required' :
-               walletStatus.funding_status === 'paper_mode' ? '📝 Paper Mode' :
+              {walletStatus.funding_status === 'FUNDED' ? '✅ Funded' :
+               walletStatus.funding_status === 'UNFUNDED' ? '⚠️ Unfunded' :
                '❓ Not Configured'}
             </div>
           </div>
@@ -325,15 +324,24 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
             <div>
               <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Required Capital</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                R{(walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                R{(walletStatus.required_capital || walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
             
-            {walletStatus.live_status === 'ok' && walletStatus.live_balances?.total_zar !== undefined && (
+            {(walletStatus.available_balance !== undefined || walletStatus.live_status === 'ok') && (
               <div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Available Funds</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Available</div>
                 <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                  R{(walletStatus.live_balances.total_zar || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  R{(walletStatus.available_balance ?? walletStatus.live_balances?.total_zar ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            )}
+
+            {walletStatus.deficit !== undefined && walletStatus.deficit > 0 && (
+              <div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Deficit</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--error)' }}>
+                  R{walletStatus.deficit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
             )}
@@ -341,7 +349,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
             <div>
               <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                {walletStatus.required_funding?.bot_count || 0}
+                {walletStatus.active_bots ?? walletStatus.required_funding?.bot_count ?? 0}
               </div>
             </div>
           </div>

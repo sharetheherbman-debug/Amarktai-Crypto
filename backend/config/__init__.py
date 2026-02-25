@@ -95,6 +95,9 @@ PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35%
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
 PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'true').lower() == 'true'
 PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
+# Time-exit fires unconditionally at this age regardless of P&L.
+# Ensures profitable trades still close for overnight win/loss accounting.
+PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 
 # Default paper trading pair whitelist (can be overridden per bot)
 PAPER_PAIR_WHITELIST = {
@@ -193,6 +196,7 @@ __all__ = [
     'EDGE_BUFFER_PCT', 'EDGE_GATE_PAPER', 'EDGE_GATE_LIVE', 'PAPER_MAX_SPREAD_PCT',
     'PAPER_MIN_ORDERBOOK_NOTIONAL', 'PAPER_PAIR_WHITELIST', 'PAPER_PAIR_WHITELIST_ENABLED',
     'PAPER_STALE_EXIT_MINUTES',
+    'PAPER_MAX_HOLD_MINUTES',
     'EXCHANGE_DAILY_TRADE_LIMITS',
     'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',
     'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',

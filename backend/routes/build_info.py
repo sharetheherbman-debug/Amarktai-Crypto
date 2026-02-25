@@ -47,6 +47,22 @@ def get_git_branch() -> str:
     return "unknown"
 
 
+def get_git_dirty() -> bool:
+    """Check if working tree has uncommitted changes."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return bool(result.stdout.strip())
+    except Exception:
+        pass
+    return False
+
+
 def _get_db_info() -> dict:
     """Return safe (credential-free) DB connection info."""
     try:
@@ -77,6 +93,7 @@ def _get_feature_flags() -> dict:
 BUILD_SHA = os.environ.get("BUILD_SHA") or get_git_sha()
 BUILD_TIME = os.environ.get("BUILD_TIME") or datetime.utcnow().isoformat()
 BUILD_BRANCH = os.environ.get("BUILD_BRANCH") or get_git_branch()
+BUILD_DIRTY = get_git_dirty()
 
 
 @router.get("")
@@ -106,6 +123,7 @@ async def get_build_info():
             "sha": BUILD_SHA,
             "branch": BUILD_BRANCH,
             "build_time": BUILD_TIME,
+            "dirty": BUILD_DIRTY,
             "python_version": os.sys.version.split()[0],
             "working_directory": os.getcwd()
         },
@@ -117,7 +135,7 @@ async def get_build_info():
         },
         "deployment": {
             "environment": os.environ.get("ENVIRONMENT", "production"),
-            "host": os.environ.get("HOSTNAME", "unknown"),
+            "host": os.environ.get("HOSTNAME", os.environ.get("HOST", "unknown")),
             "deployed_at": BUILD_TIME
         }
     }
