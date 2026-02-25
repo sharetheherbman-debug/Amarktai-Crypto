@@ -156,6 +156,8 @@ async def get_market_brief(user_id: str = Depends(get_current_user)):
                 "what_amarktai_is_doing": data.get("what_amarktai_is_doing", ""),
                 "source": data.get("source", "CoinStats"),
                 "last_updated": data.get("updated_at"),
+                "fetch_status": data.get("fetch_status", "ok"),
+                "block_reason": data.get("block_reason"),
             }
             _brief_cache_at = _time.monotonic()
         except Exception as e:

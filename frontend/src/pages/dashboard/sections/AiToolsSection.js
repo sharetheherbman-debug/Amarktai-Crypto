@@ -63,7 +63,7 @@ export default function AiToolsSection({ bots, onRefresh }) {
       setHfAutoLoading(true);
       const res = await apiClient.get('/events/market-intelligence');
       const intel = res.data;
-      if (intel && intel.what_happened && intel.what_happened !== 'No market data yet — intelligence updates every 15 minutes.') {
+      if (intel && intel.what_happened && intel.fetch_status === 'ok') {
         const combined = [intel.what_happened, intel.why_it_matters].filter(Boolean).join(' ');
         setHfInputText(combined);
       }

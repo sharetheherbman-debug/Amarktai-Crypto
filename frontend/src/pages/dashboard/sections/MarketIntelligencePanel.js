@@ -6,6 +6,7 @@ import apiClient from '@/lib/apiClient';
  *
  * Displays automatic CoinStats-based market intelligence.
  * No manual input required — intelligence updates on a background schedule.
+ * Shows fetch_status and block_reason if data is unavailable.
  */
 const MarketIntelligencePanel = () => {
   const [status, setStatus] = useState(null);
@@ -41,6 +42,9 @@ const MarketIntelligencePanel = () => {
 
   const moodEmojis = { positive: '📈', negative: '📉', neutral: '➡️' };
   const mood = latest?.mood || 'neutral';
+  const fetchStatus = latest?.fetch_status || status?.fetch_status || 'pending';
+  const blockReason = latest?.block_reason || status?.block_reason;
+  const hasRealData = fetchStatus === 'ok' && latest?.what_happened && !blockReason;
 
   const panelStyle = {
     padding: '16px',
@@ -57,11 +61,23 @@ const MarketIntelligencePanel = () => {
     return (
       <div style={panelStyle}>
         <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
-          Loading market intelligence…
+          ⏳ Loading market intelligence…
         </div>
       </div>
     );
   }
+
+  // Determine status label for footer
+  const getStatusLabel = () => {
+    if (fetchStatus === 'key_missing') return '⚠️ CoinStats API key not configured';
+    if (fetchStatus === 'rate_limited') return '⚠️ CoinStats rate-limited';
+    if (fetchStatus === 'invalid_key') return '⚠️ CoinStats API key rejected (401)';
+    if (fetchStatus === 'error' && blockReason) return `⚠️ ${blockReason}`;
+    if (fetchStatus === 'no_articles') return '⏳ Awaiting CoinStats data';
+    if (fetchStatus === 'pending' || !status?.last_run_at) return '⏳ Fetching first update…';
+    if (status?.last_run_at) return `Updated: ${new Date(status.last_run_at).toLocaleString()}`;
+    return '⏳ Waiting for first fetch…';
+  };
 
   return (
     <div style={panelStyle}>
@@ -70,8 +86,8 @@ const MarketIntelligencePanel = () => {
         <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text)' }}>
           🧠 Market Intelligence
         </div>
-        <div style={{ fontSize: '0.78rem', color: status?.running ? 'var(--success)' : 'var(--muted)' }}>
-          {status?.running ? '● Live' : '○ Offline'} · Source: {status?.source || 'CoinStats'}
+        <div style={{ fontSize: '0.78rem', color: hasRealData ? 'var(--success)' : 'var(--muted)' }}>
+          {hasRealData ? '● Live' : '○ Pending'} · Source: {status?.source || 'CoinStats'}
         </div>
       </div>
 
@@ -80,16 +96,40 @@ const MarketIntelligencePanel = () => {
         {status?.what_it_does || 'Automatically monitors CoinStats headlines and classifies market mood.'}
       </div>
 
-      {/* Mood */}
-      <div style={{ marginBottom: '10px' }}>
-        <div style={labelStyle}>Market Mood</div>
-        <div style={{ ...valueStyle, color: moodColors[mood], fontWeight: 600 }}>
-          {moodEmojis[mood]} {mood.charAt(0).toUpperCase() + mood.slice(1)}
+      {/* Block reason banner — only show when data isn't fresh */}
+      {!hasRealData && blockReason && (
+        <div style={{
+          padding: '8px 12px',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: '6px',
+          fontSize: '0.82rem',
+          color: '#ef4444',
+          marginBottom: '10px',
+        }}>
+          {fetchStatus === 'key_missing' ? '🔑' : '⚠️'} {blockReason}
         </div>
-      </div>
+      )}
+
+      {/* Fetching state */}
+      {!hasRealData && !blockReason && (
+        <div style={{ ...valueStyle, color: 'var(--muted)', marginBottom: '10px' }}>
+          ⏳ Fetching market data from CoinStats…
+        </div>
+      )}
+
+      {/* Mood — only show when we have real data */}
+      {hasRealData && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={labelStyle}>Market Mood</div>
+          <div style={{ ...valueStyle, color: moodColors[mood], fontWeight: 600 }}>
+            {moodEmojis[mood]} {mood.charAt(0).toUpperCase() + mood.slice(1)}
+          </div>
+        </div>
+      )}
 
       {/* Latest brief */}
-      {latest?.what_happened && (
+      {hasRealData && latest?.what_happened && (
         <div style={{ marginBottom: '10px' }}>
           <div style={labelStyle}>Latest Headline</div>
           <div style={valueStyle}>{latest.what_happened}</div>
@@ -97,7 +137,7 @@ const MarketIntelligencePanel = () => {
       )}
 
       {/* Top risk */}
-      {latest?.top_risk && latest.top_risk !== 'none' && (
+      {hasRealData && latest?.top_risk && latest.top_risk !== 'none' && (
         <div style={{ marginBottom: '10px' }}>
           <div style={labelStyle}>Risk Signal</div>
           <div style={{ ...valueStyle, color: 'var(--warning, #f59e0b)' }}>
@@ -106,8 +146,8 @@ const MarketIntelligencePanel = () => {
         </div>
       )}
 
-      {/* What Amarktai is doing */}
-      {latest?.what_amarktai_is_doing && (
+      {/* What Amarktai Crypto is doing */}
+      {hasRealData && latest?.what_amarktai_is_doing && (
         <div style={{ marginBottom: '10px' }}>
           <div style={labelStyle}>Platform Response</div>
           <div style={valueStyle}>{latest.what_amarktai_is_doing}</div>
@@ -116,12 +156,8 @@ const MarketIntelligencePanel = () => {
 
       {/* Footer: last updated */}
       <div style={{ marginTop: '12px', fontSize: '0.75rem', color: 'var(--muted)', display: 'flex', justifyContent: 'space-between' }}>
-        <span>
-          {status?.last_run_at
-            ? `Updated: ${new Date(status.last_run_at).toLocaleString()}`
-            : 'Not yet updated — runs every 15 minutes'}
-        </span>
-        {status?.next_run_in_seconds != null && (
+        <span>{getStatusLabel()}</span>
+        {status?.next_run_in_seconds != null && hasRealData && (
           <span>Next run in ~{Math.ceil(status.next_run_in_seconds / 60)} min</span>
         )}
       </div>
