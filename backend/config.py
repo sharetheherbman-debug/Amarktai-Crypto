@@ -97,44 +97,45 @@ EXCHANGE_BOT_LIMITS = {
 
 # Trading limits - Per exchange (Safety caps)
 # These match the values in exchange_limits.py (the authoritative source for exchange API limits).
-# The config/__init__.py EXCHANGE_TRADE_LIMITS is used by trade_limiter.py.
+# max_trades_per_bot_per_day is set very high to avoid artificial throttles.
+# Risk locks (Bodyguard, daily loss lock, emergency stop) still prevent over-trading.
 # Override per exchange via MAX_TRADES_PER_BOT_DAILY_<EXCHANGE> env vars.
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 400,
-        'max_trades_per_exchange_per_day': 2000,
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 500,
-        'max_trades_per_exchange_per_day': 5000,
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 1000,
-        'max_trades_per_exchange_per_day': 10000,
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': 800,
-        'max_trades_per_exchange_per_day': 8000,
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bitget': {
-        'max_trades_per_bot_per_day': 800,
-        'max_trades_per_exchange_per_day': 8000,
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }
 }
 
-# Global limits
-MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))  # Per-bot daily trade cap
-MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '3000'))  # Total across all bots
+# Global limits — set very high to avoid artificial throttles; risk locks (Bodyguard, daily loss) remain.
+MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '999999'))  # No artificial per-bot daily cap
+MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '999999'))  # No artificial per-user daily cap
 MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0  # Minimum net profit target (ignore 30c wins)
 
 # Paper trading anti-churn protections

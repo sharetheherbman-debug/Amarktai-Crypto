@@ -46,45 +46,45 @@ EXCHANGE_BOT_LIMITS = {
 
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_LUNO', '400')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_LUNO', '999999')),
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BINANCE', '500')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BINANCE', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KUCOIN', '1000')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KUCOIN', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BYBIT', '800')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BYBIT', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'kraken': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KRAKEN', '800')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KRAKEN', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 500
     },
     'bitget': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BITGET', '800')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BITGET', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     },
     'gate': {
-        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_GATE', '800')),
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_GATE', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }
 }
 
-# Global limits
-MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))  # Per-bot daily trade cap
-MAX_TRADES_PER_USER_PER_DAY = 3000
+# Global limits — no artificial per-bot/user daily cap. Risk locks (Bodyguard, daily loss) remain.
+MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '999999'))
+MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '999999'))
 MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0
 
 # Paper trading anti-churn protections
