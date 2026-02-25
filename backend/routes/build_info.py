@@ -4,13 +4,21 @@ Build Info Router - Provides build version and deployment information
 
 from fastapi import APIRouter
 from datetime import datetime
+from pathlib import Path
 import os
+import socket
 import subprocess
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/build", tags=["Build"])
+
+# Repo root is two levels above backend/routes/build_info.py:
+# build_info.py -> routes/ -> backend/ -> <repo_root>
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
 def get_git_sha() -> str:
@@ -20,7 +28,8 @@ def get_git_sha() -> str:
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            cwd=_REPO_ROOT,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -37,7 +46,8 @@ def get_git_branch() -> str:
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            cwd=_REPO_ROOT,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -54,13 +64,25 @@ def get_git_dirty() -> bool:
             ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            cwd=_REPO_ROOT,
         )
         if result.returncode == 0:
             return bool(result.stdout.strip())
     except Exception:
         pass
     return False
+
+
+def _get_deployment_host() -> str:
+    """Return the real deployment hostname, never a loopback address."""
+    hostname_env = os.environ.get("HOSTNAME")
+    if hostname_env:
+        return hostname_env
+    host_env = os.environ.get("HOST", "")
+    if host_env and host_env not in _LOOPBACK:
+        return host_env
+    return socket.gethostname()
 
 
 def _get_db_info() -> dict:
@@ -135,7 +157,7 @@ async def get_build_info():
         },
         "deployment": {
             "environment": os.environ.get("ENVIRONMENT", "production"),
-            "host": os.environ.get("HOSTNAME", os.environ.get("HOST", "unknown")),
+            "host": _get_deployment_host(),
             "deployed_at": BUILD_TIME
         }
     }
