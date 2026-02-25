@@ -171,14 +171,15 @@ class LedgerService:
                 except ImportError:
                     amount = 30000.0
             
-            # Create funding event
+            # Create funding event with paper metadata for scoped resets
             await self.append_event(
                 user_id=user_id,
                 event_type="paper_capital_bootstrap",
                 amount=amount,
                 currency=currency,
                 timestamp=datetime.utcnow(),
-                description=f"Paper trading starting capital: R{amount:,.2f}"
+                description=f"Paper trading starting capital: R{amount:,.2f}",
+                metadata={"mode": "paper", "is_paper": True}
             )
             
             logger.info(f"✅ Bootstrapped paper capital R{amount:,.2f} for user {user_id}")

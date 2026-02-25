@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # All supported providers
 SUPPORTED_PROVIDERS = [
-    'openai', 'flokx', 'fetchai',  # AI providers
+    'openai', 'fetchai',  # AI providers (flokx removed - deprecated)
     'luno', 'binance', 'kucoin', 'bybit', 'bitget'  # Exchange providers
 ]
 
@@ -183,11 +183,13 @@ class KeysService:
                 return False, None, "API secret required for exchange"
             return await self.test_exchange_key(provider_lower, api_key, api_secret, passphrase)
             
-        elif provider_lower in ['flokx', 'fetchai']:
+        elif provider_lower in ['fetchai']:
             # Generic validation for AI providers without live test
-            # Could implement actual API tests if endpoints available
             metadata = {'provider': provider_lower, 'test_type': 'format_validation'}
             return True, metadata, None
+            
+        elif provider_lower == 'flokx':
+            return False, None, "FLOKx provider has been removed. Use CoinStats instead."
             
         else:
             return False, None, f"Provider {provider} not supported"

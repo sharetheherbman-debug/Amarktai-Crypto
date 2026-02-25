@@ -23,9 +23,8 @@ export default function AIToolsPanel() {
   const [fetchaiActive, setFetchaiActive] = useState(false);
   const [fetchaiSignals, setFetchaiSignals] = useState([]);
   
-  // Flokx state
+  // Flokx state (deprecated - kept for state compatibility)
   const [flokxActive, setFlokxActive] = useState(false);
-  const [flokxAlerts, setFlokxAlerts] = useState([]);
 
   // Check HuggingFace configuration on mount
   useEffect(() => {
@@ -175,21 +174,6 @@ export default function AIToolsPanel() {
         >
           🔮 Fetch.ai
         </button>
-        <button
-          onClick={() => setActiveTab('flokx')}
-          style={{
-            padding: '8px 16px',
-            background: activeTab === 'flokx' ? 'var(--accent)' : 'var(--panel)',
-            color: 'var(--text)',
-            border: '1px solid var(--line)',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 600,
-            fontSize: '0.9rem'
-          }}
-        >
-          🧠 FlokX
-        </button>
       </div>
 
       {/* HuggingFace Panel */}
@@ -248,7 +232,7 @@ export default function AIToolsPanel() {
                     fontSize: '0.9rem'
                   }}
                 >
-                  {hfTasks.map(task => (
+                  {hfTasks.filter(task => typeof task === 'string').map(task => (
                     <option key={task} value={task}>
                       {task.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                     </option>
@@ -431,23 +415,6 @@ export default function AIToolsPanel() {
         </div>
       )}
 
-      {/* Flokx Panel */}
-      {activeTab === 'flokx' && (
-        <div style={{
-          padding: '20px',
-          textAlign: 'center',
-          background: 'var(--panel)',
-          borderRadius: '8px'
-        }}>
-          <div style={{ fontSize: '2rem', marginBottom: '12px' }}>🧠</div>
-          <p style={{ color: 'var(--text)', marginBottom: '8px', fontWeight: 600 }}>
-            FlokX AI Alerts
-          </p>
-          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-            Configure FlokX API key in API Setup to receive AI-powered trading alerts
-          </p>
-        </div>
-      )}
     </div>
   );
 }
