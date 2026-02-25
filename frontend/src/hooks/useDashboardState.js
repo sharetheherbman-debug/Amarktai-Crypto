@@ -134,7 +134,7 @@ export default function useDashboardState(navigate) {
   const [user, setUser] = useState(null);
   const [activeSection, setActiveSection] = useState('welcome');
   const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
-  const [metricsTab, setMetricsTab] = useState('flokx'); // Tab state for Metrics section - default to Flokx Alerts
+  const [metricsTab, setMetricsTab] = useState('news'); // Tab state for Metrics section - default to News
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
   const [profitsTab, setProfitsTab] = useState('metrics'); // Tab state for Profits & Performance parent section
   const [botStatusFilter, setBotStatusFilter] = useState('all');
@@ -195,9 +195,10 @@ export default function useDashboardState(navigate) {
   const [profileData, setProfileData] = useState({});
   const [allUsers, setAllUsers] = useState([]);
   const [systemStats, setSystemStats] = useState(null);
+  // FLOKx is disabled — keep compatibility state so legacy renders don't crash
   const [flokxAlerts, setFlokxAlerts] = useState([]);
   const [isFlokxActive, setIsFlokxActive] = useState(false);
-  const [flokxStatus, setFlokxStatus] = useState({ configured: false, last_error: null, last_tested_at: null });
+  const [flokxStatus, setFlokxStatus] = useState({ configured: false, disabled: true, last_error: null, last_tested_at: null });
   const [connectionStatus, setConnectionStatus] = useState({
     api: 'Disconnected',
     sse: 'Disconnected',
@@ -1701,16 +1702,9 @@ export default function useDashboardState(navigate) {
   };
 
   const loadFlokxStatus = async () => {
-    try {
-      const res = await axios.get(`${API}/flokx/status`, axiosConfig);
-      const status = res.data || {};
-      setFlokxStatus(status);
-      setIsFlokxActive(Boolean(status.configured));
-    } catch (err) {
-      console.error('Flokx status error:', err);
-      setFlokxStatus({ configured: false, last_error: extractErrorMessage(err, 'Unavailable'), last_tested_at: null });
-      setIsFlokxActive(false);
-    }
+    // FLOKx provider disabled — return disabled status silently
+    setFlokxStatus({ configured: false, disabled: true, last_error: null });
+    setIsFlokxActive(false);
   };
 
   const loadAdminHealth = useCallback(async () => {
@@ -1733,13 +1727,8 @@ export default function useDashboardState(navigate) {
   }, [axiosConfig]);
 
   const loadFlokxAlerts = async () => {
-    try {
-      const res = await axios.get(`${API}/flokx/alerts`, axiosConfig);
-      setFlokxAlerts(res.data?.alerts || []);
-    } catch (err) {
-      console.error('Flokx alerts error:', err);
-      setFlokxAlerts([]);
-    }
+    // FLOKx provider disabled — always empty
+    setFlokxAlerts([]);
   };
 
   const handleSendMessage = async () => {
@@ -2132,6 +2121,18 @@ export default function useDashboardState(navigate) {
           aiSentiment: NOT_AVAILABLE,
           lastUpdate: NOT_AVAILABLE
         });
+        // Explicitly clear local equity/countdown caches before refresh so stale
+        // values from before the reset are never shown.
+        setEquityData(null);
+        setCountdown(null);
+        const totalCleared = response.data?.deleted
+          ? Object.values(response.data.deleted).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0)
+          : response.data?.total_deleted || 0;
+        if (totalCleared > 0) {
+          toast.success(`Reset complete — ${totalCleared} records cleared`);
+        }
+        const warnings = response.data?.invariant_warnings || [];
+        warnings.forEach(w => toast.warning(`Reset warning: ${w}`));
         refreshAllDashboardData();
       } else {
         setPaperResetError(response.data.message || 'Reset failed');

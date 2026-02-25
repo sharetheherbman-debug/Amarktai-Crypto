@@ -1,6 +1,9 @@
 """
 HuggingFace Integration Routes
 Provides endpoints for HuggingFace API key management and model access.
+
+All endpoints ALWAYS return structured JSON { success, result|error, model_used, source }.
+Never raises unhandled 500 to clients — errors are returned as JSON with success=False.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -14,7 +17,8 @@ from auth import get_current_user
 from services.huggingface_key_resolver import (
     resolve_huggingface_key,
     test_huggingface_connection,
-    get_huggingface_client
+    get_huggingface_client,
+    HF_DEFAULT_MODELS,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +29,6 @@ _hf_last_success: Optional[str] = None
 _hf_last_error: Optional[str] = None
 _hf_last_latency_ms: Optional[float] = None
 
-# Lightweight probe input used by the health check
 HF_HEALTH_PROBE_TEXT = "Bitcoin price is rising today."
 
 class HuggingFaceModelInfo(BaseModel):
@@ -92,77 +95,61 @@ async def get_models(
 ):
     """
     Get list of available HuggingFace models.
-    
-    Args:
-        task: Filter by task (e.g., "text-classification", "sentiment-analysis", "summarization")
-        limit: Maximum number of models to return (default: 20, max: 100)
-        
-    Returns:
-        List of available models with metadata
+    Always returns 200 JSON { success, models, count, source }.
+    Falls back to default model list when API key is missing or Hub is unreachable.
     """
+    limit = max(1, min(limit, 100))
+    api_key, source = await resolve_huggingface_key(user_id)
+
+    # Default curated model list (returned when key is missing or Hub unreachable)
+    _defaults = [
+        {"modelId": HF_DEFAULT_MODELS["sentiment"], "pipeline_tag": "text-classification"},
+        {"modelId": HF_DEFAULT_MODELS["summarize"], "pipeline_tag": "summarization"},
+        {"modelId": HF_DEFAULT_MODELS["embeddings"], "pipeline_tag": "feature-extraction"},
+        {"modelId": HF_DEFAULT_MODELS["classify"], "pipeline_tag": "zero-shot-classification"},
+    ]
+
+    if not api_key:
+        return {
+            "success": True,
+            "models": _defaults,
+            "count": len(_defaults),
+            "source": source,
+            "task_filter": task,
+            "note": "No API key configured — showing default model list",
+        }
+
     try:
-        # Validate limit
-        if limit < 1 or limit > 100:
-            raise HTTPException(status_code=400, detail="Limit must be between 1 and 100")
-        
-        api_key, source = await resolve_huggingface_key(user_id)
-        
-        if not api_key:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "No HuggingFace API key configured",
-                    "source": source
-                }
-            )
-        
-        # Fetch models from HuggingFace Hub
-        try:
-            from huggingface_hub import HfApi
-            
-            api = HfApi(token=api_key)
-            
-            # Get models, optionally filtered by task
-            models = api.list_models(
-                filter=task,
-                sort="downloads",
-                direction=-1,
-                limit=limit
-            )
-            
-            # Convert to list and extract relevant info
-            model_list = []
-            for model in models:
-                model_info = {
-                    "modelId": model.modelId,
-                    "author": model.author if hasattr(model, "author") else "unknown",
-                    "pipeline_tag": model.pipeline_tag if hasattr(model, "pipeline_tag") else None,
-                    "tags": model.tags if hasattr(model, "tags") else [],
-                    "downloads": model.downloads if hasattr(model, "downloads") else 0,
-                    "likes": model.likes if hasattr(model, "likes") else 0
-                }
-                model_list.append(model_info)
-            
-            return {
-                "success": True,
-                "models": model_list,
-                "count": len(model_list),
-                "source": source,
-                "task_filter": task
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch models from HuggingFace: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to fetch models: {str(e)}"
-            )
-        
-    except HTTPException:
-        raise
+        from huggingface_hub import HfApi
+        api = HfApi(token=api_key)
+        models = api.list_models(filter=task, sort="downloads", direction=-1, limit=limit)
+        model_list = []
+        for m in models:
+            model_list.append({
+                "modelId": m.modelId,
+                "author": getattr(m, "author", "unknown"),
+                "pipeline_tag": getattr(m, "pipeline_tag", None),
+                "tags": getattr(m, "tags", []),
+                "downloads": getattr(m, "downloads", 0),
+                "likes": getattr(m, "likes", 0),
+            })
+        return {
+            "success": True,
+            "models": model_list,
+            "count": len(model_list),
+            "source": source,
+            "task_filter": task,
+        }
     except Exception as e:
-        logger.error(f"Get models error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"HF list_models error: {e}")
+        return {
+            "success": True,
+            "models": _defaults,
+            "count": len(_defaults),
+            "source": source,
+            "task_filter": task,
+            "note": f"Hub unreachable, showing defaults: {str(e)[:100]}",
+        }
 
 
 @router.get("/api/huggingface/tasks")
@@ -233,58 +220,51 @@ async def analyze_sentiment(
 ):
     """
     Analyze sentiment of text using HuggingFace models.
-    
-    Args:
-        text: Text to analyze
-        model: Optional model to use (defaults to popular sentiment model)
-        
-    Returns:
-        Sentiment analysis results
+    Always returns structured JSON { success, result, model_used, latency_ms, source }.
     """
+    t0 = time.monotonic()
+    text = (data.get("text") or "").strip()
+    if not text:
+        return {"success": False, "error": "text is required", "model_used": None, "result": None, "source": "none"}
+
+    model = data.get("model") or HF_DEFAULT_MODELS["sentiment"]
+
     try:
-        text = data.get("text")
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        model = data.get("model", "distilbert-base-uncased-finetuned-sst-2-english")
-        
         client, source = await get_huggingface_client(user_id, model=model)
-        
+
         if not client:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "No HuggingFace API key configured",
-                    "source": source
-                }
-            )
-        
-        # Perform sentiment analysis
+            return {
+                "success": False,
+                "error": "No HuggingFace API key configured. Add your key in API Setup.",
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
         try:
-            result = client.text_classification(text)
-            
+            raw = client.text_classification(text)
+            item = raw[0] if raw else {}
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
             return {
                 "success": True,
-                "text": text,
-                "model": model,
-                "sentiment": result[0]["label"] if result else "neutral",
-                "confidence": result[0]["score"] if result else 0.0,
+                "result": {"label": item.get("label"), "score": item.get("score")},
+                "model_used": model,
+                "latency_ms": latency_ms,
                 "source": source,
-                "raw_result": result
             }
-            
-        except Exception as e:
-            logger.error(f"Sentiment analysis failed: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Sentiment analysis failed: {str(e)}"
-            )
-        
-    except HTTPException:
-        raise
+        except Exception as infer_err:
+            logger.error(f"HF sentiment inference error: {infer_err}")
+            return {
+                "success": False,
+                "error": str(infer_err),
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
     except Exception as e:
-        logger.error(f"Analyze sentiment error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Analyze sentiment outer error: {e}")
+        return {"success": False, "error": str(e), "model_used": model, "result": None, "source": "error"}
 
 
 @router.post("/api/huggingface/summarize")
@@ -294,65 +274,52 @@ async def summarize_text(
 ):
     """
     Summarize text using HuggingFace models.
-    
-    Args:
-        text: Text to summarize
-        max_length: Maximum length of summary
-        model: Optional model to use
-        
-    Returns:
-        Summarized text
+    Always returns structured JSON { success, result, model_used, latency_ms, source }.
     """
+    t0 = time.monotonic()
+    text = (data.get("text") or "").strip()
+    if not text:
+        return {"success": False, "error": "text is required", "model_used": None, "result": None, "source": "none"}
+
+    max_length = data.get("max_length", 150)
+    model = data.get("model") or HF_DEFAULT_MODELS["summarize"]
+
     try:
-        text = data.get("text")
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        max_length = data.get("max_length", 150)
-        model = data.get("model", "facebook/bart-large-cnn")
-        
         client, source = await get_huggingface_client(user_id, model=model)
-        
+
         if not client:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "No HuggingFace API key configured",
-                    "source": source
-                }
-            )
-        
-        # Perform summarization
+            return {
+                "success": False,
+                "error": "No HuggingFace API key configured. Add your key in API Setup.",
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
         try:
-            result = client.summarization(
-                text,
-                parameters={"max_length": max_length}
-            )
-            
-            summary = result[0]["summary_text"] if result else ""
-            
+            raw = client.summarization(text, parameters={"max_length": max_length})
+            summary = raw[0].get("summary_text", "") if raw else ""
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
             return {
                 "success": True,
-                "original_text": text,
-                "summary": summary,
-                "model": model,
+                "result": {"summary": summary},
+                "model_used": model,
+                "latency_ms": latency_ms,
                 "source": source,
-                "original_length": len(text),
-                "summary_length": len(summary)
             }
-            
-        except Exception as e:
-            logger.error(f"Summarization failed: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Summarization failed: {str(e)}"
-            )
-        
-    except HTTPException:
-        raise
+        except Exception as infer_err:
+            logger.error(f"HF summarize error: {infer_err}")
+            return {
+                "success": False,
+                "error": str(infer_err),
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
     except Exception as e:
-        logger.error(f"Summarize error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Summarize outer error: {e}")
+        return {"success": False, "error": str(e), "model_used": model, "result": None, "source": "error"}
 
 
 @router.post("/api/huggingface/classify")
@@ -361,72 +328,55 @@ async def classify_text(
     user_id: str = Depends(get_current_user)
 ):
     """
-    Perform zero-shot classification on text using HuggingFace.
-    
-    Allows classifying text into custom categories without training.
-    Uses facebook/bart-large-mnli or similar zero-shot models.
-    
-    Args:
-        data: Dictionary containing:
-            - text (str): Text to classify
-            - labels (list): List of classification labels
-            - model (str, optional): Model to use (default: facebook/bart-large-mnli)
-            
-    Returns:
-        Classification results with labels and scores
+    Zero-shot classification using HuggingFace.
+    Always returns structured JSON { success, result, model_used, latency_ms, source }.
     """
+    t0 = time.monotonic()
+    text = (data.get("text") or "").strip()
+    labels = data.get("labels", [])
+
+    if not text:
+        return {"success": False, "error": "text is required", "model_used": None, "result": None, "source": "none"}
+    if not labels:
+        return {"success": False, "error": "labels required for classify", "model_used": None, "result": None, "source": "none"}
+
+    model = data.get("model") or HF_DEFAULT_MODELS["classify"]
+
     try:
-        text = data.get("text")
-        labels = data.get("labels", [])
-        
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        if not labels or len(labels) == 0:
-            raise HTTPException(status_code=400, detail="At least one label is required")
-        
-        model = data.get("model", "facebook/bart-large-mnli")
-        
         client, source = await get_huggingface_client(user_id, model=model)
-        
+
         if not client:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "No HuggingFace API key configured",
-                    "source": source
-                }
-            )
-        
-        # Perform zero-shot classification
+            return {
+                "success": False,
+                "error": "No HuggingFace API key configured. Add your key in API Setup.",
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
         try:
-            result = client.zero_shot_classification(
-                text,
-                labels,
-                multi_label=False
-            )
-            
+            raw = client.zero_shot_classification(text, labels, multi_label=False)
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
             return {
                 "success": True,
-                "text": text,
-                "labels": result.get("labels", []),
-                "scores": result.get("scores", []),
-                "model": model,
-                "source": source
+                "result": {"labels": raw.get("labels", []), "scores": raw.get("scores", [])},
+                "model_used": model,
+                "latency_ms": latency_ms,
+                "source": source,
             }
-            
-        except Exception as e:
-            logger.error(f"Classification failed: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Classification failed: {str(e)}"
-            )
-        
-    except HTTPException:
-        raise
+        except Exception as infer_err:
+            logger.error(f"HF classify error: {infer_err}")
+            return {
+                "success": False,
+                "error": str(infer_err),
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
     except Exception as e:
-        logger.error(f"Classify error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Classify outer error: {e}")
+        return {"success": False, "error": str(e), "model_used": model, "result": None, "source": "error"}
 
 
 @router.post("/api/huggingface/embeddings")
@@ -436,73 +386,59 @@ async def generate_embeddings(
 ):
     """
     Generate text embeddings using HuggingFace sentence transformers.
-    
-    Useful for semantic similarity, clustering, and RL feature extraction.
-    Uses sentence-transformers/all-MiniLM-L6-v2 or similar models.
-    
-    Args:
-        data: Dictionary containing:
-            - text (str): Text to generate embeddings for
-            - model (str, optional): Model to use (default: sentence-transformers/all-MiniLM-L6-v2)
-            
-    Returns:
-        Embedding vector as a list of floats
+    Always returns structured JSON { success, result, model_used, latency_ms, source }.
     """
+    t0 = time.monotonic()
+    text = (data.get("text") or "").strip()
+    if not text:
+        return {"success": False, "error": "text is required", "model_used": None, "result": None, "source": "none"}
+
+    model = data.get("model") or HF_DEFAULT_MODELS["embeddings"]
+
     try:
-        text = data.get("text")
-        
-        if not text:
-            raise HTTPException(status_code=400, detail="Text is required")
-        
-        model = data.get("model", "sentence-transformers/all-MiniLM-L6-v2")
-        
         client, source = await get_huggingface_client(user_id, model=model)
-        
+
         if not client:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "No HuggingFace API key configured",
-                    "source": source
-                }
-            )
-        
-        # Generate embeddings
+            return {
+                "success": False,
+                "error": "No HuggingFace API key configured. Add your key in API Setup.",
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
         try:
-            result = client.feature_extraction(text)
-            
-            # HuggingFace returns nested lists, flatten to 1D vector
-            if isinstance(result, list) and len(result) > 0:
-                if isinstance(result[0], list):
-                    # Take mean pooling if multiple token embeddings
+            raw = client.feature_extraction(text)
+            # HuggingFace returns nested lists — take mean pooling
+            if isinstance(raw, list) and len(raw) > 0:
+                if isinstance(raw[0], list):
                     import numpy as np
-                    embeddings = np.mean(result, axis=0).tolist()
+                    embeddings = list(map(float, np.mean(raw, axis=0)))
                 else:
-                    embeddings = result
+                    embeddings = [float(v) for v in raw]
             else:
                 embeddings = []
-            
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
             return {
                 "success": True,
-                "text": text,
-                "embeddings": embeddings,
-                "dimensions": len(embeddings),
-                "model": model,
-                "source": source
+                "result": {"embeddings": embeddings, "dimensions": len(embeddings)},
+                "model_used": model,
+                "latency_ms": latency_ms,
+                "source": source,
             }
-            
-        except Exception as e:
-            logger.error(f"Embeddings generation failed: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Embeddings generation failed: {str(e)}"
-            )
-        
-    except HTTPException:
-        raise
+        except Exception as infer_err:
+            logger.error(f"HF embeddings error: {infer_err}")
+            return {
+                "success": False,
+                "error": str(infer_err),
+                "model_used": model,
+                "result": None,
+                "source": source,
+            }
+
     except Exception as e:
-        logger.error(f"Embeddings error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Embeddings outer error: {e}")
+        return {"success": False, "error": str(e), "model_used": model, "result": None, "source": "error"}
 
 
 # ============================================================================
@@ -540,18 +476,17 @@ async def get_hf_status(user_id: str = Depends(get_current_user)):
             }
 
         if _hf_last_success is None:
-            # Run a lightweight health probe on first call
+            # Run a lightweight health probe on first call using whoami (no inference needed)
             t0 = time.monotonic()
             try:
-                client, _ = await get_huggingface_client(user_id, model=model_id)
-                if client:
-                    _ = client.text_classification(HF_HEALTH_PROBE_TEXT)
-                    _hf_last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
-                    _hf_last_success = datetime.now(timezone.utc).isoformat()
-                    _hf_last_error = None
+                from huggingface_hub import HfApi
+                api = HfApi(token=api_key)
+                api.whoami()  # Validates token without hitting inference endpoint
+                _hf_last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
+                _hf_last_success = datetime.now(timezone.utc).isoformat()
+                _hf_last_error = None
             except Exception as probe_err:
                 err_msg = str(probe_err)
-                # Rate-limit error logging: only store the message, avoid log spam
                 _hf_last_error = err_msg
                 logger.warning("HF health probe failed (will not retry until restart): %s", err_msg[:200])
 
@@ -602,12 +537,7 @@ async def hf_infer(data: dict, user_id: str = Depends(get_current_user)):
     model_override = data.get("model")
 
     try:
-        DEFAULT_MODELS = {
-            "sentiment": "distilbert-base-uncased-finetuned-sst-2-english",
-            "summarize": "facebook/bart-large-cnn",
-            "classify": "facebook/bart-large-mnli",
-        }
-        model_id = model_override or DEFAULT_MODELS.get(task, DEFAULT_MODELS["sentiment"])
+        model_id = model_override or HF_DEFAULT_MODELS.get(task, HF_DEFAULT_MODELS["sentiment"])
         client, source = await get_huggingface_client(user_id, model=model_id)
         if not client:
             raise HTTPException(

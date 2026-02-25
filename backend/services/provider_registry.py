@@ -79,33 +79,23 @@ async def test_openai(api_key: str, api_secret: Optional[str] = None) -> tuple[b
             return False, f"Test failed: {error_msg[:100]}"
 
 
-async def test_flokx(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Flokx AI API key"""
+async def test_coinstats(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Test CoinStats API key by making a minimal news request"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://api.flokx.io/v1/status",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10.0
+                "https://openapiv1.coinstats.app/news",
+                headers={"X-API-KEY": api_key, "Accept": "application/json"},
+                params={"limit": "1"},
+                timeout=10.0,
             )
-            
             if response.status_code == 200:
                 return True, None
             elif response.status_code == 401:
-                return False, "Invalid API key"
+                return False, "Invalid API key (401)"
             else:
                 return False, f"API returned status {response.status_code}"
-    except httpx.ConnectError as e:
-        err_str = str(e).lower()
-        if "name or service not known" in err_str or "domain name not found" in err_str or "nodename nor servname" in err_str or "errno -2" in err_str or "getaddrinfo" in err_str:
-            logger.warning(f"FLOKx DNS resolution failure: {e}")
-            return False, "service unreachable (DNS)"
-        logger.warning(f"FLOKx connection error: {e}")
-        return False, "service unreachable (connection error)"
     except Exception as e:
-        err_str = str(e).lower()
-        if "name or service not known" in err_str or "domain name not found" in err_str or "getaddrinfo" in err_str:
-            return False, "service unreachable (DNS)"
         return False, f"Test failed: {str(e)[:100]}"
 
 
@@ -328,14 +318,14 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         icon="openai.svg",
         description="OpenAI GPT models for AI trading intelligence"
     ),
-    "flokx": ProviderDefinition(
-        provider_id="flokx",
+    "coinstats": ProviderDefinition(
+        provider_id="coinstats",
         provider_type=ProviderType.AI,
-        display_name="Flokx AI",
+        display_name="CoinStats",
         required_fields=["api_key"],
-        test_method=test_flokx,
-        icon="flokx.svg",
-        description="Flokx AI for advanced market analysis"
+        test_method=test_coinstats,
+        icon="coinstats.svg",
+        description="CoinStats crypto news feed with HuggingFace sentiment scoring"
     ),
     "fetchai": ProviderDefinition(
         provider_id="fetchai",

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/live", tags=["Live Trading"])
 
 # AI/non-exchange providers that must never be treated as CCXT exchanges
-NON_EXCHANGE_PROVIDERS = frozenset({'openai', 'huggingface', 'flokx', 'fetchai'})
+NON_EXCHANGE_PROVIDERS = frozenset({'openai', 'huggingface', 'coinstats', 'fetchai'})
 
 # Per-exchange default test symbol when no active bot pair is available
 _EXCHANGE_DEFAULT_SYMBOL: Dict[str, str] = {

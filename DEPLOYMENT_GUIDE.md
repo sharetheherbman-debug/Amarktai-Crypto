@@ -363,3 +363,65 @@ This update resolves the critical paper trading resume bug by:
 5. **Polishing UI** - Professional branding with logo, gradient, and "AI" styling
 
 All changes are backward-compatible and maintain existing safety guardrails.
+
+---
+
+## Go-Live Fixes (v2 — 2026-02)
+
+### News Provider: CoinStats (replaces GDELT)
+
+| Variable | Default | Description |
+|---|---|---|
+| `NEWS_PROVIDER` | `coinstats` | Primary news source |
+| `NEWS_ENABLED` | `true` | Enable/disable news fetching |
+| `NEWS_CACHE_TTL_SECONDS` | `300` | How long to cache articles (seconds) |
+| `COINSTATS_API_KEY` | _(empty)_ | Global CoinStats key (env fallback; per-user key takes priority) |
+| `HF_ENABLED` | `true` | Enable HuggingFace sentiment scoring on headlines |
+| `HF_DEFAULT_SENTIMENT_MODEL` | `distilbert-base-uncased-finetuned-sst-2-english` | Model for headline sentiment |
+
+**FLOKx is permanently disabled.** The background poller is removed. All
+`/api/flokx/*` endpoints return graceful `configured: false` responses.
+
+**GDELT is disabled.** `services/news_gdelt.py` is a no-op stub. No GDELT
+network calls are made.
+
+### HuggingFace Default Models
+
+| Task | Default Model |
+|---|---|
+| `sentiment` | `distilbert-base-uncased-finetuned-sst-2-english` |
+| `summarize` | `facebook/bart-large-cnn` |
+| `embeddings` | `sentence-transformers/all-MiniLM-L6-v2` |
+| `classify` | `facebook/bart-large-mnli` |
+
+All HuggingFace endpoints now use `https://api-inference.huggingface.co/models/{model}`
+(classic Inference API) to avoid 404 errors from `router.huggingface.co`.
+
+The health probe uses `HfApi.whoami()` instead of inference, so it validates
+the token without requiring a model to be warm.
+
+### Paper Reset Invariants
+
+After `POST /api/system/paper-sandbox/reset`:
+
+| Endpoint | Expected |
+|---|---|
+| `/api/analytics/equity` → `current_equity` | `0` |
+| `/api/countdown/status` → `current_equity` | `0` |
+| `/api/countdown/status` → `trades_total` | `0` |
+| `/api/analytics/countdown-to-million` → `current_capital` | `0` |
+
+If any mismatch, the reset response includes `invariant_warnings[]`.
+
+### Go-Live Regression Audit
+
+Run before every deployment:
+
+```bash
+BASE_URL=http://your-vps:8000 \
+AMARKTAI_EMAIL=admin@example.com \
+AMARKTAI_PASSWORD=yourpassword \
+bash scripts/go_live_audit.sh
+```
+
+The script exits non-zero if any FAIL check is detected.

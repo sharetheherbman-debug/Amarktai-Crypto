@@ -6,8 +6,8 @@
 // Supported exchanges (in display order) - EXACTLY 7 EXCHANGES
 export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
 
-// Supported AI providers - EXACTLY 4 PROVIDERS (OpenAI, Flokx, Fetch.ai, HuggingFace)
-export const SUPPORTED_AI_PROVIDERS = ['openai', 'flokx', 'fetchai', 'huggingface'];
+// Supported AI providers - EXACTLY 4 PROVIDERS (OpenAI, CoinStats, Fetch.ai, HuggingFace)
+export const SUPPORTED_AI_PROVIDERS = ['openai', 'coinstats', 'fetchai', 'huggingface'];
 
 // All supported providers (exchanges + AI)
 export const ALL_PROVIDERS = [...SUPPORTED_PLATFORMS, ...SUPPORTED_AI_PROVIDERS];
@@ -123,12 +123,12 @@ export const PLATFORM_CONFIG = {
     enabled: true,
     requiredKeyFields: ['api_key']
   },
-  flokx: {
-    id: 'flokx',
-    name: 'FlokX',
-    displayName: 'FlokX AI',
-    icon: '🧠',
-    color: '#6366F1',
+  coinstats: {
+    id: 'coinstats',
+    name: 'CoinStats',
+    displayName: 'CoinStats',
+    icon: '📰',
+    color: '#2F80ED',
     type: 'ai_provider',
     enabled: true,
     requiredKeyFields: ['api_key']
