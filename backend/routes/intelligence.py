@@ -72,6 +72,8 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "last_run_at": last_run_at,
             "next_run_in_seconds": next_run_in,
             "refresh_interval_seconds": _REFRESH_INTERVAL,
+            "fetch_status": brief.get("fetch_status", "ok" if last_run_at else "pending"),
+            "block_reason": brief.get("block_reason"),
             "what_it_does": (
                 "Automatically fetches CoinStats headlines every "
                 f"{_REFRESH_INTERVAL}s, classifies market sentiment, "
