@@ -251,7 +251,9 @@ export default function GrowthEngineSection() {
               <div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px' }}>Market Regime</div>
                 <div style={{ fontSize: '0.88rem', color: 'var(--text)', textTransform: 'capitalize' }}>
-                  {status.current_regime || 'Unknown'} ({((status.confidence || 0) * 100).toFixed(0)}% confidence)
+                  {status.current_regime && status.current_regime !== 'unknown' ? status.current_regime : 'Neutral'}
+                  {' '}({((status.confidence || 0) * 100).toFixed(0)}% confidence
+                  {(status.confidence || 0) === 0 ? ' — awaiting data' : ''})
                 </div>
               </div>
               <div>
@@ -269,7 +271,23 @@ export default function GrowthEngineSection() {
             </div>
             {status.blocked_reasons?.length > 0 && (
               <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(239,68,68,0.08)', borderRadius: '6px', fontSize: '0.82rem', color: '#ef4444' }}>
-                {status.blocked_reasons.map((r, i) => <div key={i}>🔒 {r}</div>)}
+                {/* Deduplicated — backend may merge guardrail + state reasons */}
+                {[...new Set(status.blocked_reasons)].map((r, i) => <div key={i}>🔒 {r}</div>)}
+              </div>
+            )}
+            {/* Structured guardrail checks — show when available */}
+            {status.guardrails?.checks && Object.keys(status.guardrails.checks).length > 0 && (
+              <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {Object.entries(status.guardrails.checks).map(([k, v]) => (
+                  <span key={k} style={{
+                    fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px',
+                    background: v ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                    color: v ? 'var(--success)' : '#ef4444',
+                    border: `1px solid ${v ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  }}>
+                    {v ? '✓' : '✗'} {k.replace(/_ok$/, '').replace(/_/g, ' ')}
+                  </span>
+                ))}
               </div>
             )}
             {status.last_actions?.length > 0 && (
@@ -407,9 +425,10 @@ export default function GrowthEngineSection() {
               Last Run Result — {new Date(runResult.timestamp).toLocaleString()}
             </div>
             <div style={{ fontSize: '0.88rem', color: 'var(--text)', marginBottom: '8px' }}>{runResult.summary}</div>
-            {runResult.blocked_reasons?.length > 0 && (
+            {/* Only show blocked_reasons here if not already shown in status block above */}
+            {runResult.blocked_reasons?.length > 0 && !status?.blocked && (
               <div style={{ color: '#ef4444', fontSize: '0.82rem' }}>
-                🔒 Blocked: {runResult.blocked_reasons.join('; ')}
+                🔒 Blocked: {[...new Set(runResult.blocked_reasons)].join('; ')}
               </div>
             )}
             {runResult.actions_proposed?.length > 0 && (

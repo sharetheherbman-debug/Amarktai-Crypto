@@ -64,21 +64,41 @@ DEFAULT_SETTINGS = {
 
 async def _check_guardrails(user_id: str) -> Dict[str, Any]:
     """
-    Check all safety gates and return a dict of active blocks.
-    Returns {"ok": True} if all clear, or {"ok": False, "reasons": [...]} if blocked.
+    Check all safety gates and return a structured dict.
+    Always returns a valid dict — never raises.
     """
     blocked_reasons = []
+    checks = {
+        "db_ok": False,
+        "user_found": False,
+        "daily_loss_ok": True,
+        "bodyguard_ok": True,
+        "emergency_stop_ok": True,
+    }
     try:
         import database as db
         if db.users_collection is None:
-            return {"ok": False, "reasons": ["Database not initialized"]}
+            return {
+                "ok": False,
+                "reasons": ["Database not initialized"],
+                "status": "blocked",
+                "checks": checks,
+            }
+        checks["db_ok"] = True
 
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         if not user:
-            return {"ok": False, "reasons": ["User not found"]}
+            return {
+                "ok": False,
+                "reasons": ["User not found"],
+                "status": "blocked",
+                "checks": checks,
+            }
+        checks["user_found"] = True
 
         # Daily loss lock
         if user.get("daily_loss_lock_active"):
+            checks["daily_loss_ok"] = False
             blocked_reasons.append(
                 f"Daily loss lock is active (triggered {user.get('daily_loss_locked_reason', 'limit exceeded')}). "
                 "Growth Engine paused until lock resets."
@@ -86,26 +106,38 @@ async def _check_guardrails(user_id: str) -> Dict[str, Any]:
 
         # Bodyguard lock
         if user.get("bodyguard_lock_active"):
+            checks["bodyguard_ok"] = False
             blocked_reasons.append(
                 "AI Bodyguard lock is active. Growth Engine paused until bodyguard resets."
             )
 
-        # Emergency stop
-        emergency_doc = await db.emergency_stop_collection.find_one(
-            {"user_id": user_id, "active": True}, {"_id": 0}
-        ) if db.emergency_stop_collection else None
-        if emergency_doc:
-            blocked_reasons.append(
-                "Emergency stop is engaged. Growth Engine paused until emergency stop is lifted."
+        # Emergency stop — use is not None to avoid PyMongo Collection bool error
+        if db.emergency_stop_collection is not None:
+            emergency_doc = await db.emergency_stop_collection.find_one(
+                {"user_id": user_id, "active": True}, {"_id": 0}
             )
+            if emergency_doc:
+                checks["emergency_stop_ok"] = False
+                blocked_reasons.append(
+                    "Emergency stop is engaged. Growth Engine paused until emergency stop is lifted."
+                )
 
     except Exception as e:
         logger.warning(f"Growth guardrail check error for {user_id}: {e}")
-        blocked_reasons.append(f"Guardrail check failed: {str(e)[:100]}")
+        return {
+            "ok": False,
+            "reasons": [f"Guardrail check failed: {str(e)[:150]}"],
+            "status": "blocked",
+            "checks": checks,
+        }
 
-    if blocked_reasons:
-        return {"ok": False, "reasons": blocked_reasons}
-    return {"ok": True, "reasons": []}
+    ok = len(blocked_reasons) == 0
+    return {
+        "ok": ok,
+        "reasons": blocked_reasons,
+        "status": "ok" if ok else "blocked",
+        "checks": checks,
+    }
 
 
 # ── Settings persistence ──────────────────────────────────────────────────────
@@ -157,11 +189,11 @@ async def get_state(user_id: str) -> dict:
                     "confidence": 0.0, "blocked_reasons": [], "last_actions": []}
         coll = db.db["growth_engine_state"]
         doc = await coll.find_one({"user_id": user_id}, {"_id": 0})
-        return doc or {"user_id": user_id, "last_tick": None, "current_regime": "unknown",
+        return doc or {"user_id": user_id, "last_tick": None, "current_regime": "neutral",
                        "confidence": 0.0, "blocked_reasons": [], "last_actions": []}
     except Exception as e:
         logger.error(f"get_state error for {user_id}: {e}")
-        return {"user_id": user_id, "last_tick": None, "current_regime": "unknown",
+        return {"user_id": user_id, "last_tick": None, "current_regime": "neutral",
                 "confidence": 0.0, "blocked_reasons": [], "last_actions": []}
 
 
@@ -212,6 +244,7 @@ async def _detect_regime() -> tuple[str, float]:
     """
     Detect current market regime using CoinStats intelligence and live prices.
     Returns (regime_name, confidence 0-1).
+    Never returns "unknown" — falls back to "neutral" with a reason.
     """
     try:
         from services.market_intelligence_service import get_latest_intelligence
@@ -219,6 +252,11 @@ async def _detect_regime() -> tuple[str, float]:
         mood = intel.get("mood", "neutral")
         risk = intel.get("top_risk", "none")
         updated_at = intel.get("updated_at")
+        fetch_status = intel.get("fetch_status", "ok")
+
+        # No data yet or key missing — return neutral with low confidence
+        if fetch_status in ("key_missing", "no_articles", "error") or not updated_at:
+            return "neutral", 0.0
 
         # Stale if not updated in last 30 minutes
         if updated_at:
@@ -226,7 +264,7 @@ async def _detect_regime() -> tuple[str, float]:
                 last_dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
                 age_minutes = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
                 if age_minutes > 30:
-                    return "unknown", 0.3
+                    return "neutral", 0.3
             except Exception:
                 pass
 
@@ -242,7 +280,7 @@ async def _detect_regime() -> tuple[str, float]:
             return "neutral", 0.5
     except Exception as e:
         logger.debug(f"Regime detection error: {e}")
-        return "unknown", 0.3
+        return "neutral", 0.0
 
 
 # ── Individual feature implementations ───────────────────────────────────────

@@ -44,7 +44,7 @@ async def get_wallet_status(user_id: str = Depends(get_current_user)):
         
         # Get paper balances
         paper_balances = {}
-        if db.paper_balances_collection:
+        if db.paper_balances_collection is not None:
             paper_doc = await db.paper_balances_collection.find_one(
                 {"user_id": user_id},
                 {"_id": 0}

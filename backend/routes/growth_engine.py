@@ -114,6 +114,18 @@ async def get_growth_status(user_id: str = Depends(get_current_user)):
         except Exception:
             pass
 
+        # Deduplicate blocked_reasons — state reasons may overlap with guardrail reasons
+        all_reasons = list(dict.fromkeys(
+            guardrail.get("reasons", []) + state.get("blocked_reasons", [])
+        ))
+
+        # Structured guardrail block (requirement D)
+        guardrails_block = {
+            "status": guardrail.get("status", "ok" if guardrail.get("ok") else "blocked"),
+            "reasons": guardrail.get("reasons", []),
+            "checks": guardrail.get("checks", {}),
+        }
+
         return {
             "success": True,
             "enabled": settings.get("enabled", False),
@@ -122,10 +134,11 @@ async def get_growth_status(user_id: str = Depends(get_current_user)):
             "active_features": active_features,
             "last_tick": state.get("last_tick"),
             "last_tick_at": state.get("last_tick"),
-            "current_regime": state.get("current_regime", "unknown"),
+            "current_regime": state.get("current_regime", "neutral"),
             "confidence": state.get("confidence", 0.0),
             "blocked": not guardrail["ok"],
-            "blocked_reasons": guardrail.get("reasons", []) + state.get("blocked_reasons", []),
+            "blocked_reasons": all_reasons,
+            "guardrails": guardrails_block,
             "last_actions": state.get("last_actions", []),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -192,6 +205,78 @@ async def run_growth_once(
     except Exception as e:
         logger.error(f"POST /growth/run-once error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/diagnostics")
+async def get_growth_diagnostics(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/growth/diagnostics
+
+    Full diagnostic snapshot of the Growth Engine for this user.
+    Returns:
+      - engine_active: bool
+      - market_regime: string
+      - confidence: 0-100
+      - guardrails: structured checks dict
+      - active_features: list
+      - last_tick: timestamp or null
+      - last_error: null or string
+    """
+    try:
+        from services.growth_engine_service import (
+            get_settings, get_state, _check_guardrails, _detect_regime, get_decisions
+        )
+
+        settings = await get_settings(user_id)
+        state = await get_state(user_id)
+        guardrail = await _check_guardrails(user_id)
+        regime, confidence = await _detect_regime()
+
+        TOGGLE_KEYS = [
+            "profit_recycling", "capital_redistribution", "strategy_specialization",
+            "trade_frequency_tuning", "dynamic_risk_budgeting", "capital_aggression",
+            "exchange_filtering", "bot_cap_ramp", "leverage_enabled",
+        ]
+        active_features = [k for k in TOGGLE_KEYS if settings.get(k)]
+
+        # Last error from most recent decision
+        recent = await get_decisions(user_id, limit=1)
+        last_error = None
+        if recent:
+            d = recent[0]
+            if d.get("blocked_reasons"):
+                last_error = d["blocked_reasons"][0]
+            elif "error" in d.get("summary", "").lower():
+                last_error = d.get("summary")
+
+        return {
+            "success": True,
+            "engine_active": settings.get("enabled", False),
+            "market_regime": regime,
+            "confidence": round(confidence * 100),
+            "guardrails": {
+                "status": guardrail.get("status", "ok" if guardrail.get("ok") else "blocked"),
+                "reasons": guardrail.get("reasons", []),
+                "checks": guardrail.get("checks", {}),
+            },
+            "active_features": active_features,
+            "last_tick": state.get("last_tick"),
+            "last_error": last_error,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"GET /growth/diagnostics error: {e}")
+        return {
+            "success": False,
+            "engine_active": False,
+            "market_regime": "neutral",
+            "confidence": 0,
+            "guardrails": {"status": "error", "reasons": [str(e)], "checks": {}},
+            "active_features": [],
+            "last_tick": None,
+            "last_error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

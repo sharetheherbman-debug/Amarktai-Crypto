@@ -337,7 +337,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
               </div>
             )}
 
-            {walletStatus.deficit !== undefined && walletStatus.deficit > 0 && (
+            {walletStatus.deficit !== undefined && walletStatus.deficit > 0 && walletStatus.mode !== 'paper' && (
               <div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Deficit</div>
                 <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--error)' }}>
@@ -345,11 +345,21 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
                 </div>
               </div>
             )}
+            {walletStatus.mode === 'paper' && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', gridColumn: '1 / -1', padding: '6px 0', borderTop: '1px solid var(--line)', marginTop: '4px' }}>
+                📝 Paper mode — simulated capital. No real funds required or at risk.
+              </div>
+            )}
             
             <div>
               <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
               <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
                 {walletStatus.active_bots ?? walletStatus.required_funding?.bot_count ?? 0}
+                {walletStatus.mode === 'paper' && walletStatus.paper_bots?.count > 0 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)', marginLeft: '6px' }}>
+                    ({walletStatus.paper_bots.count} paper)
+                  </span>
+                )}
               </div>
             </div>
           </div>
