@@ -395,7 +395,6 @@ export default function BotManagementSection({
                   </div>
                 </div>
 
-                <div className="bot-management-section">
               </div>
             </div>
 

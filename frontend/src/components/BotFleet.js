@@ -171,10 +171,16 @@ const BotFleetItem = ({ bot, isExpanded, onToggle, onControl, controlLoading }) 
                   <span style={{ color: 'var(--muted)' }}>Trades:</span>
                   <span style={{ color: 'var(--text)', fontWeight: 500 }}>{bot.trades_count || 0}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ color: 'var(--muted)' }}>Win Rate:</span>
                   <span style={{ color: 'var(--text)', fontWeight: 500 }}>
                     {bot.win_rate ? `${bot.win_rate.toFixed(1)}%` : 'N/A'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--muted)' }}>Drawdown:</span>
+                  <span style={{ color: (bot.max_drawdown_pct || bot.max_drawdown || 0) > 5 ? 'var(--error)' : 'var(--text)', fontWeight: 500 }}>
+                    {bot.max_drawdown_pct != null ? `${Number(bot.max_drawdown_pct).toFixed(1)}%` : (bot.max_drawdown != null ? `${(Number(bot.max_drawdown) * 100).toFixed(1)}%` : 'N/A')}
                   </span>
                 </div>
               </div>
@@ -190,6 +196,12 @@ const BotFleetItem = ({ bot, isExpanded, onToggle, onControl, controlLoading }) 
                   <span style={{ color: 'var(--muted)' }}>Last Trade:</span>
                   <span style={{ color: 'var(--text)', fontWeight: 500, fontSize: '0.85rem' }}>
                     {formatDate(bot.last_trade_time || bot.last_trade_at)}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--muted)' }}>Last Action:</span>
+                  <span style={{ color: 'var(--text)', fontWeight: 500, fontSize: '0.85rem' }}>
+                    {formatDate(bot.last_action_time || bot.updated_at)}
                   </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
