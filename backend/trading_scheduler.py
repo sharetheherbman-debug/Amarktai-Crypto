@@ -628,7 +628,13 @@ class TradingScheduler:
                 await realtime_service.broadcast_trade_execution(bot['user_id'], trade_doc)
             except Exception as e:
                 logger.warning(f"Realtime trade broadcast failed: {e}")
-            
+
+            try:
+                from services.trade_analyst import record_trade_lesson
+                await record_trade_lesson(bot['user_id'], bot['id'], trade_doc)
+            except Exception as e:
+                logger.debug(f"Trade lesson record failed: {e}")
+
             # Update bot stats
             from utils.trade_utils import classify_trade_outcome
             net_profit = trade_result.get('net_profit', 0)

@@ -237,6 +237,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
 
+    # Start Market Intelligence Scheduler (optional)
+    try:
+        from services.market_intelligence_service import start_intelligence_scheduler
+        asyncio.create_task(start_intelligence_scheduler())
+        logger.info("🧠 Market Intelligence Scheduler started")
+    except Exception as e:
+        logger.warning(f"Could not start Market Intelligence Scheduler: {e}")
+
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint
@@ -3200,6 +3208,7 @@ routers_to_mount = [
     ("routes.ai_status", "AI Configuration Status"),  # NEW - OpenAI key status for dashboard compatibility
     ("routes.autopilot_config", "Autopilot Configuration"),  # NEW - User-configurable autopilot settings per exchange
     ("routes.system_capabilities", "System Capabilities"),  # NEW - Unified capabilities and missing keys status
+    ("routes.events", "Events Feed"),  # NEW - Per-user events stream
 ]
 
 # Mount realtime router only if enabled via feature flag
