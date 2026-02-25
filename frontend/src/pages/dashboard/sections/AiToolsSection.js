@@ -890,7 +890,6 @@ export default function AiToolsSection({ bots, onRefresh }) {
                         }}
                       >
                         <option value="fetchai">🔮 Fetch.ai uAgent</option>
-                        <option value="flokx">🧠 FlokX Alert Bot</option>
                       </select>
                     </div>
 

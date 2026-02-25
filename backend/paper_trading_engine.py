@@ -874,9 +874,8 @@ class PaperTradingEngine:
             from ml_predictor import ml_predictor
             prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
             
-            # 4. AI INTELLIGENCE: Get Flokx signals (if available)
-            from flokx_integration import flokx
-            flokx_data = await flokx.fetch_market_coefficients(symbol)
+            # External signal provider removed — use unavailable stub
+            ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
             
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
             from fetchai_integration import fetchai
@@ -941,7 +940,7 @@ class PaperTradingEngine:
             
             # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
             # Only count AI sources that are non-simulated (i.e. real data available).
-            # When external APIs (FLOKx / Fetch.ai) are not configured their data is marked
+            # When external APIs (Fetch.ai) are not configured their data is marked
             # is_simulated=True and must not inflate or block the gate.
             total_confidence = 0
             confidence_sources = 0
@@ -967,12 +966,7 @@ class PaperTradingEngine:
                     total_confidence += (fetchai_data.get('confidence', 0) / 100)
                     confidence_sources += 1
 
-            # FLOKx — only count when configured (not simulated)
-            if not flokx_data.get('is_simulated', True):
-                available_sources += 1
-                if flokx_data.get('strength', 0) > 60:
-                    total_confidence += (flokx_data.get('strength', 0) / 100)
-                    confidence_sources += 1
+            # (external signal provider removed — always simulated, not counted)
 
             # Require at least 1 confident source when ≤2 sources are available,
             # or at least 2 when 3+ sources are available.
@@ -1006,8 +1000,6 @@ class PaperTradingEngine:
             if prediction.get('confidence', 0) > 0.75:
                 ai_agreement += 1
             if fetchai_data.get('confidence', 0) > 80:
-                ai_agreement += 1
-            if flokx_data.get('strength', 0) > 75:
                 ai_agreement += 1
             
             # Boost: 1-2 sources = 1.0x, 3 sources = 1.25x, 4 sources = 1.5x
@@ -1194,8 +1186,6 @@ class PaperTradingEngine:
                 "ai_confidence": round(regime.get('confidence', 0), 2),
                 "ml_prediction": prediction.get('direction', 'neutral'),
                 "ml_confidence": round(prediction.get('confidence', 0), 2),
-                "flokx_strength": round(flokx_data.get('strength', 0), 1),
-                "flokx_sentiment": flokx_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
                 "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
             }

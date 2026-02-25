@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # All supported providers
 SUPPORTED_PROVIDERS = [
-    'openai', 'fetchai',  # AI providers (flokx removed - deprecated)
+    'openai', 'fetchai',  # AI providers
     'luno', 'binance', 'kucoin', 'bybit', 'bitget'  # Exchange providers
 ]
 
@@ -187,10 +187,7 @@ class KeysService:
             # Generic validation for AI providers without live test
             metadata = {'provider': provider_lower, 'test_type': 'format_validation'}
             return True, metadata, None
-            
-        elif provider_lower == 'flokx':
-            return False, None, "FLOKx provider has been removed. Use CoinStats instead."
-            
+
         else:
             return False, None, f"Provider {provider} not supported"
     

@@ -38,7 +38,7 @@ This document lists all API endpoints called by the Amarktai Network dashboard (
 | DELETE | `/api/bots/{bot_id}` | Delete bot | Yes | ✅ |
 | POST | `/api/bots/{bot_id}/{action}` | Bot lifecycle actions (pause/resume) | Yes | ✅ |
 | POST | `/api/bots/uagent` | Create uAgent bot | Yes | ✅ |
-| POST | `/api/bots/flokx` | Create Flokx bot | Yes | ✅ |
+| POST | `/api/bots/coinstats` | Create Flokx bot | Yes | ✅ |
 | POST | `/api/bots/evolve` | Trigger bot evolution | Yes | ✅ |
 | GET | `/api/bots/eligible-for-promotion` | Check promotion eligibility | Yes | ✅ |
 | POST | `/api/bots/confirm-live-switch` | Confirm live trading switch | Yes | ✅ |
@@ -142,7 +142,7 @@ This document lists all API endpoints called by the Amarktai Network dashboard (
 | Method | Path | Purpose | Auth | Status |
 |--------|------|---------|------|--------|
 | GET | `/api/advanced/whale/summary` | Get whale flow summary | Yes | ⚠️ (needs verification) |
-| GET | `/api/flokx/alerts` | Get Flokx alerts | Yes | ❌ (may not exist) |
+| GET | `/api/coinstats/alerts` | Get Flokx alerts | Yes | ❌ (may not exist) |
 
 ---
 
@@ -235,7 +235,7 @@ This document lists all API endpoints called by the Amarktai Network dashboard (
 ### High Priority Fixes
 1. **Fix `/api/auth/me`** - Critical for dashboard auth flow
 2. **Verify `/api/advanced/whale/summary`** - Used by Intelligence section
-3. **Implement `/api/flokx/alerts`** stub - Prevent 404 errors
+3. **Implement `/api/coinstats/alerts`** stub - Prevent 404 errors
 4. **Enable SSE by default** - Better than WS for dashboard updates
 5. **Fix admin permissions** - Ensure admin endpoints properly check role
 

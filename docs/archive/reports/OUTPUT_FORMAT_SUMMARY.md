@@ -139,7 +139,7 @@ Self-Learning • Self-Healing • 24/7 Market Intelligence
 
 ---
 
-### FLOKx API Key
+### CoinStats API Key
 **What it unlocks:**
 - Advanced market intelligence signals
 - Trading specialist insights (flock-trading-specialist-v1 model)
@@ -150,10 +150,10 @@ Self-Learning • Self-Healing • 24/7 Market Intelligence
 **Without this key:**
 - ✅ System operates normally
 - ✅ Basic trading intelligence still works
-- ⚠️ No FLOKx-enhanced signals or sentiment analysis
+- ⚠️ No CoinStats-enhanced signals or sentiment analysis
 - Shows: `not_configured` status
 
-**Where to add:** Settings → API Keys → FLOKx
+**Where to add:** Settings → API Keys → CoinStats
 
 ---
 
@@ -251,7 +251,7 @@ All API keys show one of these standardized states:
 - Documentation: 2,200+ lines
 
 **API Providers Supported:** 11
-- AI Services: 3 (OpenAI, FLOKx, HuggingFace)
+- AI Services: 3 (OpenAI, CoinStats, HuggingFace)
 - Exchanges: 7 (Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io)
 - Specialized: 1 (Fetch.ai)
 

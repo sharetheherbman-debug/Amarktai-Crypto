@@ -70,7 +70,7 @@ FROM_NAME=Amarktai Network
 
 # Optional Integrations
 FETCHAI_API_KEY=
-FLOKX_API_KEY=
+COINSTATS_API_KEY=
 
 # Redis (Optional - for WebSocket pub/sub)
 REDIS_URL=redis://localhost:6379
@@ -220,7 +220,7 @@ User updates key → saved_untested (resets test status)
 **AI APIs:**
 - openai: `api_key`
 - fetchai: `api_key`
-- flokx: `api_key`
+- coinstats: `api_key`
 
 ### API Key Repair
 

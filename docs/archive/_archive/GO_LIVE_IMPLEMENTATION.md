@@ -309,7 +309,7 @@ API_KEY_ENCRYPTION_KEY=your-encryption-key-base64
 # Optional (for full functionality)
 OPENAI_API_KEY=your-openai-key
 FETCHAI_API_KEY=your-fetchai-key
-FLOKX_API_KEY=your-flokx-key
+COINSTATS_API_KEY=your-coinstats-key
 ```
 
 ---

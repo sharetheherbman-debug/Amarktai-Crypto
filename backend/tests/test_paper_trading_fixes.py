@@ -2,11 +2,11 @@
 Tests for paper trading pipeline fixes (issue: queued but not executed/persisted).
 
 Key issues fixed:
-1. Quality filter blocked trades when FLOKx/Fetch.ai keys are missing.
+1. Quality filter blocked trades when external AI keys are missing.
 2. EDGE_GATE_PAPER blocked trades when ML predictor returns a simulated result.
-3. FLOKx/Fetch.ai "key not configured" warnings logged on every tick (rate-limited).
+3. External AI "key not configured" warnings logged on every tick (rate-limited).
 4. /api/wallet/paper missing canonical wallet_summary fields.
-5. /api/flokx/status and /api/fetchai/status now expose a machine-readable
+5. /api/fetchai/status now exposes a machine-readable
    "status" field (e.g. "not_configured") so callers can detect unconfigured
    integrations without parsing human-readable messages.
 """
@@ -35,8 +35,8 @@ def _make_ml_prediction(confidence: float = 0.8, direction: str = "up",
     }
 
 
-def _make_flokx_unavailable() -> dict:
-    """Simulates the return value when FLOKx key is not configured."""
+def _make_external_signal_unavailable() -> dict:
+    """Simulates the return value when external signal provider is not configured."""
     return {
         "strength": 0.0,
         "volatility": 0.0,
@@ -56,17 +56,17 @@ def _make_fetchai_unavailable() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Fix 1 + 2: Quality filter + edge gate when FLOKx/Fetch.ai are unavailable
+# Fix 1 + 2: Quality filter + edge gate when external AI sources are unavailable
 # ---------------------------------------------------------------------------
 
 class TestQualityFilterGracefulDegradation:
     """
-    When FLOKx and Fetch.ai keys are not configured both sources return
+    When external AI sources are not configured both return
     is_simulated=True.  Only regime + ML predictor are available.
     The quality filter must accept a trade if at least 1 source is confident.
     """
 
-    def _count_sources(self, regime, prediction, fetchai_data, flokx_data):
+    def _count_sources(self, regime, prediction, fetchai_data, external_data):
         """
         Mirrors the fixed quality-filter logic from execute_smart_trade.
         Returns (available_sources, confidence_sources, avg_confidence).
@@ -93,23 +93,23 @@ class TestQualityFilterGracefulDegradation:
                 total_confidence += fetchai_data.get("confidence", 0) / 100
                 confidence_sources += 1
 
-        if not flokx_data.get("is_simulated", True):
+        if not external_data.get("is_simulated", True):
             available_sources += 1
-            if flokx_data.get("strength", 0) > 60:
-                total_confidence += flokx_data.get("strength", 0) / 100
+            if external_data.get("strength", 0) > 60:
+                total_confidence += external_data.get("strength", 0) / 100
                 confidence_sources += 1
 
         avg = total_confidence / max(confidence_sources, 1)
         return available_sources, confidence_sources, avg
 
     def test_trade_allowed_when_only_regime_and_ml_available(self):
-        """When FLOKx+Fetch.ai are not configured, regime + ML should be enough."""
+        """When external AI sources are not configured, regime + ML should be enough."""
         regime = _make_regime(confidence=0.80)
         prediction = _make_ml_prediction(confidence=0.75, predicted_change=0.4)
-        flokx = _make_flokx_unavailable()
+        external_signal = _make_external_signal_unavailable()
         fetchai = _make_fetchai_unavailable()
 
-        available, contributing, avg = self._count_sources(regime, prediction, fetchai, flokx)
+        available, contributing, avg = self._count_sources(regime, prediction, fetchai, external_signal)
 
         # Only 2 sources available (regime + ML)
         assert available == 2
@@ -125,10 +125,10 @@ class TestQualityFilterGracefulDegradation:
         """Only regime is confident (ML returns simulated data) - 1 available source."""
         regime = _make_regime(confidence=0.80)
         prediction = _make_ml_prediction(is_simulated=True)  # CCXT failed
-        flokx = _make_flokx_unavailable()
+        external_signal = _make_external_signal_unavailable()
         fetchai = _make_fetchai_unavailable()
 
-        available, contributing, avg = self._count_sources(regime, prediction, fetchai, flokx)
+        available, contributing, avg = self._count_sources(regime, prediction, fetchai, external_signal)
 
         # Only 1 source (regime)
         assert available == 1
@@ -142,10 +142,10 @@ class TestQualityFilterGracefulDegradation:
         """Even with regime available, low confidence should block the trade."""
         regime = _make_regime(confidence=0.30)  # below 0.5 threshold
         prediction = _make_ml_prediction(is_simulated=True)
-        flokx = _make_flokx_unavailable()
+        external_signal = _make_external_signal_unavailable()
         fetchai = _make_fetchai_unavailable()
 
-        available, contributing, avg = self._count_sources(regime, prediction, fetchai, flokx)
+        available, contributing, avg = self._count_sources(regime, prediction, fetchai, external_signal)
 
         assert contributing == 0  # no source above threshold
         min_required = 1 if available <= 2 else 2
@@ -155,10 +155,10 @@ class TestQualityFilterGracefulDegradation:
         """When all 4 sources are live, the original requirement (2+) still applies."""
         regime = _make_regime(confidence=0.80)
         prediction = _make_ml_prediction(confidence=0.75)
-        flokx = {"strength": 80.0, "is_simulated": False}
+        external_signal = {"strength": 80.0, "is_simulated": False}
         fetchai = {"confidence": 85.0, "is_simulated": False}
 
-        available, contributing, avg = self._count_sources(regime, prediction, fetchai, flokx)
+        available, contributing, avg = self._count_sources(regime, prediction, fetchai, external_signal)
 
         assert available == 4
         assert contributing == 4
@@ -202,36 +202,11 @@ class TestEdgeGateSimulatedML:
 
 
 # ---------------------------------------------------------------------------
-# Fix 3: FLOKx/Fetch.ai warning rate-limiting
+# Fix 3: External AI warning rate-limiting
 # ---------------------------------------------------------------------------
 
 class TestWarningRateLimiting:
-    """FLOKx/Fetch.ai 'key not configured' warnings must be rate-limited."""
-
-    def test_flokx_warning_rate_limited(self):
-        """Second warning within 10 minutes must be suppressed."""
-        from flokx_integration import FLOKxIntegration, _WARN_INTERVAL
-
-        instance = FLOKxIntegration()
-        warnings_logged = []
-
-        def fake_warning(msg, *args, **kwargs):
-            warnings_logged.append(msg)
-
-        with patch("flokx_integration.logger") as mock_logger:
-            mock_logger.warning.side_effect = fake_warning
-
-            # First call → warning emitted
-            now = datetime.now(timezone.utc)
-            if instance._last_missing_key_warn is None or (now - instance._last_missing_key_warn) >= _WARN_INTERVAL:
-                mock_logger.warning("rate-limited warning")
-                instance._last_missing_key_warn = now
-
-            # Immediate second call → should be suppressed
-            if instance._last_missing_key_warn is None or (now - instance._last_missing_key_warn) >= _WARN_INTERVAL:
-                mock_logger.warning("rate-limited warning")
-
-        assert len(warnings_logged) == 1
+    """External AI 'key not configured' warnings must be rate-limited."""
 
     def test_fetchai_warning_rate_limited(self):
         """Fetch.ai warning within 10 minutes must be suppressed."""
@@ -251,24 +226,6 @@ class TestWarningRateLimiting:
             # Immediate second call → suppressed
             if instance._last_missing_key_warn is None or (now - instance._last_missing_key_warn) >= _WARN_INTERVAL:
                 mock_logger.warning("rate-limited warning")
-
-        assert len(warnings_logged) == 1
-
-    def test_flokx_warning_reissued_after_interval(self):
-        """Warning is reissued after the rate-limit interval expires."""
-        from flokx_integration import FLOKxIntegration, _WARN_INTERVAL
-
-        instance = FLOKxIntegration()
-        # Simulate last warning was >10 minutes ago
-        instance._last_missing_key_warn = datetime.now(timezone.utc) - _WARN_INTERVAL - timedelta(seconds=1)
-
-        warnings_logged = []
-        with patch("flokx_integration.logger") as mock_logger:
-            mock_logger.warning.side_effect = lambda msg, *a, **k: warnings_logged.append(msg)
-            now = datetime.now(timezone.utc)
-            if instance._last_missing_key_warn is None or (now - instance._last_missing_key_warn) >= _WARN_INTERVAL:
-                mock_logger.warning("rate-limited warning")
-                instance._last_missing_key_warn = now
 
         assert len(warnings_logged) == 1
 
@@ -328,20 +285,11 @@ class TestPaperWalletEndpointShape:
 
 
 # ---------------------------------------------------------------------------
-# Fix 5: FLOKx + Fetch.ai status endpoints return "not_configured" clearly
+# Fix 5: Fetch.ai status endpoint returns "not_configured" clearly
 # ---------------------------------------------------------------------------
 
 class TestExternalServiceStatusEndpoints:
     """Status endpoints must expose a machine-readable 'status' string."""
-
-    def test_flokx_status_has_status_field(self):
-        """GET /api/flokx/status response in server.py includes a 'status' string field."""
-        import inspect
-        import server  # noqa: F401 – just checking source code structure
-
-        src = inspect.getsource(server)
-        # The endpoint now returns {"status": "not_configured" | "configured", ...}
-        assert '"not_configured"' in src or "'not_configured'" in src
 
     def test_fetchai_status_has_status_field(self):
         """GET /api/fetchai/status response includes a 'status' string field."""

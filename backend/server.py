@@ -59,14 +59,6 @@ import ccxt.async_support as ccxt
 api_router = APIRouter()
 api_router.include_router(auth_router)
 
-# ============================================================================
-# FLOKx BACKGROUND POLLER — DISABLED
-# FLOKx DNS was causing log spam. Provider is now optional legacy only.
-# CoinStats is the active news/signal provider. See services/news_coinstats.py
-# ============================================================================
-
-# _FLOKX_POLL_INTERVAL and _run_flokx_poller intentionally removed.
-
 
 # ============================================================================
 # LIFESPAN CONTEXT - Startup and Shutdown
@@ -196,8 +188,6 @@ async def lifespan(app: FastAPI):
             logger.info("🔮 Fetch.ai integration configured")
     except Exception as e:
         logger.warning(f"Could not configure Fetch.ai: {e}")
-    
-    # FLOKx integration disabled — provider replaced by CoinStats
 
     # Start Daily Reinvestment Scheduler (optional)
     try:
@@ -247,8 +237,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
 
-    # FLOKx background polling DISABLED — replaced by CoinStats provider
-    
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint
@@ -2181,16 +2169,6 @@ async def get_wallet_mode_stats(user_id: str = Depends(get_current_user)):
         logger.error(f"Wallet mode stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/flokx/alerts")
-async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
-    """FLOKx alerts — provider DISABLED. Use /api/news/feed instead."""
-    return {
-        "alerts": [],
-        "count": 0,
-        "configured": False,
-        "message": "FLOKx provider disabled. Use /api/news/feed for crypto news & sentiment.",
-    }
-
 # REMOVED: Duplicate autopilot enable/disable routes
 # These are now handled by routes/autopilot_control.py to avoid route collision
 # The router version provides better persistence and realtime event broadcasting
@@ -2384,43 +2362,6 @@ async def test_email_alert(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Email test error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/flokx/status")
-async def get_flokx_status(user_id: str = Depends(get_current_user)):
-    """FLOKx status — provider DISABLED. Use /api/coinstats/test-connection instead."""
-    return {
-        "success": True,
-        "configured": False,
-        "enabled": False,
-        "status": "disabled",
-        "message": "FLOKx provider has been disabled. News & sentiment is now served by CoinStats.",
-        "migration": "Use /api/coinstats/test-connection and /api/news/feed",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-@api_router.get("/flokx/test-connection")
-async def test_flokx_connection(user_id: str = Depends(get_current_user)):
-    """FLOKx test-connection — provider DISABLED."""
-    return {
-        "connected": False,
-        "configured": False,
-        "message": "FLOKx provider has been disabled. Use CoinStats instead.",
-        "migration": "Use /api/coinstats/test-connection",
-    }
-
-@api_router.get("/flokx/coefficients/{pair}")
-async def get_flokx_coefficients(pair: str, user_id: str = Depends(get_current_user)):
-    """FLOKx coefficients — provider DISABLED."""
-    return {
-        "configured": False,
-        "is_simulated": True,
-        "error": "FLOKx provider has been disabled.",
-    }
-
-@api_router.post("/flokx/create-alert")
-async def create_flokx_alert(data: dict, user_id: str = Depends(get_current_user)):
-    """FLOKx create-alert — provider DISABLED."""
-    return {"created": False, "error": "FLOKx provider has been disabled."}
 
 # NOTE: Fetch.ai endpoints moved to routes/fetchai.py to avoid collision
 # The routes are now registered via include_router() below

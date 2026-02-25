@@ -1,6 +1,6 @@
 """
 Agent Management Routes
-Provides endpoints for creating and monitoring Fetch.ai/FlokX trading agents.
+Provides endpoints for creating and monitoring Fetch.ai trading agents.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -19,7 +19,7 @@ router = APIRouter()
 class AgentCreateRequest(BaseModel):
     """Request model for creating a new agent"""
     name: str
-    type: str  # 'fetchai' or 'flokx'
+    type: str  # 'fetchai'
     strategy: str  # 'adaptive', 'trend', 'mean_reversion', 'momentum'
     capital: float
     risk_tier: str  # 'safe', 'balanced', 'risky'
@@ -33,7 +33,7 @@ async def create_agent(
     user_id: str = Depends(get_current_user)
 ):
     """
-    Create a new Fetch.ai or FlokX trading agent.
+    Create a new Fetch.ai trading agent.
     
     Args:
         request: Agent configuration including type, strategy, capital, and risk tier
@@ -43,10 +43,10 @@ async def create_agent(
     """
     try:
         # Validate agent type
-        if request.type not in ['fetchai', 'flokx']:
+        if request.type not in ['fetchai']:
             raise HTTPException(
                 status_code=400,
-                detail="Agent type must be 'fetchai' or 'flokx'"
+                detail="Agent type must be 'fetchai'"
             )
         
         # Validate strategy
@@ -111,7 +111,7 @@ async def create_agent(
             "total_profit": 0.0,
             "last_action": None,
             "metadata": {
-                "framework": "fetch.ai" if request.type == "fetchai" else "flokx",
+                "framework": "fetch.ai",
                 "version": "1.0.0"
             }
         }

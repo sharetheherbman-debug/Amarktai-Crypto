@@ -64,12 +64,12 @@ The following have been confirmed correct and are left untouched:
 
 **No code change required.** The AI truthfully reflects missing data.
 
-### 6. FLOKx: DNS failure but UI says "add key"
-**Root cause:** FLOKx base URL was hardcoded and the key-status check returned "not configured" even if DNS failed.
+### 6. CoinStats: DNS failure but UI says "add key"
+**Root cause:** CoinStats base URL was hardcoded and the key-status check returned "not configured" even if DNS failed.
 
 **Fix (already applied in PR):**
-- `FLOKX_BASE_URL` env var (default: `https://api.flokx.io/v1`)
-- `GET /api/flokx/status` probes DNS + HTTP, returns `service_unreachable` with URL when DNS fails
+- `FLOKX_BASE_URL` env var (default: `https://api.coinstats.io/v1`)
+- `GET /api/coinstats/status` probes DNS + HTTP, returns `service_unreachable` with URL when DNS fails
 
 ### 7. Reset doesn't reset graphs and countdown completely
 **Fix (already applied in PR):** `POST /api/system/paper-sandbox/reset` clears: bots, bot_runtime_state, bot_lifecycle, trades, orders, ledger, paper_ledger, bot_events, fills, equity_series, drawdown_series, user_countdowns, wallet_balances.
@@ -102,7 +102,7 @@ These are appended to the existing `backend/routes/diagnostics.py` (prefix `/api
 | 3 | Paper sandbox reset | ✅ Fixed | `/api/system/paper-sandbox/reset` implemented |
 | 4 | Bot lifecycle/training/quarantine | ✅ Appears correct | `bot_lifecycle.py`, `bot_quarantine.py`, `training_quarantine.py` already handle these |
 | 5 | AI tools wired to real data | ✅ Appears correct | AI uses real state; returns truthful "no data" if empty |
-| 6 | FLOKx/HF/external integrations | ✅ Fixed | FLOKx URL configurable, health endpoint added |
+| 6 | CoinStats/HF/external integrations | ✅ Fixed | CoinStats URL configurable, health endpoint added |
 | 7 | Realtime pipeline | ✅ Appears correct | `rt_events.trade_opened`, `rt_events.trade_executed` called in scheduler |
 | 8 | Hard go-live gates | ✅ Appears correct | `live_trading_gate.py`, `system_gate.py` enforce gates |
 | 9 | Smoke tests (no hardcoded bots) | ✅ Fixed | Scripts rewritten to validate state and prompt dashboard use |
@@ -121,8 +121,8 @@ These are appended to the existing `backend/routes/diagnostics.py` (prefix `/api
 - `GET /api/wallet/paper` → `funded_status: "FUNDED"` if `total > 0`, else `"UNFUNDED"`
 - Endpoint: `backend/routes/wallet_hub.py` lines 195, 351
 
-### FLOKx service unreachable reported correctly
-- `GET /api/flokx/status` → `status: "service_unreachable"` when DNS fails
+### CoinStats service unreachable reported correctly
+- `GET /api/coinstats/status` → `status: "service_unreachable"` when DNS fails
 - `reachability_error` field shows the actual error message
 - Endpoint: `backend/server.py` lines 2464+
 

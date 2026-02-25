@@ -35,7 +35,6 @@ def mock_list_providers():
             {"id": "kraken", "type": "exchange", "display_name": "Kraken", "required_fields": ["api_key", "api_secret"]},
             {"id": "bitget", "type": "exchange", "display_name": "Bitget", "required_fields": ["api_key", "api_secret", "passphrase"]},
             {"id": "gate", "type": "exchange", "display_name": "Gate.io", "required_fields": ["api_key", "api_secret"]},
-            {"id": "flokx", "type": "ai", "display_name": "Flokx", "required_fields": ["api_key"]},
             {"id": "fetchai", "type": "ai", "display_name": "Fetch.ai", "required_fields": ["api_key"]},
         ]
         yield mock
@@ -54,10 +53,10 @@ def test_keys_status_returns_all_providers(mock_auth, mock_db, mock_list_provide
     assert "status_map" in data
     
     status_map = data["status_map"]
-    assert len(status_map) == 10  # Must have exactly 10 providers
+    assert len(status_map) == 9  # Must have exactly 9 providers
     
     # Check all expected providers
-    expected = ["openai", "flokx", "fetchai", "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+    expected = ["openai", "fetchai", "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
     for provider in expected:
         assert provider in status_map, f"Provider {provider} missing"
         assert status_map[provider]["status"] == "not_configured"

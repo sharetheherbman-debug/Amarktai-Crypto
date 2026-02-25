@@ -24,7 +24,6 @@ export default function AIToolsPanel() {
   const [fetchaiSignals, setFetchaiSignals] = useState([]);
   
   // Flokx state (deprecated - kept for state compatibility)
-  const [flokxActive, setFlokxActive] = useState(false);
 
   // Check HuggingFace configuration on mount
   useEffect(() => {

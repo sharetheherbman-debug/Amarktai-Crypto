@@ -61,7 +61,7 @@ class TestProviderRegistry:
         """All previously existing providers must still be present."""
         from services.provider_registry import list_providers_ids
         ids = list_providers_ids()
-        for expected in ["openai", "flokx", "fetchai",
+        for expected in ["openai", "fetchai",
                          "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]:
             assert expected in ids, f"Pre-existing provider '{expected}' was removed"
 
@@ -104,7 +104,7 @@ class TestSaveKeyHuggingface:
         """huggingface must NOT trigger the 'Invalid provider' branch."""
         VALID_PROVIDERS = [
             'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate',
-            'openai', 'flokx', 'fetchai', 'huggingface'
+            'openai', 'fetchai', 'huggingface'
         ]
         assert "huggingface" in VALID_PROVIDERS
 
@@ -112,7 +112,7 @@ class TestSaveKeyHuggingface:
         """An unknown provider must still be rejected."""
         VALID_PROVIDERS = [
             'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate',
-            'openai', 'flokx', 'fetchai', 'huggingface'
+            'openai', 'fetchai', 'huggingface'
         ]
         assert "totally_invalid_exchange" not in VALID_PROVIDERS
 
@@ -120,7 +120,7 @@ class TestSaveKeyHuggingface:
         """The 400 error message for an unknown provider must include 'huggingface'."""
         VALID_PROVIDERS = [
             'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate',
-            'openai', 'flokx', 'fetchai', 'huggingface'
+            'openai', 'fetchai', 'huggingface'
         ]
         error_detail = f"Invalid provider: badprovider. Valid providers: {', '.join(VALID_PROVIDERS)}"
         assert "huggingface" in error_detail

@@ -195,10 +195,6 @@ export default function useDashboardState(navigate) {
   const [profileData, setProfileData] = useState({});
   const [allUsers, setAllUsers] = useState([]);
   const [systemStats, setSystemStats] = useState(null);
-  // FLOKx is disabled — keep compatibility state so legacy renders don't crash
-  const [flokxAlerts, setFlokxAlerts] = useState([]);
-  const [isFlokxActive, setIsFlokxActive] = useState(false);
-  const [flokxStatus, setFlokxStatus] = useState({ configured: false, disabled: true, last_error: null, last_tested_at: null });
   const [connectionStatus, setConnectionStatus] = useState({
     api: 'Disconnected',
     sse: 'Disconnected',
@@ -403,7 +399,7 @@ export default function useDashboardState(navigate) {
     // Add personalized welcome message
     setChatMessages([{
       role: 'assist',
-      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
+      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
     }]);
     
     return () => {
@@ -563,7 +559,7 @@ export default function useDashboardState(navigate) {
     if (user && chatMessages.length === 0) {
       setChatMessages([{
         role: 'assistant',
-        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
       }]);
     }
   }, [user]);
@@ -580,7 +576,7 @@ export default function useDashboardState(navigate) {
         if (user) {
           setChatMessages([{
             role: 'assistant',
-            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
           }]);
         }
       }
@@ -590,7 +586,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
     }
@@ -607,7 +603,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
       showNotification('Chat history cleared successfully', 'success');
@@ -716,21 +712,6 @@ export default function useDashboardState(navigate) {
     }, 30000);
     return () => clearInterval(interval);
   }, [token]);
-
-  useEffect(() => {
-    if (isFlokxActive) {
-      loadFlokxAlerts();
-      const interval = setInterval(() => {
-        // Check token before each poll
-        if (getToken()) {
-          loadFlokxAlerts();
-        }
-      }, 30000);
-      return () => clearInterval(interval);
-    }
-    setFlokxAlerts([]);
-    return undefined;
-  }, [isFlokxActive]);
 
   const setupRealTimeConnections = () => {
     // Guard: Only setup connections if token exists
@@ -1701,12 +1682,6 @@ export default function useDashboardState(navigate) {
     }
   };
 
-  const loadFlokxStatus = async () => {
-    // FLOKx provider disabled — return disabled status silently
-    setFlokxStatus({ configured: false, disabled: true, last_error: null });
-    setIsFlokxActive(false);
-  };
-
   const loadAdminHealth = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/admin/health-check`, axiosConfig);
@@ -1725,11 +1700,6 @@ export default function useDashboardState(navigate) {
       toast.error(errorMsg);
     }
   }, [axiosConfig]);
-
-  const loadFlokxAlerts = async () => {
-    // FLOKx provider disabled — always empty
-    setFlokxAlerts([]);
-  };
 
   const handleSendMessage = async () => {
     if (chatSending) {
@@ -2244,32 +2214,6 @@ export default function useDashboardState(navigate) {
       e.target.reset();
     } catch (err) {
       showNotification('Failed to deploy uAgent', 'error');
-    }
-  };
-
-  const handleCreateFlokxBot = async (e) => {
-    e.preventDefault();
-    const name = e.target['flokx-name'].value;
-    const signalType = e.target['flokx-signal'].value;
-    const riskLevel = e.target['flokx-risk'].value;
-    
-    if (!name) {
-      showNotification('Please enter a bot name', 'error');
-      return;
-    }
-
-    try {
-      await axios.post(`${API}/bots/flokx`, { 
-        name, 
-        signal_type: signalType, 
-        risk_level: riskLevel,
-        type: 'flokx'
-      }, axiosConfig);
-      showNotification(`Flokx bot "${name}" created successfully!`);
-      await refreshBotState();
-      e.target.reset();
-    } catch (err) {
-      showNotification('Failed to create Flokx bot', 'error');
     }
   };
 
@@ -3328,8 +3272,6 @@ export default function useDashboardState(navigate) {
     executeEmergencyStop,
     fetchRLMetrics,
     filteredAdminBots,
-    flokxAlerts,
-    flokxStatus,
     formatDate,
     getAlertColor,
     getRLRecommendations,
@@ -3342,7 +3284,6 @@ export default function useDashboardState(navigate) {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
-    handleCreateFlokxBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,
@@ -3374,14 +3315,12 @@ export default function useDashboardState(navigate) {
     handleTriggerBodyguard,
     handleTriggerLearning,
     handleUserSelection,
-    isFlokxActive,
     isMobile,
     learningStatus,
     livePrices,
     loadAdminBots,
     loadAdminUsers,
     loadChatHistory,
-    loadFlokxAlerts,
     loadRecentTrades,
     loadingBots,
     loadingUsers,

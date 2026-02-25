@@ -108,7 +108,7 @@ This report maps ALL frontend API calls against backend endpoints, identifies mi
 | Frontend Call | Backend Endpoint | Status | Action |
 |--------------|------------------|--------|--------|
 | GET /api/advanced/whale/summary | ✅ routes/advanced_trading_endpoints.py | EXISTS | Verify auth & serialization |
-| GET /api/flokx/alerts | ✅ server.py | EXISTS | Verify serialization |
+| GET /api/coinstats/alerts | ✅ server.py | EXISTS | Verify serialization |
 
 ### Decision Trace & Metrics
 | Frontend Call | Backend Endpoint | Status | Action |
