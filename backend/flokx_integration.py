@@ -26,6 +26,7 @@ class FLOKxIntegration:
         self.api_url = os.getenv("FLOKX_BASE_URL", DEFAULT_FLOKX_BASE_URL).rstrip("/")
         self.cache = {}
         self._last_missing_key_warn: datetime | None = None
+        self._last_dns_error_warn: datetime | None = None
     
     def set_credentials(self, api_key: str):
         """Set FLOKx API credentials"""
@@ -87,7 +88,14 @@ class FLOKxIntegration:
             if ("name or service not known" in err_str or "domain name not found" in err_str
                     or "getaddrinfo" in err_str or "nodename nor servname" in err_str
                     or "errno -2" in err_str):
-                logger.error(f"FLOKx DNS resolution failure for {self.api_url}: {e}")
+                now = datetime.now(timezone.utc)
+                if self._last_dns_error_warn is None or (now - self._last_dns_error_warn) >= _WARN_INTERVAL:
+                    logger.warning(
+                        "FLOKx DNS resolution failure for %s: %s "
+                        "(treating as optional legacy — suppressing further warnings for 10 min)",
+                        self.api_url, e,
+                    )
+                    self._last_dns_error_warn = now
                 return self._mock_coefficients(pair, error_reason="service_unreachable_dns")
             logger.error(f"FLOKx fetch failed: {e}")
             return self._mock_coefficients(pair)

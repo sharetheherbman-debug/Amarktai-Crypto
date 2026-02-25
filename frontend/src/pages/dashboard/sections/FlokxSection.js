@@ -1,5 +1,6 @@
 import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
+import { apiClient } from '@/lib/apiClient';
 
 const NOT_AVAILABLE = 'Not available';
 
@@ -15,7 +16,32 @@ const FlokxSection = ({
   const [selectedAlert, setSelectedAlert] = React.useState(null);
   const [filterPriority, setFilterPriority] = React.useState('all');
 
-  const filteredAlerts = React.useMemo(() => {
+  // ── GDELT news state ──────────────────────────────────────────────────────
+  const [gdeltArticles, setGdeltArticles] = React.useState([]);
+  const [gdeltStatus, setGdeltStatus] = React.useState(null);
+  const [gdeltLoading, setGdeltLoading] = React.useState(false);
+
+  const loadGdeltNews = React.useCallback(async () => {
+    setGdeltLoading(true);
+    try {
+      const res = await apiClient.get('/diagnostics/sentiment-news');
+      setGdeltStatus(res.data);
+      if (res.data?.articles_count > 0 || res.data?.source === 'gdelt') {
+        // Also fetch article list from news endpoint if available
+        try {
+          const newsRes = await apiClient.get('/news/articles?limit=10');
+          setGdeltArticles(newsRes.data?.articles || []);
+        } catch (_) { /* news endpoint optional */ }
+      }
+    } catch (err) {
+      console.error('Failed to load news status:', err);
+    } finally {
+      setGdeltLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => { loadGdeltNews(); }, [loadGdeltNews]);
+  // ─────────────────────────────────────────────────────────────────────────
     if (!Array.isArray(flokxAlerts)) return [];
     if (filterPriority === 'all') return flokxAlerts;
     return flokxAlerts.filter(alert => 
@@ -36,60 +62,96 @@ const FlokxSection = ({
     <section className="section active">
       <div className="card">
         <SectionHeader
-          title="🦊 Flokx Monitoring"
-          subtitle="Real-time alerts and market intelligence from Flokx"
+          title="📰 News &amp; Sentiment (GDELT)"
+          subtitle="Crypto-relevant news from GDELT Project (free) — Flokx legacy support optional"
         />
 
-        {!isFlokxActive && (
-          <div style={{
-            padding: '40px',
-            textAlign: 'center',
-            background: 'var(--panel)',
-            borderRadius: '8px',
-            border: '1px solid var(--line)',
-            marginBottom: '20px'
-          }}>
-            <div style={{fontSize: '3rem', marginBottom: '16px'}}>🦊</div>
-            <h3 style={{marginBottom: '12px', color: 'var(--text)'}}>
-              Flokx Not Configured
-            </h3>
-            <p style={{color: 'var(--muted)', marginBottom: '12px', maxWidth: '600px', margin: '0 auto 12px'}}>
-              Connect your Flokx API key to receive real-time trading alerts, market analysis, and risk notifications.
-            </p>
-            {flokxStatus?.last_error && (
-              <p style={{
-                color: 'var(--error)',
-                marginBottom: '20px',
-                fontSize: '0.85rem',
-                padding: '8px 12px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                borderRadius: '6px',
-                display: 'inline-block'
-              }}>
-                Status: {flokxStatus.last_error}
-              </p>
-            )}
-            <div style={{marginTop: '20px'}}>
-              <button 
-                onClick={() => showSection('api')}
-                style={{
-                  padding: '12px 24px',
-                  background: 'var(--accent2)',
-                  color: 'var(--text)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontSize: '1rem'
-                }}
-              >
-                Configure Flokx API
-              </button>
+        {/* GDELT Status bar */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '12px 16px',
+          background: 'var(--glass)',
+          borderRadius: '8px',
+          marginBottom: '16px',
+          fontSize: '0.85rem',
+          flexWrap: 'wrap',
+        }}>
+          <span style={{
+            width: 10, height: 10, borderRadius: '50%',
+            background: gdeltStatus?.configured ? 'var(--success)' : 'var(--warning)',
+            flexShrink: 0,
+          }} />
+          <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+            GDELT: {gdeltStatus?.configured ? 'Active' : 'Enabled (free — no key required)'}
+          </span>
+          {gdeltStatus?.articles_count > 0 && (
+            <span style={{ color: 'var(--muted)' }}>
+              {gdeltStatus.articles_count} articles cached
+            </span>
+          )}
+          {gdeltStatus?.last_error && (
+            <span style={{ color: 'var(--warning)', fontSize: '0.8rem' }}>
+              ⚠ {gdeltStatus.last_error}
+            </span>
+          )}
+          <button
+            onClick={loadGdeltNews}
+            disabled={gdeltLoading}
+            style={{
+              marginLeft: 'auto', padding: '4px 12px',
+              borderRadius: '6px', border: '1px solid var(--line)',
+              background: 'transparent', color: 'var(--text)',
+              cursor: 'pointer', fontSize: '0.8rem',
+            }}
+          >
+            {gdeltLoading ? 'Refreshing…' : '↺ Refresh'}
+          </button>
+        </div>
+
+        {/* GDELT Article list */}
+        {gdeltArticles.length > 0 && (
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{ color: 'var(--text)', marginBottom: '12px', fontSize: '0.95rem' }}>
+              Latest Crypto News
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {gdeltArticles.map((art, i) => (
+                <a
+                  key={i}
+                  href={art.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: '10px 14px',
+                    background: 'var(--panel)',
+                    borderRadius: '6px',
+                    border: '1px solid var(--line)',
+                    color: 'var(--text)',
+                    textDecoration: 'none',
+                    fontSize: '0.9rem',
+                    display: 'block',
+                  }}
+                >
+                  <span style={{ fontWeight: 500 }}>{art.title}</span>
+                  {art.source && (
+                    <span style={{ color: 'var(--muted)', fontSize: '0.8rem', marginLeft: '8px' }}>
+                      — {art.source}
+                    </span>
+                  )}
+                </a>
+              ))}
             </div>
           </div>
         )}
 
+        {/* Flokx legacy section — shown only when a key is configured */}
         {isFlokxActive && (
+          <details style={{ marginTop: '8px' }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '12px' }}>
+              🦊 Flokx Legacy Alerts (optional)
+            </summary>
           <div style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
             {/* Status Header */}
             <div style={{
@@ -299,7 +361,7 @@ const FlokxSection = ({
                 </div>
               )}
             </div>
-          </div>
+          </details>
         )}
       </div>
     </section>

@@ -92,6 +92,9 @@ async def _run_flokx_poller():
                         local_flokx = FLOKxIntegration()
                         local_flokx.set_credentials(api_key)
                         data = await local_flokx.fetch_market_coefficients("BTC/ZAR")
+                        # Skip storing simulated/unavailable data (e.g. DNS failure)
+                        if data.get("is_simulated"):
+                            continue
                         await db.alerts_collection.insert_one({
                             "user_id": uid,
                             "source": "flokx",
@@ -3208,15 +3211,45 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
+@api_router.get("/news/articles")
+async def get_news_articles(limit: int = 10, user_id: str = Depends(get_current_user)):
+    """Fetch latest crypto-relevant news articles from GDELT (free, no API key required)."""
+    try:
+        from services.news_gdelt import gdelt_provider
+        articles = await gdelt_provider.get_articles(limit=max(1, min(limit, 25)))
+        return {"articles": articles, "count": len(articles), "source": "gdelt"}
+    except Exception as e:
+        logger.error(f"News articles error: {e}")
+        return {"articles": [], "count": 0, "source": "gdelt", "error": str(e)}
+
+
 @api_router.get("/diagnostics/sentiment-news")
 async def diagnostics_sentiment_news(user_id: str = Depends(get_current_user)):
-    """News source diagnostics for sentiment analyzer"""
+    """News source diagnostics — GDELT is the primary provider (no API key required)."""
     try:
-        from engines.sentiment_analyzer import sentiment_analyzer
-        return await sentiment_analyzer.get_news_diagnostics()
+        from services.news_gdelt import gdelt_provider
+        gdelt_diag = await gdelt_provider.get_diagnostics()
+        # Also include legacy CryptoCompare diagnostics if configured
+        legacy_diag = {}
+        try:
+            from engines.sentiment_analyzer import sentiment_analyzer
+            legacy_diag = await sentiment_analyzer.get_news_diagnostics()
+        except Exception:
+            pass
+        return {
+            **gdelt_diag,
+            "legacy": legacy_diag,
+        }
     except Exception as e:
         logger.error(f"Sentiment news diagnostics error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "configured": False,
+            "source": "none",
+            "articles_count": 0,
+            "last_fetch_ts": None,
+            "last_error": str(e),
+            "cache_ttl_seconds": 300,
+        }
 
 
 @api_router.get("/diagnostics/learning-last-run")

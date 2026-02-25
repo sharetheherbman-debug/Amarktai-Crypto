@@ -2132,6 +2132,18 @@ export default function useDashboardState(navigate) {
           aiSentiment: NOT_AVAILABLE,
           lastUpdate: NOT_AVAILABLE
         });
+        // Explicitly clear local equity/countdown caches before refresh so stale
+        // values from before the reset are never shown.
+        setEquityData(null);
+        setCountdown(null);
+        const totalCleared = response.data?.deleted
+          ? Object.values(response.data.deleted).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0)
+          : response.data?.total_deleted || 0;
+        if (totalCleared > 0) {
+          toast.success(`Reset complete — ${totalCleared} records cleared`);
+        }
+        const warnings = response.data?.invariant_warnings || [];
+        warnings.forEach(w => toast.warning(`Reset warning: ${w}`));
         refreshAllDashboardData();
       } else {
         setPaperResetError(response.data.message || 'Reset failed');

@@ -344,16 +344,22 @@ async def user_paper_start_fresh(
             summary["orders_deleted"] = orders_result.deleted_count
 
             try:
-                fills_result = await db.db["fills_ledger"].delete_many({"bot_id": {"$in": deleted_bot_ids}})
-                summary["fills_deleted"] = fills_result.deleted_count
-            except Exception as e:
-                logger.warning(f"Could not delete fills: {e}")
-
-            try:
                 telemetry_result = await db.bot_metrics_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
                 summary["telemetry_deleted"] = telemetry_result.deleted_count
             except Exception as e:
                 logger.warning(f"Could not delete telemetry: {e}")
+
+        # Clear ALL user-scoped ledger data so compute_equity() returns 0 after reset
+        try:
+            fills_result = await db.db["fills_ledger"].delete_many({"user_id": user_id})
+            summary["fills_ledger_deleted"] = fills_result.deleted_count
+        except Exception as e:
+            logger.warning(f"Could not delete fills_ledger: {e}")
+        try:
+            events_result = await db.db["ledger_events"].delete_many({"user_id": user_id})
+            summary["ledger_events_deleted"] = events_result.deleted_count
+        except Exception as e:
+            logger.warning(f"Could not delete ledger_events: {e}")
 
         _user_runtime_collections = [
             ("balance_snapshots", db.balance_snapshots_collection),
@@ -420,6 +426,7 @@ async def user_paper_start_fresh(
             ("drawdown_series", "drawdown_series"),
             ("profit_ledger", "profit_ledger"),
             ("user_countdowns", "user_countdowns"),
+            ("circuit_breaker_state", "circuit_breaker_state"),
         ]
         for coll_name, attr_name in _graph_collections:
             try:
@@ -432,6 +439,7 @@ async def user_paper_start_fresh(
 
         # Compute post-reset invariants
         post_reset = {}
+        invariant_warnings = []
         try:
             post_reset["active_bots"] = await db.bots_collection.count_documents(
                 {"user_id": user_id, "status": {"$in": ["active", "running"]}}
@@ -448,6 +456,20 @@ async def user_paper_start_fresh(
             post_reset["wallet_total"] = float(
                 (pw.get("balances") or {}).get("ZAR", 0) or 0
             )
+            # Check ledger equity == 0 invariant
+            try:
+                from database import get_database
+                from services.ledger_service import get_ledger_service
+                _lsvc = get_ledger_service(db.db)
+                post_reset["ledger_equity"] = round(await _lsvc.compute_equity(user_id), 4)
+                post_reset["ledger_fills"] = await db.db["fills_ledger"].count_documents({"user_id": user_id})
+                post_reset["ledger_events"] = await db.db["ledger_events"].count_documents({"user_id": user_id})
+                if post_reset["ledger_equity"] != 0:
+                    msg = f"ledger_equity={post_reset['ledger_equity']} non-zero after reset for user {user_id[:8]}"
+                    invariant_warnings.append(msg)
+                    logger.error("Post-reset invariant FAIL: %s", msg)
+            except Exception as le:
+                logger.warning(f"Ledger equity invariant check failed: {le}")
         except Exception as e:
             logger.warning(f"Post-reset invariant check failed: {e}")
 
@@ -463,6 +485,7 @@ async def user_paper_start_fresh(
             "wallet_before": wallet_before,
             "wallet_after": wallet_after,
             "post_reset_invariants": post_reset,
+            "invariant_warnings": invariant_warnings,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 

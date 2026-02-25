@@ -100,6 +100,7 @@ const HuggingFaceSection = () => {
     setResult(null);
     setError(null);
 
+    const reqId = `hf-${Date.now()}`;
     try {
       let response;
       
@@ -107,12 +108,12 @@ const HuggingFaceSection = () => {
       if (selectedTask === 'text-classification' || selectedTask === 'sentiment-analysis') {
         response = await apiClient.post('/huggingface/analyze-sentiment', {
           text: inputText,
-          model_id: selectedModel || undefined
+          model: selectedModel || undefined
         });
       } else if (selectedTask === 'summarization') {
         response = await apiClient.post('/huggingface/summarize', {
           text: inputText,
-          model_id: selectedModel || undefined
+          model: selectedModel || undefined
         });
       } else {
         toast.error('Task not yet supported in UI. Please use sentiment analysis or summarization.');
@@ -120,11 +121,23 @@ const HuggingFaceSection = () => {
         return;
       }
 
-      setResult(response.data);
-      toast.success('Analysis complete!');
+      const data = response.data;
+      if (data && !data.success && data.error) {
+        console.error(`[${reqId}] HF error:`, data.error);
+        setError(data.error);
+        toast.error(`AI error: ${data.error}`);
+      } else {
+        // Flatten nested result for rendering (supports both old and new backend format)
+        const flat = { ...data };
+        if (data && data.result && typeof data.result === 'object') {
+          Object.assign(flat, data.result);
+        }
+        setResult(flat);
+        toast.success('Analysis complete!');
+      }
     } catch (err) {
-      console.error('Analysis failed:', err);
-      const errorMsg = err.response?.data?.detail || err.message || 'Analysis failed';
+      console.error(`[${reqId}] Analysis failed:`, err);
+      const errorMsg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Analysis failed. Please try again.';
       setError(errorMsg);
       toast.error(errorMsg);
     } finally {
@@ -416,7 +429,7 @@ const HuggingFaceSection = () => {
             )}
 
             {/* Summarization Results */}
-            {result.summary_text && (
+            {(result.summary_text || result.summary) && (
               <div style={{ marginBottom: '12px' }}>
                 <div style={{
                   fontSize: '0.9rem',
@@ -432,7 +445,7 @@ const HuggingFaceSection = () => {
                   color: 'var(--text)',
                   lineHeight: '1.6'
                 }}>
-                  {result.summary_text}
+                  {result.summary_text || result.summary}
                 </div>
               </div>
             )}

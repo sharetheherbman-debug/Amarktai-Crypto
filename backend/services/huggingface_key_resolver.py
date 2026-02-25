@@ -27,6 +27,17 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Classic Inference API base URL — avoids 404s from router.huggingface.co
+HF_INFERENCE_BASE_URL = "https://api-inference.huggingface.co/models"
+
+# Centralised default model IDs per task (requirement C.2)
+HF_DEFAULT_MODELS = {
+    "sentiment": "distilbert-base-uncased-finetuned-sst-2-english",
+    "summarize": "facebook/bart-large-cnn",
+    "embeddings": "sentence-transformers/all-MiniLM-L6-v2",
+    "classify": "facebook/bart-large-mnli",
+}
+
 
 async def resolve_huggingface_key(user_id: Optional[str]) -> Tuple[Optional[str], str]:
     """
@@ -117,7 +128,10 @@ async def get_huggingface_client(user_id: Optional[str] = None, model: Optional[
         api_key, source = await resolve_huggingface_key(user_id)
         
         if api_key:
-            client = InferenceClient(token=api_key, model=model)
+            # Explicitly use the classic inference API URL so we never hit
+            # router.huggingface.co which gives 404 for many public models.
+            model_url = f"{HF_INFERENCE_BASE_URL}/{model}" if model else None
+            client = InferenceClient(token=api_key, model=model_url)
             return client, source
         else:
             return None, source
