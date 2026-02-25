@@ -791,7 +791,7 @@ async def get_countdown_to_target(
                 "days_elapsed": 0,
                 "days_to_target_estimate": None,
                 "confidence": "insufficient_data",
-                "message": "No trades yet - countdown will start after 10 trades",
+                "message": "No closed trades yet — projections appear after first trade",
                 "last_updated_at": datetime.now(timezone.utc).isoformat()
             }
         
@@ -819,10 +819,9 @@ async def get_countdown_to_target(
         else:
             days_to_target_estimate = None  # Can't estimate with zero or negative avg
         
-        # Calculate confidence metric
-        # More trades and more days = higher confidence
+        # Calculate confidence metric based on number of trades
         total_trades = await db.trades_collection.count_documents({"user_id": user_id})
-        if total_trades < 10:
+        if total_trades < 1:
             return {
                 "target_amount": target_amount,
                 "equity_current": round(equity_current, 2),
@@ -831,7 +830,7 @@ async def get_countdown_to_target(
                 "days_elapsed": round(days_elapsed, 2),
                 "days_to_target_estimate": None,
                 "confidence": "insufficient_data",
-                "message": f"Need {10 - total_trades} more trades to activate countdown",
+                "message": "No closed trades yet — projections appear after first trade",
                 "total_trades": total_trades,
                 "first_trade_at": first_trade_time,
                 "last_updated_at": datetime.now(timezone.utc).isoformat()

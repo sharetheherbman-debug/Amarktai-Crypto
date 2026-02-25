@@ -74,7 +74,6 @@ Trend: {features.get('trend')}
 AI Signals:
 - Regime: {features.get('regime')}
 - ML Prediction: {features.get('ml_prediction')}
-- Flokx Strength: {features.get('flokx_strength')}
 - Fetch.ai: {features.get('fetchai_signal')}
 
 Decide: LONG, SHORT, or SKIP

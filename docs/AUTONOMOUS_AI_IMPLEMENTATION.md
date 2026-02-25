@@ -64,7 +64,7 @@ Deliver a 24/7 autonomous trading platform with adaptive AI, multimodal inputs, 
 
 **Endpoints:**
 - ✅ `POST /api/agents/create` - Create new agent
-  - Types: fetchai, flokx
+  - Types: fetchai, coinstats
   - Strategies: adaptive, trend, mean_reversion, momentum
   - Risk tiers: safe (15%), balanced (20%), risky (25%)
   - Validation for capital, names, duplicates

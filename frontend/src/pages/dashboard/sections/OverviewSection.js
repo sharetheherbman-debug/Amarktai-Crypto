@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import GlassCard from '@/ui/components/GlassCard';
+import apiClient from '@/lib/apiClient';
 
 const NOT_AVAILABLE = 'Not available';
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -46,7 +48,6 @@ export default function OverviewSection({
   aiStatus,
   autonomyStatus,
   botControlLoading,
-  flokxAlerts,
   formatDate,
   handleResetBodyguardLock,
   handleResetDailyLossLock,
@@ -93,10 +94,26 @@ export default function OverviewSection({
     { label: 'Self-Healing', value: autonomyStatus?.subsystems?.self_heal?.status || autonomyStatus?.self_healing || (riskStatus?.bodyguard_lock?.active ? 'active' : undefined) },
     { label: 'Learning', value: autonomyStatus?.subsystems?.learning_loop?.status || learningStatus?.status || learningStatus?.mode || (learningStatus?.active ? 'active' : undefined) }
   ];
-  const lastAlert = Array.isArray(flokxAlerts) && flokxAlerts.length > 0 ? flokxAlerts[0] : null;
-  const lastEventTitle = lastAlert?.title || lastAlert?.pair || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
-  const lastEventDetail = lastAlert?.message || lastAlert?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');
-  const lastEventTime = lastAlert?.timestamp ? new Date(lastAlert.timestamp).toLocaleString() : formatOverviewDate(overviewData.lastTradeTime);
+
+  // Events feed — fetch from /api/events/recent every 30 seconds
+  const [recentEvents, setRecentEvents] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchEvents = async () => {
+      try {
+        const res = await apiClient.get('/events/recent?limit=6');
+        if (!cancelled) setRecentEvents(res.data?.events || []);
+      } catch { /* silent */ }
+    };
+    fetchEvents();
+    const interval = setInterval(fetchEvents, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  const latestEvent = recentEvents[0];
+  const lastEventTitle = latestEvent?.message || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
+  const lastEventTime = latestEvent?.ts ? new Date(latestEvent.ts).toLocaleString() : formatOverviewDate(overviewData.lastTradeTime);
+  const severityColor = { info: 'var(--accent)', warning: 'var(--warning, #f59e0b)', error: 'var(--error)' };
 
   return (
     <section className="section active">
@@ -283,30 +300,24 @@ export default function OverviewSection({
               Trading Overview
             </div>
             
-            {/* Last Notable Event - moved below image, inline with autonomy status */}
+            {/* Last Notable Event - driven by /api/events/recent */}
             <GlassCard className="overview-card" style={{marginTop: '16px'}}>
               <div className="overview-card-header" style={{padding: '16px'}}>
                 <h3>Last Notable Event</h3>
                 <span className="overview-card-meta">{lastEventTime}</span>
               </div>
-              <div className="overview-event" style={{
-                padding: '0 16px 16px 16px',
-                overflowWrap: 'break-word',
-                wordWrap: 'break-word',
-                wordBreak: 'break-word',
-                hyphens: 'auto'
-              }}>
+              <div className="overview-event" style={{ padding: '0 16px 12px 16px' }}>
                 <strong style={{display: 'block', marginBottom: '8px', lineHeight: '1.4'}}>{lastEventTitle}</strong>
-                <p style={{
-                  margin: '0',
-                  fontSize: '0.85rem',
-                  color: 'var(--muted)',
-                  overflowWrap: 'break-word',
-                  wordWrap: 'break-word',
-                  wordBreak: 'break-word',
-                  hyphens: 'auto',
-                  lineHeight: '1.5'
-                }}>{lastEventDetail}</p>
+                {recentEvents.length > 1 && (
+                  <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {recentEvents.slice(1, 6).map((ev, i) => (
+                      <div key={i} style={{ fontSize: '0.78rem', color: 'var(--muted)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: severityColor[ev.severity] || 'var(--muted)', marginTop: '4px', flexShrink: 0 }} />
+                        <span style={{ lineHeight: '1.4' }}>{ev.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </GlassCard>
           </div>

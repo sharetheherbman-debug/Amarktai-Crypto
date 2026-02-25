@@ -148,12 +148,11 @@ async def get_countdown_status(
         stats = await ledger.get_stats(user_id)
         trades_total = stats.get("total_fills", 0)
 
-        if trades_total < 10:
-            remaining_trades = 10 - trades_total
+        if trades_total < 1:
             return {
                 "ready": False,
-                "message": "Need at least 10 trades",
-                "trades_remaining": remaining_trades,
+                "message": "No closed trades yet — projections start after first trade",
+                "trades_remaining": 1,
                 "trades_total": trades_total,
                 "current_equity": round(current_equity, 2),
                 "target": target,

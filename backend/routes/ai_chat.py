@@ -144,10 +144,6 @@ def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[st
         return {"action": "reset_paper_session"}
     if "regime" in content_lower or ("market" in content_lower and "condition" in content_lower):
         return {"action": "get_market_regime", "params": {"pair": "BTC/ZAR"}}
-    if "flokx" in content_lower and ("status" in content_lower or "check" in content_lower or "signal" in content_lower):
-        if "signal" in content_lower or "coefficient" in content_lower:
-            return {"action": "check_flokx_signals", "params": {"pair": "BTC/ZAR"}}
-        return {"action": "get_flokx_status"}
     if "autopilot" in content_lower:
         enabled = "disable" not in content_lower
         return {"action": "pause_autonomy_subsystem", "params": {"subsystem": "autopilot"}} if not enabled else {"action": "resume_autonomy_subsystem", "params": {"subsystem": "autopilot"}}
@@ -1383,57 +1379,6 @@ async def _handle_get_market_regime(user_id: str, params: Dict[str, Any]) -> Dic
         return {"success": False, "error": str(e), "message": f"Could not detect regime for {pair}."}
 
 
-async def _handle_get_flokx_status(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Return Flokx integration status for the calling user."""
-    try:
-        key_doc = await db.api_keys_collection.find_one(
-            {"user_id": str(user_id), "provider": "flokx"},
-            {"_id": 0, "status": 1, "last_tested_at": 1, "last_test_error": 1},
-        )
-        configured = bool(key_doc and key_doc.get("status") not in (None, "not_configured", ""))
-        last_poll_doc = None
-        if db.alerts_collection is not None:
-            last_poll_doc = await db.alerts_collection.find_one(
-                {"user_id": str(user_id), "source": "flokx"},
-                sort=[("timestamp", -1)],
-            )
-        return {
-            "success": True,
-            "data": {
-                "configured": configured,
-                "key_present": configured,
-                "enabled": configured,
-                "last_tested_at": key_doc.get("last_tested_at") if key_doc else None,
-                "last_error": key_doc.get("last_test_error") if key_doc else None,
-                "last_poll_at": last_poll_doc.get("timestamp") if last_poll_doc else None,
-            },
-            "message": "Flokx configured and polling." if configured else "Flokx key not configured. Add your key in the Keys section.",
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e), "message": "Could not fetch Flokx status."}
-
-
-async def _handle_check_flokx_signals(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Fetch the latest Flokx market coefficient signals for a pair."""
-    pair = params.get("pair", "BTC/ZAR")
-    try:
-        from routes.api_key_management import get_decrypted_key
-        from flokx_integration import FLOKxIntegration
-        api_key = await get_decrypted_key(user_id, "flokx")
-        if not api_key:
-            return {
-                "success": False,
-                "message": "Flokx key not configured. Add your Flokx API key in the Keys section.",
-                "data": {"configured": False},
-            }
-        local_flokx = FLOKxIntegration()
-        local_flokx.set_credentials(api_key)
-        signals = await local_flokx.fetch_market_coefficients(pair)
-        return {"success": True, "data": signals, "message": f"Flokx signals retrieved for {pair}."}
-    except Exception as e:
-        return {"success": False, "error": str(e), "message": "Failed to fetch Flokx signals."}
-
-
 ACTION_REGISTRY = {
     "get_system_status": {
         "description": "Fetch system status and health summary.",
@@ -1704,18 +1649,6 @@ ACTION_REGISTRY = {
         "params": ["pair"],
         "requires_confirmation": False,
         "handler": _handle_get_market_regime,
-    },
-    "get_flokx_status": {
-        "description": "Get Flokx integration status: key present, last poll time, last error.",
-        "params": [],
-        "requires_confirmation": False,
-        "handler": _handle_get_flokx_status,
-    },
-    "check_flokx_signals": {
-        "description": "Fetch the latest Flokx market coefficient signals for a trading pair.",
-        "params": ["pair"],
-        "requires_confirmation": False,
-        "handler": _handle_check_flokx_signals,
     },
 }
 
@@ -2144,7 +2077,7 @@ async def ai_chat(
                     ]
 
                     # Prepare context for AI
-                    context = f"""You are an AI trading assistant for Amarktai Crypto (part of Amarktai Network).
+                    context = f"""You are an AI trading assistant for Amarktai Network (part of Amarktai Network).
 
                     User:
                     - Name: {display_name}

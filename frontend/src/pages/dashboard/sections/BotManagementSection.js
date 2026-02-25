@@ -84,7 +84,6 @@ export default function BotManagementSection({
   bots,
   formatDate,
   handleCreateBot,
-  handleCreateFlokxBot,
   handleCreateUAgent,
   handleDeleteBot,
   handleResumeBot,
@@ -396,41 +395,6 @@ export default function BotManagementSection({
                   </div>
                 </div>
 
-                <div className="bot-management-section">
-                  <div className="bot-section-header">
-                    <h2>🎯 FlokX Alert Bot</h2>
-                  </div>
-                  <div className="bot-form-card">
-                    <h3>Configure Alert Bot</h3>
-                    <form onSubmit={handleCreateFlokxBot}>
-                      <div className="bot-form-grid">
-                        <div>
-                          <label htmlFor="flokx-name">Bot Name</label>
-                          <input id="flokx-name" name="flokx-name" placeholder="FlokX Sentinel" type="text" required />
-                        </div>
-                        <div>
-                          <label htmlFor="flokx-signal">Signal Type</label>
-                          <select id="flokx-signal" name="flokx-signal" defaultValue="momentum">
-                            <option value="momentum">Momentum</option>
-                            <option value="breakout">Breakout</option>
-                            <option value="mean_reversion">Mean Reversion</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label htmlFor="flokx-risk">Risk Level</label>
-                          <select id="flokx-risk" name="flokx-risk" defaultValue="balanced">
-                            <option value="safe">Safe</option>
-                            <option value="balanced">Balanced</option>
-                            <option value="aggressive">Aggressive</option>
-                          </select>
-                        </div>
-                        <div>
-                          <button type="submit">Create FlokX Bot</button>
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                </div>
               </div>
             </div>
 

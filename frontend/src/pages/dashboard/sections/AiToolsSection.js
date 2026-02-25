@@ -6,7 +6,7 @@ import LearningResultsModal from './LearningResultsModal';
 /**
  * AI Tools Hub - Unified AI tools interface
  * Consolidates Learning, Sentiment Analysis, Strategy Insights, and Agent Creation
- * Replaces standalone Fetch.ai/Flokx/HuggingFace panels per requirements
+ * Replaces standalone Fetch.ai/HuggingFace panels per requirements
  */
 export default function AiToolsSection({ bots, onRefresh }) {
   const [activeTab, setActiveTab] = useState('learning');
@@ -17,13 +17,14 @@ export default function AiToolsSection({ bots, onRefresh }) {
   const [rlMetrics, setRlMetrics] = useState(null);
   const [rlLoading, setRlLoading] = useState(false);
   
-  // Sentiment & Summarization state (HuggingFace)
+  // Sentiment & Summarization state (HuggingFace - auto-populated from CoinStats)
   const [hfConfigured, setHfConfigured] = useState(false);
   const [hfTasks, setHfTasks] = useState([]);
   const [hfSelectedTask, setHfSelectedTask] = useState('text-classification');
   const [hfInputText, setHfInputText] = useState('');
   const [hfResult, setHfResult] = useState(null);
   const [hfProcessing, setHfProcessing] = useState(false);
+  const [hfAutoLoading, setHfAutoLoading] = useState(false);
   
   // Classification state
   const [classificationLabels, setClassificationLabels] = useState('bullish,bearish,neutral');
@@ -47,6 +48,7 @@ export default function AiToolsSection({ bots, onRefresh }) {
     checkHuggingFaceConfig();
     fetchRLMetrics();
     fetchAgents();
+    loadCoinStatsText();
   }, []);
 
   useEffect(() => {
@@ -54,6 +56,23 @@ export default function AiToolsSection({ bots, onRefresh }) {
       fetchHuggingFaceTasks();
     }
   }, [hfConfigured]);
+
+  // Auto-load latest CoinStats market text for HuggingFace analysis
+  const loadCoinStatsText = async () => {
+    try {
+      setHfAutoLoading(true);
+      const res = await apiClient.get('/events/market-intelligence');
+      const intel = res.data;
+      if (intel && intel.what_happened && intel.what_happened !== 'No market data yet — intelligence updates every 15 minutes.') {
+        const combined = [intel.what_happened, intel.why_it_matters].filter(Boolean).join(' ');
+        setHfInputText(combined);
+      }
+    } catch (err) {
+      // Silently ignore — user can type manually as fallback
+    } finally {
+      setHfAutoLoading(false);
+    }
+  };
 
   // HuggingFace Configuration Check
   const checkHuggingFaceConfig = async () => {
@@ -484,21 +503,36 @@ export default function AiToolsSection({ bots, onRefresh }) {
               ) : (
                 <div>
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{
-                      display: 'block',
-                      marginBottom: '8px',
-                      fontWeight: 600,
-                      color: 'var(--text)'
-                    }}>
-                      Input Text
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <label style={{ fontWeight: 600, color: 'var(--text)' }}>
+                        Market Text {hfAutoLoading ? '⏳' : ''}
+                      </label>
+                      <button
+                        onClick={loadCoinStatsText}
+                        disabled={hfAutoLoading}
+                        style={{
+                          padding: '4px 10px',
+                          background: 'var(--glass)',
+                          border: '1px solid var(--line)',
+                          borderRadius: '6px',
+                          color: 'var(--muted)',
+                          fontSize: '0.78rem',
+                          cursor: hfAutoLoading ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        🔄 Load CoinStats data
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '6px' }}>
+                      Auto-populated from latest CoinStats market intelligence. You can edit before analyzing.
+                    </div>
                     <textarea
                       value={hfInputText}
                       onChange={(e) => setHfInputText(e.target.value)}
-                      placeholder="Enter text for analysis or summarization..."
+                      placeholder="Loading latest CoinStats market data automatically…"
                       style={{
                         width: '100%',
-                        minHeight: '150px',
+                        minHeight: '120px',
                         padding: '12px',
                         background: 'var(--panel)',
                         border: '1px solid var(--line)',
@@ -673,19 +707,22 @@ export default function AiToolsSection({ bots, onRefresh }) {
                     </div>
 
                     <div style={{ marginBottom: '12px' }}>
-                      <label style={{
-                        display: 'block',
-                        marginBottom: '8px',
-                        fontWeight: 600,
-                        color: 'var(--text)',
-                        fontSize: '0.9rem'
-                      }}>
-                        Text to Classify
-                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <label style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.9rem' }}>
+                          Text to Classify
+                        </label>
+                        <button
+                          onClick={loadCoinStatsText}
+                          disabled={hfAutoLoading}
+                          style={{ padding: '3px 8px', background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '4px', color: 'var(--muted)', fontSize: '0.75rem', cursor: hfAutoLoading ? 'not-allowed' : 'pointer' }}
+                        >
+                          🔄 Auto-load from CoinStats
+                        </button>
+                      </div>
                       <textarea
                         value={hfInputText}
                         onChange={(e) => setHfInputText(e.target.value)}
-                        placeholder="Enter text to classify..."
+                        placeholder="Auto-populated from CoinStats market data…"
                         style={{
                           width: '100%',
                           minHeight: '100px',
@@ -890,7 +927,6 @@ export default function AiToolsSection({ bots, onRefresh }) {
                         }}
                       >
                         <option value="fetchai">🔮 Fetch.ai uAgent</option>
-                        <option value="flokx">🧠 FlokX Alert Bot</option>
                       </select>
                     </div>
 

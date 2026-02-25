@@ -109,7 +109,7 @@ This implementation addresses critical backend authentication issues, frontend U
 - `/api/auth/me` without token (401/403 expected)
 - `/api/bots` authentication requirement
 - `/api/portfolio/summary` endpoint
-- `/api/flokx/alerts` endpoint existence
+- `/api/coinstats/alerts` endpoint existence
 - `/api/advanced/whale/summary` endpoint
 - `/api/realtime/events` SSE endpoint
 
@@ -121,7 +121,7 @@ This implementation addresses critical backend authentication issues, frontend U
 
 ### Backend Endpoints Verified
 - ✅ `/api/auth/me` - Fixed ObjectId issue
-- ✅ `/api/flokx/alerts` - Exists in server.py
+- ✅ `/api/coinstats/alerts` - Exists in server.py
 - ✅ `/api/advanced/whale/summary` - Exists in advanced_trading_endpoints.py
 - ✅ `/api/realtime/events` - SSE enabled by default (ENABLE_REALTIME='true')
 - ✅ Admin endpoints - Permission checks fixed

@@ -246,7 +246,7 @@ REDIS_URL=<for-websocket-scaling>
 
 # Optional integrations:
 FETCHAI_API_KEY=<optional>
-FLOKX_API_KEY=<optional>
+COINSTATS_API_KEY=<optional>
 HUGGINGFACE_API_KEY=<optional>
 ```
 

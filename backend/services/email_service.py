@@ -218,7 +218,7 @@ This link expires in {config.EMAIL_CONFIRMATION_TIMEOUT_HOURS} hours.
 If you did not initiate this withdrawal, please contact support immediately.
 
 ---
-Amarktai Crypto Security Team (part of Amarktai Network)
+Amarktai Network Security Team (part of Amarktai Network)
             """
             
             # Send email via SMTP
@@ -309,7 +309,7 @@ You can track the transfer status in your dashboard.
 If you did not authorize this withdrawal, contact support immediately.
 
 ---
-Amarktai Crypto Security Team (part of Amarktai Network)
+Amarktai Network Security Team (part of Amarktai Network)
             """
             
             # Send email via SMTP
@@ -346,7 +346,7 @@ Performance Summary:
 View full details in your dashboard.
 
 ---
-Amarktai Crypto (part of Amarktai Network)
+Amarktai Network (part of Amarktai Network)
             """
             
             # Send email via SMTP

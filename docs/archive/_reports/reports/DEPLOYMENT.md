@@ -87,7 +87,7 @@ FROM_NAME=Amarktai Network
 
 # Optional Integrations
 FETCHAI_API_KEY=
-FLOKX_API_KEY=
+COINSTATS_API_KEY=
 
 # Real-time features (default: enabled)
 ENABLE_REALTIME=true

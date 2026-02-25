@@ -252,7 +252,7 @@ export TOKEN=$(curl -X POST http://localhost:8000/api/auth/login \
 | Kraken | Exchange | Live trading | ✅ Paper mode | `not_configured` |
 | Bitget | Exchange | Live trading | ✅ Paper mode | `not_configured` |
 | Gate.io | Exchange | Live trading | ✅ Paper mode | `not_configured` |
-| FLOKx | AI | Market intelligence | ✅ System normal | `not_configured` |
+| CoinStats | AI | Market intelligence | ✅ System normal | `not_configured` |
 | Fetch.ai | AI | Market signals | ✅ System normal | `not_configured` / `not_installed` |
 | HuggingFace | AI | ML models | ✅ System normal | `not_configured` |
 
@@ -421,7 +421,7 @@ System is ready for go-live.
 - [ ] Add OpenAI key for advanced AI features
 - [ ] Configure exchange keys for live trading
 - [ ] Enable SMTP for email notifications
-- [ ] Add FLOKx/Fetch.ai keys for enhanced intelligence
+- [ ] Add CoinStats/Fetch.ai keys for enhanced intelligence
 - [ ] Implement WebSocket reconnection improvements
 - [ ] Add more degraded mode query types
 - [ ] Enhance landing page animations

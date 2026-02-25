@@ -56,7 +56,7 @@ The frontend supports **WebSocket (primary)** with **SSE fallback** and **pollin
 
 **AI Providers (3)**:
 - openai
-- flokx
+- coinstats
 - fetchai
 
 All defined in `src/constants/platforms.js` (single source of truth)

@@ -181,7 +181,7 @@ POST /api/autonomy/resume            # Resume subsystem
 ## State Management
 
 ### AIToolsPanel State
-- `activeTab` - Current tab (huggingface/fetchai/flokx)
+- `activeTab` - Current tab (huggingface/fetchai/coinstats)
 - `hfConfigured` - HuggingFace API key status
 - `hfTasks` - Available tasks
 - `hfModels` - Available models for selected task

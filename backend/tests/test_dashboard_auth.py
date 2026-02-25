@@ -126,20 +126,6 @@ async def test_portfolio_summary_endpoint(client, test_user_token):
 
 
 @pytest.mark.asyncio
-async def test_flokx_alerts_endpoint(client, test_user_token):
-    """Test /api/flokx/alerts endpoint exists"""
-    token = test_user_token["token"]
-    
-    response = await client.get(
-        "/api/flokx/alerts",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    # Should return 200 (may be empty array)
-    assert response.status_code == 200
-
-
-@pytest.mark.asyncio
 async def test_whale_summary_endpoint(client, test_user_token):
     """Test /api/advanced/whale/summary endpoint"""
     token = test_user_token["token"]

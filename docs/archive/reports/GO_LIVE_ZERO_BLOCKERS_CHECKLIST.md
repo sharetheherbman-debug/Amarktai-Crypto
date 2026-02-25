@@ -160,7 +160,7 @@ This document tracks all fixes implemented to make Amarktai Network go-live read
 
 **Supported Providers:**
 - OpenAI (AI features)
-- FLOKx (market intelligence)
+- CoinStats (market intelligence)
 - Fetch.ai (market signals, requires cosmpy SDK)
 - Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io (exchanges)
 
@@ -309,7 +309,7 @@ GO_LIVE_ZERO_BLOCKERS_CHECKLIST.md         # This document
 | AI Chat Advanced | OpenAI | not_configured | ✅ Degraded mode with DB queries |
 | AI Insights Daily | OpenAI | not_configured | Basic insights + source="basic" |
 | Super Brain | OpenAI | not_configured | Returns "key required" message |
-| Market Intelligence | FLOKx | not_configured | Shows "ready when key added" |
+| Market Intelligence | CoinStats | not_configured | Shows "ready when key added" |
 | Fetch.ai Signals | Fetch.ai + cosmpy | not_configured / not_installed | Shows SDK requirement |
 | HuggingFace Models | HuggingFace | not_configured | Shows "add key to enable" |
 | Exchange Trading | Exchange keys | not_configured | ✅ Paper mode works without keys |
@@ -407,7 +407,7 @@ npm run build
 - OpenAI key configured (enables advanced AI)
 - Exchange keys configured (enables live trading)
 - Email SMTP configured (enables notifications)
-- Fetch.ai/FLOKx keys (enables extra intelligence)
+- Fetch.ai/CoinStats keys (enables extra intelligence)
 
 ---
 

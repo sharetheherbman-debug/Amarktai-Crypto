@@ -1,6 +1,49 @@
 # Production Go-Live Checklist
 ## Amarktai Network - Ubuntu 24.04 Deployment
 
+---
+
+## 🚀 Final Go-Live Verification Commands
+
+```bash
+# 1) Confirm zero FlokX/Gdelt references in backend, frontend, docs
+#    Expected: no output (ZERO matches)
+grep -rn "flok[xX]\|gd[Ee]lt" backend frontend docs
+
+# 2) curl /api/build/info shows sha/branch (not "unknown")
+curl -s http://localhost:8000/api/build/info | python3 -m json.tool | grep -E '"sha"|"branch"'
+
+# 3) curl /api/events/recent returns events (requires auth)
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/events/recent?limit=5" | python3 -m json.tool
+
+# 4) Paper reset → countdown endpoints return baseline + trades_total=0
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/countdown/status | python3 -m json.tool | grep trades_total
+
+# 5) Seed 5 bots → trades open/close visible + post-trade lesson events
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8000/api/events/recent?limit=10" | python3 -m json.tool | grep -E '"type"|"message"'
+
+# 6) Overview market brief/mood updates automatically from CoinStats
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/events/market-intelligence | python3 -m json.tool | grep -E '"what_happened"|"mood"|"source"'
+```
+
+## Feature Acceptance Status (2026 Go-Live)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| A) FlokX/Gdelt removed | ✅ Zero matches | Verified with grep (no active code refs) |
+| B) CoinStats only | ✅ Live | /api/events/market-intelligence |
+| C) Events feed | ✅ Live | /api/events/recent |
+| D) Auto market intelligence | ✅ Live | Runs every 15 min |
+| E) Post-trade analyst | ✅ Live | Lesson stored in bot_lessons |
+| F) Bot Fleet clean | ✅ Live | Drawdown + last action time |
+| G) Live Trades 50/50 | ✅ Live | Open | Wins | Losses |
+| H) Countdown projections | ✅ Fixed | Starts after 1st trade |
+| I) Growth/Reinvest truth | ✅ Live | Plain-English why + how |
+| J) Brand = Amarktai Network | ✅ Done | No "Amarktai Crypto" visible |
+| K) Build/version truth | ✅ Live | SHA/branch from git or env |
+
+---
+
 ### ✅ PRE-DEPLOYMENT VERIFICATION
 
 #### 1. Route Collision Fix (CRITICAL - COMPLETED)

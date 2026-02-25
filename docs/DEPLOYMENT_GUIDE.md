@@ -70,7 +70,7 @@ ENABLE_LIVE_TRADING=false  # Set to true only after testing
 
 # AI Services (Optional)
 OPENAI_API_KEY=<your-key>
-FLOKX_API_KEY=<your-key>
+COINSTATS_API_KEY=<your-key>
 
 # Email (Optional)
 SMTP_HOST=smtp.gmail.com

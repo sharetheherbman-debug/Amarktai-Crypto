@@ -532,6 +532,13 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         )
         await audit_logger.log_bot_action("started", user_id, bot_id, bot.get("name", "bot"))
         
+        # Emit lifecycle event
+        try:
+            from routes.events import emit_event
+            await emit_event(user_id, "bot_started", "info", f"Bot '{bot['name']}' started on {bot.get('exchange', 'exchange')} in {bot.get('trading_mode', 'paper')} mode", meta={"bot_id": bot_id})
+        except Exception:
+            pass
+        
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service
         await realtime_service.broadcast_overview_update(user_id, f"Bot started: {bot['name']}")
@@ -625,6 +632,13 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
             reason
         )
         await audit_logger.log_bot_action("stopped", user_id, bot_id, bot.get("name", "bot"), {"reason": reason})
+        
+        # Emit lifecycle event
+        try:
+            from routes.events import emit_event
+            await emit_event(user_id, "bot_stopped", "info", f"Bot '{bot['name']}' stopped — {reason}", meta={"bot_id": bot_id})
+        except Exception:
+            pass
         
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service

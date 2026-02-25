@@ -29,9 +29,7 @@ import WalletHubSection from './dashboard/sections/WalletHubSection';
 import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
-import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
-import FlokxSection from './dashboard/sections/FlokxSection';
 
 ChartJS.register(
   CategoryScale,
@@ -97,8 +95,6 @@ export default function Dashboard() {
     equityRange,
     executeEmergencyStop,
     filteredAdminBots,
-    flokxAlerts,
-    flokxStatus,
     formatDate,
     getAlertColor,
     graphPeriod,
@@ -110,7 +106,6 @@ export default function Dashboard() {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
-    handleCreateFlokxBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,
@@ -142,14 +137,12 @@ export default function Dashboard() {
     handleTriggerBodyguard,
     handleTriggerLearning,
     handleUserSelection,
-    isFlokxActive,
     isMobile,
     learningStatus,
     livePrices,
     loadAdminBots,
     loadAdminUsers,
     loadChatHistory,
-    loadFlokxAlerts,
     loadRecentTrades,
     loadingBots,
     loadingUsers,
@@ -242,31 +235,14 @@ export default function Dashboard() {
     winRatePeriod,
   } = useDashboardState(navigate);
 
-  const renderFlokxAlerts = () => (
-    <FlokxAlertsSection
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
-      formatDate={formatDate}
-      getAlertColor={getAlertColor}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
-      showSection={showSection}
-    />
-  );
-
   const renderMetricsWithTabs = () => (
     <MetricsWithTabsSection
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
       formatDate={formatDate}
       getAlertColor={getAlertColor}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
       metrics={metrics}
       metricsTab={metricsTab}
       setMetricsTab={setMetricsTab}
       showSection={showSection}
-      renderFlokxAlerts={renderFlokxAlerts}
     />
   );
 
@@ -301,7 +277,6 @@ export default function Dashboard() {
       aiStatus={aiStatus}
       autonomyStatus={autonomyStatus}
       botControlLoading={botControlLoading}
-      flokxAlerts={flokxAlerts}
       formatDate={formatDate}
       handleResetBodyguardLock={handleResetBodyguardLock}
       handleResetDailyLossLock={handleResetDailyLossLock}
@@ -423,13 +398,9 @@ export default function Dashboard() {
       drawdownRange={drawdownRange}
       equityData={equityData}
       equityRange={equityRange}
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
       formatDate={formatDate}
       getAlertColor={getAlertColor}
       graphPeriod={graphPeriod}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
       metrics={metrics}
       overviewData={overviewData}
       profitData={profitData}
@@ -445,7 +416,6 @@ export default function Dashboard() {
       metricsTab={metricsTab}
       setMetricsTab={setMetricsTab}
       renderMetricsWithTabs={renderMetricsWithTabs}
-      renderFlokxAlerts={renderFlokxAlerts}
     />
   );
 
@@ -488,7 +458,6 @@ export default function Dashboard() {
       bots={bots}
       formatDate={formatDate}
       handleCreateBot={handleCreateBot}
-      handleCreateFlokxBot={handleCreateFlokxBot}
       handleCreateUAgent={handleCreateUAgent}
       handleDeleteBot={handleDeleteBot}
       handleResumeBot={handleResumeBot}
@@ -518,19 +487,6 @@ export default function Dashboard() {
   const renderFetchAI = () => (
     <FetchAISection />
   );
-
-  const renderFlokx = () => (
-    <FlokxSection
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
-      formatDate={formatDate}
-      getAlertColor={getAlertColor}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
-      showSection={showSection}
-    />
-  );
-
 
   return (
     <div className="app">
@@ -642,11 +598,6 @@ export default function Dashboard() {
         {activeSection === 'fetchai' && (
           <ErrorBoundary title="Fetch.ai section error" message="Unable to load Fetch.ai section.">
             {renderFetchAI()}
-          </ErrorBoundary>
-        )}
-        {activeSection === 'flokx' && (
-          <ErrorBoundary title="Flokx section error" message="Unable to load Flokx section.">
-            {renderFlokx()}
           </ErrorBoundary>
         )}
         {activeSection === 'countdown' && (

@@ -33,33 +33,29 @@ def set_bind_ok(status: bool = True):
     _bind_ok = status
 
 
-# Module-level build hash cache (computed once at import time)
+# Module-level build info cache (computed once at import time)
 _BUILD_HASH_CACHE = None
+_BUILD_BRANCH_CACHE = None
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def get_build_hash() -> str:
     """Get current git commit SHA for build identification (cached)."""
     global _BUILD_HASH_CACHE
     
-    # Return cached value if available
     if _BUILD_HASH_CACHE is not None:
         return _BUILD_HASH_CACHE
     
     try:
-        # First try BUILD_SHA environment variable
         build_sha = os.environ.get("BUILD_SHA")
         if build_sha:
             _BUILD_HASH_CACHE = build_sha
             return build_sha
         
-        # Fall back to git command (with restricted scope and timeout)
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            check=False  # Don't raise on non-zero exit
+            capture_output=True, text=True, timeout=5, cwd=_REPO_ROOT, check=False
         )
         if result.returncode == 0:
             _BUILD_HASH_CACHE = result.stdout.strip()
@@ -67,8 +63,34 @@ def get_build_hash() -> str:
     except Exception as e:
         logger.debug(f"Could not get build hash: {e}")
     
-    # Cache the unknown value to avoid repeated failures
     _BUILD_HASH_CACHE = "unknown"
+    return "unknown"
+
+
+def get_build_branch() -> str:
+    """Get current git branch for build identification (cached)."""
+    global _BUILD_BRANCH_CACHE
+
+    if _BUILD_BRANCH_CACHE is not None:
+        return _BUILD_BRANCH_CACHE
+
+    try:
+        branch = os.environ.get("BUILD_BRANCH")
+        if branch:
+            _BUILD_BRANCH_CACHE = branch
+            return branch
+
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=5, cwd=_REPO_ROOT, check=False
+        )
+        if result.returncode == 0:
+            _BUILD_BRANCH_CACHE = result.stdout.strip()
+            return _BUILD_BRANCH_CACHE
+    except Exception as e:
+        logger.debug(f"Could not get build branch: {e}")
+
+    _BUILD_BRANCH_CACHE = "unknown"
     return "unknown"
 
 
@@ -273,6 +295,7 @@ async def health_ping() -> dict:
             "db": db_status,
             "timestamp": current_time.isoformat(),
             "build_hash": get_build_hash(),
+            "build_branch": get_build_branch(),
             "bind_ok": _bind_ok,
         }
         

@@ -124,8 +124,14 @@ export default function AutopilotStatusSection() {
               fontWeight: '600',
               color: growthStatus?.enabled ? 'var(--success)' : 'var(--error)'
             }}>
-              {growthStatus?.enabled ? '✓ Enabled' : '✗ Disabled'}
+              {growthStatus?.enabled ? '✓ On' : '✗ Off'}
             </div>
+            {!growthStatus?.enabled && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px' }}>
+                <div><strong>Why:</strong> Autopilot growth is not enabled.</div>
+                <div><strong>How to enable:</strong> Go to System Mode section and enable Autopilot.</div>
+              </div>
+            )}
           </div>
 
           <div style={{
@@ -142,8 +148,14 @@ export default function AutopilotStatusSection() {
               fontWeight: '600',
               color: reinvestStatus?.enabled ? 'var(--success)' : 'var(--error)'
             }}>
-              {reinvestStatus?.enabled ? '✓ Enabled' : '✗ Disabled'}
+              {reinvestStatus?.enabled ? '✓ On' : '✗ Off'}
             </div>
+            {!reinvestStatus?.enabled && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px' }}>
+                <div><strong>Why:</strong> Auto-Reinvest is not enabled.</div>
+                <div><strong>How to enable:</strong> Go to System Mode section and enable Autopilot, then enable Auto-Reinvest in your profile settings.</div>
+              </div>
+            )}
           </div>
 
           <div style={{
