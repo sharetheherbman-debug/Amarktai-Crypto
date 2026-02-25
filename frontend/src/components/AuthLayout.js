@@ -1,24 +1,24 @@
 import React from 'react';
 import SiteFooter from './SiteFooter';
+import ParticleBackground from './ParticleBackground';
 import './AuthLayout.css';
 
 /**
  * Shared layout component for Landing, Login, and Register pages
  * Features:
- * - LEFT PANEL (50%): Gradient content area
- * - RIGHT PANEL (50%): Flat dark placeholder (media removed for stability)
- * - Responsive: Mobile shows dark background with dark overlay
+ * - Full-page particle background (red/green/yellow)
+ * - Centred content panel with glass overlay
  */
-export default function AuthLayout({ children, videoRotated = false }) {
+export default function AuthLayout({ children }) {
   return (
     <div className="auth-container">
-      {/* Left Column - Content with diagonal blue gradient */}
+      {/* Particle background layer */}
+      <ParticleBackground />
+
+      {/* Content */}
       <div className="auth-left">
         {children}
       </div>
-
-      {/* Right Column - Flat dark placeholder (no video) */}
-      <div className="auth-right auth-right-placeholder" />
 
       {/* Footer */}
       <SiteFooter />

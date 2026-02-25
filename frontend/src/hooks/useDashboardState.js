@@ -399,7 +399,7 @@ export default function useDashboardState(navigate) {
     // Add personalized welcome message
     setChatMessages([{
       role: 'assist',
-      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
+      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
     }]);
     
     return () => {
@@ -559,7 +559,7 @@ export default function useDashboardState(navigate) {
     if (user && chatMessages.length === 0) {
       setChatMessages([{
         role: 'assistant',
-        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
       }]);
     }
   }, [user]);
@@ -576,7 +576,7 @@ export default function useDashboardState(navigate) {
         if (user) {
           setChatMessages([{
             role: 'assistant',
-            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
           }]);
         }
       }
@@ -586,7 +586,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
     }
@@ -603,7 +603,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
       showNotification('Chat history cleared successfully', 'success');

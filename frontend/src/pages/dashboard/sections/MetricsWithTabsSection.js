@@ -20,18 +20,25 @@ function MarketIntelligencePanel() {
       } catch { if (!cancelled) setLoading(false); }
     };
     fetch();
-    const iv = setInterval(fetch, 900000); // refresh every 15 min
+    const iv = setInterval(fetch, 60000); // refresh every 60s to match server interval
     return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
   const moodColor = { positive: 'var(--success)', negative: 'var(--error)', neutral: 'var(--muted)' };
   const moodEmoji = { positive: '📈', negative: '📉', neutral: '➡️' };
 
-  if (loading) return <p style={{ color: 'var(--muted)' }}>Loading market intelligence from CoinStats…</p>;
+  if (loading) return <p style={{ color: 'var(--muted)' }}>⏳ Fetching market intelligence from CoinStats…</p>;
   if (!intel) return <p style={{ color: 'var(--muted)' }}>Market intelligence unavailable.</p>;
+
+  const isPendingFirstFetch = !intel.updated_at;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {isPendingFirstFetch && (
+        <div style={{ padding: '10px 14px', background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.3)', borderRadius: '8px', fontSize: '0.85rem', color: 'var(--accent, #60a5fa)' }}>
+          ⏳ Fetching real-time data… First update will appear within 60–120 seconds.
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <div style={{ padding: '8px 16px', borderRadius: '8px', background: `${moodColor[intel.mood] || 'var(--muted)'}22`, border: `1px solid ${moodColor[intel.mood] || 'var(--muted)'}55`, color: moodColor[intel.mood] || 'var(--muted)', fontWeight: '700' }}>
           {moodEmoji[intel.mood] || '📊'} Mood: {intel.mood?.charAt(0).toUpperCase() + intel.mood?.slice(1) || 'Unknown'}
@@ -46,7 +53,7 @@ function MarketIntelligencePanel() {
       {[
         { label: 'What happened', value: intel.what_happened },
         { label: 'Why it matters', value: intel.why_it_matters },
-        { label: 'What Amarktai Network is doing', value: intel.what_amarktai_is_doing },
+        { label: 'What Amarktai Crypto is doing', value: intel.what_amarktai_is_doing },
         { label: 'Confidence', value: intel.confidence },
       ].map(({ label, value }) => value && (
         <div key={label} style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)' }}>

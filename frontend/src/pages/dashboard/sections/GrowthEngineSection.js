@@ -327,20 +327,59 @@ export default function GrowthEngineSection() {
           );
         })}
 
-        {/* Leverage (disabled) */}
-        <div style={{ ...cardStyle, opacity: 0.6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>📵 Leverage</div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-                Not active in this release. Leverage will not be applied under any circumstances.
+        {/* Leverage */}
+        {(() => {
+          const leverageOn = settings?.leverage_enabled || false;
+          const multiplier = settings?.leverage_multiplier ?? 1.0;
+          const mode = status?.mode || 'paper';
+          const liveBlockedReason = status?.enabled_toggles?.leverage_enabled === false && mode === 'live'
+            ? null : null; // resolved server-side per exchange
+          return (
+            <div style={{ ...cardStyle, border: leverageOn && masterEnabled ? '1px solid rgba(245,158,11,0.6)' : '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                    📊 Leverage (Position Sizing Multiplier)
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.5' }}>
+                    Scales position sizes by a multiplier (1.0–2.0x). Auto-reverts to 1.0x if any safety lock activates.
+                    In live mode, only works on exchanges that support margin/futures.
+                  </div>
+                  {leverageOn && (
+                    <div style={{ marginTop: '10px' }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+                        Multiplier: <strong style={{ color: 'var(--warning, #f59e0b)' }}>{parseFloat(multiplier).toFixed(1)}x</strong>
+                      </label>
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="2.0"
+                        step="0.1"
+                        value={multiplier}
+                        onChange={(e) => updateSetting('leverage_multiplier', parseFloat(e.target.value))}
+                        disabled={saving || !masterEnabled}
+                        style={{ width: '180px', accentColor: 'var(--warning, #f59e0b)' }}
+                      />
+                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>
+                        1.0x = no leverage &nbsp;·&nbsp; 2.0x = double position size
+                      </div>
+                      {mode === 'live' && (
+                        <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}>
+                          ⚠ Live mode: availability depends on your exchange. Check last run result for capability status.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <ToggleSwitch
+                  checked={leverageOn}
+                  onChange={(v) => updateSetting('leverage_enabled', v)}
+                  disabled={saving || (!masterEnabled && !leverageOn)}
+                />
               </div>
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--warning, #f59e0b)', fontWeight: 600, background: 'rgba(245,158,11,0.1)', padding: '4px 8px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
-              Not Active
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Run Once Button */}
         <div style={{ marginTop: '20px', display: 'flex', gap: '12px', alignItems: 'center' }}>

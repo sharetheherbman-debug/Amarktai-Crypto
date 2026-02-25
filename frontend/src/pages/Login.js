@@ -83,7 +83,7 @@ export default function Login() {
         </div>
         
         <h1 className="auth-title">
-          Log in to Amarkt<span className="brand-ai">AI</span>
+          Log in to Amarkt<span className="brand-ai">AI</span> <span className="brand-crypto">Crypto</span>
         </h1>
 
         <form onSubmit={handleSubmit} className="auth-form">

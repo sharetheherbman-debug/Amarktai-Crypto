@@ -10,8 +10,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# How often to refresh intelligence (default 15 minutes)
-_REFRESH_INTERVAL = int(os.getenv("MARKET_INTEL_REFRESH_SECONDS", "900"))
+# How often to refresh intelligence (default 60 seconds, min 30, max 900)
+_REFRESH_INTERVAL = max(30, min(900, int(os.getenv("MARKET_INTEL_REFRESH_SECONDS", "60"))))
 
 _last_brief: Optional[dict] = None
 
@@ -21,7 +21,7 @@ async def get_latest_intelligence() -> dict:
     return _last_brief or {
         "what_happened": "No market data yet — intelligence updates every 15 minutes.",
         "why_it_matters": "Market intelligence is collected automatically from CoinStats.",
-        "what_amarktai_is_doing": "Amarktai Network monitors markets continuously and adjusts bot strategy.",
+        "what_amarktai_is_doing": "Amarktai Crypto monitors markets continuously and adjusts bot strategy.",
         "confidence": "Pending first fetch",
         "mood": "neutral",
         "top_risk": "none",
@@ -82,7 +82,7 @@ async def _fetch_and_process():
         _last_brief = {
             "what_happened": what_happened,
             "why_it_matters": f"This {mood} signal from CoinStats affects crypto prices and bot entry/exit decisions.",
-            "what_amarktai_is_doing": f"Bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
+            "what_amarktai_is_doing": f"Amarktai Crypto bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
             "confidence": confidence,
             "mood": mood,
             "top_risk": top_risk,

@@ -23,7 +23,7 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
     Returns the current status of the automatic Market Intelligence pipeline.
 
     What it does:
-      - Fetches latest crypto news headlines from CoinStats every 15 minutes.
+      - Fetches latest crypto news headlines from CoinStats every 60 seconds (configurable).
       - Runs sentiment classification on each headline (positive / negative / neutral).
       - Detects risk categories (regulation, hack, volatility, etc.).
       - Produces a plain-English market brief.
@@ -74,7 +74,7 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "refresh_interval_seconds": _REFRESH_INTERVAL,
             "what_it_does": (
                 "Automatically fetches CoinStats headlines every "
-                f"{_REFRESH_INTERVAL // 60} minutes, classifies market sentiment, "
+                f"{_REFRESH_INTERVAL}s, classifies market sentiment, "
                 "detects risk events, and generates a plain-English market brief. "
                 "No manual input is needed."
             ),

@@ -53,8 +53,14 @@ export default function LiveTradesSection({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           {/* Left: Open Trades */}
           <div>
-            <div style={{ fontWeight: '600', marginBottom: '8px', color: 'var(--text)' }}>
-              Open Trades <span style={{ color: 'var(--muted)', fontWeight: '400' }}>({openTrades.length})</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ fontWeight: '600', color: 'var(--text)' }}>
+                Open Trades <span style={{ color: 'var(--muted)', fontWeight: '400' }}>({openTrades.length})</span>
+              </div>
+            </div>
+            {/* Spacer row — mirrors the summary row height of Closed Trades panel */}
+            <div style={{ display: 'flex', gap: '16px', marginBottom: '8px', fontSize: '0.82rem', color: 'var(--muted)', visibility: 'hidden', userSelect: 'none' }}>
+              <span>Status: Active</span>
             </div>
             <LiveTradesTable
               trades={openTrades}
