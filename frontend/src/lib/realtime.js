@@ -105,7 +105,7 @@ class RealtimeClient {
    * Handle incoming WebSocket message
    */
   handleMessage(message) {
-    const { type, data, ts } = message;
+    const { type, data, ts, ...rest } = message;
 
     if (!type) {
       console.warn('⚠️  Message without type:', message);
@@ -132,16 +132,20 @@ class RealtimeClient {
     // Update last update timestamp
     this.lastUpdate[type] = ts || new Date().toISOString();
 
+    // When the backend sends a flat payload (no 'data' wrapper), pass the
+    // remaining fields so listeners receive a useful object instead of undefined.
+    const payload = data !== undefined ? data : (Object.keys(rest).length > 0 ? rest : undefined);
+
     // Emit to listeners
-    this.emit(type, data);
+    this.emit(type, payload);
 
     // Alias backend event names to the canonical frontend names expected by
     // components (e.g. LiveTradesPanel listens on 'trades', not 'trade_executed').
     if (type === 'trade_executed') {
-      this.emit('trades', data);
+      this.emit('trades', payload);
     }
     if (type === 'balance_updated') {
-      this.emit('balances', data);
+      this.emit('balances', payload);
     }
   }
 

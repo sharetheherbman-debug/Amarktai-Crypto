@@ -264,9 +264,19 @@ async def reset_paper_sandbox(
         results["fills"] = await _delete(raw_db.fills, user_filter, "fills")
         results["equity_series"] = await _delete(raw_db.equity_series, user_filter, "equity_series")
         results["drawdown_series"] = await _delete(raw_db.drawdown_series, user_filter, "drawdown_series")
-        # Clear ALL user-scoped ledger data so compute_equity() returns 0 after reset
-        results["fills_ledger"] = await _delete(raw_db.fills_ledger, user_filter, "fills_ledger")
-        results["ledger_events"] = await _delete(raw_db.ledger_events, user_filter, "ledger_events")
+        # Clear paper-scoped fills so compute_equity() returns 0 after reset
+        paper_fills_filter = {"user_id": user_id, "is_paper": True}
+        results["fills_ledger"] = await _delete(raw_db.fills_ledger, paper_fills_filter, "fills_ledger")
+        # Clear paper-scoped ledger events (bootstrap, funding, and metadata-tagged paper events)
+        paper_events_filter = {
+            "user_id": user_id,
+            "$or": [
+                {"event_type": "paper_capital_bootstrap"},
+                {"metadata.mode": "paper"},
+                {"metadata.is_paper": True},
+            ]
+        }
+        results["ledger_events"] = await _delete(raw_db.ledger_events, paper_events_filter, "ledger_events")
         # Clear circuit breaker state so no stale trips survive reset
         results["circuit_breaker_state"] = await _delete(raw_db.circuit_breaker_state, user_filter, "circuit_breaker_state")
 
@@ -278,6 +288,15 @@ async def reset_paper_sandbox(
     except Exception as exc:
         logger.warning("paper-sandbox reset: paper wallet reset failed: %s", exc)
         results["paper_wallet"] = 0
+
+    # Clear in-memory ccxt paper balances so countdown endpoints see 0
+    try:
+        from ccxt_service import ccxt_service as _ccxt
+        if hasattr(_ccxt, "paper_balances") and user_id in _ccxt.paper_balances:
+            _ccxt.paper_balances[user_id] = {}
+            results["ccxt_paper_balance"] = 1
+    except Exception as exc:
+        logger.warning("paper-sandbox reset: ccxt paper balance clear failed: %s", exc)
 
     # Audit log
     try:
@@ -293,20 +312,21 @@ async def reset_paper_sandbox(
     total_deleted = sum(v for v in results.values() if isinstance(v, int))
     logger.info("Paper sandbox reset for user %s: %d documents cleared", user_id[:8], total_deleted)
 
-    # Post-reset invariant check: verify equity and trades are zero
+    # Post-reset invariant check: verify paper equity and trades are zero
     invariant_warnings = []
     try:
         from services.ledger_service import get_ledger_service
         _lsvc = get_ledger_service(db.db)
         post_equity = round(await _lsvc.compute_equity(user_id), 4)
-        post_trades = await db.trades_collection.count_documents({"user_id": user_id})
-        post_fills = await db.db["fills_ledger"].count_documents({"user_id": user_id}) if db.db else 0
+        post_trades = await db.trades_collection.count_documents({"user_id": user_id, "trading_mode": "paper"})
+        # Count paper fills specifically
+        post_fills = await db.db["fills_ledger"].count_documents({"user_id": user_id, "is_paper": True}) if db.db else 0
         if post_equity != 0:
             msg = f"ledger_equity={post_equity} non-zero after reset for user {user_id[:8]}"
             invariant_warnings.append(msg)
             logger.error("Post-reset invariant FAIL: %s", msg)
         if post_fills != 0:
-            msg = f"fills_ledger={post_fills} non-zero after reset for user {user_id[:8]}"
+            msg = f"paper_fills_ledger={post_fills} non-zero after reset for user {user_id[:8]}"
             invariant_warnings.append(msg)
             logger.error("Post-reset invariant FAIL: %s", msg)
     except Exception as inv_err:
