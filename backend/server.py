@@ -241,6 +241,11 @@ async def lifespan(app: FastAPI):
     try:
         from services.market_intelligence_service import start_intelligence_scheduler
         asyncio.create_task(start_intelligence_scheduler())
+        try:
+            from services.growth_engine_service import start_growth_engine_scheduler
+            asyncio.create_task(start_growth_engine_scheduler())
+        except Exception as _ge_err:
+            logger.warning(f"Growth Engine scheduler not started: {_ge_err}")
         logger.info("🧠 Market Intelligence Scheduler started")
     except Exception as e:
         logger.warning(f"Could not start Market Intelligence Scheduler: {e}")
@@ -3210,6 +3215,7 @@ routers_to_mount = [
     ("routes.system_capabilities", "System Capabilities"),  # NEW - Unified capabilities and missing keys status
     ("routes.events", "Events Feed"),  # NEW - Per-user events stream
     ("routes.intelligence", "Market Intelligence"),  # Automatic CoinStats intelligence pipeline
+    ("routes.growth_engine", "Growth Engine"),  # Per-user safe growth automation
 ]
 
 # Mount realtime router only if enabled via feature flag

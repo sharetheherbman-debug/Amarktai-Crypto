@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import SiteFooter from './SiteFooter';
 
-test('renders Amarktai Network footer', () => {
+test('renders Amarktai Network copyright footer', () => {
   const html = renderToStaticMarkup(<SiteFooter />);
-  expect(html).toContain('Amarktai Network');
+  expect(html).toContain('© 2026 Amarktai Network');
 });
