@@ -22,7 +22,7 @@ REALISM FEATURES (95% Live Accuracy):
 ✅ Slippage simulation (0.1-0.2% per trade based on order size/volatility)
 ✅ Order failure rate (3% rejection - matches real 97% fill rate)
 ✅ Execution delay (±0.05% price movement during 50-200ms latency)
-✅ 4-Source AI Intelligence (Market Regime, ML Predictor, Flokx, Fetch.ai)
+✅ 4-Source AI Intelligence (Market Regime, ML Predictor, Fetch.ai)
 ✅ Centralized order validation (precision, min notional, exchange rules)
 ✅ Paper wallet ledger with reserve/debit/credit system (NO FREE MONEY)
 ✅ Capital enforcement - trades blocked if insufficient funds
@@ -153,7 +153,7 @@ This paper trading engine achieves 95% accuracy compared to live trading through
 9. AI INTEGRATION (4-Source Intelligence)
    - Market Regime Detector
    - ML Price Predictor
-   - Flokx Signals
+   - AI Signals
    - Fetch.ai Signals
    - Trades only execute with 2+ AI sources agreeing
    - Position sizing adjusts based on AI confidence

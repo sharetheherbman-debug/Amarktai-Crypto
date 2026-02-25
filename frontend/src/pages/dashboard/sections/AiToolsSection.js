@@ -6,7 +6,7 @@ import LearningResultsModal from './LearningResultsModal';
 /**
  * AI Tools Hub - Unified AI tools interface
  * Consolidates Learning, Sentiment Analysis, Strategy Insights, and Agent Creation
- * Replaces standalone Fetch.ai/Flokx/HuggingFace panels per requirements
+ * Replaces standalone Fetch.ai/HuggingFace panels per requirements
  */
 export default function AiToolsSection({ bots, onRefresh }) {
   const [activeTab, setActiveTab] = useState('learning');

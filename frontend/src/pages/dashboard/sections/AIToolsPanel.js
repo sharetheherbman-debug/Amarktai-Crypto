@@ -3,7 +3,7 @@ import { apiClient } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
 /**
- * AI Tools Panel - Integrated HuggingFace, Fetch.ai, and Flokx tools
+ * AI Tools Panel - Integrated HuggingFace and Fetch.ai tools
  * Displayed as collapsible panels within the Welcome section
  */
 export default function AIToolsPanel() {
@@ -23,7 +23,7 @@ export default function AIToolsPanel() {
   const [fetchaiActive, setFetchaiActive] = useState(false);
   const [fetchaiSignals, setFetchaiSignals] = useState([]);
   
-  // Flokx state (deprecated - kept for state compatibility)
+  // Fetch.ai state
 
   // Check HuggingFace configuration on mount
   useEffect(() => {

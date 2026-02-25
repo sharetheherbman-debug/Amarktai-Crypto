@@ -2077,7 +2077,7 @@ async def ai_chat(
                     ]
 
                     # Prepare context for AI
-                    context = f"""You are an AI trading assistant for Amarktai Crypto (part of Amarktai Network).
+                    context = f"""You are an AI trading assistant for Amarktai Network (part of Amarktai Network).
 
                     User:
                     - Name: {display_name}

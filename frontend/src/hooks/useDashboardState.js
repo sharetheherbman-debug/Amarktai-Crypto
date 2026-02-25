@@ -695,23 +695,7 @@ export default function useDashboardState(navigate) {
     }
   }, [adminBots, selectedUserId]);
 
-  // Check Flokx status
-  useEffect(() => {
-    // Guard: Only run if token exists
-    const currentToken = getToken();
-    if (!currentToken || !token) {
-      return undefined;
-    }
 
-    loadFlokxStatus();
-    const interval = setInterval(() => {
-      // Double-check token before each poll
-      if (getToken()) {
-        loadFlokxStatus();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [token]);
 
   const setupRealTimeConnections = () => {
     // Guard: Only setup connections if token exists

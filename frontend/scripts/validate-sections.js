@@ -15,7 +15,6 @@ const sectionsDir = path.join(__dirname, '../src/pages/dashboard/sections');
 const sections = [
   'LiveTradesSection.js',
   'FetchAISection.js',
-  'FlokxSection.js',
   'SystemModeSection.js',
   'ApiSetupSection.js',
   'OverviewSection.js',
@@ -27,7 +26,6 @@ const sections = [
   'CountdownSection.js',
   'WalletHubSection.js',
   'MetricsWithTabsSection.js',
-  'FlokxAlertsSection.js'
 ];
 
 let errors = 0;

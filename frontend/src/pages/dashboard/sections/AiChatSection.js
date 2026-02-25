@@ -146,7 +146,7 @@ export default function AiChatSection({
         </div>
       )}
 
-      {/* Advanced AI Tools Panel (HuggingFace, Fetch.ai, Flokx) */}
+      {/* Advanced AI Tools Panel (HuggingFace, Fetch.ai) */}
       {showAdvancedTools && (
         <ErrorBoundary title="Advanced AI error" message="Unable to load Advanced AI tools. Please try again.">
           <AIToolsPanel />
