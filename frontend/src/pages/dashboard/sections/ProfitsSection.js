@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Line } from 'react-chartjs-2';
 import SectionHeader from '@/ui/components/SectionHeader';
 import StatCard from '@/ui/components/StatCard';
 import ErrorBoundary from '../../../components/ErrorBoundary';
+import apiClient from '@/lib/apiClient';
 
 const NOT_AVAILABLE = 'Not available';
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -41,6 +42,29 @@ const ProfitsSection = ({
   winRatePeriod,
   getAlertColor,
 }) => {
+  const [systemMetrics, setSystemMetrics] = useState(null);
+  const [systemMetricsLoading, setSystemMetricsLoading] = useState(false);
+
+  // Fetch system metrics when the metrics tab is active
+  useEffect(() => {
+    if (profitsTab !== 'metrics') return;
+    let cancelled = false;
+    const fetchMetrics = async () => {
+      setSystemMetricsLoading(true);
+      try {
+        const res = await apiClient.get('/metrics/system');
+        if (!cancelled) setSystemMetrics(res.data);
+      } catch (e) {
+        console.error('System metrics fetch error:', e);
+      } finally {
+        if (!cancelled) setSystemMetricsLoading(false);
+      }
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 60000); // refresh every 60 s
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [profitsTab]);
+
   const maxDrawdown = drawdownData?.max_drawdown_pct ?? drawdownData?.max_drawdown;
   const feesValue = profitData?.fees ?? profitData?.total_fees ?? null;
 
@@ -160,16 +184,114 @@ const ProfitsSection = ({
         {profitsTab === 'metrics' && (
           <div style={{marginTop: '20px'}}>
             <ErrorBoundary title="Metrics Error" message="Unable to load metrics data.">
-              <div>
-                <h3 style={{marginBottom: '16px'}}>📊 System Metrics</h3>
-                
-                <div style={{marginBottom: '20px'}}>
-                  <h3 style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-                    📊 Market Intelligence
+              {systemMetricsLoading && !systemMetrics ? (
+                <div style={{color: 'var(--muted)', padding: '20px 0'}}>Loading system metrics…</div>
+              ) : (
+                <div>
+                  {/* Trading Performance */}
+                  <h3 style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '12px'}}>
+                    📊 Trading Performance
                   </h3>
-                  <p style={{color: 'var(--muted)'}}>News and market signals are served by CoinStats.</p>
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '24px'}}>
+                    {[
+                      {
+                        label: 'Net Profit / Loss',
+                        help: 'Total realised profit after fees (ZAR)',
+                        value: systemMetrics?.trading?.net_pnl != null
+                          ? formatZAR(systemMetrics.trading.net_pnl)
+                          : NOT_AVAILABLE,
+                        color: systemMetrics?.trading?.net_pnl >= 0 ? 'var(--success)' : 'var(--error)',
+                      },
+                      {
+                        label: 'Win Rate',
+                        help: 'Percentage of closed trades that were profitable',
+                        value: systemMetrics?.trading?.win_rate != null
+                          ? `${systemMetrics.trading.win_rate}%`
+                          : NOT_AVAILABLE,
+                        color: 'var(--accent2)',
+                      },
+                      {
+                        label: 'Total Trades',
+                        help: 'Number of completed closed trades',
+                        value: systemMetrics?.trading?.trade_count != null
+                          ? String(systemMetrics.trading.trade_count)
+                          : NOT_AVAILABLE,
+                        color: 'var(--text)',
+                      },
+                      {
+                        label: 'Max Drawdown',
+                        help: 'Worst peak-to-trough loss — lower is better',
+                        value: systemMetrics?.trading?.max_drawdown_pct != null
+                          ? `${systemMetrics.trading.max_drawdown_pct}%`
+                          : NOT_AVAILABLE,
+                        color: 'var(--warning)',
+                      },
+                    ].map(({label, help, value, color}) => (
+                      <div key={label} style={{
+                        padding: '14px',
+                        background: 'var(--panel)',
+                        borderRadius: '8px',
+                        border: '1px solid var(--line)',
+                      }}>
+                        <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px'}}>{label}</div>
+                        <div style={{fontSize: '1.25rem', fontWeight: 700, color}}>{value}</div>
+                        <div style={{fontSize: '0.72rem', color: 'var(--muted)', marginTop: '4px'}}>{help}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {systemMetrics?.trading?.last_trade_at && (
+                    <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '20px'}}>
+                      Last trade: {new Date(systemMetrics.trading.last_trade_at).toLocaleString()}
+                    </div>
+                  )}
+
+                  {/* Market Intelligence */}
+                  <h3 style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                    🌐 Market Intelligence
+                    <span style={{fontSize: '0.75rem', fontWeight: 400, color: 'var(--muted)'}}>
+                      Source: {systemMetrics?.market_intelligence?.source || 'CoinStats'}
+                    </span>
+                  </h3>
+                  {systemMetrics?.market_intelligence ? (
+                    <div style={{
+                      padding: '16px',
+                      background: 'var(--panel)',
+                      borderRadius: '8px',
+                      border: '1px solid var(--line)',
+                    }}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                        <span style={{
+                          fontSize: '1rem',
+                          fontWeight: 700,
+                          color: systemMetrics.market_intelligence.mood === 'positive' ? 'var(--success)' :
+                                 systemMetrics.market_intelligence.mood === 'negative' ? 'var(--error)' : 'var(--warning)',
+                        }}>
+                          {systemMetrics.market_intelligence.mood === 'positive' ? '📈' :
+                           systemMetrics.market_intelligence.mood === 'negative' ? '📉' : '➡️'}{' '}
+                          Mood: {systemMetrics.market_intelligence.mood}
+                        </span>
+                        {systemMetrics.market_intelligence.top_risk !== 'none' && (
+                          <span style={{fontSize: '0.82rem', color: 'var(--warning)'}}>
+                            ⚠️ {systemMetrics.market_intelligence.top_risk}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{fontSize: '0.9rem', color: 'var(--text)', marginBottom: '8px'}}>
+                        {systemMetrics.market_intelligence.brief}
+                      </div>
+                      {systemMetrics.market_intelligence.last_updated && (
+                        <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                          Updated: {new Date(systemMetrics.market_intelligence.last_updated).toLocaleString()} · Source: CoinStats
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
+                      News and market signals are served by CoinStats. Waiting for first fetch…
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
             </ErrorBoundary>
           </div>
         )}

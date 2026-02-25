@@ -3209,6 +3209,7 @@ routers_to_mount = [
     ("routes.autopilot_config", "Autopilot Configuration"),  # NEW - User-configurable autopilot settings per exchange
     ("routes.system_capabilities", "System Capabilities"),  # NEW - Unified capabilities and missing keys status
     ("routes.events", "Events Feed"),  # NEW - Per-user events stream
+    ("routes.intelligence", "Market Intelligence"),  # Automatic CoinStats intelligence pipeline
 ]
 
 # Mount realtime router only if enabled via feature flag

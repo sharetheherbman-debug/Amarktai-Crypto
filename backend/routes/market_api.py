@@ -117,3 +117,55 @@ async def _fetch_luno_ticker(pair: str, display_pair: str, api_key: Optional[Dic
     except Exception as e:
         logger.error(f"Error fetching Luno ticker for {pair}: {e}")
         raise
+
+
+# Cache for /api/market/brief
+import time as _time
+_brief_cache: dict = {}
+_brief_cache_at: float = 0.0
+_BRIEF_TTL = 90  # seconds
+
+
+@router.get("/brief")
+async def get_market_brief(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/market/brief
+
+    CoinStats-based market intelligence summary, cached for 90 seconds.
+
+    Returns:
+      - mood: positive | negative | neutral
+      - brief: Latest headline or market summary
+      - top_risk: Risk category detected in headlines (or "none")
+      - confidence: Confidence description
+      - source: "CoinStats"
+      - last_updated: ISO timestamp of last CoinStats fetch
+    """
+    global _brief_cache, _brief_cache_at
+
+    age = _time.monotonic() - _brief_cache_at
+    if not _brief_cache or age > _BRIEF_TTL:
+        try:
+            from services.market_intelligence_service import get_latest_intelligence
+            data = await get_latest_intelligence()
+            _brief_cache = {
+                "mood": data.get("mood", "neutral"),
+                "brief": data.get("what_happened", "No data yet"),
+                "top_risk": data.get("top_risk", "none"),
+                "confidence": data.get("confidence", "Unknown"),
+                "what_amarktai_is_doing": data.get("what_amarktai_is_doing", ""),
+                "source": data.get("source", "CoinStats"),
+                "last_updated": data.get("updated_at"),
+            }
+            _brief_cache_at = _time.monotonic()
+        except Exception as e:
+            logger.error(f"Market brief fetch error: {e}")
+            if not _brief_cache:
+                _brief_cache = {
+                    "mood": "neutral", "brief": "Market intelligence unavailable",
+                    "top_risk": "none", "confidence": "Unknown",
+                    "what_amarktai_is_doing": "",
+                    "source": "CoinStats", "last_updated": None,
+                }
+
+    return _brief_cache
