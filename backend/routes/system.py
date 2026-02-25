@@ -349,6 +349,74 @@ async def reset_paper_sandbox(
 # Use emergency_stop_endpoints.py instead
 
 
+@router.get("/reset-proof")
+async def get_reset_proof(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/system/reset-proof
+
+    Returns a post-reset proof snapshot showing all runtime counters are zero.
+    Useful after a Start Fresh / paper reset to confirm clean state.
+
+    Returns:
+      - equity: 0 if ledger is clean
+      - trades_total: 0 if no trades exist
+      - ledger_rows: 0 if fills_ledger is empty
+      - bots: 0 if no active bots
+      - wallet_balance: current paper wallet ZAR balance
+      - is_clean: true if equity==0 and trades_total==0 and bots==0
+    """
+    result = {
+        "equity": 0.0,
+        "trades_total": 0,
+        "ledger_rows": 0,
+        "bots": 0,
+        "wallet_balance": 0.0,
+        "is_clean": False,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    errors = []
+
+    try:
+        from services.ledger_service import get_ledger_service
+        if db.db is not None:
+            _lsvc = get_ledger_service(db.db)
+            result["equity"] = round(await _lsvc.compute_equity(user_id, currency="ZAR"), 4)
+            result["ledger_rows"] = await db.db["fills_ledger"].count_documents({"user_id": user_id})
+    except Exception as e:
+        errors.append(f"ledger: {e}")
+
+    try:
+        if db.trades_collection is not None:
+            result["trades_total"] = await db.trades_collection.count_documents({"user_id": user_id})
+    except Exception as e:
+        errors.append(f"trades: {e}")
+
+    try:
+        if db.bots_collection is not None:
+            result["bots"] = await db.bots_collection.count_documents(
+                {"user_id": user_id, "status": {"$in": ["active", "running"]}}
+            )
+    except Exception as e:
+        errors.append(f"bots: {e}")
+
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        pw = await paper_wallet_service.get_balances(user_id)
+        result["wallet_balance"] = float((pw.get("balances") or {}).get("ZAR", 0) or 0)
+    except Exception as e:
+        errors.append(f"wallet: {e}")
+
+    result["is_clean"] = (
+        result["equity"] == 0.0
+        and result["trades_total"] == 0
+        and result["bots"] == 0
+    )
+    if errors:
+        result["errors"] = errors
+
+    return result
+
+
 # REMOVED: Duplicate GET /api/system/status - canonical version in routes/system_status.py
 # This duplicate route causes collision. Use system_status.py instead.
 
