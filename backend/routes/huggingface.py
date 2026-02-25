@@ -537,12 +537,7 @@ async def hf_infer(data: dict, user_id: str = Depends(get_current_user)):
     model_override = data.get("model")
 
     try:
-        DEFAULT_MODELS = {
-            "sentiment": "distilbert-base-uncased-finetuned-sst-2-english",
-            "summarize": "facebook/bart-large-cnn",
-            "classify": "facebook/bart-large-mnli",
-        }
-        model_id = model_override or DEFAULT_MODELS.get(task, DEFAULT_MODELS["sentiment"])
+        model_id = model_override or HF_DEFAULT_MODELS.get(task, HF_DEFAULT_MODELS["sentiment"])
         client, source = await get_huggingface_client(user_id, model=model_id)
         if not client:
             raise HTTPException(
