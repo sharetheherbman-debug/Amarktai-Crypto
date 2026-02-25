@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Amarktai Crypto Production Smoke Test
+Amarktai Network Production Smoke Test
 
 Tests critical functionality:
 - Authentication (login)
@@ -274,7 +274,7 @@ class SmokeTest:
 def main():
     """Run all smoke tests"""
     log("=" * 60, BLUE)
-    log("Amarktai Crypto Production Smoke Test", BLUE)
+    log("Amarktai Network Production Smoke Test", BLUE)
     log("=" * 60, BLUE)
     log(f"API Base: {API_BASE}")
     log(f"Test User: {TEST_EMAIL}")

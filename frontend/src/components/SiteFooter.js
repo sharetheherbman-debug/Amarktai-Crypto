@@ -1,7 +1,7 @@
 export default function SiteFooter() {
   return (
     <footer className="site-footer">
-      Amarktai Network — Personal use only.
+      © 2026 Amarktai Network
     </footer>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import AIToolsPanel from './AIToolsPanel';
+import MarketIntelligencePanel from './MarketIntelligencePanel';
 import ErrorBoundary from '../../../components/ErrorBoundary';
 
 export default function AiChatSection({
@@ -90,7 +90,7 @@ export default function AiChatSection({
               fontWeight: 600
             }}
           >
-            🔧 Advanced AI {showAdvancedTools ? '▼' : '▶'}
+            🧠 Market Intel {showAdvancedTools ? '▼' : '▶'}
           </button>
         </div>
         <div className={`amk-chat-indicator ${chatSending ? 'active' : ''}`}>
@@ -106,6 +106,7 @@ export default function AiChatSection({
             onClick={handleTriggerLearning}
             disabled={aiTaskLoading === 'learning'}
             className="ai-tool-btn"
+            title="Analyses recent trades and updates bot strategy weights. Active in this release."
           >
             {aiTaskLoading === 'learning' ? '⏳ Analyzing...' : '📚 AI Learning'}
           </button>
@@ -113,6 +114,7 @@ export default function AiChatSection({
             onClick={handleEvolveBots}
             disabled={aiTaskLoading === 'evolve'}
             className="ai-tool-btn"
+            title="Runs genetic algorithm to evolve bot DNA parameters for better performance. Active in this release."
           >
             {aiTaskLoading === 'evolve' ? '⏳ Evolving...' : '🧬 Evolve Bots'}
           </button>
@@ -120,6 +122,7 @@ export default function AiChatSection({
             onClick={handleGetInsights}
             disabled={aiTaskLoading === 'insights'}
             className="ai-tool-btn"
+            title="Generates a plain-English summary of system health, regime, and recent performance. Active in this release."
           >
             {aiTaskLoading === 'insights' ? '⏳ Generating...' : '💡 AI Insights'}
           </button>
@@ -133,6 +136,7 @@ export default function AiChatSection({
             onClick={handlePredictPrice}
             disabled={aiTaskLoading === 'predict'}
             className="ai-tool-btn"
+            title="Runs ML model to predict BTC-ZAR price movement. Active in this release (paper trading mode)."
           >
             {aiTaskLoading === 'predict' ? '⏳ Predicting...' : '🔮 ML Predict'}
           </button>
@@ -140,16 +144,17 @@ export default function AiChatSection({
             onClick={handleReinvestProfits}
             disabled={aiTaskLoading === 'reinvest'}
             className="ai-tool-btn"
+            title="Distributes today's paper profits back into active bots as additional capital. Active in this release."
           >
             {aiTaskLoading === 'reinvest' ? '⏳ Reinvesting...' : '💰 Reinvest Profits'}
           </button>
         </div>
       )}
 
-      {/* Advanced AI Tools Panel (HuggingFace, Fetch.ai) */}
+      {/* Market Intelligence Panel (automatic — no manual input needed) */}
       {showAdvancedTools && (
-        <ErrorBoundary title="Advanced AI error" message="Unable to load Advanced AI tools. Please try again.">
-          <AIToolsPanel />
+        <ErrorBoundary title="Market Intelligence error" message="Unable to load Market Intelligence panel. Please try again.">
+          <MarketIntelligencePanel />
         </ErrorBoundary>
       )}
 

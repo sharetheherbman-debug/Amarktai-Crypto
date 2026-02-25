@@ -30,6 +30,7 @@ import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
+import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
 
 ChartJS.register(
   CategoryScale,
@@ -435,6 +436,10 @@ export default function Dashboard() {
     />
   );
 
+  const renderGrowthEngine = () => (
+    <GrowthEngineSection />
+  );
+
   const renderWalletHub = () => (
     <WalletHubSection
       balances={balances}
@@ -498,7 +503,7 @@ export default function Dashboard() {
             onClick={() => showSection('overview')}
             style={{ cursor: 'pointer', width: '120px', height: '50px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.1rem', margin: '12px auto' }}
           >
-            Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
+            Amarktai <span style={{ color: '#60a5fa' }}>Crypto</span>
           </div>
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
@@ -508,6 +513,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
+            <a href="#" className={activeSection === 'growth' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('growth'); }}>📈 Growth Engine</a>
             <a href="#" className={activeSection === 'wallet' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('wallet'); }}>💰 Wallet Hub</a>
             <a href="#" className={activeSection === 'profile' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('profile'); }}>👤 Profile</a>
             {showAdmin && (
@@ -522,7 +528,7 @@ export default function Dashboard() {
         <header className="topbar">
             <div className="topbar-brand">
               <div className="topbar-title">
-                Amarkt<span style={{ color: '#3b82f6', fontWeight: '700' }}>AI</span>
+                Amarktai <span style={{ color: '#3b82f6', fontWeight: '700' }}>Crypto</span>
               </div>
             </div>
           <div className="top-actions">
@@ -548,7 +554,7 @@ export default function Dashboard() {
               className="mobile-logo"
               style={{ width: '80px', height: '32px', background: '#1e293b', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '0.9rem' }}
             >
-              Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
+              Amarktai <span style={{ color: '#60a5fa' }}>Crypto</span>
             </div>
           </button>
           <div className="mobile-btns">
@@ -603,6 +609,11 @@ export default function Dashboard() {
         {activeSection === 'countdown' && (
           <ErrorBoundary title="Countdown section error" message="Unable to load Countdown section.">
             {renderCountdown()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'growth' && (
+          <ErrorBoundary title="Growth Engine section error" message="Unable to load Growth Engine section.">
+            {renderGrowthEngine()}
           </ErrorBoundary>
         )}
         {activeSection === 'wallet' && (
