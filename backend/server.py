@@ -60,55 +60,12 @@ api_router = APIRouter()
 api_router.include_router(auth_router)
 
 # ============================================================================
-# FLOKX BACKGROUND POLLER
-# Polls each user's configured Flokx key every 5 minutes and stores alerts
-# in alerts_collection with source="flokx" for the AI ensemble to consume.
+# FLOKx BACKGROUND POLLER — DISABLED
+# FLOKx DNS was causing log spam. Provider is now optional legacy only.
+# CoinStats is the active news/signal provider. See services/news_coinstats.py
 # ============================================================================
 
-_FLOKX_POLL_INTERVAL = 300  # 5 minutes
-
-
-async def _run_flokx_poller():
-    """Background task: poll Flokx per-user every 5 minutes."""
-    import asyncio
-    from datetime import datetime, timezone
-    while True:
-        try:
-            if db.api_keys_collection is None or db.alerts_collection is None:
-                await asyncio.sleep(_FLOKX_POLL_INTERVAL)
-                continue
-            # Fetch all configured Flokx keys
-            cursor = db.api_keys_collection.find({"provider": "flokx"}, {"user_id": 1, "encrypted_key": 1, "key": 1})
-            keys = await cursor.to_list(length=200)
-            if keys:
-                from routes.api_key_management import get_decrypted_key
-                from flokx_integration import FLOKxIntegration
-                for key_doc in keys:
-                    try:
-                        uid = key_doc.get("user_id")
-                        api_key = await get_decrypted_key(uid, "flokx")
-                        if not api_key:
-                            continue
-                        local_flokx = FLOKxIntegration()
-                        local_flokx.set_credentials(api_key)
-                        data = await local_flokx.fetch_market_coefficients("BTC/ZAR")
-                        # Skip storing simulated/unavailable data (e.g. DNS failure)
-                        if data.get("is_simulated"):
-                            continue
-                        await db.alerts_collection.insert_one({
-                            "user_id": uid,
-                            "source": "flokx",
-                            "pair": "BTC/ZAR",
-                            "data": data,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        })
-                    except Exception as e:
-                        logger.debug(f"Flokx poll error for user: {e}")
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.warning(f"Flokx poller error: {e}")
-        await asyncio.sleep(_FLOKX_POLL_INTERVAL)
+# _FLOKX_POLL_INTERVAL and _run_flokx_poller intentionally removed.
 
 
 # ============================================================================
@@ -230,7 +187,7 @@ async def lifespan(app: FastAPI):
         # Log error but continue - optional services may have failed
         # Critical services will be checked individually below
     
-    # Initialize Fetch.ai and FLOKx integrations if keys available
+    # Initialize Fetch.ai integration if key available
     try:
         fetchai_key = os.environ.get('FETCHAI_API_KEY', '')
         if fetchai_key:
@@ -240,15 +197,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not configure Fetch.ai: {e}")
     
-    try:
-        flokx_key = os.environ.get('FLOKX_API_KEY', '')
-        if flokx_key:
-            from flokx_integration import flokx
-            flokx.set_credentials(flokx_key)
-            logger.info("🎯 FLOKx integration configured")
-    except Exception as e:
-        logger.warning(f"Could not configure FLOKx: {e}")
-    
+    # FLOKx integration disabled — provider replaced by CoinStats
+
     # Start Daily Reinvestment Scheduler (optional)
     try:
         if config.ENABLE_AUTOPILOT_REINVEST:
@@ -297,13 +247,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
 
-    # Start Flokx background polling (every 5 minutes per user)
-    try:
-        if os.environ.get("ENABLE_SCHEDULERS", "true").lower() == "true":
-            asyncio.create_task(_run_flokx_poller())
-            logger.info("🎯 Flokx background poller started (5-min interval)")
-    except Exception as e:
-        logger.warning(f"Could not start Flokx poller: {e}")
+    # FLOKx background polling DISABLED — replaced by CoinStats provider
     
     logger.info("🚀 All autonomous systems operational")
     
@@ -2239,38 +2183,13 @@ async def get_wallet_mode_stats(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/alerts")
 async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
-    """Get FLOKx market alerts using user's stored key"""
-    try:
-        from routes.api_key_management import get_decrypted_key
-        key_data = await get_decrypted_key(str(user_id), "flokx")
-        if not key_data or not key_data.get("api_key"):
-            return {
-                "alerts": [],
-                "count": 0,
-                "message": "FLOKx key not configured. Add your FLOKx API key in the Keys section.",
-                "configured": False,
-            }
-
-        from flokx_integration import FLOKxIntegration
-        local_flokx = FLOKxIntegration()
-        local_flokx.set_credentials(key_data["api_key"])
-
-        pairs = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
-        alerts = []
-        for pair in pairs:
-            data = await local_flokx.fetch_market_coefficients(pair)
-            if data.get('strength', 0) > 75:
-                alerts.append({
-                    "pair": pair,
-                    "type": "strong_signal",
-                    "message": f"{pair}: Strong {data.get('sentiment', 'signal')} ({data.get('strength', 0):.0f}%)",
-                    "timestamp": data.get('timestamp')
-                })
-
-        return {"alerts": alerts, "count": len(alerts), "configured": True}
-    except Exception as e:
-        logger.error(f"Flokx alerts error: {e}")
-        return {"alerts": [], "count": 0}
+    """FLOKx alerts — provider DISABLED. Use /api/news/feed instead."""
+    return {
+        "alerts": [],
+        "count": 0,
+        "configured": False,
+        "message": "FLOKx provider disabled. Use /api/news/feed for crypto news & sentiment.",
+    }
 
 # REMOVED: Duplicate autopilot enable/disable routes
 # These are now handled by routes/autopilot_control.py to avoid route collision
@@ -2468,133 +2387,40 @@ async def test_email_alert(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/flokx/status")
 async def get_flokx_status(user_id: str = Depends(get_current_user)):
-    """Get FLOKx configuration status AND test reachability (DNS + HTTP).
-
-    Returns actionable diagnostics: if DNS fails the status is
-    'service_unreachable', not 'key_not_configured'.
-    """
-    try:
-        from routes.keys import normalize_status
-        from services.provider_registry import ProviderStatus
-
-        key_doc = await db.api_keys_collection.find_one(
-            {"user_id": str(user_id), "provider": "flokx"},
-            {"_id": 0, "status": 1, "last_tested_at": 1, "last_test_error": 1}
-        )
-
-        if key_doc:
-            status = normalize_status(key_doc.get("status", ProviderStatus.CONFIGURED_UNTESTED.value))
-            configured = status != ProviderStatus.NOT_CONFIGURED.value
-            last_tested_at = key_doc.get("last_tested_at")
-            last_error = key_doc.get("last_test_error")
-        else:
-            configured = False
-            last_tested_at = None
-            last_error = None
-    except Exception as _e:
-        configured = False
-        last_tested_at = None
-        last_error = str(_e)
-
-    # --- DNS + HTTP reachability probe ---
-    from flokx_integration import DEFAULT_FLOKX_BASE_URL
-    base_url = os.getenv("FLOKX_BASE_URL", DEFAULT_FLOKX_BASE_URL).rstrip("/")
-    dns_ok = False
-    http_ok = False
-    reachability_error = None
-    try:
-        from urllib.parse import urlparse as _urlparse
-        hostname = _urlparse(base_url).hostname or ""
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, socket.getaddrinfo, hostname, None)
-        dns_ok = True
-    except Exception as _dns_err:
-        reachability_error = f"DNS resolution failed: {_dns_err}"
-
-    if dns_ok:
-        try:
-            async with _aiohttp.ClientSession() as _sess:
-                async with _sess.get(
-                    f"{base_url}/health",
-                    timeout=_aiohttp.ClientTimeout(total=5),
-                    allow_redirects=True,
-                ) as _resp:
-                    http_ok = _resp.status < 500
-        except Exception as _http_err:
-            reachability_error = f"HTTP probe failed: {_http_err}"
-
-    if not dns_ok or not http_ok:
-        service_status = "service_unreachable"
-    elif configured:
-        service_status = "configured"
-    else:
-        service_status = "not_configured"
-
+    """FLOKx status — provider DISABLED. Use /api/coinstats/test-connection instead."""
     return {
         "success": True,
-        "configured": configured,
-        "key_present": configured,
-        "enabled": configured,
-        "status": service_status,
-        "dns_ok": dns_ok,
-        "http_ok": http_ok,
-        "reachability_error": reachability_error,
-        "base_url": base_url,
-        "last_tested_at": last_tested_at,
-        "last_error": last_error,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "configured": False,
+        "enabled": False,
+        "status": "disabled",
+        "message": "FLOKx provider has been disabled. News & sentiment is now served by CoinStats.",
+        "migration": "Use /api/coinstats/test-connection and /api/news/feed",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 @api_router.get("/flokx/test-connection")
 async def test_flokx_connection(user_id: str = Depends(get_current_user)):
-    """Test FLOKx API connection"""
-    try:
-        from flokx_integration import flokx
-        import os
-        api_key = os.environ.get('FLOKX_API_KEY', '')
-        if not api_key:
-            return {"connected": False, "message": "No FLOKx API key configured"}
-        
-        result = await flokx.test_connection(api_key)
-        return {"connected": result, "message": "Connected to FLOKx" if result else "Connection failed"}
-    except Exception as e:
-        logger.error(f"FLOKx connection test error: {e}")
-        return {"connected": False, "message": str(e)}
+    """FLOKx test-connection — provider DISABLED."""
+    return {
+        "connected": False,
+        "configured": False,
+        "message": "FLOKx provider has been disabled. Use CoinStats instead.",
+        "migration": "Use /api/coinstats/test-connection",
+    }
 
 @api_router.get("/flokx/coefficients/{pair}")
 async def get_flokx_coefficients(pair: str, user_id: str = Depends(get_current_user)):
-    """Get FLOKx market intelligence coefficients using user's stored key"""
-    try:
-        from routes.api_key_management import get_decrypted_key
-        key_data = await get_decrypted_key(str(user_id), "flokx")
-        if not key_data or not key_data.get("api_key"):
-            return {
-                "error": "FLOKx key not configured. Add your FLOKx API key in the Keys section.",
-                "configured": False,
-            }
-        from flokx_integration import FLOKxIntegration
-        local_flokx = FLOKxIntegration()
-        local_flokx.set_credentials(key_data["api_key"])
-        coeffs = await local_flokx.fetch_market_coefficients(pair.replace('-', '/'))
-        return coeffs
-    except Exception as e:
-        logger.error(f"FLOKx error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """FLOKx coefficients — provider DISABLED."""
+    return {
+        "configured": False,
+        "is_simulated": True,
+        "error": "FLOKx provider has been disabled.",
+    }
 
 @api_router.post("/flokx/create-alert")
 async def create_flokx_alert(data: dict, user_id: str = Depends(get_current_user)):
-    """Create alert from FLOKx intelligence"""
-    try:
-        from flokx_integration import flokx
-        pair = data.get('pair', 'BTC/ZAR')
-        alert = await flokx.create_alert_from_coefficients(user_id, pair)
-        if alert:
-            # Remove _id if present for JSON serialization
-            alert.pop('_id', None)
-        return alert
-    except Exception as e:
-        logger.error(f"FLOKx alert error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """FLOKx create-alert — provider DISABLED."""
+    return {"created": False, "error": "FLOKx provider has been disabled."}
 
 # NOTE: Fetch.ai endpoints moved to routes/fetchai.py to avoid collision
 # The routes are now registered via include_router() below
@@ -3213,38 +3039,80 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin
 
 @api_router.get("/news/articles")
 async def get_news_articles(limit: int = 10, user_id: str = Depends(get_current_user)):
-    """Fetch latest crypto-relevant news articles from GDELT (free, no API key required)."""
+    """Fetch latest crypto news from CoinStats (cached, no required key for basic tier)."""
     try:
-        from services.news_gdelt import gdelt_provider
-        articles = await gdelt_provider.get_articles(limit=max(1, min(limit, 25)))
-        return {"articles": articles, "count": len(articles), "source": "gdelt"}
+        from services.news_coinstats import coinstats_provider
+        articles = await coinstats_provider.get_articles(limit=max(1, min(limit, 50)), user_id=user_id)
+        return {"articles": articles, "count": len(articles), "source": "coinstats"}
     except Exception as e:
         logger.error(f"News articles error: {e}")
-        return {"articles": [], "count": 0, "source": "gdelt", "error": str(e)}
+        return {"articles": [], "count": 0, "source": "coinstats", "error": str(e)}
+
+
+@api_router.get("/news/feed")
+async def get_news_feed(
+    limit: int = 50,
+    with_sentiment: bool = False,
+    user_id: str = Depends(get_current_user),
+):
+    """
+    Full news feed with optional HuggingFace sentiment enrichment.
+
+    Query params:
+      limit: max articles (default 50, max 50)
+      with_sentiment: if true, score headlines via HF (may add ~200ms per article batch)
+    """
+    try:
+        from services.news_coinstats import coinstats_provider
+        articles = await coinstats_provider.get_articles(
+            limit=max(1, min(limit, 50)),
+            user_id=user_id,
+            with_sentiment=with_sentiment,
+        )
+        cache = await coinstats_provider._maybe_refresh(user_id)
+        return {
+            "articles": articles,
+            "count": len(articles),
+            "source": "coinstats",
+            "with_sentiment": with_sentiment,
+            "fetched_at": cache.get("fetched_at"),
+            "last_error": coinstats_provider._last_error,
+            "cache_ttl_seconds": 300,
+        }
+    except Exception as e:
+        logger.error(f"News feed error: {e}")
+        return {"articles": [], "count": 0, "source": "coinstats", "error": str(e)}
+
+
+@api_router.get("/coinstats/test-connection")
+async def coinstats_test_connection(user_id: str = Depends(get_current_user)):
+    """Test CoinStats API key connectivity. Always returns structured JSON, never 500."""
+    try:
+        from services.news_coinstats import coinstats_provider
+        return await coinstats_provider.test_connection(user_id=user_id)
+    except Exception as e:
+        logger.error(f"CoinStats test-connection error: {e}")
+        return {
+            "status": "error",
+            "configured": False,
+            "source": "none",
+            "message": str(e),
+            "http_status": None,
+            "latency_ms": None,
+        }
 
 
 @api_router.get("/diagnostics/sentiment-news")
 async def diagnostics_sentiment_news(user_id: str = Depends(get_current_user)):
-    """News source diagnostics — GDELT is the primary provider (no API key required)."""
+    """News source diagnostics — CoinStats is the primary provider."""
     try:
-        from services.news_gdelt import gdelt_provider
-        gdelt_diag = await gdelt_provider.get_diagnostics()
-        # Also include legacy CryptoCompare diagnostics if configured
-        legacy_diag = {}
-        try:
-            from engines.sentiment_analyzer import sentiment_analyzer
-            legacy_diag = await sentiment_analyzer.get_news_diagnostics()
-        except Exception:
-            pass
-        return {
-            **gdelt_diag,
-            "legacy": legacy_diag,
-        }
+        from services.news_coinstats import coinstats_provider
+        return await coinstats_provider.get_diagnostics(user_id=user_id)
     except Exception as e:
         logger.error(f"Sentiment news diagnostics error: {e}")
         return {
             "configured": False,
-            "source": "none",
+            "source": "coinstats",
             "articles_count": 0,
             "last_fetch_ts": None,
             "last_error": str(e),

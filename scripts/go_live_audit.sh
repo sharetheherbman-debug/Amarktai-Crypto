@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Amarktai Network — Go-Live Audit Script (v2)
+# Amarktai Network — Go-Live Audit Script (v3)
 # =============================================================================
 # Covers:
 #   A) Paper reset + countdown/equity invariants
@@ -8,7 +8,8 @@
 #   L) Risk lock sanity (no instant bodyguard on clean start)
 #   M) HuggingFace structured JSON (no 5xx, no stack traces)
 #   N) FetchAI test-connection
-#   O) GDELT / sentiment-news configured or graceful failure
+#   O) CoinStats news configured or graceful failure
+#   P) GDELT removed from active code; no FLOKx DNS spam
 #
 # Usage:
 #   BASE_URL=http://your-vps:8000 \
@@ -327,30 +328,70 @@ for ep in "/api/fetchai/status" "/api/fetchai/test-connection"; do
   fi
 done
 
-# ── 9) GDELT / Sentiment-News (O) ────────────────────────────────────────────
-log_info "Checking GDELT news provider..."
-GDELT_CODE=$(auth_get_status "/api/diagnostics/sentiment-news")
-if [ "$GDELT_CODE" = "200" ]; then
-  GDELT_RESP=$(auth_get "/api/diagnostics/sentiment-news") || GDELT_RESP="{}"
-  GDELT_SRC=$(jq_get "source" "$GDELT_RESP")
-  GDELT_CONF=$(jq_get "configured" "$GDELT_RESP")
-  if [ "$GDELT_SRC" = "gdelt" ]; then
-    log_pass "/api/diagnostics/sentiment-news source=gdelt (no API key required)"
+# ── 9) CoinStats / Sentiment-News ────────────────────────────────────────────
+log_info "Checking CoinStats news provider..."
+CSDIAG_CODE=$(auth_get_status "/api/diagnostics/sentiment-news")
+if [ "$CSDIAG_CODE" = "200" ]; then
+  CSDIAG_RESP=$(auth_get "/api/diagnostics/sentiment-news") || CSDIAG_RESP="{}"
+  CS_SRC=$(jq_get "source" "$CSDIAG_RESP")
+  CS_LAST_ERR=$(jq_get "last_error" "$CSDIAG_RESP")
+  if [ "$CS_SRC" = "coinstats" ]; then
+    log_pass "/api/diagnostics/sentiment-news source=coinstats"
   else
-    log_warn "/api/diagnostics/sentiment-news source=$GDELT_SRC configured=$GDELT_CONF"
+    log_fail "/api/diagnostics/sentiment-news source=$CS_SRC (expected coinstats)"
+  fi
+  if [ -n "$CS_LAST_ERR" ] && [ "$CS_LAST_ERR" != "None" ] && [ "$CS_LAST_ERR" != "null" ]; then
+    log_warn "/api/diagnostics/sentiment-news last_error: $CS_LAST_ERR"
   fi
 else
-  log_fail "/api/diagnostics/sentiment-news returned HTTP $GDELT_CODE"
+  log_fail "/api/diagnostics/sentiment-news returned HTTP $CSDIAG_CODE"
 fi
 
-NEWS_CODE=$(auth_get_status "/api/news/articles")
-if [ "$NEWS_CODE" = "200" ]; then
-  log_pass "/api/news/articles returns 200"
+# CoinStats test-connection (must be 200, never 500)
+CS_TC_CODE=$(auth_get_status "/api/coinstats/test-connection")
+if [ "$CS_TC_CODE" = "200" ]; then
+  CS_TC=$(auth_get "/api/coinstats/test-connection") || CS_TC="{}"
+  CS_STATUS=$(jq_get "status" "$CS_TC")
+  log_pass "/api/coinstats/test-connection returned 200 (status=$CS_STATUS)"
 else
-  log_warn "/api/news/articles returned $NEWS_CODE"
+  log_fail "/api/coinstats/test-connection returned HTTP $CS_TC_CODE (expected 200, never 5xx)"
 fi
 
-# ── 10) Build Info ─────────────────────────────────────────────────────────────
+# News feed (must be 200)
+FEED_CODE=$(auth_get_status "/api/news/feed")
+if [ "$FEED_CODE" = "200" ]; then
+  log_pass "/api/news/feed returns 200"
+else
+  log_warn "/api/news/feed returned $FEED_CODE"
+fi
+
+# ── 10) GDELT / FLOKx Absence Check ──────────────────────────────────────────
+log_info "Checking GDELT and FLOKx are removed from active code..."
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# GDELT must not appear in active Python code (allow: disabled stub + migration notes)
+GDELT_ACTIVE=$(grep -rn "gdelt\|GDELT" "$REPO_ROOT/backend" --include="*.py" 2>/dev/null \
+  | grep -v "news_gdelt.py\|DISABLED\|Replaced\|stub\|# " | wc -l)
+if [ "$GDELT_ACTIVE" -eq 0 ]; then
+  log_pass "No active GDELT code references in backend (stub only)"
+else
+  log_fail "Active GDELT references found ($GDELT_ACTIVE lines) — should be removed"
+fi
+
+# FLOKx DNS log spam check (check last 300 lines of uvicorn/app log if available)
+LOG_FILE="${APP_LOG:-/var/log/amarktai/app.log}"
+if [ -f "$LOG_FILE" ]; then
+  DNS_SPAM=$(tail -300 "$LOG_FILE" 2>/dev/null | grep -c "FLOKx DNS resolution failure" || true)
+  if [ "$DNS_SPAM" -gt 0 ]; then
+    log_fail "FLOKx DNS spam found in last 300 log lines ($DNS_SPAM occurrences)"
+  else
+    log_pass "No FLOKx DNS spam in recent logs"
+  fi
+else
+  log_warn "Log file not found ($LOG_FILE) — FLOKx DNS spam check skipped"
+fi
+
+# ── 11) Build Info ─────────────────────────────────────────────────────────────
 BUILD_RESP=$(curl -fsS "$BASE_URL/api/build/info" 2>/dev/null) || BUILD_RESP="{}"
 BUILD_SHA=$(jq_get "version" "$BUILD_RESP")
 if [ -n "$BUILD_SHA" ] && [ "$BUILD_SHA" != "unknown" ]; then

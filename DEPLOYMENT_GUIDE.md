@@ -368,17 +368,22 @@ All changes are backward-compatible and maintain existing safety guardrails.
 
 ## Go-Live Fixes (v2 — 2026-02)
 
-### News Provider: GDELT (no API key required)
+### News Provider: CoinStats (replaces GDELT)
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEWS_PROVIDER` | `gdelt` | Primary news source (gdelt = free, no key needed) |
+| `NEWS_PROVIDER` | `coinstats` | Primary news source |
 | `NEWS_ENABLED` | `true` | Enable/disable news fetching |
 | `NEWS_CACHE_TTL_SECONDS` | `300` | How long to cache articles (seconds) |
+| `COINSTATS_API_KEY` | _(empty)_ | Global CoinStats key (env fallback; per-user key takes priority) |
+| `HF_ENABLED` | `true` | Enable HuggingFace sentiment scoring on headlines |
+| `HF_DEFAULT_SENTIMENT_MODEL` | `distilbert-base-uncased-finetuned-sst-2-english` | Model for headline sentiment |
 
-FLOKx is now **optional legacy**. If `FLOKX_API_KEY` is set and the service
-is reachable, it still works. DNS failures are rate-limited to one warning per
-10 minutes instead of spamming the log on every poll cycle.
+**FLOKx is permanently disabled.** The background poller is removed. All
+`/api/flokx/*` endpoints return graceful `configured: false` responses.
+
+**GDELT is disabled.** `services/news_gdelt.py` is a no-op stub. No GDELT
+network calls are made.
 
 ### HuggingFace Default Models
 

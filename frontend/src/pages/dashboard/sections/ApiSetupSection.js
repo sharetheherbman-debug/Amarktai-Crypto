@@ -51,6 +51,84 @@ function HuggingFaceStatusTile() {
   );
 }
 
+function CoinStatsStatusTile() {
+  const [status, setStatus] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  const loadStatus = () => {
+    apiClient.get('/coinstats/test-connection')
+      .then(r => setStatus(r.data))
+      .catch(e => setStatus({ status: 'error', configured: false, message: e.message || 'Unable to reach /api/coinstats/test-connection' }));
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const r = await apiClient.get('/coinstats/test-connection');
+      setStatus(r.data);
+    } catch (e) {
+      setStatus({ status: 'error', configured: false, message: e.message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (!status) return null;
+
+  const ok = status.status === 'success';
+  const color = ok ? 'var(--success)' : status.configured ? 'var(--warning)' : 'var(--muted)';
+  const icon = ok ? '✅' : status.configured ? '⚠️' : '❌';
+
+  return (
+    <div style={{
+      marginTop: '16px',
+      padding: '14px 18px',
+      background: 'var(--glass)',
+      borderRadius: '8px',
+      border: `1px solid ${color}`,
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px',
+      flexWrap: 'wrap'
+    }}>
+      <span style={{ fontSize: '1.4rem' }}>📰</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: '2px' }}>
+          {icon} CoinStats News API
+        </div>
+        <div style={{ fontSize: '0.85rem', color }}>
+          {ok
+            ? `Connected${status.latency_ms ? ` · ${status.latency_ms}ms` : ''} (source: ${status.source})`
+            : (status.message || 'Not configured — add CoinStats API key above to unlock higher limits')}
+        </div>
+        {status.configured && !ok && status.message && (
+          <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '2px' }}>
+            {status.message}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={handleTest}
+        disabled={testing}
+        style={{
+          padding: '6px 14px',
+          borderRadius: '6px',
+          border: '1px solid var(--line)',
+          background: 'transparent',
+          color: 'var(--text)',
+          cursor: testing ? 'not-allowed' : 'pointer',
+          fontSize: '0.82rem',
+          opacity: testing ? 0.6 : 1,
+        }}
+      >
+        {testing ? 'Testing…' : 'Test'}
+      </button>
+    </div>
+  );
+}
+
 export default function ApiSetupSection() {
   return (
     <section className="section active">
@@ -61,6 +139,7 @@ export default function ApiSetupSection() {
         />
         <APIKeySettings />
         <HuggingFaceStatusTile />
+        <CoinStatsStatusTile />
         <div style={{
           marginTop: '24px',
           padding: '18px',
