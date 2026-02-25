@@ -229,22 +229,53 @@ async def get_bots_status(
                 status = runtime_state.get("state")
             
             # Map status to standard states
-            if status == 'active':
+            # RULE: training_complete=false overrides "active" — bot must be in training state.
+            training_complete = bot.get('training_complete', False)
+            training_in_progress = bot.get('training_in_progress', False)
+
+            if status in ('training', ) or training_in_progress:
+                state = 'training'
+            elif status == 'training_failed' or bot.get('training_failed'):
+                state = 'training_failed'
+            elif status == 'active' and not training_complete:
+                # Bot is marked active but training is not complete — show as training
+                state = 'training'
+            elif status == 'active':
                 state = 'active'
             elif status == 'paused':
                 # Check if ready to activate (paused_ready)
-                if bot.get('training_complete') and bot.get('paused_by_user'):
+                if training_complete and bot.get('paused_by_user'):
                     state = 'paused_ready'
                 else:
                     state = 'paused'
             elif status == 'stopped':
                 state = 'stopped'
-            elif status == 'training' or bot.get('training_in_progress'):
-                state = 'training'
-            elif status == 'training_failed' or bot.get('training_failed'):
-                state = 'training_failed'
             else:
                 state = status
+
+            # Compute training progress fields
+            required_closed = int(bot.get('training_required_closed_trades', bot.get('min_trades_required', 5)))
+            completed_closed = int(bot.get('closed_trades_count', bot.get('trades_count', 0)))
+            training_progress = {
+                "closed_trades_completed": completed_closed,
+                "required": required_closed,
+                "percent": round(min(100, (completed_closed / required_closed * 100)) if required_closed > 0 else 0, 1),
+            } if not training_complete else None
+
+            # Determine plain-English training block reason
+            if state == 'training':
+                if not training_complete and status == 'active':
+                    training_block_reason = (
+                        f"Bot needs {required_closed} closed trades to complete training "
+                        f"({completed_closed}/{required_closed} done). "
+                        "It will trade freely once training is complete."
+                    )
+                elif status == 'training_failed':
+                    training_block_reason = bot.get('training_failed_reason') or "Training failed — check bot configuration."
+                else:
+                    training_block_reason = bot.get('training_failed_reason') or "Training in progress — collecting closed trades."
+            else:
+                training_block_reason = None
 
             pause_reason = bot.get('pause_reason') or bot.get('paused_reason')
             if runtime_state and runtime_state.get("reason"):
@@ -261,10 +292,10 @@ async def get_bots_status(
                 pause_next_action = 'Wait for retraining to complete'
                 quarantine_release_at = bot.get('retraining_until') or bot.get('quarantine_until')
                 quarantine_remaining_seconds = remaining_seconds(quarantine_release_at)
-            elif status in ['training', 'training_failed'] or bot.get('training_in_progress'):
+            elif state in ('training', 'training_failed') or training_in_progress:
                 pause_reason_code = 'training'
-                pause_reason_message = bot.get('training_failed_reason') or 'Training in progress'
-                pause_next_action = 'Complete training before resuming'
+                pause_reason_message = training_block_reason or bot.get('training_failed_reason') or 'Training in progress'
+                pause_next_action = 'Training completes automatically after enough closed trades'
             elif bot.get('paused_by_bodyguard'):
                 pause_reason_code = 'bodyguard_lock'
                 pause_reason_message = pause_reason or 'Paused by bodyguard drawdown protection'
@@ -287,6 +318,7 @@ async def get_bots_status(
                 "name": bot.get('name'),
                 "exchange": bot.get('exchange', 'unknown'),
                 "state": state,
+                "lifecycle_state": state,  # Canonical lifecycle state
                 "status": status,  # Keep original for compatibility
                 "paused_reason": pause_reason,  # Canonical field (support legacy)
                 "paused_reason_code": pause_reason_code,
@@ -301,28 +333,28 @@ async def get_bots_status(
                 "quarantine_release_at": quarantine_release_at,
                 "quarantine_remaining_seconds": quarantine_remaining_seconds,
                 "training_state": bot.get('training_state'),
+                "training_progress": training_progress,
+                "training_block_reason": training_block_reason,
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
                 "current_capital": bot.get('current_capital', 0),
                 "total_profit": bot.get('total_profit', 0),
                 "trades_count": bot.get('trades_count', 0),
-                "training_complete": bot.get('training_complete', False),
+                "training_complete": training_complete,
                 "training_failed_reason": bot.get('training_failed_reason'),
-                "training_in_progress": bot.get('training_in_progress', False),
+                "training_in_progress": training_in_progress,
                 "paper_start_date": bot.get('paper_start_date'),
-                "active": status == 'active',
-                "paused": status == 'paused',
+                "active": state == 'active',
+                "paused": state == 'paused' or state == 'paused_ready',
                 "in_quarantine": status == 'quarantined',
-                "in_training": status in ['training', 'training_failed'] or bot.get('training_in_progress'),
+                "in_training": state in ('training', 'training_failed'),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
                 "stopped_at": bot.get('stopped_at'),
                 # Per-bot diagnostics: populated by trading engine on each tick/decision
                 "last_tick_at": bot.get('last_tick_at') or bot.get('last_trade'),
                 "last_decision_at": bot.get('last_decision_at'),
-                "last_decision_reason": bot.get('last_decision_reason') or (
-                    "TRAINING_NOT_COMPLETE" if not bot.get('training_complete') and status == 'active' else None
-                ),
+                "last_decision_reason": bot.get('last_decision_reason') or training_block_reason,
                 "last_market_price": bot.get('last_market_price'),
                 "last_strategy_signal": bot.get('last_strategy_signal'),
                 "last_order_attempt_at": bot.get('last_order_attempt_at'),

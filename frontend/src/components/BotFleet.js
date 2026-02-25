@@ -27,30 +27,35 @@ const formatDate = (value) => {
 };
 
 const getBotStatusBadge = (bot) => {
-  const status = bot.status || 'unknown';
-  const isActive = status === 'active';
-  const isPaused = status === 'paused' || bot.paused_at;
-  const isTraining = bot.training_complete === false;
-  
+  const lifecycleState = bot.lifecycle_state || bot.state || bot.status || 'unknown';
+  const isTraining = lifecycleState === 'training' || lifecycleState === 'training_failed' || bot.training_complete === false;
+
+  if (lifecycleState === 'training_failed') {
+    return { text: 'Training Failed', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)' };
+  }
   if (isTraining) {
     return { text: 'Training', color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.15)' };
   }
-  if (isActive) {
+  if (lifecycleState === 'active') {
     return { text: 'Active', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.15)' };
   }
-  if (isPaused) {
+  if (lifecycleState === 'paused' || lifecycleState === 'paused_ready' || bot.paused_at) {
     return { text: 'Paused', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' };
   }
-  return { text: status, color: '#9ca3af', bg: 'rgba(156, 163, 175, 0.15)' };
+  if (lifecycleState === 'stopped') {
+    return { text: 'Stopped', color: '#9ca3af', bg: 'rgba(156, 163, 175, 0.15)' };
+  }
+  return { text: lifecycleState, color: '#9ca3af', bg: 'rgba(156, 163, 175, 0.15)' };
 };
 
 const BotFleetItem = ({ bot, isExpanded, onToggle, onControl, controlLoading }) => {
   const statusBadge = getBotStatusBadge(bot);
   const mode = bot.trading_mode || bot.mode || 'paper';
   const isLive = mode === 'live';
-  const isActive = bot.status === 'active';
-  const isPaused = bot.status === 'paused';
-  const profit = bot.profit ?? bot.profit_loss ?? bot.pnl ?? 0;
+  const lifecycleState = bot.lifecycle_state || bot.state || bot.status || 'unknown';
+  const isActive = lifecycleState === 'active';
+  const isPaused = lifecycleState === 'paused' || lifecycleState === 'paused_ready';
+  const profit = bot.profit ?? bot.profit_loss ?? bot.pnl ?? bot.total_profit ?? 0;
   const isProfitable = profit > 0;
   
   const handleControlClick = (action, e) => {
@@ -64,8 +69,10 @@ const BotFleetItem = ({ bot, isExpanded, onToggle, onControl, controlLoading }) 
       border: '1px solid var(--line)',
       borderRadius: '12px',
       marginBottom: '8px',
-      overflow: 'hidden',
-      transition: 'all 0.2s ease'
+      overflow: 'visible',
+      transition: 'all 0.2s ease',
+      position: 'relative',
+      zIndex: isExpanded ? 10 : 1,
     }}>
       {/* Bot Row - Clickable */}
       <div
@@ -219,23 +226,49 @@ const BotFleetItem = ({ bot, isExpanded, onToggle, onControl, controlLoading }) 
                 Status Info
               </div>
               <div style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>
-                {bot.paused_reason && (
-                  <div style={{ marginBottom: '4px' }}>
-                    <span style={{ color: 'var(--muted)' }}>Pause Reason:</span>
-                    <div style={{ color: '#f59e0b', fontSize: '0.85rem', marginTop: '2px' }}>
-                      {bot.paused_reason}
-                    </div>
+                {/* Training block info */}
+                {bot.training_block_reason && (
+                  <div style={{ marginBottom: '8px', padding: '8px', background: 'rgba(96,165,250,0.08)', borderRadius: '6px', border: '1px solid rgba(96,165,250,0.25)' }}>
+                    <div style={{ color: '#60a5fa', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>📘 Training in progress</div>
+                    <div style={{ color: 'var(--text)', fontSize: '0.82rem' }}>{bot.training_block_reason}</div>
+                    {bot.training_progress && (
+                      <div style={{ marginTop: '6px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '3px' }}>
+                          <span>Progress</span>
+                          <span>{bot.training_progress.closed_trades_completed}/{bot.training_progress.required} closed trades ({bot.training_progress.percent}%)</span>
+                        </div>
+                        <div style={{ height: '4px', background: 'var(--line)', borderRadius: '2px' }}>
+                          <div style={{ height: '100%', width: `${bot.training_progress.percent}%`, background: '#60a5fa', borderRadius: '2px', transition: 'width 0.3s ease' }} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-                {bot.last_error && (
+                {bot.paused_reason_message && bot.paused_reason_code !== 'training' && (
+                  <div style={{ marginBottom: '4px' }}>
+                    <span style={{ color: 'var(--muted)' }}>Reason:</span>
+                    <div style={{ color: '#f59e0b', fontSize: '0.85rem', marginTop: '2px' }}>
+                      {bot.paused_reason_message}
+                    </div>
+                    {bot.paused_next_action && (
+                      <div style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: '2px' }}>→ {bot.paused_next_action}</div>
+                    )}
+                  </div>
+                )}
+                {bot.last_order_error && (
                   <div style={{ marginBottom: '4px' }}>
                     <span style={{ color: 'var(--muted)' }}>Last Error:</span>
                     <div style={{ color: 'var(--error)', fontSize: '0.85rem', marginTop: '2px' }}>
-                      {bot.last_error}
+                      {bot.last_order_error}
                     </div>
                   </div>
                 )}
-                {!bot.paused_reason && !bot.last_error && (
+                {bot.last_decision_reason && (
+                  <div style={{ marginBottom: '4px', fontSize: '0.82rem', color: 'var(--muted)' }}>
+                    Last decision: <span style={{ color: 'var(--text)' }}>{bot.last_decision_reason}</span>
+                  </div>
+                )}
+                {!bot.training_block_reason && !bot.paused_reason_message && !bot.last_order_error && (
                   <div style={{ color: 'var(--success)', fontSize: '0.85rem' }}>
                     ✓ No issues detected
                   </div>

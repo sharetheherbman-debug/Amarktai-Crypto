@@ -251,7 +251,9 @@ export default function GrowthEngineSection() {
               <div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px' }}>Market Regime</div>
                 <div style={{ fontSize: '0.88rem', color: 'var(--text)', textTransform: 'capitalize' }}>
-                  {status.current_regime || 'Unknown'} ({((status.confidence || 0) * 100).toFixed(0)}% confidence)
+                  {status.current_regime && status.current_regime !== 'unknown' ? status.current_regime : 'Neutral'}
+                  {' '}({((status.confidence || 0) * 100).toFixed(0)}% confidence
+                  {(status.confidence || 0) === 0 ? ' — awaiting data' : ''})
                 </div>
               </div>
               <div>
@@ -269,7 +271,23 @@ export default function GrowthEngineSection() {
             </div>
             {status.blocked_reasons?.length > 0 && (
               <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(239,68,68,0.08)', borderRadius: '6px', fontSize: '0.82rem', color: '#ef4444' }}>
-                {status.blocked_reasons.map((r, i) => <div key={i}>🔒 {r}</div>)}
+                {/* Deduplicated — backend may merge guardrail + state reasons */}
+                {[...new Set(status.blocked_reasons)].map((r, i) => <div key={i}>🔒 {r}</div>)}
+              </div>
+            )}
+            {/* Structured guardrail checks — show when available */}
+            {status.guardrails?.checks && Object.keys(status.guardrails.checks).length > 0 && (
+              <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {Object.entries(status.guardrails.checks).map(([k, v]) => (
+                  <span key={k} style={{
+                    fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px',
+                    background: v ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                    color: v ? 'var(--success)' : '#ef4444',
+                    border: `1px solid ${v ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  }}>
+                    {v ? '✓' : '✗'} {k.replace(/_ok$/, '').replace(/_/g, ' ')}
+                  </span>
+                ))}
               </div>
             )}
             {status.last_actions?.length > 0 && (
@@ -327,20 +345,59 @@ export default function GrowthEngineSection() {
           );
         })}
 
-        {/* Leverage (disabled) */}
-        <div style={{ ...cardStyle, opacity: 0.6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>📵 Leverage</div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-                Not active in this release. Leverage will not be applied under any circumstances.
+        {/* Leverage */}
+        {(() => {
+          const leverageOn = settings?.leverage_enabled || false;
+          const multiplier = settings?.leverage_multiplier ?? 1.0;
+          const mode = status?.mode || 'paper';
+          const liveBlockedReason = status?.enabled_toggles?.leverage_enabled === false && mode === 'live'
+            ? null : null; // resolved server-side per exchange
+          return (
+            <div style={{ ...cardStyle, border: leverageOn && masterEnabled ? '1px solid rgba(245,158,11,0.6)' : '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                    📊 Leverage (Position Sizing Multiplier)
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.5' }}>
+                    Scales position sizes by a multiplier (1.0–2.0x). Auto-reverts to 1.0x if any safety lock activates.
+                    In live mode, only works on exchanges that support margin/futures.
+                  </div>
+                  {leverageOn && (
+                    <div style={{ marginTop: '10px' }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+                        Multiplier: <strong style={{ color: 'var(--warning, #f59e0b)' }}>{parseFloat(multiplier).toFixed(1)}x</strong>
+                      </label>
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="2.0"
+                        step="0.1"
+                        value={multiplier}
+                        onChange={(e) => updateSetting('leverage_multiplier', parseFloat(e.target.value))}
+                        disabled={saving || !masterEnabled}
+                        style={{ width: '180px', accentColor: 'var(--warning, #f59e0b)' }}
+                      />
+                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>
+                        1.0x = no leverage &nbsp;·&nbsp; 2.0x = double position size
+                      </div>
+                      {mode === 'live' && (
+                        <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}>
+                          ⚠ Live mode: availability depends on your exchange. Check last run result for capability status.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <ToggleSwitch
+                  checked={leverageOn}
+                  onChange={(v) => updateSetting('leverage_enabled', v)}
+                  disabled={saving || (!masterEnabled && !leverageOn)}
+                />
               </div>
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--warning, #f59e0b)', fontWeight: 600, background: 'rgba(245,158,11,0.1)', padding: '4px 8px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
-              Not Active
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Run Once Button */}
         <div style={{ marginTop: '20px', display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -368,9 +425,10 @@ export default function GrowthEngineSection() {
               Last Run Result — {new Date(runResult.timestamp).toLocaleString()}
             </div>
             <div style={{ fontSize: '0.88rem', color: 'var(--text)', marginBottom: '8px' }}>{runResult.summary}</div>
-            {runResult.blocked_reasons?.length > 0 && (
+            {/* Only show blocked_reasons here if not already shown in status block above */}
+            {runResult.blocked_reasons?.length > 0 && !status?.blocked && (
               <div style={{ color: '#ef4444', fontSize: '0.82rem' }}>
-                🔒 Blocked: {runResult.blocked_reasons.join('; ')}
+                🔒 Blocked: {[...new Set(runResult.blocked_reasons)].join('; ')}
               </div>
             )}
             {runResult.actions_proposed?.length > 0 && (

@@ -10,8 +10,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# How often to refresh intelligence (default 15 minutes)
-_REFRESH_INTERVAL = int(os.getenv("MARKET_INTEL_REFRESH_SECONDS", "900"))
+# How often to refresh intelligence (default 60 seconds, min 30, max 900)
+_REFRESH_INTERVAL = max(30, min(900, int(os.getenv("MARKET_INTEL_REFRESH_SECONDS", "60"))))
 
 _last_brief: Optional[dict] = None
 
@@ -21,7 +21,7 @@ async def get_latest_intelligence() -> dict:
     return _last_brief or {
         "what_happened": "No market data yet — intelligence updates every 15 minutes.",
         "why_it_matters": "Market intelligence is collected automatically from CoinStats.",
-        "what_amarktai_is_doing": "Amarktai Network monitors markets continuously and adjusts bot strategy.",
+        "what_amarktai_is_doing": "Amarktai Crypto monitors markets continuously and adjusts bot strategy.",
         "confidence": "Pending first fetch",
         "mood": "neutral",
         "top_risk": "none",
@@ -33,11 +33,45 @@ async def get_latest_intelligence() -> dict:
 async def _fetch_and_process():
     """Fetch CoinStats news and build market brief."""
     global _last_brief
+    now = datetime.now(timezone.utc)
     try:
-        from services.news_coinstats import coinstats_provider
+        from services.news_coinstats import coinstats_provider, resolve_coinstats_key
         articles = await coinstats_provider.get_articles(limit=10)
 
         if not articles:
+            # Diagnose why — missing key, rate-limit, network, etc.
+            last_error = getattr(coinstats_provider, "_last_error", None)
+            key, key_source = await resolve_coinstats_key()
+            if not key:
+                block_reason = "CoinStats API key not configured. Add COINSTATS_API_KEY env var or save via API Setup."
+                fetch_status = "key_missing"
+            elif last_error and "429" in str(last_error):
+                block_reason = "CoinStats rate-limited (HTTP 429). Retrying on next interval."
+                fetch_status = "rate_limited"
+            elif last_error and "401" in str(last_error):
+                block_reason = "CoinStats API key rejected (HTTP 401). Check your key."
+                fetch_status = "invalid_key"
+            elif last_error:
+                block_reason = f"CoinStats fetch failed: {last_error}"
+                fetch_status = "error"
+            else:
+                block_reason = "CoinStats returned no articles. Will retry on next interval."
+                fetch_status = "no_articles"
+
+            logger.warning(f"Market intelligence: no articles — {block_reason}")
+            # Update _last_brief with status so updated_at becomes non-null
+            _last_brief = {
+                "what_happened": block_reason,
+                "why_it_matters": "Market intelligence is awaiting CoinStats data.",
+                "what_amarktai_is_doing": "Amarktai Crypto is monitoring markets. Data will appear once CoinStats is reachable.",
+                "confidence": "Pending first fetch",
+                "mood": "neutral",
+                "top_risk": "none",
+                "source": "CoinStats",
+                "fetch_status": fetch_status,
+                "block_reason": block_reason,
+                "updated_at": now.isoformat(),
+            }
             return
 
         # Build simple mood from sentiment scores
@@ -82,22 +116,37 @@ async def _fetch_and_process():
         _last_brief = {
             "what_happened": what_happened,
             "why_it_matters": f"This {mood} signal from CoinStats affects crypto prices and bot entry/exit decisions.",
-            "what_amarktai_is_doing": f"Bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
+            "what_amarktai_is_doing": f"Amarktai Crypto bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
             "confidence": confidence,
             "mood": mood,
             "top_risk": top_risk,
             "headlines_count": len(articles),
             "source": "CoinStats",
+            "fetch_status": "ok",
+            "block_reason": None,
             "updated_at": now.isoformat(),
         }
 
-        logger.info(f"Market intelligence updated: mood={mood}, risk={top_risk}")
+        logger.info(f"Market intelligence updated: mood={mood}, risk={top_risk}, articles={len(articles)}")
 
         # Emit event to all active users (best-effort)
         await _emit_intelligence_event()
 
     except Exception as e:
         logger.warning(f"Market intelligence fetch failed: {e}")
+        # Still update _last_brief so updated_at is non-null
+        _last_brief = {
+            "what_happened": f"Market intelligence fetch error: {str(e)[:200]}",
+            "why_it_matters": "An error occurred while fetching CoinStats data.",
+            "what_amarktai_is_doing": "Amarktai Crypto is retrying market data fetch on the next interval.",
+            "confidence": "Pending",
+            "mood": "neutral",
+            "top_risk": "none",
+            "source": "CoinStats",
+            "fetch_status": "error",
+            "block_reason": str(e)[:200],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 async def _emit_intelligence_event():

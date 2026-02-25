@@ -156,30 +156,53 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
         except Exception:
             pass
 
-        # ── Active bots count (mode-aware) ───────────────────────────────────
+        # ── Active bots count — separate paper and live ───────────────────────
         active_bots_count = 0
         required_capital = 0.0
+        paper_bots_count = 0
+        paper_bots_capital = 0.0
+        live_bots_count = 0
+        live_bots_capital = 0.0
         try:
             if db.bots_collection is not None:
-                bot_query = {"user_id": user_id, "status": {"$in": ["active", "running"]}}
-                if mode == "paper":
-                    bot_query["trading_mode"] = "paper"
-                else:
-                    bot_query["trading_mode"] = "live"
-                bot_docs = await db.bots_collection.find(
-                    bot_query, {"_id": 0, "initial_capital": 1, "current_capital": 1}
+                # Count ALL non-deleted bots with DB status active/running (regardless of training state)
+                all_bot_docs = await db.bots_collection.find(
+                    {
+                        "user_id": user_id,
+                        "status": {"$in": ["active", "running"]},
+                        "deleted": {"$ne": True},
+                        "is_deleted": {"$ne": True},
+                    },
+                    {"_id": 0, "trading_mode": 1, "initial_capital": 1, "current_capital": 1}
                 ).to_list(1000)
-                active_bots_count = len(bot_docs)
-                for b in bot_docs:
-                    cap = b.get("initial_capital") or b.get("current_capital") or 0
-                    required_capital += float(cap)
+                for b in all_bot_docs:
+                    cap = float(b.get("current_capital") or b.get("initial_capital") or 0)
+                    bmode = b.get("trading_mode", "paper")
+                    if bmode == "live":
+                        live_bots_count += 1
+                        live_bots_capital += cap
+                    else:
+                        paper_bots_count += 1
+                        paper_bots_capital += cap
+
+                if mode == "paper":
+                    active_bots_count = paper_bots_count
+                    required_capital = paper_bots_capital
+                else:
+                    active_bots_count = live_bots_count
+                    required_capital = live_bots_capital
         except Exception:
             pass
 
         # ── Funding status (mode-aware) ───────────────────────────────────────
-        # available_balance: paper ZAR cash (paper mode) or live balance total
+        # Paper mode: paper bots have self-contained simulated capital.
+        # available_balance is the unallocated paper wallet cash.
+        # We do NOT compute a deficit for paper bots — simulation is always "funded".
+        # Live mode: compare required capital to live exchange balance.
         if mode == "paper":
-            available_balance = round(paper_available, 2)
+            available_balance = round(paper_available + paper_bots_capital, 2)
+            # Paper is never in deficit — simulation capital is always available
+            deficit = 0.0
         else:
             # Live mode: try to get total live balance
             available_balance = 0.0
@@ -190,18 +213,23 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
                     )
             except Exception:
                 pass
+            deficit = round(max(0.0, required_capital - available_balance), 2)
 
-        deficit = round(max(0.0, required_capital - available_balance), 2)
-
-        # NOT_CONFIGURED: user has no bots configured for this mode at all
-        # UNFUNDED: bots exist but available_balance == 0
-        # FUNDED: available_balance > 0
-        if active_bots_count == 0 and available_balance == 0.0:
-            funding_status = "NOT_CONFIGURED"
-        elif available_balance == 0.0:
-            funding_status = "UNFUNDED"
+        # NOT_CONFIGURED: no bots in this mode
+        # UNFUNDED: live bots exist but no live balance
+        # FUNDED: has bots and balance (or paper mode with bots — always "funded")
+        if mode == "paper":
+            if paper_bots_count == 0 and paper_available == 0.0:
+                funding_status = "NOT_CONFIGURED"
+            else:
+                funding_status = "FUNDED"  # paper simulation is always self-funded
         else:
-            funding_status = "FUNDED"
+            if active_bots_count == 0 and available_balance == 0.0:
+                funding_status = "NOT_CONFIGURED"
+            elif live_bots_count > 0 and available_balance == 0.0:
+                funding_status = "UNFUNDED"
+            else:
+                funding_status = "FUNDED"
 
         # ── Ledger invariants (best-effort) ───────────────────────────────────
         ledger_invariants_ok = True
@@ -237,16 +265,26 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
             # ── Mode-aware summary (primary fields consumed by WalletHub UI) ──
             "active_bots": active_bots_count,
             "required_capital": round(required_capital, 2),
-            "available_balance": available_balance,
+            "available_balance": round(available_balance, 2),
             "deficit": deficit,
             "funding_status": funding_status,
+            # ── Per-mode bot breakdown ────────────────────────────────────────
+            "paper_bots": {
+                "count": paper_bots_count,
+                "capital": round(paper_bots_capital, 2),
+                "note": "Paper bots use simulated capital; no live funds required.",
+            },
+            "live_bots": {
+                "count": live_bots_count,
+                "capital": round(live_bots_capital, 2),
+            },
             # ── Paper detail ─────────────────────────────────────────────────
             "paper": {
                 "available": round(paper_available, 2),
                 "allocated": round(paper_allocated, 2),
                 "total": paper_total,
                 "currency": "ZAR",
-                "funded_status": "FUNDED" if paper_total > 0 else "UNFUNDED",
+                "funded_status": "FUNDED" if (paper_total > 0 or paper_bots_count > 0) else "UNFUNDED",
                 "as_of": now_iso,
             },
             "live": {

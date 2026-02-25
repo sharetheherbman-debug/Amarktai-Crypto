@@ -89,7 +89,7 @@ export default function Register() {
         </div>
         
         <h1 className="auth-title">
-          Create Your Amarkt<span className="brand-ai">AI</span> Account
+          Create Your Amarkt<span className="brand-ai">AI</span> <span className="brand-crypto">Crypto</span> Account
         </h1>
         <p className="auth-step">Step {step} of 4</p>
 

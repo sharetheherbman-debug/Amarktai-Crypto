@@ -399,7 +399,7 @@ export default function useDashboardState(navigate) {
     // Add personalized welcome message
     setChatMessages([{
       role: 'assist',
-      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
+      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
     }]);
     
     return () => {
@@ -559,7 +559,7 @@ export default function useDashboardState(navigate) {
     if (user && chatMessages.length === 0) {
       setChatMessages([{
         role: 'assistant',
-        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
       }]);
     }
   }, [user]);
@@ -576,7 +576,7 @@ export default function useDashboardState(navigate) {
         if (user) {
           setChatMessages([{
             role: 'assistant',
-            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
           }]);
         }
       }
@@ -586,7 +586,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
     }
@@ -603,7 +603,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Network. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
       showNotification('Chat history cleared successfully', 'success');
@@ -2087,7 +2087,25 @@ export default function useDashboardState(navigate) {
         }
         const warnings = response.data?.invariant_warnings || [];
         warnings.forEach(w => toast.warning(`Reset warning: ${w}`));
+        // Hard refresh all data sources so no stale panel shows phantom values
         refreshAllDashboardData();
+        // Fetch reset-proof to confirm clean state (non-blocking)
+        try {
+          const proofRes = await apiClient.get('/system/reset-proof');
+          const proof = proofRes.data;
+          if (proof.is_clean) {
+            toast.success('✅ Reset verified: equity=0, trades=0, bots=0');
+          } else {
+            const nonZero = [];
+            if (proof.equity !== 0) nonZero.push(`equity=${proof.equity}`);
+            if (proof.trades_total !== 0) nonZero.push(`trades=${proof.trades_total}`);
+            if (proof.bots !== 0) nonZero.push(`bots=${proof.bots}`);
+            if (nonZero.length) toast.warning(`Reset incomplete: ${nonZero.join(', ')} non-zero`);
+          }
+        } catch (_proofErr) {
+          // Non-critical — just log
+          console.warn('Reset proof check failed:', _proofErr);
+        }
       } else {
         setPaperResetError(response.data.message || 'Reset failed');
       }

@@ -478,6 +478,29 @@ async def perform_paper_reset(user_id: str) -> dict:
         summary[summary_key] += result.deleted_count
         collection_counts[name] = result.deleted_count
 
+    # ── Ledger collections (fills_ledger + ledger_events drive compute_equity) ──
+    # These are NOT module-level db vars — accessed via db.db["<name>"] directly.
+    _raw_db_collections = [
+        "fills_ledger",
+        "ledger_events",
+        "equity_series",
+        "drawdown_series",
+        "growth_engine_decisions",
+        "growth_engine_state",
+        "circuit_breaker_state",
+        "scheduler_state",
+        "ai_memory",
+        "countdown_state",
+    ]
+    for cname in _raw_db_collections:
+        try:
+            if db.db is not None:
+                result = await db.db[cname].delete_many({"user_id": user_id})
+                collection_counts[cname] = result.deleted_count
+                summary["metrics_deleted"] += result.deleted_count
+        except Exception as e:
+            logger.warning(f"perform_paper_reset: could not clear {cname}: {e}")
+
     try:
         from services.paper_wallet_service import paper_wallet_service
         await paper_wallet_service.reset(user_id)
@@ -527,9 +550,50 @@ async def perform_paper_reset(user_id: str) -> dict:
     })
     await rt_events.force_refresh(user_id, reason="Paper trading reset completed.")
 
+    # ── Post-reset invariant verification ────────────────────────────────────
+    # Ledger equity and trade count MUST be zero after a successful reset.
+    post_reset = {}
+    invariant_warnings = []
+    try:
+        from services.ledger_service import get_ledger_service
+        _lsvc = get_ledger_service(db.db)
+        post_reset["ledger_equity"] = round(await _lsvc.compute_equity(user_id, currency="ZAR"), 4)
+        post_reset["fills_count"] = await db.db["fills_ledger"].count_documents({"user_id": user_id})
+        post_reset["ledger_events_count"] = await db.db["ledger_events"].count_documents({"user_id": user_id})
+        if db.trades_collection is not None:
+            post_reset["trades_count"] = await db.trades_collection.count_documents({"user_id": user_id})
+        else:
+            post_reset["trades_count"] = 0
+        if db.bots_collection is not None:
+            post_reset["active_bots"] = await db.bots_collection.count_documents(
+                {"user_id": user_id, "status": {"$in": ["active", "running"]}}
+            )
+        else:
+            post_reset["active_bots"] = 0
+
+        if post_reset["ledger_equity"] != 0:
+            msg = f"ledger_equity={post_reset['ledger_equity']} non-zero after reset"
+            invariant_warnings.append(msg)
+            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
+        if post_reset["fills_count"] > 0:
+            msg = f"fills_ledger has {post_reset['fills_count']} rows after reset"
+            invariant_warnings.append(msg)
+            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
+        if post_reset["trades_count"] > 0:
+            msg = f"trades has {post_reset['trades_count']} rows after reset"
+            invariant_warnings.append(msg)
+            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
+        if not invariant_warnings:
+            logger.info("perform_paper_reset invariants OK for user=%s", user_id[:8])
+    except Exception as ve:
+        logger.warning("perform_paper_reset: post-reset verification error: %s", ve)
+        invariant_warnings.append(f"Verification error: {ve}")
+
     return {
         "summary": summary,
         "collection_counts": collection_counts,
+        "post_reset": post_reset,
+        "invariant_warnings": invariant_warnings,
         "timestamp": delete_timestamp
     }
 

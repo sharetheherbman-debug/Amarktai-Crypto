@@ -10,7 +10,8 @@ SAFETY PRINCIPLES:
 - Always checks Bodyguard / daily loss locks / duplicate-detection first.
 - All actions are off by default and require explicit user opt-in.
 - Everything is reversible; actions are rate-limited.
-- "Leverage" toggle is UI-visible but produces no action (labeled "Not active in this release").
+- Leverage is a position-sizing multiplier (1.0-2.0); auto-reverts to 1.0 on any lock.
+  In live mode, leverage only applies on exchanges that support it (capability flag).
 """
 
 import asyncio
@@ -42,8 +43,9 @@ DEFAULT_SETTINGS = {
     "capital_aggression": False,      # Temporarily increase capital allocation
     "exchange_filtering": False,      # Re-weight allocations by exchange score
     "bot_cap_ramp": False,            # Increase bot cap funded from profits
-    # Leverage: NOT active in this release
-    "leverage_enabled": False,        # UI toggle exists, action is never taken
+    # Leverage: position sizing multiplier (default OFF, 1.0x–2.0x)
+    "leverage_enabled": False,        # Toggle — off by default; auto-reverts on any lock
+    "leverage_multiplier": 1.0,       # 1.0 = no leverage, 2.0 = double position size
     # Thresholds / caps
     "profit_recycle_threshold_r": 100.0,   # Min profit (ZAR) before recycling
     "profit_recycle_max_per_day": 2,        # Max bots spawned per day
@@ -62,21 +64,41 @@ DEFAULT_SETTINGS = {
 
 async def _check_guardrails(user_id: str) -> Dict[str, Any]:
     """
-    Check all safety gates and return a dict of active blocks.
-    Returns {"ok": True} if all clear, or {"ok": False, "reasons": [...]} if blocked.
+    Check all safety gates and return a structured dict.
+    Always returns a valid dict — never raises.
     """
     blocked_reasons = []
+    checks = {
+        "db_ok": False,
+        "user_found": False,
+        "daily_loss_ok": True,
+        "bodyguard_ok": True,
+        "emergency_stop_ok": True,
+    }
     try:
         import database as db
         if db.users_collection is None:
-            return {"ok": False, "reasons": ["Database not initialized"]}
+            return {
+                "ok": False,
+                "reasons": ["Database not initialized"],
+                "status": "blocked",
+                "checks": checks,
+            }
+        checks["db_ok"] = True
 
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         if not user:
-            return {"ok": False, "reasons": ["User not found"]}
+            return {
+                "ok": False,
+                "reasons": ["User not found"],
+                "status": "blocked",
+                "checks": checks,
+            }
+        checks["user_found"] = True
 
         # Daily loss lock
         if user.get("daily_loss_lock_active"):
+            checks["daily_loss_ok"] = False
             blocked_reasons.append(
                 f"Daily loss lock is active (triggered {user.get('daily_loss_locked_reason', 'limit exceeded')}). "
                 "Growth Engine paused until lock resets."
@@ -84,26 +106,38 @@ async def _check_guardrails(user_id: str) -> Dict[str, Any]:
 
         # Bodyguard lock
         if user.get("bodyguard_lock_active"):
+            checks["bodyguard_ok"] = False
             blocked_reasons.append(
                 "AI Bodyguard lock is active. Growth Engine paused until bodyguard resets."
             )
 
-        # Emergency stop
-        emergency_doc = await db.emergency_stop_collection.find_one(
-            {"user_id": user_id, "active": True}, {"_id": 0}
-        ) if db.emergency_stop_collection else None
-        if emergency_doc:
-            blocked_reasons.append(
-                "Emergency stop is engaged. Growth Engine paused until emergency stop is lifted."
+        # Emergency stop — use is not None to avoid PyMongo Collection bool error
+        if db.emergency_stop_collection is not None:
+            emergency_doc = await db.emergency_stop_collection.find_one(
+                {"user_id": user_id, "active": True}, {"_id": 0}
             )
+            if emergency_doc:
+                checks["emergency_stop_ok"] = False
+                blocked_reasons.append(
+                    "Emergency stop is engaged. Growth Engine paused until emergency stop is lifted."
+                )
 
     except Exception as e:
         logger.warning(f"Growth guardrail check error for {user_id}: {e}")
-        blocked_reasons.append(f"Guardrail check failed: {str(e)[:100]}")
+        return {
+            "ok": False,
+            "reasons": [f"Guardrail check failed: {str(e)[:150]}"],
+            "status": "blocked",
+            "checks": checks,
+        }
 
-    if blocked_reasons:
-        return {"ok": False, "reasons": blocked_reasons}
-    return {"ok": True, "reasons": []}
+    ok = len(blocked_reasons) == 0
+    return {
+        "ok": ok,
+        "reasons": blocked_reasons,
+        "status": "ok" if ok else "blocked",
+        "checks": checks,
+    }
 
 
 # ── Settings persistence ──────────────────────────────────────────────────────
@@ -135,8 +169,8 @@ async def save_settings(user_id: str, settings: dict) -> dict:
         coll = db.db["growth_engine_settings"]
         merged = {**DEFAULT_SETTINGS, **settings, "user_id": user_id,
                   "updated_at": datetime.now(timezone.utc).isoformat()}
-        # Leverage is always forced off regardless of what user sends
-        merged["leverage_enabled"] = False
+        # Clamp leverage multiplier to safe bounds
+        merged["leverage_multiplier"] = max(1.0, min(2.0, float(merged.get("leverage_multiplier", 1.0))))
         await coll.replace_one({"user_id": user_id}, merged, upsert=True)
         return merged
     except Exception as e:
@@ -155,11 +189,11 @@ async def get_state(user_id: str) -> dict:
                     "confidence": 0.0, "blocked_reasons": [], "last_actions": []}
         coll = db.db["growth_engine_state"]
         doc = await coll.find_one({"user_id": user_id}, {"_id": 0})
-        return doc or {"user_id": user_id, "last_tick": None, "current_regime": "unknown",
+        return doc or {"user_id": user_id, "last_tick": None, "current_regime": "neutral",
                        "confidence": 0.0, "blocked_reasons": [], "last_actions": []}
     except Exception as e:
         logger.error(f"get_state error for {user_id}: {e}")
-        return {"user_id": user_id, "last_tick": None, "current_regime": "unknown",
+        return {"user_id": user_id, "last_tick": None, "current_regime": "neutral",
                 "confidence": 0.0, "blocked_reasons": [], "last_actions": []}
 
 
@@ -210,6 +244,7 @@ async def _detect_regime() -> tuple[str, float]:
     """
     Detect current market regime using CoinStats intelligence and live prices.
     Returns (regime_name, confidence 0-1).
+    Never returns "unknown" — falls back to "neutral" with a reason.
     """
     try:
         from services.market_intelligence_service import get_latest_intelligence
@@ -217,6 +252,11 @@ async def _detect_regime() -> tuple[str, float]:
         mood = intel.get("mood", "neutral")
         risk = intel.get("top_risk", "none")
         updated_at = intel.get("updated_at")
+        fetch_status = intel.get("fetch_status", "ok")
+
+        # No data yet or key missing — return neutral with low confidence
+        if fetch_status in ("key_missing", "no_articles", "error") or not updated_at:
+            return "neutral", 0.0
 
         # Stale if not updated in last 30 minutes
         if updated_at:
@@ -224,7 +264,7 @@ async def _detect_regime() -> tuple[str, float]:
                 last_dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
                 age_minutes = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
                 if age_minutes > 30:
-                    return "unknown", 0.3
+                    return "neutral", 0.3
             except Exception:
                 pass
 
@@ -240,7 +280,7 @@ async def _detect_regime() -> tuple[str, float]:
             return "neutral", 0.5
     except Exception as e:
         logger.debug(f"Regime detection error: {e}")
-        return "unknown", 0.3
+        return "neutral", 0.0
 
 
 # ── Individual feature implementations ───────────────────────────────────────
@@ -364,7 +404,137 @@ async def _run_strategy_specialization(user_id: str, regime: str) -> Optional[di
     }
 
 
-# ── Main tick ─────────────────────────────────────────────────────────────────
+
+# ── Exchange leverage capability registry ─────────────────────────────────────
+
+# Exchanges that support leverage/margin trading
+_LEVERAGE_CAPABLE_EXCHANGES = {
+    "binance": True,
+    "bybit": True,
+    "bitmex": True,
+    "okx": True,
+    "kraken": True,
+    "luno": False,       # Spot-only
+    "valr": False,       # Spot-only
+    "altcointrader": False,
+}
+
+
+async def _get_user_exchange(user_id: str) -> str:
+    """Get the primary exchange for a user."""
+    try:
+        import database as db
+        if db.db is None:
+            return "unknown"
+        key_doc = await db.api_keys_collection.find_one(
+            {"user_id": user_id, "is_active": True}, {"provider": 1, "_id": 0}
+        )
+        return (key_doc.get("provider") or "unknown").lower() if key_doc else "unknown"
+    except Exception:
+        return "unknown"
+
+
+async def _run_leverage(user_id: str, settings: dict, guardrail: dict) -> dict:
+    """
+    Apply leverage multiplier to position sizing.
+    - Paper mode: always allowed within bounds.
+    - Live mode: only when the user's exchange supports it.
+    - Auto-reverts to 1.0 if any guardrail lock is active.
+    Guardrails: max 2.0x, only when locks are clear and multiplier > 1.0.
+    """
+    # Auto-revert if any lock is active
+    if not guardrail["ok"]:
+        await _persist_leverage_multiplier(user_id, 1.0)
+        return {
+            "action_taken": True,
+            "multiplier": 1.0,
+            "description": "Leverage auto-reverted to 1.0x — safety lock is active.",
+            "auto_reverted": True,
+        }
+
+    requested = float(settings.get("leverage_multiplier", 1.0))
+    # Clamp to safe bounds
+    multiplier = max(1.0, min(2.0, requested))
+
+    # Check live-mode exchange capability
+    try:
+        import database as db
+        user_doc = await db.users_collection.find_one({"id": user_id}, {"trading_mode": 1, "_id": 0})
+        trading_mode = (user_doc or {}).get("trading_mode", "paper")
+    except Exception:
+        trading_mode = "paper"
+
+    if trading_mode == "live":
+        exchange = await _get_user_exchange(user_id)
+        capable = _LEVERAGE_CAPABLE_EXCHANGES.get(exchange, None)
+        if capable is False:
+            await _persist_leverage_multiplier(user_id, 1.0)
+            return {
+                "action_taken": False,
+                "multiplier": 1.0,
+                "skipped": True,
+                "reason": f"Not available on {exchange} (spot-only exchange — no margin/futures support).",
+            }
+        if capable is None:
+            await _persist_leverage_multiplier(user_id, 1.0)
+            return {
+                "action_taken": False,
+                "multiplier": 1.0,
+                "skipped": True,
+                "reason": f"Exchange '{exchange}' capability unknown — leverage disabled for safety.",
+            }
+
+    await _persist_leverage_multiplier(user_id, multiplier)
+    return {
+        "action_taken": True,
+        "multiplier": multiplier,
+        "description": (
+            f"Leverage multiplier set to {multiplier:.1f}x — position sizes scaled accordingly. "
+            "Auto-reverts to 1.0x if any safety lock activates."
+        ),
+        "mode": trading_mode,
+    }
+
+
+async def _persist_leverage_multiplier(user_id: str, multiplier: float):
+    """Persist the effective leverage multiplier for the user."""
+    try:
+        import database as db
+        if db.db is None:
+            return
+        await db.db["growth_engine_settings"].update_one(
+            {"user_id": user_id},
+            {"$set": {"effective_leverage_multiplier": multiplier,
+                       "leverage_updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.debug(f"Could not persist leverage multiplier: {e}")
+
+
+async def get_effective_leverage_multiplier(user_id: str) -> float:
+    """
+    Returns the current effective leverage multiplier for a user.
+    Used by the trading engine to scale position sizes.
+    Returns 1.0 if leverage is disabled or any lock is active.
+    """
+    try:
+        import database as db
+        if db.db is None:
+            return 1.0
+        coll = db.db["growth_engine_settings"]
+        doc = await coll.find_one({"user_id": user_id}, {"_id": 0})
+        if not doc or not doc.get("leverage_enabled"):
+            return 1.0
+        # Auto-revert check
+        guardrail = await _check_guardrails(user_id)
+        if not guardrail["ok"]:
+            return 1.0
+        return max(1.0, min(2.0, float(doc.get("effective_leverage_multiplier", 1.0))))
+    except Exception:
+        return 1.0
+
+
 
 async def run_tick(user_id: str, force: bool = False) -> dict:
     """
@@ -449,12 +619,10 @@ async def run_tick(user_id: str, force: bool = False) -> dict:
                     actions.append(f"Strategy specialization → {result.get('recommended_strategy', '')}")
 
         if settings.get("leverage_enabled"):
-            # Leverage is intentionally never executed
-            decision["actions_proposed"].append({
-                "feature": "leverage",
-                "skipped": True,
-                "reason": "Leverage is not active in this release.",
-            })
+            leverage_result = await _run_leverage(user_id, settings, guardrail)
+            decision["actions_proposed"].append({"feature": "leverage", **leverage_result})
+            if leverage_result.get("action_taken"):
+                actions.append(f"Leverage: multiplier set to {leverage_result.get('multiplier', 1.0):.1f}x")
 
         decision["actions_taken"] = actions
         decision["summary"] = (

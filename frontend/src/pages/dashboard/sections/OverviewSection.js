@@ -70,9 +70,9 @@ export default function OverviewSection({
     return reasonText === NOT_AVAILABLE ? fallback : reasonText;
   };
   const pricePairs = [
-    { label: 'XBTZAR', key: 'BTC/ZAR' },
-    { label: 'ETHZAR', key: 'ETH/ZAR' },
-    { label: 'XRPZAR', key: 'XRP/ZAR' }
+    { label: 'BTC/ZAR', key: 'BTC/ZAR' },
+    { label: 'ETH/ZAR', key: 'ETH/ZAR' },
+    { label: 'XRP/ZAR', key: 'XRP/ZAR' }
   ];
   const formatLivePrice = (value) => {
     const numeric = Number(value);

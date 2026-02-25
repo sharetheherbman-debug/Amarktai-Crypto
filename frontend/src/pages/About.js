@@ -3,11 +3,11 @@ import PublicPageLayout from '../components/PublicPageLayout';
 export default function About() {
   return (
     <PublicPageLayout
-      title="About Amarktai Network"
-      subtitle="Amarktai Network is the personal automation layer for disciplined, AI-assisted trading."
+      title="About Amarktai Crypto"
+      subtitle="Amarktai Crypto is the personal automation layer for disciplined, AI-assisted trading."
     >
       <p style={{ margin: 0, color: 'var(--muted)', lineHeight: 1.6 }}>
-        Amarktai Network combines live exchange connectivity, smart automation, and transparent system status
+        Amarktai Crypto combines live exchange connectivity, smart automation, and transparent system status
         in a single glassmorphic workspace. Every action is backed by real APIs and real-time telemetry, so
         you always know what the system is doing.
       </p>
