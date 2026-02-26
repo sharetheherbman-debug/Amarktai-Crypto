@@ -71,8 +71,8 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             pass
 
         # Resolve CoinStats key for this specific user so status is accurate per-user
-        coinstats_key, key_source = await resolve_coinstats_key(user_id)
-        coinstats_configured = bool(coinstats_key)
+        _resolved_key, key_source = await resolve_coinstats_key(user_id)
+        coinstats_configured = bool(_resolved_key)
 
         # Derive fetch_status: if the user has a valid key, never report key_missing
         fetch_status = brief.get("fetch_status", "ok" if last_run_at else "pending")

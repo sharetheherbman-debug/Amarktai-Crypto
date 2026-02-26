@@ -492,8 +492,11 @@ class AutopilotEngine:
 
         except Exception as e:
             logger.error(f"Clone top bot error for {exchange}: {e}", exc_info=True)
-            # Fall back to generic bot creation
-            return await self.create_autonomous_bot(user_id, capital, exchange)
+            # Fall back to generic bot creation; include flag so callers know
+            fallback_result = await self.create_autonomous_bot(user_id, capital, exchange)
+            fallback_result["cloned_from"] = None
+            fallback_result["clone_fallback"] = True
+            return fallback_result
 
     async def create_autonomous_bot(self, user_id: str, capital: float, exchange: str = None):
         """Create a new bot autonomously
