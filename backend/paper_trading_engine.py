@@ -58,7 +58,6 @@ from config import (
     PAPER_STALE_EXIT_MINUTES,
     PAPER_MAX_HOLD_MINUTES,
     PAPER_SAFETY_EXIT_MINUTES,
-    TRAINING_MAX_HOLD_MINUTES,
     TRAINING_TRADES_REQUIRED,
 )
 from realtime_events import rt_events
@@ -1296,10 +1295,6 @@ class PaperTradingEngine:
             age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
-            # Determine if this bot is in training mode (uses shorter max-hold timeout)
-            is_training = bot_data.get("lifecycle_state") == "training" or bot_data.get("is_training", False)
-            effective_max_hold = TRAINING_MAX_HOLD_MINUTES if is_training else PAPER_MAX_HOLD_MINUTES
-
             close_reason = None
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
@@ -1314,14 +1309,6 @@ class PaperTradingEngine:
                     f"CLOSE_SL_HIT bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
                     f"age_min={age_minutes:.1f}"
-                )
-            elif is_training and age_minutes >= TRAINING_MAX_HOLD_MINUTES:
-                # Training bots close at market after TRAINING_MAX_HOLD_MINUTES (default 45 min)
-                close_reason = "training_timeout"
-                logger.info(
-                    f"CLOSE_TRAINING_TIMEOUT bot={bot_id} trade={open_trade.get('id', '?')} "
-                    f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
-                    f"age_min={age_minutes:.1f} reason=training_timeout"
                 )
             elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
                 # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
@@ -1785,10 +1772,13 @@ class PaperTradingEngine:
             # Update bot with calculated values
             from utils.trade_utils import classify_trade_outcome
             outcome = classify_trade_outcome(net_profit)
-            # Determine if this bot is in training to decide whether to check for graduation
+            # Determine if this bot is a live/sim bot in training (paper bots are never gated)
             is_training_bot = (
-                fresh_bot.get("lifecycle_state") == "training"
-                or fresh_bot.get("is_training", False)
+                fresh_bot.get("trading_mode", "paper") != "paper"
+                and (
+                    fresh_bot.get("lifecycle_state") == "training"
+                    or fresh_bot.get("is_training", False)
+                )
             )
             await bots_collection.update_one(
                 {"id": bot_id},

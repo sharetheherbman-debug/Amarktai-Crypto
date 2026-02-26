@@ -26,22 +26,22 @@ for _mod in _HEAVY_STUBS:
         sys.modules[_mod] = MagicMock()
 
 
-# ── FIX 1: Training forced-close via training_timeout ───────────────────────
+# ── FIX 1: Paper bots no longer use training_timeout exit ────────────────────
 
 class TestTrainingForcedClose:
-    """_close_open_trade() must set close_reason='training_timeout' for training bots
-    whose trade age >= TRAINING_MAX_HOLD_MINUTES."""
+    """Paper bots trade freely from the start — no training_timeout exit.
+    Trades exit only via take_profit, stop_loss, time_exit, safety_exit, or stale_exit."""
 
     @pytest.mark.asyncio
-    async def test_training_timeout_fires_when_age_exceeds_limit(self):
-        """A training bot's trade older than TRAINING_MAX_HOLD_MINUTES closes."""
-        from config import TRAINING_MAX_HOLD_MINUTES
+    async def test_paper_bot_ignores_training_timeout(self):
+        """A paper bot trade older than TRAINING_MAX_HOLD_MINUTES must NOT close via training_timeout.
+        It should return no_exit_signal until PAPER_MAX_HOLD_MINUTES is reached."""
+        from config import TRAINING_MAX_HOLD_MINUTES, PAPER_MAX_HOLD_MINUTES
         from paper_trading_engine import PaperTradingEngine
 
         engine = PaperTradingEngine.__new__(PaperTradingEngine)
-        # Patch get_market_snapshot to return a valid price
         entry_price = 100.0
-        current_price = 101.0  # slightly above entry, below TP
+        current_price = 101.0  # slightly above entry, below TP — no SL/TP/time hit
         engine.get_market_snapshot = AsyncMock(return_value={
             "mid": current_price,
             "bid": current_price * 0.999,
@@ -49,7 +49,12 @@ class TestTrainingForcedClose:
             "spread_bps": 10,
         })
 
-        old_enough = datetime.now(timezone.utc) - timedelta(minutes=TRAINING_MAX_HOLD_MINUTES + 5)
+        # Age is past TRAINING_MAX_HOLD_MINUTES but NOT yet at PAPER_MAX_HOLD_MINUTES
+        age_minutes = TRAINING_MAX_HOLD_MINUTES + 5
+        assert age_minutes < PAPER_MAX_HOLD_MINUTES, (
+            "Test requires TRAINING_MAX_HOLD_MINUTES + 5 < PAPER_MAX_HOLD_MINUTES"
+        )
+        old_enough = datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
         open_trade = {
             "id": "t001",
             "pair": "BTC/ZAR",
@@ -67,12 +72,12 @@ class TestTrainingForcedClose:
             "entry_ledger_recorded": False,
         }
 
+        # Paper bot (no training gate)
         bot_data = {
             "id": "b001",
-            "name": "TrainingBot",
+            "name": "PaperBot",
             "exchange": "luno",
-            "lifecycle_state": "training",
-            "is_training": True,
+            "trading_mode": "paper",
             "stop_loss_pct": 0.02,
             "take_profit_pct": 0.05,
             "risk_mode": "safe",
@@ -82,17 +87,20 @@ class TestTrainingForcedClose:
         result = await engine._close_open_trade("b001", bot_data, open_trade)
 
         assert result is not None, "Expected a result, got None"
-        assert result.get("success") is True, f"Expected success, got: {result}"
-        assert result.get("trade_close_reason") == "training_timeout", (
-            f"Expected 'training_timeout', got {result.get('trade_close_reason')!r}"
-        )
-        assert result.get("status") == "closed", (
-            f"Expected 'closed', got {result.get('status')!r}"
-        )
+        # Paper bots must NOT produce training_timeout
+        if result.get("success"):
+            assert result.get("trade_close_reason") != "training_timeout", (
+                "Paper bots must not close with training_timeout"
+            )
+        else:
+            # Still open (no_exit_signal) — correct: age < PAPER_MAX_HOLD_MINUTES
+            assert result.get("skip_reason") == "no_exit_signal", (
+                f"Expected 'no_exit_signal', got {result.get('skip_reason')!r}"
+            )
 
     @pytest.mark.asyncio
     async def test_no_exit_signal_when_trade_is_young_training_bot(self):
-        """A young training bot trade (not yet at TRAINING_MAX_HOLD_MINUTES) returns no_exit_signal."""
+        """A young paper bot trade (not yet at PAPER_MAX_HOLD_MINUTES) returns no_exit_signal."""
         from paper_trading_engine import PaperTradingEngine
 
         engine = PaperTradingEngine.__new__(PaperTradingEngine)
@@ -124,10 +132,9 @@ class TestTrainingForcedClose:
 
         bot_data = {
             "id": "b002",
-            "name": "TrainingBot",
+            "name": "PaperBot",
             "exchange": "luno",
-            "lifecycle_state": "training",
-            "is_training": True,
+            "trading_mode": "paper",
             "stop_loss_pct": 0.02,
             "take_profit_pct": 0.05,
             "risk_mode": "safe",
@@ -202,8 +209,9 @@ class TestTrainingProgressIncrement:
         bot_data = {
             "id": "b001",
             "user_id": "u001",
-            "name": "TrainingBot",
+            "name": "LiveTrainingBot",
             "exchange": "luno",
+            "trading_mode": "live",
             "lifecycle_state": "training",
             "is_training": True,
             "current_capital": 1000.0,
@@ -336,11 +344,13 @@ class TestTrainingProgressIncrement:
         }
 
         # Bot already has TRAINING_TRADES_REQUIRED - 1 closed trades (one more will graduate it)
+        # Use trading_mode='live' — paper bots start with training_complete=True already.
         bot_data = {
             "id": "b002",
             "user_id": "u001",
-            "name": "TrainingBot",
+            "name": "LiveTrainingBot",
             "exchange": "luno",
+            "trading_mode": "live",
             "lifecycle_state": "training",
             "is_training": True,
             "current_capital": 1000.0,

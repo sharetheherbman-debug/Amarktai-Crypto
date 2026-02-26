@@ -376,15 +376,16 @@ class AutopilotEngine:
                 "timestamp": datetime.now(timezone.utc).isoformat()
             })
             
-            # Step 7: Create bot
-            bot_result = await self.create_autonomous_bot(user_id, seed_amount, target_exchange)
+            # Step 7: Clone top-performing bot for this platform (platform-scoped)
+            bot_result = await self._clone_top_bot_for_platform(user_id, seed_amount, target_exchange)
             
             return {
                 "success": True,
-                "message": f"Bot spawned successfully on {target_exchange}",
+                "message": f"Bot cloned and spawned on {target_exchange}",
                 "bot_id": bot_result.get('bot_id') if bot_result else None,
                 "exchange": target_exchange,
                 "seed_amount": seed_amount,
+                "cloned_from": bot_result.get('cloned_from') if bot_result else None,
                 "available_profit_remaining": available_profit - seed_amount
             }
             
@@ -396,6 +397,104 @@ class AutopilotEngine:
                 "message": str(e)
             }
             
+    async def _clone_top_bot_for_platform(self, user_id: str, capital: float, exchange: str) -> dict:
+        """Clone the top-performing bot on *exchange* for *user_id*.
+
+        Platform-scoped: only bots on the same exchange are considered as clone
+        sources; cross-platform copying is explicitly prohibited.
+
+        The cloned bot inherits:
+          - strategy params (stop_loss_pct, take_profit_pct, strategy dict)
+          - risk_profile (risk_mode)
+          - learned_weights / learned_insights (where stored)
+          - trading_mode from the source bot
+
+        The new bot is immediately active (training_complete=True, no pause).
+        """
+        try:
+            import uuid
+
+            # Find top-performing bot on this exact exchange (same platform only).
+            platform_bots = await self.db.bots.find(
+                {
+                    'user_id': user_id,
+                    'exchange': exchange,
+                    'status': {'$nin': ['deleted', 'quarantined']},
+                    'deleted_at': {'$exists': False},
+                }
+            ).to_list(100)
+
+            # Pick top performer: highest total_profit, then highest win_rate
+            cloned_from = None
+            if platform_bots:
+                platform_bots.sort(
+                    key=lambda b: (b.get('total_profit', 0), b.get('win_rate', 0)),
+                    reverse=True,
+                )
+                source = platform_bots[0]
+                cloned_from = source.get('id')
+                logger.info(
+                    f"Cloning top bot {cloned_from} on {exchange} "
+                    f"(profit={source.get('total_profit', 0):.2f})"
+                )
+            else:
+                source = {}
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            bot_id = str(uuid.uuid4())
+            trading_mode = source.get('trading_mode', 'paper')
+
+            bot = {
+                'id': bot_id,
+                'user_id': user_id,
+                'name': (
+                    f"Clone-{exchange.title()}-{datetime.now().strftime('%m%d%H%M')}"
+                ),
+                'exchange': exchange,
+                # Strategy params — cloned from source, fall back to sensible defaults
+                'risk_mode': source.get('risk_mode', 'balanced'),
+                'stop_loss_pct': source.get('stop_loss_pct', 0.02),
+                'take_profit_pct': source.get('take_profit_pct', 0.03),
+                'strategy': source.get('strategy') or {'type': 'adaptive', 'created_by': 'autospawn'},
+                'learned_weights': source.get('learned_weights'),
+                'learned_insights': source.get('learned_insights', []),
+                # Capital
+                'trading_mode': trading_mode,
+                'initial_capital': capital,
+                'starting_capital': capital,
+                'current_capital': capital,
+                'peak_capital': capital,
+                'allocated_capital': capital,
+                # Ready immediately — no training gate for any paper clone
+                'status': 'active',
+                'training_complete': True,
+                'training_in_progress': False,
+                # Telemetry
+                'total_profit': 0,
+                'win_rate': 0,
+                'trades_count': 0,
+                'closed_trades_count': 0,
+                'max_drawdown': 0,
+                'win_count': 0,
+                'loss_count': 0,
+                'created_at': now_iso,
+                'paper_start_date': now_iso,
+                'cloned_from': cloned_from,
+                'promoted_to_live': False,
+            }
+
+            await self.db.bots.insert_one(bot)
+            logger.info(
+                f"✅ Cloned bot {bot_id} on {exchange} from {cloned_from} "
+                f"capital={capital}"
+            )
+            return {'success': True, 'bot_id': bot_id, 'exchange': exchange, 'cloned_from': cloned_from}
+
+        except Exception as e:
+            logger.error(f"Clone top bot error for {exchange}: {e}", exc_info=True)
+            # Fall back to generic bot creation
+            return await self.create_autonomous_bot(user_id, capital, exchange)
+
     async def create_autonomous_bot(self, user_id: str, capital: float, exchange: str = None):
         """Create a new bot autonomously
         

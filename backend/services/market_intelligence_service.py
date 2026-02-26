@@ -17,8 +17,17 @@ _last_brief: Optional[dict] = None
 _last_error: Optional[str] = None
 
 
-async def get_latest_intelligence() -> dict:
-    """Return the most recently computed market intelligence."""
+async def get_latest_intelligence(user_id: Optional[str] = None) -> dict:
+    """Return the most recently computed market intelligence.
+
+    If *user_id* is supplied the CoinStats key is resolved for that user so
+    the background brief is accurate for users that have their own key.
+    """
+    if _last_brief is not None and user_id:
+        # If the cached brief says key_missing but this user has a key, trigger
+        # an immediate per-user fetch to replace the cached brief.
+        if _last_brief.get("fetch_status") == "key_missing":
+            await _fetch_and_process(user_id=user_id)
     return _last_brief or {
         "what_happened": f"No market data yet — intelligence updates every {_REFRESH_INTERVAL} seconds.",
         "why_it_matters": "Market intelligence is collected automatically from CoinStats.",
@@ -48,14 +57,19 @@ async def _resolve_scheduler_user_id() -> Optional[str]:
         return None
 
 
-async def _fetch_and_process():
-    """Fetch CoinStats news and build market brief."""
+async def _fetch_and_process(user_id: Optional[str] = None):
+    """Fetch CoinStats news and build market brief.
+
+    *user_id* is passed to resolve a per-user CoinStats key.  When called from
+    the background scheduler *user_id* is None and the scheduler resolves its
+    own eligible user via :func:`_resolve_scheduler_user_id`.
+    """
     global _last_brief, _last_error
     now = datetime.now(timezone.utc)
     try:
         from services.news_coinstats import coinstats_provider, resolve_coinstats_key
         # Scheduler has no user context — try to find any user with a saved key
-        sched_user_id = await _resolve_scheduler_user_id()
+        sched_user_id = user_id or await _resolve_scheduler_user_id()
         articles = await coinstats_provider.get_articles(limit=10, user_id=sched_user_id)
 
         if not articles:
