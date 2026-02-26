@@ -121,6 +121,7 @@ async def _set_collections(db_module, mock_db):
         "user_memory_collection": "user_memory",
         "chatops_actions_collection": "chatops_actions",
         "chatops_confirmations_collection": "chatops_confirmations",
+        "paper_reset_baselines_collection": "paper_reset_baselines",
     }
     for attr, collection_name in collection_map.items():
         if hasattr(db_module, attr):

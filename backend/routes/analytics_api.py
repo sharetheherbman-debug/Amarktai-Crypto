@@ -293,10 +293,15 @@ async def get_equity_curve(
     range: str = Query("7d", regex="^(1d|7d|30d|90d|1y|all)$"),
     user_id: str = Depends(get_current_user)
 ):
-    """Get equity curve showing total P&L over time with realized vs unrealized breakdown
-    
-    Returns:
-        Timeseries data with equity progression, realized/unrealized PnL, and fee analysis
+    """Get equity curve — Single Source of Truth for paper trading P&L.
+
+    current_equity  = paper wallet total (available + allocated) — wallet truth.
+    initial_capital = current_equity minus cumulative PnL since last reset.
+                      Derived dynamically so it always equals the funded amount.
+    equity_curve    = initial_capital + cumulative trade PnL within visible window.
+
+    The visible window starts at max(range_start, last_reset_timestamp) so that
+    post-reset equity never shows phantom pre-reset values.
     """
     try:
         now = datetime.now(timezone.utc)
@@ -309,79 +314,137 @@ async def get_equity_curve(
             "all": timedelta(days=3650)
         }
         start_time = now - range_map.get(range, timedelta(days=7))
-        
-        # Get active (non-deleted) bots for initial capital
-        # Exclude deleted/stopped bots so post-reset equity starts at zero
-        bots = await db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$nin": ["deleted", "stopped", "terminated"]},
-                "is_deleted": {"$ne": True}
-            },
-            {"_id": 0, "initial_capital": 1, "current_capital": 1}
-        ).to_list(1000)
-        
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
-        
-        # Get trades in time range
-        trades = await db.trades_collection.find(
-            {
-                "user_id": user_id,
-                "timestamp": {"$gte": start_time.isoformat()}
-            },
-            {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1, "fee_amount": 1, "fees": 1, "fee": 1}
-        ).sort("timestamp", 1).to_list(10000)
-        
-        # Build equity curve
+
+        # ── 1. current_equity from paper wallet (truth source, not bot capital) ──
+        from services.paper_wallet_service import paper_wallet_service
+        from routes.wallet_hub import get_paper_wallet_allocated_balances
+        wallet_data = await paper_wallet_service.get_balances(user_id)
+        allocated = await get_paper_wallet_allocated_balances(user_id)
+        available_total = float(wallet_data.get("total", 0) or 0)
+        allocated_total = sum(float(v or 0) for v in allocated.values())
+        current_equity = round(available_total + allocated_total, 2)
+
+        # ── 2. Last reset baseline timestamp ──────────────────────────────────
+        reset_timestamp_str: Optional[str] = None
+        if db.paper_reset_baselines_collection is not None:
+            try:
+                baseline_doc = await db.paper_reset_baselines_collection.find_one(
+                    {"user_id": user_id},
+                    sort=[("reset_at", -1)]
+                )
+                if baseline_doc:
+                    reset_timestamp_str = baseline_doc.get("reset_at")
+            except Exception as _e:
+                logger.warning("Could not fetch paper_reset_baselines: %s", _e)
+
+        # ── 3. Effective window start = max(range_start, last_reset) ──────────
+        effective_start = start_time
+        if reset_timestamp_str:
+            try:
+                reset_dt = datetime.fromisoformat(reset_timestamp_str.replace("Z", "+00:00"))
+                if reset_dt.tzinfo is None:
+                    reset_dt = reset_dt.replace(tzinfo=timezone.utc)
+                if reset_dt > start_time:
+                    effective_start = reset_dt
+            except Exception as _e:
+                logger.warning("Could not parse reset_at '%s': %s", reset_timestamp_str, _e)
+
+        # ── 4. All trades since last reset (for initial_capital derivation) ───
+        since_reset_query: Dict = {"user_id": user_id}
+        if reset_timestamp_str:
+            since_reset_query["timestamp"] = {"$gt": reset_timestamp_str}
+        all_since_reset = await db.trades_collection.find(
+            since_reset_query,
+            {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1,
+             "fee_amount": 1, "fees": 1, "fee": 1}
+        ).sort("timestamp", 1).to_list(100000)
+
+        total_pnl_since_reset = sum(
+            float(t.get("net_pnl") or t.get("profit_loss") or 0)
+            for t in all_since_reset
+        )
+        total_fees_since_reset = sum(
+            float(t.get("fee_amount") or t.get("fees") or t.get("fee") or 0)
+            for t in all_since_reset
+        )
+
+        # initial_capital = what was in wallet when this period started
+        # (wallet truth minus all realized PnL since reset)
+        initial_capital = round(current_equity - total_pnl_since_reset, 2)
+
+        # ── 5. Build equity curve within visible window ────────────────────────
+        # Equity at the start of the visible window accounts for trades that
+        # happened between the reset and the window start (if range < full period).
+
+        def _parse_trade_ts(trade_ts: str) -> datetime:
+            """Parse a trade timestamp to an aware datetime for safe comparison."""
+            try:
+                dt = datetime.fromisoformat(trade_ts.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except Exception:
+                return datetime.min.replace(tzinfo=timezone.utc)
+
+        pnl_before_window = sum(
+            float(t.get("net_pnl") or t.get("profit_loss") or 0)
+            for t in all_since_reset
+            if t.get("timestamp") and _parse_trade_ts(t["timestamp"]) < effective_start
+        )
+        equity_at_window_start = round(initial_capital + pnl_before_window, 2)
+
+        trades_in_window = [
+            t for t in all_since_reset
+            if t.get("timestamp") and _parse_trade_ts(t["timestamp"]) >= effective_start
+        ]
+
         equity_points = []
-        cumulative_pnl = 0
-        cumulative_fees = 0
-        
-        if not trades:
-            # No trades - return initial state
+        cumulative_pnl = 0.0
+        cumulative_fees = 0.0
+
+        if not trades_in_window:
             equity_points = [{
-                "timestamp": start_time.isoformat(),
-                "equity": initial_capital,
+                "timestamp": effective_start.isoformat(),
+                "equity": equity_at_window_start,
                 "realized_pnl": 0,
                 "unrealized_pnl": 0,
                 "fees": 0
             }]
         else:
-            for trade in trades:
-                # Use canonical field normalization
-                cumulative_pnl += trade.get('net_pnl', trade.get('profit_loss', 0))
-                cumulative_fees += trade.get('fee_amount', trade.get('fees', trade.get('fee', 0)))
-                
+            for trade in trades_in_window:
+                cumulative_pnl += float(trade.get("net_pnl") or trade.get("profit_loss") or 0)
+                cumulative_fees += float(
+                    trade.get("fee_amount") or trade.get("fees") or trade.get("fee") or 0
+                )
                 equity_points.append({
-                    "timestamp": trade['timestamp'],
-                    "equity": initial_capital + cumulative_pnl,
-                    "realized_pnl": cumulative_pnl,
-                    "unrealized_pnl": 0,  # Paper trading has no open positions
-                    "fees": cumulative_fees
+                    "timestamp": trade["timestamp"],
+                    "equity": round(equity_at_window_start + cumulative_pnl, 2),
+                    "realized_pnl": round(cumulative_pnl, 2),
+                    "unrealized_pnl": 0,
+                    "fees": round(cumulative_fees, 2)
                 })
-        
-        # Add current point
+
+        # Always append current state so the last point reflects wallet truth
         equity_points.append({
             "timestamp": now.isoformat(),
-            "equity": current_capital,
-            "realized_pnl": current_capital - initial_capital,
+            "equity": current_equity,
+            "realized_pnl": round(total_pnl_since_reset, 2),
             "unrealized_pnl": 0,
-            "fees": cumulative_fees
+            "fees": round(total_fees_since_reset, 2)
         })
-        
+
         return {
             "range": range,
-            "start_time": start_time.isoformat(),
+            "start_time": effective_start.isoformat(),
             "end_time": now.isoformat(),
-            "initial_capital": round(initial_capital, 2),
-            "current_equity": round(current_capital, 2),
-            "total_pnl": round(current_capital - initial_capital, 2),
-            "total_fees": round(cumulative_fees, 2),
+            "initial_capital": initial_capital,
+            "current_equity": current_equity,
+            "total_pnl": round(current_equity - initial_capital, 2),
+            "total_fees": round(total_fees_since_reset, 2),
             "equity_curve": equity_points,
             "timestamp": now.isoformat()
         }
-        
+
     except Exception as e:
         logger.error(f"Get equity curve error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
