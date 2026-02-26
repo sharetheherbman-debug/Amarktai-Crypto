@@ -36,8 +36,9 @@ EXPECTED RESULTS:
 import ccxt.async_support as ccxt
 import asyncio
 import os
+from collections import deque
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import logging
 import database as db
 from exchange_limits import get_fee_rate
@@ -330,6 +331,9 @@ class PaperTradingEngine:
         self.last_trade_simulation = None
         self.last_error = None
         self.trade_count = 0
+
+        # Ring buffer of the last 20 engine actions for diagnostics
+        self._action_log: deque = deque(maxlen=20)
         
         # Dual-mode support: 'demo' (no keys) or 'verified' (with Luno keys)
         self.current_mode = 'demo'  # Default to demo/public mode
@@ -449,7 +453,28 @@ class PaperTradingEngine:
                 'label': 'Estimated (Demo)',
                 'description': 'Using public market data only - simulated for demonstration purposes'
             }
-    
+
+    def _log_action(
+        self,
+        action: str,
+        bot_id: str,
+        symbol: str,
+        *,
+        reason: str = "",
+        trade_id: str = "",
+        bot_name: str = "",
+    ) -> None:
+        """Append an action entry to the ring buffer (last 20 kept)."""
+        self._action_log.append({
+            "action": action,
+            "bot_id": bot_id,
+            "bot_name": bot_name,
+            "symbol": symbol,
+            "reason": reason,
+            "trade_id": trade_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+
     async def get_available_pairs(self, exchange: str = 'luno') -> list:
         """Dynamically fetch ALL available trading pairs for maximum profit"""
         try:
@@ -1273,6 +1298,12 @@ class PaperTradingEngine:
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
             if not current_price:
+                self._log_action(
+                    "PRICE_MISSING", bot_id, symbol or "?",
+                    reason="no_price_data",
+                    trade_id=open_trade.get("id", ""),
+                    bot_name=bot_data.get("name", ""),
+                )
                 return {
                     "success": False,
                     "skip_reason": "no_price_data",
@@ -1303,6 +1334,8 @@ class PaperTradingEngine:
                     f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
                     f"age_min={age_minutes:.1f}"
                 )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="take_profit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
                 logger.info(
@@ -1310,6 +1343,8 @@ class PaperTradingEngine:
                     f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
                     f"age_min={age_minutes:.1f}"
                 )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="stop_loss",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
             elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
                 # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
                 # regardless of P&L direction. Unlike stale_exit, this does NOT require
@@ -1320,6 +1355,8 @@ class PaperTradingEngine:
                     f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
                     f"max_hold={PAPER_MAX_HOLD_MINUTES}"
                 )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="time_exit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
             elif (
                 PAPER_SAFETY_EXIT_MINUTES > 0
                 and age_minutes >= PAPER_SAFETY_EXIT_MINUTES
@@ -1333,8 +1370,12 @@ class PaperTradingEngine:
                     f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
                     f"safety_exit_min={PAPER_SAFETY_EXIT_MINUTES}"
                 )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="safety_exit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
             elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="stale_exit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
 
             if not close_reason:
                 mins_to_safety = (
@@ -1348,6 +1389,8 @@ class PaperTradingEngine:
                     f"pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
                     f"mins_to_safety_exit={mins_to_safety} mins_to_time_exit={mins_to_time_exit}"
                 )
+                self._log_action("SKIP", bot_id, symbol or "?", reason="no_exit_signal",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
                 return {
                     "success": False,
                     "skip_reason": "no_exit_signal",
@@ -1596,6 +1639,12 @@ class PaperTradingEngine:
                     )
 
                     await trades_collection.insert_one(trade_doc)
+                    self._log_action(
+                        "OPEN", bot_id, trade_result.get("symbol", "?"),
+                        reason="signal",
+                        trade_id=trade_id,
+                        bot_name=bot_data.get("name", ""),
+                    )
 
                     try:
                         from services.ledger_service import get_ledger_service
@@ -1971,7 +2020,8 @@ class PaperTradingEngine:
             "mode_label": mode_info['label'],
             "mode_description": mode_info['description'],
             "luno_keys_available": self.luno_keys_available,
-            "user_id": self.user_id
+            "user_id": self.user_id,
+            "last_20_actions": list(self._action_log),
         }
     
     async def execute_approved_trade(

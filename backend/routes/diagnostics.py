@@ -2108,3 +2108,97 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
         "trades": enriched,
         "timestamp": now.isoformat(),
     }
+
+
+@router.get("/paper-engine")
+async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
+    """Truth diagnostics for the paper trading engine.
+
+    Returns a real-time snapshot of engine state, all open trades with
+    age/next-exit details, and the last 20 engine actions (ring buffer).
+
+    Fields
+    ------
+    engine_running          : bool — engine has run at least one tick
+    last_tick_at            : ISO timestamp of last tick (or null)
+    tick_interval_seconds   : configured scheduler interval
+    open_trades_count       : number of open paper trades for this user
+    open_trades             : list (up to 50) with per-trade diagnostics
+    last_20_actions         : ring buffer entries from the paper engine
+    """
+    from paper_trading_engine import paper_engine
+    from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES
+
+    now = datetime.now(timezone.utc)
+
+    # Engine-level state
+    engine_status = paper_engine.get_status()
+    last_tick_raw = engine_status.get("last_tick_time")
+    last_tick_at = last_tick_raw
+
+    # Scheduler interval
+    tick_interval_seconds: int = 30
+    try:
+        from trading_scheduler import trading_scheduler
+        tick_interval_seconds = getattr(trading_scheduler, "tick_interval", 30)
+    except Exception:
+        pass
+
+    # Open trades for this user
+    try:
+        raw_trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "open"},
+            {"_id": 0},
+        ).sort([("opened_at", 1), ("_id", 1)]).to_list(50)
+    except Exception:
+        raw_trades = []
+
+    open_trades = []
+    for t in raw_trades:
+        entry_time_raw = t.get("entry_time") or t.get("opened_at") or t.get("timestamp")
+        try:
+            entry_time = datetime.fromisoformat(str(entry_time_raw).replace("Z", "+00:00"))
+            age_minutes = round((now - entry_time).total_seconds() / 60, 1)
+        except Exception:
+            age_minutes = None
+
+        entry_price = float(t.get("entry_price") or t.get("price") or 0)
+
+        # Determine next_exit condition
+        next_exit = "awaiting_signal"
+        if age_minutes is not None:
+            if age_minutes >= PAPER_MAX_HOLD_MINUTES:
+                next_exit = "time_exit_due"
+            elif age_minutes >= PAPER_STALE_EXIT_MINUTES:
+                next_exit = "stale_exit_eligible"
+            else:
+                remaining_time = round(PAPER_MAX_HOLD_MINUTES - age_minutes, 1)
+                remaining_stale = round(PAPER_STALE_EXIT_MINUTES - age_minutes, 1)
+                next_exit = f"time_exit_in_{remaining_time}min"
+                if remaining_stale < remaining_time and remaining_stale > 0:
+                    next_exit = f"stale_exit_in_{remaining_stale}min_or_{next_exit}"
+
+        open_trades.append({
+            "id": t.get("id"),
+            "bot_id": t.get("bot_id"),
+            "bot_name": t.get("bot_name"),
+            "exchange": t.get("exchange"),
+            "symbol": t.get("pair") or t.get("symbol"),
+            "opened_at": entry_time_raw,
+            "age_minutes": age_minutes,
+            "entry_price": entry_price,
+            "current_price": None,  # not re-fetched here — use /diagnostics/open-trades
+            "unrealized_pnl_zar": None,
+            "next_exit": next_exit,
+        })
+
+    return {
+        "success": True,
+        "engine_running": engine_status.get("is_running", False),
+        "last_tick_at": last_tick_at,
+        "tick_interval_seconds": tick_interval_seconds,
+        "open_trades_count": len(open_trades),
+        "open_trades": open_trades,
+        "last_20_actions": engine_status.get("last_20_actions", []),
+        "timestamp": now.isoformat(),
+    }
