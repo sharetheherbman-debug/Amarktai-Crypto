@@ -14,9 +14,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/build", tags=["Build"])
 
-# Repo root is two levels above backend/routes/build_info.py:
-# build_info.py -> routes/ -> backend/ -> <repo_root>
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def _find_repo_root() -> Path:
+    """Locate the repository root directory.
+
+    Resolution order:
+    1. AMARKTAI_REPO_ROOT env var — set by ops/systemd when the backend is
+       deployed without a .git directory.
+    2. Walk upward from this file looking for a .git/ folder (max 5 levels).
+       Covers dev and CI environments where the repo is fully cloned.
+    3. Fallback: derive from this file's path assuming the standard layout
+       build_info.py → routes/ → backend/ → <repo_root>.
+    """
+    # 1. Explicit env override
+    env_root = os.environ.get("AMARKTAI_REPO_ROOT", "").strip()
+    if env_root:
+        p = Path(env_root)
+        if p.is_dir():
+            return p
+
+    # 2. Walk upward looking for .git/
+    current = Path(__file__).resolve().parent
+    for _ in range(5):
+        if (current / ".git").is_dir():
+            return current
+        parent = current.parent
+        if parent == current:  # filesystem root
+            break
+        current = parent
+
+    # 3. Standard layout fallback
+    return Path(__file__).resolve().parents[2]
+
+
+# Repo root is resolved once at module load time.
+_REPO_ROOT = _find_repo_root()
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 

@@ -37,22 +37,61 @@ def set_bind_ok(status: bool = True):
 _BUILD_HASH_CACHE = None
 _BUILD_BRANCH_CACHE = None
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _find_repo_root() -> str:
+    """Locate the repository root directory.
+
+    Resolution order:
+    1. AMARKTAI_REPO_ROOT env var (set by ops/systemd overrides).
+    2. Walk upward from this file's directory looking for a .git/ folder
+       (works in dev / CI environments where the repo is cloned).
+    3. Fallback: parent of the backend/ directory (two levels above this file).
+    """
+    # 1. Explicit env override
+    env_root = os.environ.get("AMARKTAI_REPO_ROOT", "").strip()
+    if env_root and os.path.isdir(env_root):
+        return env_root
+
+    # 2. Walk upward from current file looking for .git/ (max 5 levels)
+    current = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(5):
+        if os.path.isdir(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:  # filesystem root
+            break
+        current = parent
+
+    # 3. Fallback: repo_root = grandparent of backend/routes/ = parent of backend/
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+_REPO_ROOT = _find_repo_root()
 
 
 def get_build_hash() -> str:
-    """Get current git commit SHA for build identification (cached)."""
+    """Get current git commit SHA for build identification (cached).
+
+    Resolution order:
+    1. BUILD_SHA env var (set at deploy time)
+    2. GIT_SHA / GITHUB_SHA env vars (set by CI pipelines)
+    3. git subprocess using _REPO_ROOT
+    4. "unknown"
+    """
     global _BUILD_HASH_CACHE
-    
+
     if _BUILD_HASH_CACHE is not None:
         return _BUILD_HASH_CACHE
-    
+
+    # 1 & 2. Environment variable fallbacks (no git required)
+    for env_var in ("BUILD_SHA", "GIT_SHA", "GITHUB_SHA"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            _BUILD_HASH_CACHE = val[:12]
+            return _BUILD_HASH_CACHE
+
+    # 3. Try git subprocess
     try:
-        build_sha = os.environ.get("BUILD_SHA")
-        if build_sha:
-            _BUILD_HASH_CACHE = build_sha
-            return build_sha
-        
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=5, cwd=_REPO_ROOT, check=False
@@ -62,24 +101,34 @@ def get_build_hash() -> str:
             return _BUILD_HASH_CACHE
     except Exception as e:
         logger.debug(f"Could not get build hash: {e}")
-    
+
     _BUILD_HASH_CACHE = "unknown"
     return "unknown"
 
 
 def get_build_branch() -> str:
-    """Get current git branch for build identification (cached)."""
+    """Get current git branch for build identification (cached).
+
+    Resolution order:
+    1. BUILD_BRANCH env var (set at deploy time)
+    2. GIT_BRANCH / GITHUB_REF_NAME env vars (set by CI pipelines)
+    3. git subprocess using _REPO_ROOT
+    4. "unknown"
+    """
     global _BUILD_BRANCH_CACHE
 
     if _BUILD_BRANCH_CACHE is not None:
         return _BUILD_BRANCH_CACHE
 
-    try:
-        branch = os.environ.get("BUILD_BRANCH")
-        if branch:
-            _BUILD_BRANCH_CACHE = branch
-            return branch
+    # 1 & 2. Environment variable fallbacks (no git required)
+    for env_var in ("BUILD_BRANCH", "GIT_BRANCH", "GITHUB_REF_NAME"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            _BUILD_BRANCH_CACHE = val
+            return _BUILD_BRANCH_CACHE
 
+    # 3. Try git subprocess
+    try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True, timeout=5, cwd=_REPO_ROOT, check=False

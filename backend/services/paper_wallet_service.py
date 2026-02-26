@@ -3,12 +3,45 @@ Paper Wallet Service - Per-user simulated wallet balances.
 Manages available (unallocated) paper funds with per-currency balances.
 """
 
+import logging
+import os
 from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 from pymongo import ReturnDocument
 
 import database as db
 from config import PAPER_STARTING_CAPITAL_ZAR
+
+logger = logging.getLogger(__name__)
+
+# Default static ZAR/USDT rate for paper mode.  Configurable via env var.
+_PAPER_ZAR_PER_USDT_DEFAULT: float = float(os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
+
+
+async def _get_paper_zar_per_usdt() -> float:
+    """Return the ZAR-per-USDT rate to use for paper FX conversion.
+
+    Resolution order (paper-only — never used for live trades):
+    1. Try to derive a live rate via the price fallback service if it has
+       been initialised and has cached Luno/Binance prices.
+    2. Fall back to the PAPER_ZAR_PER_USDT environment variable
+       (default 18.5) — a conservative mid-market approximation.
+
+    Never raises — always returns a positive float.
+    """
+    try:
+        from services.price_fallback_service import price_fallback_service
+        btczar = await price_fallback_service.get_price("luno", "BTC/ZAR")
+        btcusdt = await price_fallback_service.get_price("binance", "BTC/USDT")
+        if btczar and btcusdt and btcusdt > 0:
+            rate = round(btczar / btcusdt, 4)
+            if 5 < rate < 100:  # sanity: typical ZAR/USDT is ~10–40
+                logger.debug("Paper FX: live USDZAR rate %.4f", rate)
+                return rate
+    except Exception:
+        pass  # live rate unavailable; use static fallback
+
+    return _PAPER_ZAR_PER_USDT_DEFAULT
 
 
 class PaperWalletService:
@@ -147,15 +180,14 @@ class PaperWalletService:
         )
         if not result:
             # If USDT is needed but only ZAR is available, auto-convert using paper FX rate.
-            # This allows Binance/KuCoin paper bots to start without manual USDT funding.
+            # This allows Binance/KuCoin/Bybit/Bitget/Gate/Kraken paper bots to start
+            # without manual USDT funding.
             if currency == "USDT":
-                # Paper FX rate: approximate 18.5 ZAR per USDT.
-                # This is a conservative mid-market approximation for simulation only.
-                # Configurable via PAPER_ZAR_PER_USDT env var if needed in future.
-                # Real live transfers must use a live exchange rate (not this path).
-                import os as _os
-                PAPER_ZAR_PER_USDT = float(_os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
-                zar_required = amount * PAPER_ZAR_PER_USDT
+                # Resolve the ZAR→USDT paper FX rate.
+                # Prefer a live rate if available; fall back to the env-configurable
+                # static rate (PAPER_ZAR_PER_USDT, default 18.5).
+                fx_rate = await _get_paper_zar_per_usdt()
+                zar_required = amount * fx_rate
                 # Single atomic operation: deduct ZAR equivalent (simulate ZAR→USDT conversion)
                 fx_result = await self.collection.find_one_and_update(
                     {
@@ -170,7 +202,7 @@ class PaperWalletService:
                     return_document=ReturnDocument.AFTER
                 )
                 if fx_result:
-                    return True, f"Paper FX: R{zar_required:.2f} ZAR → {amount:.2f} USDT (rate {PAPER_ZAR_PER_USDT})"
+                    return True, f"Paper FX: R{zar_required:.2f} ZAR → {amount:.2f} USDT (rate {fx_rate})"
             available = await self.get_available_balance(user_id, currency)
             return False, f"Insufficient paper wallet balance. Available: {available:.2f} {currency}"
         return True, "Reserved"
