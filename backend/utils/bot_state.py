@@ -36,6 +36,16 @@ def normalize_bot_state(bot: Dict) -> Dict:
         else:
             lifecycle_stage = status
 
+    # Canonical display_state: reflects training override
+    training_in_progress = bool(bot.get("training_in_progress") or bot.get("status") == "training")
+    training_complete = bool(bot.get("training_complete"))
+    if training_in_progress or (active and not training_complete and bot.get("training_required_closed_trades") is not None):
+        display_state = "training"
+    elif lifecycle_stage == "deleted":
+        display_state = "stopped"
+    else:
+        display_state = lifecycle_stage or "unknown"
+
     return {
         **bot,
         "deleted": deleted,
@@ -44,6 +54,7 @@ def normalize_bot_state(bot: Dict) -> Dict:
         "stopped": stopped,
         "active": active,
         "lifecycle_stage": lifecycle_stage,
+        "display_state": display_state,
         "mode": trading_mode,
         "trading_mode": trading_mode or bot.get("trading_mode"),
     }
