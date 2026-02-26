@@ -2279,8 +2279,7 @@ async def ai_chat(
             _stripped = ai_response.strip()
             if _stripped.startswith("{") and _stripped.endswith("}"):
                 try:
-                    import json as _json
-                    _payload = _json.loads(_stripped)
+                    _payload = json.loads(_stripped)
                     # Extract any human-readable text
                     _clean = (
                         _payload.get("reply") or _payload.get("response")

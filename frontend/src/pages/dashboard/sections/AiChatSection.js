@@ -168,7 +168,7 @@ export default function AiChatSection({
               try {
                 const parsed = JSON.parse(trimmed);
                 displayContent = parsed.reply || parsed.response || parsed.content || parsed.message || 'Action processed.';
-              } catch (_) { /* not JSON, keep as-is */ }
+              } catch (err) { /* not JSON, keep as-is */ }
             }
           }
           // Use stable key: message_id > timestamp+idx fallback

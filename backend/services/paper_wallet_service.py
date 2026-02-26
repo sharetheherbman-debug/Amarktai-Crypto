@@ -149,8 +149,12 @@ class PaperWalletService:
             # If USDT is needed but only ZAR is available, auto-convert using paper FX rate.
             # This allows Binance/KuCoin paper bots to start without manual USDT funding.
             if currency == "USDT":
-                # Paper FX rate: approximate 18.5 ZAR per USDT (conservative)
-                PAPER_ZAR_PER_USDT = 18.5
+                # Paper FX rate: approximate 18.5 ZAR per USDT.
+                # This is a conservative mid-market approximation for simulation only.
+                # Configurable via PAPER_ZAR_PER_USDT env var if needed in future.
+                # Real live transfers must use a live exchange rate (not this path).
+                import os as _os
+                PAPER_ZAR_PER_USDT = float(_os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
                 zar_required = amount * PAPER_ZAR_PER_USDT
                 # Single atomic operation: deduct ZAR equivalent (simulate ZAR→USDT conversion)
                 fx_result = await self.collection.find_one_and_update(
