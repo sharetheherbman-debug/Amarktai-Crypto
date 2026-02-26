@@ -150,11 +150,13 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
         )
 
     if bot.get("status") in ["training", "training_failed"] or bot.get("training_in_progress"):
-        return _build_block_detail(
-            "training",
-            bot.get("training_failed_reason", "Training in progress"),
-            "Complete training before resuming trading",
-        )
+        # Paper bots are never blocked by training — they trade freely from the first tick.
+        if bot.get("trading_mode", "paper") != "paper":
+            return _build_block_detail(
+                "training",
+                bot.get("training_failed_reason", "Training in progress"),
+                "Complete training before resuming trading",
+            )
 
     if bot.get("paused_by_bodyguard"):
         try:
@@ -229,22 +231,23 @@ async def get_bots_status(
                 status = runtime_state.get("state")
             
             # Map status to standard states
-            # RULE: training_complete=false overrides "active" — bot must be in training state.
-            training_complete = bot.get('training_complete', False)
+            # Paper bots are never gated by training — they trade freely from the first tick.
+            is_paper = bot.get('trading_mode', 'paper') == 'paper'
+            training_complete = bot.get('training_complete', True if is_paper else False)
             training_in_progress = bot.get('training_in_progress', False)
 
-            if status in ('training', ) or training_in_progress:
+            if status in ('training', ) or (training_in_progress and not is_paper):
                 state = 'training'
-            elif status == 'training_failed' or bot.get('training_failed'):
+            elif status == 'training_failed' or (bot.get('training_failed') and not is_paper):
                 state = 'training_failed'
-            elif status == 'active' and not training_complete:
-                # Bot is marked active but training is not complete — show as training
+            elif status == 'active' and not training_complete and not is_paper:
+                # Live bots only: marked active but training is not complete — show as training
                 state = 'training'
             elif status == 'active':
                 state = 'active'
             elif status == 'paused':
                 # Check if ready to activate (paused_ready)
-                if training_complete and bot.get('paused_by_user'):
+                if (training_complete or is_paper) and bot.get('paused_by_user'):
                     state = 'paused_ready'
                 else:
                     state = 'paused'
@@ -253,17 +256,17 @@ async def get_bots_status(
             else:
                 state = status
 
-            # Compute training progress fields
+            # Compute training progress fields (paper bots always show complete)
             required_closed = int(bot.get('training_required_closed_trades', bot.get('min_trades_required', 5)))
             completed_closed = int(bot.get('closed_trades_count', bot.get('trades_count', 0)))
             training_progress = {
                 "closed_trades_completed": completed_closed,
                 "required": required_closed,
                 "percent": round(min(100, (completed_closed / required_closed * 100)) if required_closed > 0 else 0, 1),
-            } if not training_complete else None
+            } if (not training_complete and not is_paper) else None
 
-            # Determine plain-English training block reason
-            if state == 'training':
+            # Determine plain-English training block reason (paper bots have none)
+            if state == 'training' and not is_paper:
                 if not training_complete and status == 'active':
                     training_block_reason = (
                         f"Bot needs {required_closed} closed trades to complete training "
@@ -292,7 +295,7 @@ async def get_bots_status(
                 pause_next_action = 'Wait for retraining to complete'
                 quarantine_release_at = bot.get('retraining_until') or bot.get('quarantine_until')
                 quarantine_remaining_seconds = remaining_seconds(quarantine_release_at)
-            elif state in ('training', 'training_failed') or training_in_progress:
+            elif (state in ('training', 'training_failed') or training_in_progress) and not is_paper:
                 pause_reason_code = 'training'
                 pause_reason_message = training_block_reason or bot.get('training_failed_reason') or 'Training in progress'
                 pause_next_action = 'Training completes automatically after enough closed trades'
@@ -1885,6 +1888,9 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                     datetime.now(timezone.utc) + timedelta(days=7)
                 ).isoformat(),
                 "learning_complete": False,
+                # Paper bots are never gated by training — they trade freely immediately.
+                "training_complete": True,
+                "training_in_progress": False,
                 "seeded": True,
                 "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
             }

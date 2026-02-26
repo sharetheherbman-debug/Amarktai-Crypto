@@ -37,6 +37,9 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
       - next_run_in_seconds: approximate seconds until next refresh
       - mood: current market mood (positive | negative | neutral)
       - source: "CoinStats"
+      - coinstats_configured: bool — whether CoinStats key is resolved for this user
+      - key_source: "user" | "env" | "none"
+      - resolved_for_user_id: the user_id the key was resolved for
     """
     try:
         from services.market_intelligence_service import (
@@ -44,7 +47,9 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             get_intelligence_status as _get_status,
             _REFRESH_INTERVAL,
         )
-        brief = await get_latest_intelligence()
+        from services.news_coinstats import resolve_coinstats_key
+
+        brief = await get_latest_intelligence(user_id=user_id)
         status = _get_status()
         last_run_at = brief.get("updated_at") or status.get("last_run_at")
 
@@ -65,8 +70,17 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
         except Exception:
             pass
 
+        # Resolve CoinStats key for this specific user so status is accurate per-user
+        _resolved_key, key_source = await resolve_coinstats_key(user_id)
+        coinstats_configured = bool(_resolved_key)
+
+        # Derive fetch_status: if the user has a valid key, never report key_missing
         fetch_status = brief.get("fetch_status", "ok" if last_run_at else "pending")
-        coinstats_configured = fetch_status != "key_missing"
+        if coinstats_configured and fetch_status == "key_missing":
+            fetch_status = "ok" if last_run_at else "pending"
+
+        # block_reason is irrelevant when the key is configured for this user
+        block_reason = brief.get("block_reason") if not coinstats_configured else None
 
         return {
             "running": True,
@@ -79,7 +93,9 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "last_error": status.get("last_error"),
             "fetch_status": fetch_status,
             "coinstats_configured": coinstats_configured,
-            "block_reason": brief.get("block_reason"),
+            "key_source": key_source,
+            "resolved_for_user_id": user_id,
+            "block_reason": block_reason,
             "what_it_does": (
                 "Automatically fetches CoinStats headlines every "
                 f"{_REFRESH_INTERVAL}s, classifies market sentiment, "
@@ -99,6 +115,10 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "refresh_interval_seconds": 60,
             "last_error": str(e),
             "error": str(e),
+            "fetch_status": "error",
+            "coinstats_configured": False,
+            "key_source": "none",
+            "resolved_for_user_id": user_id,
             "what_it_does": "Automatic market intelligence pipeline (temporarily unavailable).",
         }
 
@@ -122,7 +142,7 @@ async def get_latest_intelligence(user_id: str = Depends(get_current_user)):
     """
     try:
         from services.market_intelligence_service import get_latest_intelligence as _get
-        brief = await _get()
+        brief = await _get(user_id=user_id)
         return brief
     except Exception as e:
         logger.error(f"Intelligence latest error: {e}")
