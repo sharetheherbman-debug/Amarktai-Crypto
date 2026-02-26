@@ -105,6 +105,9 @@ PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Training-mode max hold: closes training trades sooner to speed up the learn loop.
 # Default 45 min; recorded as close_reason=training_timeout.
 TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))
+# Number of successfully closed trades required to complete training.
+# Default 5; bot auto-graduates once closed_trades_count reaches this value.
+TRAINING_TRADES_REQUIRED = int(os.getenv('TRAINING_TRADES_REQUIRED', '5'))
 
 # Default paper trading pair whitelist (can be overridden per bot)
 PAPER_PAIR_WHITELIST = {
@@ -206,6 +209,7 @@ __all__ = [
     'PAPER_MAX_HOLD_MINUTES',
     'PAPER_SAFETY_EXIT_MINUTES',
     'TRAINING_MAX_HOLD_MINUTES',
+    'TRAINING_TRADES_REQUIRED',
     'EXCHANGE_DAILY_TRADE_LIMITS',
     'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',
     'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',

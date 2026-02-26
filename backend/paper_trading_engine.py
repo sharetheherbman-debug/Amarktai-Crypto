@@ -59,6 +59,7 @@ from config import (
     PAPER_MAX_HOLD_MINUTES,
     PAPER_SAFETY_EXIT_MINUTES,
     TRAINING_MAX_HOLD_MINUTES,
+    TRAINING_TRADES_REQUIRED,
 )
 from realtime_events import rt_events
 
@@ -1784,6 +1785,11 @@ class PaperTradingEngine:
             # Update bot with calculated values
             from utils.trade_utils import classify_trade_outcome
             outcome = classify_trade_outcome(net_profit)
+            # Determine if this bot is in training to decide whether to check for graduation
+            is_training_bot = (
+                fresh_bot.get("lifecycle_state") == "training"
+                or fresh_bot.get("is_training", False)
+            )
             await bots_collection.update_one(
                 {"id": bot_id},
                 {
@@ -1796,11 +1802,44 @@ class PaperTradingEngine:
                     },
                     "$inc": {
                         "trades_count": 1,
+                        "closed_trades_count": 1,
                         "win_count": outcome["win_count"],
                         "loss_count": outcome["loss_count"]
                     }
                 }
             )
+
+            # Auto-graduate training bot once it has enough closed trades
+            if is_training_bot:
+                try:
+                    updated_bot = await bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                    if updated_bot:
+                        required_closed = int(
+                            updated_bot.get("training_required_closed_trades", TRAINING_TRADES_REQUIRED)
+                        )
+                        completed_closed = int(updated_bot.get("closed_trades_count", 0))
+                        if completed_closed >= required_closed and not updated_bot.get("training_complete", False):
+                            now_iso = datetime.now(timezone.utc).isoformat()
+                            await bots_collection.update_one(
+                                {"id": bot_id},
+                                {"$set": {
+                                    "training_complete": True,
+                                    "training_completed_at": now_iso,
+                                    "training_in_progress": False,
+                                }}
+                            )
+                            logger.info(
+                                f"✅ Training complete: bot={bot_id} "
+                                f"closed_trades={completed_closed}/{required_closed}"
+                            )
+                            try:
+                                graduated_bot = await bots_collection.find_one({"id": bot_id}, {"_id": 0}) or {}
+                                await rt_events.training_completed(bot_data.get("user_id"), graduated_bot)
+                            except Exception as _e:
+                                logger.warning(f"Training completion event failed: {_e}")
+                except Exception as grad_err:
+                    logger.warning(f"Training graduation check failed for bot {bot_id}: {grad_err}")
+
             
             # Save trade
             # CRITICAL: Validate trade_doc has all required fields before insertion
