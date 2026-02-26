@@ -16,6 +16,16 @@ _REFRESH_INTERVAL = max(30, min(900, int(os.getenv("MARKET_INTEL_REFRESH_SECONDS
 _last_brief: Optional[dict] = None
 _last_error: Optional[str] = None
 
+# All field name variants used by the key-storage layer for encrypted API keys.
+# Checked in order of most-common first.
+_ENCRYPTED_KEY_FIELDS = [
+    "api_key_encrypted",
+    "apiKeyEncrypted",
+    "api_key_ciphertext",
+    "key_encrypted",
+    "api_key",
+]
+
 
 async def get_latest_intelligence(user_id: Optional[str] = None) -> dict:
     """Return the most recently computed market intelligence.
@@ -24,9 +34,10 @@ async def get_latest_intelligence(user_id: Optional[str] = None) -> dict:
     the background brief is accurate for users that have their own key.
     """
     if _last_brief is not None and user_id:
-        # If the cached brief says key_missing but this user has a key, trigger
-        # an immediate per-user fetch to replace the cached brief.
-        if _last_brief.get("fetch_status") == "key_missing":
+        # If the cached brief shows a key error but this user has a valid key,
+        # trigger an immediate per-user fetch to replace the stale cached brief.
+        stale_statuses = {"key_missing", "invalid_key"}
+        if _last_brief.get("fetch_status") in stale_statuses:
             await _fetch_and_process(user_id=user_id)
     return _last_brief or {
         "what_happened": f"No market data yet — intelligence updates every {_REFRESH_INTERVAL} seconds.",
@@ -43,13 +54,24 @@ async def get_latest_intelligence(user_id: Optional[str] = None) -> dict:
 
 
 async def _resolve_scheduler_user_id() -> Optional[str]:
-    """Return any user_id that has a CoinStats key saved in the DB (for scheduler use)."""
+    """Return any user_id that has a CoinStats key saved in the DB (for scheduler use).
+
+    Supports all encrypted-key field name variants used by the key storage layer
+    (api_key_encrypted, apiKeyEncrypted, api_key_ciphertext, key_encrypted, api_key).
+    """
     try:
         import database as db
         if db.api_keys_collection is None:
             return None
+        # Build a query that matches whichever encrypted-key field is present.
+        # The DB may store keys under different field names depending on the
+        # version that saved them — check all known variants.
+        encrypted_field_query = {"$or": [
+            {field: {"$exists": True, "$ne": ""}}
+            for field in _ENCRYPTED_KEY_FIELDS
+        ]}
         doc = await db.api_keys_collection.find_one(
-            {"provider": "coinstats", "api_key": {"$exists": True, "$ne": ""}},
+            {"provider": "coinstats", **encrypted_field_query},
             {"user_id": 1, "_id": 0},
         )
         return doc.get("user_id") if doc else None
