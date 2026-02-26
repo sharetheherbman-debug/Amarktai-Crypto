@@ -418,11 +418,13 @@ export default function BotManagementSection({
                     const botMode = bot.trading_mode || bot.mode || 'paper';
                     const isLive = botMode === 'live';
                     const botStatus = getBotStatus(bot);
-                    const statusLabel = humanizeReason(botStatus);
+                    const isTraining = botStatus === 'training' || botStatus === 'training_failed';
+                    const statusLabel = isTraining ? (botStatus === 'training_failed' ? 'Training Failed' : 'Training') : humanizeReason(botStatus);
                     const isActive = botStatus === 'active';
                     const isPaused = ['paused', 'paused_ready'].includes(botStatus);
-                    const statusTone = isActive ? 'ok' : (isPaused ? 'paused' : 'warn');
+                    const statusTone = isActive ? 'ok' : (isPaused ? 'paused' : (isTraining ? 'training' : 'warn'));
                     const isExpanded = resolvedSelectedBotId === bot.id;
+                    const trainingProgress = bot.training_progress;
 
                     return (
                       <div key={bot.id} className={`bot-list-item-wrapper ${isExpanded ? 'expanded' : ''}`}>
@@ -439,6 +441,11 @@ export default function BotManagementSection({
                             <span className="bot-list-meta">
                               {getPlatformDisplayName(bot.exchange) || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'}
                             </span>
+                            {isTraining && trainingProgress && (
+                              <span className="bot-list-meta bot-list-meta--training">
+                                {trainingProgress.closed_trades_completed}/{trainingProgress.required} trades ({trainingProgress.percent}%)
+                              </span>
+                            )}
                           </div>
                           <span className={`bot-status-pill ${statusTone}`}>{statusLabel}</span>
                         </button>

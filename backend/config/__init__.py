@@ -98,6 +98,10 @@ PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
 # Time-exit fires unconditionally at this age regardless of P&L.
 # Ensures profitable trades still close for overnight win/loss accounting.
 PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
+# Safety exit fires when a trade is profitable and has been open this long.
+# Prevents profitable trades from lingering past half max-hold without a signal.
+# Default 60 min; set to 0 to disable.
+PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Training-mode max hold: closes training trades sooner to speed up the learn loop.
 # Default 45 min; recorded as close_reason=training_timeout.
 TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))
@@ -200,6 +204,7 @@ __all__ = [
     'PAPER_MIN_ORDERBOOK_NOTIONAL', 'PAPER_PAIR_WHITELIST', 'PAPER_PAIR_WHITELIST_ENABLED',
     'PAPER_STALE_EXIT_MINUTES',
     'PAPER_MAX_HOLD_MINUTES',
+    'PAPER_SAFETY_EXIT_MINUTES',
     'TRAINING_MAX_HOLD_MINUTES',
     'EXCHANGE_DAILY_TRADE_LIMITS',
     'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',

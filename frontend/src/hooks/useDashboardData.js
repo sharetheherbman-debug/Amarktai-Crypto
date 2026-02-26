@@ -50,7 +50,16 @@ export const normalizeLivePrices = (data, fallback = null) => {
   return fallback;
 };
 
-export const getBotStatus = (bot) => bot?.status || bot?.state || 'unknown';
+/**
+ * Resolve the canonical display status for a bot.
+ * Priority: lifecycle_state (training/training_failed) > status > state > 'unknown'
+ * This ensures bots in training show "training" even when DB status = "active".
+ */
+export const getBotStatus = (bot) => {
+  const lc = bot?.lifecycle_state;
+  if (lc === 'training' || lc === 'training_failed') return lc;
+  return bot?.status || bot?.state || 'unknown';
+};
 
 /**
  * Custom hook for managing dashboard data fetching and state

@@ -438,6 +438,9 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
     return {
         "success": True,
         "mode": summary.get("mode", "paper"),
+        # Bot fleet summary (feeds WalletHub active_bots / required_capital display)
+        "active_bots": summary.get("active_bots_count", 0),
+        "required_capital": summary.get("required_funds_zar", 0.0),
         # Canonical wallet_summary fields
         "available_wallet_zar": summary.get("available_wallet_zar", round(total_value, 2)),
         "allocated_funds_zar": summary.get("allocated_funds_zar", 0.0),

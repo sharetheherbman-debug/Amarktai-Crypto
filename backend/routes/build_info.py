@@ -22,7 +22,32 @@ _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
 def get_git_sha() -> str:
-    """Get current git commit SHA"""
+    """Get current git commit SHA.
+
+    Resolution order:
+    1. BUILD_SHA env var (set at deploy time)
+    2. GIT_SHA / GITHUB_SHA env vars (set by CI)
+    3. .version file in repo root (written by deploy scripts)
+    4. git subprocess
+    """
+    for env_var in ("BUILD_SHA", "GIT_SHA", "GITHUB_SHA"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            return val[:12]  # keep short form
+
+    # .version file written by deployment pipeline
+    version_file = _REPO_ROOT / ".version"
+    try:
+        if version_file.exists():
+            lines = version_file.read_text().strip().splitlines()
+            for line in lines:
+                if line.startswith("sha=") or line.startswith("SHA="):
+                    return line.split("=", 1)[1].strip()[:12]
+            if lines:
+                return lines[0].strip()[:12]
+    except Exception:
+        pass
+
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -40,7 +65,28 @@ def get_git_sha() -> str:
 
 
 def get_git_branch() -> str:
-    """Get current git branch"""
+    """Get current git branch.
+
+    Resolution order:
+    1. BUILD_BRANCH env var (set at deploy time)
+    2. GIT_BRANCH / GITHUB_REF_NAME env vars (set by CI)
+    3. .version file in repo root
+    4. git subprocess
+    """
+    for env_var in ("BUILD_BRANCH", "GIT_BRANCH", "GITHUB_REF_NAME"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            return val
+
+    version_file = _REPO_ROOT / ".version"
+    try:
+        if version_file.exists():
+            for line in version_file.read_text().strip().splitlines():
+                if line.startswith("branch=") or line.startswith("BRANCH="):
+                    return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],

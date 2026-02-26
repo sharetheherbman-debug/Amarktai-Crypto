@@ -65,6 +65,9 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
         except Exception:
             pass
 
+        fetch_status = brief.get("fetch_status", "ok" if last_run_at else "pending")
+        coinstats_configured = fetch_status != "key_missing"
+
         return {
             "running": True,
             "hf_enabled": hf_enabled,
@@ -74,7 +77,8 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "next_run_in_seconds": next_run_in,
             "refresh_interval_seconds": _REFRESH_INTERVAL,
             "last_error": status.get("last_error"),
-            "fetch_status": brief.get("fetch_status", "ok" if last_run_at else "pending"),
+            "fetch_status": fetch_status,
+            "coinstats_configured": coinstats_configured,
             "block_reason": brief.get("block_reason"),
             "what_it_does": (
                 "Automatically fetches CoinStats headlines every "
