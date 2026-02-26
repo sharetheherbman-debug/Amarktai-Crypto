@@ -101,7 +101,7 @@ class TestMarketIntelligenceStatus:
         """The 'no data yet' fallback message must NOT say '15 minutes'."""
         import asyncio
         from services.market_intelligence_service import get_latest_intelligence
-        result = asyncio.get_event_loop().run_until_complete(get_latest_intelligence())
+        result = asyncio.run(get_latest_intelligence())
         what_happened = result.get("what_happened", "")
         assert "15 minutes" not in what_happened, (
             f"Fallback message still says '15 minutes': {what_happened}"
@@ -111,7 +111,7 @@ class TestMarketIntelligenceStatus:
         """The status response must include refresh_interval_seconds."""
         import asyncio
         from services.market_intelligence_service import get_latest_intelligence
-        result = asyncio.get_event_loop().run_until_complete(get_latest_intelligence())
+        result = asyncio.run(get_latest_intelligence())
         assert "refresh_interval_seconds" in result
 
 

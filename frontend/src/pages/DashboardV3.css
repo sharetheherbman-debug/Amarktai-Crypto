@@ -2491,7 +2491,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .bot-list-item-wrapper.expanded {
   border: 1px solid rgba(56, 189, 248, 0.3);
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
 }
 .bot-accordion-body {
   padding: 20px;

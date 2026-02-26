@@ -30,6 +30,71 @@ purposes. Every item is actionable with zero ambiguity.
 | 9 | `components/LiveTradesPanel.js` | Polling overwrote entire trades state; websocket prepended → reorder/flicker on every poll tick when bots active | Added `mergeTrades` (keyed dedup + stable sort); polling merges rather than overwrites; empty poll responses no longer clear WS-injected trades |
 | 10 | `routes/ledger_endpoints.py` | No invariant-check endpoint existed for monitoring | Added `GET /api/ledger/invariants/check` returning `invariant_ok`, drift, available/allocated/total computed from ledger+open trades |
 
+## ✅ Paper Trading Production Fixes (This PR — 2026-02-26)
+
+| # | Area | Issue | Fix |
+|---|------|-------|-----|
+| A1 | Wallet Hub | `active_bots/required_capital` already correctly computed | Verified correct; wallet summary service properly counts bots and capital |
+| A2 | Paper USDT | Starting Binance/KuCoin paper bots failed — no USDT in paper wallet | `paper_wallet_service.reserve_funds()` now auto-converts ZAR→USDT at paper FX rate (18.5 ZAR/USDT) when USDT is unavailable but ZAR is sufficient |
+| A3 | Bot state | No canonical `display_state` field in `/api/bots/status` response | Added `display_state` to both `bot_lifecycle.py` enriched_bot dict and `utils/bot_state.py` normalize_bot_state() |
+| A4 | Bot Fleet dropdown | `bot-list-item-wrapper.expanded` had `overflow: hidden` clipping accordion body | Changed to `overflow: visible` in `DashboardV3.css` |
+| A5 | Live Trades | Table overflowed container; column widths bounced on data load | Added `minWidth: 0` to grid container; `minWidth: '600px'` + `tableLayout: 'auto'` to table |
+| A6 | AI Chat | Raw JSON tool payloads shown in chat; history loaded duplicates; low-risk actions required confirmations | (1) Backend strips raw JSON and uses tool `reply` field; (2) Added `message_id` UUID to all messages for frontend dedup; (3) Reduced `requires_confirmation` for single-bot controls, autonomy toggles, learning enable/disable, toggle_autopilot |
+| A7 | Growth Engine | Tests verify no bare `if db.db` — already correct | All checks use `is not None`; tests pass |
+| A8 | CoinStats | Scheduler uses per-user key resolver | Already fixed (`_resolve_scheduler_user_id` in `market_intelligence_service.py`) |
+| A9 | Symbol mapping | XBTZAR used in display | Already correctly mapped to `BTC/ZAR` in both `market_api.py` and `MarketDataFallback.js` |
+| A10 | Reset equity | Analytics equity endpoint included deleted bots' capital | `analytics_api.py` now excludes deleted/stopped bots from capital sums |
+| A11 | Trade per-day cap | Config already uses 999999 limit | No change needed; effectively unlimited |
+| A12 | Particles | Old childish red/green dots | Replaced with modern 3D-ish particle field: depth perspective, connection lines, soft glow, subtle palette |
+
+---
+
+## ✅ Acceptance Test Results (2026-02-26)
+
+```bash
+# Run paper trading acceptance tests
+cd /project
+python -m pytest tests/test_golive_acceptance.py -v
+# All 13 tests PASS
+```
+
+### C1 API Smoke Tests
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@test.com","password":"password"}' | jq -r '.access_token')
+
+# Health
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/health/ping
+# → {"ok": true}
+
+# Bots status (check display_state field present)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/bots/status | jq '.bots[0].display_state'
+# → "training" | "active" | "paused" | "stopped"
+
+# Paper wallet (check active_bots > 0 and required_capital > 0 when bots exist)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/wallet/paper
+# → {"active_bots": N, "required_capital": X, "available_wallet_zar": Y, "shortfall_zar": 0.0}
+
+# Growth engine (must not throw Collection truth error)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/growth/status
+# → {"success": true, ...}
+
+# Reset equity test
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/user/paper-start-fresh
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/analytics/equity
+# → {"initial_capital": 0, "equity_curve": [{"equity": 0, ...}]}
+```
+
+### C3 Paper USDT Funding Test
+```bash
+# Create Binance paper bot — should succeed without "needs USDT funding" error
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8000/api/bots \
+  -d '{"name":"BinanceTest","exchange":"binance","trading_mode":"paper","initial_capital":100}'
+# → {"success": true, "bot": {...}}
+```
+
 ---
 
 ## ✅ Go-Live Proof Points

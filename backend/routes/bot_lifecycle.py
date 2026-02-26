@@ -319,6 +319,7 @@ async def get_bots_status(
                 "exchange": bot.get('exchange', 'unknown'),
                 "state": state,
                 "lifecycle_state": state,  # Canonical lifecycle state
+                "display_state": state,  # Single canonical display state for frontend
                 "status": status,  # Keep original for compatibility
                 "paused_reason": pause_reason,  # Canonical field (support legacy)
                 "paused_reason_code": pause_reason_code,

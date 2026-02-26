@@ -569,8 +569,17 @@ export default function useDashboardState(navigate) {
       // Load chat history from backend (per-user, auto-namespaced by JWT)
       const data = await get('/chat/history?days=30&limit=100');
       if (data.messages && data.messages.length > 0) {
-        // Messages are already in chronological order (newest-last) from backend
-        setChatMessages(data.messages);
+        // Dedup messages by message_id (or timestamp+content hash as fallback)
+        const msgKey = (m) => m.message_id || `${m.timestamp || ''}_${(m.content || '').slice(0, 40)}`;
+        const seen = new Set();
+        const deduped = data.messages.filter(m => {
+          const key = msgKey(m);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        // Replace current messages with deduped history
+        setChatMessages(deduped);
       } else {
         // Initialize with welcome message if no history
         if (user) {

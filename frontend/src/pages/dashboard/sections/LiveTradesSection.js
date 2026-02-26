@@ -50,7 +50,7 @@ export default function LiveTradesSection({
           subtitle="Real-time trade history with filters and updates"
         />
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', overflow: 'hidden', minWidth: 0 }}>
           {/* Left: Open Trades */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>

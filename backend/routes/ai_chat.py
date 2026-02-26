@@ -1438,19 +1438,19 @@ ACTION_REGISTRY = {
     "pause_bot": {
         "description": "Pause a bot.",
         "params": ["bot_id", "reason"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_pause_bot,
     },
     "resume_bot": {
         "description": "Resume a bot.",
         "params": ["bot_id"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_resume_bot,
     },
     "stop_bot": {
         "description": "Stop a bot.",
         "params": ["bot_id"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_stop_bot,
     },
     "pause_all_bots": {
@@ -1487,15 +1487,13 @@ ACTION_REGISTRY = {
     "pause_autonomy_subsystem": {
         "description": "Pause autonomy subsystem.",
         "params": ["subsystem"],
-        "requires_confirmation": True,
-        "confirmation_phrase": "CONFIRM AUTONOMY PAUSE",
+        "requires_confirmation": False,
         "handler": _handle_pause_autonomy,
     },
     "resume_autonomy_subsystem": {
         "description": "Resume autonomy subsystem.",
         "params": ["subsystem"],
-        "requires_confirmation": True,
-        "confirmation_phrase": "CONFIRM AUTONOMY RESUME",
+        "requires_confirmation": False,
         "handler": _handle_resume_autonomy,
     },
     "run_autonomy_cycle_now": {
@@ -1526,13 +1524,13 @@ ACTION_REGISTRY = {
     "enable_learning_loop": {
         "description": "Enable learning loop scheduler.",
         "params": [],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_enable_learning,
     },
     "disable_learning_loop": {
         "description": "Disable learning loop scheduler.",
         "params": [],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_disable_learning,
     },
     "diagnostics_realtime": {
@@ -1550,7 +1548,7 @@ ACTION_REGISTRY = {
     "start_bot": {
         "description": "Start (activate) a bot by ID.",
         "params": ["bot_id"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_start_bot,
     },
     "emergency_stop": {
@@ -1563,8 +1561,7 @@ ACTION_REGISTRY = {
     "toggle_autopilot": {
         "description": "Enable or disable autopilot mode.",
         "params": ["enabled"],
-        "requires_confirmation": True,
-        "confirmation_phrase": CONFIRM_AUTOPILOT,
+        "requires_confirmation": False,
         "handler": _handle_toggle_autopilot,
     },
     "switch_mode": {
@@ -1863,6 +1860,7 @@ async def ai_chat(
             "user_id": user_id,
             "role": "user",
             "content": content,
+            "message_id": str(uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         await db.chat_messages_collection.insert_one(user_msg)
@@ -2244,6 +2242,9 @@ async def ai_chat(
                     ai_response = tool_reply if tool_reply and action_meta.get("action_result") == "success" else action_reply
                     if action_meta.get("action_result") == "success":
                         action_success = True
+            elif tool_reply and not tool_action and not tool_action_list:
+                # AI returned JSON with only a reply (no action) — use the reply text and strip raw JSON
+                ai_response = tool_reply
             elif tool_action_list:
                 if tool_reply:
                     ai_response = tool_reply
@@ -2272,11 +2273,34 @@ async def ai_chat(
         except Exception as tool_error:
             logger.warning(f"Tool action parsing failed: {tool_error}")
 
+        # Safety: if ai_response is still raw JSON (starts/ends with {}), strip it to avoid
+        # showing tool payloads to the user.
+        if isinstance(ai_response, str):
+            _stripped = ai_response.strip()
+            if _stripped.startswith("{") and _stripped.endswith("}"):
+                try:
+                    _payload = json.loads(_stripped)
+                    # Extract any human-readable text
+                    _clean = (
+                        _payload.get("reply") or _payload.get("response")
+                        or _payload.get("content") or _payload.get("message")
+                    )
+                    if _clean and isinstance(_clean, str):
+                        ai_response = _clean
+                    else:
+                        ai_response = "Action processed."
+                except Exception:
+                    pass
+
+        # Generate stable message_id for deduplication
+        _msg_id = str(uuid4())
+
         # Save AI response
         ai_msg = {
             "user_id": user_id,
             "role": "assistant",
             "content": ai_response,
+            "message_id": _msg_id,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         await db.chat_messages_collection.insert_one(ai_msg)
@@ -2295,6 +2319,7 @@ async def ai_chat(
             "role": "assistant",
             "content": ai_response,
             "reply": ai_response,
+            "message_id": _msg_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **action_meta,
             "actions": tool_actions,

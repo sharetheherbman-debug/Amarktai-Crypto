@@ -310,9 +310,14 @@ async def get_equity_curve(
         }
         start_time = now - range_map.get(range, timedelta(days=7))
         
-        # Get all bots for initial capital
+        # Get active (non-deleted) bots for initial capital
+        # Exclude deleted/stopped bots so post-reset equity starts at zero
         bots = await db.bots_collection.find(
-            {"user_id": user_id},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "stopped", "terminated"]},
+                "is_deleted": {"$ne": True}
+            },
             {"_id": 0, "initial_capital": 1, "current_capital": 1}
         ).to_list(1000)
         

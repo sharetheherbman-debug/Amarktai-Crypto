@@ -159,11 +159,26 @@ export default function AiChatSection({
       )}
 
       <div className="amk-chat-box">
-        {chatMessages.map((msg, idx) => (
-          <div key={idx} className={`msg ${msg.role} ${msg.type || ''}`.trim()}>
-            <div className="bubble">{msg.content}</div>
-          </div>
-        ))}
+        {chatMessages.map((msg, idx) => {
+          // Strip raw JSON tool payloads from display — should never reach the user
+          let displayContent = msg.content || '';
+          if (typeof displayContent === 'string') {
+            const trimmed = displayContent.trim();
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                displayContent = parsed.reply || parsed.response || parsed.content || parsed.message || 'Action processed.';
+              } catch (err) { /* not JSON, keep as-is */ }
+            }
+          }
+          // Use stable key: message_id > timestamp+idx fallback
+          const msgKey = msg.message_id || `${msg.timestamp || ''}_${idx}`;
+          return (
+            <div key={msgKey} className={`msg ${msg.role} ${msg.type || ''}`.trim()}>
+              <div className="bubble">{displayContent}</div>
+            </div>
+          );
+        })}
         <div ref={chatEndRef} />
       </div>
       <div className="amk-row">

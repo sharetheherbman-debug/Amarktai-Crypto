@@ -397,17 +397,21 @@ export default function LiveTradesTable({ trades = [], bots = [], onRefresh, loa
         background: 'var(--glass)',
         border: '1px solid var(--line)',
         borderRadius: '12px',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        minWidth: 0,
       }}>
         <div style={{
           maxHeight: '600px',
           overflowY: 'auto',
-          overflowX: 'auto'
+          overflowX: 'auto',
+          width: '100%',
         }}>
           <table style={{
             width: '100%',
+            minWidth: '600px',
             borderCollapse: 'collapse',
-            fontSize: '0.9rem'
+            fontSize: '0.9rem',
+            tableLayout: 'auto',
           }}>
             <thead style={{
               position: 'sticky',

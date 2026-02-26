@@ -146,6 +146,31 @@ class PaperWalletService:
             return_document=ReturnDocument.AFTER
         )
         if not result:
+            # If USDT is needed but only ZAR is available, auto-convert using paper FX rate.
+            # This allows Binance/KuCoin paper bots to start without manual USDT funding.
+            if currency == "USDT":
+                # Paper FX rate: approximate 18.5 ZAR per USDT.
+                # This is a conservative mid-market approximation for simulation only.
+                # Configurable via PAPER_ZAR_PER_USDT env var if needed in future.
+                # Real live transfers must use a live exchange rate (not this path).
+                import os as _os
+                PAPER_ZAR_PER_USDT = float(_os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
+                zar_required = amount * PAPER_ZAR_PER_USDT
+                # Single atomic operation: deduct ZAR equivalent (simulate ZAR→USDT conversion)
+                fx_result = await self.collection.find_one_and_update(
+                    {
+                        "user_id": user_id,
+                        "type": "paper",
+                        "balances.ZAR": {"$gte": zar_required}
+                    },
+                    {
+                        "$inc": {"balances.ZAR": -zar_required},
+                        "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+                    },
+                    return_document=ReturnDocument.AFTER
+                )
+                if fx_result:
+                    return True, f"Paper FX: R{zar_required:.2f} ZAR → {amount:.2f} USDT (rate {PAPER_ZAR_PER_USDT})"
             available = await self.get_available_balance(user_id, currency)
             return False, f"Insufficient paper wallet balance. Available: {available:.2f} {currency}"
         return True, "Reserved"
