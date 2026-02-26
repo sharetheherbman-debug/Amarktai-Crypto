@@ -442,7 +442,7 @@ export default function BotManagementSection({
                               {getPlatformDisplayName(bot.exchange) || NOT_AVAILABLE} • {isLive ? 'Live' : 'Paper'}
                             </span>
                             {isTraining && trainingProgress && (
-                              <span className="bot-list-meta" style={{ fontSize: '0.75rem', color: '#60a5fa' }}>
+                              <span className="bot-list-meta bot-list-meta--training">
                                 {trainingProgress.closed_trades_completed}/{trainingProgress.required} trades ({trainingProgress.percent}%)
                               </span>
                             )}

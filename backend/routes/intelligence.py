@@ -66,7 +66,7 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             pass
 
         fetch_status = brief.get("fetch_status", "ok" if last_run_at else "pending")
-        coinstats_configured = fetch_status not in ("key_missing",)
+        coinstats_configured = fetch_status != "key_missing"
 
         return {
             "running": True,

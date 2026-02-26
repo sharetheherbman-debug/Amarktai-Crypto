@@ -1922,6 +1922,10 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   color: var(--muted);
 }
 
+.bot-list-meta--training {
+  color: #60a5fa;
+}
+
 .bot-empty {
   color: var(--muted);
   text-align: center;
@@ -1959,6 +1963,12 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   color: var(--accent2);
   border-color: rgba(56, 189, 248, 0.35);
   background: rgba(56, 189, 248, 0.12);
+}
+
+.bot-status-pill.training {
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(96, 165, 250, 0.15);
 }
 
 .bot-detail-drawer {

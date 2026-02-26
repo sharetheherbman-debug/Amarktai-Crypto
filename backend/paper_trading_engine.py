@@ -1350,10 +1350,10 @@ class PaperTradingEngine:
 
             if not close_reason:
                 mins_to_safety = (
-                    round(PAPER_SAFETY_EXIT_MINUTES - age_minutes, 1)
+                    round(max(0.0, PAPER_SAFETY_EXIT_MINUTES - age_minutes), 1)
                     if PAPER_SAFETY_EXIT_MINUTES > 0 else None
                 )
-                mins_to_time_exit = round(PAPER_MAX_HOLD_MINUTES - age_minutes, 1)
+                mins_to_time_exit = round(max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes), 1)
                 logger.info(
                     f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
