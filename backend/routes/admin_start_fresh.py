@@ -234,7 +234,20 @@ async def start_fresh(
                 logger.info(f"Start Fresh: Purged capital_injections for user {user_id}")
         except Exception as e:
             logger.warning(f"Could not purge capital_injections: {e}")
-        
+
+        # Store equity baseline so /api/analytics/equity knows when to start fresh
+        reset_at = datetime.now(timezone.utc).isoformat()
+        try:
+            if db.paper_reset_baselines_collection is not None:
+                await db.paper_reset_baselines_collection.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"user_id": user_id, "reset_at": reset_at}},
+                    upsert=True,
+                )
+                logger.info(f"Start Fresh: Stored equity baseline reset_at={reset_at} for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not store equity baseline: {e}")
+
         # Step 6: Create audit log entry
         audit_entry = {
             "id": f"audit_{datetime.now(timezone.utc).timestamp()}",
@@ -419,6 +432,19 @@ async def user_paper_start_fresh(
                 await db.capital_injections_collection.delete_many({"user_id": user_id})
         except Exception as e:
             logger.warning(f"Could not purge capital_injections: {e}")
+
+        # Store equity baseline so /api/analytics/equity knows when to start fresh
+        reset_at = datetime.now(timezone.utc).isoformat()
+        try:
+            if db.paper_reset_baselines_collection is not None:
+                await db.paper_reset_baselines_collection.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"user_id": user_id, "reset_at": reset_at}},
+                    upsert=True,
+                )
+                logger.info(f"User paper-start-fresh: Stored equity baseline reset_at={reset_at} for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not store equity baseline: {e}")
 
         # Reset equity/drawdown series and profit ledger
         _graph_collections = [

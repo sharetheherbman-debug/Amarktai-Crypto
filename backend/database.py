@@ -105,6 +105,9 @@ user_memory_collection = None
 chatops_actions_collection = None
 chatops_confirmations_collection = None
 
+# Phase 1: Paper equity baseline records (one per user, updated on every reset)
+paper_reset_baselines_collection = None
+
 # Aliases for backward compatibility
 wallet_balances = None  # Alias for wallet_balances_collection
 capital_injections = None  # Alias for capital_injections_collection
@@ -283,6 +286,7 @@ async def setup_collections():
     global user_memory_collection, chatops_actions_collection, chatops_confirmations_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
     global paper_ledger_collection  # Phase 4A: Paper wallet ledger
+    global paper_reset_baselines_collection  # Phase 1: Equity baseline per user
     
     if db is None:
         logger.warning("⚠️ Database not connected, cannot setup collections")
@@ -373,7 +377,10 @@ async def setup_collections():
     user_memory_collection = db.user_memory
     chatops_actions_collection = db.chatops_actions
     chatops_confirmations_collection = db.chatops_confirmations
-    
+
+    # Phase 1: Paper equity baseline records
+    paper_reset_baselines_collection = db.paper_reset_baselines
+
     # Aliases for backward compatibility
     wallet_balances = wallet_balances_collection
     capital_injections = capital_injections_collection
