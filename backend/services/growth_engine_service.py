@@ -302,7 +302,7 @@ async def _run_profit_recycling(user_id: str, settings: dict, regime: str) -> Op
             "action": "profit_recycling",
             "date": today,
             "outcome": "spawned"
-        }) if db.db else 0
+        }) if db.db is not None else 0
 
         if today_spawns >= max_per_day:
             return {"skipped": True, "reason": f"Daily spawn limit reached ({max_per_day}/day)"}
@@ -415,7 +415,6 @@ _LEVERAGE_CAPABLE_EXCHANGES = {
     "okx": True,
     "kraken": True,
     "luno": False,       # Spot-only
-    "valr": False,       # Spot-only
     "altcointrader": False,
 }
 

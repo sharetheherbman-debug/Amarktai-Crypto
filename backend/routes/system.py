@@ -320,7 +320,7 @@ async def reset_paper_sandbox(
         post_equity = round(await _lsvc.compute_equity(user_id), 4)
         post_trades = await db.trades_collection.count_documents({"user_id": user_id, "trading_mode": "paper"})
         # Count paper fills specifically
-        post_fills = await db.db["fills_ledger"].count_documents({"user_id": user_id, "is_paper": True}) if db.db else 0
+        post_fills = await db.db["fills_ledger"].count_documents({"user_id": user_id, "is_paper": True}) if db.db is not None else 0
         if post_equity != 0:
             msg = f"ledger_equity={post_equity} non-zero after reset for user {user_id[:8]}"
             invariant_warnings.append(msg)

@@ -26,10 +26,42 @@ class MockCollection:
         return SimpleNamespace(inserted_id=doc["_id"])
 
     async def find_one(self, query=None, projection=None):
+        if not query or not self.data:
+            return None
+        for doc in self.data:
+            match = True
+            for key, val in query.items():
+                if isinstance(val, dict):
+                    # Handle operators like {"$nin": [...]}
+                    if "$nin" in val and doc.get(key) in val["$nin"]:
+                        match = False
+                        break
+                    if "$in" in val and doc.get(key) not in val["$in"]:
+                        match = False
+                        break
+                elif doc.get(key) != val:
+                    match = False
+                    break
+            if match:
+                return doc
         return None
 
-    async def update_one(self, *args, **kwargs):
-        return SimpleNamespace(modified_count=1, matched_count=1)
+    async def update_one(self, filter_query=None, update=None, **kwargs):
+        if filter_query and update and self.data:
+            for doc in self.data:
+                match = True
+                for key, val in (filter_query or {}).items():
+                    if doc.get(key) != val:
+                        match = False
+                        break
+                if match:
+                    if "$set" in update:
+                        doc.update(update["$set"])
+                    if "$inc" in update:
+                        for k, v in update["$inc"].items():
+                            doc[k] = doc.get(k, 0) + v
+                    return SimpleNamespace(modified_count=1, matched_count=1)
+        return SimpleNamespace(modified_count=0, matched_count=0)
 
     def find(self, query=None, projection=None):
         cursor = SimpleNamespace()
@@ -83,6 +115,8 @@ async def test_paper_trade_scenario_deterministic():
         "trading_mode": "paper",
         "initial_capital": 10000,
         "current_capital": 10000,
+        "take_profit_pct": 0.001,  # 0.1% TP so trade closes quickly in test
+        "stop_loss_pct": 0.05,     # 5% SL kept wide to avoid accidental SL hit
     }
 
     bots_collection.find_one.return_value = bot_data
@@ -126,9 +160,9 @@ async def test_paper_trade_scenario_deterministic():
         patch("paper_trading_engine.risk_engine") as mock_risk_engine, \
         patch("paper_trading_engine.market_regime_detector") as mock_regime, \
         patch("paper_trading_engine.ml_predictor") as mock_predictor, \
-        patch("paper_trading_engine.flokx") as mock_flokx, \
         patch("paper_trading_engine.fetchai") as mock_fetchai, \
-        patch("paper_trading_engine.paper_wallet_ledger") as mock_wallet:
+        patch("paper_trading_engine.paper_wallet_ledger") as mock_wallet, \
+        patch("paper_trading_engine.enforce_trading_gates"):
         mock_db.bots_collection = bots_collection
         mock_db.trades_collection = trades_collection
         mock_db.api_keys_collection = api_keys_collection
@@ -142,7 +176,6 @@ async def test_paper_trade_scenario_deterministic():
 
         mock_regime.detect_regime = AsyncMock(return_value={"confidence": 0.9, "trend": "bullish", "regime": "trend"})
         mock_predictor.predict_price = AsyncMock(return_value={"confidence": 0.9, "direction": "up", "predicted_change": 1.0})
-        mock_flokx.fetch_market_coefficients = AsyncMock(return_value={"strength": 90, "sentiment": "bullish", "volatility": 20})
         mock_fetchai.fetch_market_signals = AsyncMock(return_value={"confidence": 90, "signal": "BUY"})
 
         mock_wallet.get_balance = AsyncMock(side_effect=get_balance)
@@ -151,13 +184,13 @@ async def test_paper_trade_scenario_deterministic():
         mock_wallet.can_trade = AsyncMock(side_effect=can_trade)
 
         results = []
-        for _ in range(20):
+        for _ in range(30):
             result = await engine.run_trading_cycle(
                 "bot_1",
                 bot_data,
                 {"bots": bots_collection, "trades": trades_collection}
             )
-            if result:
+            if result and result.get("new_capital"):
                 results.append(result)
 
     assert results, "Expected at least one paper trade result"

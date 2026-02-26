@@ -14,25 +14,28 @@ logger = logging.getLogger(__name__)
 _REFRESH_INTERVAL = max(30, min(900, int(os.getenv("MARKET_INTEL_REFRESH_SECONDS", "60"))))
 
 _last_brief: Optional[dict] = None
+_last_error: Optional[str] = None
 
 
 async def get_latest_intelligence() -> dict:
     """Return the most recently computed market intelligence."""
     return _last_brief or {
-        "what_happened": "No market data yet — intelligence updates every 15 minutes.",
+        "what_happened": f"No market data yet — intelligence updates every {_REFRESH_INTERVAL} seconds.",
         "why_it_matters": "Market intelligence is collected automatically from CoinStats.",
-        "what_amarktai_is_doing": "Amarktai Crypto monitors markets continuously and adjusts bot strategy.",
+        "what_amarktai_is_doing": "AmarktAI Crypto monitors markets continuously and adjusts bot strategy.",
         "confidence": "Pending first fetch",
         "mood": "neutral",
         "top_risk": "none",
         "source": "CoinStats",
         "updated_at": None,
+        "refresh_interval_seconds": _REFRESH_INTERVAL,
+        "last_error": None,
     }
 
 
 async def _fetch_and_process():
     """Fetch CoinStats news and build market brief."""
-    global _last_brief
+    global _last_brief, _last_error
     now = datetime.now(timezone.utc)
     try:
         from services.news_coinstats import coinstats_provider, resolve_coinstats_key
@@ -63,7 +66,7 @@ async def _fetch_and_process():
             _last_brief = {
                 "what_happened": block_reason,
                 "why_it_matters": "Market intelligence is awaiting CoinStats data.",
-                "what_amarktai_is_doing": "Amarktai Crypto is monitoring markets. Data will appear once CoinStats is reachable.",
+                "what_amarktai_is_doing": "AmarktAI Crypto is monitoring markets. Data will appear once CoinStats is reachable.",
                 "confidence": "Pending first fetch",
                 "mood": "neutral",
                 "top_risk": "none",
@@ -116,7 +119,7 @@ async def _fetch_and_process():
         _last_brief = {
             "what_happened": what_happened,
             "why_it_matters": f"This {mood} signal from CoinStats affects crypto prices and bot entry/exit decisions.",
-            "what_amarktai_is_doing": f"Amarktai Crypto bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
+            "what_amarktai_is_doing": f"AmarktAI Crypto bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
             "confidence": confidence,
             "mood": mood,
             "top_risk": top_risk,
@@ -125,7 +128,10 @@ async def _fetch_and_process():
             "fetch_status": "ok",
             "block_reason": None,
             "updated_at": now.isoformat(),
+            "refresh_interval_seconds": _REFRESH_INTERVAL,
+            "last_error": None,
         }
+        _last_error = None
 
         logger.info(f"Market intelligence updated: mood={mood}, risk={top_risk}, articles={len(articles)}")
 
@@ -134,11 +140,12 @@ async def _fetch_and_process():
 
     except Exception as e:
         logger.warning(f"Market intelligence fetch failed: {e}")
+        _last_error = str(e)[:400]
         # Still update _last_brief so updated_at is non-null
         _last_brief = {
             "what_happened": f"Market intelligence fetch error: {str(e)[:200]}",
             "why_it_matters": "An error occurred while fetching CoinStats data.",
-            "what_amarktai_is_doing": "Amarktai Crypto is retrying market data fetch on the next interval.",
+            "what_amarktai_is_doing": "AmarktAI Crypto is retrying market data fetch on the next interval.",
             "confidence": "Pending",
             "mood": "neutral",
             "top_risk": "none",
@@ -146,6 +153,8 @@ async def _fetch_and_process():
             "fetch_status": "error",
             "block_reason": str(e)[:200],
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "refresh_interval_seconds": _REFRESH_INTERVAL,
+            "last_error": str(e)[:400],
         }
 
 
@@ -169,9 +178,39 @@ async def _emit_intelligence_event():
         logger.debug(f"Could not emit intelligence event: {e}")
 
 
+_last_run_at: Optional[str] = None
+
+
 async def start_intelligence_scheduler():
-    """Start the background market intelligence refresh loop."""
+    """Start the background market intelligence refresh loop.
+    Performs an immediate fetch on startup so data is available right away."""
+    global _last_run_at
     logger.info(f"Market intelligence scheduler starting (interval={_REFRESH_INTERVAL}s)")
     while True:
         await _fetch_and_process()
+        _last_run_at = datetime.now(timezone.utc).isoformat()
         await asyncio.sleep(_REFRESH_INTERVAL)
+
+
+def get_intelligence_status() -> dict:
+    """Return current scheduler status including last_run_at, next_run_in_seconds, and last_error."""
+    now = datetime.now(timezone.utc)
+    if _last_run_at:
+        try:
+            last_run = datetime.fromisoformat(_last_run_at)
+            elapsed = (now - last_run).total_seconds()
+            next_run_in = max(0, _REFRESH_INTERVAL - int(elapsed))
+        except Exception:
+            elapsed = None
+            next_run_in = None
+    else:
+        elapsed = None
+        next_run_in = None
+
+    return {
+        "last_run_at": _last_run_at,
+        "next_run_in_seconds": next_run_in,
+        "refresh_interval_seconds": _REFRESH_INTERVAL,
+        "last_error": _last_error,
+        "has_data": _last_brief is not None,
+    }
