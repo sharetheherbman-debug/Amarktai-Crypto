@@ -66,7 +66,7 @@ async def get_market_intelligence(user_id: str = Depends(get_current_user)):
         return {
             "what_happened": "Market intelligence temporarily unavailable.",
             "why_it_matters": "CoinStats data is collected automatically on a schedule.",
-            "what_amarktai_is_doing": "Amarktai Crypto continues operating with available signals.",
+            "what_amarktai_is_doing": "AmarktAI Crypto continues operating with available signals.",
             "confidence": "Pending",
             "mood": "neutral",
             "top_risk": "none",

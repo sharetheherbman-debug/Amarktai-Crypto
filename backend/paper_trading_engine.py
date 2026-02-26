@@ -57,8 +57,27 @@ from config import (
     PAPER_PAIR_WHITELIST_ENABLED,
     PAPER_STALE_EXIT_MINUTES,
     PAPER_MAX_HOLD_MINUTES,
+    TRAINING_MAX_HOLD_MINUTES,
 )
 from realtime_events import rt_events
+
+# Module-level imports for AI/market-intelligence providers.
+# Imported here so unit tests can patch them via
+# `patch("paper_trading_engine.market_regime_detector")` etc.
+try:
+    from market_regime import market_regime_detector
+except ImportError:
+    market_regime_detector = None  # type: ignore
+
+try:
+    from ml_predictor import ml_predictor
+except ImportError:
+    ml_predictor = None  # type: ignore
+
+try:
+    from fetchai_integration import fetchai
+except ImportError:
+    fetchai = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -867,19 +886,25 @@ class PaperTradingEngine:
                 }
             
             # 2. AI INTELLIGENCE: Check market regime
-            from market_regime import market_regime_detector
-            regime = await market_regime_detector.detect_regime(symbol, exchange)
+            _regime_detector = market_regime_detector
+            if _regime_detector is None:
+                from market_regime import market_regime_detector as _regime_detector
+            regime = await _regime_detector.detect_regime(symbol, exchange)
             
             # 3. AI INTELLIGENCE: Get ML prediction
-            from ml_predictor import ml_predictor
-            prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
+            _ml_pred = ml_predictor
+            if _ml_pred is None:
+                from ml_predictor import ml_predictor as _ml_pred
+            prediction = await _ml_pred.predict_price(symbol, timeframe="1h")
             
             # External signal provider removed — use unavailable stub
             ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
             
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
-            from fetchai_integration import fetchai
-            fetchai_data = await fetchai.fetch_market_signals(symbol)
+            _fetchai = fetchai
+            if _fetchai is None:
+                from fetchai_integration import fetchai as _fetchai
+            fetchai_data = await _fetchai.fetch_market_signals(symbol)
             
             # Analyze REAL trend (fallback if AI fails)
             trend = await self.analyze_trend(symbol, exchange)
@@ -1269,11 +1294,33 @@ class PaperTradingEngine:
             age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
+            # Determine if this bot is in training mode (uses shorter max-hold timeout)
+            is_training = bot_data.get("lifecycle_state") == "training" or bot_data.get("is_training", False)
+            effective_max_hold = TRAINING_MAX_HOLD_MINUTES if is_training else PAPER_MAX_HOLD_MINUTES
+
             close_reason = None
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
+                logger.info(
+                    f"CLOSE_TP_HIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                    f"age_min={age_minutes:.1f}"
+                )
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
+                logger.info(
+                    f"CLOSE_SL_HIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                    f"age_min={age_minutes:.1f}"
+                )
+            elif is_training and age_minutes >= TRAINING_MAX_HOLD_MINUTES:
+                # Training bots close at market after TRAINING_MAX_HOLD_MINUTES (default 45 min)
+                close_reason = "training_timeout"
+                logger.info(
+                    f"CLOSE_TRAINING_TIMEOUT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                    f"age_min={age_minutes:.1f} reason=training_timeout"
+                )
             elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
                 # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
                 # regardless of P&L direction. Unlike stale_exit, this does NOT require

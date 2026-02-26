@@ -41,14 +41,15 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
     try:
         from services.market_intelligence_service import (
             get_latest_intelligence,
+            get_intelligence_status as _get_status,
             _REFRESH_INTERVAL,
-            _last_brief,
         )
         brief = await get_latest_intelligence()
-        last_run_at = brief.get("updated_at")
+        status = _get_status()
+        last_run_at = brief.get("updated_at") or status.get("last_run_at")
 
-        next_run_in = None
-        if last_run_at:
+        next_run_in = status.get("next_run_in_seconds")
+        if next_run_in is None and last_run_at:
             try:
                 last_dt = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
                 elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
@@ -72,6 +73,7 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "last_run_at": last_run_at,
             "next_run_in_seconds": next_run_in,
             "refresh_interval_seconds": _REFRESH_INTERVAL,
+            "last_error": status.get("last_error"),
             "fetch_status": brief.get("fetch_status", "ok" if last_run_at else "pending"),
             "block_reason": brief.get("block_reason"),
             "what_it_does": (
@@ -90,7 +92,8 @@ async def get_intelligence_status(user_id: str = Depends(get_current_user)):
             "mood": "neutral",
             "last_run_at": None,
             "next_run_in_seconds": None,
-            "refresh_interval_seconds": 900,
+            "refresh_interval_seconds": 60,
+            "last_error": str(e),
             "error": str(e),
             "what_it_does": "Automatic market intelligence pipeline (temporarily unavailable).",
         }

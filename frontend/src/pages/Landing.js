@@ -14,7 +14,7 @@ export default function Landing() {
         <div className="landing-header">
           <p className="landing-welcome">Welcome to</p>
           <h1 className="auth-title landing-brand">
-            Amarktai <span className="brand-ai">Crypto</span>
+            Amarkt<span className="brand-ai">AI</span> Crypto
           </h1>
         </div>
         <p className="landing-summary">

@@ -85,7 +85,7 @@ class TestPhase5APIKeys:
             from services.provider_registry import PROVIDERS
             
             expected_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
-            expected_ai = ['openai', 'flokx', 'fetchai']
+            expected_ai = ['openai', 'coinstats', 'fetchai']
             
             for provider in expected_exchanges + expected_ai:
                 assert provider in PROVIDERS, f"{provider} not in PROVIDERS"
