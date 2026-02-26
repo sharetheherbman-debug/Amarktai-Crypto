@@ -306,21 +306,18 @@ class TestPaperWalletUSDT:
         assert isinstance(rate, float), f"Expected float, got {type(rate)}"
         assert rate > 0, f"Rate must be positive, got {rate}"
 
-    @pytest.mark.asyncio
-    async def test_get_paper_zar_per_usdt_static_env_override(self, monkeypatch):
+    def test_get_paper_zar_per_usdt_static_env_override(self, monkeypatch):
         """PAPER_ZAR_PER_USDT env var sets the static fallback rate."""
-        monkeypatch.setenv("PAPER_ZAR_PER_USDT", "20.0")
-        # Reload the module-level constant
-        import importlib
         import services.paper_wallet_service as pws
-        importlib.reload(pws)
-        # Simulate live price failure so static rate is used
-        with patch(
-            "services.paper_wallet_service._get_paper_zar_per_usdt",
-            AsyncMock(return_value=20.0),
-        ):
-            rate = await pws._get_paper_zar_per_usdt()
-        assert rate == 20.0, f"Expected 20.0 from env, got {rate}"
+        # Patch the module-level default directly to avoid reloading
+        with patch.object(pws, "_PAPER_ZAR_PER_USDT_DEFAULT", 20.0):
+            with patch(
+                "services.price_fallback_service.price_fallback_service.get_price",
+                AsyncMock(side_effect=Exception("not available")),
+            ):
+                import asyncio
+                rate = asyncio.get_event_loop().run_until_complete(pws._get_paper_zar_per_usdt())
+        assert rate == 20.0, f"Expected 20.0 from patched default, got {rate}"
 
 
 class TestBotManagerUSDTPrecheck:

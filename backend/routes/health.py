@@ -47,14 +47,16 @@ def _find_repo_root() -> str:
        (works in dev / CI environments where the repo is cloned).
     3. Fallback: parent of the backend/ directory (two levels above this file).
     """
+    _MAX_UPWARD_SEARCH_LEVELS = 5
+
     # 1. Explicit env override
     env_root = os.environ.get("AMARKTAI_REPO_ROOT", "").strip()
     if env_root and os.path.isdir(env_root):
         return env_root
 
-    # 2. Walk upward from current file looking for .git/ (max 5 levels)
+    # 2. Walk upward from current file looking for .git/
     current = os.path.dirname(os.path.abspath(__file__))
-    for _ in range(5):
+    for _ in range(_MAX_UPWARD_SEARCH_LEVELS):
         if os.path.isdir(os.path.join(current, ".git")):
             return current
         parent = os.path.dirname(current)

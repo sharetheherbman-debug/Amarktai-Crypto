@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 # Default static ZAR/USDT rate for paper mode.  Configurable via env var.
 _PAPER_ZAR_PER_USDT_DEFAULT: float = float(os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
 
+# Sanity bounds for the live-derived FX rate: typical ZAR/USDT is ~10–40.
+_PAPER_FX_RATE_MIN: float = 5.0
+_PAPER_FX_RATE_MAX: float = 100.0
+
 
 async def _get_paper_zar_per_usdt() -> float:
     """Return the ZAR-per-USDT rate to use for paper FX conversion.
@@ -35,7 +39,7 @@ async def _get_paper_zar_per_usdt() -> float:
         btcusdt = await price_fallback_service.get_price("binance", "BTC/USDT")
         if btczar and btcusdt and btcusdt > 0:
             rate = round(btczar / btcusdt, 4)
-            if 5 < rate < 100:  # sanity: typical ZAR/USDT is ~10–40
+            if _PAPER_FX_RATE_MIN < rate < _PAPER_FX_RATE_MAX:
                 logger.debug("Paper FX: live USDZAR rate %.4f", rate)
                 return rate
     except Exception:

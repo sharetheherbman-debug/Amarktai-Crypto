@@ -26,6 +26,8 @@ def _find_repo_root() -> Path:
     3. Fallback: derive from this file's path assuming the standard layout
        build_info.py → routes/ → backend/ → <repo_root>.
     """
+    _MAX_UPWARD_SEARCH_LEVELS = 5
+
     # 1. Explicit env override
     env_root = os.environ.get("AMARKTAI_REPO_ROOT", "").strip()
     if env_root:
@@ -35,7 +37,7 @@ def _find_repo_root() -> Path:
 
     # 2. Walk upward looking for .git/
     current = Path(__file__).resolve().parent
-    for _ in range(5):
+    for _ in range(_MAX_UPWARD_SEARCH_LEVELS):
         if (current / ".git").is_dir():
             return current
         parent = current.parent
