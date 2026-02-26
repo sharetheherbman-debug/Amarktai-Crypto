@@ -538,7 +538,7 @@ export default function BotFleet({ bots, onControl, controlLoading, autoRefresh 
       
       {/* Bot List */}
       <div style={{
-        overflowY: 'auto',
+        overflow: 'visible',
         paddingRight: '4px'
       }}>
         {bots.length === 0 ? (

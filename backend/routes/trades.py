@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime, timezone
 from typing import Optional, List
 import logging
+import os
 
 from auth import get_current_user
 from services.accounting import accounting_service
@@ -168,6 +169,8 @@ async def get_recent_trades(
             "limit": limit,
             "since": since,
             "next_cursor": next_cursor,
+            "max_hold_minutes": int(os.getenv("PAPER_MAX_HOLD_MINUTES", "120")),
+            "safety_exit_minutes": int(os.getenv("PAPER_SAFETY_EXIT_MINUTES", "60")),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         

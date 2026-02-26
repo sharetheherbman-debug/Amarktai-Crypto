@@ -33,18 +33,35 @@ async def get_latest_intelligence() -> dict:
     }
 
 
+async def _resolve_scheduler_user_id() -> Optional[str]:
+    """Return any user_id that has a CoinStats key saved in the DB (for scheduler use)."""
+    try:
+        import database as db
+        if db.api_keys_collection is None:
+            return None
+        doc = await db.api_keys_collection.find_one(
+            {"provider": "coinstats", "api_key": {"$exists": True, "$ne": ""}},
+            {"user_id": 1, "_id": 0},
+        )
+        return doc.get("user_id") if doc else None
+    except Exception:
+        return None
+
+
 async def _fetch_and_process():
     """Fetch CoinStats news and build market brief."""
     global _last_brief, _last_error
     now = datetime.now(timezone.utc)
     try:
         from services.news_coinstats import coinstats_provider, resolve_coinstats_key
-        articles = await coinstats_provider.get_articles(limit=10)
+        # Scheduler has no user context — try to find any user with a saved key
+        sched_user_id = await _resolve_scheduler_user_id()
+        articles = await coinstats_provider.get_articles(limit=10, user_id=sched_user_id)
 
         if not articles:
             # Diagnose why — missing key, rate-limit, network, etc.
             last_error = getattr(coinstats_provider, "_last_error", None)
-            key, key_source = await resolve_coinstats_key()
+            key, key_source = await resolve_coinstats_key(sched_user_id)
             if not key:
                 block_reason = "CoinStats API key not configured. Add COINSTATS_API_KEY env var or save via API Setup."
                 fetch_status = "key_missing"

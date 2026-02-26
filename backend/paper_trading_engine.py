@@ -57,6 +57,7 @@ from config import (
     PAPER_PAIR_WHITELIST_ENABLED,
     PAPER_STALE_EXIT_MINUTES,
     PAPER_MAX_HOLD_MINUTES,
+    PAPER_SAFETY_EXIT_MINUTES,
     TRAINING_MAX_HOLD_MINUTES,
 )
 from realtime_events import rt_events
@@ -1326,14 +1327,38 @@ class PaperTradingEngine:
                 # regardless of P&L direction. Unlike stale_exit, this does NOT require
                 # negative P&L, ensuring profitable trades also close for accounting.
                 close_reason = "time_exit"
+                logger.info(
+                    f"CLOSE_TIME_EXIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"max_hold={PAPER_MAX_HOLD_MINUTES}"
+                )
+            elif (
+                PAPER_SAFETY_EXIT_MINUTES > 0
+                and age_minutes >= PAPER_SAFETY_EXIT_MINUTES
+                and pnl_pct > 0
+            ):
+                # Safety exit: close profitable trades that haven't hit TP within the safety window.
+                # Prevents gains from evaporating while waiting for the full max-hold to expire.
+                close_reason = "safety_exit"
+                logger.info(
+                    f"CLOSE_SAFETY_EXIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"safety_exit_min={PAPER_SAFETY_EXIT_MINUTES}"
+                )
             elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
 
             if not close_reason:
+                mins_to_safety = (
+                    round(PAPER_SAFETY_EXIT_MINUTES - age_minutes, 1)
+                    if PAPER_SAFETY_EXIT_MINUTES > 0 else None
+                )
+                mins_to_time_exit = round(PAPER_MAX_HOLD_MINUTES - age_minutes, 1)
                 logger.info(
                     f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
-                    f"age_min={age_minutes:.1f}"
+                    f"pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"mins_to_safety_exit={mins_to_safety} mins_to_time_exit={mins_to_time_exit}"
                 )
                 return {
                     "success": False,
