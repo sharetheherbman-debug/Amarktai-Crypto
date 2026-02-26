@@ -146,7 +146,7 @@ const MarketIntelligencePanel = () => {
         </div>
       )}
 
-      {/* What Amarktai Crypto is doing */}
+      {/* What AmarktAI Crypto is doing */}
       {hasRealData && latest?.what_amarktai_is_doing && (
         <div style={{ marginBottom: '10px' }}>
           <div style={labelStyle}>Platform Response</div>

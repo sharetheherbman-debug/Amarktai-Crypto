@@ -53,7 +53,7 @@ function MarketIntelligencePanel() {
       {[
         { label: 'What happened', value: intel.what_happened },
         { label: 'Why it matters', value: intel.why_it_matters },
-        { label: 'What Amarktai Crypto is doing', value: intel.what_amarktai_is_doing },
+        { label: 'What AmarktAI Crypto is doing', value: intel.what_amarktai_is_doing },
         { label: 'Confidence', value: intel.confidence },
       ].map(({ label, value }) => value && (
         <div key={label} style={{ padding: '12px 16px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)' }}>

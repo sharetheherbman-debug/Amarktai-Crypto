@@ -503,7 +503,7 @@ export default function Dashboard() {
             onClick={() => showSection('overview')}
             style={{ cursor: 'pointer', width: '120px', height: '50px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.1rem', margin: '12px auto' }}
           >
-            Amarktai <span style={{ color: '#60a5fa' }}>Crypto</span>
+            Amarkt<span style={{ color: '#60a5fa' }}>AI</span> Crypto
           </div>
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
@@ -528,7 +528,7 @@ export default function Dashboard() {
         <header className="topbar">
             <div className="topbar-brand">
               <div className="topbar-title">
-                Amarktai <span style={{ color: '#3b82f6', fontWeight: '700' }}>Crypto</span>
+                Amarkt<span style={{ color: '#3b82f6', fontWeight: '700' }}>AI</span> Crypto
               </div>
             </div>
           <div className="top-actions">
@@ -554,7 +554,7 @@ export default function Dashboard() {
               className="mobile-logo"
               style={{ width: '80px', height: '32px', background: '#1e293b', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '0.9rem' }}
             >
-              Amarktai <span style={{ color: '#60a5fa' }}>Crypto</span>
+              Amarkt<span style={{ color: '#60a5fa' }}>AI</span> Crypto
             </div>
           </button>
           <div className="mobile-btns">
