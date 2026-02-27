@@ -102,6 +102,22 @@ PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 # Prevents profitable trades from lingering past half max-hold without a signal.
 # Default 60 min; set to 0 to disable.
 PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
+# Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
+# cannot exceed HARD_MAX_HOLD_SECONDS.  Default: 900 (15 min).
+SOFT_MAX_HOLD_SECONDS = int(os.getenv('SOFT_MAX_HOLD_SECONDS', '900'))
+# Hard max-hold (seconds): force-close unconditionally — even on low confidence.
+# Low confidence may block OPENING new trades but must never block CLOSING.
+# Default: 1500 (25 min).
+HARD_MAX_HOLD_SECONDS = int(os.getenv('HARD_MAX_HOLD_SECONDS', '1500'))
+# Symbol rotation anti-repeat: cooldown window (minutes) before the same symbol
+# can be re-selected for a new trade on the same bot.  Default: 15 min.
+SYMBOL_COOLDOWN_MINUTES = int(os.getenv('SYMBOL_COOLDOWN_MINUTES', '15'))
+# Symbol rotation anti-repeat: last N closed/open symbols tracked per bot.
+SYMBOL_COOLDOWN_HISTORY = int(os.getenv('SYMBOL_COOLDOWN_HISTORY', '3'))
+# Portfolio guard: max new opens on the same symbol per user in this window (minutes).
+PORTFOLIO_GUARD_WINDOW_MINUTES = int(os.getenv('PORTFOLIO_GUARD_WINDOW_MINUTES', '10'))
+# Portfolio guard: max concurrent open trades on the same symbol per user.
+PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '1'))
 # Training-mode max hold: closes training trades sooner to speed up the learn loop.
 # Default 45 min; recorded as close_reason=training_timeout.
 TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))
@@ -208,6 +224,12 @@ __all__ = [
     'PAPER_STALE_EXIT_MINUTES',
     'PAPER_MAX_HOLD_MINUTES',
     'PAPER_SAFETY_EXIT_MINUTES',
+    'SOFT_MAX_HOLD_SECONDS',
+    'HARD_MAX_HOLD_SECONDS',
+    'SYMBOL_COOLDOWN_MINUTES',
+    'SYMBOL_COOLDOWN_HISTORY',
+    'PORTFOLIO_GUARD_WINDOW_MINUTES',
+    'PORTFOLIO_GUARD_MAX_SAME_SYMBOL',
     'TRAINING_MAX_HOLD_MINUTES',
     'TRAINING_TRADES_REQUIRED',
     'EXCHANGE_DAILY_TRADE_LIMITS',

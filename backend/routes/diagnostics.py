@@ -12,11 +12,25 @@ from auth import get_current_user
 from websocket_manager import manager
 from realtime_events import rt_events
 import database as db
-from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES
+from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES, SOFT_MAX_HOLD_SECONDS, HARD_MAX_HOLD_SECONDS
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/diagnostics", tags=["Diagnostics"])
+
+
+def _get_close_rejects_from_engine() -> dict:
+    """Aggregate close SKIP/REJECT reasons from the paper engine action log."""
+    try:
+        from paper_trading_engine import paper_engine
+        rejects: dict = {}
+        for entry in paper_engine._action_log:
+            if entry.get("action") == "SKIP":
+                reason = entry.get("reason", "unknown")
+                rejects[reason] = rejects.get(reason, 0) + 1
+        return rejects
+    except Exception:
+        return {}
 
 
 @router.get("/realtime-smoke")
@@ -2056,6 +2070,7 @@ async def last_tick_summary_v2(user_id: str = Depends(get_current_user)):
         "closes_failed": closes_failed,
         "skips_by_reason": skips_by_reason,
         "rejects_by_reason": rejects_by_reason,
+        "close_rejects_by_reason": _get_close_rejects_from_engine(),
         "last_error": last_error,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -2243,7 +2258,7 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
     """List open trades for the current user with diagnostic context.
 
     Read-only. Shows per-trade: age, tp/sl prices, current price (cached),
-    next exit condition, and how far away it is.
+    next exit condition, how far away it is, and whether hard/soft exit is triggered.
     """
     try:
         trades = await db.trades_collection.find(
@@ -2255,13 +2270,19 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
 
     now = datetime.now(timezone.utc)
     enriched = []
+    oldest_age: float = 0.0
     for t in trades:
         entry_time_raw = t.get("entry_time") or t.get("opened_at") or t.get("timestamp")
         try:
             entry_time = datetime.fromisoformat(str(entry_time_raw).replace("Z", "+00:00"))
             age_minutes = round((now - entry_time).total_seconds() / 60, 1)
+            age_seconds = age_minutes * 60
         except Exception:
             age_minutes = None
+            age_seconds = 0.0
+
+        if age_minutes is not None and age_minutes > oldest_age:
+            oldest_age = age_minutes
 
         entry_price = float(t.get("entry_price") or t.get("price") or 0)
         stop_loss_pct = float(t.get("stop_loss_pct", 0.02))
@@ -2269,9 +2290,16 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
         stop_loss_price = t.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct) if entry_price else None)
         take_profit_price = t.get("take_profit_price") or (entry_price * (1 + take_profit_pct) if entry_price else None)
 
+        hard_exit_triggered = age_seconds >= HARD_MAX_HOLD_SECONDS if age_minutes is not None else False
+        soft_exit_triggered = age_seconds >= SOFT_MAX_HOLD_SECONDS if age_minutes is not None else False
+
         next_exit = "awaiting_signal"
         if age_minutes is not None:
-            if age_minutes >= PAPER_MAX_HOLD_MINUTES:
+            if hard_exit_triggered:
+                next_exit = "hard_exit_overdue"
+            elif soft_exit_triggered:
+                next_exit = "soft_exit_triggered"
+            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
                 next_exit = "time_exit_due"
             elif age_minutes >= PAPER_STALE_EXIT_MINUTES:
                 next_exit = "stale_exit_eligible"
@@ -2289,6 +2317,8 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
             "take_profit_price": round(take_profit_price, 6) if take_profit_price else None,
             "age_minutes": age_minutes,
             "next_exit": next_exit,
+            "hard_exit_triggered": hard_exit_triggered,
+            "soft_exit_triggered": soft_exit_triggered,
             "opened_at": entry_time_raw,
             "trade_amount": t.get("trade_amount"),
             "data_source": t.get("data_source"),
@@ -2297,6 +2327,7 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
     return {
         "success": True,
         "open_trades_count": len(enriched),
+        "oldest_open_trade_age_minutes": round(oldest_age, 1) if enriched else None,
         "trades": enriched,
         "timestamp": now.isoformat(),
     }
@@ -2371,9 +2402,16 @@ async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
         entry_price = float(t.get("entry_price") or t.get("price") or 0)
 
         # Determine next_exit condition
+        age_seconds = (age_minutes * 60) if age_minutes is not None else 0.0
+        hard_exit_triggered = age_seconds >= HARD_MAX_HOLD_SECONDS if age_minutes is not None else False
+        soft_exit_triggered = age_seconds >= SOFT_MAX_HOLD_SECONDS if age_minutes is not None else False
         next_exit = "awaiting_signal"
         if age_minutes is not None:
-            if age_minutes >= PAPER_MAX_HOLD_MINUTES:
+            if hard_exit_triggered:
+                next_exit = "hard_exit_overdue"
+            elif soft_exit_triggered:
+                next_exit = "soft_exit_triggered"
+            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
                 next_exit = "time_exit_due"
             elif age_minutes >= PAPER_STALE_EXIT_MINUTES:
                 next_exit = "stale_exit_eligible"
@@ -2397,6 +2435,8 @@ async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
             "current_price": None,  # populated below via price_fallback_service
             "unrealized_pnl_zar": None,
             "next_exit": next_exit,
+            "hard_exit_triggered": hard_exit_triggered,
+            "soft_exit_triggered": soft_exit_triggered,
         })
 
     # Enrich open trades with current price + unrealized PnL
@@ -2429,10 +2469,86 @@ async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
         "engine_running": engine_running,
         "last_tick_at": last_tick_at,
         "last_close_at": engine_status.get("last_close_time"),
+        "closes_attempted": engine_status.get("closes_attempted", 0),
+        "closes_done": engine_status.get("closes_done", 0),
         "close_loop_enabled": True,
         "tick_interval_seconds": tick_interval_seconds,
         "open_trades_count": len(open_trades),
+        "oldest_open_trade_age_minutes": max(
+            (t["age_minutes"] for t in open_trades if t.get("age_minutes") is not None),
+            default=None,
+        ),
         "open_trades": open_trades,
         "last_20_actions": engine_status.get("last_20_actions", []),
         "timestamp": now.isoformat(),
+    }
+
+
+@router.get("/symbol-selection")
+async def symbol_selection_diagnostic(
+    bot_id: str = "",
+    user_id: str = Depends(get_current_user),
+):
+    """Truth diagnostic for symbol selection (C1).
+
+    Returns:
+      - candidate_count: how many symbols passed universe + exchange filters
+      - filtered_out_reasons: summary of why symbols were dropped
+      - top5_scored: the top 5 candidate symbols and their scores
+      - winner: the symbol that was (or would be) selected
+      - winner_reason: why this symbol won
+
+    If bot_id is provided, shows the last recorded selection for that bot.
+    If bot_id is omitted, simulates a fresh selection for Luno using the
+    default symbol universe.
+    """
+    from services.symbol_universe import symbol_universe as _su
+    from paper_trading_engine import paper_engine
+
+    # If bot_id given and we have a cached selection, return it
+    if bot_id:
+        cached = paper_engine._last_symbol_selection
+        if cached and cached.get("bot_id") == bot_id:
+            return {"success": True, "source": "engine_cache", **cached}
+
+    # Simulate a selection for the given (or default) exchange
+    # Use Luno universe as a safe default demo
+    exchange = "luno"
+    try:
+        bots_cursor = db.bots_collection.find(
+            {"user_id": user_id, "id": bot_id} if bot_id else {"user_id": user_id},
+            {"exchange": 1, "pair": 1, "symbol_universe": 1, "_id": 0},
+        )
+        bot_list = await bots_cursor.to_list(1)
+        if bot_list:
+            exchange = bot_list[0].get("exchange", "luno")
+    except Exception:
+        pass
+
+    universe = _su.get_universe(exchange)
+    open_symbols: list = []
+    try:
+        open_trades_cursor = db.trades_collection.find(
+            {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}
+        )
+        open_trades_list = await open_trades_cursor.to_list(100)
+        open_symbols = [
+            t.get("pair") or t.get("symbol", "") for t in open_trades_list
+            if t.get("pair") or t.get("symbol")
+        ]
+    except Exception:
+        pass
+
+    _winner, diag = await _su.select(
+        bot_id=bot_id or "demo",
+        user_id=user_id,
+        exchange=exchange,
+        available_pairs=universe,
+        open_symbols_for_user=open_symbols,
+    )
+    return {
+        "success": True,
+        "source": "simulated",
+        "last_n_closed_symbols": _su.last_n_symbols(bot_id or "demo"),
+        **diag,
     }
