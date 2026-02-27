@@ -161,7 +161,7 @@ const BotLifecycleControls = ({ bot, onAction, compact = false }) => {
           status === 'stopped' ? 'bg-red-100 text-red-800' :
           'bg-gray-100 text-gray-800'
         }`}>
-          {status.toUpperCase()}
+          {String(status ?? '').toUpperCase()}
         </span>
       </div>
     </div>

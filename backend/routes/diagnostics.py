@@ -2662,3 +2662,14 @@ async def strategy_params_diagnostic(user_id: str = Depends(get_current_user)):
         "rate_limit_budgets": rate_budget_status,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/bot/{bot_id}")
+async def get_bot_diagnostics_alias(
+    bot_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Alias for /api/bots/{bot_id}/diagnostics — returns the same detailed
+    diagnostic payload including performance/circuit_breaker fields."""
+    from routes.bot_lifecycle import get_bot_diagnostics as _bot_diag
+    return await _bot_diag(bot_id=bot_id, user_id=user_id)

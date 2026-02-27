@@ -607,7 +607,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
                 marginBottom: '15px'
               }}>
                 <h3 style={{ fontSize: '1.2rem', color: 'var(--text)', margin: 0 }}>
-                  {exchange.toUpperCase()}
+                  {String(exchange ?? '').toUpperCase()}
                 </h3>
                 <div style={{ fontSize: '1.5rem' }}>{healthIcon}</div>
               </div>

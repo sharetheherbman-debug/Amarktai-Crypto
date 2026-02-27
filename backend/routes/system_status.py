@@ -102,14 +102,18 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
         db_health = await db.health_check()
         
         # Get active bots count (exclude deleted bots, consistent with /api/bots/status)
+        # Also exclude bots where deleted_at is explicitly set to null (soft-delete with null).
         active_bots_count = 0
         try:
             active_bots_count = await db.bots_collection.count_documents({
                 "user_id": user_id,
-                "status": "active",
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
                 "deleted": {"$ne": True},
                 "is_deleted": {"$ne": True},
-                "deleted_at": {"$exists": False},
+                "$or": [
+                    {"deleted_at": {"$exists": False}},
+                    {"deleted_at": None},
+                ],
             })
         except Exception as e:
             logger.error(f"Error counting active bots: {e}")
@@ -190,10 +194,16 @@ async def get_since_last_login(user_id: str = Depends(get_current_user)):
             "autopilot": modes.get("autopilot", False) if modes else False
         }
         
-        # Get active bots count
+        # Get active bots count (consistent with /api/bots/status — exclude deleted)
         active_bots = await db.bots_collection.count_documents({
             "user_id": user_id,
-            "status": "active"
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "$or": [
+                {"deleted_at": {"$exists": False}},
+                {"deleted_at": None},
+            ],
         })
         
         # Get recent trades (last 24h)
