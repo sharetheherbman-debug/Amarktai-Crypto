@@ -197,7 +197,7 @@ export default function WhaleFlowHeatmap() {
     
     return (
       <Badge variant={variant} className={color}>
-        {recommendation.toUpperCase()} ({(strength * 100).toFixed(0)}%)
+        {String(recommendation ?? '').toUpperCase()} ({(strength * 100).toFixed(0)}%)
       </Badge>
     );
   };

@@ -28,6 +28,41 @@ os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 # ---------------------------------------------------------------------------
+# Pre-import packages that MUST remain as real modules throughout the test
+# session.  Some test files (e.g. test_strategy_upgrade.py) run module-level
+# code like ``if "fastapi.middleware.cors" not in sys.modules: sys.modules[...] = MagicMock()``
+# at *collection* time (before any fixture runs).  Pre-importing here ensures
+# the real packages are already in sys.modules before collection scans those
+# test files, preventing them from being replaced with a plain MagicMock.
+# ---------------------------------------------------------------------------
+import fastapi                        # noqa: E402
+import fastapi.security               # noqa: E402
+import fastapi.responses              # noqa: E402
+import fastapi.middleware             # noqa: E402
+import fastapi.middleware.cors        # noqa: E402
+import pydantic                       # noqa: E402
+import starlette                      # noqa: E402
+import starlette.responses            # noqa: E402
+import starlette.requests             # noqa: E402
+import starlette.middleware           # noqa: E402
+try:
+    import aiohttp                    # noqa: E402
+except ImportError:
+    pass
+try:
+    import jose                       # noqa: E402
+except ImportError:
+    pass
+try:
+    import passlib                    # noqa: E402
+except ImportError:
+    pass
+try:
+    import cryptography               # noqa: E402
+except ImportError:
+    pass
+
+# ---------------------------------------------------------------------------
 # Minimal stubs for heavy optional dependencies that are not installed in CI.
 # ---------------------------------------------------------------------------
 for _mod in (
@@ -38,9 +73,49 @@ for _mod in (
     "huggingface_hub",
     "redis",
     "aioredis",
+    "openai",
+    "numpy",
+    "pandas",
+    "sklearn",
+    "sklearn.preprocessing",
+    "sklearn.model_selection",
+    "sklearn.linear_model",
+    "psutil",
+    "pyotp",
+    "apscheduler",
+    "apscheduler.schedulers",
+    "apscheduler.schedulers.asyncio",
+    "apscheduler.triggers",
+    "apscheduler.triggers.interval",
+    "apscheduler.triggers.cron",
+    # Also stub the packages test_strategy_upgrade.py stubs at module-level so
+    # they are already in sys.modules before that file is collected/imported
+    # and therefore don't get replaced with a bare MagicMock (which would break
+    # aiohttp/dotenv usage inside server.py at fixture time).
+    "scipy",
+    "scipy.stats",
+    "dotenv",
+    "rapidfuzz",
+    "rapidfuzz.fuzz",
+    "rapidfuzz.process",
 ):
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
+
+# aiohttp is used by real server code — stub it with an AsyncMock-capable
+# object so that ``await aiohttp.ClientSession().get(...)`` does not crash.
+if "aiohttp" not in sys.modules:
+    _aiohttp_stub = MagicMock()
+    _aiohttp_session = MagicMock()
+    _aiohttp_session.__aenter__ = AsyncMock(return_value=_aiohttp_session)
+    _aiohttp_session.__aexit__ = AsyncMock(return_value=False)
+    _aiohttp_session.get = AsyncMock(return_value=MagicMock(
+        status=200,
+        json=AsyncMock(return_value={}),
+        text=AsyncMock(return_value=""),
+    ))
+    _aiohttp_stub.ClientSession = MagicMock(return_value=_aiohttp_session)
+    sys.modules["aiohttp"] = _aiohttp_stub
 
 
 # ---------------------------------------------------------------------------
@@ -129,12 +204,22 @@ def client():
     users_col = _make_collection()
     users_col.find_one = _user_lookup
 
+    # Stub database.connect so the lifespan startup never actually tries to
+    # connect to MongoDB.  Without this, the lifespan would overwrite our
+    # collection patches via ``global db; db = client[db_name]`` and all
+    # subsequent collection accesses would return un-awaitable MagicMocks.
+    async def _noop_connect():
+        pass
+
     with patch("database.bots_collection", _make_collection()), \
          patch("database.trades_collection", _make_collection()), \
          patch("database.users_collection", users_col), \
          patch("database.orders_collection", _make_collection()), \
          patch("database.audit_logs_collection", _make_collection()), \
-         patch("database.bot_metrics_collection", _make_collection()):
+         patch("database.bot_metrics_collection", _make_collection()), \
+         patch("database.db", None), \
+         patch("database.connect", _noop_connect), \
+         patch("database.connect_db", _noop_connect):
 
         from server import app
         tc = TestClient(app, raise_server_exceptions=False)

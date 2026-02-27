@@ -16,6 +16,7 @@ from typing import Optional, Literal
 
 from auth import get_current_user, require_admin
 import database as db
+from services.paper_reset_orchestrator import run as _orchestrator_run
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,27 +35,25 @@ async def start_fresh(
 ):
     """
     Start Fresh - Admin-only data wipe (ADMIN ONLY)
-    
-    Safely wipes:
-    - Bots (paper or all depending on scope)
-    - Paper trades and fills
-    - Bot telemetry and performance stats
-    - Risk locks (if enabled)
-    
+
+    Delegates to the shared paper_reset_orchestrator which resets ALL
+    performance-related state: equity_peak, daily baselines, circuit
+    breaker state, fills, ledger, wallet allocations.
+
     Requires:
         - Admin privileges via JWT (require_admin)
         - Confirmation phrase: "START FRESH"
-        
+
     Args:
         confirmation_phrase: Must be "START FRESH" (exact match)
         scope: "paper_only" (default) or "paper_and_bots"
         also_reset_risk_locks: Whether to reset risk locks (default: true)
-        
+
     Returns:
         - ok: bool (true on success)
         - message: str
         - deleted: dict with counts of deleted items
-        
+
     Raises:
         - 400: Missing or incorrect confirmation phrase
         - 403: Non-admin user
@@ -68,187 +67,33 @@ async def start_fresh(
                 detail="Invalid confirmation phrase. Must be 'START FRESH' (exact match)"
             )
         
-        summary = {
-            "bots_deleted": 0,
-            "trades_deleted": 0,
-            "orders_deleted": 0,
-            "fills_deleted": 0,
-            "telemetry_deleted": 0,
-            "risk_locks_reset": 0
-        }
-        
-        # Step 1: Stop/Delete bots based on scope
-        if request.scope == "paper_only":
-            # Delete only paper trading bots
-            bot_query = {
-                "user_id": user_id,
-                "trading_mode": "paper",
-                "deleted_at": {"$exists": False}
-            }
-        else:
-            # Delete all bots (paper and live)
-            bot_query = {
-                "user_id": user_id,
-                "deleted_at": {"$exists": False}
-            }
-        
-        # Mark bots as deleted (soft delete)
-        delete_timestamp = datetime.now(timezone.utc).isoformat()
-        
-        result = await db.bots_collection.update_many(
-            bot_query,
-            {
-                "$set": {
-                    "status": "deleted",
-                    "deleted_at": delete_timestamp,
-                    "deleted_by": user_id,
-                    "deletion_reason": "start_fresh_wipe"
-                }
-            }
+        # Delegate ALL reset work to the shared orchestrator
+        orch_scope = "paper_only" if request.scope == "paper_only" else "full"
+        result = await _orchestrator_run(
+            user_id=user_id,
+            scope=orch_scope,
+            also_reset_risk_locks=request.also_reset_risk_locks,
         )
-        
-        summary["bots_deleted"] = result.modified_count
-        logger.info(f"Start Fresh: Deleted {result.modified_count} bots for user {user_id}")
-        
-        # Step 2: Delete paper trading history
-        # Get bot IDs that were deleted
-        deleted_bots = await db.bots_collection.find(
-            {"user_id": user_id, "deletion_reason": "start_fresh_wipe"},
-            {"_id": 0, "id": 1}
-        ).to_list(1000)
-        
-        deleted_bot_ids = [bot["id"] for bot in deleted_bots]
-        
-        if deleted_bot_ids:
-            # Delete trades
-            trades_result = await db.trades_collection.delete_many({
-                "bot_id": {"$in": deleted_bot_ids}
-            })
-            summary["trades_deleted"] = trades_result.deleted_count
-            
-            # Delete orders
-            orders_result = await db.orders_collection.delete_many({
-                "bot_id": {"$in": deleted_bot_ids}
-            })
-            summary["orders_deleted"] = orders_result.deleted_count
-            
-            # Delete fills from fills_ledger collection (via raw db handle)
-            try:
-                fills_result = await db.db["fills_ledger"].delete_many({
-                    "bot_id": {"$in": deleted_bot_ids}
-                })
-                summary["fills_deleted"] = fills_result.deleted_count
-            except Exception as e:
-                logger.warning(f"Could not delete fills: {e}")
-            
-            # Delete bot telemetry/performance records
-            try:
-                telemetry_result = await db.bot_metrics_collection.delete_many({
-                    "bot_id": {"$in": deleted_bot_ids}
-                })
-                summary["telemetry_deleted"] = telemetry_result.deleted_count
-            except Exception as e:
-                logger.warning(f"Could not delete telemetry: {e}")
-        
-        # Step 2b: Clear user-scoped runtime state and graph history
-        _user_runtime_collections = [
-            ("balance_snapshots", db.balance_snapshots_collection),
-            ("paper_ledger", db.paper_ledger_collection),
-            ("bot_metrics", db.bot_metrics_collection),
-            ("bot_runtime_state", db.bot_runtime_state_collection),
-            ("bot_lifecycle", db.bot_lifecycle_collection),
-            ("performance_metrics", db.performance_metrics_collection),
-        ]
-        for coll_name, collection in _user_runtime_collections:
-            if collection is None:
-                continue
-            try:
-                result = await collection.delete_many({"user_id": user_id})
-                logger.info(
-                    f"Start Fresh: cleared {result.deleted_count} docs from {coll_name}"
-                )
-            except Exception as e:
-                logger.warning(f"Could not clear {coll_name}: {e}")
 
-        # Step 3: Reset risk locks if requested
-        if request.also_reset_risk_locks:
-            risk_result = await db.users_collection.update_one(
-                {"id": user_id},
-                {
-                    "$set": {
-                        "daily_loss_lock_active": False,
-                        "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
-                        "daily_loss_lock_reset_by": user_id,
-                        "emergency_stop": False
-                    },
-                    "$unset": {
-                        "daily_loss_locked_at": "",
-                        "daily_loss_locked_reason": "",
-                        "daily_loss_pct": "",
-                        "daily_loss_day_key": ""
-                    }
-                }
-            )
-            
-            if risk_result.modified_count > 0:
-                summary["risk_locks_reset"] = 1
-                logger.info(f"Start Fresh: Reset risk locks for user {user_id}")
-        
-        # Step 4: Clear training/quarantine states
+        summary = {
+            "bots_deleted": result.get("bots_soft_deleted", 0),
+            "trades_deleted": result.get("trades_deleted", 0),
+            "orders_deleted": result.get("orders_deleted", 0),
+            "fills_deleted": result.get("fills_deleted", 0),
+            "telemetry_deleted": result.get("telemetry_deleted", 0),
+            "risk_locks_reset": result.get("risk_locks_reset", 0),
+        }
+
+        # Clear training/quarantine states (admin-only extra step)
         try:
-            await db.training_jobs_collection.delete_many({
-                "user_id": user_id
-            })
+            await db.training_jobs_collection.delete_many({"user_id": user_id})
         except Exception as e:
             logger.warning(f"Could not delete training sessions: {e}")
 
-        # Step 5: Reset paper wallet to ZERO (hard requirement)
-        # Also purge wallet_balances cache and capital_injections so no phantom
-        # allocated/balance survives the wipe.
-        wallet_before = {}
-        wallet_after = {}
-        try:
-            from services.paper_wallet_service import paper_wallet_service
-            wallet_result = await paper_wallet_service.reset(user_id)
-            wallet_before = wallet_result.get("wallet_before", {})
-            wallet_after = wallet_result.get("wallet_after", {})
-            logger.info(
-                f"Start Fresh: Paper wallet reset for user {user_id}: "
-                f"before={wallet_before} after={wallet_after}"
-            )
-        except Exception as wallet_err:
-            logger.warning(f"Could not reset paper wallet (non-critical): {wallet_err}")
+        wallet_before = result.get("wallet_before", {})
+        wallet_after = result.get("wallet_after", {})
 
-        # Purge wallet_balances cache so stale allocated figures are gone
-        try:
-            if db.wallet_balances_collection is not None:
-                await db.wallet_balances_collection.delete_many({"user_id": user_id})
-                logger.info(f"Start Fresh: Purged wallet_balances for user {user_id}")
-        except Exception as e:
-            logger.warning(f"Could not purge wallet_balances: {e}")
-
-        # Purge capital injections so injected_capital sums to 0
-        try:
-            if db.capital_injections_collection is not None:
-                await db.capital_injections_collection.delete_many({"user_id": user_id})
-                logger.info(f"Start Fresh: Purged capital_injections for user {user_id}")
-        except Exception as e:
-            logger.warning(f"Could not purge capital_injections: {e}")
-
-        # Store equity baseline so /api/analytics/equity knows when to start fresh
-        reset_at = datetime.now(timezone.utc).isoformat()
-        try:
-            if db.paper_reset_baselines_collection is not None:
-                await db.paper_reset_baselines_collection.update_one(
-                    {"user_id": user_id},
-                    {"$set": {"user_id": user_id, "reset_at": reset_at}},
-                    upsert=True,
-                )
-                logger.info(f"Start Fresh: Stored equity baseline reset_at={reset_at} for user {user_id}")
-        except Exception as e:
-            logger.warning(f"Could not store equity baseline: {e}")
-
-        # Step 6: Create audit log entry
+        # Create audit log entry
         audit_entry = {
             "id": f"audit_{datetime.now(timezone.utc).timestamp()}",
             "user_id": user_id,
@@ -260,16 +105,18 @@ async def start_fresh(
                 "summary": summary,
                 "wallet_before": wallet_before,
                 "wallet_after": wallet_after,
-            }
+                "orchestrator_warnings": result.get("warnings", []),
+            },
         }
-        
         await db.audit_logs_collection.insert_one(audit_entry)
-        
+
         logger.info(
-            f"Start Fresh completed for user {user_id}: "
-            f"{summary['bots_deleted']} bots, {summary['trades_deleted']} trades deleted"
+            "Start Fresh completed for user %s: %d bots, %d trades deleted",
+            user_id,
+            summary["bots_deleted"],
+            summary["trades_deleted"],
         )
-        
+
         return {
             "ok": True,
             "message": "Start Fresh completed successfully",
@@ -279,9 +126,9 @@ async def start_fresh(
             "wallet_after": wallet_after,
             "audit_id": audit_entry["id"],
             "timestamp": audit_entry["timestamp"],
-            "scope": request.scope
+            "scope": request.scope,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -317,191 +164,29 @@ async def user_paper_start_fresh(
             )
 
         # Force paper_only scope for user-safe reset
-        reset_risk_locks = request.also_reset_risk_locks
+        result = await _orchestrator_run(
+            user_id=user_id,
+            scope="paper_only",
+            also_reset_risk_locks=request.also_reset_risk_locks,
+        )
 
         summary = {
-            "bots_deleted": 0,
-            "trades_deleted": 0,
-            "orders_deleted": 0,
-            "fills_deleted": 0,
-            "telemetry_deleted": 0,
-            "risk_locks_reset": 0
+            "bots_deleted": result.get("bots_soft_deleted", 0),
+            "trades_deleted": result.get("trades_deleted", 0),
+            "orders_deleted": result.get("orders_deleted", 0),
+            "fills_deleted": result.get("fills_deleted", 0),
+            "telemetry_deleted": result.get("telemetry_deleted", 0),
+            "risk_locks_reset": result.get("risk_locks_reset", 0),
         }
-
-        delete_timestamp = datetime.now(timezone.utc).isoformat()
-
-        result = await db.bots_collection.update_many(
-            {"user_id": user_id, "trading_mode": "paper", "deleted_at": {"$exists": False}},
-            {
-                "$set": {
-                    "status": "deleted",
-                    "deleted_at": delete_timestamp,
-                    "deleted_by": user_id,
-                    "deletion_reason": "user_paper_start_fresh"
-                }
-            }
-        )
-        summary["bots_deleted"] = result.modified_count
-
-        deleted_bots = await db.bots_collection.find(
-            {"user_id": user_id, "deletion_reason": "user_paper_start_fresh"},
-            {"_id": 0, "id": 1}
-        ).to_list(1000)
-        deleted_bot_ids = [bot["id"] for bot in deleted_bots if "id" in bot]
-
-        if deleted_bot_ids:
-            trades_result = await db.trades_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
-            summary["trades_deleted"] = trades_result.deleted_count
-
-            orders_result = await db.orders_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
-            summary["orders_deleted"] = orders_result.deleted_count
-
-            try:
-                telemetry_result = await db.bot_metrics_collection.delete_many({"bot_id": {"$in": deleted_bot_ids}})
-                summary["telemetry_deleted"] = telemetry_result.deleted_count
-            except Exception as e:
-                logger.warning(f"Could not delete telemetry: {e}")
-
-        # Clear ALL user-scoped ledger data so compute_equity() returns 0 after reset
-        try:
-            fills_result = await db.db["fills_ledger"].delete_many({"user_id": user_id})
-            summary["fills_ledger_deleted"] = fills_result.deleted_count
-        except Exception as e:
-            logger.warning(f"Could not delete fills_ledger: {e}")
-        try:
-            events_result = await db.db["ledger_events"].delete_many({"user_id": user_id})
-            summary["ledger_events_deleted"] = events_result.deleted_count
-        except Exception as e:
-            logger.warning(f"Could not delete ledger_events: {e}")
-
-        _user_runtime_collections = [
-            ("balance_snapshots", db.balance_snapshots_collection),
-            ("paper_ledger", db.paper_ledger_collection),
-            ("bot_metrics", db.bot_metrics_collection),
-            ("bot_runtime_state", db.bot_runtime_state_collection),
-            ("bot_lifecycle", db.bot_lifecycle_collection),
-            ("performance_metrics", db.performance_metrics_collection),
-        ]
-        for coll_name, collection in _user_runtime_collections:
-            if collection is None:
-                continue
-            try:
-                await collection.delete_many({"user_id": user_id})
-            except Exception as e:
-                logger.warning(f"Could not clear {coll_name}: {e}")
-
-        if reset_risk_locks:
-            risk_result = await db.users_collection.update_one(
-                {"id": user_id},
-                {
-                    "$set": {
-                        "daily_loss_lock_active": False,
-                        "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
-                        "emergency_stop": False
-                    },
-                    "$unset": {
-                        "daily_loss_locked_at": "",
-                        "daily_loss_locked_reason": "",
-                        "daily_loss_pct": "",
-                        "daily_loss_day_key": ""
-                    }
-                }
-            )
-            if risk_result.modified_count > 0:
-                summary["risk_locks_reset"] = 1
-
-
-        wallet_before = {}
-        wallet_after = {}
-        try:
-            from services.paper_wallet_service import paper_wallet_service
-            wallet_result = await paper_wallet_service.reset(user_id)
-            wallet_before = wallet_result.get("wallet_before", {})
-            wallet_after = wallet_result.get("wallet_after", {})
-        except Exception as wallet_err:
-            logger.warning(f"Could not reset paper wallet (non-critical): {wallet_err}")
-
-        try:
-            if db.wallet_balances_collection is not None:
-                await db.wallet_balances_collection.delete_many({"user_id": user_id})
-        except Exception as e:
-            logger.warning(f"Could not purge wallet_balances: {e}")
-
-        try:
-            if db.capital_injections_collection is not None:
-                await db.capital_injections_collection.delete_many({"user_id": user_id})
-        except Exception as e:
-            logger.warning(f"Could not purge capital_injections: {e}")
-
-        # Store equity baseline so /api/analytics/equity knows when to start fresh
-        reset_at = datetime.now(timezone.utc).isoformat()
-        try:
-            if db.paper_reset_baselines_collection is not None:
-                await db.paper_reset_baselines_collection.update_one(
-                    {"user_id": user_id},
-                    {"$set": {"user_id": user_id, "reset_at": reset_at}},
-                    upsert=True,
-                )
-                logger.info(f"User paper-start-fresh: Stored equity baseline reset_at={reset_at} for user {user_id}")
-        except Exception as e:
-            logger.warning(f"Could not store equity baseline: {e}")
-
-        # Reset equity/drawdown series and profit ledger
-        _graph_collections = [
-            ("equity_series", "equity_series"),
-            ("drawdown_series", "drawdown_series"),
-            ("profit_ledger", "profit_ledger"),
-            ("user_countdowns", "user_countdowns"),
-            ("circuit_breaker_state", "circuit_breaker_state"),
-        ]
-        for coll_name, attr_name in _graph_collections:
-            try:
-                raw_coll = getattr(db, "db", None)
-                if raw_coll is not None:
-                    result = await raw_coll[coll_name].delete_many({"user_id": user_id})
-                    summary[f"{coll_name}_deleted"] = result.deleted_count
-            except Exception as e:
-                logger.warning(f"Could not purge {coll_name}: {e}")
-
-        # Compute post-reset invariants
-        post_reset = {}
-        invariant_warnings = []
-        try:
-            post_reset["active_bots"] = await db.bots_collection.count_documents(
-                {"user_id": user_id, "status": {"$in": ["active", "running"]}}
-            )
-            post_reset["open_positions"] = await db.trades_collection.count_documents(
-                {"user_id": user_id, "status": "open"}
-            )
-            post_reset["total_trades"] = await db.trades_collection.count_documents(
-                {"user_id": user_id}
-            )
-            post_reset["wallet_total"] = 0.0
-            from services.paper_wallet_service import paper_wallet_service as _pws
-            pw = await _pws.get_balances(user_id)
-            post_reset["wallet_total"] = float(
-                (pw.get("balances") or {}).get("ZAR", 0) or 0
-            )
-            # Check ledger equity == 0 invariant
-            try:
-                from database import get_database
-                from services.ledger_service import get_ledger_service
-                _lsvc = get_ledger_service(db.db)
-                post_reset["ledger_equity"] = round(await _lsvc.compute_equity(user_id), 4)
-                post_reset["ledger_fills"] = await db.db["fills_ledger"].count_documents({"user_id": user_id})
-                post_reset["ledger_events"] = await db.db["ledger_events"].count_documents({"user_id": user_id})
-                if post_reset["ledger_equity"] != 0:
-                    msg = f"ledger_equity={post_reset['ledger_equity']} non-zero after reset for user {user_id[:8]}"
-                    invariant_warnings.append(msg)
-                    logger.error("Post-reset invariant FAIL: %s", msg)
-            except Exception as le:
-                logger.warning(f"Ledger equity invariant check failed: {le}")
-        except Exception as e:
-            logger.warning(f"Post-reset invariant check failed: {e}")
+        wallet_before = result.get("wallet_before", {})
+        wallet_after = result.get("wallet_after", {})
+        post_reset = result.get("post_reset", {})
+        invariant_warnings = result.get("warnings", [])
 
         logger.info(
-            f"User paper-start-fresh completed for user {user_id}: "
-            f"{summary['bots_deleted']} bots deleted"
+            "User paper-start-fresh completed for user %s: %d bots deleted",
+            user_id,
+            summary["bots_deleted"],
         )
 
         return {

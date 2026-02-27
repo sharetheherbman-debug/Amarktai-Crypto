@@ -69,18 +69,24 @@ async def test_start_fresh_success_with_correct_confirmation(client, mock_admin_
 
     app.dependency_overrides[require_admin] = _override_require_admin(mock_admin_user)
     try:
-        with patch('routes.admin_start_fresh.db') as mock_db:
-            # Mock database operations
-            mock_db.bots_collection.update_many = AsyncMock(return_value=MagicMock(modified_count=5))
-            _cursor = MagicMock()
-            _cursor.to_list = AsyncMock(return_value=[{"id": "bot1"}, {"id": "bot2"}])
-            mock_db.bots_collection.find = MagicMock(return_value=_cursor)
-            mock_db.trades_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=10))
-            mock_db.orders_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=8))
-            mock_db.fills_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=15))
-            mock_db.bot_performance_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=5))
-            mock_db.users_collection.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
-            mock_db.training_sessions_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=2))
+        # Mock the orchestrator run directly so the test is isolated from DB setup.
+        mock_orch_result = {
+            "bots_soft_deleted": 5,
+            "trades_deleted": 10,
+            "orders_deleted": 8,
+            "fills_deleted": 15,
+            "telemetry_deleted": 5,
+            "risk_locks_reset": 1,
+            "wallet_before": {},
+            "wallet_after": {},
+            "warnings": [],
+            "post_reset": {},
+        }
+        with patch('routes.admin_start_fresh._orchestrator_run', new=AsyncMock(return_value=mock_orch_result)), \
+             patch('routes.admin_start_fresh.db') as mock_db:
+            mock_db.training_jobs_collection = MagicMock()
+            mock_db.training_jobs_collection.delete_many = AsyncMock()
+            mock_db.audit_logs_collection = MagicMock()
             mock_db.audit_logs_collection.insert_one = AsyncMock()
 
             response = client.post('/api/admin/start-fresh', json={

@@ -1559,104 +1559,189 @@ async def get_bot_diagnostics(bot_id: str, user_id: str = Depends(get_current_us
             "can_trade": False,
             "reasons": [],
             "gates": {},
+            "performance": {},
+            "circuit_breaker": {},
             "limits": {},
             "bodyguard": {},
             "api_keys": {},
             "recent_activity": {}
         }
-        
+
         # Check trading gates
         trading_mode = bot.get('trading_mode', 'paper')
         system_mode = user.get('system_mode') if user else 'testing'
         emergency_stop = user.get('emergency_stop', False) if user else False
-        
+
         diagnostics['gates'] = {
             "trading_mode": trading_mode,
             "system_mode": system_mode,
             "emergency_stop": emergency_stop,
             "autopilot_enabled": user.get('autopilot_enabled', True) if user else True
         }
-        
+
         # Status checks
         if bot.get('status') != 'active':
             diagnostics['reasons'].append(f"Bot status is '{bot.get('status')}', not 'active'")
-        
+
         if emergency_stop:
             diagnostics['reasons'].append("Emergency stop is enabled")
-        
+
         if bot.get('paused_by_bodyguard'):
             diagnostics['reasons'].append(f"Paused by bodyguard: {bot.get('pause_reason', 'Unknown reason')}")
-        
+
         if bot.get('paused_by_system'):
             diagnostics['reasons'].append(f"Paused by system: {bot.get('pause_reason', 'Unknown reason')}")
-        
+
+        last_order_error = bot.get('last_order_error')
+        if last_order_error:
+            diagnostics['reasons'].append(f"Last order error: {last_order_error}")
+
+        # ------------------------------------------------------------------
+        # Performance / drawdown / circuit-breaker diagnostics
+        # ------------------------------------------------------------------
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        current_capital = float(bot.get('current_capital') or 0)
+        equity_peak = float(bot.get('equity_peak') or current_capital)
+        if equity_peak <= 0:
+            equity_peak = current_capital
+
+        # Drawdown from equity_peak
+        if equity_peak > 0:
+            computed_drawdown_pct = max(0.0, (equity_peak - current_capital) / equity_peak * 100)
+        else:
+            computed_drawdown_pct = 0.0
+
+        # Daily baseline circuit breaker check
+        stored_baseline_date = bot.get('daily_baseline_date')
+        stored_baseline = float(bot.get('daily_capital_baseline') or 0)
+        circuit_breaker_loss_pct = float(bot.get('circuit_breaker_loss_pct', 0.10))
+        max_drawdown_pct_limit = float(bot.get('max_drawdown_pct', 0.15))
+
+        if (
+            not stored_baseline_date
+            or stored_baseline_date != today_str
+            or stored_baseline <= 0
+        ):
+            # Baseline is stale — would be initialized on next tick
+            daily_pnl_pct = 0.0
+            baseline_status = "stale_will_init_on_next_tick"
+        else:
+            if stored_baseline > 0:
+                daily_pnl_pct = (current_capital - stored_baseline) / stored_baseline
+            else:
+                daily_pnl_pct = 0.0
+            baseline_status = "current"
+
+        cb_would_trip = daily_pnl_pct < -circuit_breaker_loss_pct
+        dd_would_trip = (computed_drawdown_pct / 100) > max_drawdown_pct_limit
+
+        diagnostics['performance'] = {
+            "current_equity": round(current_capital, 2),
+            "equity_peak": round(equity_peak, 2),
+            "computed_drawdown_pct": round(computed_drawdown_pct, 2),
+            "daily_capital_baseline": round(stored_baseline, 2),
+            "daily_baseline_date": stored_baseline_date,
+            "baseline_status": baseline_status,
+            "daily_pnl_pct": round(daily_pnl_pct * 100, 2),
+        }
+
+        diagnostics['circuit_breaker'] = {
+            "daily_loss_limit_pct": round(circuit_breaker_loss_pct * 100, 2),
+            "max_drawdown_limit_pct": round(max_drawdown_pct_limit * 100, 2),
+            "would_trip_daily_loss": cb_would_trip,
+            "would_trip_max_drawdown": dd_would_trip,
+            "last_order_error": last_order_error,
+            "next_action": (
+                "Reset daily baseline via paper reset or wait for new day"
+                if cb_would_trip else
+                f"Reset drawdown baseline via /api/admin/bots/{bot_id}/reset-locks"
+                if dd_would_trip else
+                "No circuit breaker issues"
+            ),
+        }
+
+        if cb_would_trip:
+            diagnostics['reasons'].append(
+                f"Circuit breaker: daily loss {daily_pnl_pct*100:.1f}% exceeds limit "
+                f"{circuit_breaker_loss_pct*100:.0f}%. "
+                "Next action: reset daily baseline via paper reset."
+            )
+        if dd_would_trip:
+            diagnostics['reasons'].append(
+                f"Max drawdown {computed_drawdown_pct:.1f}% exceeds limit "
+                f"{max_drawdown_pct_limit*100:.0f}%. "
+                "Next action: reset drawdown baseline via admin reset-locks."
+            )
+
         # Check trade limits
         exchange = bot.get('exchange', 'binance')
         from engines.trade_budget_manager import trade_budget_manager
-        
+
         daily_budget = await trade_budget_manager.calculate_bot_daily_budget(bot_id, exchange)
         remaining = await trade_budget_manager.get_bot_remaining_budget(bot_id, exchange)
         can_trade_budget, budget_reason = await trade_budget_manager.can_execute_trade(bot_id, exchange)
-        
+
         diagnostics['limits'] = {
             "daily_budget": daily_budget,
             "remaining_today": remaining,
             "can_trade": can_trade_budget,
             "reason": budget_reason
         }
-        
+
         if not can_trade_budget:
             diagnostics['reasons'].append(f"Trade limit: {budget_reason}")
-        
+
         # Check bodyguard metrics
         from services.bodyguard_service import bodyguard_service
         bodyguard_status = await bodyguard_service.get_bot_drawdown_status(bot_id)
-        
+
         if bodyguard_status:
             diagnostics['bodyguard'] = bodyguard_status
-            
+
             if bodyguard_status.get('paused_by_bodyguard'):
                 diagnostics['reasons'].append(f"Bodyguard paused: {bodyguard_status.get('pause_reason', 'Drawdown exceeded')}")
-        
+
         # Check API keys
         api_key = await db.api_keys_collection.find_one({
             "user_id": user_id,
             "provider": exchange
         }, {"_id": 0})
-        
+
         diagnostics['api_keys'] = {
             "has_keys": api_key is not None,
             "connected": api_key.get('connected', False) if api_key else False,
             "provider": exchange
         }
-        
+
         if trading_mode == 'live' and not api_key:
             diagnostics['reasons'].append(f"No API keys configured for {exchange}")
-        
+
         # Recent activity
         last_trade_time = bot.get('last_trade_time') or bot.get('last_trade')
         diagnostics['recent_activity'] = {
             "last_trade_time": last_trade_time,
             "trades_count": bot.get('trades_count', 0),
-            "current_capital": bot.get('current_capital', 0),
+            "current_capital": current_capital,
             "total_profit": bot.get('total_profit', 0),
             "win_rate": bot.get('win_rate', 0)
         }
-        
+
         # Determine if bot can trade
         diagnostics['can_trade'] = (
             bot.get('status') == 'active' and
             not emergency_stop and
             not bot.get('paused_by_bodyguard') and
             not bot.get('paused_by_system') and
-            can_trade_budget
+            can_trade_budget and
+            not cb_would_trip and
+            not dd_would_trip
         )
-        
+
         if diagnostics['can_trade']:
             diagnostics['reasons'] = ["Bot is ready to trade"]
-        
+
         diagnostics['timestamp'] = datetime.now(timezone.utc).isoformat()
-        
+
         return diagnostics
         
     except HTTPException:

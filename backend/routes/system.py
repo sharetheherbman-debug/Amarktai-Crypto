@@ -15,6 +15,7 @@ import os
 
 from auth import get_current_user
 import database as db
+from services.paper_reset_orchestrator import run as _orchestrator_run
 
 logger = logging.getLogger(__name__)
 
@@ -211,9 +212,9 @@ async def reset_paper_sandbox(
 ):
     """Hard reset the paper trading sandbox for the current user.
 
-    Clears bots (paper), bot_runtime_state, bot_events, bot_lifecycle,
-    trades, orders, fills, ledger, paper_ledger, equity/drawdown series,
-    countdown timers, and wallet caches.
+    Delegates to the shared paper_reset_orchestrator which resets ALL
+    performance-related state: equity_peak, daily baselines, circuit
+    breaker state, fills, ledger, wallet allocations.
 
     Required body fields:
         confirmed: true
@@ -231,70 +232,17 @@ async def reset_paper_sandbox(
             detail=f'confirmation_phrase must be exactly "{_PAPER_RESET_CONFIRMATION_PHRASE}"',
         )
 
-    user_filter = {"user_id": user_id}
-    paper_bot_filter = {"user_id": user_id, "trading_mode": "paper"}
+    result = await _orchestrator_run(
+        user_id=user_id,
+        scope="paper_only",
+        also_reset_risk_locks=True,
+    )
 
-    results: Dict[str, int] = {}
-
-    async def _delete(collection_obj, filt: dict, label: str) -> int:
-        if collection_obj is None:
-            return 0
-        try:
-            r = await collection_obj.delete_many(filt)
-            return r.deleted_count
-        except Exception as exc:
-            logger.warning("paper-sandbox reset: failed to clear %s: %s", label, exc)
-            return 0
-
-    # Targeted paper-only deletes
-    results["bots"] = await _delete(db.bots_collection, paper_bot_filter, "bots")
-    results["bot_runtime_state"] = await _delete(db.bot_runtime_state_collection, user_filter, "bot_runtime_state")
-    results["bot_lifecycle"] = await _delete(db.bot_lifecycle_collection, user_filter, "bot_lifecycle")
-    results["trades"] = await _delete(db.trades_collection, {**user_filter, "trading_mode": "paper"}, "trades")
-    results["orders"] = await _delete(db.orders_collection, user_filter, "orders")
-    results["ledger"] = await _delete(db.ledger_collection, user_filter, "ledger")
-    results["paper_ledger"] = await _delete(db.paper_ledger_collection, user_filter, "paper_ledger")
-    results["user_countdowns"] = await _delete(db.user_countdowns_collection, user_filter, "user_countdowns")
-    results["wallet_balances"] = await _delete(db.wallet_balances_collection, user_filter, "wallet_balances")
-
-    # Collections that don't have module-level globals — access via raw db handle
-    raw_db = getattr(db, "db", None)
-    if raw_db is not None:
-        results["bot_events"] = await _delete(raw_db.bot_events, user_filter, "bot_events")
-        results["fills"] = await _delete(raw_db.fills, user_filter, "fills")
-        results["equity_series"] = await _delete(raw_db.equity_series, user_filter, "equity_series")
-        results["drawdown_series"] = await _delete(raw_db.drawdown_series, user_filter, "drawdown_series")
-        # Clear paper-scoped fills so compute_equity() returns 0 after reset
-        paper_fills_filter = {"user_id": user_id, "is_paper": True}
-        results["fills_ledger"] = await _delete(raw_db.fills_ledger, paper_fills_filter, "fills_ledger")
-        # Clear paper-scoped ledger events (bootstrap, funding, and metadata-tagged paper events)
-        paper_events_filter = {
-            "user_id": user_id,
-            "$or": [
-                {"event_type": "paper_capital_bootstrap"},
-                {"metadata.mode": "paper"},
-                {"metadata.is_paper": True},
-            ]
-        }
-        results["ledger_events"] = await _delete(raw_db.ledger_events, paper_events_filter, "ledger_events")
-        # Clear circuit breaker state so no stale trips survive reset
-        results["circuit_breaker_state"] = await _delete(raw_db.circuit_breaker_state, user_filter, "circuit_breaker_state")
-
-    # Reset paper wallet balance to 0
-    try:
-        from services.paper_wallet_service import paper_wallet_service
-        await paper_wallet_service.reset(user_id)
-        results["paper_wallet"] = 1
-    except Exception as exc:
-        logger.warning("paper-sandbox reset: paper wallet reset failed: %s", exc)
-        results["paper_wallet"] = 0
-
-    # Clear in-memory ccxt paper balances so countdown endpoints see 0
+    # Also clear in-memory ccxt paper balances so countdown endpoints see 0
     try:
         from ccxt_service import ccxt_service as _ccxt
         if hasattr(_ccxt, "paper_balances") and user_id in _ccxt.paper_balances:
             _ccxt.paper_balances[user_id] = {}
-            results["ccxt_paper_balance"] = 1
     except Exception as exc:
         logger.warning("paper-sandbox reset: ccxt paper balance clear failed: %s", exc)
 
@@ -303,40 +251,25 @@ async def reset_paper_sandbox(
         await db.audit_logs_collection.insert_one({
             "user_id": user_id,
             "action": "paper_sandbox_reset",
-            "details": results,
+            "details": result,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     except Exception:
         pass
 
-    total_deleted = sum(v for v in results.values() if isinstance(v, int))
+    total_deleted = (
+        result.get("bots_soft_deleted", 0)
+        + result.get("trades_deleted", 0)
+        + result.get("orders_deleted", 0)
+        + result.get("fills_deleted", 0)
+    )
     logger.info("Paper sandbox reset for user %s: %d documents cleared", user_id[:8], total_deleted)
-
-    # Post-reset invariant check: verify paper equity and trades are zero
-    invariant_warnings = []
-    try:
-        from services.ledger_service import get_ledger_service
-        _lsvc = get_ledger_service(db.db)
-        post_equity = round(await _lsvc.compute_equity(user_id), 4)
-        post_trades = await db.trades_collection.count_documents({"user_id": user_id, "trading_mode": "paper"})
-        # Count paper fills specifically
-        post_fills = await db.db["fills_ledger"].count_documents({"user_id": user_id, "is_paper": True}) if db.db is not None else 0
-        if post_equity != 0:
-            msg = f"ledger_equity={post_equity} non-zero after reset for user {user_id[:8]}"
-            invariant_warnings.append(msg)
-            logger.error("Post-reset invariant FAIL: %s", msg)
-        if post_fills != 0:
-            msg = f"paper_fills_ledger={post_fills} non-zero after reset for user {user_id[:8]}"
-            invariant_warnings.append(msg)
-            logger.error("Post-reset invariant FAIL: %s", msg)
-    except Exception as inv_err:
-        logger.warning("Post-reset invariant check error: %s", inv_err)
 
     return {
         "success": True,
-        "deleted": results,
+        "deleted": result,
         "total_deleted": total_deleted,
-        "invariant_warnings": invariant_warnings,
+        "invariant_warnings": result.get("warnings", []),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
