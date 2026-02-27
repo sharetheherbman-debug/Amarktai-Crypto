@@ -57,6 +57,8 @@ _EXCHANGE_BUDGETS: Dict[str, Dict] = {
 # Maximum backoff cap (seconds) — bots are never locked longer than this
 _MAX_BACKOFF_SECONDS: float = 120.0
 _MIN_BACKOFF_SECONDS: float = 1.0
+# Retry delay returned when the per-second burst slot is full (try again soon)
+_BURST_RETRY_DELAY_SECONDS: float = 0.1
 
 
 class ExchangeRateLimitBudget:
@@ -103,7 +105,7 @@ class ExchangeRateLimitBudget:
 
         # Per-second check (burst allowance)
         if len(self._second_window) >= self._burst:
-            return False, 0.1  # try again in 100ms
+            return False, _BURST_RETRY_DELAY_SECONDS
 
         # Per-minute check
         if len(self._minute_window) >= self._per_min:

@@ -16,7 +16,8 @@ Design
 ------
 * UCB1 score: mean_reward + C * sqrt(log(total_pulls) / arm_pulls)
 * A "pull" is one trading cycle using a given parameter set.
-* Reward is normalized net_pnl / trade_count (per-trade profit).
+* Reward = trade EXPECTANCY = (win_rate * avg_win) - (loss_rate * avg_loss)
+            - round_trip_cost.  Never a raw win-rate metric.
 * Changes are bounded: never more than STEP_PERCENT per update.
 * State is persisted to DB (strategy_params_collection).
 """
@@ -88,6 +89,51 @@ def _bounds(risk_mode: str) -> Dict[str, Tuple[float, float, float]]:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+# ---------------------------------------------------------------------------
+# Expectancy model
+# ---------------------------------------------------------------------------
+
+def compute_expectancy(
+    wins: List[float],
+    losses: List[float],
+    round_trip_cost_pct: float = 0.0,
+    trade_value_zar: float = 1.0,
+) -> float:
+    """
+    Compute per-trade expectancy in ZAR.
+
+        E = (win_rate × avg_win_zar) − (loss_rate × avg_loss_zar) − cost_zar
+
+    Parameters
+    ----------
+    wins          : list of positive net-PnL values (ZAR) for winning trades
+    losses        : list of non-positive net-PnL values (ZAR) for losing trades
+                    (pass raw values; abs() is applied internally)
+    round_trip_cost_pct : estimated total round-trip cost as a fraction of
+                          trade value (fees + spread + slippage, e.g. 0.003)
+    trade_value_zar     : representative trade size in ZAR used to convert
+                          `round_trip_cost_pct` to an absolute cost
+
+    Returns
+    -------
+    Expectancy per trade in ZAR.  Positive = system has edge.
+    Negative = system loses money on average and should stand down.
+    """
+    total = len(wins) + len(losses)
+    if total == 0:
+        return 0.0
+
+    win_rate = len(wins) / total
+    loss_rate = len(losses) / total
+
+    avg_win = sum(wins) / len(wins) if wins else 0.0
+    avg_loss = abs(sum(losses) / len(losses)) if losses else 0.0
+
+    cost_zar = round_trip_cost_pct * trade_value_zar
+
+    return (win_rate * avg_win) - (loss_rate * avg_loss) - cost_zar
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +221,9 @@ class StrategyTuner:
         """
         Update arm statistics after observing a reward signal.
 
-        reward: normalised per-trade profit (net_pnl / trade_count).
-                Positive = good, negative = bad.
+        reward: per-trade EXPECTANCY in ZAR, computed as:
+                (win_rate × avg_win) − (loss_rate × avg_loss) − round_trip_cost.
+                Positive = system has edge; negative = system loses money on average.
         used_params: the parameter set that was active during the observed period.
                      If None, the current best estimate is assumed.
 

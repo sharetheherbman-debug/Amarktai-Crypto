@@ -66,6 +66,8 @@ from config import (
     PORTFOLIO_GUARD_WINDOW_MINUTES,
     PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
     TRAINING_TRADES_REQUIRED,
+    MAX_DRAWDOWN_PCT,
+    MIN_EXPECTANCY_ZAR,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
 from realtime_events import rt_events
@@ -948,6 +950,40 @@ class PaperTradingEngine:
                 except Exception:
                     pass  # non-blocking
 
+            # ── Drawdown stand-down gate ────────────────────────────────────
+            # If current drawdown >= MAX_DRAWDOWN_PCT, do NOT open new trades.
+            # Closing existing trades is never affected by this gate.
+            if MAX_DRAWDOWN_PCT > 0:
+                try:
+                    from services.ledger_service import get_ledger_service
+                    _ledger = get_ledger_service(db.db)
+                    current_dd, _max_dd = await _ledger.compute_drawdown(user_id)
+                    if current_dd >= MAX_DRAWDOWN_PCT:
+                        logger.info(
+                            f"DRAWDOWN_STANDOWN bot={bot_id} user={user_id} "
+                            f"drawdown={current_dd*100:.2f}% >= limit={MAX_DRAWDOWN_PCT*100:.0f}%"
+                        )
+                        self._log_action(
+                            "SKIP", bot_id, symbol or "?",
+                            reason="drawdown_limit",
+                            bot_name=bot_data.get("name", ""),
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "drawdown_limit",
+                            "error": (
+                                f"Drawdown stand-down: current drawdown "
+                                f"{current_dd*100:.2f}% >= limit {MAX_DRAWDOWN_PCT*100:.0f}%"
+                            ),
+                            "diagnostics": {
+                                "drawdown_current_pct": round(current_dd * 100, 2),
+                                "drawdown_limit_pct": round(MAX_DRAWDOWN_PCT * 100, 2),
+                            },
+                        }
+                except Exception:
+                    pass  # drawdown gate is best-effort — never crash the engine
+
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
@@ -1066,6 +1102,46 @@ class PaperTradingEngine:
                     }
                 }
             
+            # ── Expectancy gate ──────────────────────────────────────────────
+            # Before entering, estimate whether this trade has positive expectancy.
+            # We use a simplified model: expected_move_pct as a proxy for avg_win
+            # and estimated_cost_pct as the round-trip cost.  If MIN_EXPECTANCY_ZAR
+            # is set, we also check the absolute ZAR expectancy.
+            #
+            # This is distinct from the edge gate (which only checks if expected
+            # move > cost + buffer).  The expectancy gate can be configured to a
+            # stricter threshold and is also used in the learning loop.
+            # Estimate trade size as a fraction of current capital.
+            # Use bot-level trade_size_pct if set; otherwise fall back to 10 %.
+            _position_size_pct = float(bot_data.get("trade_size_pct", 0.10))
+            trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
+            estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
+            estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
+            if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+                logger.info(
+                    f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
+                    f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
+                    f"(expected_move={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}%)"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="expectancy_gate",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "expectancy_gate",
+                    "error": "Estimated expectancy does not support this trade",
+                    "details": {
+                        "estimated_expectancy_zar": round(estimated_expectancy_zar, 4),
+                        "min_expectancy_zar": MIN_EXPECTANCY_ZAR,
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "estimated_cost_pct": round(estimated_cost_pct, 4),
+                        "trade_amount_estimate": round(trade_amount_for_exp, 2),
+                    },
+                }
+
             # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
             # Only count AI sources that are non-simulated (i.e. real data available).
             # When external APIs (Fetch.ai) are not configured their data is marked
@@ -1511,7 +1587,7 @@ class PaperTradingEngine:
                 # round-trip cost (fee_rate * 2 + spread_pct) after STAGNATION_EXIT_MINUTES.
                 # Prevents capital from being locked in dead trades.
                 fee_rate_est = float(open_trade.get("fee_rate", 0.001))
-                spread_bps = market_snapshot.get("spread_bps", 10) if market_snapshot else 10
+                spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if market_snapshot else PAPER_SPREAD_BPS
                 round_trip_cost_pct = (fee_rate_est * 2 + spread_bps / 10000) * 100
                 if abs(pnl_pct) < round_trip_cost_pct:
                     close_reason = "stagnation_exit"

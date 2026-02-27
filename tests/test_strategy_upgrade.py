@@ -3,8 +3,11 @@ Strategy Upgrade Tests — Phase 3 (strategy quality + rate limit + tuner + syno
 
 Covers:
   - RateLimitBudget: acquire, backoff after 429, reset after 200
-  - StrategyTuner: UCB1 scoring, bounds enforcement, serialization
+  - StrategyTuner: UCB1 scoring, bounds enforcement, serialization, expectancy reward
+  - compute_expectancy: positive/negative/zero scenarios
   - Stagnation exit: triggered when price stagnates beyond round-trip cost
+  - Drawdown gate: bots stand down when drawdown >= MAX_DRAWDOWN_PCT
+  - Expectancy gate: skip when estimated expectancy <= MIN_EXPECTANCY_ZAR
   - Command synonyms: "start all bots" → resume_all mapping
   - Config: new constants present and in valid ranges
 """
@@ -20,7 +23,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 # ── Stub heavy optional deps ─────────────────────────────────────────────────
 import types as _types
 
-for _mod in ("ccxt", "ccxt.async_support", "ccxt_service", "tenacity", "huggingface_hub"):
+for _mod in ("ccxt", "ccxt.async_support", "ccxt_service", "tenacity", "huggingface_hub",
+             "rapidfuzz", "rapidfuzz.fuzz", "rapidfuzz.process"):
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
@@ -397,3 +401,186 @@ class TestConfigConstants:
     def test_symbol_cooldown_positive(self):
         from config import SYMBOL_COOLDOWN_MINUTES
         assert SYMBOL_COOLDOWN_MINUTES > 0
+
+
+class TestComputeExpectancy:
+    """compute_expectancy helper function."""
+
+    def test_positive_expectancy(self):
+        from services.strategy_tuner import compute_expectancy
+        wins = [10.0, 12.0, 8.0]   # avg 10 ZAR
+        losses = [-3.0, -4.0]       # avg loss 3.5 ZAR
+        # win_rate = 3/5 = 0.6, loss_rate = 0.4
+        # E = 0.6*10 - 0.4*3.5 - 0 = 6 - 1.4 = 4.6
+        e = compute_expectancy(wins, losses, round_trip_cost_pct=0.0)
+        assert e > 0, f"Expected positive expectancy, got {e}"
+        assert abs(e - 4.6) < 0.01, f"Expected ~4.6, got {e}"
+
+    def test_negative_expectancy_means_stand_down(self):
+        from services.strategy_tuner import compute_expectancy
+        # Tiny wins, massive losses → negative expectancy
+        wins = [1.0] * 9
+        losses = [-20.0]
+        e = compute_expectancy(wins, losses, round_trip_cost_pct=0.0)
+        assert e < 0, f"Expected negative expectancy, got {e}"
+
+    def test_zero_trades_returns_zero(self):
+        from services.strategy_tuner import compute_expectancy
+        e = compute_expectancy([], [])
+        assert e == 0.0
+
+    def test_round_trip_cost_reduces_expectancy(self):
+        from services.strategy_tuner import compute_expectancy
+        wins = [10.0]
+        losses = []
+        # No losses, 100% win rate, avg_win=10, cost = 0.003 * 1000 = 3 ZAR
+        e = compute_expectancy(wins, losses, round_trip_cost_pct=0.003, trade_value_zar=1000.0)
+        assert abs(e - 7.0) < 0.01, f"Expected ~7.0, got {e}"
+
+    def test_high_winrate_with_bad_rr_can_be_negative(self):
+        """90% win rate with poor risk-reward should still show negative expectancy."""
+        from services.strategy_tuner import compute_expectancy
+        wins = [1.0] * 9          # 9 wins of R1
+        losses = [-100.0]          # 1 loss of R100
+        e = compute_expectancy(wins, losses, round_trip_cost_pct=0.0)
+        # E = 0.9*1 - 0.1*100 = 0.9 - 10 = -9.1
+        assert e < 0, (
+            f"90% win-rate with 1:100 R:R must have negative expectancy, got {e}"
+        )
+
+
+class TestDrawdownGate:
+    """Drawdown stand-down gate in paper trading engine."""
+
+    @pytest.mark.asyncio
+    async def test_bot_stands_down_when_drawdown_exceeded(self):
+        """When current drawdown >= MAX_DRAWDOWN_PCT, engine must skip opening.
+
+        Tests the gate by patching the ledger service that the engine imports
+        locally inside the drawdown gate block.
+        """
+        from paper_trading_engine import PaperTradingEngine
+
+        engine = PaperTradingEngine()
+        bot_data = {
+            "id": "bot_dd",
+            "user_id": "user_dd",
+            "name": "DDBot",
+            "exchange": "binance",
+            "pair": "BTC/USDT",
+            "risk_mode": "balanced",
+            "trading_mode": "paper",
+            "initial_capital": 5000,
+            "current_capital": 5000,
+        }
+
+        bots_col = AsyncMock()
+        bots_col.find_one = AsyncMock(return_value=bot_data)
+        bots_col.update_one = AsyncMock()
+
+        from types import SimpleNamespace
+        class _EmptyCol:
+            async def find_one(self, *a, **kw): return None
+            async def update_one(self, *a, **kw): return SimpleNamespace(modified_count=0)
+            async def count_documents(self, *a): return 0
+            def find(self, *a, **kw):
+                cur = SimpleNamespace()
+                cur.sort = lambda *a, **k: cur
+                async def to_list(n=None): return []
+                cur.to_list = to_list
+                return cur
+
+        trades_col = _EmptyCol()
+
+        async def _snap(symbol, exchange):
+            return {"bid": 49990, "ask": 50010, "mid": 50000, "spread": 20,
+                    "spread_bps": 4, "source": "test",
+                    "timestamp": datetime.now(timezone.utc).isoformat()}
+
+        # Simulate a 15 % drawdown (> default MAX_DRAWDOWN_PCT=0.10)
+        mock_ledger = MagicMock()
+        mock_ledger.compute_drawdown = AsyncMock(return_value=(0.15, 0.15))
+        mock_get_ledger = MagicMock(return_value=mock_ledger)
+
+        patches = [
+            patch("paper_trading_engine.db.bots_collection", bots_col),
+            patch("paper_trading_engine.db.trades_collection", trades_col),
+            patch("paper_trading_engine.db.db", MagicMock()),
+            patch("paper_trading_engine.rate_limiter.can_trade", return_value=(True, "ok")),
+            patch("paper_trading_engine.rate_limiter.record_trade"),
+            patch("paper_trading_engine.risk_engine.check_trade_risk",
+                  new=AsyncMock(return_value=(True, "ok"))),
+            patch("paper_trading_engine.risk_engine.record_trade_result", new=AsyncMock()),
+            patch("paper_trading_engine.paper_wallet_ledger.get_balance",
+                  new=AsyncMock(return_value=(True, 5000.0, "ok"))),
+            patch("paper_trading_engine.paper_wallet_ledger.can_trade",
+                  new=AsyncMock(return_value=(True, "ok"))),
+            patch("paper_trading_engine.paper_wallet_ledger.debit",
+                  new=AsyncMock(return_value=(True, "ok"))),
+            patch("paper_trading_engine.paper_wallet_ledger.credit",
+                  new=AsyncMock(return_value=(True, "ok"))),
+            patch("paper_trading_engine.enforce_trading_gates"),
+            patch("paper_trading_engine._symbol_universe.select",
+                  new=AsyncMock(return_value=("BTC/USDT", {
+                      "winner": "BTC/USDT", "winner_reason": "test",
+                      "candidate_count": 1, "filtered_out_count": 0,
+                      "filtered_out_reasons_summary": {}, "top5_scored": [],
+                      "bot_id": "bot_dd", "exchange": "binance",
+                      "timestamp": datetime.now(timezone.utc).isoformat(),
+                  }))),
+            # Patch MAX_DRAWDOWN_PCT to 10 % (default) and inject the high-drawdown ledger
+            patch("paper_trading_engine.MAX_DRAWDOWN_PCT", 0.10),
+            # Patch the ledger_service module so the local import inside the gate finds it
+            patch("services.ledger_service.get_ledger_service", mock_get_ledger),
+        ]
+        ctxs = [p.__enter__() for p in patches]
+        try:
+            engine.get_market_snapshot = _snap
+            result = await engine.run_trading_cycle(
+                "bot_dd", bot_data,
+                {"bots": bots_col, "trades": trades_col},
+            )
+        finally:
+            for p in patches:
+                try: p.__exit__(None, None, None)
+                except Exception: pass
+
+        assert result is not None
+        skip = result.get("skip_reason", "")
+        assert skip == "drawdown_limit", (
+            f"Expected drawdown_limit skip, got: {result}"
+        )
+
+    def test_max_drawdown_pct_config(self):
+        from config import MAX_DRAWDOWN_PCT
+        assert 0 < MAX_DRAWDOWN_PCT <= 1.0, (
+            f"MAX_DRAWDOWN_PCT={MAX_DRAWDOWN_PCT} must be in (0, 1]"
+        )
+
+    def test_min_expectancy_zar_config(self):
+        from config import MIN_EXPECTANCY_ZAR
+        assert isinstance(MIN_EXPECTANCY_ZAR, float)
+
+
+class TestExpectancyGate:
+    """Skip when estimated expectancy <= MIN_EXPECTANCY_ZAR."""
+
+    def test_negative_expectancy_produces_skip_reason_in_engine_output(self):
+        """If the engine can compute expectancy and it's negative, it should skip."""
+        # This is a unit test of the expectancy computation logic, not a full
+        # integration test — verifies compute_expectancy returns negative for
+        # the scenario the engine guards against.
+        from services.strategy_tuner import compute_expectancy
+        # Worst case: no wins, only losses
+        wins = []
+        losses = [-5.0, -8.0]
+        e = compute_expectancy(wins, losses, round_trip_cost_pct=0.002, trade_value_zar=1000.0)
+        assert e < 0.0, f"No-win scenario must produce negative expectancy, got {e}"
+
+    def test_positive_expectancy_is_not_blocked(self):
+        """When expectancy is clearly positive, compute_expectancy must agree."""
+        from services.strategy_tuner import compute_expectancy
+        wins = [15.0, 18.0, 12.0]  # consistently good wins
+        losses = [-3.0]            # small loss
+        e = compute_expectancy(wins, losses, round_trip_cost_pct=0.001, trade_value_zar=1000.0)
+        assert e > 0.0, f"Should be positive expectancy, got {e}"

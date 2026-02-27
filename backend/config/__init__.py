@@ -128,6 +128,16 @@ TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))
 # Default 5; bot auto-graduates once closed_trades_count reaches this value.
 TRAINING_TRADES_REQUIRED = int(os.getenv('TRAINING_TRADES_REQUIRED', '5'))
 
+# ── Expectancy / Drawdown guards ────────────────────────────────────────────
+# Maximum drawdown (as a fraction of peak equity) before bots stand down.
+# When realised drawdown >= MAX_DRAWDOWN_PCT, no new trades are opened.
+# Default: 0.10 (10 %).  Set 0 to disable.
+MAX_DRAWDOWN_PCT = float(os.getenv('MAX_DRAWDOWN_PCT', '0.10'))
+# Minimum estimated expectancy (ZAR per trade) required to open a trade.
+# Expectancy = (win_rate * avg_win) - (loss_rate * avg_loss) - round_trip_cost
+# 0 means "expectancy must be strictly positive". Set negative to disable.
+MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
+
 # Default paper trading pair whitelist (can be overridden per bot)
 PAPER_PAIR_WHITELIST = {
     "luno": ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR"],
@@ -236,6 +246,8 @@ __all__ = [
     'PORTFOLIO_GUARD_MAX_SAME_SYMBOL',
     'TRAINING_MAX_HOLD_MINUTES',
     'TRAINING_TRADES_REQUIRED',
+    'MAX_DRAWDOWN_PCT',
+    'MIN_EXPECTANCY_ZAR',
     'EXCHANGE_DAILY_TRADE_LIMITS',
     'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',
     'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',
