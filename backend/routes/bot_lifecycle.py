@@ -244,7 +244,16 @@ async def get_bots_status(
                 # Live bots only: marked active but training is not complete — show as training
                 state = 'training'
             elif status == 'active':
-                state = 'active'
+                # paused_by_user / paused_by_system flags take precedence even when
+                # runtime_state has overridden status to "active" — a bot cannot be
+                # simultaneously active and paused (fix for A).
+                if bot.get('paused_by_user') or bot.get('paused_by_system'):
+                    if (training_complete or is_paper) and bot.get('paused_by_user'):
+                        state = 'paused_ready'
+                    else:
+                        state = 'paused'
+                else:
+                    state = 'active'
             elif status == 'paused':
                 # Check if ready to activate (paused_ready)
                 if (training_complete or is_paper) and bot.get('paused_by_user'):

@@ -936,6 +936,9 @@ async def get_wallet_status(user_id: str = Depends(get_current_user)):
         
         return {
             "success": True,
+            # scope: this endpoint reads LIVE exchange balance snapshots only.
+            # For paper wallet balances use GET /api/wallet/paper.
+            "scope": "live_exchanges_only",
             "balances": balances,
             "active_transfers": len(active_transfers),
             "active_transfer_details": active_transfers,
@@ -1746,11 +1749,16 @@ async def why_not_trading(user_id: str = Depends(get_current_user)):
     except Exception as e:
         reasons.append({"code": "SCHEDULER_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-    # 3. Active bots — use bot_not_deleted_filter for consistency with the scheduler
+    # 3. Active bots — canonical: status=active AND NOT paused_by_user/system (C).
     try:
         from services.bot_filters import bot_not_deleted_filter
         active_bots = await db.bots_collection.count_documents(
-            bot_not_deleted_filter({"user_id": user_id, "status": "active"})
+            bot_not_deleted_filter({
+                "user_id": user_id,
+                "status": "active",
+                "paused_by_user": {"$ne": True},
+                "paused_by_system": {"$ne": True},
+            })
         )
         if active_bots == 0:
             reasons.append({"code": "NO_ACTIVE_BOTS", "severity": "critical",
@@ -1758,11 +1766,19 @@ async def why_not_trading(user_id: str = Depends(get_current_user)):
     except Exception as e:
         reasons.append({"code": "BOTS_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-    # 4. Paper wallet funded
+    # 4. Paper wallet funded — use total including ledger-allocated funds (C).
+    # A wallet is funded if available + allocated > 0 (funds may be deployed in positions).
     try:
         from services.paper_wallet_service import paper_wallet_service
+        from services.paper_wallet_ledger import paper_wallet_ledger as _pwl
         wallet = await paper_wallet_service.get_wallet_status(user_id)
-        total = wallet.get("total", 0) if wallet else 0
+        available_total = float(wallet.get("total", 0) or 0) if wallet else 0.0
+        # Include ledger-reserved (bot-allocated) funds in the funded check
+        allocated_total = await _pwl.get_user_balance(user_id)
+        # Validate: must be a non-negative number
+        if not isinstance(allocated_total, (int, float)) or allocated_total < 0:
+            allocated_total = 0.0
+        total = available_total + float(allocated_total)
         if total == 0:
             reasons.append({"code": "WALLET_UNFUNDED", "severity": "critical",
                              "message": "Paper wallet balance is 0 — fund it via dashboard"})

@@ -435,15 +435,25 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
     totals = await get_paper_wallet_balances(user_id)
     total_value = sum(float(value or 0) for value in totals.values())
 
+    # Invariant: available_wallet_zar MUST equal available["ZAR"] (B).
+    # Use the paper_wallet_service balance (unallocated funds) as the single source.
+    available_balances = available.get("balances", {})
+    available_zar = float(available_balances.get("ZAR", 0) or 0)
+    # allocated_funds_zar reflects ledger-reserved (open-position) funds (B).
+    allocated_zar = float((allocated or {}).get("ZAR", 0) or 0)
+
     return {
         "success": True,
         "mode": summary.get("mode", "paper"),
         # Bot fleet summary (feeds WalletHub active_bots / required_capital display)
         "active_bots": summary.get("active_bots_count", 0),
         "required_capital": summary.get("required_funds_zar", 0.0),
-        # Canonical wallet_summary fields
-        "available_wallet_zar": summary.get("available_wallet_zar", round(total_value, 2)),
-        "allocated_funds_zar": summary.get("allocated_funds_zar", 0.0),
+        # Canonical wallet_summary fields — invariant: available_wallet_zar == available["ZAR"]
+        "available_wallet_zar": round(available_zar, 2),
+        "allocated_funds_zar": round(allocated_zar, 2),
+        # initial_funding_zar = sum of bot initial_capital (what was deposited for bots).
+        # Kept separate from allocated_funds_zar (which reflects current ledger positions).
+        "initial_funding_zar": summary.get("allocated_funds_zar", 0.0),
         "reserved_funds_zar": summary.get("reserved_funds_zar", 0.0),
         "required_funds_zar": summary.get("required_funds_zar", 0.0),
         "shortfall_zar": summary.get("shortfall_zar", 0.0),
@@ -451,7 +461,7 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
         "funded_status": "FUNDED" if total_value > 0 else "UNFUNDED",
         # Legacy balance breakdown (kept for backward compatibility)
         "user_id": user_id,
-        "available": available.get("balances", {}),
+        "available": available_balances,
         "allocated": allocated,
         "balances": totals,
         "total": round(total_value, 2),
@@ -547,18 +557,22 @@ async def set_paper_wallet_balance(
     allocated = await get_paper_wallet_allocated_balances(user_id)
     totals = await get_paper_wallet_balances(user_id)
     total_value = sum(float(v or 0) for v in totals.values())
+    available_balances = available.get("balances", {})
+    available_zar = float(available_balances.get("ZAR", 0) or 0)
+    allocated_zar = float((allocated or {}).get("ZAR", 0) or 0)
 
     return {
         "success": True,
         "mode": summary.get("mode", "paper"),
-        "available_wallet_zar": round(request.balance_zar, 2),
-        "allocated_funds_zar": summary.get("allocated_funds_zar", 0.0),
+        "available_wallet_zar": round(available_zar, 2),
+        "allocated_funds_zar": round(allocated_zar, 2),
+        "initial_funding_zar": summary.get("allocated_funds_zar", 0.0),
         "reserved_funds_zar": summary.get("reserved_funds_zar", 0.0),
         "required_funds_zar": summary.get("required_funds_zar", 0.0),
         "shortfall_zar": summary.get("shortfall_zar", 0.0),
         "status": summary.get("status", "ok"),
         "user_id": user_id,
-        "available": available.get("balances", {}),
+        "available": available_balances,
         "allocated": allocated,
         "balances": totals,
         "total": round(total_value, 2),

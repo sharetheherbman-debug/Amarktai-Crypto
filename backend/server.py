@@ -306,17 +306,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error stopping Balance Sync Service: {e}")
     
-    # Close CCXT async sessions if trading/ccxt enabled
-    enable_trading = env_bool('ENABLE_TRADING', False)
-    enable_ccxt = env_bool('ENABLE_CCXT', True)
-    
-    if enable_ccxt or enable_trading:
-        try:
-            from paper_trading_engine import paper_engine
-            await paper_engine.close_exchanges()
-            logger.info("✅ CCXT sessions closed")
-        except Exception as e:
-            logger.error(f"Error closing CCXT sessions: {e}")
+    # Close CCXT async sessions unconditionally — avoids "Unclosed client session"
+    # warnings from aiohttp (fix for E resource leak).
+    try:
+        from paper_trading_engine import paper_engine
+        await paper_engine.close_exchanges()
+        logger.info("✅ CCXT sessions closed")
+    except Exception as e:
+        logger.error(f"Error closing CCXT sessions: {e}")
     
     # Close AI service sessions (aiohttp)
     try:
