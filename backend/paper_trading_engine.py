@@ -72,6 +72,7 @@ from config import (
     PORTFOLIO_GUARD_WINDOW_MINUTES,
     PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
     TRAINING_TRADES_REQUIRED,
+    TRAINING_MAX_HOLD_MINUTES,
     MAX_DRAWDOWN_PCT,
     MIN_EXPECTANCY_ZAR,
     SAFETY_BUFFER_PCT,
@@ -1553,6 +1554,21 @@ class PaperTradingEngine:
     async def _close_open_trade(self, bot_id: str, bot_data: Dict, open_trade: Dict) -> Optional[Dict]:
         """Close an open paper trade if exit conditions are met."""
         try:
+            # Defensive init for attributes that may be absent when the engine is
+            # instantiated via __new__() in tests (bypassing __init__).
+            if not hasattr(self, "closes_attempted"):
+                self.closes_attempted = 0
+            if not hasattr(self, "closes_done"):
+                self.closes_done = 0
+            if not hasattr(self, "closes_failed"):
+                self.closes_failed = 0
+            if not hasattr(self, "_action_log"):
+                self._action_log = deque(maxlen=20)
+            if not hasattr(self, "price_cache"):
+                self.price_cache = {}
+            if not hasattr(self, "_bot_loss_streaks"):
+                self._bot_loss_streaks = {}
+
             symbol = open_trade.get("pair") or open_trade.get("symbol")
             exchange = open_trade.get("exchange", "luno")
             market_snapshot = await self.get_market_snapshot(symbol, exchange)

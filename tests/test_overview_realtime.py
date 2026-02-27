@@ -29,6 +29,14 @@ def mock_auth():
 
 
 @pytest.fixture
+def auth_headers():
+    """Authorization headers with a valid JWT for SSE endpoint tests."""
+    from auth import create_access_token
+    token = create_access_token({"sub": "test_user_123"})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
 def mock_db():
     """Mock database operations"""
     mocks = {
@@ -43,17 +51,17 @@ def mock_db():
 class TestOverviewRealData:
     """Test that overview endpoints return real data (TASK D)"""
     
-    def test_realtime_events_endpoint_exists(self, mock_auth):
+    def test_realtime_events_endpoint_exists(self, mock_auth, auth_headers):
         """Test that /api/realtime/events SSE endpoint exists"""
         # Note: SSE endpoints stream, so we just check they're accessible
         # Full streaming test would require async client
-        response = client.get("/api/realtime/events", stream=True)
+        response = client.get("/api/realtime/events", headers=auth_headers)
         
         # Should return 200 with event-stream content type
         assert response.status_code == 200
         assert "text/event-stream" in response.headers.get("content-type", "")
     
-    def test_realtime_events_emits_overview_data(self, mock_auth, mock_db):
+    def test_realtime_events_emits_overview_data(self, mock_auth, mock_db, auth_headers):
         """Test that realtime events include real overview data"""
         # Setup mock data
         mock_cursor = MagicMock()
@@ -65,10 +73,10 @@ class TestOverviewRealData:
         
         # For SSE, we'd need to consume the stream
         # This is a simplified test that the endpoint is accessible
-        response = client.get("/api/realtime/events", stream=True)
+        response = client.get("/api/realtime/events", headers=auth_headers)
         assert response.status_code == 200
     
-    def test_overview_data_calculation(self, mock_auth, mock_db):
+    def test_overview_data_calculation(self, mock_auth, mock_db, auth_headers):
         """Test overview data is calculated from real database values"""
         # This tests the logic in realtime.py _event_generator
         # Setup mock bots with real profit/capital values
@@ -89,7 +97,7 @@ class TestOverviewRealData:
         
         # Test would verify these values appear in SSE stream
         # For now, just verify endpoint is accessible
-        response = client.get("/api/realtime/events", stream=True)
+        response = client.get("/api/realtime/events", headers=auth_headers)
         assert response.status_code == 200
 
 
@@ -116,7 +124,7 @@ class TestRealtimeEvents:
 class TestDashboardEndpoints:
     """Test dashboard endpoints return real data"""
     
-    def test_dashboard_endpoints_exist(self, mock_auth):
+    def test_dashboard_endpoints_exist(self, mock_auth, auth_headers):
         """Test that dashboard endpoints are accessible"""
         # Note: Some may require specific setup or return 404 if no data
         # Just verify they don't crash
@@ -128,7 +136,7 @@ class TestDashboardEndpoints:
         
         for endpoint in endpoints:
             try:
-                response = client.get(endpoint, stream=True if "realtime" in endpoint else False)
+                response = client.get(endpoint, headers=auth_headers)
                 # Should not crash with 500
                 assert response.status_code != 500
             except Exception as e:
@@ -138,7 +146,7 @@ class TestDashboardEndpoints:
 class TestSSEHeartbeat:
     """Test SSE heartbeat functionality"""
     
-    def test_sse_sends_heartbeat(self, mock_auth, mock_db):
+    def test_sse_sends_heartbeat(self, mock_auth, mock_db, auth_headers):
         """Test that SSE stream sends heartbeat events"""
         # Mock empty bot list
         mock_cursor = MagicMock()
@@ -150,7 +158,7 @@ class TestSSEHeartbeat:
         mock_db['trades_collection'].find.return_value = mock_cursor
         
         # Get SSE stream
-        response = client.get("/api/realtime/events", stream=True)
+        response = client.get("/api/realtime/events", headers=auth_headers)
         assert response.status_code == 200
         
         # Read first chunk (should be heartbeat)

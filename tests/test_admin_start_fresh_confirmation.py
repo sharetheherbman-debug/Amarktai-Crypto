@@ -20,12 +20,28 @@ def mock_regular_user():
     return "user_456"
 
 
+def _override_require_admin(user_id):
+    """Factory: return a FastAPI dependency that always yields *user_id*."""
+    def _dep():
+        return user_id
+    return _dep
+
+
+def _override_require_admin_raise(exc):
+    """Factory: return a FastAPI dependency that raises *exc*."""
+    def _dep():
+        raise exc
+    return _dep
+
+
 @pytest.mark.asyncio
 async def test_start_fresh_requires_confirmation(client, mock_admin_user):
     """Test that start-fresh requires exact confirmation phrase"""
-    
-    # Mock the require_admin dependency
-    with patch('backend.routes.admin_start_fresh.require_admin', return_value=mock_admin_user):
+    from server import app
+    from auth import require_admin
+
+    app.dependency_overrides[require_admin] = _override_require_admin(mock_admin_user)
+    try:
         # Test with missing confirmation
         response = client.post('/api/admin/start-fresh', json={
             "confirmation_phrase": "",
@@ -33,7 +49,7 @@ async def test_start_fresh_requires_confirmation(client, mock_admin_user):
         })
         assert response.status_code == 400
         assert "confirmation phrase" in response.json()["detail"].lower()
-        
+
         # Test with wrong confirmation
         response = client.post('/api/admin/start-fresh', json={
             "confirmation_phrase": "DELETE ALL DATA",
@@ -41,64 +57,76 @@ async def test_start_fresh_requires_confirmation(client, mock_admin_user):
         })
         assert response.status_code == 400
         assert "START FRESH" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 @pytest.mark.asyncio
 async def test_start_fresh_success_with_correct_confirmation(client, mock_admin_user):
     """Test that start-fresh works with correct confirmation"""
-    
-    with patch('backend.routes.admin_start_fresh.require_admin', return_value=mock_admin_user), \
-         patch('backend.routes.admin_start_fresh.db') as mock_db:
-        
-        # Mock database operations
-        mock_db.bots_collection.update_many = AsyncMock(return_value=MagicMock(modified_count=5))
-        mock_db.bots_collection.find = AsyncMock(return_value=MagicMock(
-            to_list=AsyncMock(return_value=[{"id": "bot1"}, {"id": "bot2"}])
-        ))
-        mock_db.trades_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=10))
-        mock_db.orders_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=8))
-        mock_db.fills_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=15))
-        mock_db.bot_performance_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=5))
-        mock_db.users_collection.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
-        mock_db.training_sessions_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=2))
-        mock_db.audit_logs_collection.insert_one = AsyncMock()
-        
-        # Test with correct confirmation
-        response = client.post('/api/admin/start-fresh', json={
-            "confirmation_phrase": "START FRESH",
-            "scope": "paper_only",
-            "also_reset_risk_locks": True
-        })
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["ok"] is True
-        assert "deleted" in data
-        assert data["deleted"]["bots_deleted"] == 5
+    from server import app
+    from auth import require_admin
+
+    app.dependency_overrides[require_admin] = _override_require_admin(mock_admin_user)
+    try:
+        with patch('routes.admin_start_fresh.db') as mock_db:
+            # Mock database operations
+            mock_db.bots_collection.update_many = AsyncMock(return_value=MagicMock(modified_count=5))
+            _cursor = MagicMock()
+            _cursor.to_list = AsyncMock(return_value=[{"id": "bot1"}, {"id": "bot2"}])
+            mock_db.bots_collection.find = MagicMock(return_value=_cursor)
+            mock_db.trades_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=10))
+            mock_db.orders_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=8))
+            mock_db.fills_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=15))
+            mock_db.bot_performance_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=5))
+            mock_db.users_collection.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+            mock_db.training_sessions_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=2))
+            mock_db.audit_logs_collection.insert_one = AsyncMock()
+
+            response = client.post('/api/admin/start-fresh', json={
+                "confirmation_phrase": "START FRESH",
+                "scope": "paper_only",
+                "also_reset_risk_locks": True
+            })
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["ok"] is True
+            assert "deleted" in data
+            assert data["deleted"]["bots_deleted"] == 5
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
-@pytest.mark.asyncio  
+@pytest.mark.asyncio
 async def test_start_fresh_non_admin_forbidden(client, mock_regular_user):
     """Test that non-admin users get 403"""
-    
     from fastapi import HTTPException
-    
-    def mock_require_admin_fail():
+    from server import app
+    from auth import require_admin
+
+    def _raise_403():
         raise HTTPException(status_code=403, detail="Admin access required")
-    
-    with patch('backend.routes.admin_start_fresh.require_admin', side_effect=mock_require_admin_fail):
+
+    app.dependency_overrides[require_admin] = _raise_403
+    try:
         response = client.post('/api/admin/start-fresh', json={
             "confirm": "START FRESH",
             "scope": "paper_only"
         })
         assert response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 @pytest.mark.asyncio
 async def test_reset_user_data_requires_confirmation(client, mock_admin_user):
     """Test that reset-user-data requires exact confirmation phrase"""
-    
-    with patch('backend.routes.admin_start_fresh.require_admin', return_value=mock_admin_user):
+    from server import app
+    from auth import require_admin
+
+    app.dependency_overrides[require_admin] = _override_require_admin(mock_admin_user)
+    try:
         # Test with missing confirmation
         response = client.post('/api/admin/reset-user-data', json={
             "confirmation_phrase": "",
@@ -107,7 +135,7 @@ async def test_reset_user_data_requires_confirmation(client, mock_admin_user):
         })
         assert response.status_code == 400
         assert "confirmation phrase" in response.json()["detail"].lower()
-        
+
         # Test with wrong confirmation
         response = client.post('/api/admin/reset-user-data', json={
             "confirmation_phrase": "RESET DATA",
@@ -116,41 +144,48 @@ async def test_reset_user_data_requires_confirmation(client, mock_admin_user):
         })
         assert response.status_code == 400
         assert "RESET USER DATA" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 @pytest.mark.asyncio
 async def test_reset_user_data_response_schema(client, mock_admin_user):
     """Test that reset-user-data returns correct response schema"""
-    
-    with patch('backend.routes.admin_start_fresh.require_admin', return_value=mock_admin_user), \
-         patch('backend.routes.admin_start_fresh.db') as mock_db:
-        
-        # Mock database operations
-        mock_db.users_collection.find_one = AsyncMock(return_value={
-            "_id": "user_123",
-            "email": "test@example.com",
-            "username": "testuser"
-        })
-        mock_db.bots_collection.count_documents = AsyncMock(return_value=3)
-        mock_db.trades_collection.count_documents = AsyncMock(return_value=0)
-        mock_db.api_keys_collection.count_documents = AsyncMock(return_value=0)
-        mock_db.bots_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=3))
-        mock_db.trades_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=0))
-        mock_db.api_keys_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=0))
-        mock_db.audit_logs_collection.insert_one = AsyncMock()
-        mock_db.audit_logs_collection.update_one = AsyncMock()
-        
-        response = client.post('/api/admin/reset-user-data', json={
-            "confirmation_phrase": "RESET USER DATA",
-            "target_user_id": "user_123",
-            "wipe_bots": True,
-            "wipe_trades": False,
-            "wipe_keys": False
-        })
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["ok"] is True
-        assert "deleted" in data
-        assert "backup_id" in data
-        assert data["deleted"]["bots"] == 3
+    from server import app
+    from auth import require_admin
+
+    app.dependency_overrides[require_admin] = _override_require_admin(mock_admin_user)
+    try:
+        with patch('routes.admin_start_fresh.db') as mock_db:
+            # Mock database operations
+            mock_db.users_collection.find_one = AsyncMock(return_value={
+                "_id": "user_123",
+                "email": "test@example.com",
+                "username": "testuser"
+            })
+            mock_db.bots_collection.count_documents = AsyncMock(return_value=3)
+            mock_db.trades_collection.count_documents = AsyncMock(return_value=0)
+            mock_db.api_keys_collection.count_documents = AsyncMock(return_value=0)
+            mock_db.bots_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=3))
+            mock_db.trades_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=0))
+            mock_db.api_keys_collection.delete_many = AsyncMock(return_value=MagicMock(deleted_count=0))
+            mock_db.audit_logs_collection.insert_one = AsyncMock()
+            mock_db.audit_logs_collection.update_one = AsyncMock()
+
+            response = client.post('/api/admin/reset-user-data', json={
+                "confirmation_phrase": "RESET USER DATA",
+                "target_user_id": "user_123",
+                "wipe_bots": True,
+                "wipe_trades": False,
+                "wipe_keys": False
+            })
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["ok"] is True
+            assert "deleted" in data
+            assert "backup_id" in data
+            assert data["deleted"]["bots"] == 3
+
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
