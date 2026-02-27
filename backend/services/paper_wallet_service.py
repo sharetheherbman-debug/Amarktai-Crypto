@@ -89,6 +89,30 @@ class PaperWalletService:
             "total": round(total, 2)
         }
 
+    async def get_wallet_status(self, user_id: str) -> Dict:
+        """Canonical wallet status for diagnostics and API consumers.
+
+        Returns:
+            {
+                "balances": {"ZAR": float, ...},
+                "total": float,
+                "available_zar": float,
+                "funded": bool,
+                "updated_at": str | None,
+            }
+        """
+        wallet = await self._ensure_wallet(user_id)
+        balances = wallet.get("balances") or {}
+        total = round(sum(float(v or 0) for v in balances.values()), 2)
+        available_zar = float(balances.get("ZAR", 0))
+        return {
+            "balances": balances,
+            "total": total,
+            "available_zar": available_zar,
+            "funded": total > 0,
+            "updated_at": wallet.get("updated_at"),
+        }
+
     async def get_available_balance(self, user_id: str, currency: str) -> float:
         wallet = await self._ensure_wallet(user_id)
         balances = wallet.get("balances") or {}

@@ -1715,15 +1715,10 @@ async def why_not_trading(user_id: str = Depends(get_current_user)):
     # 1. System mode flags
     try:
         from services.system_mode_service import system_mode_service
-        mode = await system_mode_service.get_mode()
-        paper_on = mode.get("paperTrading", False)
-        autopilot = mode.get("autopilot", False)
-        if not paper_on:
+        mode = await system_mode_service.get_mode(user_id)
+        if mode != 'paper':
             reasons.append({"code": "PAPER_DISABLED", "severity": "critical",
                              "message": "paperTrading mode is OFF — enable it in Settings"})
-        if not autopilot:
-            reasons.append({"code": "AUTOPILOT_OFF", "severity": "critical",
-                             "message": "autopilot is OFF — enable it in Settings"})
     except Exception as e:
         reasons.append({"code": "MODE_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
