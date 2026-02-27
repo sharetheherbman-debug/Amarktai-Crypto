@@ -102,6 +102,9 @@ PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 # Prevents profitable trades from lingering past half max-hold without a signal.
 # Default 60 min; set to 0 to disable.
 PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
+# Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
+# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 10 min.
+STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '10'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Default: 900 (15 min).
 SOFT_MAX_HOLD_SECONDS = int(os.getenv('SOFT_MAX_HOLD_SECONDS', '900'))
@@ -224,6 +227,7 @@ __all__ = [
     'PAPER_STALE_EXIT_MINUTES',
     'PAPER_MAX_HOLD_MINUTES',
     'PAPER_SAFETY_EXIT_MINUTES',
+    'STAGNATION_EXIT_MINUTES',
     'SOFT_MAX_HOLD_SECONDS',
     'HARD_MAX_HOLD_SECONDS',
     'SYMBOL_COOLDOWN_MINUTES',

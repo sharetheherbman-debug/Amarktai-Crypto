@@ -59,6 +59,7 @@ from config import (
     PAPER_STALE_EXIT_MINUTES,
     PAPER_MAX_HOLD_MINUTES,
     PAPER_SAFETY_EXIT_MINUTES,
+    STAGNATION_EXIT_MINUTES,
     SOFT_MAX_HOLD_SECONDS,
     HARD_MAX_HOLD_SECONDS,
     SYMBOL_COOLDOWN_MINUTES,
@@ -1308,6 +1309,16 @@ class PaperTradingEngine:
                 "expected_move_pct": round(expected_move_pct, 4),
                 "estimated_cost_pct": round(estimated_cost_pct, 4),
                 "edge_buffer_pct": EDGE_BUFFER_PCT,
+                # Planned exit deadlines (used by diagnostics and exit loop)
+                "planned_exit_deadline": (
+                    datetime.now(timezone.utc) + timedelta(seconds=SOFT_MAX_HOLD_SECONDS)
+                ).isoformat(),
+                "hard_exit_deadline": (
+                    datetime.now(timezone.utc) + timedelta(seconds=HARD_MAX_HOLD_SECONDS)
+                ).isoformat(),
+                "stagnation_deadline": (
+                    datetime.now(timezone.utc) + timedelta(minutes=STAGNATION_EXIT_MINUTES)
+                ).isoformat() if STAGNATION_EXIT_MINUTES > 0 else None,
                 # AI Intelligence metadata
                 "ai_regime": regime.get('regime', 'unknown'),
                 "ai_confidence": round(regime.get('confidence', 0), 2),
@@ -1491,6 +1502,26 @@ class PaperTradingEngine:
                 close_reason = "stale_exit"
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stale_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif (
+                STAGNATION_EXIT_MINUTES > 0
+                and age_minutes >= STAGNATION_EXIT_MINUTES
+                and entry_price > 0
+            ):
+                # Stagnation/no-progress exit: price hasn't moved beyond estimated
+                # round-trip cost (fee_rate * 2 + spread_pct) after STAGNATION_EXIT_MINUTES.
+                # Prevents capital from being locked in dead trades.
+                fee_rate_est = float(open_trade.get("fee_rate", 0.001))
+                spread_bps = market_snapshot.get("spread_bps", 10) if market_snapshot else 10
+                round_trip_cost_pct = (fee_rate_est * 2 + spread_bps / 10000) * 100
+                if abs(pnl_pct) < round_trip_cost_pct:
+                    close_reason = "stagnation_exit"
+                    logger.info(
+                        f"CLOSE_STAGNATION bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={round_trip_cost_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="stagnation_exit",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
 
             if not close_reason:
                 self.closes_attempted = max(0, self.closes_attempted - 1)  # not a real attempt
@@ -1500,6 +1531,10 @@ class PaperTradingEngine:
                 )
                 mins_to_time_exit = round(max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes), 1)
                 mins_to_hard_exit = round(max(0.0, HARD_MAX_HOLD_SECONDS / 60 - age_minutes), 1)
+                mins_to_stagnation_exit = (
+                    round(max(0.0, STAGNATION_EXIT_MINUTES - age_minutes), 1)
+                    if STAGNATION_EXIT_MINUTES > 0 else None
+                )
                 logger.info(
                     f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
@@ -1521,6 +1556,7 @@ class PaperTradingEngine:
                         "pnl_pct": round(pnl_pct, 3),
                         "mins_to_soft_exit": round(max(0.0, SOFT_MAX_HOLD_SECONDS / 60 - age_minutes), 1),
                         "mins_to_hard_exit": mins_to_hard_exit,
+                        "mins_to_stagnation_exit": mins_to_stagnation_exit,
                         "hard_exit_triggered": age_seconds >= HARD_MAX_HOLD_SECONDS,
                         "soft_exit_triggered": age_seconds >= SOFT_MAX_HOLD_SECONDS,
                     },

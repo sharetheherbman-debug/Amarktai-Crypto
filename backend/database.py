@@ -99,6 +99,8 @@ learning_metrics_collection = None
 strategy_versions_collection = None
 bot_strategy_assignments_collection = None
 action_audit_log_collection = None
+# Per-user/exchange/risk-mode UCB strategy params
+strategy_params_collection = None
 
 # ChatOps memory and audit logs
 user_memory_collection = None
@@ -283,6 +285,7 @@ async def setup_collections():
     global price_snapshots_collection
     global learning_runs_collection, learning_changes_collection, learning_metrics_collection
     global strategy_versions_collection, bot_strategy_assignments_collection, action_audit_log_collection
+    global strategy_params_collection
     global user_memory_collection, chatops_actions_collection, chatops_confirmations_collection
     global wallet_balances, capital_injections, audit_logs, funding_plans
     global paper_ledger_collection  # Phase 4A: Paper wallet ledger
@@ -372,6 +375,7 @@ async def setup_collections():
     strategy_versions_collection = db.strategy_versions
     bot_strategy_assignments_collection = db.bot_strategy_assignments
     action_audit_log_collection = db.action_audit_log
+    strategy_params_collection = db.strategy_params
 
     # ChatOps memory and audit logs
     user_memory_collection = db.user_memory

@@ -16,6 +16,12 @@ from services.rl_agent import get_rl_agent
 
 logger = logging.getLogger(__name__)
 
+# Strategy tuner import (non-blocking — missing dep never breaks the loop)
+try:
+    from services.strategy_tuner import strategy_tuner as _strategy_tuner
+except Exception:  # pragma: no cover
+    _strategy_tuner = None  # type: ignore
+
 
 class LearningLoop:
     def __init__(self):
@@ -339,6 +345,68 @@ class LearningLoop:
         improvement_ok = net_pnl >= 0 and win_rate >= 50 and (profit_factor >= 1.05 or profit_factor == float("inf"))
         if last_net_pnl is not None:
             improvement_ok = improvement_ok and net_pnl >= last_net_pnl * 1.01
+
+        # ========== Strategy Tuner (UCB1) ==========
+        # Update per-exchange, per-risk-mode parameter arms and persist to DB.
+        tuner_changes: List[Dict] = []
+        if _strategy_tuner is not None and total_trades >= 3 and not dry_run:
+            try:
+                # Compute per-trade reward signal
+                per_trade_reward = (net_pnl / total_trades) if total_trades else 0.0
+
+                # Fetch unique (exchange, risk_mode) combinations from recent bots
+                bots = await db.bots_collection.find(
+                    {"user_id": user_id, "status": {"$ne": "deleted"}},
+                    {"_id": 0, "exchange": 1, "risk_mode": 1}
+                ).to_list(200)
+                seen_combos: set = set()
+                for bot in bots:
+                    exch = bot.get("exchange", "luno")
+                    rmode = bot.get("risk_mode", "balanced")
+                    key = (exch, rmode)
+                    if key in seen_combos:
+                        continue
+                    seen_combos.add(key)
+
+                    # Load persisted state if available
+                    try:
+                        saved = await db.strategy_params_collection.find_one(
+                            {"user_id": user_id, "exchange": exch, "risk_mode": rmode},
+                            {"_id": 0}
+                        )
+                        if saved:
+                            _strategy_tuner.load_state(saved)
+                    except Exception:
+                        pass
+
+                    arm_changes = _strategy_tuner.update(
+                        user_id=user_id,
+                        exchange=exch,
+                        risk_mode=rmode,
+                        reward=per_trade_reward,
+                    )
+                    tuner_changes.extend(arm_changes)
+
+                    # Persist updated state
+                    try:
+                        state_doc = _strategy_tuner.serialize_state(user_id, exch, rmode)
+                        await db.strategy_params_collection.replace_one(
+                            {"user_id": user_id, "exchange": exch, "risk_mode": rmode},
+                            state_doc,
+                            upsert=True,
+                        )
+                    except Exception as e:
+                        logger.warning(f"strategy_tuner: persist failed ({exch}/{rmode}): {e}")
+
+                if tuner_changes:
+                    logger.info(
+                        f"📚 StrategyTuner: {len(tuner_changes)} UCB1 adjustments "
+                        f"for user {user_id[:8]}"
+                    )
+                    changes.extend(tuner_changes)
+            except Exception as e:
+                logger.warning(f"strategy_tuner integration failed: {e}")
+        # ========== End Strategy Tuner ==========
 
         sanity_check = {
             "net_pnl": round(net_pnl, 2),

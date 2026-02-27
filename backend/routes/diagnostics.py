@@ -2552,3 +2552,52 @@ async def symbol_selection_diagnostic(
         "last_n_closed_symbols": _su.last_n_symbols(bot_id or "demo"),
         **diag,
     }
+
+
+@router.get("/strategy-params")
+async def strategy_params_diagnostic(user_id: str = Depends(get_current_user)):
+    """Truth diagnostic for the UCB1 strategy tuner (per user / exchange / risk_mode).
+
+    Returns:
+      - current_params: the live parameter set being used for each (exchange, risk_mode) combo
+      - recent_changes: last 20 UCB adjustment records from strategy_params_collection
+      - rate_limit_budgets: current request budget status per exchange
+
+    All information is read-only (no state mutation).
+    """
+    # Fetch all persisted strategy param documents for this user
+    strategy_docs: List[Dict] = []
+    try:
+        strategy_docs = await db.strategy_params_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "arms": 0}  # exclude raw arm details for brevity
+        ).to_list(50)
+    except Exception:
+        pass
+
+    # Fetch recent learning changes
+    recent_changes: List[Dict] = []
+    try:
+        recent_changes = await db.learning_changes_collection.find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(20).to_list(20)
+    except Exception:
+        pass
+
+    # Rate limit budget snapshot
+    rate_budget_status: Dict = {}
+    try:
+        from services.rate_limit_budget import rate_limit_budget as _rlb
+        rate_budget_status = _rlb.get_all_status()
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "strategy_params_count": len(strategy_docs),
+        "strategy_params": strategy_docs,
+        "recent_changes": recent_changes,
+        "rate_limit_budgets": rate_budget_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
