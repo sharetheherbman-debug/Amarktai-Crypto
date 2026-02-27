@@ -105,6 +105,28 @@ PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
 # (fees + spread) for this many minutes.  Prevents idle capital.  Default: 10 min.
 STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '10'))
+# Fee break-even exit: close when the trade has been open at least this long AND
+# the unrealised PnL is definitively below -round_trip_cost_pct (the loss already
+# exceeds what fees/spread would cost even at breakeven).  Default: 10 min.
+FEE_BREAK_EVEN_WINDOW_MINUTES = int(os.getenv('FEE_BREAK_EVEN_WINDOW_MINUTES', '10'))
+# Time-decay exit: close when the trade has been open at least this long AND
+# the unrealised PnL is still below +round_trip_cost_pct (has not yet generated
+# enough profit to cover costs).  Fires after soft_max_hold so it catches trades
+# that could not exit at soft due to wide spread.  Default: 20 min.
+TIME_DECAY_EXIT_MINUTES = int(os.getenv('TIME_DECAY_EXIT_MINUTES', '20'))
+# Stop-loss cooldown: after a stop-loss on a symbol, block that symbol for this
+# many minutes before the bot can re-open it.  Longer than the regular cooldown.
+# Default: 30 min.
+STOP_LOSS_COOLDOWN_MINUTES = int(os.getenv('STOP_LOSS_COOLDOWN_MINUTES', '30'))
+# Adaptive entry threshold — losing streak guardrails:
+# LOSING_STREAK_THRESHOLD : consecutive stop-losses before confidence bar is raised.
+# LOSING_STREAK_SIGNAL_BOOST : extra avg_confidence required per active loss streak.
+# E.g. normal threshold = 0.65; after 3 losses, threshold = 0.65 + 0.10 = 0.75.
+LOSING_STREAK_THRESHOLD = int(os.getenv('LOSING_STREAK_THRESHOLD', '3'))
+LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10'))
+# Base average-confidence threshold for entry. Raised by LOSING_STREAK_SIGNAL_BOOST
+# after a losing streak. Default: 0.65 (65%).
+BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.65'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Default: 900 (15 min).
 SOFT_MAX_HOLD_SECONDS = int(os.getenv('SOFT_MAX_HOLD_SECONDS', '900'))
@@ -285,6 +307,12 @@ __all__ = [
     'PAPER_MAX_HOLD_MINUTES',
     'PAPER_SAFETY_EXIT_MINUTES',
     'STAGNATION_EXIT_MINUTES',
+    'FEE_BREAK_EVEN_WINDOW_MINUTES',
+    'TIME_DECAY_EXIT_MINUTES',
+    'STOP_LOSS_COOLDOWN_MINUTES',
+    'LOSING_STREAK_THRESHOLD',
+    'LOSING_STREAK_SIGNAL_BOOST',
+    'BASE_CONFIDENCE_THRESHOLD',
     'SOFT_MAX_HOLD_SECONDS',
     'HARD_MAX_HOLD_SECONDS',
     'SYMBOL_COOLDOWN_MINUTES',

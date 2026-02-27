@@ -33,6 +33,7 @@ from config import (
     SYMBOL_COOLDOWN_HISTORY,
     PORTFOLIO_GUARD_WINDOW_MINUTES,
     PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
+    STOP_LOSS_COOLDOWN_MINUTES,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,8 @@ DEFAULT_SYMBOL_UNIVERSE: Dict[str, List[str]] = {
 _COOLDOWN_PENALTY = 0.15  # 85% penalty during cooldown window
 # Penalty applied when a symbol already has an open trade for this user
 _DIVERSITY_PENALTY = 0.05  # 95% penalty (strongly discourage, not block outright)
+# Maximum number of stop-loss events stored per bot (avoids unbounded growth)
+_MAX_STOP_LOSS_HISTORY = 10
 
 
 class _SymbolHistory:
@@ -62,15 +65,32 @@ class _SymbolHistory:
     def __init__(self) -> None:
         # bot_id -> deque of (symbol, closed_at_utc) pairs
         self._closed: Dict[str, deque] = defaultdict(lambda: deque(maxlen=SYMBOL_COOLDOWN_HISTORY))
+        # bot_id -> list of (symbol, stop_loss_at_utc) for stop-loss specific cooldown
+        self._stop_losses: Dict[str, List] = defaultdict(list)
 
     def record_closed(self, bot_id: str, symbol: str) -> None:
         self._closed[bot_id].append((symbol, datetime.now(timezone.utc)))
+
+    def record_stop_loss(self, bot_id: str, symbol: str) -> None:
+        """Record a stop-loss close so the symbol gets a longer cooldown."""
+        self._stop_losses[bot_id].append((symbol, datetime.now(timezone.utc)))
+        # Trim to avoid unbounded growth
+        if len(self._stop_losses[bot_id]) > _MAX_STOP_LOSS_HISTORY:
+            self._stop_losses[bot_id] = self._stop_losses[bot_id][-_MAX_STOP_LOSS_HISTORY:]
 
     def recently_traded(self, bot_id: str, symbol: str, cooldown_minutes: int) -> bool:
         """Return True if *symbol* was closed within *cooldown_minutes* for *bot_id*."""
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=cooldown_minutes)
         for sym, closed_at in self._closed[bot_id]:
             if sym == symbol and closed_at >= cutoff:
+                return True
+        return False
+
+    def recently_stop_lossed(self, bot_id: str, symbol: str) -> bool:
+        """Return True if *symbol* had a stop-loss within STOP_LOSS_COOLDOWN_MINUTES."""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=STOP_LOSS_COOLDOWN_MINUTES)
+        for sym, sl_at in self._stop_losses.get(bot_id, []):
+            if sym == symbol and sl_at >= cutoff:
                 return True
         return False
 
@@ -92,6 +112,10 @@ class SymbolUniverseService:
     def record_closed(self, bot_id: str, symbol: str) -> None:
         """Call this whenever a trade is closed so anti-repeat tracking stays current."""
         _symbol_history.record_closed(bot_id, symbol)
+
+    def record_stop_loss(self, bot_id: str, symbol: str) -> None:
+        """Call this on a stop-loss close to apply the longer stop-loss cooldown."""
+        _symbol_history.record_stop_loss(bot_id, symbol)
 
     async def select(
         self,
@@ -166,6 +190,13 @@ class SymbolUniverseService:
             if _symbol_history.recently_traded(bot_id, sym, cooldown_minutes):
                 score *= _COOLDOWN_PENALTY
                 notes.append(f"cooldown_penalty({cooldown_minutes}min)")
+
+            # Stop-loss cooldown: extra heavy penalty after a stop-loss on this symbol.
+            # Applied on top of the regular cooldown to discourage immediately re-entering
+            # a symbol that just triggered a stop-loss (typically means adverse momentum).
+            if _symbol_history.recently_stop_lossed(bot_id, sym):
+                score *= _COOLDOWN_PENALTY  # additional 85% penalty
+                notes.append(f"stop_loss_cooldown({STOP_LOSS_COOLDOWN_MINUTES}min)")
 
             # Diversity guard: user already has an open trade on this symbol
             if sym in open_symbols:

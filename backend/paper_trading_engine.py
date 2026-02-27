@@ -60,6 +60,12 @@ from config import (
     PAPER_MAX_HOLD_MINUTES,
     PAPER_SAFETY_EXIT_MINUTES,
     STAGNATION_EXIT_MINUTES,
+    FEE_BREAK_EVEN_WINDOW_MINUTES,
+    TIME_DECAY_EXIT_MINUTES,
+    STOP_LOSS_COOLDOWN_MINUTES,
+    LOSING_STREAK_THRESHOLD,
+    LOSING_STREAK_SIGNAL_BOOST,
+    BASE_CONFIDENCE_THRESHOLD,
     SOFT_MAX_HOLD_SECONDS,
     HARD_MAX_HOLD_SECONDS,
     SYMBOL_COOLDOWN_MINUTES,
@@ -356,6 +362,10 @@ class PaperTradingEngine:
         # Close-attempt tracking for diagnostics (C2)
         self.closes_attempted: int = 0
         self.closes_done: int = 0
+
+        # Per-bot consecutive stop-loss counter for adaptive confidence threshold.
+        # Incremented on stop_loss close; reset on any take_profit close.
+        self._bot_loss_streaks: Dict[str, int] = {}
 
         # Last symbol-selection diagnostics (C1)
         self._last_symbol_selection: dict = {}
@@ -1231,12 +1241,21 @@ class PaperTradingEngine:
 
             # Require at least 1 confident source when ≤2 sources are available,
             # or at least 2 when 3+ sources are available.
+            # Adaptive boost: after LOSING_STREAK_THRESHOLD consecutive stop-losses,
+            # raise the avg_confidence bar by LOSING_STREAK_SIGNAL_BOOST to filter
+            # low-quality entries more aggressively.
             min_sources_required = 1 if available_sources <= 2 else 2
             avg_confidence = total_confidence / max(confidence_sources, 1)
-            if confidence_sources < min_sources_required or avg_confidence < 0.65:
+            _loss_streak = self._bot_loss_streaks.get(bot_id, 0)
+            if _loss_streak >= LOSING_STREAK_THRESHOLD:
+                _conf_threshold = BASE_CONFIDENCE_THRESHOLD + LOSING_STREAK_SIGNAL_BOOST
+            else:
+                _conf_threshold = BASE_CONFIDENCE_THRESHOLD
+            if confidence_sources < min_sources_required or avg_confidence < _conf_threshold:
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
-                    f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%}"
+                    f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
+                    f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak}"
                 )
                 return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             
@@ -1676,6 +1695,46 @@ class PaperTradingEngine:
                     self._log_action("CLOSE", bot_id, symbol or "?", reason="stagnation_exit",
                                      trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
 
+            # ── Fee-aware supplementary exits ────────────────────────────────────
+            # These run as a second pass after the primary elif chain so they cannot
+            # shadow earlier exits (take_profit, stop_loss, hard_max_hold, etc.).
+            # Both require entry_price to be set (sanity guard).
+            if not close_reason and entry_price > 0:
+                _fee_rate_rt = float(open_trade.get("fee_rate", 0.001))
+                _spread_bps_rt = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if market_snapshot else PAPER_SPREAD_BPS
+                _round_trip_pct = (_fee_rate_rt * 2 + _spread_bps_rt / 10000) * 100
+
+                if (
+                    FEE_BREAK_EVEN_WINDOW_MINUTES > 0
+                    and age_minutes >= FEE_BREAK_EVEN_WINDOW_MINUTES
+                    and pnl_pct < -_round_trip_pct
+                ):
+                    # Trade is definitively losing after fees — the loss already exceeds
+                    # what a round-trip costs.  Exit now rather than waiting for stop-loss.
+                    close_reason = "fee_break_even_fail"
+                    logger.info(
+                        f"CLOSE_FEE_BREAK_EVEN bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={_round_trip_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="fee_break_even_fail",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+                elif (
+                    TIME_DECAY_EXIT_MINUTES > 0
+                    and age_minutes >= TIME_DECAY_EXIT_MINUTES
+                    and pnl_pct < _round_trip_pct
+                ):
+                    # After TIME_DECAY_EXIT_MINUTES the trade has not generated enough
+                    # profit to cover its round-trip cost.  Free capital rather than holding.
+                    close_reason = "time_decay_exit"
+                    logger.info(
+                        f"CLOSE_TIME_DECAY bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={_round_trip_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="time_decay_exit",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+
             if not close_reason:
                 self.closes_attempted = max(0, self.closes_attempted - 1)  # not a real attempt
                 mins_to_safety = (
@@ -1844,7 +1903,15 @@ class PaperTradingEngine:
 
             self.last_close_time = datetime.now(timezone.utc).isoformat()
             self.closes_done += 1
-            # Anti-repeat: record the closed symbol so next selection applies cooldown
+            # Anti-repeat: record the closed symbol so next selection applies cooldown.
+            # For stop-loss closes, apply the longer stop-loss-specific cooldown.
+            if close_reason == "stop_loss":
+                _symbol_universe.record_stop_loss(bot_id, symbol or "")
+                # Increment per-bot loss streak for adaptive confidence gate
+                self._bot_loss_streaks[bot_id] = self._bot_loss_streaks.get(bot_id, 0) + 1
+            elif close_reason == "take_profit":
+                # Reset loss streak on any win
+                self._bot_loss_streaks[bot_id] = 0
             _symbol_universe.record_closed(bot_id, symbol or "")
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
