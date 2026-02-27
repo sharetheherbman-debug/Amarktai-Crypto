@@ -279,7 +279,15 @@ class TradingScheduler:
             
             if not active_bots:
                 return
-            
+
+            # Record tick timestamp for each evaluated bot so that diagnostics
+            # endpoints always show a fresh last_tick_at (single source of truth).
+            for _tick_bot in active_bots:
+                try:
+                    await bot_runtime_state.record_tick(_tick_bot['id'], _tick_bot['user_id'])
+                except Exception:
+                    pass
+
             # Process ready trades from queue
             logger.debug("🔍 Checking trade queue for ready trades...")
             # Build a fast lookup set of active bot IDs to detect stale queue entries

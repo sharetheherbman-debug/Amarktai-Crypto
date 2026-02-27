@@ -17,12 +17,12 @@ class SystemModeService:
     
     VALID_MODES = ['paper', 'live']
     
-    async def get_current_mode(self, user_id: str) -> str:
-        """Get current system mode for user
-        
+    async def get_mode(self, user_id: str) -> str:
+        """Canonical interface: get current system mode for user.
+
         Args:
             user_id: User ID
-            
+
         Returns:
             'paper' or 'live'
         """
@@ -31,23 +31,27 @@ class SystemModeService:
                 {"user_id": user_id},
                 {"_id": 0}
             )
-            
+
             if not modes:
-                # Default to paper mode
+                logger.debug("No mode document for user %s — defaulting to paper", user_id[:8])
                 return 'paper'
-            
+
             # Check which mode is active
             if modes.get('liveTrading'):
                 return 'live'
             elif modes.get('paperTrading'):
                 return 'paper'
             else:
-                # Default to paper if neither set
+                logger.debug("Mode document has no active flag for user %s — defaulting to paper", user_id[:8])
                 return 'paper'
-                
+
         except Exception as e:
-            logger.error(f"Get current mode error: {e}")
+            logger.error("get_mode error for user %s: %s", user_id[:8], e)
             return 'paper'  # Safe default
+
+    async def get_current_mode(self, user_id: str) -> str:
+        """Compatibility alias for get_mode.  Prefer get_mode() in new code."""
+        return await self.get_mode(user_id)
     
     async def set_mode(
         self, 
