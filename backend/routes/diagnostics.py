@@ -2053,9 +2053,187 @@ async def last_tick_summary_v2(user_id: str = Depends(get_current_user)):
         "opens_done": opens_done,
         "closes_attempted": closes_attempted,
         "closes_done": closes_done,
+        "closes_failed": closes_failed,
         "skips_by_reason": skips_by_reason,
         "rejects_by_reason": rejects_by_reason,
         "last_error": last_error,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/paper-close-proof")
+async def paper_close_proof(user_id: str = Depends(get_current_user)):
+    """Deterministic paper-close proof diagnostic (auth required).
+
+    All counts are derived from the DB so this endpoint is accurate across
+    restarts and does not rely on in-memory counters.
+
+    Returns
+    -------
+    open_trades_count           : number of trades currently open for this user
+    oldest_open_trade_age_minutes : age in minutes of the oldest open trade (or null)
+    closes_attempted_last_5m    : trades transitioned to closed/completed OR failed in last 5 min
+    closes_done_last_5m         : trades that reached status closed/completed in last 5 min
+    last_close_at               : ISO timestamp of the last successful paper-engine close (or null)
+    last_10_closes              : list of up to 10 recent closed trades with id + close_reason
+    """
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    now = datetime.now(timezone.utc)
+
+    try:
+        open_trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "open"},
+            {"_id": 0, "id": 1, "opened_at": 1, "entry_time": 1, "timestamp": 1},
+        ).sort([("opened_at", 1), ("_id", 1)]).to_list(200)
+    except Exception:
+        open_trades = []
+
+    open_trades_count = len(open_trades)
+
+    oldest_open_trade_age_minutes = None
+    if open_trades:
+        oldest_raw = (
+            open_trades[0].get("opened_at")
+            or open_trades[0].get("entry_time")
+            or open_trades[0].get("timestamp")
+        )
+        if oldest_raw:
+            try:
+                oldest_dt = datetime.fromisoformat(str(oldest_raw).replace("Z", "+00:00"))
+                oldest_open_trade_age_minutes = round((now - oldest_dt).total_seconds() / 60, 1)
+            except Exception:
+                pass
+
+    try:
+        closes_done_last_5m = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "status": {"$in": ["closed", "completed"]},
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]},
+        })
+        closes_failed_last_5m = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "status": "failed",
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]},
+        })
+    except Exception:
+        closes_done_last_5m = 0
+        closes_failed_last_5m = 0
+
+    closes_attempted_last_5m = closes_done_last_5m + closes_failed_last_5m
+
+    # last_close_at from the paper engine singleton
+    last_close_at = None
+    try:
+        from paper_trading_engine import paper_engine
+        last_close_at = paper_engine.get_status().get("last_close_time")
+    except Exception:
+        pass
+
+    # last 10 closed trades
+    try:
+        recent_closes = await db.trades_collection.find(
+            {"user_id": user_id, "status": {"$in": ["closed", "completed"]}},
+            {"_id": 0, "id": 1, "trade_close_reason": 1, "closed_at": 1, "pair": 1},
+        ).sort([("closed_at", -1), ("_id", -1)]).to_list(10)
+    except Exception:
+        recent_closes = []
+
+    return {
+        "success": True,
+        "open_trades_count": open_trades_count,
+        "oldest_open_trade_age_minutes": oldest_open_trade_age_minutes,
+        "closes_attempted_last_5m": closes_attempted_last_5m,
+        "closes_done_last_5m": closes_done_last_5m,
+        "last_close_at": last_close_at,
+        "last_10_closes": [
+            {
+                "id": t.get("id"),
+                "close_reason": t.get("trade_close_reason"),
+                "pair": t.get("pair"),
+                "closed_at": t.get("closed_at"),
+            }
+            for t in recent_closes
+        ],
+        "timestamp": now.isoformat(),
+    }
+
+
+@router.get("/news-sources")
+async def news_sources_diagnostic(user_id: str = Depends(get_current_user)):
+    """Provider diagnostics for CoinStats and other configured news providers (auth required).
+
+    Returns structured status for each provider so the frontend can display
+    exactly what is configured, when it last ran, and why articles may be missing.
+
+    Returns
+    -------
+    success     : bool
+    providers   : list of provider status objects
+    timestamp   : ISO timestamp
+    """
+    from services.news_coinstats import coinstats_provider, resolve_coinstats_key
+
+    # CoinStats diagnostics
+    key, key_source = await resolve_coinstats_key(user_id)
+    cached = coinstats_provider._cache or {}
+    articles = cached.get("articles", [])
+    cache_ts = coinstats_provider._cache_ts
+    cache_age_seconds: int | None = None
+    if cache_ts is not None:
+        try:
+            cache_age_seconds = int((datetime.now(timezone.utc) - cache_ts).total_seconds())
+        except Exception:
+            pass
+
+    # Derive fetch_status from provider state
+    last_err = coinstats_provider._last_error
+    if not key:
+        fetch_status = "key_missing"
+    elif last_err and "429" in str(last_err):
+        fetch_status = "rate_limited"
+    elif last_err and "401" in str(last_err):
+        fetch_status = "invalid_key"
+    elif last_err:
+        fetch_status = "error"
+    elif cache_ts is None:
+        fetch_status = "pending"
+    elif articles:
+        fetch_status = "ok"
+    else:
+        fetch_status = "no_articles"
+
+    coinstats_entry = {
+        "provider": "coinstats",
+        "configured": bool(key),
+        "key_source": key_source,
+        "last_run_at": cached.get("fetched_at"),
+        "last_ok_at": cached.get("fetched_at") if articles else None,
+        "last_error": last_err,
+        "fetch_status": fetch_status,
+        "last_articles_count": len(articles),
+        "cache_age_seconds": cache_age_seconds,
+        "http_status_last": None,  # not tracked per-request; test_connection covers this
+    }
+
+    # GDELT stub entry (secondary provider when configured)
+    import os
+    news_provider = os.getenv("NEWS_PROVIDER", "coinstats").lower()
+    gdelt_entry = {
+        "provider": "gdelt",
+        "configured": news_provider == "gdelt",
+        "key_source": "none",
+        "last_run_at": None,
+        "last_ok_at": None,
+        "last_error": None,
+        "fetch_status": "not_primary" if news_provider != "gdelt" else "pending",
+        "last_articles_count": 0,
+        "cache_age_seconds": None,
+        "http_status_last": None,
+    }
+
+    return {
+        "success": True,
+        "providers": [coinstats_entry, gdelt_entry],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

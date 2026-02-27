@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 NEWS_ENABLED: bool = os.getenv("NEWS_ENABLED", "true").lower() == "true"
+NEWS_PROVIDER: str = os.getenv("NEWS_PROVIDER", "coinstats").lower()
 NEWS_CACHE_TTL_SECONDS: int = int(os.getenv("NEWS_CACHE_TTL_SECONDS", "300"))
 HF_ENABLED: bool = os.getenv("HF_ENABLED", "true").lower() == "true"
 HF_DEFAULT_SENTIMENT_MODEL: str = os.getenv(
@@ -255,9 +256,39 @@ class CoinStatsNewsProvider:
                         return []
                     data = await resp.json(content_type=None)
 
-            raw = data if isinstance(data, list) else data.get("news", data.get("data", []))
+            # Try all known response shapes:
+            #   - plain list                   (older v1)
+            #   - {"news": [...]}              (openapiv1)
+            #   - {"data": [...]}              (some versions)
+            #   - {"result": [...]}            (alternate key)
+            #   - {"items": [...]}             (alternate key)
+            _SCHEMA_WARN_EMITTED = False
+            if isinstance(data, list):
+                raw = data
+            elif isinstance(data, dict):
+                raw = (
+                    data.get("news")
+                    or data.get("data")
+                    or data.get("result")
+                    or data.get("items")
+                    or []
+                )
+                if not raw:
+                    # Warn with the actual response keys so operator can diagnose
+                    top_keys = list(data.keys())[:8]
+                    self._rate_warn(
+                        f"CoinStats returned HTTP 200 but articles=0. "
+                        f"Response keys: {top_keys}. "
+                        f"Check NEWS_PROVIDER or COINSTATS_API_KEY."
+                    )
+                    _SCHEMA_WARN_EMITTED = True
+            else:
+                raw = []
+
             articles = []
             for item in raw:
+                if not isinstance(item, dict):
+                    continue
                 articles.append({
                     "id": item.get("id") or item.get("feedId", ""),
                     "title": item.get("title", ""),
@@ -265,13 +296,21 @@ class CoinStatsNewsProvider:
                     "source": item.get("source", ""),
                     "published_at": _parse_ts(item.get("feedDate") or item.get("publishedAt")),
                     "tags": item.get("categories", []) or item.get("tags", []),
-                    "coins": [c.get("name") or c for c in (item.get("relatedCoins") or [])][:5],
+                    "coins": [c.get("name") if isinstance(c, dict) else c
+                              for c in (item.get("relatedCoins") or [])][:5],
                     "summary": (item.get("description") or "")[:300],
                     "provider": "coinstats",
                 })
 
-            self._last_error = None
-            logger.info("CoinStats: fetched %d articles", len(articles))
+            if articles:
+                self._last_error = None
+                logger.info("CoinStats: fetched %d articles", len(articles))
+            elif not _SCHEMA_WARN_EMITTED:
+                # 200 OK but truly empty list — warn once per interval
+                self._rate_warn(
+                    "CoinStats: fetched 0 articles (HTTP 200, empty list). "
+                    "Check COINSTATS_API_KEY or set NEWS_PROVIDER=gdelt as fallback."
+                )
             return articles
 
         except asyncio.TimeoutError:
