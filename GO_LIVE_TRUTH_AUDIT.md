@@ -503,7 +503,7 @@ Price Feed (CCXT fetch_ticker)
 | `MONGO_URL` | ✅ | `mongodb://localhost:27017` | Must configure for production |
 | `JWT_SECRET` | ✅ | `your-secret-key-change-in-production` | **MUST CHANGE** |
 | `AMARKTAI_FERNET_KEY` | ✅ | None | Required for API key encryption |
-| `PAPER_RESET_PASSWORD` | ✅ | `Ashmor12@` (in .env.example) | **MUST CHANGE** |
+| `PAPER_RESET_PASSWORD` | ✅ | Weak default in `.env.example` | **MUST CHANGE** |
 | `BUILD_HASH`/`BUILD_SHA` | Optional | `"unknown"` | Diagnostics show unknown |
 | `ENABLE_LEARNING_LOOP` | Optional | `false` | Learning disabled by default |
 | `REDIS_ENABLED` | Optional | `false` | Single-worker mode |
