@@ -16,6 +16,12 @@ from services.rl_agent import get_rl_agent
 
 logger = logging.getLogger(__name__)
 
+# Strategy tuner import (non-blocking — missing dep never breaks the loop)
+try:
+    from services.strategy_tuner import strategy_tuner as _strategy_tuner
+except Exception:  # pragma: no cover
+    _strategy_tuner = None  # type: ignore
+
 
 class LearningLoop:
     def __init__(self):
@@ -104,7 +110,13 @@ class LearningLoop:
 
         trades = await db.trades_collection.find(
             {"user_id": user_id, "status": "closed"},
-            {"_id": 0, "profit_loss": 1, "net_pnl": 1, "gross_pnl": 1, "fees_total": 1, "slippage_cost": 1, "timestamp": 1}
+            {
+                "_id": 0,
+                "profit_loss": 1, "net_pnl": 1, "gross_pnl": 1,
+                "fees_total": 1, "slippage_cost": 1, "timestamp": 1,
+                # Entry values used to compute round-trip cost percentage accurately
+                "trade_amount": 1, "entry_value": 1,
+            }
         ).sort("timestamp", -1).limit(trade_limit).to_list(trade_limit)
 
         window_start = window_end - timedelta(days=1)
@@ -124,6 +136,28 @@ class LearningLoop:
         profit_factor = (sum(wins) / abs(sum(losses))) if losses else float("inf")
         fees_total = sum(t.get("fees_total", 0) for t in trades)
         slippage_total = sum(t.get("slippage_cost", 0) for t in trades)
+
+        # Compute expectancy (primary metric — replaces win-rate as optimisation target).
+        # round_trip_cost_pct = total_costs / total_turnover (accurate, not relative to PnL).
+        total_turnover = sum(
+            t.get("trade_amount", t.get("entry_value", 0)) for t in trades
+        )
+        if total_turnover > 0:
+            round_trip_cost_pct = (fees_total + slippage_total) / total_turnover
+        else:
+            round_trip_cost_pct = 0.003  # fallback 0.3 % when trade values unavailable
+        avg_trade_value = (total_turnover / total_trades) if total_trades else 1000.0
+        try:
+            from services.strategy_tuner import compute_expectancy
+            expectancy_zar = compute_expectancy(
+                wins=wins,
+                losses=losses,
+                round_trip_cost_pct=round_trip_cost_pct,
+                trade_value_zar=avg_trade_value,
+            )
+        except Exception:
+            expectancy_zar = (net_pnl / total_trades) if total_trades else 0.0
+
         drawdown_current = None
         drawdown_max = None
         try:
@@ -150,6 +184,7 @@ class LearningLoop:
             "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else None,
             "fees_total": round(fees_total, 2),
             "slippage_total": round(slippage_total, 2),
+            "expectancy_zar": round(expectancy_zar, 4),
             "drawdown_current": drawdown_current,
             "drawdown_max": drawdown_max,
             "timestamp": window_end.isoformat()
@@ -336,15 +371,90 @@ class LearningLoop:
             rollback_threshold = 0.9
         rollback = last_net_pnl is not None and net_pnl < last_net_pnl * rollback_threshold
 
-        improvement_ok = net_pnl >= 0 and win_rate >= 50 and (profit_factor >= 1.05 or profit_factor == float("inf"))
+        # Improvement check uses EXPECTANCY (not win-rate) as the primary signal.
+        # A strategy improves when per-trade expectancy is positive and the period
+        # net PnL is at least as good as the prior run.  Win-rate alone is NOT
+        # sufficient — a high win-rate with tiny wins and large losses is not an
+        # improvement.
+        try:
+            min_expectancy = float(os.getenv("MIN_EXPECTANCY_ZAR", "0"))
+        except ValueError:
+            min_expectancy = 0.0
+        improvement_ok = (
+            expectancy_zar > min_expectancy
+            and profit_factor >= 1.05
+        )
         if last_net_pnl is not None:
             improvement_ok = improvement_ok and net_pnl >= last_net_pnl * 1.01
+
+        # ========== Strategy Tuner (UCB1) ==========
+        # Reward signal = EXPECTANCY per trade (ZAR), not win-rate.
+        tuner_changes: List[Dict] = []
+        if _strategy_tuner is not None and total_trades >= 3 and not dry_run:
+            try:
+                # Use expectancy as the UCB reward signal
+                tuner_reward = expectancy_zar
+
+                # Fetch unique (exchange, risk_mode) combinations from recent bots
+                bots = await db.bots_collection.find(
+                    {"user_id": user_id, "status": {"$ne": "deleted"}},
+                    {"_id": 0, "exchange": 1, "risk_mode": 1}
+                ).to_list(200)
+                seen_combos: set = set()
+                for bot in bots:
+                    exch = bot.get("exchange", "luno")
+                    rmode = bot.get("risk_mode", "balanced")
+                    key = (exch, rmode)
+                    if key in seen_combos:
+                        continue
+                    seen_combos.add(key)
+
+                    # Load persisted state if available
+                    try:
+                        saved = await db.strategy_params_collection.find_one(
+                            {"user_id": user_id, "exchange": exch, "risk_mode": rmode},
+                            {"_id": 0}
+                        )
+                        if saved:
+                            _strategy_tuner.load_state(saved)
+                    except Exception:
+                        pass
+
+                    arm_changes = _strategy_tuner.update(
+                        user_id=user_id,
+                        exchange=exch,
+                        risk_mode=rmode,
+                        reward=tuner_reward,
+                    )
+                    tuner_changes.extend(arm_changes)
+
+                    # Persist updated state
+                    try:
+                        state_doc = _strategy_tuner.serialize_state(user_id, exch, rmode)
+                        await db.strategy_params_collection.replace_one(
+                            {"user_id": user_id, "exchange": exch, "risk_mode": rmode},
+                            state_doc,
+                            upsert=True,
+                        )
+                    except Exception as e:
+                        logger.warning(f"strategy_tuner: persist failed ({exch}/{rmode}): {e}")
+
+                if tuner_changes:
+                    logger.info(
+                        f"📚 StrategyTuner: {len(tuner_changes)} UCB1 adjustments "
+                        f"for user {user_id[:8]}"
+                    )
+                    changes.extend(tuner_changes)
+            except Exception as e:
+                logger.warning(f"strategy_tuner integration failed: {e}")
+        # ========== End Strategy Tuner ==========
 
         sanity_check = {
             "net_pnl": round(net_pnl, 2),
             "win_rate": round(win_rate, 2),
+            "expectancy_zar": round(expectancy_zar, 4),
             "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else None,
-            "passes": improvement_ok
+            "passes": improvement_ok,
         }
 
         summary_lines = []

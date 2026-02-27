@@ -59,8 +59,17 @@ from config import (
     PAPER_STALE_EXIT_MINUTES,
     PAPER_MAX_HOLD_MINUTES,
     PAPER_SAFETY_EXIT_MINUTES,
+    STAGNATION_EXIT_MINUTES,
+    SOFT_MAX_HOLD_SECONDS,
+    HARD_MAX_HOLD_SECONDS,
+    SYMBOL_COOLDOWN_MINUTES,
+    PORTFOLIO_GUARD_WINDOW_MINUTES,
+    PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
     TRAINING_TRADES_REQUIRED,
+    MAX_DRAWDOWN_PCT,
+    MIN_EXPECTANCY_ZAR,
 )
+from services.symbol_universe import symbol_universe as _symbol_universe
 from realtime_events import rt_events
 
 # Module-level imports for AI/market-intelligence providers.
@@ -332,6 +341,13 @@ class PaperTradingEngine:
         self.last_trade_simulation = None
         self.last_error = None
         self.trade_count = 0
+
+        # Close-attempt tracking for diagnostics (C2)
+        self.closes_attempted: int = 0
+        self.closes_done: int = 0
+
+        # Last symbol-selection diagnostics (C1)
+        self._last_symbol_selection: dict = {}
 
         # Ring buffer of the last 20 engine actions for diagnostics
         self._action_log: deque = deque(maxlen=20)
@@ -867,11 +883,107 @@ class PaperTradingEngine:
                 }
             if requested_symbol and requested_symbol in available_pairs:
                 symbol = requested_symbol
+                self._last_symbol_selection = {
+                    "winner": symbol, "winner_reason": "bot_requested",
+                    "candidate_count": len(available_pairs),
+                    "filtered_out_count": 0, "filtered_out_reasons_summary": {},
+                    "top5_scored": [], "bot_id": bot_id, "exchange": exchange,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
             else:
                 if not available_pairs and allowed_pairs:
                     available_pairs = allowed_pairs
-                symbol = available_pairs[0] if available_pairs else 'BTC/USDT'
-            
+                # Portfolio guard: fetch open symbol set for this user to apply
+                # diversity scoring (non-blocking – ignore errors).
+                open_symbols_for_user: List[str] = []
+                try:
+                    open_trades_cursor = db.trades_collection.find(
+                        {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}
+                    )
+                    open_trades_list = await open_trades_cursor.to_list(100)
+                    open_symbols_for_user = [
+                        t.get("pair") or t.get("symbol", "")
+                        for t in open_trades_list
+                        if t.get("pair") or t.get("symbol")
+                    ]
+                except Exception:
+                    pass
+
+                selected, sym_diag = await _symbol_universe.select(
+                    bot_id=bot_id,
+                    user_id=user_id,
+                    exchange=exchange,
+                    available_pairs=available_pairs if available_pairs else (allowed_pairs or ["BTC/USDT"]),
+                    open_symbols_for_user=open_symbols_for_user,
+                    bot_override_universe=bot_data.get("symbol_universe"),
+                )
+                symbol = selected or (available_pairs[0] if available_pairs else "BTC/USDT")
+                self._last_symbol_selection = sym_diag
+
+            # Portfolio guard (C3): prevent >PORTFOLIO_GUARD_MAX_SAME_SYMBOL concurrent
+            # opens on the same symbol per user within PORTFOLIO_GUARD_WINDOW_MINUTES.
+            # Only blocks opening NEW trades; never affects closing.
+            if PORTFOLIO_GUARD_MAX_SAME_SYMBOL > 0:
+                try:
+                    cutoff = datetime.now(timezone.utc) - timedelta(
+                        minutes=PORTFOLIO_GUARD_WINDOW_MINUTES
+                    )
+                    same_symbol_count = await db.trades_collection.count_documents({
+                        "user_id": user_id,
+                        "status": "open",
+                        "pair": symbol,
+                    })
+                    if same_symbol_count >= PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
+                        logger.info(
+                            f"PORTFOLIO_GUARD: user={user_id} symbol={symbol} "
+                            f"open={same_symbol_count} >= max={PORTFOLIO_GUARD_MAX_SAME_SYMBOL}"
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "portfolio_guard",
+                            "error": (
+                                f"Portfolio guard: already {same_symbol_count} open trade(s) "
+                                f"on {symbol} for this user"
+                            ),
+                        }
+                except Exception:
+                    pass  # non-blocking
+
+            # ── Drawdown stand-down gate ────────────────────────────────────
+            # If current drawdown >= MAX_DRAWDOWN_PCT, do NOT open new trades.
+            # Closing existing trades is never affected by this gate.
+            if MAX_DRAWDOWN_PCT > 0:
+                try:
+                    from services.ledger_service import get_ledger_service
+                    _ledger = get_ledger_service(db.db)
+                    current_dd, _max_dd = await _ledger.compute_drawdown(user_id)
+                    if current_dd >= MAX_DRAWDOWN_PCT:
+                        logger.info(
+                            f"DRAWDOWN_STANDOWN bot={bot_id} user={user_id} "
+                            f"drawdown={current_dd*100:.2f}% >= limit={MAX_DRAWDOWN_PCT*100:.0f}%"
+                        )
+                        self._log_action(
+                            "SKIP", bot_id, symbol or "?",
+                            reason="drawdown_limit",
+                            bot_name=bot_data.get("name", ""),
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "drawdown_limit",
+                            "error": (
+                                f"Drawdown stand-down: current drawdown "
+                                f"{current_dd*100:.2f}% >= limit {MAX_DRAWDOWN_PCT*100:.0f}%"
+                            ),
+                            "diagnostics": {
+                                "drawdown_current_pct": round(current_dd * 100, 2),
+                                "drawdown_limit_pct": round(MAX_DRAWDOWN_PCT * 100, 2),
+                            },
+                        }
+                except Exception:
+                    pass  # drawdown gate is best-effort — never crash the engine
+
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
@@ -990,6 +1102,46 @@ class PaperTradingEngine:
                     }
                 }
             
+            # ── Expectancy gate ──────────────────────────────────────────────
+            # Before entering, estimate whether this trade has positive expectancy.
+            # We use a simplified model: expected_move_pct as a proxy for avg_win
+            # and estimated_cost_pct as the round-trip cost.  If MIN_EXPECTANCY_ZAR
+            # is set, we also check the absolute ZAR expectancy.
+            #
+            # This is distinct from the edge gate (which only checks if expected
+            # move > cost + buffer).  The expectancy gate can be configured to a
+            # stricter threshold and is also used in the learning loop.
+            # Estimate trade size as a fraction of current capital.
+            # Use bot-level trade_size_pct if set; otherwise fall back to 10 %.
+            _position_size_pct = float(bot_data.get("trade_size_pct", 0.10))
+            trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
+            estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
+            estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
+            if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+                logger.info(
+                    f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
+                    f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
+                    f"(expected_move={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}%)"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="expectancy_gate",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "expectancy_gate",
+                    "error": "Estimated expectancy does not support this trade",
+                    "details": {
+                        "estimated_expectancy_zar": round(estimated_expectancy_zar, 4),
+                        "min_expectancy_zar": MIN_EXPECTANCY_ZAR,
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "estimated_cost_pct": round(estimated_cost_pct, 4),
+                        "trade_amount_estimate": round(trade_amount_for_exp, 2),
+                    },
+                }
+
             # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
             # Only count AI sources that are non-simulated (i.e. real data available).
             # When external APIs (Fetch.ai) are not configured their data is marked
@@ -1233,6 +1385,16 @@ class PaperTradingEngine:
                 "expected_move_pct": round(expected_move_pct, 4),
                 "estimated_cost_pct": round(estimated_cost_pct, 4),
                 "edge_buffer_pct": EDGE_BUFFER_PCT,
+                # Planned exit deadlines (used by diagnostics and exit loop)
+                "planned_exit_deadline": (
+                    datetime.now(timezone.utc) + timedelta(seconds=SOFT_MAX_HOLD_SECONDS)
+                ).isoformat(),
+                "hard_exit_deadline": (
+                    datetime.now(timezone.utc) + timedelta(seconds=HARD_MAX_HOLD_SECONDS)
+                ).isoformat(),
+                "stagnation_deadline": (
+                    datetime.now(timezone.utc) + timedelta(minutes=STAGNATION_EXIT_MINUTES)
+                ).isoformat() if STAGNATION_EXIT_MINUTES > 0 else None,
                 # AI Intelligence metadata
                 "ai_regime": regime.get('regime', 'unknown'),
                 "ai_confidence": round(regime.get('confidence', 0), 2),
@@ -1325,14 +1487,18 @@ class PaperTradingEngine:
                 entry_time = datetime.now(timezone.utc)
 
             age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
+            age_seconds = age_minutes * 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
             logger.info(
                 f"PAPER_EVAL trade_id={open_trade.get('id', '?')} bot={bot_id} "
                 f"age_min={age_minutes:.1f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
                 f"time_exit_in={max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes):.1f}min "
+                f"hard_exit_in={max(0.0, HARD_MAX_HOLD_SECONDS/60 - age_minutes):.1f}min "
                 f"price={current_price:.4f} pnl_pct={pnl_pct:.2f}"
             )
+
+            self.closes_attempted += 1
 
             close_reason = None
             if current_price >= take_profit_price:
@@ -1353,6 +1519,34 @@ class PaperTradingEngine:
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stop_loss",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif age_seconds >= HARD_MAX_HOLD_SECONDS:
+                # HARD max-hold (C2): force-close unconditionally after HARD_MAX_HOLD_SECONDS.
+                # Low confidence blocks OPENING new trades only — it must NEVER block closing.
+                close_reason = "hard_max_hold"
+                logger.info(
+                    f"CLOSE_HARD_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"hard_max_hold_sec={HARD_MAX_HOLD_SECONDS}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="hard_max_hold",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif age_seconds >= SOFT_MAX_HOLD_SECONDS:
+                # SOFT max-hold (C2): close when spread is acceptable; retry until HARD limit.
+                spread_at_close = market_snapshot.get("spread_bps", 0) if market_snapshot else 0
+                if spread_at_close <= (PAPER_MAX_SPREAD_PCT * 100):  # spread_bps vs bps-converted cap
+                    close_reason = "soft_max_hold"
+                    logger.info(
+                        f"CLOSE_SOFT_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                        f"soft_max_hold_sec={SOFT_MAX_HOLD_SECONDS}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="soft_max_hold",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+                else:
+                    logger.info(
+                        f"SOFT_MAX_HOLD_RETRY bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"spread_bps={spread_at_close:.1f} exceeds cap — retry next tick"
+                    )
             elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
                 # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
                 # regardless of P&L direction. Unlike stale_exit, this does NOT require
@@ -1384,18 +1578,45 @@ class PaperTradingEngine:
                 close_reason = "stale_exit"
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stale_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif (
+                STAGNATION_EXIT_MINUTES > 0
+                and age_minutes >= STAGNATION_EXIT_MINUTES
+                and entry_price > 0
+            ):
+                # Stagnation/no-progress exit: price hasn't moved beyond estimated
+                # round-trip cost (fee_rate * 2 + spread_pct) after STAGNATION_EXIT_MINUTES.
+                # Prevents capital from being locked in dead trades.
+                fee_rate_est = float(open_trade.get("fee_rate", 0.001))
+                spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if market_snapshot else PAPER_SPREAD_BPS
+                round_trip_cost_pct = (fee_rate_est * 2 + spread_bps / 10000) * 100
+                if abs(pnl_pct) < round_trip_cost_pct:
+                    close_reason = "stagnation_exit"
+                    logger.info(
+                        f"CLOSE_STAGNATION bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={round_trip_cost_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="stagnation_exit",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
 
             if not close_reason:
+                self.closes_attempted = max(0, self.closes_attempted - 1)  # not a real attempt
                 mins_to_safety = (
                     round(max(0.0, PAPER_SAFETY_EXIT_MINUTES - age_minutes), 1)
                     if PAPER_SAFETY_EXIT_MINUTES > 0 else None
                 )
                 mins_to_time_exit = round(max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes), 1)
+                mins_to_hard_exit = round(max(0.0, HARD_MAX_HOLD_SECONDS / 60 - age_minutes), 1)
+                mins_to_stagnation_exit = (
+                    round(max(0.0, STAGNATION_EXIT_MINUTES - age_minutes), 1)
+                    if STAGNATION_EXIT_MINUTES > 0 else None
+                )
                 logger.info(
                     f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
                     f"pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
-                    f"mins_to_safety_exit={mins_to_safety} mins_to_time_exit={mins_to_time_exit}"
+                    f"mins_to_safety_exit={mins_to_safety} mins_to_time_exit={mins_to_time_exit} "
+                    f"mins_to_hard_exit={mins_to_hard_exit}"
                 )
                 self._log_action("SKIP", bot_id, symbol or "?", reason="no_exit_signal",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
@@ -1409,6 +1630,11 @@ class PaperTradingEngine:
                         "stop_loss_price": stop_loss_price,
                         "age_minutes": round(age_minutes, 2),
                         "pnl_pct": round(pnl_pct, 3),
+                        "mins_to_soft_exit": round(max(0.0, SOFT_MAX_HOLD_SECONDS / 60 - age_minutes), 1),
+                        "mins_to_hard_exit": mins_to_hard_exit,
+                        "mins_to_stagnation_exit": mins_to_stagnation_exit,
+                        "hard_exit_triggered": age_seconds >= HARD_MAX_HOLD_SECONDS,
+                        "soft_exit_triggered": age_seconds >= SOFT_MAX_HOLD_SECONDS,
                     },
                 }
 
@@ -1527,6 +1753,9 @@ class PaperTradingEngine:
             }
 
             self.last_close_time = datetime.now(timezone.utc).isoformat()
+            self.closes_done += 1
+            # Anti-repeat: record the closed symbol so next selection applies cooldown
+            _symbol_universe.record_closed(bot_id, symbol or "")
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
                 f"{profit_pct:+.2f}% = R{net_profit:+.2f} (fees: R{fees:.2f})"
@@ -2027,6 +2256,9 @@ class PaperTradingEngine:
             "last_trade_simulation": self.last_trade_simulation,
             "last_error": self.last_error,
             "total_trades": self.trade_count,
+            "closes_attempted": self.closes_attempted,
+            "closes_done": self.closes_done,
+            "last_symbol_selection": self._last_symbol_selection,
             "exchanges_initialized": {
                 "luno": self.luno_exchange is not None,
                 "binance": self.binance_exchange is not None,

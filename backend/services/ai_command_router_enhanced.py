@@ -496,11 +496,13 @@ class EnhancedAICommandRouter:
     
     # Synonym mapping for natural language understanding
     SYNONYMS = {
-        "pause": ["stop", "freeze", "hold", "disable", "halt"],
-        "resume": ["start", "continue", "unpause", "enable", "activate", "restart"],
+        "pause": ["stop", "freeze", "hold", "disable", "halt", "suspend"],
+        "resume": ["start", "continue", "unpause", "enable", "activate", "restart",
+                   "begin", "kick off", "kick-off", "run", "go", "launch"],
         "stop": ["kill", "terminate", "delete", "remove", "destroy"],
-        "show": ["display", "get", "fetch", "retrieve", "list"],
-        "bot": ["agent", "trader", "trading bot", "algo"],
+        "show": ["display", "get", "fetch", "retrieve", "list", "check", "what is", "what are"],
+        "bot": ["agent", "trader", "trading bot", "algo", "bots", "all bots"],
+        "all": ["every", "all of them", "all bots", "every bot", "everyone"],
     }
     
     # Confirmation requirements
@@ -539,7 +541,7 @@ class EnhancedAICommandRouter:
             # Multi-bot operations
             "pause_multiple": r"(?:pause|stop)\s+(?:bots?\s+)?(.+?)\s+(?:and|,)\s+(.+)",
             "pause_all": r"(?:pause|stop)\s+(?:all|every)(?:\s+bots?)?",
-            "resume_all": r"(?:resume|start)\s+(?:all|every)(?:\s+bots?)?",
+            "resume_all": r"(?:resume|start|begin|launch|go|run)\s+(?:all|every)(?:\s+bots?)?|(?:start|resume)\s+all\s+bots?",
             
             # Emergency
             "emergency_stop": r"emergency\s+stop|halt\s+all|stop\s+everything",
