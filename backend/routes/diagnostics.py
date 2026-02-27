@@ -1820,6 +1820,51 @@ async def why_not_trading(user_id: str = Depends(get_current_user)):
     except Exception:
         pass
 
+    # 8. Regime standdown — detect if all recent ticks were blocked by regime.
+    try:
+        from paper_trading_engine import paper_engine as _pe
+        action_log = getattr(_pe, "_action_log", [])
+        if action_log:
+            # Resolve bot_ids belonging to this user for accurate filtering.
+            try:
+                from services.bot_filters import bot_not_deleted_filter
+                user_bot_ids = {
+                    b["id"]
+                    for b in await db.bots_collection.find(
+                        bot_not_deleted_filter({"user_id": user_id}),
+                        {"_id": 0, "id": 1},
+                    ).to_list(200)
+                    if b.get("id")
+                }
+            except Exception:
+                user_bot_ids = None  # fall back: include all entries
+
+            # Look at the last 20 SKIP entries scoped to this user's bots.
+            recent_skips = [
+                e for e in action_log
+                if e.get("action") == "SKIP"
+                and (user_bot_ids is None or e.get("bot_id") in user_bot_ids)
+            ][-20:]
+            if recent_skips:
+                regime_skips = sum(
+                    1 for e in recent_skips
+                    if e.get("reason") == "regime_standdown"
+                )
+                pct = regime_skips / len(recent_skips)
+                if pct >= 0.8:
+                    reasons.append({
+                        "code": "REGIME_STANDDOWN",
+                        "severity": "warning",
+                        "message": (
+                            f"regime_standdown is blocking {pct:.0%} of recent trade decisions. "
+                            "This occurs when the market regime is classified as volatile_downtrend "
+                            "or BEARISH_VOLATILE. Check /api/diagnostics/paper-engine for per-bot "
+                            "regime details. If conditions are normal, this should self-resolve."
+                        ),
+                    })
+    except Exception:
+        pass
+
     status = "ok" if not reasons else ("critical" if any(r["severity"] == "critical" for r in reasons) else "warning")
     return {
         "success": True,

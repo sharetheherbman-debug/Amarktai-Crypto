@@ -1055,7 +1055,7 @@ class PaperTradingEngine:
             # Regime playbook selection — determines entry/exit style for this tick.
             playbook_info = select_playbook(regime)
             playbook = playbook_info["playbook"]
-            playbook_params = get_playbook_params(risk_mode, playbook)
+            playbook_params = get_playbook_params(risk_mode, playbook, caution=playbook_info.get("caution", False))
 
             # REGIME STAND-DOWN: if playbook is stand_down, skip new entries.
             if playbook == "stand_down":

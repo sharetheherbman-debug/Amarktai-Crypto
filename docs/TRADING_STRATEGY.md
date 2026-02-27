@@ -56,14 +56,31 @@ The engine maps the current market regime to one of three **playbooks**:
 | Playbook | Regimes | Entry Style | TP/SL | Hold Time |
 |----------|---------|-------------|-------|-----------|
 | `momentum` | stable_uptrend, volatile_uptrend, bullish | Breakouts, pullbacks | Higher TP, trailing stop | Longer |
-| `mean_reversion` | consolidation, sideways, stable_downtrend | Fade extremes | Tight TP/SL | Short |
-| `stand_down` | choppy, volatile_downtrend, unknown, low-confidence | **No new entries** | — | — |
+| `mean_reversion` | consolidation, sideways, choppy, stable_downtrend, bearish, **unknown, error** | Fade extremes / range trade | Tight TP/SL | Short |
+| `stand_down` | **volatile_downtrend, BEARISH_VOLATILE** (extreme conditions only) | **No new entries** | — | — |
 
-### Stand-Down Trigger
+### Stand-Down Policy (Updated)
 
-In addition to regime label, a `stand_down` is also triggered when:
-- Regime confidence is below 15 % (too uncertain to trade)
-- Volatility spike or wide spread detects a risk event
+`stand_down` is **reserved for extreme conditions only**:
+- `volatile_downtrend` — confirmed strong downtrend with high volatility
+- `BEARISH_VOLATILE`   — legacy label for the same condition
+
+The following conditions that previously triggered `stand_down` now use **cautious `mean_reversion`** instead:
+- `choppy` — range/consolidation trade is still possible; use reduced size
+- `unknown` — cold-start or detector unavailable; trade cautiously
+- `error`   — regime detector failure; trade cautiously at minimal size
+- `None`    — no regime data; fall back to cautious mean_reversion
+- Low confidence (< 15 %) — trade with halved position size, not stopped entirely
+
+### Caution Mode
+
+When `select_playbook` returns `caution=True` (unknown/error/low-confidence regime),
+`get_playbook_params` automatically applies:
+- `position_size_multiplier` halved
+- `max_hold_minutes` reduced by 25 %
+- `safety_exit_minutes` reduced by 25 %
+
+This ensures the system **always trades cautiously** rather than permanently blocking.
 
 ### Clean Interface
 
@@ -72,9 +89,9 @@ from engines.regime_playbooks import select_playbook, get_playbook_params
 
 playbook_info = select_playbook(regime_dict)
 # Returns: {"playbook": "momentum", "regime": "stable_uptrend",
-#           "strength": 0.8, "confidence": 0.75}
+#           "strength": 0.8, "confidence": 0.75, "caution": False}
 
-params = get_playbook_params(risk_mode="safe", playbook="momentum")
+params = get_playbook_params(risk_mode="safe", playbook="momentum", caution=False)
 # Returns: {"take_profit_pct": 0.020, "stop_loss_pct": 0.012,
 #           "max_hold_minutes": 60, "safety_exit_minutes": 35,
 #           "position_size_multiplier": 1.0}
@@ -188,7 +205,7 @@ Every applied change creates a `strategy_params_version` record with:
 | `low_liquidity` | Order-book depth < `PAPER_MIN_ORDERBOOK_NOTIONAL` | No trade |
 | `portfolio_guard` | Already `PORTFOLIO_GUARD_MAX_SAME_SYMBOL` open on this pair | No trade |
 | `drawdown_limit` | Current drawdown ≥ `MAX_DRAWDOWN_PCT` | Stand down |
-| `regime_standdown` | Playbook = stand_down (choppy / low-confidence market) | No trade |
+| `regime_standdown` | Playbook = stand_down (volatile_downtrend / BEARISH_VOLATILE only) | No trade |
 | `cooldown` | Rate limiter or bot min-interval in effect | Retry later |
 | `budget_exhausted` | Daily trade budget reached | No trade today |
 | `no_exit_signal` | No exit condition met for open trade | Hold (check next tick) |
