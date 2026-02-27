@@ -19,8 +19,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-32chars!!")
 os.environ.setdefault(
     "ENCRYPTION_KEY",
-    # 32-byte URL-safe base64 Fernet key (valid format for cryptography.Fernet)
-    "dGVzdC1lbmNyeXB0aW9uLWtleS0zMmNoYXJz"
+    # A valid URL-safe base64-encoded 32-byte Fernet key for tests.
+    "PxKPmauGholCa7qHkY1IPALzJiSHm9aVfdW2je0TLQw="
 )
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 

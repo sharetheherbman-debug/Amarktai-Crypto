@@ -1684,7 +1684,7 @@ class OrderPipeline:
             except Exception:
                 pass
         try:
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             return await self.rolling_windows.count_documents({
                 "bot_id": bot_id,
                 "exchange": (exchange or "").lower(),
@@ -1719,7 +1719,7 @@ class OrderPipeline:
             except Exception:
                 pass
         try:
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             return int(await self.rolling_windows.count_documents({
                 "user_id": user_id,
                 "exchange": (exchange or "").lower(),
@@ -1736,7 +1736,7 @@ class OrderPipeline:
                                  window_seconds: int = 10) -> int:
         """Return order count within the burst window."""
         try:
-            window_start = datetime.utcnow() - timedelta(seconds=window_seconds)
+            window_start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
             return await self.rolling_windows.count_documents({
                 "user_id": user_id,
                 "exchange": (exchange or "").lower(),

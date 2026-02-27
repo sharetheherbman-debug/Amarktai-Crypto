@@ -130,12 +130,12 @@ BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.65')
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
-# Default: 8100 (PAPER_MAX_HOLD_MINUTES*60 + 900 = 2h 15min).
+# Default: 8100 (135 minutes = 2h 15min).
 SOFT_MAX_HOLD_SECONDS = int(os.getenv('SOFT_MAX_HOLD_SECONDS', '8100'))
 # Hard max-hold (seconds): force-close unconditionally — even on low confidence.
 # Low confidence may block OPENING new trades but must never block CLOSING.
 # Fires after SOFT_MAX_HOLD_SECONDS as an absolute last resort.
-# Default: 8700 (PAPER_MAX_HOLD_MINUTES*60 + 1500 = 2h 25min).
+# Default: 8700 (145 minutes = 2h 25min).
 HARD_MAX_HOLD_SECONDS = int(os.getenv('HARD_MAX_HOLD_SECONDS', '8700'))
 # Symbol rotation anti-repeat: cooldown window (minutes) before the same symbol
 # can be re-selected for a new trade on the same bot.  Default: 15 min.
