@@ -337,3 +337,235 @@ def test_last_tick_summary_includes_closes_failed():
     paths = app.openapi().get("paths", {})
     # The endpoint exists — runtime field validation is done via the DB mock test
     assert "/api/diagnostics/last-tick-summary" in paths
+
+
+# ── G: /api/coinstats/test-connection ────────────────────────────────────────
+
+def test_coinstats_test_connection_in_openapi():
+    """/api/coinstats/test-connection must appear in OpenAPI paths."""
+    from fastapi import FastAPI
+    from routes.coinstats import router as coinstats_router
+
+    app = FastAPI()
+    app.include_router(coinstats_router)
+
+    paths = app.openapi().get("paths", {})
+    assert "/api/coinstats/test-connection" in paths, (
+        f"test-connection not in paths. Available: {[p for p in paths if 'coinstats' in p]}"
+    )
+    assert "get" in paths["/api/coinstats/test-connection"]
+
+
+@pytest.mark.asyncio
+async def test_coinstats_test_connection_never_500():
+    """/api/coinstats/test-connection must return structured JSON even when service raises."""
+    with patch("services.news_coinstats.coinstats_provider") as mock_provider:
+        mock_provider.test_connection = AsyncMock(side_effect=RuntimeError("network error"))
+        from routes.coinstats import coinstats_test_connection
+        result = await coinstats_test_connection(user_id="user1")
+
+    assert "status" in result
+    assert result["status"] == "error"
+    assert "configured" in result
+    assert result["configured"] is False
+
+
+# ── H: /api/intelligence/status ──────────────────────────────────────────────
+
+def test_intelligence_status_in_openapi():
+    """/api/intelligence/status must appear in OpenAPI paths."""
+    from fastapi import FastAPI
+    from routes.intelligence import router as intel_router
+
+    app = FastAPI()
+    app.include_router(intel_router)
+
+    paths = app.openapi().get("paths", {})
+    assert "/api/intelligence/status" in paths, (
+        f"intelligence/status not in paths. Available: {[p for p in paths if 'intelligence' in p]}"
+    )
+    assert "get" in paths["/api/intelligence/status"]
+
+
+@pytest.mark.asyncio
+async def test_intelligence_status_returns_required_fields():
+    """/api/intelligence/status returns all required fields."""
+    import services.market_intelligence_service as mis
+    mis._last_brief = {
+        "mood": "neutral",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "fetch_status": "ok",
+        "block_reason": None,
+    }
+
+    with patch("services.news_coinstats.resolve_coinstats_key",
+               new=AsyncMock(return_value=("key", "env"))):
+        from routes.intelligence import get_intelligence_status
+        result = await get_intelligence_status(user_id="user1")
+
+    required = {
+        "running", "hf_enabled", "source", "mood",
+        "last_run_at", "next_run_in_seconds", "refresh_interval_seconds",
+        "coinstats_configured", "key_source", "resolved_for_user_id",
+    }
+    missing = required - set(result.keys())
+    assert not missing, f"intelligence/status missing fields: {missing}"
+    assert result["running"] is True
+    assert result["source"] == "CoinStats"
+
+
+# ── I: /api/intelligence/latest ──────────────────────────────────────────────
+
+def test_intelligence_latest_in_openapi():
+    """/api/intelligence/latest must appear in OpenAPI paths."""
+    from fastapi import FastAPI
+    from routes.intelligence import router as intel_router
+
+    app = FastAPI()
+    app.include_router(intel_router)
+
+    paths = app.openapi().get("paths", {})
+    assert "/api/intelligence/latest" in paths, (
+        f"intelligence/latest not in paths. Available: {[p for p in paths if 'intelligence' in p]}"
+    )
+    assert "get" in paths["/api/intelligence/latest"]
+
+
+@pytest.mark.asyncio
+async def test_intelligence_latest_returns_required_fields():
+    """/api/intelligence/latest returns required fields and never raises."""
+    import services.market_intelligence_service as mis
+    mis._last_brief = {
+        "what_happened": "BTC hits ATH",
+        "why_it_matters": "Test",
+        "what_amarktai_is_doing": "Monitoring",
+        "confidence": "High",
+        "mood": "positive",
+        "top_risk": "none",
+        "source": "CoinStats",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "headlines_count": 1,
+        "fetch_status": "ok",
+        "block_reason": None,
+    }
+
+    from routes.intelligence import get_latest_intelligence
+    result = await get_latest_intelligence(user_id="user1")
+
+    assert result.get("mood") == "positive"
+    assert result.get("source") == "CoinStats"
+
+
+@pytest.mark.asyncio
+async def test_intelligence_latest_never_500():
+    """/api/intelligence/latest must return structured JSON when service raises."""
+    with patch("services.market_intelligence_service.get_latest_intelligence",
+               new=AsyncMock(side_effect=RuntimeError("DB down"))):
+        from routes.intelligence import get_latest_intelligence
+        result = await get_latest_intelligence(user_id="user1")
+
+    assert "mood" in result
+    assert "source" in result
+    assert result.get("source") == "CoinStats"
+
+
+# ── J: /api/market/brief ─────────────────────────────────────────────────────
+
+def test_market_brief_in_openapi():
+    """/api/market/brief must appear in OpenAPI paths."""
+    from fastapi import FastAPI
+    from routes.market_api import router as market_router
+
+    app = FastAPI()
+    app.include_router(market_router)
+
+    paths = app.openapi().get("paths", {})
+    assert "/api/market/brief" in paths, (
+        f"market/brief not in paths. Available: {[p for p in paths if 'market' in p]}"
+    )
+    assert "get" in paths["/api/market/brief"]
+
+
+@pytest.mark.asyncio
+async def test_market_brief_returns_required_fields():
+    """/api/market/brief returns required fields and never raises."""
+    import routes.market_api as market_api_mod
+
+    # Reset cache to force a fresh fetch
+    market_api_mod._brief_cache = {}
+    market_api_mod._brief_cache_at = 0.0
+
+    import services.market_intelligence_service as mis
+    mis._last_brief = {
+        "mood": "neutral",
+        "what_happened": "BTC stable",
+        "why_it_matters": "",
+        "what_amarktai_is_doing": "",
+        "top_risk": "none",
+        "confidence": "Moderate",
+        "source": "CoinStats",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "fetch_status": "ok",
+        "block_reason": None,
+    }
+
+    from routes.market_api import get_market_brief
+    result = await get_market_brief(user_id="user1")
+
+    required = {"mood", "source"}
+    missing = required - set(result.keys())
+    assert not missing, f"market/brief missing fields: {missing}"
+    assert result.get("source") == "CoinStats"
+
+
+# ── K: /api/events/market-intelligence ───────────────────────────────────────
+
+def test_events_market_intelligence_in_openapi():
+    """/api/events/market-intelligence must appear in OpenAPI paths."""
+    from fastapi import FastAPI
+    from routes.events import router as events_router
+
+    app = FastAPI()
+    app.include_router(events_router)
+
+    paths = app.openapi().get("paths", {})
+    assert "/api/events/market-intelligence" in paths, (
+        f"events/market-intelligence not in paths. Available: {[p for p in paths if 'events' in p]}"
+    )
+    assert "get" in paths["/api/events/market-intelligence"]
+
+
+@pytest.mark.asyncio
+async def test_events_market_intelligence_returns_required_fields():
+    """/api/events/market-intelligence returns required fields and never raises."""
+    import services.market_intelligence_service as mis
+    mis._last_brief = {
+        "what_happened": "Market stable",
+        "why_it_matters": "",
+        "what_amarktai_is_doing": "",
+        "confidence": "Moderate",
+        "mood": "neutral",
+        "top_risk": "none",
+        "source": "CoinStats",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "fetch_status": "ok",
+    }
+
+    from routes.events import get_market_intelligence
+    result = await get_market_intelligence(user_id="user1")
+
+    assert "mood" in result
+    assert "source" in result
+    assert result.get("source") == "CoinStats"
+
+
+@pytest.mark.asyncio
+async def test_events_market_intelligence_never_500():
+    """/api/events/market-intelligence returns structured JSON when service raises."""
+    with patch("services.market_intelligence_service.get_latest_intelligence",
+               new=AsyncMock(side_effect=RuntimeError("service error"))):
+        from routes.events import get_market_intelligence
+        result = await get_market_intelligence(user_id="user1")
+
+    assert "mood" in result
+    assert "source" in result
