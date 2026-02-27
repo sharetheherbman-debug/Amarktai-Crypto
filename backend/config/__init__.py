@@ -138,6 +138,53 @@ MAX_DRAWDOWN_PCT = float(os.getenv('MAX_DRAWDOWN_PCT', '0.10'))
 # 0 means "expectancy must be strictly positive". Set negative to disable.
 MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
 
+# ── Safety buffer & regime playbooks ────────────────────────────────────────
+# Base safety buffer added on top of fees+spread+slippage in the edge gate.
+# Default 0.10 %.  In wide-spread / low-liquidity regimes this is multiplied
+# by SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER so bots are more selective.
+SAFETY_BUFFER_PCT = float(os.getenv('SAFETY_BUFFER_PCT', '0.10'))
+# Multiplier applied to SAFETY_BUFFER_PCT when spread > PAPER_MAX_SPREAD_PCT * 0.6
+# (i.e. spread is "wide but still below the hard cutoff").  Default: 2.0.
+SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER = float(os.getenv('SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER', '2.0'))
+
+# ── Per-risk-mode adaptive defaults ─────────────────────────────────────────
+# Bots use these defaults when no custom bot-level override is set.
+# Targets are NOT hard-coded outcomes; they tune behaviour (risk / selectivity
+# / frequency) within the drawdown and expectancy guardrails above.
+RISK_MODE_CONFIG: dict = {
+    "safe": {
+        "max_hold_minutes": int(os.getenv('SAFE_MAX_HOLD_MINUTES', '60')),
+        "safety_exit_minutes": int(os.getenv('SAFE_SAFETY_EXIT_MINUTES', '30')),
+        "take_profit_pct": float(os.getenv('SAFE_TAKE_PROFIT_PCT', '0.015')),
+        "stop_loss_pct": float(os.getenv('SAFE_STOP_LOSS_PCT', '0.010')),
+        "position_size_pct": float(os.getenv('SAFE_POSITION_SIZE_PCT', '0.20')),
+        "min_confidence": float(os.getenv('SAFE_MIN_CONFIDENCE', '0.65')),
+        "safety_buffer_pct": float(os.getenv('SAFE_SAFETY_BUFFER_PCT', '0.15')),
+        # Adaptive target: aim ~3-4% daily on R1000 initial budget
+        "daily_target_pct": float(os.getenv('SAFE_DAILY_TARGET_PCT', '0.03')),
+    },
+    "balanced": {
+        "max_hold_minutes": int(os.getenv('BALANCED_MAX_HOLD_MINUTES', '90')),
+        "safety_exit_minutes": int(os.getenv('BALANCED_SAFETY_EXIT_MINUTES', '45')),
+        "take_profit_pct": float(os.getenv('BALANCED_TAKE_PROFIT_PCT', '0.025')),
+        "stop_loss_pct": float(os.getenv('BALANCED_STOP_LOSS_PCT', '0.015')),
+        "position_size_pct": float(os.getenv('BALANCED_POSITION_SIZE_PCT', '0.30')),
+        "min_confidence": float(os.getenv('BALANCED_MIN_CONFIDENCE', '0.60')),
+        "safety_buffer_pct": float(os.getenv('BALANCED_SAFETY_BUFFER_PCT', '0.10')),
+        "daily_target_pct": float(os.getenv('BALANCED_DAILY_TARGET_PCT', '0.05')),
+    },
+    "aggressive": {
+        "max_hold_minutes": int(os.getenv('AGGRESSIVE_MAX_HOLD_MINUTES', '120')),
+        "safety_exit_minutes": int(os.getenv('AGGRESSIVE_SAFETY_EXIT_MINUTES', '60')),
+        "take_profit_pct": float(os.getenv('AGGRESSIVE_TAKE_PROFIT_PCT', '0.04')),
+        "stop_loss_pct": float(os.getenv('AGGRESSIVE_STOP_LOSS_PCT', '0.025')),
+        "position_size_pct": float(os.getenv('AGGRESSIVE_POSITION_SIZE_PCT', '0.45')),
+        "min_confidence": float(os.getenv('AGGRESSIVE_MIN_CONFIDENCE', '0.55')),
+        "safety_buffer_pct": float(os.getenv('AGGRESSIVE_SAFETY_BUFFER_PCT', '0.08')),
+        "daily_target_pct": float(os.getenv('AGGRESSIVE_DAILY_TARGET_PCT', '0.08')),
+    },
+}
+
 # Default paper trading pair whitelist (can be overridden per bot)
 PAPER_PAIR_WHITELIST = {
     "luno": ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR"],
@@ -248,6 +295,9 @@ __all__ = [
     'TRAINING_TRADES_REQUIRED',
     'MAX_DRAWDOWN_PCT',
     'MIN_EXPECTANCY_ZAR',
+    'SAFETY_BUFFER_PCT',
+    'SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER',
+    'RISK_MODE_CONFIG',
     'EXCHANGE_DAILY_TRADE_LIMITS',
     'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',
     'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',

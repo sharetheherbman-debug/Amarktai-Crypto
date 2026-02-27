@@ -297,15 +297,22 @@ class LearningLoop:
         trade_size = float(learning_params.get("trade_size_multiplier", 1.0))
         cooldown = float(learning_params.get("cooldown_multiplier", 1.0))
         stop_loss = float(learning_params.get("stop_loss_pct", 0.02))
+        # Additional bounded knobs (Section 5)
+        max_hold_minutes = float(learning_params.get("max_hold_minutes", 120.0))
+        safety_exit_minutes = float(learning_params.get("safety_exit_minutes", 60.0))
+        position_size_multiplier = float(learning_params.get("position_size_multiplier", 1.0))
         previous_params = {
             "trade_size_multiplier": trade_size,
             "cooldown_multiplier": cooldown,
-            "stop_loss_pct": stop_loss
+            "stop_loss_pct": stop_loss,
+            "max_hold_minutes": max_hold_minutes,
+            "safety_exit_minutes": safety_exit_minutes,
+            "position_size_multiplier": position_size_multiplier,
         }
 
         max_risk = float(os.getenv("LEARNING_MAX_RISK_MULTIPLIER", "1.1"))
         min_risk = float(os.getenv("LEARNING_MIN_RISK_MULTIPLIER", "0.8"))
-        max_change_pct = float(os.getenv("LEARNING_MAX_CHANGE_PCT", "0.10"))
+        max_change_pct = float(os.getenv("LEARNING_MAX_CHANGE_PCT", "0.05"))
 
         changes: List[Dict] = []
 
@@ -346,6 +353,42 @@ class LearningLoop:
                         "expected_impact": "Cap downside per trade"
                     })
                     stop_loss = new_stop
+
+                # Reduce max_hold and safety_exit to close losers faster
+                new_max_hold = clamp(max_hold_minutes * (1 - max_change_pct), 15.0, 240.0)
+                if new_max_hold != max_hold_minutes:
+                    changes.append({
+                        "parameter": "max_hold_minutes",
+                        "old": max_hold_minutes,
+                        "new": new_max_hold,
+                        "reason": "Reduce hold time to limit losing exposure",
+                        "expected_impact": "Closes losers earlier"
+                    })
+                    max_hold_minutes = new_max_hold
+
+                new_safety_exit = clamp(safety_exit_minutes * (1 - max_change_pct), 10.0, 120.0)
+                if new_safety_exit != safety_exit_minutes:
+                    changes.append({
+                        "parameter": "safety_exit_minutes",
+                        "old": safety_exit_minutes,
+                        "new": new_safety_exit,
+                        "reason": "Take profits sooner in adverse conditions",
+                        "expected_impact": "Lock in smaller gains rather than waiting"
+                    })
+                    safety_exit_minutes = new_safety_exit
+
+                # Reduce position size multiplier slightly
+                new_pos_mult = clamp(position_size_multiplier * (1 - max_change_pct), 0.5, 1.5)
+                if new_pos_mult != position_size_multiplier:
+                    changes.append({
+                        "parameter": "position_size_multiplier",
+                        "old": position_size_multiplier,
+                        "new": new_pos_mult,
+                        "reason": "Reduce exposure after poor performance",
+                        "expected_impact": "Smaller positions limit drawdown"
+                    })
+                    position_size_multiplier = new_pos_mult
+
             elif win_rate > 55 and net_pnl > 0 and profit_factor > 1.1:
                 new_trade_size = clamp(trade_size * (1 + max_change_pct), min_risk, max_risk)
                 if new_trade_size != trade_size:
@@ -357,6 +400,30 @@ class LearningLoop:
                         "expected_impact": "Slightly increase position sizing"
                     })
                     trade_size = new_trade_size
+
+                # Modestly extend hold time if performance is good
+                new_max_hold = clamp(max_hold_minutes * (1 + max_change_pct), 15.0, 240.0)
+                if new_max_hold != max_hold_minutes:
+                    changes.append({
+                        "parameter": "max_hold_minutes",
+                        "old": max_hold_minutes,
+                        "new": new_max_hold,
+                        "reason": "Extend hold time after strong performance",
+                        "expected_impact": "Allow winners to run longer"
+                    })
+                    max_hold_minutes = new_max_hold
+
+                # Modestly increase position size multiplier
+                new_pos_mult = clamp(position_size_multiplier * (1 + max_change_pct), 0.5, 1.5)
+                if new_pos_mult != position_size_multiplier:
+                    changes.append({
+                        "parameter": "position_size_multiplier",
+                        "old": position_size_multiplier,
+                        "new": new_pos_mult,
+                        "reason": "Scale up after strong performance",
+                        "expected_impact": "Higher absolute profit on winners"
+                    })
+                    position_size_multiplier = new_pos_mult
 
         last_run = await db.learning_runs_collection.find_one(
             {"user_id": user_id},
@@ -470,7 +537,10 @@ class LearningLoop:
         applied_params = {
             "trade_size_multiplier": trade_size,
             "cooldown_multiplier": cooldown,
-            "stop_loss_pct": stop_loss
+            "stop_loss_pct": stop_loss,
+            "max_hold_minutes": max_hold_minutes,
+            "safety_exit_minutes": safety_exit_minutes,
+            "position_size_multiplier": position_size_multiplier,
         }
 
         if rollback:
@@ -492,6 +562,9 @@ class LearningLoop:
                         "trade_size_multiplier": trade_size,
                         "cooldown_multiplier": cooldown,
                         "stop_loss_pct": stop_loss,
+                        "max_hold_minutes": max_hold_minutes,
+                        "safety_exit_minutes": safety_exit_minutes,
+                        "position_size_multiplier": position_size_multiplier,
                         "updated_at": window_end.isoformat()
                     }
                 }},

@@ -68,6 +68,9 @@ from config import (
     TRAINING_TRADES_REQUIRED,
     MAX_DRAWDOWN_PCT,
     MIN_EXPECTANCY_ZAR,
+    SAFETY_BUFFER_PCT,
+    SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER,
+    RISK_MODE_CONFIG,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
 from realtime_events import rt_events
@@ -89,6 +92,14 @@ try:
     from fetchai_integration import fetchai
 except ImportError:
     fetchai = None  # type: ignore
+
+try:
+    from engines.regime_playbooks import select_playbook, get_playbook_params
+except ImportError:
+    def select_playbook(r):  # type: ignore
+        return {"playbook": "momentum", "regime": "unknown", "strength": 0.5, "confidence": 0.0}
+    def get_playbook_params(rm, pb):  # type: ignore
+        return {}
 
 logger = logging.getLogger(__name__)
 
@@ -1029,6 +1040,37 @@ class PaperTradingEngine:
             if _regime_detector is None:
                 from market_regime import market_regime_detector as _regime_detector
             regime = await _regime_detector.detect_regime(symbol, exchange)
+
+            # Regime playbook selection — determines entry/exit style for this tick.
+            playbook_info = select_playbook(regime)
+            playbook = playbook_info["playbook"]
+            playbook_params = get_playbook_params(risk_mode, playbook)
+
+            # REGIME STAND-DOWN: if playbook is stand_down, skip new entries.
+            if playbook == "stand_down":
+                logger.info(
+                    f"⏭️  SKIP_REGIME_STANDDOWN | {bot_data.get('name', bot_id[:8])} | "
+                    f"regime={playbook_info['regime']} conf={playbook_info['confidence']}"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="regime_standdown",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "regime_standdown",
+                    "error": "Regime stand-down: no new entries in current market conditions",
+                    "details": {
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
+                        "regime_strength": playbook_info["strength"],
+                        "regime_confidence": playbook_info["confidence"],
+                        "exchange": exchange,
+                        "symbol": symbol,
+                    },
+                }
             
             # 3. AI INTELLIGENCE: Get ML prediction
             _ml_pred = ml_predictor
@@ -1069,6 +1111,7 @@ class PaperTradingEngine:
 
             # EDGE GATE: Require expected move to clear costs + buffer
             # Skip the gate when the ML prediction has no real data (is_simulated=True)
+            # Adaptive safety buffer: use risk-mode config default, increase if spread is wide.
             slippage_rate = PAPER_SLIPPAGE_BPS / 10000
             latency_rate = PAPER_LATENCY_BPS / 10000
             exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
@@ -1077,7 +1120,16 @@ class PaperTradingEngine:
             fee_pct_roundtrip = fee_rate * 2 * 100
             slippage_pct_roundtrip = slippage_rate * 2 * 100
             estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
-            edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
+
+            # Adaptive safety buffer per risk mode and spread quality
+            _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
+            _base_safety_buffer = float(_risk_mode_cfg.get("safety_buffer_pct", SAFETY_BUFFER_PCT))
+            _wide_spread_threshold = PAPER_MAX_SPREAD_PCT * 0.6  # 60% of max = "getting wide"
+            if spread_pct >= _wide_spread_threshold:
+                _effective_safety_buffer = _base_safety_buffer * SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER
+            else:
+                _effective_safety_buffer = _base_safety_buffer
+            edge_required_pct = estimated_cost_pct + _effective_safety_buffer
 
             ml_is_simulated = prediction.get("is_simulated", False)
             if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
@@ -1093,12 +1145,15 @@ class PaperTradingEngine:
                     "details": {
                         "expected_move_pct": round(expected_move_pct, 4),
                         "estimated_cost_pct": round(estimated_cost_pct, 4),
-                        "edge_buffer_pct": EDGE_BUFFER_PCT,
+                        "edge_buffer_pct": round(_effective_safety_buffer, 4),
+                        "safety_buffer_pct": round(_effective_safety_buffer, 4),
                         "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
                         "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
                         "spread_pct": round(spread_pct, 4),
                         "exchange": exchange,
-                        "symbol": symbol
+                        "symbol": symbol,
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
                     }
                 }
             
@@ -1139,6 +1194,8 @@ class PaperTradingEngine:
                         "expected_move_pct": round(expected_move_pct, 4),
                         "estimated_cost_pct": round(estimated_cost_pct, 4),
                         "trade_amount_estimate": round(trade_amount_for_exp, 2),
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
                     },
                 }
 
@@ -1401,7 +1458,27 @@ class PaperTradingEngine:
                 "ml_prediction": prediction.get('direction', 'neutral'),
                 "ml_confidence": round(prediction.get('confidence', 0), 2),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
-                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
+                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1),
+                # Decision trace (Section 7 diagnostics)
+                "decision_trace": {
+                    "evaluated_pairs_count": self._last_symbol_selection.get("candidate_count", 1),
+                    "top_candidates": self._last_symbol_selection.get("top5_scored", []),
+                    "chosen_pair": symbol,
+                    "expectancy_estimate": round(estimated_expectancy_zar, 4),
+                    "cost_estimate": round(estimated_cost_pct, 4),
+                    "regime": playbook_info["regime"],
+                    "playbook": playbook,
+                    "planned_exit": {
+                        "take_profit_pct": take_profit_pct,
+                        "stop_loss_pct": stop_loss_pct,
+                        "time_exit_minutes": PAPER_MAX_HOLD_MINUTES,
+                        "safety_exit_minutes": PAPER_SAFETY_EXIT_MINUTES,
+                        "hard_max_hold_seconds": HARD_MAX_HOLD_SECONDS,
+                        "soft_max_hold_seconds": SOFT_MAX_HOLD_SECONDS,
+                        "time_to_forced_exit_seconds": HARD_MAX_HOLD_SECONDS,
+                        "next_exit_reason": "take_profit_or_stop_loss",
+                    },
+                },
             }
 
             # RECORD TRADE FOR RATE LIMITER (entry)
@@ -1611,6 +1688,17 @@ class PaperTradingEngine:
                     round(max(0.0, STAGNATION_EXIT_MINUTES - age_minutes), 1)
                     if STAGNATION_EXIT_MINUTES > 0 else None
                 )
+                # Determine the next expected exit reason (for diagnostics / Section 3)
+                if pnl_pct >= take_profit_pct * 100 * 0.8:
+                    _next_exit = "take_profit"
+                elif pnl_pct <= -(stop_loss_pct * 100 * 0.8):
+                    _next_exit = "stop_loss"
+                elif mins_to_stagnation_exit is not None and mins_to_stagnation_exit < mins_to_hard_exit:
+                    _next_exit = "stagnation_exit"
+                elif mins_to_safety is not None and mins_to_safety < mins_to_time_exit:
+                    _next_exit = "safety_exit"
+                else:
+                    _next_exit = "time_exit"
                 logger.info(
                     f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
@@ -1635,6 +1723,8 @@ class PaperTradingEngine:
                         "mins_to_stagnation_exit": mins_to_stagnation_exit,
                         "hard_exit_triggered": age_seconds >= HARD_MAX_HOLD_SECONDS,
                         "soft_exit_triggered": age_seconds >= SOFT_MAX_HOLD_SECONDS,
+                        "next_exit_reason": _next_exit,
+                        "time_to_forced_exit_seconds": round(max(0.0, HARD_MAX_HOLD_SECONDS - age_seconds), 1),
                     },
                 }
 
@@ -1839,7 +1929,11 @@ class PaperTradingEngine:
                             f"SKIP_CLOSE bot={bot_id} trade={open_trade.get('id', '?')} "
                             f"reason={skip_reason}"
                         )
-                        return {"success": False, "skip_reason": skip_reason}
+                        return {
+                            "success": False,
+                            "skip_reason": skip_reason,
+                            "diagnostics": trade_result.get("diagnostics", {}),
+                        }
 
                 existing_trade_id = open_trade.get("id") or open_trade.get("trade_id")
                 entry_recorded = bool(open_trade.get("entry_ledger_recorded", False))
