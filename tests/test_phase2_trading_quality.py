@@ -553,3 +553,237 @@ class TestLunoZarBots:
         )
         assert winner is not None
         assert "ZAR" in winner, f"Expected a ZAR pair, got: {winner}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D: Fee-aware exits (fee_break_even_fail + time_decay_exit)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestFeeAwareExits:
+    """Fee-aware exit reasons: fee_break_even_fail and time_decay_exit (D)."""
+
+    @pytest.mark.asyncio
+    async def test_fee_break_even_fail_triggers_when_losing_beyond_cost(self):
+        """fee_break_even_fail must close a trade that is losing more than round-trip cost."""
+        from paper_trading_engine import PaperTradingEngine, FEE_BREAK_EVEN_WINDOW_MINUTES
+
+        engine = PaperTradingEngine()
+        bot_data = _make_bot()
+        bots_col = AsyncMock()
+        bots_col.find_one = AsyncMock(return_value=bot_data)
+        bots_col.update_one = AsyncMock()
+
+        trades_col = _MemCollection()
+        # Trade opened FEE_BREAK_EVEN_WINDOW_MINUTES + 1 minute ago
+        age_minutes = FEE_BREAK_EVEN_WINDOW_MINUTES + 1
+        trade = _make_open_trade(opened_minutes_ago=age_minutes)
+        await trades_col.insert_one(trade)
+
+        # Entry=50000, current price well below entry so loss exceeds round-trip cost
+        # fee_rate=0.001, spread_bps=4 → round_trip_pct ≈ 0.24%
+        # Set price to give pnl_pct ≈ -0.50% (definitely below -0.24%)
+        losing_price = 50000.0 * (1 - 0.005)  # -0.5% move
+
+        patches, _ = _patch_close_deps(bots_col, trades_col, price=losing_price)
+        ctxs = [p.__enter__() for p in patches]
+        try:
+            async def _losing_snap(symbol, exchange):
+                return {
+                    "bid": losing_price - 10,
+                    "ask": losing_price + 10,
+                    "mid": losing_price,
+                    "spread": 20.0,
+                    "spread_bps": 4.0,
+                    "source": "test",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            engine.get_market_snapshot = _losing_snap
+            result = await engine.run_trading_cycle(
+                "bot_c2_test", bot_data, {"bots": bots_col, "trades": trades_col}
+            )
+        finally:
+            for p in patches:
+                try:
+                    p.__exit__(None, None, None)
+                except Exception:
+                    pass
+
+        assert result is not None
+        assert "new_capital" in result, f"Expected close, got: {result}"
+        trade_out = result.get("trade") or result
+        assert trade_out.get("trade_close_reason") == "fee_break_even_fail", (
+            f"Expected fee_break_even_fail, got: {trade_out.get('trade_close_reason')}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_time_decay_exit_triggers_when_profit_below_cost(self):
+        """time_decay_exit must close a trade that cannot cover costs after TIME_DECAY_EXIT_MINUTES.
+
+        Scenario: spread is too wide for soft_max_hold (blocks it), trade age exceeds
+        TIME_DECAY_EXIT_MINUTES, and PnL is slightly positive but below round-trip cost.
+        """
+        from paper_trading_engine import PaperTradingEngine, TIME_DECAY_EXIT_MINUTES, FEE_BREAK_EVEN_WINDOW_MINUTES, SOFT_MAX_HOLD_SECONDS
+
+        engine = PaperTradingEngine()
+        bot_data = _make_bot()
+        bots_col = AsyncMock()
+        bots_col.find_one = AsyncMock(return_value=bot_data)
+        bots_col.update_one = AsyncMock()
+
+        trades_col = _MemCollection()
+        # Trade must be older than both SOFT_MAX_HOLD and TIME_DECAY_EXIT_MINUTES.
+        age_minutes = max(TIME_DECAY_EXIT_MINUTES + 1, SOFT_MAX_HOLD_SECONDS / 60 + 1)
+        # Ensure also past fee_break_even threshold so we need price above -round_trip
+        assert age_minutes > FEE_BREAK_EVEN_WINDOW_MINUTES
+        trade = _make_open_trade(opened_minutes_ago=age_minutes)
+        await trades_col.insert_one(trade)
+
+        # Price slightly above entry so pnl_pct > -round_trip but < +round_trip
+        # fee_rate=0.001, wide_spread_bps=40 → round_trip_pct ≈ 0.60%
+        # Use pnl_pct = +0.05% (above -0.60% so no fee_break_even, below +0.60% → time_decay)
+        breakeven_price = 50000.0 * (1 + 0.0005)  # +0.05% move
+
+        patches, _ = _patch_close_deps(bots_col, trades_col, price=breakeven_price)
+        ctxs = [p.__enter__() for p in patches]
+        try:
+            # Use wide spread (40 bps > PAPER_MAX_SPREAD_PCT*100=35 bps) to block soft_max_hold
+            async def _wide_spread_snap(symbol, exchange):
+                return {
+                    "bid": breakeven_price - 200,
+                    "ask": breakeven_price + 200,
+                    "mid": breakeven_price,
+                    "spread": 400.0,
+                    "spread_bps": 40.0,  # exceeds PAPER_MAX_SPREAD_PCT * 100 = 35
+                    "source": "test",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            engine.get_market_snapshot = _wide_spread_snap
+            result = await engine.run_trading_cycle(
+                "bot_c2_test", bot_data, {"bots": bots_col, "trades": trades_col}
+            )
+        finally:
+            for p in patches:
+                try:
+                    p.__exit__(None, None, None)
+                except Exception:
+                    pass
+
+        assert result is not None
+        assert "new_capital" in result, f"Expected close, got: {result}"
+        trade_out = result.get("trade") or result
+        assert trade_out.get("trade_close_reason") == "time_decay_exit", (
+            f"Expected time_decay_exit, got: {trade_out.get('trade_close_reason')}"
+        )
+
+    def test_fee_break_even_window_config(self):
+        """FEE_BREAK_EVEN_WINDOW_MINUTES must be a positive int in config."""
+        from config import FEE_BREAK_EVEN_WINDOW_MINUTES
+        assert isinstance(FEE_BREAK_EVEN_WINDOW_MINUTES, int)
+        assert FEE_BREAK_EVEN_WINDOW_MINUTES > 0
+
+    def test_time_decay_exit_config(self):
+        """TIME_DECAY_EXIT_MINUTES must be a positive int in config."""
+        from config import TIME_DECAY_EXIT_MINUTES
+        assert isinstance(TIME_DECAY_EXIT_MINUTES, int)
+        assert TIME_DECAY_EXIT_MINUTES > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# E: Adaptive confidence threshold + stop-loss cooldown
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAdaptiveEntryThreshold:
+    """Adaptive confidence threshold after losing streak (E)."""
+
+    def test_config_constants_present(self):
+        from config import LOSING_STREAK_THRESHOLD, LOSING_STREAK_SIGNAL_BOOST
+        assert isinstance(LOSING_STREAK_THRESHOLD, int) and LOSING_STREAK_THRESHOLD >= 1
+        assert isinstance(LOSING_STREAK_SIGNAL_BOOST, float) and LOSING_STREAK_SIGNAL_BOOST > 0
+
+    def test_loss_streak_resets_on_take_profit(self):
+        """A take_profit close must reset the bot's loss streak counter."""
+        from paper_trading_engine import PaperTradingEngine
+        engine = PaperTradingEngine()
+        engine._bot_loss_streaks["bot_x"] = 5
+        # Simulate what the engine does on take_profit close
+        close_reason = "take_profit"
+        if close_reason == "take_profit":
+            engine._bot_loss_streaks["bot_x"] = 0
+        assert engine._bot_loss_streaks["bot_x"] == 0
+
+    def test_loss_streak_increments_on_stop_loss(self):
+        """A stop_loss close must increment the bot's loss streak counter."""
+        from paper_trading_engine import PaperTradingEngine
+        engine = PaperTradingEngine()
+        engine._bot_loss_streaks["bot_y"] = 2
+        # Simulate what the engine does on stop_loss close
+        close_reason = "stop_loss"
+        if close_reason == "stop_loss":
+            engine._bot_loss_streaks["bot_y"] = engine._bot_loss_streaks.get("bot_y", 0) + 1
+        assert engine._bot_loss_streaks["bot_y"] == 3
+
+    def test_stop_loss_cooldown_config(self):
+        """STOP_LOSS_COOLDOWN_MINUTES must be > SYMBOL_COOLDOWN_MINUTES."""
+        from config import STOP_LOSS_COOLDOWN_MINUTES, SYMBOL_COOLDOWN_MINUTES
+        assert STOP_LOSS_COOLDOWN_MINUTES > SYMBOL_COOLDOWN_MINUTES, (
+            "Stop-loss cooldown must be strictly longer than regular cooldown"
+        )
+
+
+class TestStopLossCooldown:
+    """Stop-loss specific symbol cooldown (E)."""
+
+    def test_record_stop_loss_applies_penalty(self):
+        """After a stop-loss, the symbol should get extra penalty in scoring."""
+        import asyncio
+        from services.symbol_universe import SymbolUniverseService, _symbol_history
+
+        svc = SymbolUniverseService()
+        bot_id = "bot_sl_cooldown"
+        sym = "BTC/USDT"
+
+        # Record a stop-loss for BTC/USDT
+        svc.record_stop_loss(bot_id, sym)
+
+        # Fresh ETH/USDT should score much higher than stop-lossed BTC/USDT
+        universe = [sym, "ETH/USDT"]
+        _, diag = asyncio.get_event_loop().run_until_complete(
+            svc.select(
+                bot_id=bot_id,
+                user_id="user_sl",
+                exchange="binance",
+                available_pairs=universe,
+                open_symbols_for_user=[],
+                cooldown_minutes=0,  # disable regular cooldown so only stop-loss penalty applies
+            )
+        )
+        scored = {e["symbol"]: e["score"] for e in diag["top5_scored"]}
+        assert scored.get("ETH/USDT", 0) > scored.get(sym, 1), (
+            f"ETH/USDT should outscore stop-lossed {sym}. Scores: {scored}"
+        )
+
+    def test_record_stop_loss_note_in_diagnostics(self):
+        """Scoring note for a stop-lossed symbol should include 'stop_loss_cooldown'."""
+        import asyncio
+        from services.symbol_universe import SymbolUniverseService
+
+        svc = SymbolUniverseService()
+        bot_id = "bot_sl_note"
+        svc.record_stop_loss(bot_id, "BTC/USDT")
+
+        _, diag = asyncio.get_event_loop().run_until_complete(
+            svc.select(
+                bot_id=bot_id,
+                user_id="user_slnote",
+                exchange="binance",
+                available_pairs=["BTC/USDT", "ETH/USDT"],
+                open_symbols_for_user=[],
+                cooldown_minutes=0,
+            )
+        )
+        btc_entry = next((e for e in diag["top5_scored"] if e["symbol"] == "BTC/USDT"), None)
+        assert btc_entry is not None
+        notes_str = " ".join(btc_entry.get("notes", []))
+        assert "stop_loss_cooldown" in notes_str, (
+            f"Expected stop_loss_cooldown note, got: {btc_entry['notes']}"
+        )

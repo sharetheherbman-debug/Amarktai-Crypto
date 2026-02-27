@@ -109,6 +109,24 @@ Every open trade has a full exit path assigned at entry.  The `decision_trace.pl
 6. `safety_exit` — profitable trade closed at `PAPER_SAFETY_EXIT_MINUTES`
 7. `stale_exit` — losing trade closed at `PAPER_STALE_EXIT_MINUTES`
 8. `stagnation_exit` — price not moved beyond round-trip cost after `STAGNATION_EXIT_MINUTES`
+9. `fee_break_even_fail` — trade is definitively losing beyond round-trip cost after `FEE_BREAK_EVEN_WINDOW_MINUTES`
+10. `time_decay_exit` — trade has not generated enough profit to cover costs after `TIME_DECAY_EXIT_MINUTES`
+
+Exits 9 and 10 run as a **second pass** after the primary elif chain and are fee+slippage aware:
+
+- **`fee_break_even_fail`**: Fires when `pnl_pct < -(fee_rate×2 + spread_bps/10000)×100` after `FEE_BREAK_EVEN_WINDOW_MINUTES`. The trade is definitively losing beyond what costs would be even at breakeven — exit now rather than waiting for stop-loss.
+
+- **`time_decay_exit`**: Fires when `pnl_pct < (fee_rate×2 + spread_bps/10000)×100` after `TIME_DECAY_EXIT_MINUTES`. The trade has not generated enough profit to cover its round-trip cost. Typically catches trades that could not exit at `soft_max_hold` due to temporarily wide spread.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FEE_BREAK_EVEN_WINDOW_MINUTES` | `10` | Minutes before fee break-even check triggers |
+| `TIME_DECAY_EXIT_MINUTES` | `20` | Minutes before time-decay cost check triggers |
+| `STOP_LOSS_COOLDOWN_MINUTES` | `30` | Per-symbol cooldown after a stop-loss (longer than regular) |
+| `LOSING_STREAK_THRESHOLD` | `3` | Consecutive stop-losses before confidence bar is raised |
+| `LOSING_STREAK_SIGNAL_BOOST` | `0.10` | Extra avg_confidence required per active loss streak |
 
 ### Per-Risk-Mode Defaults
 
@@ -243,10 +261,28 @@ The symbol universe service (`services/symbol_universe.py`) selects trading pair
 
 1. **Universe filter**: Only pairs in the exchange whitelist are considered
 2. **Anti-repeat penalty**: Recently closed pairs get an 85 % score penalty during `SYMBOL_COOLDOWN_MINUTES`
-3. **Diversity guard**: Pairs already open for the user get a 95 % score penalty
-4. **Top-5 scoring**: Full scored list in diagnostics for transparency
+3. **Stop-loss cooldown**: After a stop-loss on a symbol, an additional 85 % penalty is applied for `STOP_LOSS_COOLDOWN_MINUTES` (default: 30 min, longer than regular cooldown). This discourages immediately re-entering a pair that triggered a stop-loss, as adverse momentum often persists.
+4. **Diversity guard**: Pairs already open for the user get a 95 % score penalty
+5. **Top-5 scoring**: Full scored list in diagnostics for transparency
 
 Luno ZAR pairs (BTC/ZAR, ETH/ZAR, XRP/ZAR) are always included in the Luno universe to preserve ZAR-denominated bot functionality.
+
+---
+
+## 9. Adaptive Entry Threshold
+
+After a consecutive losing streak (stop-loss closes), the engine raises the minimum confidence bar for new entries:
+
+- **Baseline threshold**: `avg_confidence ≥ 0.65`
+- **After ≥ `LOSING_STREAK_THRESHOLD` consecutive stop-losses**: threshold becomes `0.65 + LOSING_STREAK_SIGNAL_BOOST` (default: `0.75`)
+- **Reset**: The streak counter resets to 0 on any `take_profit` close
+
+This acts as a self-regulating gate: a bot on a losing streak becomes more selective, reducing the chance of entering low-quality trades during adverse market conditions.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOSING_STREAK_THRESHOLD` | `3` | Consecutive stop-losses before threshold is raised |
+| `LOSING_STREAK_SIGNAL_BOOST` | `0.10` | Extra confidence required after streak activates |
 
 ---
 
