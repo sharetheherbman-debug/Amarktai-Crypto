@@ -3,8 +3,20 @@ Regime Playbooks — lightweight mapper from market regime to trading playbook.
 
 Playbooks:
   momentum       — trade breakouts / pullbacks with trailing-stop logic
-  mean_reversion — fade extremes, tight TP/SL, fast timeouts
-  stand_down     — no new entries; wide spreads / high volatility / risk event
+  mean_reversion — fade extremes, tight TP/SL, fast timeouts; also used as
+                   cautious fallback when regime is unknown/uncertain
+  stand_down     — no new entries; ONLY for extreme conditions: extreme
+                   volatility spike, confirmed bearish volatile regime, or
+                   explicit news-risk event
+
+Stand-down policy
+-----------------
+  stand_down is reserved for CLEARLY DANGEROUS conditions only:
+    - volatile_downtrend  (strong downtrend + high volatility)
+    - BEARISH_VOLATILE    (legacy label for same condition)
+  All other regimes — including unknown, error, choppy, consolidation —
+  fall back to mean_reversion with a reduced position size.  This ensures
+  the system can ALWAYS trade cautiously rather than permanently blocking.
 
 Interface
 ---------
@@ -16,6 +28,7 @@ Interface
   #   "regime":   <original regime str>,
   #   "strength": float (0-1),
   #   "confidence": float (0-1),
+  #   "caution":  bool  (True when using fallback / reduced size),
   # }
 
   params = get_playbook_params(risk_mode="safe", playbook="momentum")
@@ -35,26 +48,30 @@ logger = logging.getLogger(__name__)
 
 # Each regime string maps to one of the three playbooks.
 # The "strength" heuristic is a rough confidence proxy from the regime label.
+#
+# IMPORTANT: stand_down is ONLY for extreme downside volatile conditions.
+# choppy / unknown / error use mean_reversion (cautious) so trading is never
+# permanently blocked by regime alone.
 _REGIME_PLAYBOOK_MAP: Dict[str, str] = {
     # Trending / momentum-friendly
     "stable_uptrend": "momentum",
     "volatile_uptrend": "momentum",
     "BULLISH_CALM": "momentum",
     "bullish": "momentum",
-    # Mean-reversion / choppy
+    # Mean-reversion / range / choppy / consolidation
     "consolidation": "mean_reversion",
     "SQUEEZE": "mean_reversion",
     "sideways": "mean_reversion",
-    "choppy": "stand_down",
-    # Bearish / downside — stand-down for safe, mean-rev for aggressive
+    "choppy": "mean_reversion",      # was stand_down — choppy ≠ dangerous
+    # Bearish / downside
     "stable_downtrend": "mean_reversion",
-    "volatile_downtrend": "stand_down",
-    "BEARISH_VOLATILE": "stand_down",
+    "volatile_downtrend": "stand_down",   # extreme: strong downtrend + high vol
+    "BEARISH_VOLATILE": "stand_down",     # extreme: legacy label
     "bearish": "mean_reversion",
-    # Unknown / error
-    "unknown": "stand_down",
-    "UNKNOWN": "stand_down",
-    "error": "stand_down",
+    # Unknown / error — use mean_reversion (cautious) not stand_down
+    "unknown": "mean_reversion",
+    "UNKNOWN": "mean_reversion",
+    "error": "mean_reversion",
 }
 
 # Regime-label to "strength" (trend strength proxy, 0–1)
@@ -157,6 +174,14 @@ _PLAYBOOK_PARAMS: Dict[str, Dict[str, Dict[str, float]]] = {
 
 _DEFAULT_RISK_MODE = "balanced"
 
+# Caution-mode scaling factors applied when caution=True (unknown/low-confidence regime).
+# Exposed as constants so they are easy to tune without touching logic.
+_CAUTION_POSITION_MULTIPLIER: float = 0.5   # fraction of normal position_size_multiplier
+_CAUTION_HOLD_FRACTION: float = 0.75         # fraction of normal hold/exit times
+_CAUTION_MIN_HOLD_MINUTES: int = 15          # floor for max_hold_minutes after reduction
+_CAUTION_MIN_EXIT_MINUTES: int = 10          # floor for safety_exit_minutes after reduction
+_CAUTION_CONFIDENCE_THRESHOLD: float = 0.15  # below this → caution even for known regimes
+
 
 def select_playbook(regime_dict: Optional[Dict]) -> Dict:
     """
@@ -175,35 +200,68 @@ def select_playbook(regime_dict: Optional[Dict]) -> Dict:
         regime     : original regime string
         strength   : float 0–1 (trend / signal strength heuristic)
         confidence : float 0–1 (from detector or default 0)
+        caution    : bool — True when using a reduced-size cautious fallback
+                     (low confidence or unknown/error regime)
     """
     if not regime_dict:
-        return {"playbook": "stand_down", "regime": "unknown", "strength": 0.1, "confidence": 0.0}
+        # Regime detector unavailable — trade cautiously with mean_reversion,
+        # do NOT stand down permanently.
+        return {
+            "playbook": "mean_reversion",
+            "regime": "unknown",
+            "strength": 0.1,
+            "confidence": 0.0,
+            "caution": True,
+        }
 
     regime = str(regime_dict.get("regime") or "unknown")
     confidence = float(regime_dict.get("confidence") or 0.0)
-    playbook = _REGIME_PLAYBOOK_MAP.get(regime, "stand_down")
+    playbook = _REGIME_PLAYBOOK_MAP.get(regime, "mean_reversion")
     strength = _REGIME_STRENGTH.get(regime, 0.2)
 
-    # Extra stand-down trigger: very low confidence regardless of regime label
-    if confidence < 0.15:
-        playbook = "stand_down"
+    # Low-confidence regime: trade cautiously (mean_reversion with reduced size)
+    # rather than standing down completely.  Only truly dangerous regimes
+    # (volatile_downtrend / BEARISH_VOLATILE) still stand down.
+    caution = False
+    if confidence < _CAUTION_CONFIDENCE_THRESHOLD and playbook != "stand_down":
+        playbook = "mean_reversion"
         strength = min(strength, 0.2)
+        caution = True
+    elif regime in ("unknown", "UNKNOWN", "error"):
+        caution = True
 
     return {
         "playbook": playbook,
         "regime": regime,
         "strength": round(strength, 3),
         "confidence": round(confidence, 3),
+        "caution": caution,
     }
 
 
-def get_playbook_params(risk_mode: str, playbook: str) -> Dict:
+def get_playbook_params(risk_mode: str, playbook: str, caution: bool = False) -> Dict:
     """
     Return per-playbook parameter overrides for *risk_mode*.
 
     Falls back to *balanced* if *risk_mode* is unknown.  Always returns a
     fully-populated dict; callers should treat these as *suggestions* applied
     on top of the bot's base configuration.
+
+    When *caution* is True (unknown/low-confidence regime), position_size_multiplier
+    is halved and hold times are reduced to limit exposure.
     """
     mode = risk_mode if risk_mode in _PLAYBOOK_PARAMS.get(playbook, {}) else _DEFAULT_RISK_MODE
-    return dict(_PLAYBOOK_PARAMS.get(playbook, {}).get(mode, {}))
+    params = dict(_PLAYBOOK_PARAMS.get(playbook, {}).get(mode, {}))
+    if caution and params:
+        params["position_size_multiplier"] = round(
+            params.get("position_size_multiplier", 1.0) * _CAUTION_POSITION_MULTIPLIER, 3
+        )
+        params["max_hold_minutes"] = max(
+            int(params.get("max_hold_minutes", 40) * _CAUTION_HOLD_FRACTION),
+            _CAUTION_MIN_HOLD_MINUTES,
+        )
+        params["safety_exit_minutes"] = max(
+            int(params.get("safety_exit_minutes", 20) * _CAUTION_HOLD_FRACTION),
+            _CAUTION_MIN_EXIT_MINUTES,
+        )
+    return params

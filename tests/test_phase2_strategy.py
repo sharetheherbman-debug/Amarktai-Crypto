@@ -80,28 +80,34 @@ class TestRegimePlaybooks:
         info = select_playbook({"regime": "stable_uptrend", "confidence": 0.8})
         assert info["playbook"] == "momentum", f"Expected momentum, got {info['playbook']}"
 
-    def test_choppy_maps_to_stand_down(self):
+    def test_choppy_maps_to_mean_reversion(self):
+        """Choppy market is NOT a stand_down condition — it trades via mean_reversion."""
         from engines.regime_playbooks import select_playbook
         info = select_playbook({"regime": "choppy", "confidence": 0.7})
-        assert info["playbook"] == "stand_down", f"Expected stand_down, got {info['playbook']}"
+        assert info["playbook"] == "mean_reversion", f"Expected mean_reversion, got {info['playbook']}"
 
     def test_consolidation_maps_to_mean_reversion(self):
         from engines.regime_playbooks import select_playbook
         info = select_playbook({"regime": "consolidation", "confidence": 0.6})
         assert info["playbook"] == "mean_reversion", f"Expected mean_reversion, got {info['playbook']}"
 
-    def test_low_confidence_overrides_to_stand_down(self):
-        """Even a momentum regime should be stand_down when confidence < 0.15."""
+    def test_low_confidence_uses_cautious_mean_reversion(self):
+        """Low confidence should use mean_reversion (cautious) not stand_down."""
         from engines.regime_playbooks import select_playbook
         info = select_playbook({"regime": "stable_uptrend", "confidence": 0.05})
-        assert info["playbook"] == "stand_down", (
-            f"Low confidence should force stand_down, got {info['playbook']}"
+        assert info["playbook"] == "mean_reversion", (
+            f"Low confidence should use cautious mean_reversion, got {info['playbook']}"
         )
+        assert info["caution"] is True, "Low confidence must set caution=True"
 
-    def test_none_regime_returns_stand_down(self):
+    def test_none_regime_uses_cautious_mean_reversion(self):
+        """None regime should use mean_reversion (cautious), not stand_down permanently."""
         from engines.regime_playbooks import select_playbook
         info = select_playbook(None)
-        assert info["playbook"] == "stand_down"
+        assert info["playbook"] == "mean_reversion", (
+            f"None regime should use cautious mean_reversion, got {info['playbook']}"
+        )
+        assert info["caution"] is True
 
     def test_get_playbook_params_returns_expected_keys(self):
         from engines.regime_playbooks import get_playbook_params
@@ -124,7 +130,9 @@ class TestRegimePlaybooks:
         )
 
     def test_regime_standdown_skip_code_in_engine(self):
-        """Engine must return skip_reason='regime_standdown' when playbook is stand_down."""
+        """Engine must return skip_reason='regime_standdown' when playbook is stand_down.
+        Only truly dangerous regimes (volatile_downtrend, BEARISH_VOLATILE) trigger stand_down.
+        """
         import asyncio
         from paper_trading_engine import PaperTradingEngine
 
@@ -165,7 +173,7 @@ class TestRegimePlaybooks:
         bots_col.find_one = AsyncMock(return_value=bot_data)
         bots_col.update_one = AsyncMock()
 
-        stand_down_regime = {"regime": "choppy", "confidence": 0.8, "trend": "neutral"}
+        stand_down_regime = {"regime": "volatile_downtrend", "confidence": 0.8, "trend": "bearish"}
         patches = [
             patch("paper_trading_engine.db.bots_collection", bots_col),
             patch("paper_trading_engine.db.trades_collection", trades_col),
