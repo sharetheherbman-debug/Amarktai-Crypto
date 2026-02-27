@@ -177,6 +177,10 @@ async def _fetch_and_process(user_id: Optional[str] = None):
             "mood": mood,
             "top_risk": top_risk,
             "headlines_count": len(articles),
+            "top_articles": [
+                {"title": a.get("title", ""), "url": a.get("url", ""), "source": a.get("source", "")}
+                for a in articles[:5]
+            ],
             "source": "CoinStats",
             "fetch_status": "ok",
             "block_reason": None,

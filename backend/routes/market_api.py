@@ -171,3 +171,62 @@ async def get_market_brief(user_id: str = Depends(get_current_user)):
                 }
 
     return _brief_cache
+
+
+@router.get("/intelligence")
+async def get_market_intelligence(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/market/intelligence
+
+    Cached market intelligence brief derived from the CoinStats news pipeline.
+    Returns the most recently computed brief including mood, top headlines, and
+    an actionable block_reason when data is unavailable.
+
+    Returns:
+      - success: bool
+      - source: "CoinStats"
+      - mood: positive | negative | neutral
+      - why_it_matters: plain-English impact description
+      - what_amarktai_is_doing: platform response description
+      - last_updated: ISO timestamp of last successful update (or null)
+      - articles_count: number of articles in the last brief
+      - top_headlines: list of up to 5 top article titles
+      - block_reason: reason data is missing (or null when data is ok)
+      - fetch_status: ok | no_articles | key_missing | rate_limited | invalid_key | error | pending
+    """
+    try:
+        from services.market_intelligence_service import get_latest_intelligence
+        data = await get_latest_intelligence(user_id=user_id)
+
+        top_headlines = []
+        for art in (data.get("top_articles") or [])[:5]:
+            title = art.get("title") if isinstance(art, dict) else str(art)
+            if title:
+                top_headlines.append(title)
+
+        return {
+            "success": True,
+            "source": data.get("source", "CoinStats"),
+            "mood": data.get("mood", "neutral"),
+            "why_it_matters": data.get("why_it_matters", ""),
+            "what_amarktai_is_doing": data.get("what_amarktai_is_doing", ""),
+            "last_updated": data.get("updated_at"),
+            "articles_count": data.get("headlines_count", 0),
+            "top_headlines": top_headlines,
+            "block_reason": data.get("block_reason"),
+            "fetch_status": data.get("fetch_status", "pending"),
+        }
+    except Exception as e:
+        logger.error(f"Market intelligence endpoint error: {e}")
+        return {
+            "success": False,
+            "source": "CoinStats",
+            "mood": "neutral",
+            "why_it_matters": "",
+            "what_amarktai_is_doing": "",
+            "last_updated": None,
+            "articles_count": 0,
+            "top_headlines": [],
+            "block_reason": f"Internal error: {str(e)[:200]}",
+            "fetch_status": "error",
+        }
