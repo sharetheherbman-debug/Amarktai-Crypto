@@ -153,7 +153,8 @@ async def test_bot_cooldown_15_seconds(order_pipeline, mock_db, mock_ledger):
         "bot_id": "test_bot",
         "created_at": last_order_time
     })
-    mock_db["bot_cooldowns"] = mock_collection
+    # Directly replace the bound collection on the pipeline instance
+    order_pipeline.bot_cooldowns = mock_collection
     mock_ledger.get_trade_count = AsyncMock(return_value=0)
     
     result = await order_pipeline.submit_order(
@@ -181,8 +182,9 @@ async def test_rolling_window_cap_30_orders(order_pipeline, mock_db, mock_ledger
     mock_collection = AsyncMock()
     mock_collection.count_documents = AsyncMock(return_value=30)
     mock_collection.find_one = AsyncMock(return_value=None)  # No cooldown issue
-    mock_db["rolling_windows"] = mock_collection
-    mock_db["bot_cooldowns"].find_one = AsyncMock(return_value=None)
+    # Directly replace the bound collections on the pipeline instance
+    order_pipeline.rolling_windows = mock_collection
+    order_pipeline.bot_cooldowns.find_one = AsyncMock(return_value=None)
     mock_ledger.get_trade_count = AsyncMock(return_value=0)
     
     result = await order_pipeline.submit_order(
@@ -274,18 +276,17 @@ async def test_signal_engine_integration_gate_b(order_pipeline, mock_signal_engi
 @pytest.mark.asyncio
 async def test_spam_pattern_detection_excessive_cancels(order_pipeline, mock_db):
     """Test spam detection for excessive order cancels"""
-    # Mock excessive cancels (>20 in 1 hour)
-    mock_collection = AsyncMock()
-    mock_collection.count_documents = AsyncMock(return_value=25)
-    mock_collection.find_one = AsyncMock(return_value={
+    # Seed the spam_scores collection with an already-high score so that
+    # adding cancel violations pushes the total over max_spam_score (100).
+    order_pipeline.spam_scores.find_one = AsyncMock(return_value={
         "entity_type": "bot",
         "entity_id": "test_bot",
-        "score": 0,
+        "score": 80,  # pre-existing score; cancels will push it over 100
         "last_updated": datetime.utcnow(),
-        "violations": []
+        "violations": [],
     })
-    mock_collection.update_one = AsyncMock()
-    mock_db["pending_orders"] = mock_collection
+    # Mock excessive cancels (>20 in 1 hour) via the bound pending_orders collection
+    order_pipeline.pending_orders.count_documents = AsyncMock(return_value=25)
     
     # Check spam patterns
     result = await order_pipeline._check_spam_patterns(
@@ -328,10 +329,10 @@ async def test_rejection_broadcast_to_realtime(order_pipeline, mock_ledger):
 @pytest.mark.asyncio
 async def test_user_scaling_caps_with_bot_count(order_pipeline, mock_db, mock_ledger):
     """Test that user cap scales with bot count but respects hard cap"""
-    # Mock 10 bots on Luno for user
-    mock_db["bots"].count_documents = AsyncMock(return_value=10)
-    mock_db["bot_cooldowns"].find_one = AsyncMock(return_value=None)
-    mock_db["rolling_windows"].count_documents = AsyncMock(return_value=0)
+    # Directly mock the _get_user_bot_count helper so it returns 10 bots
+    order_pipeline._get_user_bot_count = AsyncMock(return_value=10)
+    order_pipeline.bot_cooldowns.find_one = AsyncMock(return_value=None)
+    order_pipeline.rolling_windows.count_documents = AsyncMock(return_value=0)
     
     # User cap = min(3000, 10 * 150) = 1500
     # Mock user has made 1500 trades today

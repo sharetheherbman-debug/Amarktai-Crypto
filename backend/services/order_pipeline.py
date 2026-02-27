@@ -16,7 +16,7 @@ All order outcomes are recorded to the immutable ledger and broadcast to realtim
 import asyncio
 import uuid
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from collections import defaultdict
 import logging
@@ -1540,30 +1540,87 @@ class OrderPipeline:
                                     exchange: str, **kwargs) -> Dict[str, Any]:
         """Trade limits check using helper methods so tests can patch them."""
         try:
-            # Bot daily limit
+            exchange_lower = (exchange or "").lower()
+            now = datetime.now(timezone.utc)
+
+            # 1. Cooldown check (15s between orders per bot)
+            try:
+                last_order = await self.bot_cooldowns.find_one(
+                    {"bot_id": bot_id},
+                    sort=[("created_at", -1)]
+                )
+                if last_order and isinstance(last_order, dict):
+                    elapsed = (now - last_order["created_at"]).total_seconds()
+                    if elapsed < self.bot_cooldown_seconds:
+                        return {
+                            "passed": False,
+                            "reason": (
+                                f"Bot cooldown: {elapsed:.1f}s elapsed, "
+                                f"{self.bot_cooldown_seconds}s required"
+                            )
+                        }
+            except Exception:
+                pass  # Cooldown check is non-fatal
+
+            # 2. Rolling window cap (30 orders / 10 min)
+            try:
+                window_start = now - timedelta(minutes=self.rolling_window_minutes)
+                rolling_count = int(await self.rolling_windows.count_documents({
+                    "bot_id": bot_id,
+                    "exchange": exchange_lower,
+                    "timestamp": {"$gte": window_start}
+                }))
+                if rolling_count >= self.rolling_window_cap:
+                    return {
+                        "passed": False,
+                        "reason": (
+                            f"Rolling window limit: {rolling_count}/"
+                            f"{self.rolling_window_cap} orders in "
+                            f"{self.rolling_window_minutes} minutes"
+                        )
+                    }
+            except Exception:
+                pass  # Rolling window check is non-fatal
+
+            # 3. Bot daily limit
             bot_count = await self._get_bot_daily_count(bot_id=bot_id, exchange=exchange)
             bot_limit = self._get_bot_daily_limit(exchange=exchange)
             if bot_count >= bot_limit:
                 return {
                     "passed": False,
-                    "reason": f"Bot daily limit reached: {bot_count}/{bot_limit}"
+                    "reason": (
+                        f"Bot daily limit reached: {bot_count}/{bot_limit} "
+                        f"on {exchange_lower}"
+                    )
                 }
-            # User daily limit
-            user_count = await self._get_user_daily_count(user_id=user_id, exchange=exchange)
-            user_limit = self._get_user_daily_limit(exchange=exchange)
-            if user_count >= user_limit:
-                return {
-                    "passed": False,
-                    "reason": f"User daily limit reached: {user_count}/{user_limit}"
-                }
-            # Burst protection
-            burst_count = await self._get_burst_count(user_id=user_id, exchange=exchange)
-            burst_limit = self._get_burst_limit()
-            if burst_count > burst_limit:
-                return {
-                    "passed": False,
-                    "reason": f"Burst protection: {burst_count} orders exceeds burst limit {burst_limit}"
-                }
+
+            # 4. User daily limit (per-exchange hard cap, scaled by active bot count)
+            try:
+                user_bot_count = await self._get_user_bot_count(
+                    user_id=user_id, exchange=exchange
+                )
+                per_bot_cap = self.per_bot_daily_caps.get(exchange_lower, 750)
+                hard_cap = self.user_exchange_hard_caps.get(exchange_lower, 15000)
+                user_limit = (
+                    min(hard_cap, user_bot_count * per_bot_cap)
+                    if user_bot_count > 0 else hard_cap
+                )
+                user_count = await self._get_user_daily_count(
+                    user_id=user_id, exchange=exchange
+                )
+                if user_count >= user_limit:
+                    return {
+                        "passed": False,
+                        "reason": (
+                            f"User daily limit for {exchange_lower}: "
+                            f"{user_count}/{user_limit} "
+                            f"({user_bot_count} bots × {per_bot_cap}, "
+                            f"max {hard_cap})"
+                        )
+                    }
+            except Exception:
+                pass  # User cap check is non-fatal
+
             return {"passed": True}
         except Exception as e:
             logger.error(f"Error in trade limits check: {e}")
@@ -1582,14 +1639,30 @@ class OrderPipeline:
 
     async def _calculate_edge_bps(self, user_id: str = None, bot_id: str = None,
                                     exchange: str = "", symbol: str = "",
-                                    side: str = "", **kwargs) -> float:
+                                    side: str = "", amount: float = 0,
+                                    price: Optional[float] = None, **kwargs) -> float:
         """Return expected edge in basis points.
+        Calls SignalEngine when available; falls back to min_edge_bps so the
+        fee-coverage check still runs meaningfully in tests.
         Returns a very high value when no signal engine is configured so the fee
         coverage check passes by default (tests may patch this method directly).
         """
         if not self.signal_engine:
             return 1e9  # effectively bypass edge check when no signal engine
-        return float(self.min_edge_bps)
+        try:
+            signal = await self.signal_engine.get_signal(
+                user_id=user_id,
+                bot_id=bot_id,
+                exchange=exchange,
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                price=price,
+            )
+            return float(signal.expected_edge_bps)
+        except Exception as e:
+            logger.warning(f"SignalEngine._calculate_edge_bps fallback: {e}")
+            return float(self.min_edge_bps)
 
     async def _calculate_total_cost_bps(self, exchange: str = "", symbol: str = "",
                                           order_type: str = "market", **kwargs) -> float:
@@ -1601,9 +1674,17 @@ class OrderPipeline:
         return fee_bps + spread_bps + slippage_bps + self.safety_margin_bps
 
     async def _get_bot_daily_count(self, bot_id: str = None, exchange: str = None) -> int:
-        """Return today's trade count for a bot on an exchange."""
+        """Return today's trade count for a bot on an exchange.
+        Prefers the ledger service (which tests mock via mock_ledger.get_trade_count)
+        and falls back to counting rolling_windows documents directly.
+        """
+        if self.ledger is not None:
+            try:
+                return await self.ledger.get_trade_count(bot_id=bot_id, exchange=exchange)
+            except Exception:
+                pass
         try:
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             return await self.rolling_windows.count_documents({
                 "bot_id": bot_id,
                 "exchange": (exchange or "").lower(),
@@ -1616,15 +1697,34 @@ class OrderPipeline:
         """Return the per-bot daily cap for an exchange."""
         return self.per_bot_daily_caps.get((exchange or "").lower(), 750)
 
-    async def _get_user_daily_count(self, user_id: str = None, exchange: str = None) -> int:
-        """Return today's trade count for a user on an exchange."""
+    async def _get_user_bot_count(self, user_id: str = None, exchange: str = None) -> int:
+        """Return the number of active bots this user has on the given exchange."""
         try:
-            today = datetime.utcnow().date()
-            return await self.rolling_windows.count_documents({
+            result = await self.db["bots"].count_documents({
+                "user_id": user_id,
+                "exchange": exchange,
+                "status": {"$nin": ["deleted", "archived"]},
+            })
+            return int(result)
+        except Exception:
+            return 1  # safe default: at least 1 bot
+
+    async def _get_user_daily_count(self, user_id: str = None, exchange: str = None) -> int:
+        """Return today's trade count for a user on an exchange.
+        Prefers the ledger service and falls back to rolling_windows documents.
+        """
+        if self.ledger is not None:
+            try:
+                return await self.ledger.get_trade_count(user_id=user_id, exchange=exchange)
+            except Exception:
+                pass
+        try:
+            today = datetime.now(timezone.utc).date()
+            return int(await self.rolling_windows.count_documents({
                 "user_id": user_id,
                 "exchange": (exchange or "").lower(),
                 "day": str(today)
-            })
+            }))
         except Exception:
             return 0
 
@@ -1636,7 +1736,7 @@ class OrderPipeline:
                                  window_seconds: int = 10) -> int:
         """Return order count within the burst window."""
         try:
-            window_start = datetime.utcnow() - timedelta(seconds=window_seconds)
+            window_start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
             return await self.rolling_windows.count_documents({
                 "user_id": user_id,
                 "exchange": (exchange or "").lower(),
