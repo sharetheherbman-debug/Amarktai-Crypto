@@ -362,6 +362,7 @@ class PaperTradingEngine:
         # Close-attempt tracking for diagnostics (C2)
         self.closes_attempted: int = 0
         self.closes_done: int = 0
+        self.closes_failed: int = 0
 
         # Per-bot consecutive stop-loss counter for adaptive confidence threshold.
         # Incremented on stop_loss close; reset on any take_profit close.
@@ -1963,6 +1964,7 @@ class PaperTradingEngine:
                 if not trade_result.get("success"):
                     if skip_reason == "close_exception":
                         # Real exception in close path – mark trade as failed/abandoned
+                        self.closes_failed += 1
                         trade_id = open_trade.get("id") or open_trade.get("trade_id")
                         if trade_id:
                             try:
@@ -2406,6 +2408,74 @@ class PaperTradingEngine:
         self.bybit_exchange = None
         self.bitget_exchange = None
     
+    async def close_overdue_trades(self, user_id: str) -> int:
+        """Force-close all open paper trades that have exceeded HARD_MAX_HOLD_SECONDS.
+
+        Called by the scheduler at the end of each tick to ensure trades from
+        paused bots are not left open indefinitely (fix for D — exit precedence).
+
+        Returns the number of trades closed.
+        """
+        closed_count = 0
+        try:
+            if db.trades_collection is None:
+                return 0
+            now = datetime.now(timezone.utc)
+            cursor = db.trades_collection.find(
+                {"user_id": user_id, "status": "open"},
+                {"_id": 0}
+            )
+            open_trades = await cursor.to_list(200)
+            for trade in open_trades:
+                entry_time_raw = (
+                    trade.get("entry_time")
+                    or trade.get("opened_at")
+                    or trade.get("timestamp")
+                )
+                if not entry_time_raw:
+                    continue
+                try:
+                    entry_time = datetime.fromisoformat(
+                        str(entry_time_raw).replace("Z", "+00:00")
+                    )
+                except Exception:
+                    continue
+                age_seconds = (now - entry_time).total_seconds()
+                if age_seconds < HARD_MAX_HOLD_SECONDS:
+                    continue
+                # Force close: fetch current price and call _close_open_trade
+                bot_id = trade.get("bot_id")
+                if not bot_id:
+                    continue
+                bot_data = None
+                if db.bots_collection is not None:
+                    bot_data = await db.bots_collection.find_one(
+                        {"id": bot_id}, {"_id": 0}
+                    )
+                if not bot_data:
+                    bot_data = {
+                        "id": bot_id,
+                        "user_id": user_id,
+                        "name": "unknown",
+                        "stop_loss_pct": 0.02,
+                        "take_profit_pct": 0.03,
+                    }
+                try:
+                    result = await self._close_open_trade(bot_id, bot_data, trade)
+                    if result and result.get("success"):
+                        closed_count += 1
+                        logger.info(
+                            f"OVERDUE_SWEEP closed trade {trade.get('id', '?')} "
+                            f"bot={bot_id} age_sec={age_seconds:.0f}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"OVERDUE_SWEEP failed for trade {trade.get('id', '?')}: {e}"
+                    )
+        except Exception as e:
+            logger.error(f"close_overdue_trades error: {e}")
+        return closed_count
+
     def get_status(self) -> Dict:
         """Get paper trading engine status for monitoring with mode information"""
         mode_info = self.get_mode_label()
@@ -2419,6 +2489,7 @@ class PaperTradingEngine:
             "total_trades": self.trade_count,
             "closes_attempted": self.closes_attempted,
             "closes_done": self.closes_done,
+            "closes_failed": self.closes_failed,
             "last_symbol_selection": self._last_symbol_selection,
             "exchanges_initialized": {
                 "luno": self.luno_exchange is not None,

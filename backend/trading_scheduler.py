@@ -476,6 +476,15 @@ class TradingScheduler:
                 if can_execute:
                     # Add to queue
                     await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
+
+            # Force-close overdue open trades for all users — this sweeps trades from
+            # paused bots that the normal cycle would skip (fix for D exit precedence).
+            try:
+                user_ids_seen = {b.get('user_id') for b in active_bots if b.get('user_id')}
+                for uid in user_ids_seen:
+                    await paper_engine.close_overdue_trades(uid)
+            except Exception as _sweep_err:
+                logger.warning(f"Overdue trade sweep error: {_sweep_err}")
         
         except Exception as e:
             logger.error(f"Trading cycle error: {e}")
