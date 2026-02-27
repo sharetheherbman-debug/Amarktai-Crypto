@@ -2526,7 +2526,7 @@ async def symbol_selection_diagnostic(
         pass
 
     universe = _su.get_universe(exchange)
-    open_symbols: list = []
+    open_symbols: List[str] = []
     try:
         open_trades_cursor = db.trades_collection.find(
             {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}

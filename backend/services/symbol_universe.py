@@ -51,9 +51,9 @@ DEFAULT_SYMBOL_UNIVERSE: Dict[str, List[str]] = {
 }
 
 # Penalty multiplier applied to recently-traded symbols (0 = no score, 1 = full score)
-_COOLDOWN_PENALTY = 0.15  # 85 % penalty during cooldown window
+_COOLDOWN_PENALTY = 0.15  # 85% penalty during cooldown window
 # Penalty applied when a symbol already has an open trade for this user
-_DIVERSITY_PENALTY = 0.05  # 95 % penalty (strongly discourage, not block outright)
+_DIVERSITY_PENALTY = 0.05  # 95% penalty (strongly discourage, not block outright)
 
 
 class _SymbolHistory:

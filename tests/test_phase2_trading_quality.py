@@ -51,8 +51,7 @@ for _mod in ("fastapi", "fastapi.responses", "fastapi.middleware", "fastapi.midd
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
 
-# bson needs to be a package (has sub-modules)
-import types as _types
+# bson needs to be a real package (has sub-modules)
 if "bson" not in sys.modules:
     _bson_pkg = _types.ModuleType("bson")
     _bson_pkg.ObjectId = MagicMock()
