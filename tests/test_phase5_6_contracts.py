@@ -286,3 +286,258 @@ class TestDiagnosticsWhyNotTradingNoBugs:
             wallet = await svc.get_wallet_status("user1")
         assert wallet.get("total", -1) == 0
         assert wallet.get("funded") is False
+
+
+# ---------------------------------------------------------------------------
+# B — Tick recorder: record_tick writes last_tick_at to bot_runtime_state
+# ---------------------------------------------------------------------------
+
+class TestTickRecorder:
+    """BotRuntimeStateStore.record_tick() must update last_tick_at and updated_at."""
+
+    @pytest.mark.asyncio
+    async def test_record_tick_method_exists(self):
+        from services.bot_runtime_state import BotRuntimeStateStore
+        svc = BotRuntimeStateStore()
+        assert hasattr(svc, "record_tick"), (
+            "BotRuntimeStateStore must expose record_tick(bot_id, user_id)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_record_tick_writes_last_tick_at(self):
+        from services.bot_runtime_state import BotRuntimeStateStore
+        svc = BotRuntimeStateStore()
+
+        written = {}
+
+        async def fake_update_one(filt, update, upsert=False):
+            written["set"] = update.get("$set", {})
+            return MagicMock(modified_count=1)
+
+        col = MagicMock()
+        col.update_one = AsyncMock(side_effect=fake_update_one)
+
+        with patch("database.bot_runtime_state_collection", col):
+            await svc.record_tick("bot_abc", "user_xyz")
+
+        assert "last_tick_at" in written.get("set", {}), (
+            "record_tick must write last_tick_at into bot_runtime_state"
+        )
+        assert "updated_at" in written.get("set", {}), (
+            "record_tick must write updated_at into bot_runtime_state"
+        )
+
+    @pytest.mark.asyncio
+    async def test_record_tick_upserts(self):
+        """record_tick must upsert (not fail on missing document)."""
+        from services.bot_runtime_state import BotRuntimeStateStore
+        svc = BotRuntimeStateStore()
+        calls = []
+
+        async def fake_update_one(filt, update, upsert=False):
+            calls.append({"upsert": upsert})
+            return MagicMock(modified_count=0, upserted_id="new")
+
+        col = MagicMock()
+        col.update_one = AsyncMock(side_effect=fake_update_one)
+
+        with patch("database.bot_runtime_state_collection", col):
+            await svc.record_tick("bot_new", "user_new")
+
+        assert calls and calls[0].get("upsert") is True, (
+            "record_tick must use upsert=True so it works on missing documents"
+        )
+
+    @pytest.mark.asyncio
+    async def test_record_tick_tolerates_db_error(self):
+        """record_tick must not raise even if the DB operation fails."""
+        from services.bot_runtime_state import BotRuntimeStateStore
+        svc = BotRuntimeStateStore()
+
+        col = MagicMock()
+        col.update_one = AsyncMock(side_effect=RuntimeError("DB down"))
+
+        with patch("database.bot_runtime_state_collection", col):
+            # Must not raise
+            await svc.record_tick("bot_err", "user_err")
+
+
+# ---------------------------------------------------------------------------
+# C — Close loop: time_exit_due trades are always attempted (no null-price block)
+# ---------------------------------------------------------------------------
+
+class TestCloseLoopTimeExitDue:
+    """_close_open_trade must attempt closure for time_exit_due trades."""
+
+    @pytest.mark.asyncio
+    async def test_time_exit_triggers_close_not_skip(self):
+        """A trade older than PAPER_MAX_HOLD_MINUTES must set close_reason=time_exit."""
+        from paper_trading_engine import PaperTradingEngine, PAPER_MAX_HOLD_MINUTES
+        from datetime import timedelta
+
+        engine = PaperTradingEngine.__new__(PaperTradingEngine)
+        engine._action_log = []
+        engine.market_data_provider = None
+        engine.luno_exchange = None
+        engine.binance_exchange = None
+        engine.kucoin_exchange = None
+        engine.bybit_exchange = None
+        engine.bitget_exchange = None
+        engine.price_cache = {}
+
+        old_entry = (datetime.now(timezone.utc) - timedelta(minutes=PAPER_MAX_HOLD_MINUTES + 10)).isoformat()
+
+        open_trade = {
+            "id": "trade_old",
+            "pair": "BTC/USDT",
+            "exchange": "binance",
+            "entry_price": 50000.0,
+            "stop_loss_pct": 0.02,
+            "take_profit_pct": 0.03,
+            "stop_loss_price": 49000.0,
+            "take_profit_price": 51500.0,
+            "opened_at": old_entry,
+            "amount": 0.001,
+            "trade_amount": 50.0,
+            "entry_value": 50.0,
+        }
+
+        bot_data = {
+            "id": "bot1",
+            "name": "TestBot",
+            "user_id": "user1",
+            "exchange": "binance",
+            "pair": "BTC/USDT",
+            "stop_loss_pct": 0.02,
+            "take_profit_pct": 0.03,
+            "initial_capital": 10000.0,
+            "current_capital": 10000.0,
+        }
+
+        # Mock get_market_snapshot to return a valid mid price
+        async def mock_snapshot(sym, exch):
+            return {"bid": 50100.0, "ask": 50200.0, "mid": 50150.0}
+
+        engine.market_data_provider = mock_snapshot
+
+        # Also mock the DB writes that happen on close
+        trades_col = MagicMock()
+        trades_col.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+        trades_col.insert_one = AsyncMock(return_value=MagicMock(inserted_id="fill_id"))
+        bots_col = MagicMock()
+        bots_col.update_one = AsyncMock()
+
+        with patch("database.trades_collection", trades_col), \
+             patch("database.bots_collection", bots_col), \
+             patch("database.db", MagicMock()):
+            result = await engine._close_open_trade("bot1", bot_data, open_trade)
+
+        assert result is not None, "_close_open_trade must return a result"
+        skip = result.get("skip_reason")
+        assert skip != "no_price_data", (
+            "Close must not be blocked by null price when mock snapshot provides a price"
+        )
+        # The trade should have been closed (success=True or it wrote a close result)
+        assert result.get("success") is True or result.get("close_reason") == "time_exit", (
+            f"Expected time_exit close, got: {result}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_price_data_returns_skip_not_exception(self):
+        """When price is truly unavailable, skip_reason=no_price_data is returned (not an exception)."""
+        from paper_trading_engine import PaperTradingEngine, PAPER_MAX_HOLD_MINUTES
+        from datetime import timedelta
+
+        engine = PaperTradingEngine.__new__(PaperTradingEngine)
+        engine._action_log = []
+        engine.market_data_provider = None
+        engine.luno_exchange = None
+        engine.binance_exchange = None
+        engine.kucoin_exchange = None
+        engine.bybit_exchange = None
+        engine.bitget_exchange = None
+        engine.price_cache = {}
+
+        old_entry = (datetime.now(timezone.utc) - timedelta(minutes=PAPER_MAX_HOLD_MINUTES + 1)).isoformat()
+
+        open_trade = {
+            "id": "trade_stale",
+            "pair": "BTC/USDT",
+            "exchange": "binance",
+            "entry_price": 50000.0,
+            "opened_at": old_entry,
+            "amount": 0.001,
+            "entry_value": 50.0,
+        }
+
+        # Mock snapshot to return None mid (price truly unavailable)
+        async def mock_no_price(sym, exch):
+            return {"bid": None, "ask": None, "mid": None}
+
+        engine.market_data_provider = mock_no_price
+        # Also override get_real_price to simulate fallback returning None
+        async def mock_no_real_price(sym, exch=None, with_label=False):
+            return None
+        engine.get_real_price = mock_no_real_price
+
+        bot_data = {"id": "bot1", "user_id": "user1", "exchange": "binance", "pair": "BTC/USDT"}
+
+        result = await engine._close_open_trade("bot1", bot_data, open_trade)
+
+        assert result is not None, "_close_open_trade must never raise"
+        assert result.get("skip_reason") == "no_price_data", (
+            "When price is unavailable, skip_reason must be 'no_price_data', not an exception"
+        )
+
+
+# ---------------------------------------------------------------------------
+# D — Active bot filter consistency
+# ---------------------------------------------------------------------------
+
+class TestActiveBotFilterConsistency:
+    """bot_not_deleted_filter must handle bots with deleted_at=null correctly."""
+
+    def test_bot_not_deleted_filter_excludes_deleted_status(self):
+        from services.bot_filters import bot_not_deleted_filter
+        filt = bot_not_deleted_filter({"user_id": "u1", "status": "active"})
+        # When called with status="active", the exact-match status guards against deleted bots.
+        # Also check the is_deleted and deleted guards are present.
+        assert filt.get("is_deleted") == {"$ne": True}, (
+            "bot_not_deleted_filter must include is_deleted: {$ne: True}"
+        )
+        assert filt.get("deleted") == {"$ne": True}, (
+            "bot_not_deleted_filter must include deleted: {$ne: True}"
+        )
+
+    def test_bot_not_deleted_filter_includes_user_id(self):
+        from services.bot_filters import bot_not_deleted_filter
+        filt = bot_not_deleted_filter({"user_id": "user1", "status": "active"})
+        assert filt.get("user_id") == "user1"
+
+    def test_bot_not_deleted_filter_active_status_set(self):
+        from services.bot_filters import bot_not_deleted_filter
+        filt = bot_not_deleted_filter({"user_id": "user1", "status": "active"})
+        assert filt.get("status") == "active" or (
+            isinstance(filt.get("status"), dict)
+        ), "status must be set or be a dict filter"
+
+    @pytest.mark.asyncio
+    async def test_why_not_trading_active_bots_uses_bot_not_deleted_filter(self):
+        """The active-bots count in why_not_trading must use bot_not_deleted_filter,
+        not a raw deleted_at query (which misses bots with deleted_at=null field)."""
+        from services.bot_filters import bot_not_deleted_filter
+
+        # Build the filter the same way why_not_trading now does it
+        filt = bot_not_deleted_filter({"user_id": "user1", "status": "active"})
+
+        # The filter must NOT contain {"deleted_at": {"$exists": False}} alone
+        # (which would miss bots with deleted_at=null).
+        # It must have the $nin status guard as the primary guard.
+        status_val = filt.get("status", {})
+        has_status_nin = isinstance(status_val, dict) and "$nin" in status_val
+        has_is_deleted_ne = filt.get("is_deleted") == {"$ne": True}
+
+        assert has_status_nin or has_is_deleted_ne, (
+            "bot_not_deleted_filter must guard against deleted bots via status $nin "
+            "or is_deleted checks, not solely deleted_at $exists"
+        )

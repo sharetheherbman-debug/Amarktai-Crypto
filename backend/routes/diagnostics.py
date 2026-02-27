@@ -1732,10 +1732,11 @@ async def why_not_trading(user_id: str = Depends(get_current_user)):
     except Exception as e:
         reasons.append({"code": "SCHEDULER_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-    # 3. Active bots
+    # 3. Active bots — use bot_not_deleted_filter for consistency with the scheduler
     try:
+        from services.bot_filters import bot_not_deleted_filter
         active_bots = await db.bots_collection.count_documents(
-            {"user_id": user_id, "status": "active", "deleted_at": {"$exists": False}}
+            bot_not_deleted_filter({"user_id": user_id, "status": "active"})
         )
         if active_bots == 0:
             reasons.append({"code": "NO_ACTIVE_BOTS", "severity": "critical",
@@ -1777,8 +1778,9 @@ async def why_not_trading(user_id: str = Depends(get_current_user)):
     # 7. Bot-level blocks (sample up to 20 active bots)
     try:
         from config import PAPER_SUPPORTED_EXCHANGES
+        from services.bot_filters import bot_not_deleted_filter
         bots = await db.bots_collection.find(
-            {"user_id": user_id, "status": "active", "deleted_at": {"$exists": False}},
+            bot_not_deleted_filter({"user_id": user_id, "status": "active"}),
             {"_id": 0, "id": 1, "name": 1, "exchange": 1, "status": 1, "pause_reason": 1}
         ).to_list(20)
         unsupported = [b["name"] for b in bots if b.get("exchange", "").lower() not in PAPER_SUPPORTED_EXCHANGES]
@@ -1839,6 +1841,13 @@ async def last_tick_summary(user_id: str = Depends(get_current_user)):
         last_tick_at = raw.isoformat() if hasattr(raw, "isoformat") else raw
     elif last_tick:
         last_tick_at = last_tick.isoformat() if hasattr(last_tick, "isoformat") else str(last_tick)
+
+    # Prefer scheduler.last_tick when it is more recent than the DB record
+    # (covers the period before record_tick() first writes to bot_runtime_state).
+    if last_tick is not None:
+        sched_ts = last_tick.isoformat() if hasattr(last_tick, "isoformat") else str(last_tick)
+        if last_tick_at is None or sched_ts > last_tick_at:
+            last_tick_at = sched_ts
 
     bots_evaluated = len(runtime_docs)
 
@@ -1979,6 +1988,16 @@ async def last_tick_summary_v2(user_id: str = Depends(get_current_user)):
     if runtime_docs:
         raw = runtime_docs[0].get("updated_at") or runtime_docs[0].get("last_tick_at")
         last_tick_at = raw.isoformat() if hasattr(raw, "isoformat") else raw
+
+    # Prefer scheduler.last_tick when it is more recent than the DB record.
+    try:
+        sched_last = getattr(trading_scheduler, "last_tick", None)
+        if sched_last is not None:
+            sched_ts = sched_last.isoformat() if hasattr(sched_last, "isoformat") else str(sched_last)
+            if last_tick_at is None or sched_ts > last_tick_at:
+                last_tick_at = sched_ts
+    except Exception:
+        pass
 
     bots_evaluated = len(runtime_docs)
 
@@ -2132,13 +2151,26 @@ async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
     last_tick_raw = engine_status.get("last_tick_time")
     last_tick_at = last_tick_raw
 
-    # Scheduler interval
+    # Scheduler interval + running state
     tick_interval_seconds: int = 30
+    sched_is_running = False
+    sched_last_tick = None
     try:
         from trading_scheduler import trading_scheduler
         tick_interval_seconds = getattr(trading_scheduler, "tick_interval", 30)
+        sched_is_running = getattr(trading_scheduler, "is_running", False)
+        sched_last_tick = getattr(trading_scheduler, "last_tick", None)
+        if sched_last_tick is not None:
+            sched_ts = sched_last_tick.isoformat() if hasattr(sched_last_tick, "isoformat") else str(sched_last_tick)
+            if last_tick_at is None or sched_ts > (last_tick_at or ""):
+                last_tick_at = sched_ts
     except Exception:
         pass
+
+    # engine_running: True if either the paper engine OR the scheduler is active
+    # (paper_engine.is_running is only set on first run_trading_cycle call,
+    #  so use scheduler state as primary truth while engine warms up)
+    engine_running = engine_status.get("is_running", False) or sched_is_running
 
     # Open trades for this user
     try:
@@ -2183,14 +2215,40 @@ async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
             "opened_at": entry_time_raw,
             "age_minutes": age_minutes,
             "entry_price": entry_price,
-            "current_price": None,  # not re-fetched here — use /diagnostics/open-trades
+            "trade_amount": float(t.get("trade_amount") or t.get("entry_value") or 0),
+            "current_price": None,  # populated below via price_fallback_service
             "unrealized_pnl_zar": None,
             "next_exit": next_exit,
         })
 
+    # Enrich open trades with current price + unrealized PnL
+    # Uses price_fallback_service (non-blocking; falls back to cached/static prices).
+    try:
+        from services.price_fallback_service import price_fallback_service
+        for trade in open_trades:
+            sym = trade.get("symbol")
+            exch = trade.get("exchange") or "luno"
+            if not sym:
+                continue
+            try:
+                price = await price_fallback_service.get_price(exch, sym)
+                if price and price > 0:
+                    trade["current_price"] = price
+                    entry = trade.get("entry_price") or 0
+                    trade_amount = trade.get("trade_amount") or 0
+                    if entry and entry > 0 and trade_amount:
+                        # unrealized_pnl_zar = position_value * price_change_ratio
+                        trade["unrealized_pnl_zar"] = round(
+                            (price - entry) / entry * trade_amount, 2
+                        )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     return {
         "success": True,
-        "engine_running": engine_status.get("is_running", False),
+        "engine_running": engine_running,
         "last_tick_at": last_tick_at,
         "last_close_at": engine_status.get("last_close_time"),
         "close_loop_enabled": True,
