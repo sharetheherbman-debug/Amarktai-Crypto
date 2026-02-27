@@ -2111,6 +2111,7 @@ async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
 
 
 @router.get("/paper-engine")
+@router.get("/paper")
 async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
     """Truth diagnostics for the paper trading engine.
 
@@ -2196,6 +2197,8 @@ async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
         "success": True,
         "engine_running": engine_status.get("is_running", False),
         "last_tick_at": last_tick_at,
+        "last_close_at": engine_status.get("last_close_time"),
+        "close_loop_enabled": True,
         "tick_interval_seconds": tick_interval_seconds,
         "open_trades_count": len(open_trades),
         "open_trades": open_trades,

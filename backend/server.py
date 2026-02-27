@@ -345,8 +345,9 @@ app = FastAPI(
 )
 
 @app.get("/openapi.json", include_in_schema=False)
-async def openapi_redirect():
-    return RedirectResponse(url="/api/openapi.json")
+async def openapi_json():
+    """Return OpenAPI schema directly (avoids redirect that can produce empty response)."""
+    return JSONResponse(content=app.openapi())
 
 # Add validation error handler for better debugging
 from fastapi.exceptions import RequestValidationError
