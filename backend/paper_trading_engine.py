@@ -328,6 +328,7 @@ class PaperTradingEngine:
         # Status tracking for monitoring
         self.is_running = False
         self.last_tick_time = None
+        self.last_close_time = None
         self.last_trade_simulation = None
         self.last_error = None
         self.trade_count = 0
@@ -1326,6 +1327,13 @@ class PaperTradingEngine:
             age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
+            logger.info(
+                f"PAPER_EVAL trade_id={open_trade.get('id', '?')} bot={bot_id} "
+                f"age_min={age_minutes:.1f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                f"time_exit_in={max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes):.1f}min "
+                f"price={current_price:.4f} pnl_pct={pnl_pct:.2f}"
+            )
+
             close_reason = None
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
@@ -1518,6 +1526,7 @@ class PaperTradingEngine:
                 "open_trade_id": open_trade.get("id")
             }
 
+            self.last_close_time = datetime.now(timezone.utc).isoformat()
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
                 f"{profit_pct:+.2f}% = R{net_profit:+.2f} (fees: R{fees:.2f})"
@@ -1539,8 +1548,15 @@ class PaperTradingEngine:
             bots_collection = db_collections['bots']
             trades_collection = db_collections['trades']
 
+            # Update tick time for diagnostics
+            self.is_running = True
+            self.last_tick_time = datetime.now(timezone.utc).isoformat()
+
             # Check for an open trade first
             open_trade = await trades_collection.find_one({"bot_id": bot_id, "status": "open"}, {"_id": 0})
+            logger.info(
+                f"PAPER_TICK bot={bot_id} open_trades={1 if open_trade else 0}"
+            )
             trade_result = None
             existing_trade_id = None
             entry_recorded = False
@@ -2007,6 +2023,7 @@ class PaperTradingEngine:
         return {
             "is_running": self.is_running,
             "last_tick_time": self.last_tick_time,
+            "last_close_time": self.last_close_time,
             "last_trade_simulation": self.last_trade_simulation,
             "last_error": self.last_error,
             "total_trades": self.trade_count,
