@@ -27,7 +27,7 @@ BOT_CAPS = {
 PROFIT_THRESHOLD_ZAR = 1000  # R1000 realized profit required per exchange
 
 # Reinvestment configuration
-DEFAULT_REINVESTMENT_DECIMAL = 0.8  # Default 80% as decimal rate
+DEFAULT_REINVESTMENT_DECIMAL = 0.5  # Default 50% as decimal rate
 def _parse_float(value: Optional[str], name: str) -> Optional[float]:
     if value is None:
         return None

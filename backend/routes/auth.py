@@ -315,3 +315,60 @@ async def get_profile(user_id: str = Depends(get_current_user)):
     # Sanitize - never return sensitive fields
     sensitive_fields = {'password_hash', 'hashed_password', 'hashedPassword', 'new_password', 'password', '_id'}
     return {k: v for k, v in user.items() if k not in sensitive_fields}
+
+
+@router.get("/user/settings")
+async def get_user_settings(user_id: str = Depends(get_current_user)):
+    """GET /api/user/settings — Returns user preference and wallet settings.
+
+    Used by the wallet UI and dashboard to load notification preferences,
+    risk profile, display currency, and other user-configurable options.
+    """
+    from bson import ObjectId
+    from bson.errors import InvalidId
+
+    user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+
+    if not user and len(user_id) == 24 and all(c in '0123456789abcdefABCDEF' for c in user_id):
+        try:
+            user = await db.users_collection.find_one({"_id": ObjectId(user_id)})
+            if user:
+                user.pop("_id", None)
+        except InvalidId:
+            pass
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Return only settings-relevant fields with safe defaults
+    return {
+        "user_id": user_id,
+        "email": user.get("email", ""),
+        "display_name": user.get("display_name", user.get("name", "")),
+        "risk_profile": user.get("risk_profile", "balanced"),
+        "display_currency": user.get("display_currency", "ZAR"),
+        "notifications_enabled": user.get("notifications_enabled", True),
+        "email_alerts": user.get("email_alerts", False),
+        "autopilot_settings": user.get("autopilot_settings", {}),
+        "paper_trading_enabled": user.get("paper_trading_enabled", True),
+        "theme": user.get("theme", "dark"),
+    }
+
+
+@router.put("/user/settings")
+async def update_user_settings(updates: dict, user_id: str = Depends(get_current_user)):
+    """PUT /api/user/settings — Updates user preference settings."""
+    allowed_fields = {
+        "display_name", "risk_profile", "display_currency",
+        "notifications_enabled", "email_alerts", "autopilot_settings",
+        "theme",
+    }
+    safe_updates = {k: v for k, v in updates.items() if k in allowed_fields}
+    if not safe_updates:
+        raise HTTPException(status_code=400, detail="No valid settings fields provided")
+
+    await db.users_collection.update_one(
+        {"id": user_id},
+        {"$set": safe_updates}
+    )
+    return {"success": True, "updated": list(safe_updates.keys())}

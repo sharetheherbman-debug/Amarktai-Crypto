@@ -1352,26 +1352,47 @@ async def ai_chat(
             "content": content,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        await db.chat_messages_collection.insert_one(user_msg)
+        try:
+            await db.chat_messages_collection.insert_one(user_msg)
+        except Exception as _db_err:
+            logger.warning("Could not persist user chat message: %s", _db_err)
         
         # Get system state for AI context
-        system_state = await action_router.get_system_state(user_id)
-        grounded_context = await build_grounded_context(user_id)
+        try:
+            system_state = await action_router.get_system_state(user_id)
+        except Exception:
+            system_state = {}
+        try:
+            grounded_context = await build_grounded_context(user_id)
+        except Exception:
+            grounded_context = {}
         
         # Load full chat history for context (last 30 messages)
-        chat_history = await db.chat_messages_collection.find(
-            {"user_id": user_id},
-            {"_id": 0}
-        ).sort("timestamp", -1).limit(30).to_list(30)
-        chat_history.reverse()
+        try:
+            chat_history = await db.chat_messages_collection.find(
+                {"user_id": user_id},
+                {"_id": 0}
+            ).sort("timestamp", -1).limit(30).to_list(30)
+            chat_history.reverse()
+        except Exception:
+            chat_history = []
 
         # Load per-user memory and update with latest 7-day summary
-        memory = await get_user_memory(user_id)
-        recent_summary = await build_recent_summary(user_id)
-        user_doc = await db.users_collection.find_one(
-            {"id": user_id},
-            {"_id": 0, "risk_profile": 1, "first_name": 1, "last_name": 1, "email": 1, "username": 1}
-        )
+        try:
+            memory = await get_user_memory(user_id)
+        except Exception:
+            memory = {}
+        try:
+            recent_summary = await build_recent_summary(user_id)
+        except Exception:
+            recent_summary = {}
+        try:
+            user_doc = await db.users_collection.find_one(
+                {"id": user_id},
+                {"_id": 0, "risk_profile": 1, "first_name": 1, "last_name": 1, "email": 1, "username": 1}
+            )
+        except Exception:
+            user_doc = None
         risk_profile = (user_doc or {}).get("risk_profile") or memory.get("risk_profile") or "balanced"
         first_name = (user_doc or {}).get("first_name") or ""
         last_name = (user_doc or {}).get("last_name") or ""
@@ -1381,11 +1402,17 @@ async def ai_chat(
             display_name = f"{first_name} {last_name}".strip()
         else:
             display_name = first_name or username or email or "Trader"
-        await update_user_memory(user_id, {
-            "risk_profile": risk_profile,
-            "last_7d_summary": recent_summary
-        })
-        memory = await get_user_memory(user_id)
+        try:
+            await update_user_memory(user_id, {
+                "risk_profile": risk_profile,
+                "last_7d_summary": recent_summary
+            })
+        except Exception:
+            pass
+        try:
+            memory = await get_user_memory(user_id)
+        except Exception:
+            pass
 
         tool_actions: List[Dict[str, Any]] = []
         action_results: List[Dict[str, Any]] = []

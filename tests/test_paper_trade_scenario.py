@@ -26,10 +26,25 @@ class MockCollection:
         return SimpleNamespace(inserted_id=doc["_id"])
 
     async def find_one(self, query=None, projection=None):
+        if not query or not self.data:
+            return None
+        for doc in self.data:
+            # Only match equality conditions; dict values are MongoDB operators
+            # (e.g. $gte) which this simplified mock does not support.
+            match = all(doc.get(k) == v for k, v in query.items() if not isinstance(v, dict))
+            if match:
+                return doc
         return None
 
-    async def update_one(self, *args, **kwargs):
-        return SimpleNamespace(modified_count=1, matched_count=1)
+    async def update_one(self, query, update, **kwargs):
+        for doc in self.data:
+            # Same simplified equality-only matching as find_one.
+            match = all(doc.get(k) == v for k, v in query.items() if not isinstance(v, dict))
+            if match:
+                if "$set" in update:
+                    doc.update(update["$set"])
+                return SimpleNamespace(modified_count=1, matched_count=1)
+        return SimpleNamespace(modified_count=0, matched_count=0)
 
     def find(self, query=None, projection=None):
         cursor = SimpleNamespace()
@@ -107,7 +122,8 @@ async def test_paper_trade_scenario_deterministic():
     price_state = {"value": 10000.0}
 
     async def market_provider(symbol, exchange):
-        price_state["value"] += 5.0
+        # Increase by 5% each call so take-profit (3%) is quickly triggered on the exit cycle
+        price_state["value"] *= 1.05
         mid = price_state["value"]
         return {
             "bid": mid - 1.0,
@@ -124,11 +140,13 @@ async def test_paper_trade_scenario_deterministic():
     with patch("paper_trading_engine.db") as mock_db, \
         patch("paper_trading_engine.rate_limiter") as mock_rate_limiter, \
         patch("paper_trading_engine.risk_engine") as mock_risk_engine, \
-        patch("paper_trading_engine.market_regime_detector") as mock_regime, \
-        patch("paper_trading_engine.ml_predictor") as mock_predictor, \
-        patch("paper_trading_engine.flokx") as mock_flokx, \
-        patch("paper_trading_engine.fetchai") as mock_fetchai, \
-        patch("paper_trading_engine.paper_wallet_ledger") as mock_wallet:
+        patch("market_regime.market_regime_detector") as mock_regime, \
+        patch("ml_predictor.ml_predictor") as mock_predictor, \
+        patch("flokx_integration.flokx") as mock_flokx, \
+        patch("fetchai_integration.fetchai") as mock_fetchai, \
+        patch("paper_trading_engine.paper_wallet_ledger") as mock_wallet, \
+        patch("paper_trading_engine.enforce_trading_gates"), \
+        patch("paper_trading_engine.trading_mode_validator") as mock_tv:
         mock_db.bots_collection = bots_collection
         mock_db.trades_collection = trades_collection
         mock_db.api_keys_collection = api_keys_collection
