@@ -3005,7 +3005,7 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
         # Category-level PASS/FAIL summary — derived from Truth Kernel (single source of truth)
         try:
             from services.truth_kernel import compute_truth_summary
-            truth = await compute_truth_summary(user_id, db.database)
+            truth = await compute_truth_summary(user_id, db.db)
             truth_subsystems = truth.get("subsystems", {})
             report["categories"] = {
                 sub: truth_subsystems.get(sub, {}).get("status", "UNKNOWN")

@@ -33,6 +33,7 @@ import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import BotRadarSection from './dashboard/sections/BotRadarSection';
 import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
 import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
+import ScalperBotsPanel from './dashboard/sections/ScalperBotsPanel';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
 import '../styles/scalper-panel.css';
@@ -534,6 +535,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
+            <a href="#" className={activeSection === 'scalper' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('scalper'); }}>⚡ Scalper Bots</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
             <a href="#" className={activeSection === 'radar' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('radar'); }}>📡 Bot Radar</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
@@ -609,6 +611,11 @@ export default function Dashboard() {
         {activeSection === 'bots' && (
           <ErrorBoundary title="Bot Management section error" message="Unable to load Bot Management section.">
             {renderBots()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'scalper' && (
+          <ErrorBoundary title="Scalper Bots section error" message="Unable to load Scalper Bots section.">
+            <ScalperBotsPanel axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
         {activeSection === 'system' && (

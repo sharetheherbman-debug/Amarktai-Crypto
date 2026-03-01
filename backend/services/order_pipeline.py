@@ -379,6 +379,21 @@ class OrderPipeline:
     ) -> Dict[str, Any]:
         """Gate D: Circuit Breaker - check if bot/user is tripped"""
         try:
+            # If there are zero fills for this bot, any stale circuit breaker
+            # document is invalid — auto-reset it so fresh bots are never blocked.
+            fills_count = await self.ledger.get_fills_count(bot_id=bot_id)
+            if fills_count == 0:
+                result = await self.circuit_breaker_state.update_many(
+                    {"entity_id": bot_id, "entity_type": "bot", "tripped": True, "reset_at": None},
+                    {"$set": {"reset_at": datetime.utcnow(), "reset_reason": "auto_reset_zero_fills"}},
+                )
+                if result.modified_count:
+                    logger.info(
+                        "Auto-reset %d stale circuit-breaker doc(s) for bot %s (zero fills)",
+                        result.modified_count,
+                        bot_id,
+                    )
+
             # Check if bot circuit breaker is tripped
             bot_breaker = await self.circuit_breaker_state.find_one({
                 "entity_type": "bot",

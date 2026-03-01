@@ -206,3 +206,22 @@ bash scripts/evidence_pack.sh
 # Check go-live diagnostics (requires running server)
 curl -H "Authorization: Bearer <token>" http://localhost:8000/api/diagnostics/go-live
 ```
+
+---
+
+## Production Fixes Applied — 2026-03-01
+
+The following issues (found via VPS smoke testing) were fixed in
+`copilot/fix-paper-mode-bot-integration`:
+
+| # | Symptom | Fix location |
+|---|---------|-------------|
+| 1 | `db.database` AttributeError in `/api/diagnostics/go-live` and `/api/admin/truth/summary` | `server.py`, `routes/admin_truth.py` |
+| 2 | `active_bots` count differs across endpoints | `services/canonical.py` (new), wired into `diagnostics.py`, `dashboard_overview.py`, `wallet_hub.py` |
+| 3 | `status` vs `funded_status` contradiction in `/api/wallet/paper` | `services/canonical.get_canonical_wallet_truth`, `routes/wallet_hub.py` |
+| 4 | Circuit breaker trips with zero fills (stale state) | `services/order_pipeline._gate_d_circuit_breaker` |
+| 5 | Paper reset does not clear `fills_ledger` / `circuit_breaker_state` | `routes/system_mode.perform_paper_reset` |
+| 6 | Scalper bots not visible in dashboard | `frontend/src/pages/Dashboard.js` |
+
+Run `scripts/verify_truth.sh` on the VPS after deploying to confirm all counts agree.
+
