@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List
 import logging
+import os
+import subprocess
 
 from auth import get_current_user
 from websocket_manager import manager
@@ -1592,3 +1594,61 @@ async def data_integrity_check(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Data integrity check error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Data integrity check failed: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Frontend ↔ Backend Contract Endpoint
+# No authentication required – used by smoke tests and the frontend error panel
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/frontend-contract")
+async def frontend_contract():
+    """Return the expected API contract version and key flags for frontend validation.
+
+    This endpoint is intentionally unauthenticated so it can be:
+      - Hit by smoke_test.sh without a token
+      - Used by the frontend ErrorBoundary "Copy Diagnostics" flow
+      - Polled by monitoring tools
+    """
+    def get_build_sha() -> str:
+        sha = os.environ.get("BUILD_SHA", "")
+        if sha:
+            return sha
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=3
+            )
+            return result.stdout.strip() if result.returncode == 0 else "unknown"
+        except Exception:
+            return "unknown"
+
+    return {
+        "contract_version": "1",
+        "api_version": "3.0.0",
+        "build_sha": get_build_sha(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "expected_endpoints": {
+            "auth_login":        "POST /api/auth/login",
+            "auth_me":           "GET  /api/auth/me",
+            "bots_status":       "GET  /api/bots/status",
+            "overview_snapshot": "GET  /api/overview/snapshot",
+            "system_mode":       "GET  /api/system/mode",
+            "keys_status":       "GET  /api/keys/status",
+            "health_ping":       "GET  /api/health/ping",
+            "prices_live":       "GET  /api/prices/live",
+            "trades_recent":     "GET  /api/trades/recent",
+            "wallet_balances":   "GET  /api/wallet/balances",
+            "ws_realtime":       "WS  /api/ws",
+        },
+        "feature_flags": {
+            "paper_trading":  True,
+            "live_trading":   bool(int(os.environ.get("LIVE_TRADING", "0"))),
+            "autopilot":      bool(int(os.environ.get("AUTOPILOT_ENABLED", "0"))),
+            "realtime_ws":    True,
+            "ai_chat":        bool(os.environ.get("OPENAI_API_KEY", "")),
+        },
+        "supported_exchanges": [
+            "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"
+        ],
+    }

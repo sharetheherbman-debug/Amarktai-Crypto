@@ -1,0 +1,56 @@
+[Unit]
+Description=Amarktai Network API Server
+Documentation=https://github.com/amarktainetwork-blip/Amarktai-Crypto
+After=network.target mongod.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/amarktai/app/backend
+
+# Python virtual environment
+Environment="PATH=/var/amarktai/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+Environment="PYTHONUNBUFFERED=1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETS ARE LOADED FROM AN EXTERNAL FILE OUTSIDE THE REPO.
+# This file is NEVER wiped by git pull / rsync during deployment.
+# Create it once with:
+#   sudo mkdir -p /etc/amarktai
+#   sudo cp deployment/etc-amarktai-env.template /etc/amarktai/backend.env
+#   sudo chmod 600 /etc/amarktai/backend.env
+#   sudo chown www-data:www-data /etc/amarktai/backend.env
+# ─────────────────────────────────────────────────────────────────────────────
+EnvironmentFile=/etc/amarktai/backend.env
+
+# Start command
+ExecStart=/var/amarktai/venv/bin/uvicorn server:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+
+# Restart policy – backs off on repeated crashes, never loops indefinitely
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Logging
+StandardOutput=append:/var/log/amarktai/backend.log
+StandardError=append:/var/log/amarktai/backend.log
+SyslogIdentifier=amarktai-api
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=150%
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
