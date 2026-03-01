@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 # Contradiction severity levels
 SEVERITY_CRITICAL = "critical"  # Immediate action required
 SEVERITY_WARNING = "warning"    # Should be investigated
+
+# Drawdown threshold for contradiction detection — consistent with truth_kernel.MAX_DRAWDOWN_PERCENT
+DRAWDOWN_CONTRADICTION_THRESHOLD = 15  # Warn before the 20% hard limit
 SEVERITY_INFO = "info"          # Informational anomaly
 
 
@@ -88,12 +91,12 @@ def detect_contradictions(
             })
 
     # ── 5. Drawdown exceeded but no lock ────────────────────────────────
-    if risk.get("drawdown_pct", 0) > 15 and bots.get("eligible_count", 0) > 0:
+    if risk.get("drawdown_pct", 0) > DRAWDOWN_CONTRADICTION_THRESHOLD and bots.get("eligible_count", 0) > 0:
         contradictions.append({
             "id": "DRAWDOWN_NO_LOCK",
             "severity": SEVERITY_WARNING,
-            "description": "Drawdown exceeds 15% but eligible bots still trading",
-            "expected": "Circuit breaker should lock bots when drawdown > 15%",
+            "description": f"Drawdown exceeds {DRAWDOWN_CONTRADICTION_THRESHOLD}% but eligible bots still trading",
+            "expected": f"Circuit breaker should lock bots when drawdown > {DRAWDOWN_CONTRADICTION_THRESHOLD}%",
             "actual": f"drawdown_pct={risk.get('drawdown_pct')}, eligible_bots={bots.get('eligible_count')}",
             "subsystems": ["RISK_BASELINES", "BOT_ELIGIBILITY"],
         })

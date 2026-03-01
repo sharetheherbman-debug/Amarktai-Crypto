@@ -261,7 +261,8 @@ class TestFrontendTruthConsole:
             os.path.dirname(__file__), '..', 'frontend', 'src', 'pages',
             'dashboard', 'sections', 'TruthConsoleSection.js'
         )
-        content = open(path).read()
+        with open(path) as f:
+            content = f.read()
         assert '/api/admin/truth/summary' in content, "Should fetch from truth summary endpoint"
         assert 'TruthConsoleSection' in content, "Should export TruthConsoleSection"
         assert 'contradictions' in content, "Should display contradictions"

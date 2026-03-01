@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
+const BOT_ID_DISPLAY_LENGTH = 8; // Characters of bot ID to show in reason display
+
 /**
  * TruthConsoleSection — Admin-only Truth Console dashboard section
  *
@@ -118,6 +120,10 @@ export default function TruthConsoleSection({ axiosConfig }) {
             <div
               className="truth-subsystem-header"
               onClick={() => toggleExpand(key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(key); } }}
+              role="button"
+              tabIndex={0}
+              aria-expanded={!!expandedSubs[key]}
               style={{ cursor: 'pointer' }}
             >
               <span className="truth-status-icon">{getStatusIcon(info.status)}</span>
@@ -163,7 +169,7 @@ export default function TruthConsoleSection({ axiosConfig }) {
                           ))
                         : Object.entries(info.reasons).map(([botId, reasons]) => (
                             <div key={botId} style={{ fontSize: '0.75rem', marginBottom: '2px' }}>
-                              <b>{botId.slice(0, 8)}…</b>: {Array.isArray(reasons) ? reasons.join(', ') : String(reasons)}
+                              <b>{botId.slice(0, BOT_ID_DISPLAY_LENGTH)}…</b>: {Array.isArray(reasons) ? reasons.join(', ') : String(reasons)}
                             </div>
                           ))}
                     </div>

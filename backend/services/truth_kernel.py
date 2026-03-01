@@ -30,6 +30,11 @@ import logging
 
 from utils.bot_state import normalize_bot_state
 
+# ── Named constants for thresholds ──────────────────────────────────────
+BALANCE_TOLERANCE = 0.01           # Cents tolerance for wallet reconciliation
+SCHEDULER_STALE_THRESHOLD_SECONDS = 120  # Seconds before scheduler is considered stale
+MAX_DRAWDOWN_PERCENT = 20          # Maximum drawdown % before risk FAIL
+
 logger = logging.getLogger(__name__)
 
 # ── Rule precedence order (highest priority first) ──────────────────────
@@ -99,7 +104,7 @@ async def compute_wallet_balances(user_id: str, db) -> Dict[str, Any]:
         "reserved": reserved,
         "zar_available": zar,
         "usdt_available": usdt,
-        "balance_check": abs(total - (available + reserved)) < 0.01,
+        "balance_check": abs(total - (available + reserved)) < BALANCE_TOLERANCE,
         "negative_balance": available < 0 or reserved < 0,
     }
 
@@ -156,7 +161,7 @@ async def compute_scheduler_state(db) -> Dict[str, Any]:
 
     now = datetime.now(timezone.utc)
     lag = (now - last_tick).total_seconds() if last_tick else None
-    stale = lag is not None and lag > 120  # >2 min = stale
+    stale = lag is not None and lag > SCHEDULER_STALE_THRESHOLD_SECONDS
 
     return {
         "running": heartbeat.get("running", False),
@@ -295,7 +300,7 @@ async def compute_truth_summary(user_id: str, db) -> Dict[str, Any]:
     }
 
     # 6. RISK_BASELINES
-    risk_ok = risk["drawdown_pct"] < 20  # 20% max
+    risk_ok = risk["drawdown_pct"] < MAX_DRAWDOWN_PERCENT
     subsystems["RISK_BASELINES"] = {
         "status": "PASS" if risk_ok else "FAIL",
         "detail": f"equity={risk['total_equity']}, peak={risk['peak_equity']}, dd={risk['drawdown_pct']}%",
