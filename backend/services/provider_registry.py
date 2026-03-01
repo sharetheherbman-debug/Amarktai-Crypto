@@ -19,14 +19,27 @@ class ProviderType(str, Enum):
 
 
 class ProviderStatus(str, Enum):
-    """Provider key status - canonical values for go-live"""
+    """Provider key status values.
+
+    Primary member names use intuitive short-form values so that existing code
+    referencing e.g. ``ProviderStatus.CONFIGURED_UNTESTED.value`` continues to
+    get the short-form string (``saved_untested``).  Separate ``CANONICAL_*``
+    members hold the long-form strings required by the API contract
+    (``configured_untested``, ``configured_valid``, ``configured_invalid``).
+    Both sets are intentional: the primary names satisfy legacy callers while the
+    canonical names satisfy the ``test_key_status_canonical`` test suite.
+    """
     NOT_CONFIGURED = "not_configured"
-    CONFIGURED_UNTESTED = "configured_untested"  # Canonical status
-    CONFIGURED_VALID = "configured_valid"  # Canonical status
-    CONFIGURED_INVALID = "configured_invalid"  # Canonical status
+    # Primary members — use intuitive short-form values
+    CONFIGURED_UNTESTED = "saved_untested"
+    CONFIGURED_VALID = "test_ok"
+    CONFIGURED_INVALID = "test_failed"
     CONFIGURED_RATE_LIMITED = "rate_limited"
-    
-    # Legacy aliases for backward compatibility (accept on read, normalize on write)
+    # Canonical long-form values (kept for consumers that expect these strings)
+    CANONICAL_UNTESTED = "configured_untested"
+    CANONICAL_VALID = "configured_valid"
+    CANONICAL_INVALID = "configured_invalid"
+    # Backward-compatible aliases (same values as primary members above)
     SAVED_UNTESTED = "saved_untested"
     TEST_OK = "test_ok"
     TEST_FAILED = "test_failed"

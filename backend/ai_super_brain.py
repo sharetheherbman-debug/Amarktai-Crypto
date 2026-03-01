@@ -203,6 +203,51 @@ Keep it concise (3-4 sentences).
         
         return recommendations
 
+    async def chat(self, user_id: str, message: str, context: dict = None) -> dict:
+        """Process a chat message and return AI response.
+
+        This method is used by the AI chat router and can be patched in tests.
+
+        Args:
+            user_id: Authenticated user's ID.
+            message: User's message text.
+            context: Optional additional context dict.
+
+        Returns:
+            Dict with 'response' str and optional 'action' key.
+        """
+        try:
+            if not self.openai_key:
+                return {
+                    "response": "AI chat requires an OpenAI API key. Please add one in Settings → API Keys.",
+                    "action": None,
+                }
+
+            import openai
+            client = openai.AsyncOpenAI(api_key=self.openai_key)
+
+            system_prompt = (
+                "You are Amarktai AI, an intelligent crypto trading assistant. "
+                "Help users understand their trading bots, diagnose issues, and optimise performance. "
+                "Be concise, accurate, and actionable."
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message},
+            ]
+
+            completion = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7,
+            )
+            response_text = completion.choices[0].message.content
+            return {"response": response_text, "action": None}
+        except Exception as e:
+            logger.error(f"AISuperBrain.chat error: {e}")
+            return {"response": f"AI error: {str(e)[:200]}", "action": None}
+
 
 # Global instance
 ai_super_brain = AISuperBrain()

@@ -14,16 +14,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 # Import after path setup
 from server import app
+import auth as _auth_module
+from auth import create_access_token
 
 client = TestClient(app)
 
+TEST_USER_ID = "test_user_123"
+AUTH_TOKEN = create_access_token({"user_id": TEST_USER_ID, "sub": TEST_USER_ID})
+AUTH_HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"}
 
-@pytest.fixture
-def mock_auth():
-    """Mock authentication to return a test user"""
-    with patch('auth.get_current_user') as mock:
-        mock.return_value = "test_user_123"
-        yield mock
+
+@pytest.fixture(autouse=True)
+def override_auth():
+    """Override get_current_user dependency for the entire test session."""
+    app.dependency_overrides[_auth_module.get_current_user] = lambda: TEST_USER_ID
+    yield
+    app.dependency_overrides.pop(_auth_module.get_current_user, None)
 
 
 @pytest.fixture
@@ -36,7 +42,7 @@ def mock_db():
 class TestAPIKeyContractUnification:
     """Test suite for API key contract unification (TASK B)"""
     
-    def test_save_api_key_canonical_format(self, mock_auth, mock_db):
+    def test_save_api_key_canonical_format(self, mock_db):
         """Test saving API key with canonical format (provider, api_key, api_secret)"""
         mock_db.find_one = AsyncMock(side_effect=[None, {"provider": "binance", "api_key_encrypted": "encrypted"}])
         mock_db.insert_one = AsyncMock(return_value=MagicMock(inserted_id="key-id"))
@@ -55,7 +61,7 @@ class TestAPIKeyContractUnification:
         assert data.get("success") is True
         assert "binance" in data.get("message", "").lower()
     
-    def test_save_api_key_legacy_exchange_field(self, mock_auth, mock_db):
+    def test_save_api_key_legacy_exchange_field(self, mock_db):
         """Legacy payloads should be rejected for canonical /api/keys/save"""
         mock_db.find_one = AsyncMock(return_value=None)
         mock_db.insert_one = AsyncMock(return_value=MagicMock(inserted_id="key-id"))
@@ -73,7 +79,7 @@ class TestAPIKeyContractUnification:
         # Legacy payload should be rejected
         assert response.status_code == 422
     
-    def test_save_api_key_legacy_camelcase(self, mock_auth, mock_db):
+    def test_save_api_key_legacy_camelcase(self, mock_db):
         """Legacy camelCase fields should be rejected for canonical /api/keys/save"""
         mock_db.find_one = AsyncMock(return_value=None)
         mock_db.insert_one = AsyncMock(return_value=MagicMock(inserted_id="key-id"))
@@ -90,7 +96,7 @@ class TestAPIKeyContractUnification:
         # Legacy camelCase should be rejected
         assert response.status_code == 422
     
-    def test_test_api_key_with_api_key_field(self, mock_auth, mock_db):
+    def test_test_api_key_with_api_key_field(self, mock_db):
         """Test API key test endpoint with 'api_key' field"""
         mock_db.find_one = AsyncMock(return_value={"provider": "binance"})
         mock_db.update_one = AsyncMock(return_value=MagicMock())
@@ -110,7 +116,7 @@ class TestAPIKeyContractUnification:
             data = response.json()
             assert data.get("success") is True or data.get("ok") is True
     
-    def test_test_api_key_with_key_field(self, mock_auth, mock_db):
+    def test_test_api_key_with_key_field(self, mock_db):
         """Legacy key fields should be rejected for canonical /api/keys/test"""
         payload = {
             "key": "test_key_12345",
@@ -121,7 +127,7 @@ class TestAPIKeyContractUnification:
         
         assert response.status_code == 422
     
-    def test_test_api_key_missing_key_returns_error(self, mock_auth, mock_db):
+    def test_test_api_key_missing_key_returns_error(self, mock_db):
         """Test that test endpoint returns clear error when api_key is missing"""
         mock_db.find_one = AsyncMock(return_value=None)
         payload = {
@@ -135,7 +141,7 @@ class TestAPIKeyContractUnification:
         data = response.json()
         assert "no saved key" in str(data).lower() or "provide api_key" in str(data).lower()
     
-    def test_list_api_keys_returns_masked(self, mock_auth, mock_db):
+    def test_list_api_keys_returns_masked(self, mock_db):
         """Test that list endpoint returns masked keys, never plaintext"""
         mock_db.find = MagicMock()
         mock_cursor = MagicMock()
@@ -198,7 +204,7 @@ class TestKeysRouteOrder:
         assert "/api/keys/test" in paths, "/api/keys/test should be in OpenAPI schema"
         assert "post" in paths["/api/keys/test"], "POST method should exist for /api/keys/test"
     
-    def test_keys_test_not_shadowed_by_provider(self, mock_auth):
+    def test_keys_test_not_shadowed_by_provider(self):
         """Test that POST /api/keys/test is NOT caught by /{provider} route"""
         with patch('database.api_keys_collection') as mock_db:
             mock_db.find_one = AsyncMock(return_value=None)
@@ -242,7 +248,7 @@ class TestKeysRouteOrder:
         assert provider_ids == expected_providers, f"Expected {expected_providers}, got {provider_ids}"
         assert data.get("total") == 10, f"Should have exactly 10 providers, got {data.get('total')}"
     
-    def test_unknown_provider_error_includes_all_providers(self, mock_auth):
+    def test_unknown_provider_error_includes_all_providers(self):
         """Test that unknown provider error message includes kraken and gate"""
         with patch('database.api_keys_collection') as mock_db:
             mock_db.find_one = AsyncMock(return_value=None)

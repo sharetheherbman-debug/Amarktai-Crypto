@@ -15,16 +15,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 # Import after path setup
 from server import app
+import auth as _auth_module
+from auth import create_access_token
 
 client = TestClient(app)
 
+TEST_USER_ID = "test_user_123"
+AUTH_TOKEN = create_access_token({"user_id": TEST_USER_ID, "sub": TEST_USER_ID})
+AUTH_HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"}
 
-@pytest.fixture
-def mock_auth():
-    """Mock authentication to return a test user"""
-    with patch('auth.get_current_user') as mock:
-        mock.return_value = "test_user_123"
-        yield mock
+
+@pytest.fixture(autouse=True)
+def override_auth():
+    """Override get_current_user for all tests in this module."""
+    app.dependency_overrides[_auth_module.get_current_user] = lambda: TEST_USER_ID
+    yield
+    app.dependency_overrides.pop(_auth_module.get_current_user, None)
 
 
 @pytest.fixture
@@ -52,7 +58,7 @@ class TestAIChatMemory:
             "id": "user-chat-001"
         }
         with patch('database.users_collection') as mock_users, \
-             patch('auth.verify_password', return_value=True):
+             patch('routes.auth.verify_password', return_value=True):
             mock_users.find_one = AsyncMock(return_value=user_doc)
             mock_users.update_one = AsyncMock()
             login_resp = client.post("/api/auth/login", json={
@@ -100,14 +106,14 @@ class TestAIChatMemory:
         payload = chat_resp.json()
         assert payload.get("content")
     
-    def test_chat_endpoint_exists(self, mock_auth):
+    def test_chat_endpoint_exists(self):
         """Test that chat endpoint exists"""
         response = client.post("/api/ai/chat", json={"message": "Hello"})
         
         # Should not crash (may return error if AI service not configured)
         assert response.status_code != 500
     
-    def test_chat_messages_stored_in_database(self, mock_auth, mock_db):
+    def test_chat_messages_stored_in_database(self, mock_db):
         """Test that chat messages are stored server-side"""
         # Mock chat response
         mock_db['chat_messages_collection'].insert_one = AsyncMock()
@@ -122,7 +128,7 @@ class TestAIChatMemory:
                 # Chat messages should be stored
                 pass
     
-    def test_chat_history_not_auto_rendered(self, mock_auth, mock_db):
+    def test_chat_history_not_auto_rendered(self, mock_db):
         """Test that chat history is NOT automatically re-rendered on page refresh"""
         # This is more of a frontend test, but backend should support it
         # by not sending full history by default
@@ -132,13 +138,13 @@ class TestAIChatMemory:
 class TestLoginGreeting:
     """Test login greeting with daily report (TASK E)"""
     
-    def test_login_greeting_endpoint(self, mock_auth, mock_db):
+    def test_login_greeting_endpoint(self, mock_db):
         """Test that there's an endpoint or mechanism for login greeting"""
         # This might be part of the auth flow or a separate endpoint
         # Check if greeting is sent after login
         pass
     
-    def test_daily_report_includes_system_summary(self, mock_auth, mock_db):
+    def test_daily_report_includes_system_summary(self, mock_db):
         """Test that daily report includes system activity summary"""
         # Should include bot status, trades, profit since last login
         pass
@@ -147,7 +153,7 @@ class TestLoginGreeting:
 class TestAdminPanelTrigger:
     """Test admin panel trigger mechanism (TASK E)"""
     
-    def test_show_admin_command_triggers_password_gate(self, mock_auth, mock_db):
+    def test_show_admin_command_triggers_password_gate(self, mock_db):
         """Test that 'show admin' command in chat triggers password gate"""
         with patch('ai_super_brain.AISuperBrain.chat') as mock_chat:
             # Simulate user typing "show admin"
@@ -184,7 +190,7 @@ class TestChatUI:
 class TestChatSystemState:
     """Test chat has access to system state (TASK E)"""
     
-    def test_chat_can_query_bot_status(self, mock_auth, mock_db):
+    def test_chat_can_query_bot_status(self, mock_db):
         """Test that chat can query bot status"""
         with patch('ai_super_brain.AISuperBrain.chat') as mock_chat, \
              patch('routes.ai_chat.AIActionRouter.get_system_state') as mock_state:
@@ -205,7 +211,7 @@ class TestChatSystemState:
                 # Chat should have access to system state
                 pass
     
-    def test_chat_can_issue_emergency_stop(self, mock_auth, mock_db):
+    def test_chat_can_issue_emergency_stop(self, mock_db):
         """Test that chat can issue emergency stop with confirmation"""
         # Emergency stop should require confirmation
         with patch('ai_super_brain.AISuperBrain.chat') as mock_chat:

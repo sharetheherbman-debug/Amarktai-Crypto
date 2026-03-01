@@ -34,11 +34,11 @@ def normalize_status(status: str) -> str:
     normalizes them to canonical values (configured_untested, configured_valid, configured_invalid)
     for consistent API responses.
     """
-    # Map legacy statuses to canonical ones
+    # Map legacy/intuitive statuses to canonical long-form values
     legacy_mapping = {
-        "saved_untested": ProviderStatus.CONFIGURED_UNTESTED.value,
-        "test_ok": ProviderStatus.CONFIGURED_VALID.value,
-        "test_failed": ProviderStatus.CONFIGURED_INVALID.value,
+        "saved_untested": "configured_untested",
+        "test_ok": "configured_valid",
+        "test_failed": "configured_invalid",
     }
     
     # Return normalized status or original if already canonical

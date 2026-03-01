@@ -2883,7 +2883,7 @@ async def diagnostics_chat(user_id: str = Depends(get_current_user)):
 
 
 @api_router.get("/diagnostics/go-live")
-async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin_user: bool = Depends(is_admin)):
+async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
     """Go-live diagnostics endpoint - comprehensive system status (admin only)
     
     Returns PASS/FAIL report for production readiness:
@@ -2897,7 +2897,7 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin
     - Bots scheduler state
     - Realtime health
     """
-    if not is_admin_user:
+    if not await is_admin(user_id):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
