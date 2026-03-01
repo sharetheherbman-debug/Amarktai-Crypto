@@ -132,6 +132,12 @@ export default function BotRadarSection({ axiosConfig }) {
     );
   };
 
+  const filterLabel = (f) => {
+    if (f === 'all') return `All (${radar.length})`;
+    if (f === 'normal') return `Normal (${normalCount})`;
+    return `Scalper (${scalperCount})`;
+  };
+
   return (
     <div className="radar-section">
       <div className="radar-header">
@@ -147,7 +153,7 @@ export default function BotRadarSection({ axiosConfig }) {
               className={`radar-filter-btn ${typeFilter === f ? 'radar-filter-active' : ''}`}
               onClick={() => setTypeFilter(f)}
             >
-              {f === 'all' ? `All (${radar.length})` : f === 'normal' ? `Normal (${normalCount})` : `Scalper (${scalperCount})`}
+              {filterLabel(f)}
             </button>
           ))}
         </div>

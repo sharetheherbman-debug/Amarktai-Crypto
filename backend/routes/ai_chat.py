@@ -104,11 +104,17 @@ async def find_bot_match(user_id: str, content: str) -> Optional[Dict[str, Any]]
     return bots[0] if len(bots) == 1 else None
 
 
+# Command prefixes that indicate the user wants to perform an action
+_ACTION_PREFIXES = (
+    "start", "resume", "pause", "stop", "switch", "toggle", "reset",
+    "transfer", "withdraw", "overview", "status", "risk", "truth",
+    "create", "scalper", "show",
+)
+
+
 def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[str, Any]]:
     content_lower = content.lower()
-    commandish = request_action or content_lower.startswith(
-        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk", "truth", "create", "scalper", "show")
-    )
+    commandish = request_action or content_lower.startswith(_ACTION_PREFIXES)
 
     if not commandish:
         return None
