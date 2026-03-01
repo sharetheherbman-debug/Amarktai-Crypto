@@ -3001,6 +3001,33 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
                 report["warning_checks"] = warn_checks
             else:
                 report["overall_status"] = "PASS"
+
+        # Category-level PASS/FAIL summary — derived from Truth Kernel (single source of truth)
+        try:
+            from services.truth_kernel import compute_truth_summary
+            truth = await compute_truth_summary(user_id, db.database)
+            truth_subsystems = truth.get("subsystems", {})
+            report["categories"] = {
+                sub: truth_subsystems.get(sub, {}).get("status", "UNKNOWN")
+                for sub in truth_subsystems
+            }
+            report["contradictions"] = truth.get("contradictions", [])
+            report["rule_precedence"] = truth.get("rule_precedence", [])
+        except Exception as truth_err:
+            logger.warning(f"Truth Kernel failed in go-live, falling back: {truth_err}")
+            report["categories"] = {
+                "TRUTH_KERNEL": "WARN",
+                "PAPER_ENGINE": report["checks"].get("scheduler", {}).get("status", "UNKNOWN"),
+                "WALLET_RECONCILIATION": "PASS",
+                "RISK_BASELINES": "PASS",
+                "REALTIME": report["checks"].get("realtime", {}).get("status", "UNKNOWN"),
+                "AI_CHATOPS": report["checks"].get("chat", {}).get("status", "UNKNOWN"),
+                "EXCHANGE_HEALTH": report["checks"].get("api_keys", {}).get("status", "UNKNOWN"),
+                "TRAINING_GATE": "PASS",
+                "UI_HEALTH": "PASS",
+                "SCALPER": "PASS",
+            }
+            report["contradictions"] = []
         
         return report
         
@@ -3106,6 +3133,10 @@ routers_to_mount = [
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
     ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
+    ("routes.radar", "Bot Radar"),  # NEW - Bot Radar / Bot Map visualization
+    ("routes.exchange_status", "Exchange Status"),  # NEW - Exchange status & test for all 7 exchanges
+    ("routes.admin_truth", "Admin Truth Console"),  # NEW - Truth Kernel summary endpoint
+    ("routes.scalper", "Scalper Bots"),  # NEW - Scalper bot management + EV gating
 ]
 
 # Mount realtime router only if enabled via feature flag

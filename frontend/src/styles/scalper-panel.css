@@ -1,0 +1,209 @@
+/* ============================================================
+   Scalper Bots Panel Styles
+   ============================================================ */
+
+.scalper-panel {
+  padding: 16px 0;
+}
+
+.scalper-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.scalper-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.scalper-global-count {
+  font-size: 0.8rem;
+  color: var(--muted, #9ca3af);
+  background: rgba(168, 85, 247, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.scalper-refresh-btn {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #a855f7;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.scalper-refresh-btn:hover {
+  background: rgba(168, 85, 247, 0.1);
+}
+
+/* Summary Tiles */
+.scalper-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.scalper-tile {
+  background: rgba(168, 85, 247, 0.05);
+  border: 1px solid rgba(168, 85, 247, 0.15);
+  border-radius: 6px;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.scalper-tile-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted, #9ca3af);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.scalper-tile-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text, #e5e7eb);
+}
+
+.scalper-profit { color: #22c55e; }
+.scalper-loss { color: #ef4444; }
+
+/* Routing */
+.scalper-routing {
+  margin-bottom: 16px;
+}
+
+.scalper-routing h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: var(--muted, #9ca3af);
+}
+
+.scalper-routing-row {
+  display: flex;
+  gap: 8px;
+}
+
+.scalper-routing-badge {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.scalper-growth {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.scalper-return {
+  background: rgba(96, 165, 250, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+/* Exchange Caps */
+.scalper-caps-grid {
+  margin-bottom: 16px;
+}
+
+.scalper-caps-grid h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: var(--muted, #9ca3af);
+}
+
+.scalper-exchange-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+}
+
+.scalper-exchange-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+}
+
+.scalper-exchange-card.scalper-full {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.scalper-ex-name {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--text, #e5e7eb);
+}
+
+.scalper-ex-count {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #a855f7;
+}
+
+.scalper-ex-avail {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--muted, #9ca3af);
+}
+
+/* Thresholds */
+.scalper-thresholds h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  color: var(--muted, #9ca3af);
+}
+
+.scalper-threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.scalper-threshold-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+.scalper-threshold-item span:first-child {
+  color: var(--muted, #9ca3af);
+}
+
+.scalper-threshold-item span:last-child {
+  font-weight: 600;
+  color: var(--text, #e5e7eb);
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .scalper-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .scalper-threshold-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .scalper-exchange-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

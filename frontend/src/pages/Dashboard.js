@@ -30,6 +30,12 @@ import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
+import BotRadarSection from './dashboard/sections/BotRadarSection';
+import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
+import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
+import '../styles/radar-exchange.css';
+import '../styles/truth-console.css';
+import '../styles/scalper-panel.css';
 
 ChartJS.register(
   CategoryScale,
@@ -529,6 +535,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
+            <a href="#" className={activeSection === 'radar' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('radar'); }}>📡 Bot Radar</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
@@ -536,6 +543,9 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'profile' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('profile'); }}>👤 Profile</a>
             {showAdmin && (
               <a href="#" className={activeSection === 'admin' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('admin'); }}>🔧 Admin</a>
+            )}
+            {showAdmin && (
+              <a href="#" className={activeSection === 'truth' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('truth'); }}>🔍 Truth Console</a>
             )}
           </nav>
         </aside>
@@ -606,6 +616,12 @@ export default function Dashboard() {
             {renderSystemMode()}
           </ErrorBoundary>
         )}
+        {activeSection === 'radar' && (
+          <ErrorBoundary title="Bot Radar section error" message="Unable to load Bot Radar section.">
+            <BotRadarSection axiosConfig={axiosConfig} />
+            <ExchangeStatusSection axiosConfig={axiosConfig} />
+          </ErrorBoundary>
+        )}
         {activeSection === 'graphs' && (
           <ErrorBoundary title="Profits section error" message="Unable to load Profits section.">
             {renderProfitGraphs()}
@@ -634,6 +650,11 @@ export default function Dashboard() {
         {activeSection === 'admin' && showAdmin && (
           <ErrorBoundary title="Admin section error" message="Unable to load Admin section.">
             {renderAdmin()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'truth' && showAdmin && (
+          <ErrorBoundary title="Truth Console error" message="Unable to load Truth Console.">
+            <TruthConsoleSection axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
       </main>

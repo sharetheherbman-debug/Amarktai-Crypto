@@ -1,0 +1,5 @@
+# Evidence pack outputs are generated at runtime, not tracked in git
+*.json
+*.txt
+# Keep the directory itself
+!.gitkeep
