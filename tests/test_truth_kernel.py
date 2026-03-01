@@ -194,7 +194,8 @@ class TestAdminTruthRouter:
     def test_router_has_summary_endpoint(self):
         from routes.admin_truth import router
         routes = [r.path for r in router.routes]
-        assert "/summary" in routes
+        # In newer Starlette versions route paths include the router prefix
+        assert any(p.endswith("/summary") for p in routes)
 
 
 # ============================================================================

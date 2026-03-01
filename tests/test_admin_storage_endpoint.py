@@ -23,8 +23,7 @@ def client():
         pytest.skip(f"Server dependencies not available: {exc}")
 
     app.dependency_overrides[get_current_user] = lambda: "admin-user"
-    with TestClient(app) as test_client:
-        yield test_client
+    yield TestClient(app)
     app.dependency_overrides = {}
 
 
