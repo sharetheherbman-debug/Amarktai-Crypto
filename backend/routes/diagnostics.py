@@ -440,16 +440,17 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         last_order_attempt: Last order attempt
         last_fill: Last successful fill
         last_error: Last error encountered
-        active_bots: Count of active bots (canonical — status==active, any mode)
+        active_bots: Count of active bots (canonical)
         runnable_bots: Count of bots eligible to trade
+        total_bots: Total non-deleted bot count
         trades_today: Count of trades executed today
         scheduler_running: Whether scheduler is active
     """
     try:
         from paper_trading_engine import paper_trading_engine
         from trading_scheduler import trading_scheduler
-        from datetime import datetime, timezone, timedelta
-        from utils.bot_state import normalize_bot_state
+        from datetime import datetime, timezone
+        from services.canonical import get_canonical_bot_counts
 
         # Get scheduler status
         scheduler_status = trading_scheduler.get_status() if hasattr(trading_scheduler, 'get_status') else {}
@@ -459,15 +460,8 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         if hasattr(paper_trading_engine, 'last_tick_time'):
             engine_status['last_tick'] = paper_trading_engine.last_tick_time
 
-        # Canonical active bots count: fetch all non-deleted bots then normalize.
-        # Using normalize_bot_state keeps this consistent with /api/bots/status.
-        all_bots_raw = await db.bots_collection.find(
-            {"user_id": user_id, "deleted": {"$ne": True}},
-            {"_id": 0},
-        ).to_list(length=_MAX_BOTS_QUERY)
-        normalized = [normalize_bot_state(b) for b in all_bots_raw]
-        active_bots_count = sum(1 for b in normalized if b.get("active"))
-        runnable_bots_count = sum(1 for b in normalized if b.get("eligible_to_trade"))
+        # Canonical bot counts (same function used by /api/bots/status and /api/overview/snapshot)
+        counts = await get_canonical_bot_counts(user_id)
 
         # Count trades today (any mode for this user)
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -525,9 +519,9 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                 "price": last_trade.get('price')
             } if last_trade else None,
             "last_error": last_error,
-            "active_bots": active_bots_count,
-            "runnable_bots": runnable_bots_count,
-            "total_bots": len(all_bots_raw),
+            "active_bots": counts["active"],
+            "runnable_bots": counts["runnable"],
+            "total_bots": counts["total"],
             "trades_today": trades_today,
             "scheduler_running": scheduler_status.get('running', False),
             "timestamp": datetime.now(timezone.utc).isoformat()

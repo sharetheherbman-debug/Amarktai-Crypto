@@ -31,7 +31,7 @@ async def truth_summary(user_id: str = Depends(require_admin)):
     """
     try:
         from services.truth_kernel import compute_truth_summary
-        summary = await compute_truth_summary(user_id, db.database)
+        summary = await compute_truth_summary(user_id, db.db)
         return summary
     except Exception as e:
         logger.error(f"Truth summary error: {e}", exc_info=True)

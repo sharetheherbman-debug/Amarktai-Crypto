@@ -455,6 +455,34 @@ async def perform_paper_reset(user_id: str) -> dict:
         summary[summary_key] += result.deleted_count
         collection_counts[name] = result.deleted_count
 
+    # Clear fills_ledger (used by circuit-breaker drawdown + daily-PnL calculations)
+    try:
+        if db.db is not None:
+            fills_result = await db.db["fills_ledger"].delete_many({"user_id": user_id})
+            summary["metrics_deleted"] += fills_result.deleted_count
+            collection_counts["fills_ledger"] = fills_result.deleted_count
+            # Also clear bot-level fills for bots belonging to this user
+            if bot_ids:
+                bot_fills = await db.db["fills_ledger"].delete_many({"bot_id": {"$in": bot_ids}})
+                summary["metrics_deleted"] += bot_fills.deleted_count
+
+            # Clear stale circuit-breaker state so fresh paper session starts unblocked
+            cb_result = await db.db["circuit_breaker_state"].update_many(
+                {"entity_id": {"$in": bot_ids}} if bot_ids else {"entity_id": user_id},
+                {"$set": {"reset_at": datetime.now(timezone.utc), "reset_reason": "paper_reset"}},
+            )
+            collection_counts["circuit_breaker_state"] = cb_result.modified_count
+            # Also reset user-level circuit breaker
+            await db.db["circuit_breaker_state"].update_many(
+                {"entity_id": user_id, "entity_type": "user"},
+                {"$set": {"reset_at": datetime.now(timezone.utc), "reset_reason": "paper_reset"}},
+            )
+            # Clear ledger events for this user
+            await db.db["ledger_events"].delete_many({"user_id": user_id})
+    except Exception as e:
+        logger.warning(f"Fills/circuit-breaker reset failed: {e}")
+        collection_counts["fills_ledger"] = 0
+
     try:
         from services.paper_wallet_service import paper_wallet_service
         await paper_wallet_service.reset(user_id)

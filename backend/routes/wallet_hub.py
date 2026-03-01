@@ -139,15 +139,14 @@ async def get_paper_wallet_balances(user_id: str) -> Dict:
 @router.get("/paper")
 async def get_paper_wallet(user_id: str = Depends(get_current_user)):
     """Get paper wallet balances and totals with canonical funded status."""
-    from services.wallet_summary_service import wallet_summary_service
+    from services.canonical import get_canonical_wallet_truth
     available = await paper_wallet_service.get_balances(user_id)
     allocated = await get_paper_wallet_allocated_balances(user_id)
     totals = await get_paper_wallet_balances(user_id)
     total_value = sum(float(value or 0) for value in totals.values())
-    # Derive funded_status from wallet_summary_service (single source of truth)
-    summary = await wallet_summary_service.get_summary(user_id)
-    shortfall = summary.get("shortfall_zar", 0.0)
-    funded_status = "FUNDED" if shortfall <= 0 else "UNFUNDED"
+    # Derive funded_status from canonical service (single source of truth)
+    wallet_truth = await get_canonical_wallet_truth(user_id)
+    funded_status = wallet_truth["funded_status"]
     return {
         "user_id": user_id,
         "available": available.get("balances", {}),
@@ -156,8 +155,8 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
         "total": round(total_value, 2),
         "funded_status": funded_status,
         "status": funded_status,
-        "shortfall": round(shortfall, 2),
-        "required": summary.get("required_funds_zar", 0.0),
+        "shortfall": wallet_truth["shortfall"],
+        "required": wallet_truth["required"],
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
