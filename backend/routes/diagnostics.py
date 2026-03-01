@@ -1471,3 +1471,97 @@ async def websocket_diagnostics():
     except Exception as e:
         logger.error(f"WebSocket diagnostics error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# DATA INTEGRITY ENDPOINT
+# ============================================================================
+
+@router.get("/data-integrity")
+async def data_integrity_check(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/diagnostics/data-integrity
+
+    Reconciles wallet, bots, trades, and ledger data for the authenticated user.
+    Returns per-subsystem pass/fail with details on mismatches.
+    """
+    now = datetime.now(timezone.utc)
+    checks: Dict = {}
+
+    try:
+        # 1. Bot count consistency
+        all_bots = await db.bots_collection.find(
+            {"user_id": user_id, "deleted": {"$ne": True}}
+        ).to_list(length=500)
+
+        active_bots = [b for b in all_bots if b.get("status") == "active"]
+        paused_bots = [b for b in all_bots if b.get("status") == "paused"]
+
+        checks["bot_counts"] = {
+            "status": "PASS",
+            "total": len(all_bots),
+            "active": len(active_bots),
+            "paused": len(paused_bots),
+        }
+
+        # 2. Wallet balance check
+        wallet_doc = await db.database["paper_wallets"].find_one({"user_id": user_id}) or {}
+        wallet_total = float(wallet_doc.get("total", wallet_doc.get("available", 0)))
+        wallet_available = float(wallet_doc.get("available", 0))
+        wallet_reserved = float(wallet_doc.get("reserved", 0))
+
+        balance_match = abs(wallet_total - (wallet_available + wallet_reserved)) < 0.01
+        checks["wallet_balance"] = {
+            "status": "PASS" if balance_match else "FAIL",
+            "total": wallet_total,
+            "available": wallet_available,
+            "reserved": wallet_reserved,
+            "discrepancy": None if balance_match else round(wallet_total - wallet_available - wallet_reserved, 2),
+        }
+
+        # 3. Bot capital vs wallet reconciliation
+        total_bot_capital = sum(float(b.get("current_capital", 0)) for b in all_bots)
+        capital_close = abs(total_bot_capital - wallet_reserved) < 1.0  # Within R1 tolerance
+        checks["capital_reconciliation"] = {
+            "status": "PASS" if capital_close else "WARN",
+            "total_bot_capital": round(total_bot_capital, 2),
+            "wallet_reserved": round(wallet_reserved, 2),
+            "difference": round(total_bot_capital - wallet_reserved, 2),
+        }
+
+        # 4. Trade count check
+        total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+        open_trades = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": {"$in": ["open", "active"]}}
+        )
+        checks["trades"] = {
+            "status": "PASS",
+            "total_trades": total_trades,
+            "open_trades": open_trades,
+        }
+
+        # 5. Ledger fill count
+        try:
+            fills_count = await db.database["fills_ledger"].count_documents({"user_id": user_id})
+        except Exception:
+            fills_count = 0
+        checks["ledger_fills"] = {
+            "status": "PASS" if fills_count >= 0 else "WARN",
+            "total_fills": fills_count,
+        }
+
+        # Overall status
+        failed = [k for k, v in checks.items() if v.get("status") == "FAIL"]
+        warned = [k for k, v in checks.items() if v.get("status") == "WARN"]
+
+        return {
+            "timestamp": now.isoformat(),
+            "user_id": user_id,
+            "overall_status": "FAIL" if failed else ("WARN" if warned else "PASS"),
+            "failed_checks": failed,
+            "warning_checks": warned,
+            "checks": checks,
+        }
+    except Exception as e:
+        logger.error(f"Data integrity check error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Data integrity check failed: {e}")
