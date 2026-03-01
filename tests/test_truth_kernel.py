@@ -160,6 +160,7 @@ class TestTruthKernel:
             "LEDGER_TRUTH", "WALLET_RECONCILIATION", "RISK_BASELINES",
             "DAILY_CLOSE", "AUTOSPAWN", "TRAINING_GATE",
             "EXCHANGE_HEALTH", "REALTIME", "AI_CHATOPS", "UI_HEALTH",
+            "SCALPER",
         ]
         assert SUBSYSTEMS == expected
 
@@ -268,3 +269,183 @@ class TestFrontendTruthConsole:
         assert 'contradictions' in content, "Should display contradictions"
         assert 'subsystems' in content, "Should display subsystems"
         assert 'rule_precedence' in content, "Should display rule precedence"
+
+
+# ============================================================================
+# Scalper Model + Exchange Limits Tests
+# ============================================================================
+
+class TestScalperModels:
+    """Tests for scalper bot type, profit routing, and exchange limits."""
+
+    @pytest.fixture(autouse=True)
+    def _check_pydantic(self):
+        try:
+            from models import BotType  # noqa: F401
+        except ImportError:
+            pytest.skip("pydantic or other model dependencies not installed")
+
+    def test_bot_type_enum_exists(self):
+        from models import BotType
+        assert BotType.NORMAL == "normal"
+        assert BotType.SCALPER == "scalper"
+
+    def test_scalper_profit_routing_enum(self):
+        from models import ScalperProfitRouting
+        assert ScalperProfitRouting.SCALPER_GROWTH == "SCALPER_GROWTH"
+        assert ScalperProfitRouting.RETURN_TO_MAIN == "RETURN_TO_MAIN"
+
+    def test_bot_create_has_bot_type(self):
+        from models import BotCreate
+        assert 'bot_type' in BotCreate.model_fields
+
+    def test_bot_model_has_bot_type(self):
+        from models import Bot
+        assert 'bot_type' in Bot.model_fields
+        assert 'profit_routing' in Bot.model_fields
+
+
+class TestScalperExchangeLimits:
+    """Tests for scalper exchange caps and EV gating."""
+
+    def test_scalper_bot_allocation_exists(self):
+        from exchange_limits import SCALPER_BOT_ALLOCATION, MAX_SCALPER_BOTS_GLOBAL
+        assert SCALPER_BOT_ALLOCATION["luno"] == 2
+        assert SCALPER_BOT_ALLOCATION["binance"] == 5
+        assert SCALPER_BOT_ALLOCATION["kucoin"] == 5
+        assert MAX_SCALPER_BOTS_GLOBAL == 32
+
+    def test_normal_caps_unchanged(self):
+        from exchange_limits import BOT_ALLOCATION, MAX_BOTS_GLOBAL
+        assert BOT_ALLOCATION["luno"] == 5
+        assert BOT_ALLOCATION["binance"] == 10
+        assert MAX_BOTS_GLOBAL == 65
+
+    def test_scalper_caps_independent(self):
+        from exchange_limits import BOT_ALLOCATION, SCALPER_BOT_ALLOCATION
+        # Scalper caps must be independent and <= normal caps
+        for ex in SCALPER_BOT_ALLOCATION:
+            assert ex in BOT_ALLOCATION, f"Scalper exchange {ex} not in normal allocation"
+            assert SCALPER_BOT_ALLOCATION[ex] <= BOT_ALLOCATION[ex], f"Scalper cap > normal for {ex}"
+
+    def test_get_scalper_cap(self):
+        from exchange_limits import get_scalper_cap
+        assert get_scalper_cap("luno") == 2
+        assert get_scalper_cap("binance") == 5
+        assert get_scalper_cap("unknown") == 2  # default
+
+    def test_get_normal_cap(self):
+        from exchange_limits import get_normal_cap
+        assert get_normal_cap("luno") == 5
+        assert get_normal_cap("binance") == 10
+
+    def test_compute_scalper_ev_positive(self):
+        from exchange_limits import compute_scalper_ev
+        # High win rate, decent TP/SL, low costs = positive EV
+        ev = compute_scalper_ev(
+            win_rate=0.6,
+            tp_pct=0.01,
+            sl_pct=0.005,
+            entry_fee_pct=0.001,
+            exit_fee_pct=0.001,
+            spread_pct=0.0005,
+            slippage_pct=0.0003,
+        )
+        assert ev > 0, f"Expected positive EV, got {ev}"
+
+    def test_compute_scalper_ev_negative(self):
+        from exchange_limits import compute_scalper_ev
+        # Low win rate, high costs = negative EV
+        ev = compute_scalper_ev(
+            win_rate=0.3,
+            tp_pct=0.005,
+            sl_pct=0.01,
+            entry_fee_pct=0.002,
+            exit_fee_pct=0.002,
+            spread_pct=0.002,
+            slippage_pct=0.001,
+        )
+        assert ev < 0, f"Expected negative EV, got {ev}"
+
+    def test_exit_reason_codes_defined(self):
+        from exchange_limits import (
+            EXIT_REASON_TIME,
+            EXIT_REASON_STAGNATION,
+            EXIT_REASON_STOP,
+            EXIT_REASON_TARGET,
+            EXIT_REASON_TRAIL,
+            EXIT_REASON_RISK,
+        )
+        assert EXIT_REASON_TIME == "TIME_EXIT"
+        assert EXIT_REASON_STAGNATION == "STAGNATION_EXIT"
+        assert EXIT_REASON_STOP == "STOP_EXIT"
+        assert EXIT_REASON_TARGET == "TARGET_EXIT"
+        assert EXIT_REASON_TRAIL == "TRAIL_EXIT"
+        assert EXIT_REASON_RISK == "RISK_EXIT"
+
+    def test_scalper_throttle_constants_defined(self):
+        from exchange_limits import (
+            SCALPER_ORDERS_PER_MIN,
+            SCALPER_CANCELS_PER_MIN,
+            SCALPER_COOLDOWN_SECONDS,
+            SCALPER_MAX_HOLD_SECONDS,
+            SCALPER_STAGNATION_SECONDS,
+            SCALPER_EV_MIN_BPS,
+            SCALPER_SPREAD_MAX_BPS,
+        )
+        assert SCALPER_ORDERS_PER_MIN > 0
+        assert SCALPER_CANCELS_PER_MIN > 0
+        assert SCALPER_COOLDOWN_SECONDS > 0
+        assert SCALPER_MAX_HOLD_SECONDS > 0
+        assert SCALPER_STAGNATION_SECONDS > 0
+        assert SCALPER_EV_MIN_BPS > 0
+        assert SCALPER_SPREAD_MAX_BPS > 0
+
+
+# ============================================================================
+# Go-Live Diagnostics Truth Integration
+# ============================================================================
+
+class TestGoLiveTruthIntegration:
+    """Tests that go-live diagnostics uses Truth Kernel."""
+
+    def test_go_live_imports_truth_kernel(self):
+        """Verify server.py references truth kernel in go-live handler."""
+        import os
+        server_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'server.py'
+        )
+        with open(server_path) as f:
+            content = f.read()
+        assert 'compute_truth_summary' in content, \
+            "go-live should use compute_truth_summary from truth kernel"
+        assert 'contradictions' in content, \
+            "go-live should include contradictions from truth kernel"
+
+    def test_scalper_router_exists(self):
+        """Verify scalper router file exists."""
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'routes', 'scalper.py'
+        )
+        assert os.path.exists(path), "scalper.py router should exist"
+
+    def test_scalper_router_mounted(self):
+        """Verify scalper router is in server.py routers_to_mount."""
+        import os
+        server_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'server.py'
+        )
+        with open(server_path) as f:
+            content = f.read()
+        assert 'routes.scalper' in content, "scalper router should be mounted"
+
+    def test_radar_includes_bot_type(self):
+        """Verify radar.py returns bot_type field."""
+        import os
+        radar_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'routes', 'radar.py'
+        )
+        with open(radar_path) as f:
+            content = f.read()
+        assert 'bot_type' in content, "radar should include bot_type field"

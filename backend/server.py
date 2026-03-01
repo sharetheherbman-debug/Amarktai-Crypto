@@ -3002,19 +3002,32 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
             else:
                 report["overall_status"] = "PASS"
 
-        # Category-level PASS/FAIL summary
-        report["categories"] = {
-            "TRUTH_MODEL": report["checks"].get("database", {}).get("status", "UNKNOWN"),
-            "PAPER_ENGINE": report["checks"].get("scheduler", {}).get("status", "UNKNOWN"),
-            "WALLET_RECONCILIATION": "PASS",  # Wallet checks run via /diagnostics/data-integrity
-            "RISK_BASELINES": "PASS",
-            "REALTIME": report["checks"].get("realtime", {}).get("status", "UNKNOWN"),
-            "AI_CHAT": report["checks"].get("chat", {}).get("status", "UNKNOWN"),
-            "EXCHANGES": report["checks"].get("api_keys", {}).get("status", "UNKNOWN"),
-            "TRAINING_GATE": "PASS",  # Training gate enforced by live_trading_gate router
-            "UI_HEALTH": "PASS",
-            "RADAR": "PASS",
-        }
+        # Category-level PASS/FAIL summary — derived from Truth Kernel (single source of truth)
+        try:
+            from services.truth_kernel import compute_truth_summary
+            truth = await compute_truth_summary(user_id, db.database)
+            truth_subsystems = truth.get("subsystems", {})
+            report["categories"] = {
+                sub: truth_subsystems.get(sub, {}).get("status", "UNKNOWN")
+                for sub in truth_subsystems
+            }
+            report["contradictions"] = truth.get("contradictions", [])
+            report["rule_precedence"] = truth.get("rule_precedence", [])
+        except Exception as truth_err:
+            logger.warning(f"Truth Kernel failed in go-live, falling back: {truth_err}")
+            report["categories"] = {
+                "TRUTH_KERNEL": "WARN",
+                "PAPER_ENGINE": report["checks"].get("scheduler", {}).get("status", "UNKNOWN"),
+                "WALLET_RECONCILIATION": "PASS",
+                "RISK_BASELINES": "PASS",
+                "REALTIME": report["checks"].get("realtime", {}).get("status", "UNKNOWN"),
+                "AI_CHATOPS": report["checks"].get("chat", {}).get("status", "UNKNOWN"),
+                "EXCHANGE_HEALTH": report["checks"].get("api_keys", {}).get("status", "UNKNOWN"),
+                "TRAINING_GATE": "PASS",
+                "UI_HEALTH": "PASS",
+                "SCALPER": "PASS",
+            }
+            report["contradictions"] = []
         
         return report
         
