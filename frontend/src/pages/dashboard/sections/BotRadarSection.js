@@ -7,12 +7,14 @@ const RADAR_REFRESH_MS = 10000; // Refresh radar data every 10 seconds
  *
  * Shows each bot's current position on a live price line:
  * entry → current → target → stop, with time-remaining and next-action info.
+ * Supports bot_type filter: all / normal / scalper.
  */
 export default function BotRadarSection({ axiosConfig }) {
   const [radarData, setRadarData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedBot, setSelectedBot] = useState(null);
+  const [typeFilter, setTypeFilter] = useState('all'); // all / normal / scalper
 
   const fetchRadar = useCallback(async () => {
     try {
@@ -55,6 +57,11 @@ export default function BotRadarSection({ axiosConfig }) {
   }
 
   const radar = radarData?.radar || [];
+  const filteredRadar = typeFilter === 'all'
+    ? radar
+    : radar.filter(e => (e.bot_type || 'normal') === typeFilter);
+  const normalCount = radar.filter(e => (e.bot_type || 'normal') === 'normal').length;
+  const scalperCount = radar.filter(e => (e.bot_type || 'normal') === 'scalper').length;
 
   const formatTime = (seconds) => {
     if (seconds == null) return '—';
@@ -133,13 +140,24 @@ export default function BotRadarSection({ axiosConfig }) {
           <span className="radar-stat">{radarData?.total_bots || 0} bots</span>
           <span className="radar-stat radar-active">{radarData?.bots_with_positions || 0} with positions</span>
         </div>
+        <div className="radar-filters">
+          {['all', 'normal', 'scalper'].map((f) => (
+            <button
+              key={f}
+              className={`radar-filter-btn ${typeFilter === f ? 'radar-filter-active' : ''}`}
+              onClick={() => setTypeFilter(f)}
+            >
+              {f === 'all' ? `All (${radar.length})` : f === 'normal' ? `Normal (${normalCount})` : `Scalper (${scalperCount})`}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {radar.length === 0 ? (
-        <p className="radar-empty">No bots available. Create bots to see radar data.</p>
+      {filteredRadar.length === 0 ? (
+        <p className="radar-empty">No {typeFilter === 'all' ? '' : typeFilter + ' '}bots available.</p>
       ) : (
         <div className="radar-grid">
-          {radar.map((entry) => (
+          {filteredRadar.map((entry) => (
             <div
               key={entry.bot_id}
               className={`radar-card ${selectedBot === entry.bot_id ? 'radar-card-selected' : ''}`}
@@ -147,6 +165,7 @@ export default function BotRadarSection({ axiosConfig }) {
             >
               <div className="radar-card-top">
                 <span className="radar-bot-name">{entry.name}</span>
+                {entry.bot_type === 'scalper' && <span className="radar-type-badge radar-scalper-badge">⚡ Scalper</span>}
                 <span className="radar-exchange">{entry.exchange}</span>
                 <span className="radar-symbol">{entry.symbol}</span>
                 <span

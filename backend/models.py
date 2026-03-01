@@ -24,6 +24,14 @@ class BotStatus(str, Enum):
     PAUSED = "paused"
     STOPPED = "stopped"
 
+class BotType(str, Enum):
+    NORMAL = "normal"
+    SCALPER = "scalper"
+
+class ScalperProfitRouting(str, Enum):
+    SCALPER_GROWTH = "SCALPER_GROWTH"
+    RETURN_TO_MAIN = "RETURN_TO_MAIN"
+
 # User Models
 class UserCreate(BaseModel):
     first_name: str
@@ -101,6 +109,8 @@ class BotCreate(BaseModel):
     trading_mode: TradingMode = TradingMode.PAPER
     initial_capital: float = 0
     strategy_preset: Optional[str] = None
+    bot_type: BotType = BotType.NORMAL  # normal or scalper
+    profit_routing: ScalperProfitRouting = ScalperProfitRouting.RETURN_TO_MAIN  # scalper profit routing
     
     @model_validator(mode='after')
     def validate_platform(self):
@@ -137,6 +147,8 @@ class Bot(BaseModel):
     risk_mode: BotRiskMode
     trading_mode: TradingMode
     status: BotStatus = BotStatus.ACTIVE
+    bot_type: BotType = BotType.NORMAL  # normal or scalper
+    profit_routing: ScalperProfitRouting = ScalperProfitRouting.RETURN_TO_MAIN
     initial_capital: float
     current_capital: float
     total_profit: float = 0

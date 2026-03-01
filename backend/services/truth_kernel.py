@@ -64,6 +64,7 @@ SUBSYSTEMS = [
     "REALTIME",
     "AI_CHATOPS",
     "UI_HEALTH",
+    "SCALPER",
 ]
 
 
@@ -78,10 +79,16 @@ async def compute_bot_eligibility(user_id: str, db) -> Dict[str, Any]:
     eligible = [b for b in bots if b.get("eligible_to_trade")]
     ineligible = [b for b in bots if not b.get("eligible_to_trade")]
 
+    # Separate normal vs scalper counts
+    normal_bots = [b for b in bots if b.get("bot_type", "normal") == "normal"]
+    scalper_bots = [b for b in bots if b.get("bot_type") == "scalper"]
+
     return {
         "total_bots": total,
         "eligible_count": len(eligible),
         "ineligible_count": len(ineligible),
+        "normal_count": len(normal_bots),
+        "scalper_count": len(scalper_bots),
         "ineligible_reasons": {
             str(b.get("_id", "")): b.get("not_eligible_reasons", [])
             for b in ineligible
@@ -368,6 +375,23 @@ async def compute_truth_summary(user_id: str, db) -> Dict[str, Any]:
         "status": "PASS",
         "detail": "UI health not measurable from backend",
         "last_run": now.isoformat(),
+    }
+
+    # 14. SCALPER
+    from exchange_limits import SCALPER_BOT_ALLOCATION, MAX_SCALPER_BOTS_GLOBAL
+    scalper_count = bots.get("scalper_count", 0)
+    scalper_ok = scalper_count <= MAX_SCALPER_BOTS_GLOBAL
+    subsystems["SCALPER"] = {
+        "status": "PASS" if scalper_ok else "FAIL",
+        "detail": f"{scalper_count} scalper bots (cap={MAX_SCALPER_BOTS_GLOBAL})",
+        "last_run": now.isoformat(),
+        "counters": {
+            "scalper_bots": scalper_count,
+            "normal_bots": bots.get("normal_count", 0),
+            "scalper_global_cap": MAX_SCALPER_BOTS_GLOBAL,
+        },
+        "reasons": ["scalper_cap_exceeded"] if not scalper_ok else [],
+        "endpoint": "/api/bots/status",
     }
 
     # Determine overall

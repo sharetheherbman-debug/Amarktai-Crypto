@@ -107,6 +107,9 @@ ENDPOINTS=(
     "overview_snapshot|/api/overview/snapshot"
     "exchanges_status|/api/exchanges/status"
     "user_settings|/api/user/settings"
+    "scalper_caps|/api/scalper/caps"
+    "scalper_summary|/api/scalper/summary"
+    "truth_summary|/api/admin/truth/summary"
 )
 
 echo "{" > "$REPORT_FILE"

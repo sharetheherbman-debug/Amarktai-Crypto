@@ -48,6 +48,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
 
     entry = {
         "bot_id": bot_id,
+        "bot_type": bot.get("bot_type", "normal"),
         "name": bot.get("name", f"Bot-{bot_id[:6]}"),
         "exchange": bot.get("exchange", "unknown"),
         "symbol": bot.get("pair", bot.get("symbol", "unknown")),
