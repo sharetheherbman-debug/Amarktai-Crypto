@@ -32,7 +32,9 @@ import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection'
 import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import BotRadarSection from './dashboard/sections/BotRadarSection';
 import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
+import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
 import '../styles/radar-exchange.css';
+import '../styles/truth-console.css';
 
 ChartJS.register(
   CategoryScale,
@@ -541,6 +543,9 @@ export default function Dashboard() {
             {showAdmin && (
               <a href="#" className={activeSection === 'admin' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('admin'); }}>🔧 Admin</a>
             )}
+            {showAdmin && (
+              <a href="#" className={activeSection === 'truth' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('truth'); }}>🔍 Truth Console</a>
+            )}
           </nav>
         </aside>
       )}
@@ -644,6 +649,11 @@ export default function Dashboard() {
         {activeSection === 'admin' && showAdmin && (
           <ErrorBoundary title="Admin section error" message="Unable to load Admin section.">
             {renderAdmin()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'truth' && showAdmin && (
+          <ErrorBoundary title="Truth Console error" message="Unable to load Truth Console.">
+            <TruthConsoleSection axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
       </main>

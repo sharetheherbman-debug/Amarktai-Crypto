@@ -107,11 +107,16 @@ async def find_bot_match(user_id: str, content: str) -> Optional[Dict[str, Any]]
 def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[str, Any]]:
     content_lower = content.lower()
     commandish = request_action or content_lower.startswith(
-        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk")
+        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk", "truth")
     )
 
     if not commandish:
         return None
+
+    # Truth check command (admin-only, handled by truth_check handler)
+    if "truth check" in content_lower or "truth" in content_lower and "check" in content_lower:
+        verbose = "verbose" in content_lower
+        return {"action": "truth_check", "params": {"verbose": verbose}}
 
     if "overview" in content_lower:
         return {"action": "get_overview_snapshot"}
@@ -992,7 +997,83 @@ async def _handle_report_last_errors(user_id: str, params: Dict[str, Any]) -> Di
     return {"success": True, "data": errors, "message": "Last error summary retrieved."}
 
 
+async def _handle_truth_check(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle 'truth check' command — admin-only truth summary."""
+    try:
+        from services.truth_kernel import compute_truth_summary
+        summary = await compute_truth_summary(user_id, db.database)
+
+        overall = summary.get("overall_status", "UNKNOWN")
+        subsystems = summary.get("subsystems", {})
+        contradictions = summary.get("contradictions", [])
+        verbose = params.get("verbose", False)
+
+        # Build human-readable report
+        lines = [f"**Truth Check: {overall}**\n"]
+
+        # Failing subsystems
+        failing = [(k, v) for k, v in subsystems.items() if v.get("status") == "FAIL"]
+        warning = [(k, v) for k, v in subsystems.items() if v.get("status") == "WARN"]
+
+        if failing:
+            lines.append("**❌ Failing:**")
+            for name, info in failing[:5]:
+                reasons = info.get("reasons", [])
+                reason_str = ", ".join(reasons[:3]) if reasons else "no reason codes"
+                lines.append(f"  • {name}: {info.get('detail', '')} ({reason_str})")
+                if verbose and info.get("endpoint"):
+                    lines.append(f"    → {info['endpoint']}")
+        elif warning:
+            lines.append("**⚠️ Warnings:**")
+            for name, info in warning[:5]:
+                lines.append(f"  • {name}: {info.get('detail', '')}")
+                if verbose and info.get("endpoint"):
+                    lines.append(f"    → {info['endpoint']}")
+        else:
+            lines.append("✅ All subsystems passing.")
+
+        # Contradictions
+        if contradictions:
+            lines.append(f"\n**🔍 Contradictions ({len(contradictions)}):**")
+            for c in contradictions[:3]:
+                lines.append(f"  • [{c['severity'].upper()}] {c['description']}")
+
+        # Suggestions
+        if failing or contradictions:
+            lines.append("\n**Next actions (safe):**")
+            if any(c["id"] == "ELIGIBLE_BOTS_NO_TICK" for c in contradictions):
+                lines.append("  1. Check scheduler: GET /api/diagnostics/paper-status")
+            if any(c["id"] == "BALANCE_MISMATCH" for c in contradictions):
+                lines.append("  1. Reconcile wallet: GET /api/diagnostics/data-integrity")
+            if not failing and not contradictions:
+                lines.append("  1. Run evidence pack: ./scripts/evidence_pack.sh")
+            lines.append("  • Run full evidence: GET /api/admin/truth/summary")
+
+        if verbose:
+            lines.append(f"\n**Verbose details:**")
+            lines.append(f"  Subsystems checked: {len(subsystems)}")
+            lines.append(f"  Contradictions: {len(contradictions)}")
+            lines.append(f"  Evidence endpoint: GET /api/admin/truth/summary")
+
+        report_text = "\n".join(lines)
+
+        return {
+            "success": True,
+            "data": {"overall": overall, "report": report_text, "subsystem_count": len(subsystems)},
+            "message": report_text,
+        }
+    except Exception as e:
+        logger.error(f"Truth check error: {e}", exc_info=True)
+        return {"success": False, "message": f"Truth check failed: {e}"}
+
+
 ACTION_REGISTRY = {
+    "truth_check": {
+        "description": "Run Truth Kernel check and report system health (admin-only).",
+        "params": ["verbose"],
+        "requires_confirmation": False,
+        "handler": _handle_truth_check,
+    },
     "get_system_status": {
         "description": "Fetch system status and health summary.",
         "params": [],

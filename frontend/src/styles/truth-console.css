@@ -1,0 +1,251 @@
+/* ============================================================
+   Truth Console Section Styles
+   ============================================================ */
+
+.truth-console {
+  padding: 20px;
+}
+
+.truth-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.truth-header h2 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.truth-overall {
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+}
+
+.truth-refresh {
+  margin-left: auto;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  color: var(--accent2, #38bdf8);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.truth-refresh:hover {
+  background: rgba(96, 165, 250, 0.22);
+}
+
+/* Contradictions */
+.truth-contradictions {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+}
+
+.truth-contradictions h3 {
+  font-size: 0.95rem;
+  margin: 0 0 8px;
+  color: #ef4444;
+}
+
+.truth-contradiction {
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.truth-sev-critical {
+  background: rgba(239, 68, 68, 0.08);
+  border-left: 3px solid #ef4444;
+}
+
+.truth-sev-warning {
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 3px solid #f59e0b;
+}
+
+.truth-sev-info {
+  background: rgba(96, 165, 250, 0.06);
+  border-left: 3px solid #3b82f6;
+}
+
+.truth-contradiction strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.truth-contradiction p {
+  margin: 0 0 4px;
+  color: var(--text, #e2e8f0);
+}
+
+.truth-expect {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.72rem;
+  color: var(--muted, #9ca3af);
+}
+
+/* Subsystem List */
+.truth-subsystems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.truth-subsystem-item {
+  background: rgba(10, 18, 42, 0.72);
+  border: 1px solid rgba(96, 165, 250, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.truth-subsystem-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  transition: background 0.2s;
+}
+
+.truth-subsystem-header:hover {
+  background: rgba(96, 165, 250, 0.05);
+}
+
+.truth-status-icon { font-size: 1rem; }
+
+.truth-subsystem-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-width: 160px;
+}
+
+.truth-subsystem-detail {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--muted, #9ca3af);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.truth-expand-arrow {
+  font-size: 0.7rem;
+  color: var(--muted, #9ca3af);
+}
+
+/* Expanded body */
+.truth-subsystem-body {
+  padding: 10px 14px 14px 38px;
+  border-top: 1px solid rgba(96, 165, 250, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.truth-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+}
+
+.truth-label {
+  color: var(--muted, #9ca3af);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.truth-endpoint {
+  font-size: 0.72rem;
+  color: var(--accent2, #38bdf8);
+  background: rgba(56, 189, 248, 0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* Counters */
+.truth-counters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.truth-counter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 4px;
+}
+
+.truth-counter {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 3px;
+}
+
+.truth-counter-key { color: var(--muted, #9ca3af); }
+.truth-counter-val { font-weight: 500; }
+
+/* Reasons */
+.truth-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.truth-reason-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  padding: 1px 8px;
+  border-radius: 3px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+
+/* Rule Precedence */
+.truth-precedence {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(10, 18, 42, 0.5);
+  border: 1px solid rgba(96, 165, 250, 0.1);
+  border-radius: 8px;
+}
+
+.truth-precedence h3 {
+  font-size: 0.9rem;
+  margin: 0 0 8px;
+}
+
+.truth-precedence-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.78rem;
+  color: var(--text, #e2e8f0);
+}
+
+.truth-precedence-list li {
+  padding: 2px 0;
+  text-transform: capitalize;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .truth-subsystem-name { min-width: auto; }
+  .truth-subsystem-detail { display: none; }
+  .truth-counter-grid { grid-template-columns: 1fr; }
+}

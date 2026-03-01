@@ -3122,6 +3122,7 @@ routers_to_mount = [
     ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
     ("routes.radar", "Bot Radar"),  # NEW - Bot Radar / Bot Map visualization
     ("routes.exchange_status", "Exchange Status"),  # NEW - Exchange status & test for all 7 exchanges
+    ("routes.admin_truth", "Admin Truth Console"),  # NEW - Truth Kernel summary endpoint
 ]
 
 # Mount realtime router only if enabled via feature flag
