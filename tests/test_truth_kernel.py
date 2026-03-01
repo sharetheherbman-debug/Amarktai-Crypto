@@ -449,3 +449,118 @@ class TestGoLiveTruthIntegration:
         with open(radar_path) as f:
             content = f.read()
         assert 'bot_type' in content, "radar should include bot_type field"
+
+
+# ============================================================================
+# AI Chat Scalper Commands Tests
+# ============================================================================
+
+class TestAIChatScalperCommands:
+    """Tests for scalper-related AI chat commands."""
+
+    def test_ai_chat_detects_create_scalper(self):
+        """AI chat should detect 'create scalper bot' intent."""
+        import os
+        chat_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'routes', 'ai_chat.py'
+        )
+        with open(chat_path) as f:
+            content = f.read()
+        assert 'create_scalper_bot' in content, "AI chat should support create_scalper_bot action"
+        assert 'scalper_summary' in content, "AI chat should support scalper_summary action"
+        assert 'scalper_caps' in content, "AI chat should support scalper_caps action"
+        assert 'set_scalper_routing' in content, "AI chat should support set_scalper_routing action"
+        assert 'explain_not_trading' in content, "AI chat should support explain_not_trading action"
+
+    def test_ai_chat_scalper_handlers_registered(self):
+        """Verify scalper action handlers are in ACTION_REGISTRY."""
+        import os
+        chat_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'routes', 'ai_chat.py'
+        )
+        with open(chat_path) as f:
+            content = f.read()
+        # Handlers should be defined as functions
+        assert '_handle_create_scalper_bot' in content
+        assert '_handle_scalper_summary' in content
+        assert '_handle_scalper_caps' in content
+        assert '_handle_set_scalper_routing' in content
+        assert '_handle_explain_not_trading' in content
+
+    def test_ai_chat_scalper_routing_requires_confirmation(self):
+        """Set scalper routing should require confirmation."""
+        import os
+        chat_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'routes', 'ai_chat.py'
+        )
+        with open(chat_path) as f:
+            content = f.read()
+        # set_scalper_routing should have requires_confirmation: True
+        assert '"requires_confirmation": True' in content or "'requires_confirmation': True" in content
+
+
+# ============================================================================
+# Frontend Scalper Panel Tests
+# ============================================================================
+
+class TestFrontendScalperPanel:
+    """Tests for ScalperBotsPanel frontend component."""
+
+    def test_scalper_panel_file_exists(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'frontend', 'src', 'pages',
+            'dashboard', 'sections', 'ScalperBotsPanel.js'
+        )
+        assert os.path.exists(path), "ScalperBotsPanel.js should exist"
+
+    def test_scalper_panel_fetches_caps(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'frontend', 'src', 'pages',
+            'dashboard', 'sections', 'ScalperBotsPanel.js'
+        )
+        with open(path) as f:
+            content = f.read()
+        assert '/api/scalper/caps' in content, "Should fetch from scalper caps endpoint"
+        assert '/api/scalper/summary' in content, "Should fetch from scalper summary endpoint"
+
+    def test_scalper_panel_shows_routing(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'frontend', 'src', 'pages',
+            'dashboard', 'sections', 'ScalperBotsPanel.js'
+        )
+        with open(path) as f:
+            content = f.read()
+        assert 'SCALPER_GROWTH' in content, "Should show SCALPER_GROWTH routing"
+        assert 'RETURN_TO_MAIN' in content, "Should show RETURN_TO_MAIN routing"
+
+    def test_scalper_css_exists(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'frontend', 'src', 'styles',
+            'scalper-panel.css'
+        )
+        assert os.path.exists(path), "scalper-panel.css should exist"
+
+    def test_bot_management_imports_scalper(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'frontend', 'src', 'pages',
+            'dashboard', 'sections', 'BotManagementSection.js'
+        )
+        with open(path) as f:
+            content = f.read()
+        assert 'ScalperBotsPanel' in content, "BotManagement should import ScalperBotsPanel"
+        assert 'scalper' in content.lower(), "BotManagement should reference scalper tab"
+
+    def test_dashboard_imports_scalper_css(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(__file__), '..', 'frontend', 'src', 'pages',
+            'Dashboard.js'
+        )
+        with open(path) as f:
+            content = f.read()
+        assert 'scalper-panel.css' in content, "Dashboard should import scalper-panel.css"

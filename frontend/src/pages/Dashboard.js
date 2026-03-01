@@ -35,6 +35,7 @@ import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
 import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
+import '../styles/scalper-panel.css';
 
 ChartJS.register(
   CategoryScale,

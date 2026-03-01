@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import PlatformSelector from '../../../components/PlatformSelector';
 import TrainingQuarantineSection from '../../../components/Dashboard/TrainingQuarantineSection';
+import ScalperBotsPanel from './ScalperBotsPanel';
 import { getBotStatus } from '../../../hooks/useDashboardData';
 import { getPlatformDisplayName, getPlatformIcon, SUPPORTED_PLATFORMS } from '../../../constants/platforms';
 import { getAllExchanges } from '../../../config/exchanges';
@@ -240,6 +241,12 @@ export default function BotManagementSection({
             Overview
           </button>
           <button
+            className={`bot-tab ${botManagementTab === 'scalper' ? 'active' : ''}`}
+            onClick={() => setBotManagementTab('scalper')}
+          >
+            ⚡ Scalper Bots
+          </button>
+          <button
             className={`bot-tab ${botManagementTab === 'training_quarantine' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('training_quarantine')}
           >
@@ -252,6 +259,10 @@ export default function BotManagementSection({
             Spawn Status
           </button>
         </div>
+
+        {botManagementTab === 'scalper' && (
+          <ScalperBotsPanel axiosConfig={{ headers: {} }} />
+        )}
 
         {botManagementTab === 'creation' && (
           <div className="bot-container">

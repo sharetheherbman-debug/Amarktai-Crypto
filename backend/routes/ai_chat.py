@@ -107,7 +107,7 @@ async def find_bot_match(user_id: str, content: str) -> Optional[Dict[str, Any]]
 def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[str, Any]]:
     content_lower = content.lower()
     commandish = request_action or content_lower.startswith(
-        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk", "truth")
+        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk", "truth", "create", "scalper", "show")
     )
 
     if not commandish:
@@ -117,6 +117,22 @@ def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[st
     if "truth check" in content_lower or "truth" in content_lower and "check" in content_lower:
         verbose = "verbose" in content_lower
         return {"action": "truth_check", "params": {"verbose": verbose}}
+
+    # ── Scalper commands ────────────────────────────────────────────────
+    if "scalper" in content_lower and ("create" in content_lower or "spawn" in content_lower):
+        # Parse exchange from content
+        exchanges = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+        exchange = next((ex for ex in exchanges if ex in content_lower), "binance")
+        return {"action": "create_scalper_bot", "params": {"exchange": exchange}}
+    if "scalper" in content_lower and ("summary" in content_lower or "status" in content_lower):
+        return {"action": "scalper_summary"}
+    if "scalper" in content_lower and "cap" in content_lower:
+        return {"action": "scalper_caps"}
+    if ("profit routing" in content_lower or "routing mode" in content_lower) and "scalper" in content_lower:
+        mode = "SCALPER_GROWTH" if "growth" in content_lower else "RETURN_TO_MAIN"
+        return {"action": "set_scalper_routing", "params": {"mode": mode}, "requires_confirmation": True}
+    if "why not trading" in content_lower or "why no trade" in content_lower:
+        return {"action": "explain_not_trading"}
 
     if "overview" in content_lower:
         return {"action": "get_overview_snapshot"}
@@ -1067,6 +1083,118 @@ async def _handle_truth_check(user_id: str, params: Dict[str, Any]) -> Dict[str,
         return {"success": False, "message": f"Truth check failed: {e}"}
 
 
+async def _handle_create_scalper_bot(user_id, db, params=None, **kw):
+    """Create a scalper bot on the specified exchange (respects caps)."""
+    try:
+        exchange = (params or {}).get("exchange", "binance")
+        from exchange_limits import get_scalper_cap
+        cap = get_scalper_cap(exchange)
+        current = await db["bots"].count_documents(
+            {"user_id": user_id, "bot_type": "scalper", "exchange": exchange, "deleted": {"$ne": True}}
+        )
+        if current >= cap:
+            return {"success": False, "message": f"Scalper cap reached for {exchange}: {current}/{cap}"}
+        return {
+            "success": True,
+            "message": f"✅ Scalper bot creation on {exchange} is available ({current}/{cap} used). "
+                       f"Use the Bot Management → Scalper section in the dashboard to create one.",
+            "data": {"exchange": exchange, "current": current, "cap": cap},
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Error: {e}"}
+
+
+async def _handle_scalper_summary(user_id, db, **kw):
+    """Show scalper bot summary."""
+    try:
+        bots = await db["bots"].find(
+            {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}}
+        ).to_list(length=200)
+        normal_count = await db["bots"].count_documents(
+            {"user_id": user_id, "bot_type": {"$ne": "scalper"}, "deleted": {"$ne": True}}
+        )
+        total_pnl = sum(float(b.get("total_profit", 0)) for b in bots)
+        active = sum(1 for b in bots if b.get("status") == "active")
+        growth = sum(1 for b in bots if b.get("profit_routing") == "SCALPER_GROWTH")
+        lines = [
+            f"📊 **Scalper Summary**",
+            f"  Scalper bots: {len(bots)} ({active} active)",
+            f"  Normal bots: {normal_count}",
+            f"  Scalper PnL: {total_pnl:.2f}",
+            f"  Routing: {growth} GROWTH / {len(bots) - growth} RETURN_TO_MAIN",
+        ]
+        return {"success": True, "message": "\n".join(lines), "data": {"scalper_count": len(bots)}}
+    except Exception as e:
+        return {"success": False, "message": f"Error: {e}"}
+
+
+async def _handle_scalper_caps(user_id, db, **kw):
+    """Show scalper cap usage per exchange."""
+    try:
+        from exchange_limits import SCALPER_BOT_ALLOCATION, MAX_SCALPER_BOTS_GLOBAL
+        bots = await db["bots"].find(
+            {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}}
+        ).to_list(length=200)
+        lines = [f"📋 **Scalper Caps** (global: {len(bots)}/{MAX_SCALPER_BOTS_GLOBAL})"]
+        for ex, cap in SCALPER_BOT_ALLOCATION.items():
+            count = sum(1 for b in bots if b.get("exchange") == ex)
+            status = "🟢" if count < cap else "🔴"
+            lines.append(f"  {status} {ex}: {count}/{cap}")
+        return {"success": True, "message": "\n".join(lines)}
+    except Exception as e:
+        return {"success": False, "message": f"Error: {e}"}
+
+
+async def _handle_set_scalper_routing(user_id, db, params=None, **kw):
+    """Set profit routing mode for all scalper bots."""
+    try:
+        mode = (params or {}).get("mode", "RETURN_TO_MAIN")
+        if mode not in ("SCALPER_GROWTH", "RETURN_TO_MAIN"):
+            return {"success": False, "message": f"Invalid mode: {mode}"}
+        result = await db["bots"].update_many(
+            {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}},
+            {"$set": {"profit_routing": mode}},
+        )
+        return {
+            "success": True,
+            "message": f"✅ Profit routing set to **{mode}** for {result.modified_count} scalper bots.",
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Error: {e}"}
+
+
+async def _handle_explain_not_trading(user_id, db, **kw):
+    """Explain why bots are not trading using canonical reason codes."""
+    try:
+        from services.truth_kernel import compute_truth_summary
+        truth = await compute_truth_summary(user_id, db)
+        subsystems = truth.get("subsystems", {})
+        contradictions = truth.get("contradictions", [])
+        failing = [(k, v) for k, v in subsystems.items() if v.get("status") == "FAIL"]
+        warnings = [(k, v) for k, v in subsystems.items() if v.get("status") in ("WARN", "PASS_WITH_WARNINGS")]
+
+        lines = ["🔍 **Why Not Trading — Canonical Reasons**"]
+        if not failing and not warnings and not contradictions:
+            lines.append("  ✅ All subsystems PASS. Trading should be active if bots exist and scheduler is running.")
+        else:
+            if failing:
+                lines.append(f"\n  ❌ **Failing subsystems ({len(failing)}):**")
+                for name, info in failing:
+                    reasons = info.get("reasons", [])
+                    lines.append(f"    • {name}: {info.get('detail', 'unknown')} — reasons: {reasons}")
+            if warnings:
+                lines.append(f"\n  ⚠️ **Warnings ({len(warnings)}):**")
+                for name, info in warnings:
+                    lines.append(f"    • {name}: {info.get('detail', 'unknown')}")
+            if contradictions:
+                lines.append(f"\n  ⚡ **Contradictions ({len(contradictions)}):**")
+                for c in contradictions[:5]:
+                    lines.append(f"    • [{c.get('severity', 'unknown')}] {c.get('id', '')}: {c.get('description', '')}")
+        return {"success": True, "message": "\n".join(lines)}
+    except Exception as e:
+        return {"success": False, "message": f"Error: {e}"}
+
+
 ACTION_REGISTRY = {
     "truth_check": {
         "description": "Run Truth Kernel check and report system health (admin-only).",
@@ -1240,6 +1368,37 @@ ACTION_REGISTRY = {
         "params": [],
         "requires_confirmation": False,
         "handler": _handle_report_last_errors,
+    },
+    # ── Scalper Bot Commands ─────────────────────────────────────────────
+    "create_scalper_bot": {
+        "description": "Create a new scalper bot on a specific exchange.",
+        "params": ["exchange"],
+        "requires_confirmation": True,
+        "handler": _handle_create_scalper_bot,
+    },
+    "scalper_summary": {
+        "description": "Show scalper bot summary (counts, PnL, routing mode).",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_scalper_summary,
+    },
+    "scalper_caps": {
+        "description": "Show scalper cap usage per exchange.",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_scalper_caps,
+    },
+    "set_scalper_routing": {
+        "description": "Set profit routing mode for all scalper bots (SCALPER_GROWTH / RETURN_TO_MAIN).",
+        "params": ["mode"],
+        "requires_confirmation": True,
+        "handler": _handle_set_scalper_routing,
+    },
+    "explain_not_trading": {
+        "description": "Explain why bots are not trading using canonical reason codes.",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_explain_not_trading,
     },
 }
 
