@@ -30,6 +30,9 @@ import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
+import BotRadarSection from './dashboard/sections/BotRadarSection';
+import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
+import '../styles/radar-exchange.css';
 
 ChartJS.register(
   CategoryScale,
@@ -529,6 +532,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
+            <a href="#" className={activeSection === 'radar' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('radar'); }}>📡 Bot Radar</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
@@ -604,6 +608,12 @@ export default function Dashboard() {
         {activeSection === 'system' && (
           <ErrorBoundary title="System Mode section error" message="Unable to load System Mode section.">
             {renderSystemMode()}
+          </ErrorBoundary>
+        )}
+        {activeSection === 'radar' && (
+          <ErrorBoundary title="Bot Radar section error" message="Unable to load Bot Radar section.">
+            <BotRadarSection axiosConfig={axiosConfig} />
+            <ExchangeStatusSection axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
         {activeSection === 'graphs' && (
