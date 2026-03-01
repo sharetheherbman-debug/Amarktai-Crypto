@@ -34,6 +34,7 @@ DEFAULT_MAX_HOLD = {
 # Default profit targets (fraction of capital)
 DEFAULT_DAILY_PROFIT_TARGET = 0.015   # 1.5% daily
 DEFAULT_TRADE_PROFIT_TARGET = 0.005   # 0.5% per trade
+RISK_THRESHOLD_PCT = 0.03             # 3% unrealized loss triggers risk exit
 
 
 def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -> Dict:
@@ -107,7 +108,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             action = "FORCE_EXIT"
             code = "TIME_EXIT"
             text = "Max hold time exceeded – forcing exit"
-        elif unrealized <= -(capital * 0.03):
+        elif unrealized <= -(capital * RISK_THRESHOLD_PCT):
             action = "STOP_EXIT"
             code = "RISK_EXIT"
             text = "Unrealized loss exceeds risk threshold"

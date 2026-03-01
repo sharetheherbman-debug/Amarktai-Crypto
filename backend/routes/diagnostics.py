@@ -1477,6 +1477,11 @@ async def websocket_diagnostics():
 # DATA INTEGRITY ENDPOINT
 # ============================================================================
 
+# Tolerance for wallet balance reconciliation (cents)
+WALLET_BALANCE_TOLERANCE = 0.01
+# Tolerance for bot capital vs wallet reserved reconciliation (R1)
+CAPITAL_RECONCILIATION_TOLERANCE = 1.0
+
 @router.get("/data-integrity")
 async def data_integrity_check(user_id: str = Depends(get_current_user)):
     """
@@ -1510,7 +1515,7 @@ async def data_integrity_check(user_id: str = Depends(get_current_user)):
         wallet_available = float(wallet_doc.get("available", 0))
         wallet_reserved = float(wallet_doc.get("reserved", 0))
 
-        balance_match = abs(wallet_total - (wallet_available + wallet_reserved)) < 0.01
+        balance_match = abs(wallet_total - (wallet_available + wallet_reserved)) < WALLET_BALANCE_TOLERANCE
         checks["wallet_balance"] = {
             "status": "PASS" if balance_match else "FAIL",
             "total": wallet_total,
@@ -1521,7 +1526,7 @@ async def data_integrity_check(user_id: str = Depends(get_current_user)):
 
         # 3. Bot capital vs wallet reconciliation
         total_bot_capital = sum(float(b.get("current_capital", 0)) for b in all_bots)
-        capital_close = abs(total_bot_capital - wallet_reserved) < 1.0  # Within R1 tolerance
+        capital_close = abs(total_bot_capital - wallet_reserved) < CAPITAL_RECONCILIATION_TOLERANCE
         checks["capital_reconciliation"] = {
             "status": "PASS" if capital_close else "WARN",
             "total_bot_capital": round(total_bot_capital, 2),

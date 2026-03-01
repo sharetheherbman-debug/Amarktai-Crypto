@@ -20,6 +20,17 @@ SUPPORTED_EXCHANGES = [
     "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"
 ]
 
+# Mapping from our canonical name to CCXT exchange class name
+CCXT_CLASS_MAP = {
+    "luno": "luno",
+    "binance": "binance",
+    "kucoin": "kucoin",
+    "bybit": "bybit",
+    "kraken": "kraken",
+    "bitget": "bitget",
+    "gate": "gateio",  # Gate.io uses 'gateio' in CCXT
+}
+
 # Default fee rates by exchange (maker/taker in percent)
 DEFAULT_FEES: Dict[str, Dict[str, float]] = {
     "luno":    {"maker": 0.0, "taker": 0.10},
@@ -89,7 +100,7 @@ class ExchangeAdapter:
         try:
             import ccxt.async_support as ccxt_async
 
-            exchange_class = getattr(ccxt_async, exchange if exchange != "gate" else "gateio", None)
+            exchange_class = getattr(ccxt_async, CCXT_CLASS_MAP.get(exchange, exchange), None)
             if exchange_class is None:
                 return {
                     "success": False,

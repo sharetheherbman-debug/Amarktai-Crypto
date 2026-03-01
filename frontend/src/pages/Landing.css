@@ -249,4 +249,5 @@
   .landing-pulse-dot { animation: none; }
   .landing-primary-btn:hover { transform: none; }
   .landing-hero-video { transform: none !important; }
+  .landing-scanlines { display: none; }
 }

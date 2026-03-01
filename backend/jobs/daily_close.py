@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 # SAST offset (UTC+2)
 SAST_OFFSET = timedelta(hours=2)
 
+# Max number of top bots to receive reinvestment allocation
+REINVEST_TOP_N = 5
+
 
 def sast_now() -> datetime:
     """Return current time in SAST."""
@@ -164,7 +167,7 @@ async def run_daily_close(user_id: str, db) -> Dict:
             positive_bots = [b for b in bot_scores if b["score"] > 0]
             if positive_bots:
                 total_score = sum(b["score"] for b in positive_bots)
-                for bot_entry in positive_bots[:5]:  # Top 5 bots
+                for bot_entry in positive_bots[:REINVEST_TOP_N]:
                     share = (bot_entry["score"] / total_score) * total_pnl if total_score > 0 else 0
                     if share > 0:
                         report["reinvest_actions"].append({

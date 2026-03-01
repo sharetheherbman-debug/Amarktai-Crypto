@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
+const RADAR_REFRESH_MS = 10000; // Refresh radar data every 10 seconds
+
 /**
  * BotRadarSection — Bot Radar / Bot Map visualization
  *
@@ -30,7 +32,7 @@ export default function BotRadarSection({ axiosConfig }) {
 
   useEffect(() => {
     fetchRadar();
-    const interval = setInterval(fetchRadar, 10000); // Refresh every 10s
+    const interval = setInterval(fetchRadar, RADAR_REFRESH_MS);
     return () => clearInterval(interval);
   }, [fetchRadar]);
 

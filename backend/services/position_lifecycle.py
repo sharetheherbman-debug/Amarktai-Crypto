@@ -45,6 +45,7 @@ STAGNATION_WINDOW_SECONDS: Dict[str, int] = {
     "balanced": 90 * 60,
     "aggressive": 45 * 60,
 }
+DEFAULT_STAGNATION_WINDOW_FALLBACK = 90 * 60  # 5400 seconds = 90 minutes
 
 # Default TP/SL percentages if not specified
 DEFAULT_TP_PCT: Dict[str, float] = {
@@ -166,7 +167,7 @@ def check_position_exit(
             return True, RISK_EXIT, f"Unrealized loss {unrealized:.2f} exceeds 3% of capital"
 
     # 6. Stagnation exit
-    stag_window = STAGNATION_WINDOW_SECONDS.get(risk_mode, 5400)
+    stag_window = STAGNATION_WINDOW_SECONDS.get(risk_mode, DEFAULT_STAGNATION_WINDOW_FALLBACK)
     if elapsed >= stag_window and price_history:
         # Check if price has moved less than threshold
         recent = [p for t, p in price_history if (now - t).total_seconds() <= stag_window]
