@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/diagnostics", tags=["Diagnostics"])
 
+# Maximum number of bots fetched in a single diagnostics query.
+# Matches the cap used by truth_kernel and bot_lifecycle for consistency.
+_MAX_BOTS_QUERY = 500
+
 
 @router.get("/realtime-smoke")
 async def realtime_smoke_test(user_id: str = Depends(get_current_user)):
@@ -429,14 +433,15 @@ async def autopilot_runtime_diagnostics(user_id: str = Depends(get_current_user)
 @router.get("/paper-status")
 async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
     """Get paper trading diagnostic status
-    
+
     Returns:
         last_tick: Last scheduler tick time
         last_decision: Last trading decision made
         last_order_attempt: Last order attempt
         last_fill: Last successful fill
         last_error: Last error encountered
-        active_bots: Count of active paper trading bots
+        active_bots: Count of active bots (canonical — status==active, any mode)
+        runnable_bots: Count of bots eligible to trade
         trades_today: Count of trades executed today
         scheduler_running: Whether scheduler is active
     """
@@ -444,37 +449,40 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         from paper_trading_engine import paper_trading_engine
         from trading_scheduler import trading_scheduler
         from datetime import datetime, timezone, timedelta
-        
+        from utils.bot_state import normalize_bot_state
+
         # Get scheduler status
         scheduler_status = trading_scheduler.get_status() if hasattr(trading_scheduler, 'get_status') else {}
-        
-        # Get paper trading engine status  
+
+        # Get paper trading engine status
         engine_status = {}
         if hasattr(paper_trading_engine, 'last_tick_time'):
             engine_status['last_tick'] = paper_trading_engine.last_tick_time
-        
-        # Count active paper trading bots for this user
-        active_bots_count = await db.bots_collection.count_documents({
-            "user_id": user_id,
-            "status": "active",
-            "mode": "paper"
-        })
-        
-        # Count trades today
+
+        # Canonical active bots count: fetch all non-deleted bots then normalize.
+        # Using normalize_bot_state keeps this consistent with /api/bots/status.
+        all_bots_raw = await db.bots_collection.find(
+            {"user_id": user_id, "deleted": {"$ne": True}},
+            {"_id": 0},
+        ).to_list(length=_MAX_BOTS_QUERY)
+        normalized = [normalize_bot_state(b) for b in all_bots_raw]
+        active_bots_count = sum(1 for b in normalized if b.get("active"))
+        runnable_bots_count = sum(1 for b in normalized if b.get("eligible_to_trade"))
+
+        # Count trades today (any mode for this user)
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         trades_today = await db.trades_collection.count_documents({
             "user_id": user_id,
             "timestamp": {"$gte": today_start.isoformat()},
-            "mode": "paper"
         })
-        
+
         # Get last trade/order info
         last_trade = await db.trades_collection.find_one(
-            {"user_id": user_id, "mode": "paper"},
+            {"user_id": user_id},
             {"_id": 0},
             sort=[("timestamp", -1)]
         )
-        
+
         # Get last decision from bot decisions collection if it exists
         last_decision = None
         if hasattr(db, 'bot_decisions_collection'):
@@ -489,7 +497,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                     "reason": decision_doc.get('reason'),
                     "timestamp": decision_doc.get('timestamp')
                 }
-        
+
         # Get last error from logs (if available)
         last_error = None
         if hasattr(db, 'error_logs_collection'):
@@ -503,7 +511,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                     "error": error_doc.get('error'),
                     "timestamp": error_doc.get('timestamp')
                 }
-        
+
         return {
             "success": True,
             "last_tick": engine_status.get('last_tick'),
@@ -518,13 +526,33 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
             } if last_trade else None,
             "last_error": last_error,
             "active_bots": active_bots_count,
+            "runnable_bots": runnable_bots_count,
+            "total_bots": len(all_bots_raw),
             "trades_today": trades_today,
             "scheduler_running": scheduler_status.get('running', False),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        
+
     except Exception as e:
         logger.error(f"Paper trading status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/truth")
+async def get_truth_snapshot(user_id: str = Depends(get_current_user)):
+    """Canonical truth snapshot — single source of truth for all subsystems.
+
+    Returns per-subsystem PASS/FAIL with evidence fields, contradiction
+    detector output, and rule precedence order.  Any mismatch between
+    endpoint-derived counts and the canonical values is surfaced in the
+    ``contradictions`` array.
+    """
+    try:
+        from services.truth_kernel import compute_truth_summary
+        snapshot = await compute_truth_summary(user_id, db.db)
+        return snapshot
+    except Exception as e:
+        logger.error(f"Truth snapshot error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

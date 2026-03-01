@@ -218,6 +218,22 @@ class LedgerService:
             fill["_id"] = str(fill["_id"])
         
         return fills
+
+    async def get_fills_count(
+        self,
+        user_id: Optional[str] = None,
+        bot_id: Optional[str] = None,
+    ) -> int:
+        """Return the count of fills for a user or bot (used for circuit-breaker safety checks)."""
+        query = {}
+        if user_id:
+            query["user_id"] = user_id
+        if bot_id:
+            query["bot_id"] = bot_id
+        try:
+            return await self.fills_ledger.count_documents(query)
+        except Exception:
+            return 0
     
     async def compute_equity(
         self,
