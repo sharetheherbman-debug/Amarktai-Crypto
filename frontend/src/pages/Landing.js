@@ -96,26 +96,8 @@ export default function Landing() {
         {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
       </button>
 
-      {/* LEFT — Brand + CTAs */}
+      {/* LEFT — Dominant video/visual hero */}
       <div className="landing-hero-left">
-        <div className="landing-hero-content">
-          <img src="/assets/logo.png" alt="Amarktai Network" className="auth-logo landing-logo-lg" />
-          <h1 className="landing-headline">Amarktai Network</h1>
-          <p className="landing-subheadline">Real-Time AI Trading, Built for Control</p>
-          <div className="landing-cta">
-            <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn landing-primary-btn">
-              Launch Dashboard
-            </Button>
-            <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">
-              Create Account
-            </Button>
-          </div>
-          <p className="landing-proof-bar">Connect to see live metrics</p>
-        </div>
-      </div>
-
-      {/* RIGHT — Video */}
-      <div className="landing-hero-right">
         <video
           autoPlay
           muted
@@ -127,7 +109,34 @@ export default function Landing() {
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
         <div className="landing-hero-overlay" />
+        {/* Scanline effect */}
         <div className="landing-scanlines" />
+        {/* Live Pulse badge */}
+        <div className="landing-pulse-badge">
+          <span className="landing-pulse-dot" />
+          Realtime &bull; Self-Learning &bull; Self-Healing
+        </div>
+      </div>
+
+      {/* RIGHT — Brand + CTAs */}
+      <div className="landing-hero-right">
+        <div className="landing-hero-content">
+          <img src="/assets/logo.png" alt="Amarktai Network" className="auth-logo landing-logo-lg" />
+          <h1 className="landing-headline">Amarktai Network</h1>
+          <p className="landing-subheadline">Real-Time AI Trading, Built for Control</p>
+          <p className="landing-bullets">
+            Self-Learning &bull; Self-Healing &bull; 24/7 Market Intelligence
+          </p>
+          <div className="landing-cta">
+            <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn landing-primary-btn">
+              Launch Dashboard
+            </Button>
+            <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">
+              Create Account
+            </Button>
+          </div>
+          <p className="landing-proof-bar">Connect to see live metrics</p>
+        </div>
       </div>
 
       <SiteFooter />

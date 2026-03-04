@@ -2265,12 +2265,6 @@ export default function useDashboardState(navigate) {
     }
   };
 
-  const handleRenameBotSubmit = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!editingBotId) return;
-    await handleSaveBotName(editingBotId);
-  };
-
   const handleChangeRiskMode = async (botId, newRiskMode) => {
     try {
       await axios.put(`${API}/bots/${botId}`, { risk_mode: newRiskMode }, axiosConfig);
