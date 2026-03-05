@@ -241,12 +241,12 @@ class TestKeysRouteOrder:
         
         # Must include all 10 providers
         expected_providers = {
-            "openai", "flokx", "fetchai",  # AI
+            "openai", "fetchai",  # AI
             "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"  # Exchanges
         }
         
         assert provider_ids == expected_providers, f"Expected {expected_providers}, got {provider_ids}"
-        assert data.get("total") == 10, f"Should have exactly 10 providers, got {data.get('total')}"
+        assert data.get("total") == 9, f"Should have exactly 9 providers, got {data.get('total')}"
     
     def test_unknown_provider_error_includes_all_providers(self):
         """Test that unknown provider error message includes kraken and gate"""

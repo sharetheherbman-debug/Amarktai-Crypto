@@ -97,7 +97,6 @@ run_test "Get providers list (GET /api/keys/providers)" \
 # Test 5: Providers list includes all 10 providers
 TEST_OUTPUT=$(curl -sf "$BASE_URL/api/keys/providers" 2>/dev/null)
 if echo "$TEST_OUTPUT" | grep -q '"openai"' && \
-   echo "$TEST_OUTPUT" | grep -q '"flokx"' && \
    echo "$TEST_OUTPUT" | grep -q '"fetchai"' && \
    echo "$TEST_OUTPUT" | grep -q '"luno"' && \
    echo "$TEST_OUTPUT" | grep -q '"binance"' && \
@@ -108,26 +107,26 @@ if echo "$TEST_OUTPUT" | grep -q '"openai"' && \
    echo "$TEST_OUTPUT" | grep -q '"gate"'; then
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     PASSED_TESTS=$((PASSED_TESTS + 1))
-    printf "%-60s${GREEN}✅ PASS${NC}\n" "Providers include all 10 expected providers"
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Providers include all 9 expected providers"
 else
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     FAILED_TESTS=$((FAILED_TESTS + 1))
-    printf "%-60s${RED}❌ FAIL${NC}\n" "Providers include all 10 expected providers"
-    echo "Missing one or more providers: openai, flokx, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate"
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Providers include all 9 expected providers"
+    echo "Missing one or more providers: openai, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate"
 fi
 
 # Test 6: Total providers count is 10
 TEST_OUTPUT=$(curl -sf "$BASE_URL/api/keys/providers" 2>/dev/null)
 PROVIDER_COUNT=$(echo "$TEST_OUTPUT" | grep -o '"total":[0-9]*' | grep -o '[0-9]*')
-if [ "$PROVIDER_COUNT" = "10" ]; then
+if [ "$PROVIDER_COUNT" = "9" ]; then
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     PASSED_TESTS=$((PASSED_TESTS + 1))
-    printf "%-60s${GREEN}✅ PASS${NC}\n" "Total providers count is exactly 10"
+    printf "%-60s${GREEN}✅ PASS${NC}\n" "Total providers count is exactly 9"
 else
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     FAILED_TESTS=$((FAILED_TESTS + 1))
-    printf "%-60s${RED}❌ FAIL${NC}\n" "Total providers count is exactly 10"
-    echo "Expected 10 providers, got: $PROVIDER_COUNT"
+    printf "%-60s${RED}❌ FAIL${NC}\n" "Total providers count is exactly 9"
+    echo "Expected 9 providers, got: $PROVIDER_COUNT"
 fi
 
 echo ""
