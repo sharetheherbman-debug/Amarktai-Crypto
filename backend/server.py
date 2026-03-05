@@ -3022,6 +3022,8 @@ routers_to_mount = [
     ("routes.exchange_status", "Exchange Status"),  # NEW - Exchange status & test for all 7 exchanges
     ("routes.admin_truth", "Admin Truth Console"),  # NEW - Truth Kernel summary endpoint
     ("routes.scalper", "Scalper Bots"),  # NEW - Scalper bot management + EV gating
+    ("routes.coinstats", "CoinStats"),  # Market intelligence / news / tickers
+    ("routes.huggingface", "HuggingFace"),  # AI sentiment analysis
 ]
 
 # Mount realtime router only if enabled via feature flag

@@ -107,6 +107,54 @@ async def test_fetchai(api_key: str, api_secret: Optional[str] = None) -> tuple[
         return False, f"Test failed: {str(e)[:100]}"
 
 
+async def test_coinstats(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Test CoinStats API key by fetching a single coin."""
+    try:
+        normalized_key = (api_key or "").strip()
+        if not normalized_key:
+            return False, "CoinStats API key is required"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://openapiv1.coinstats.app/coins",
+                headers={"X-API-KEY": normalized_key, "accept": "application/json"},
+                params={"limit": 1},
+            )
+            if resp.status_code == 200:
+                return True, None
+            elif resp.status_code in (401, 403):
+                return False, "Invalid API key"
+            return False, f"HTTP {resp.status_code}"
+    except httpx.ConnectError:
+        logger.warning("CoinStats test endpoint not available, accepting key")
+        return True, None
+    except Exception as e:
+        return False, f"Test failed: {str(e)[:100]}"
+
+
+async def test_huggingface(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Test Hugging Face Inference API key."""
+    try:
+        normalized_key = (api_key or "").strip()
+        if not normalized_key:
+            return False, "Hugging Face API key is required"
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                "https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment-latest",
+                headers={"Authorization": f"Bearer {normalized_key}"},
+                json={"inputs": "test"},
+            )
+            if resp.status_code == 200:
+                return True, None
+            elif resp.status_code in (401, 403):
+                return False, "Invalid API token"
+            return False, f"HTTP {resp.status_code}"
+    except httpx.ConnectError:
+        logger.warning("HuggingFace test endpoint not available, accepting key")
+        return True, None
+    except Exception as e:
+        return False, f"Test failed: {str(e)[:100]}"
+
+
 async def test_luno(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
     """Test Luno exchange credentials"""
     try:
@@ -291,6 +339,24 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         test_method=test_fetchai,
         icon="fetchai.svg",
         description="Fetch.ai agent network integration"
+    ),
+    "coinstats": ProviderDefinition(
+        provider_id="coinstats",
+        provider_type=ProviderType.AI,
+        display_name="CoinStats",
+        required_fields=["api_key"],
+        test_method=test_coinstats,
+        icon="coinstats.svg",
+        description="CoinStats market intelligence and news"
+    ),
+    "huggingface": ProviderDefinition(
+        provider_id="huggingface",
+        provider_type=ProviderType.AI,
+        display_name="Hugging Face",
+        required_fields=["api_key"],
+        test_method=test_huggingface,
+        icon="huggingface.svg",
+        description="Hugging Face AI sentiment analysis"
     ),
     
     # Exchange Providers

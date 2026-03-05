@@ -33,6 +33,8 @@ import BotRadarSection from './dashboard/sections/BotRadarSection';
 import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
 import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
 import ScalperBotsPanel from './dashboard/sections/ScalperBotsPanel';
+import CoinStatsPanel from './dashboard/sections/CoinStatsPanel';
+import HuggingFacePanel from './dashboard/sections/HuggingFacePanel';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
 import '../styles/scalper-panel.css';
@@ -504,6 +506,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === 'scalper' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('scalper'); }}>⚡ Scalper Bots</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
             <a href="#" className={activeSection === 'radar' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('radar'); }}>📡 Bot Radar</a>
+            <a href="#" className={activeSection === 'intelligence' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('intelligence'); }}>📊 Market Intel</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
@@ -593,6 +596,12 @@ export default function Dashboard() {
           <ErrorBoundary title="Bot Radar section error" message="Unable to load Bot Radar section.">
             <BotRadarSection axiosConfig={axiosConfig} />
             <ExchangeStatusSection axiosConfig={axiosConfig} />
+          </ErrorBoundary>
+        )}
+        {activeSection === 'intelligence' && (
+          <ErrorBoundary title="Market Intelligence error" message="Unable to load Market Intelligence section.">
+            <CoinStatsPanel axiosConfig={axiosConfig} />
+            <HuggingFacePanel axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
         {activeSection === 'graphs' && (

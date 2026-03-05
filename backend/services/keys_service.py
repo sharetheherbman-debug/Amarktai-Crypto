@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # All supported providers
 SUPPORTED_PROVIDERS = [
-    'openai', 'fetchai',  # AI providers
+    'openai', 'fetchai', 'coinstats', 'huggingface',  # AI providers
     'luno', 'binance', 'kucoin', 'bybit', 'bitget'  # Exchange providers
 ]
 
