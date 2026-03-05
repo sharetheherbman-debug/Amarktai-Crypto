@@ -10,6 +10,7 @@ Provides admin endpoints to:
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone
 import logging
+import uuid
 from typing import Optional
 
 from auth import get_current_user
@@ -136,6 +137,7 @@ async def get_bodyguard_status(user_id: str = Depends(get_current_user)):
         return {
             "locked": locked,
             "reason": reasons[0] if reasons else None,
+            "reasons": reasons,
             "since": earliest_since,
             "scope": "user",
             "entity_id": user_id,
@@ -608,7 +610,7 @@ async def reset_circuit_breaker(
         )
 
         audit_entry = {
-            "id": f"audit_{datetime.now(timezone.utc).timestamp()}",
+            "id": f"audit_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
             "action": "reset_circuit_breaker",
             "timestamp": datetime.now(timezone.utc).isoformat(),
