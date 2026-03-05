@@ -465,6 +465,36 @@ export default function BotManagementSection({
                               {botDetailTab === 'trades' && renderBotDetailGrid(botDetailSections.trades)}
                               {botDetailTab === 'settings' && (
                                 <div className="bot-detail-settings">
+                                  <div className="bot-rename-form">
+                                    <label htmlFor="bot-rename-input" style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px', display: 'block'}}>Rename Bot</label>
+                                    <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+                                      <input
+                                        id="bot-rename-input"
+                                        type="text"
+                                        value={editingBotId === selectedBot.id ? editingBotName : (selectedBot.name || '')}
+                                        onChange={(e) => {
+                                          setEditingBotId(selectedBot.id);
+                                          setEditingBotName(e.target.value);
+                                        }}
+                                        onFocus={() => {
+                                          if (editingBotId !== selectedBot.id) {
+                                            setEditingBotId(selectedBot.id);
+                                            setEditingBotName(selectedBot.name || '');
+                                          }
+                                        }}
+                                        placeholder="Bot name"
+                                        style={{flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--input)', color: 'var(--text)', fontSize: '0.875rem'}}
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={editingBotId !== selectedBot.id || !editingBotName.trim()}
+                                        onClick={() => handleRenameBotSubmit(selectedBot.id)}
+                                        style={{padding: '6px 14px', borderRadius: '6px', fontSize: '0.875rem', opacity: (editingBotId !== selectedBot.id || !editingBotName.trim()) ? 0.5 : 1}}
+                                      >
+                                        Save
+                                      </button>
+                                    </div>
+                                  </div>
                                   {renderBotDetailGrid(botDetailSections.settings)}
                                   <div className="bot-detail-raw">
                                     {Object.entries(selectedBot).map(([key, value]) => (

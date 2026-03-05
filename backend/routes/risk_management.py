@@ -226,6 +226,80 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/risk/daily-loss-lock/status")
+async def get_daily_loss_lock_status_explicit(user_id: str = Depends(get_current_user)):
+    """
+    Explicit status endpoint for daily loss lock.
+
+    Returns a standardised shape:
+        locked: bool
+        reason: str | null
+        since: ISO timestamp | null
+        scope: "user"
+        entity_id: user_id
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        locked = bool(user.get("daily_loss_lock_active", False))
+        return {
+            "locked": locked,
+            "reason": user.get("daily_loss_locked_reason") if locked else None,
+            "since": user.get("daily_loss_locked_at") if locked else None,
+            "scope": "user",
+            "entity_id": user_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting daily-loss-lock status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/bodyguard/status")
+async def get_bodyguard_status(user_id: str = Depends(get_current_user)):
+    """
+    Explicit status endpoint for bodyguard (drawdown) lock.
+
+    Returns a standardised shape:
+        locked: bool
+        reason: str | null
+        since: ISO timestamp | null
+        scope: "user"
+        entity_id: user_id
+        bot_ids: list of bot IDs currently paused by bodyguard
+    """
+    try:
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "paused_by_bodyguard": True, "status": {"$ne": "deleted"}},
+            {"_id": 0, "id": 1, "pause_reason": 1, "bodyguard_last_pause_at": 1}
+        ).to_list(1000)
+
+        locked = len(bots) > 0
+        reasons = sorted({b.get("pause_reason") for b in bots if b.get("pause_reason")})
+        earliest_since = None
+        for b in bots:
+            ts = b.get("bodyguard_last_pause_at")
+            if ts and (earliest_since is None or ts < earliest_since):
+                earliest_since = ts
+
+        return {
+            "locked": locked,
+            "reason": reasons[0] if reasons else None,
+            "since": earliest_since,
+            "scope": "user",
+            "entity_id": user_id,
+            "bot_ids": [b.get("id") for b in bots],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting bodyguard status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/admin/reset-risk-lock")
 async def admin_reset_risk_lock(
     user_id: str = Depends(get_current_user)
