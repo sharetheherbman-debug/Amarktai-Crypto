@@ -119,6 +119,7 @@ class TestPaperTradeDeterministic:
             assert field in trade_result, f"Missing field: {field}"
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_run_trading_cycle_inserts_trade(self, db_collections):
         """Running a trading cycle must call trades_collection.insert_one
         or update_one (i.e., persist the fill)."""

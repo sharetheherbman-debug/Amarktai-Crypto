@@ -6,6 +6,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import ErrorBoundary from './components/ErrorBoundary';
 import '@/App.css';
+import '@/styles/particles.css';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
@@ -16,6 +17,9 @@ function App() {
   return (
     <div className="App">
       <Toaster position="top-right" richColors />
+      <div className="particles-bg" aria-hidden="true">
+        <span className="particles-dots" />
+      </div>
       <BrowserRouter>
         <div className="app-shell">
           <Routes>
