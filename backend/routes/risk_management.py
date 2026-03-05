@@ -2,7 +2,8 @@
 Risk Management Endpoints - Daily Loss Lock Control
 
 Provides admin endpoints to:
-- Check daily loss lock status
+- Check daily loss lock status (/api/risk/daily-loss-lock, /api/risk/daily-loss-lock/status)
+- Check bodyguard lock status (/api/risk/bodyguard/status)
 - Reset daily loss lock (admin-only)
 - Resume all bots (with lock guard)
 """
@@ -62,6 +63,94 @@ async def get_daily_loss_lock_status(user_id: str = Depends(get_current_user)):
         raise
     except Exception as e:
         logger.error(f"Error getting daily loss lock status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/daily-loss-lock/status")
+async def get_daily_loss_lock_status_canonical(user_id: str = Depends(get_current_user)):
+    """
+    Canonical status endpoint for daily loss lock.
+
+    Returns a standardised structure used by go-live verification:
+        locked   : bool
+        reason   : str | null
+        since    : ISO-8601 timestamp | null
+        scope    : "user"
+        entity_id: user_id string
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        lock_active = user.get("daily_loss_lock_active", False)
+        return {
+            "locked": bool(lock_active),
+            "reason": user.get("daily_loss_locked_reason") if lock_active else None,
+            "since": user.get("daily_loss_locked_at") if lock_active else None,
+            "scope": "user",
+            "entity_id": user_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting daily-loss-lock status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/bodyguard/status")
+async def get_bodyguard_lock_status(user_id: str = Depends(get_current_user)):
+    """
+    Canonical status endpoint for AI Bodyguard locks.
+
+    Returns a standardised structure used by go-live verification:
+        locked   : bool  (True if any bot is paused by bodyguard)
+        reason   : str | null
+        since    : ISO-8601 timestamp of earliest bodyguard pause | null
+        scope    : "user"
+        entity_id: user_id string
+        bot_count: number of bots currently held by bodyguard
+    """
+    try:
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": {"$ne": "deleted"}},
+            {"_id": 0, "id": 1, "paused_by_bodyguard": 1, "pause_reason": 1,
+             "bodyguard_last_pause_at": 1, "bodyguard_last_breach_at": 1}
+        ).to_list(1000)
+
+        bodyguard_bots = [b for b in bots if b.get("paused_by_bodyguard")]
+        locked = len(bodyguard_bots) > 0
+
+        reason: Optional[str] = None
+        since: Optional[str] = None
+
+        if locked:
+            reasons = sorted({
+                b.get("pause_reason")
+                for b in bodyguard_bots
+                if b.get("pause_reason")
+            })
+            reason = reasons[0] if reasons else "Drawdown limit exceeded"
+
+            timestamps = [
+                b.get("bodyguard_last_pause_at") or b.get("bodyguard_last_breach_at")
+                for b in bodyguard_bots
+            ]
+            timestamps = [t for t in timestamps if t]
+            since = min(timestamps) if timestamps else None
+
+        return {
+            "locked": locked,
+            "reason": reason,
+            "since": since,
+            "scope": "user",
+            "entity_id": user_id,
+            "bot_count": len(bodyguard_bots),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting bodyguard status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
