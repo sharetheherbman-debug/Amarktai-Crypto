@@ -92,30 +92,6 @@ async def test_openai(api_key: str, api_secret: Optional[str] = None) -> tuple[b
             return False, f"Test failed: {error_msg[:100]}"
 
 
-async def test_flokx(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Flokx AI API key"""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://api.flokx.ai/v1/status",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10.0
-            )
-            
-            if response.status_code == 200:
-                return True, None
-            elif response.status_code == 401:
-                return False, "Invalid API key"
-            else:
-                return False, f"API returned status {response.status_code}"
-    except httpx.ConnectError:
-        # Flokx might not have a status endpoint, accept key if no connection
-        logger.warning("Flokx test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
 async def test_fetchai(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
     """Test Fetch.ai API key"""
     try:
@@ -306,15 +282,6 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         test_method=test_openai,
         icon="openai.svg",
         description="OpenAI GPT models for AI trading intelligence"
-    ),
-    "flokx": ProviderDefinition(
-        provider_id="flokx",
-        provider_type=ProviderType.AI,
-        display_name="Flokx AI",
-        required_fields=["api_key"],
-        test_method=test_flokx,
-        icon="flokx.svg",
-        description="Flokx AI for advanced market analysis"
     ),
     "fetchai": ProviderDefinition(
         provider_id="fetchai",

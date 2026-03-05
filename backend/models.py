@@ -82,7 +82,7 @@ class User(BaseModel):
 
 # API Keys Models
 class APIKeyCreate(BaseModel):
-    provider: str  # openai, luno, binance, kucoin, fetchai, flokx
+    provider: str  # openai, luno, binance, kucoin, fetchai, coinstats, huggingface
     api_key: str
     api_secret: Optional[str] = None
     passphrase: Optional[str] = None

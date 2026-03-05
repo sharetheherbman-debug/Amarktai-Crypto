@@ -228,7 +228,6 @@ class SystemSettings:
         
         # Optional Integrations
         self.FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')
-        self.FLOKX_API_KEY = os.getenv('FLOKX_API_KEY', '')
         
         # Trading Limits
         self.MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))

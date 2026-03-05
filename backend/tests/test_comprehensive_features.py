@@ -330,39 +330,6 @@ class ComprehensiveAPITester:
         else:
             self.log_result("Fetch.ai API Key Save", False, f"Failed to save key: {response.status_code if response else 'No response'}")
     
-    def test_flokx_integration(self):
-        """P1: Test Flokx Integration"""
-        print("\n📊 Testing Flokx Integration...")
-        
-        if not self.auth_token:
-            self.log_result("Flokx Integration", False, "No authentication token")
-            return
-        
-        # Test saving Flokx API key
-        flokx_data = {
-            "provider": "flokx",
-            "api_key": "test-flokx-key-67890"
-        }
-        
-        response = self.make_request("POST", "/api-keys", flokx_data)
-        if response and response.status_code == 200:
-            self.log_result("Flokx API Key Save", True, "API key saved successfully")
-            
-            # Test connection
-            test_response = self.make_request("POST", "/api-keys/flokx/test")
-            if test_response:
-                if test_response.status_code == 200:
-                    self.log_result("Flokx Connection Test", True, "Connection test passed")
-                elif test_response.status_code == 400:
-                    error_msg = test_response.json().get("detail", "")
-                    self.log_result("Flokx Connection Test", True, f"Expected error for invalid key: {error_msg[:50]}...")
-                else:
-                    self.log_result("Flokx Connection Test", False, f"Unexpected status: {test_response.status_code}")
-            else:
-                self.log_result("Flokx Connection Test", False, "No response from test endpoint")
-        else:
-            self.log_result("Flokx API Key Save", False, f"Failed to save key: {response.status_code if response else 'No response'}")
-    
     def test_bot_creation_exchange_limits(self):
         """P1: Test Bot Creation with Exchange Limits"""
         print("\n🤖 Testing Bot Creation with Exchange Limits...")
@@ -681,7 +648,6 @@ async def main():
     
     # P1 High Priority Tests
     tester.test_fetchai_integration()
-    tester.test_flokx_integration()
     tester.test_bot_creation_exchange_limits()
     tester.test_system_modes()
     
