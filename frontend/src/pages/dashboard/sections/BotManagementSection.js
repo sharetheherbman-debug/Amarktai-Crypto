@@ -491,6 +491,27 @@ export default function BotManagementSection({
                               <button onClick={() => handleToggleBotMode(selectedBot.id, selectedBotMode)}>
                                 {selectedIsLive ? 'Switch to Paper' : 'Switch to Live'}
                               </button>
+                              {editingBotId === selectedBot.id ? (
+                                <form
+                                  style={{ display: 'flex', gap: '6px', alignItems: 'center' }}
+                                  onSubmit={(e) => { e.preventDefault(); handleRenameBotSubmit(selectedBot.id); }}
+                                >
+                                  <input
+                                    type="text"
+                                    value={editingBotName}
+                                    onChange={(e) => setEditingBotName(e.target.value)}
+                                    placeholder="New bot name"
+                                    style={{ flex: 1, padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}
+                                    autoFocus
+                                  />
+                                  <button type="submit">Save</button>
+                                  <button type="button" onClick={() => { setEditingBotId(null); setEditingBotName(''); }}>Cancel</button>
+                                </form>
+                              ) : (
+                                <button onClick={() => { setEditingBotId(selectedBot.id); setEditingBotName(selectedBot.name || ''); }}>
+                                  ✏ Rename
+                                </button>
+                              )}
                               <button className="danger" onClick={() => handleDeleteBot(selectedBot.id)}>
                                 Delete
                               </button>

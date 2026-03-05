@@ -7,7 +7,7 @@ Provides admin endpoints to:
 - Resume all bots (with lock guard)
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime, timezone
 import logging
 from typing import Optional
@@ -302,9 +302,83 @@ async def admin_reset_risk_lock(
         logger.error(f"Error resetting risk lock: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/api/risk/daily-loss-lock/status")
+async def get_daily_loss_lock_status_explicit(user_id: str = Depends(get_current_user)):
+    """
+    Get explicit daily loss lock status.
+
+    Returns:
+        locked: bool - whether the lock is active
+        reason: str | null - why the lock was triggered
+        since: str | null - ISO timestamp when lock was set
+        scope: "user"
+        entity_id: str - user ID this lock applies to
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        locked = bool(user.get("daily_loss_lock_active", False))
+        return {
+            "locked": locked,
+            "reason": user.get("daily_loss_locked_reason") if locked else None,
+            "since": user.get("daily_loss_locked_at") if locked else None,
+            "scope": "user",
+            "entity_id": user_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting daily loss lock status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/bodyguard/status")
+async def get_bodyguard_status_explicit(user_id: str = Depends(get_current_user)):
+    """
+    Get explicit bodyguard lock status.
+
+    Returns:
+        locked: bool - whether any bot is paused by bodyguard
+        reason: str | null - primary pause reason
+        since: str | null - ISO timestamp of last bodyguard pause
+        scope: "user"
+        entity_id: str - user ID
+        bot_ids: list[str] - IDs of bots currently paused by bodyguard
+    """
+    try:
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "deleted_at": {"$exists": False}},
+            {"_id": 0, "id": 1, "paused_by_bodyguard": 1, "pause_reason": 1, "bodyguard_last_pause_at": 1}
+        ).to_list(1000)
+
+        paused_bots = [b for b in bots if b.get("paused_by_bodyguard")]
+        locked = len(paused_bots) > 0
+        reasons = list(dict.fromkeys(b.get("pause_reason") for b in paused_bots if b.get("pause_reason")))
+        timestamps = sorted(
+            [b.get("bodyguard_last_pause_at") for b in paused_bots if b.get("bodyguard_last_pause_at")],
+            reverse=True
+        )
+        return {
+            "locked": locked,
+            "reason": reasons[0] if reasons else None,
+            "since": timestamps[0] if timestamps else None,
+            "scope": "user",
+            "entity_id": user_id,
+            "bot_ids": [b["id"] for b in paused_bots],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting bodyguard status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/risk/daily-loss-lock/reset")
 async def reset_daily_loss_lock(
-    confirmation: str,
+    confirmation: str = Query(..., description="Must be 'RESET_RISK_LOCK'"),
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -392,7 +466,7 @@ async def reset_daily_loss_lock(
 
 @router.post("/api/risk/bodyguard/reset")
 async def reset_bodyguard_lock(
-    confirmation: str,
+    confirmation: str = Query(..., description="Must be 'RESET_BODYGUARD_LOCK'"),
     target_user_id: Optional[str] = None,
     user_id: str = Depends(get_current_user)
 ):
@@ -410,7 +484,7 @@ async def reset_bodyguard_lock(
             raise HTTPException(status_code=403, detail="Admin privileges required to reset bodyguard locks")
 
         if confirmation != "RESET_BODYGUARD_LOCK":
-            raise HTTPException(status_code=400, detail="Invalid confirmation token")
+            raise HTTPException(status_code=400, detail="Invalid confirmation token. Must be 'RESET_BODYGUARD_LOCK'")
 
         reset_user_id = target_user_id or user_id
 

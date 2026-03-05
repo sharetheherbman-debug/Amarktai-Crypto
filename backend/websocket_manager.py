@@ -47,6 +47,7 @@ class ConnectionManager:
         self.ping_intervals: Dict[WebSocket, asyncio.Task] = {}
         self.ping_interval = 30  # Ping every 30 seconds
         self.pong_timeout = 10  # Wait 10 seconds for pong
+        self.last_event: "dict | None" = None  # Track last broadcast event for diagnostics
         
     async def connect(self, websocket: WebSocket, user_id: str):
         """Accept and register new WebSocket connection"""
@@ -108,6 +109,12 @@ class ConnectionManager:
             except Exception:
                 pass
             
+            # Track last broadcast event for diagnostics
+            self.last_event = {
+                "type": message.get("type"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
             # Sanitize message once before broadcasting
             sanitized = sanitize_for_json(message)
             

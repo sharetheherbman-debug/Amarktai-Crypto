@@ -52,6 +52,15 @@ def get_build_hash() -> str:
             _BUILD_HASH_CACHE = build_sha
             return build_sha
         
+        # Try to import from build_info module (computed at startup)
+        try:
+            from routes.build_info import BUILD_SHA as _bi_sha
+            if _bi_sha and _bi_sha != "unknown":
+                _BUILD_HASH_CACHE = _bi_sha
+                return _BUILD_HASH_CACHE
+        except Exception:
+            pass
+
         # Fall back to git command (with restricted scope and timeout)
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
