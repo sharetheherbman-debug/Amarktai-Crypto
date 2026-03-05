@@ -121,7 +121,7 @@ export default function useDashboardState(navigate) {
   const [user, setUser] = useState(null);
   const [activeSection, setActiveSection] = useState('welcome');
   const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
-  const [metricsTab, setMetricsTab] = useState('flokx'); // Tab state for Metrics section - default to Flokx Alerts
+  const [metricsTab, setMetricsTab] = useState('decision-trace'); // Tab state for Metrics section
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
   const [profitsTab, setProfitsTab] = useState('metrics'); // Tab state for Profits & Performance parent section
   const [botStatusFilter, setBotStatusFilter] = useState('all');
@@ -182,9 +182,6 @@ export default function useDashboardState(navigate) {
   const [profileData, setProfileData] = useState({});
   const [allUsers, setAllUsers] = useState([]);
   const [systemStats, setSystemStats] = useState(null);
-  const [flokxAlerts, setFlokxAlerts] = useState([]);
-  const [isFlokxActive, setIsFlokxActive] = useState(false);
-  const [flokxStatus, setFlokxStatus] = useState({ configured: false, last_error: null, last_tested_at: null });
   const [connectionStatus, setConnectionStatus] = useState({
     api: 'Disconnected',
     sse: 'Disconnected',
@@ -723,24 +720,6 @@ export default function useDashboardState(navigate) {
       setFilteredAdminBots([]);
     }
   }, [adminBots, selectedUserId]);
-
-  // Check Flokx status
-  useEffect(() => {
-    if (!token) return undefined;
-    loadFlokxStatus();
-    const interval = setInterval(loadFlokxStatus, 30000);
-    return () => clearInterval(interval);
-  }, [token]);
-
-  useEffect(() => {
-    if (isFlokxActive) {
-      loadFlokxAlerts();
-      const interval = setInterval(loadFlokxAlerts, 30000);
-      return () => clearInterval(interval);
-    }
-    setFlokxAlerts([]);
-    return undefined;
-  }, [isFlokxActive]);
 
   const setupRealTimeConnections = () => {
     console.log('✅ Initializing WebSocket connection...');
@@ -1679,19 +1658,6 @@ export default function useDashboardState(navigate) {
     }
   };
 
-  const loadFlokxStatus = async () => {
-    try {
-      const res = await axios.get(`${API}/flokx/status`, axiosConfig);
-      const status = res.data || {};
-      setFlokxStatus(status);
-      setIsFlokxActive(Boolean(status.configured));
-    } catch (err) {
-      console.error('Flokx status error:', err);
-      setFlokxStatus({ configured: false, last_error: extractErrorMessage(err, 'Unavailable'), last_tested_at: null });
-      setIsFlokxActive(false);
-    }
-  };
-
   const loadAdminHealth = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/admin/health-check`, axiosConfig);
@@ -1710,16 +1676,6 @@ export default function useDashboardState(navigate) {
       toast.error(errorMsg);
     }
   }, [axiosConfig]);
-
-  const loadFlokxAlerts = async () => {
-    try {
-      const res = await axios.get(`${API}/flokx/alerts`, axiosConfig);
-      setFlokxAlerts(res.data?.alerts || []);
-    } catch (err) {
-      console.error('Flokx alerts error:', err);
-      setFlokxAlerts([]);
-    }
-  };
 
   const handleSendMessage = async () => {
     if (chatSending) {
@@ -2212,32 +2168,6 @@ export default function useDashboardState(navigate) {
       e.target.reset();
     } catch (err) {
       showNotification('Failed to deploy uAgent', 'error');
-    }
-  };
-
-  const handleCreateFlokxBot = async (e) => {
-    e.preventDefault();
-    const name = e.target['flokx-name'].value;
-    const signalType = e.target['flokx-signal'].value;
-    const riskLevel = e.target['flokx-risk'].value;
-    
-    if (!name) {
-      showNotification('Please enter a bot name', 'error');
-      return;
-    }
-
-    try {
-      await axios.post(`${API}/bots/flokx`, { 
-        name, 
-        signal_type: signalType, 
-        risk_level: riskLevel,
-        type: 'flokx'
-      }, axiosConfig);
-      showNotification(`Flokx bot "${name}" created successfully!`);
-      await refreshBotState();
-      e.target.reset();
-    } catch (err) {
-      showNotification('Failed to create Flokx bot', 'error');
     }
   };
 
@@ -3201,8 +3131,6 @@ export default function useDashboardState(navigate) {
     equityRange,
     executeEmergencyStop,
     filteredAdminBots,
-    flokxAlerts,
-    flokxStatus,
     formatDate,
     getAlertColor,
     graphPeriod,
@@ -3214,7 +3142,6 @@ export default function useDashboardState(navigate) {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
-    handleCreateFlokxBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,
@@ -3246,14 +3173,12 @@ export default function useDashboardState(navigate) {
     handleTriggerBodyguard,
     handleTriggerLearning,
     handleUserSelection,
-    isFlokxActive,
     isMobile,
     learningStatus,
     livePrices,
     loadAdminBots,
     loadAdminUsers,
     loadChatHistory,
-    loadFlokxAlerts,
     loadingBots,
     loadingUsers,
     metrics,

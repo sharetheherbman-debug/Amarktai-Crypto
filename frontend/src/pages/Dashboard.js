@@ -29,7 +29,6 @@ import WalletHubSection from './dashboard/sections/WalletHubSection';
 import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
-import FlokxAlertsSection from './dashboard/sections/FlokxAlertsSection';
 import BotRadarSection from './dashboard/sections/BotRadarSection';
 import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
 import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
@@ -102,8 +101,6 @@ export default function Dashboard() {
     equityRange,
     executeEmergencyStop,
     filteredAdminBots,
-    flokxAlerts,
-    flokxStatus,
     formatDate,
     getAlertColor,
     graphPeriod,
@@ -115,7 +112,6 @@ export default function Dashboard() {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
-    handleCreateFlokxBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,
@@ -147,14 +143,12 @@ export default function Dashboard() {
     handleTriggerBodyguard,
     handleTriggerLearning,
     handleUserSelection,
-    isFlokxActive,
     isMobile,
     learningStatus,
     livePrices,
     loadAdminBots,
     loadAdminUsers,
     loadChatHistory,
-    loadFlokxAlerts,
     loadingBots,
     loadingUsers,
     metrics,
@@ -244,31 +238,11 @@ export default function Dashboard() {
     winRatePeriod,
   } = useDashboardState(navigate);
 
-  const renderFlokxAlerts = () => (
-    <FlokxAlertsSection
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
-      formatDate={formatDate}
-      getAlertColor={getAlertColor}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
-      showSection={showSection}
-    />
-  );
-
   const renderMetricsWithTabs = () => (
     <MetricsWithTabsSection
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
-      formatDate={formatDate}
-      getAlertColor={getAlertColor}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
       metrics={metrics}
       metricsTab={metricsTab}
       setMetricsTab={setMetricsTab}
-      showSection={showSection}
-      renderFlokxAlerts={renderFlokxAlerts}
     />
   );
 
@@ -303,7 +277,6 @@ export default function Dashboard() {
       aiStatus={aiStatus}
       autonomyStatus={autonomyStatus}
       botControlLoading={botControlLoading}
-      flokxAlerts={flokxAlerts}
       formatDate={formatDate}
       handleResetBodyguardLock={handleResetBodyguardLock}
       handleResetDailyLossLock={handleResetDailyLossLock}
@@ -426,14 +399,9 @@ export default function Dashboard() {
       drawdownRange={drawdownRange}
       equityData={equityData}
       equityRange={equityRange}
-      flokxAlerts={flokxAlerts}
-      flokxStatus={flokxStatus}
       formatDate={formatDate}
       getAlertColor={getAlertColor}
       graphPeriod={graphPeriod}
-      isFlokxActive={isFlokxActive}
-      loadFlokxAlerts={loadFlokxAlerts}
-      metrics={metrics}
       overviewData={overviewData}
       profitData={profitData}
       profitsTab={profitsTab}
@@ -448,7 +416,6 @@ export default function Dashboard() {
       metricsTab={metricsTab}
       setMetricsTab={setMetricsTab}
       renderMetricsWithTabs={renderMetricsWithTabs}
-      renderFlokxAlerts={renderFlokxAlerts}
     />
   );
 
@@ -491,7 +458,6 @@ export default function Dashboard() {
       bots={bots}
       formatDate={formatDate}
       handleCreateBot={handleCreateBot}
-      handleCreateFlokxBot={handleCreateFlokxBot}
       handleCreateUAgent={handleCreateUAgent}
       handleDeleteBot={handleDeleteBot}
       handleResumeBot={handleResumeBot}
