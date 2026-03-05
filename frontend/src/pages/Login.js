@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import SiteFooter from '../components/SiteFooter';
 import './Auth.css';
 import { post } from '../lib/apiClient';
 
 export default function Login() {
+  const [step, setStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
@@ -17,13 +18,31 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const validateStep = () => {
+    if (step === 1 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      toast.error('Please enter a valid email');
+      return false;
+    }
+    if (step === 2 && !formData.password) {
+      toast.error('Please enter your password');
+      return false;
+    }
+    return true;
+  };
+
+  const handleNext = () => {
+    if (validateStep()) {
+      setStep(2);
+    }
+  };
+
+  const handleBack = () => {
+    setStep(1);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.email || !formData.password) {
-      toast.error('Please fill in all fields');
-      return;
-    }
+    if (!validateStep()) return;
 
     setLoading(true);
     try {
@@ -64,49 +83,75 @@ export default function Login() {
           />
           
           <h1 className="auth-title">Login</h1>
+          <p className="auth-step" aria-label={`Step ${step} of 2: ${step === 1 ? 'Enter your email' : 'Enter your password'}`}>Step {step} of 2</p>
 
           <form onSubmit={handleSubmit} className="auth-form">
-            <div className="form-group">
-              <Input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="Email"
-                required
-                className="auth-input"
-                data-testid="email-input"
-              />
-            </div>
-
-            <div className="form-group">
-              <div className="password-wrapper">
+            {/* Step 1: Email */}
+            {step === 1 && (
+              <div className="form-step">
                 <Input
-                  type={showPassword ? 'text' : 'password'}
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Password"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="Email"
                   required
                   className="auth-input"
-                  data-testid="password-input"
+                  data-testid="email-input"
+                  autoFocus
                 />
-                <button
+                <Button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="eye-btn"
+                  onClick={handleNext}
+                  className="auth-submit-btn"
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
+                  Next
+                </Button>
               </div>
-            </div>
+            )}
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="auth-submit-btn"
-              data-testid="submit-button"
-            >
-              {loading ? 'Logging in...' : 'Login'}
-            </Button>
+            {/* Step 2: Password */}
+            {step === 2 && (
+              <div className="form-step">
+                <div className="password-wrapper">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    placeholder="Password"
+                    required
+                    className="auth-input"
+                    data-testid="password-input"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="eye-btn"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+
+                <div className="button-row">
+                  <Button
+                    type="button"
+                    onClick={handleBack}
+                    className="auth-back-btn"
+                    aria-label="Go back to email entry"
+                  >
+                    <ArrowLeft size={18} /> Back
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={loading}
+                    className="auth-submit-btn"
+                    data-testid="submit-button"
+                  >
+                    {loading ? 'Logging in...' : 'Login'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </form>
 
           <p className="auth-alt-link">
@@ -133,3 +178,4 @@ export default function Login() {
     </div>
   );
 }
+

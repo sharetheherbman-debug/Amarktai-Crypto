@@ -78,7 +78,7 @@ export default function Landing() {
   };
 
   return (
-    <div className="auth-container landing-container landing-hero-layout">
+    <div className="auth-container landing-container">
       <audio
         ref={audioRef}
         src="/assets/thunderstruck.mp3"
@@ -96,37 +96,12 @@ export default function Landing() {
         {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
       </button>
 
-      {/* LEFT — Dominant video/visual hero */}
-      <div className="landing-hero-left">
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster="/assets/poster.jpg"
-          className="landing-hero-video"
-        >
-          <source src="/assets/background.mp4" type="video/mp4" />
-        </video>
-        <div className="landing-hero-overlay" />
-        {/* Scanline effect */}
-        <div className="landing-scanlines" />
-        {/* Live Pulse badge */}
-        <div className="landing-pulse-badge">
-          <span className="landing-pulse-dot" />
-          Realtime &bull; Self-Learning &bull; Self-Healing
-        </div>
-      </div>
-
-      {/* RIGHT — Brand + CTAs */}
-      <div className="landing-hero-right">
-        <div className="landing-hero-content">
+      {/* LEFT — Brand + CTAs */}
+      <div className="auth-left">
+        <div className="auth-content landing-hero-content">
           <img src="/assets/logo.png" alt="Amarktai Network" className="auth-logo landing-logo-lg" />
           <h1 className="landing-headline">Amarktai Network</h1>
           <p className="landing-subheadline">Real-Time AI Trading, Built for Control</p>
-          <p className="landing-bullets">
-            Self-Learning &bull; Self-Healing &bull; 24/7 Market Intelligence
-          </p>
           <div className="landing-cta">
             <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn landing-primary-btn">
               Launch Dashboard
@@ -135,8 +110,21 @@ export default function Landing() {
               Create Account
             </Button>
           </div>
-          <p className="landing-proof-bar">Connect to see live metrics</p>
         </div>
+      </div>
+
+      {/* RIGHT — Video */}
+      <div className="auth-right">
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          poster="/assets/poster.jpg"
+        >
+          <source src="/assets/background.mp4" type="video/mp4" />
+        </video>
+        <div className="auth-overlay" />
       </div>
 
       <SiteFooter />
