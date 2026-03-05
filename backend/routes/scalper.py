@@ -5,7 +5,7 @@ Separate endpoints for scalper bot CRUD, cap checking, and profit routing.
 Scalper bots are a distinct category from normal bots with independent caps.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
 from typing import Dict, Optional
 import logging
@@ -178,3 +178,47 @@ async def scalper_ev_check(
             "spread_max_bps": SCALPER_SPREAD_MAX_BPS,
         },
     }
+
+
+@router.post("/seed")
+async def scalper_seed(
+    data: Dict = {},
+    user_id: str = Depends(get_current_user),
+):
+    """POST /api/scalper/seed
+
+    Seed scalper bots for testing. Creates a default set of scalper bots
+    if none exist. Useful for paper trading verification.
+    """
+    import uuid
+
+    existing = await db.bots_collection.count_documents(
+        {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}}
+    )
+
+    if existing > 0:
+        return {"seeded": 0, "message": f"User already has {existing} scalper bot(s)", "existing": existing}
+
+    exchange = data.get("exchange", "binance")
+    pair = data.get("pair", "BTC/USDT")
+
+    bot_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "name": f"Scalper-{exchange[:3].upper()}-SEED",
+        "bot_type": "scalper",
+        "exchange": exchange,
+        "pair": pair,
+        "status": "active",
+        "risk_mode": "aggressive",
+        "initial_capital": float(data.get("capital", 500)),
+        "current_capital": float(data.get("capital", 500)),
+        "trading_mode": "paper",
+        "deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    await db.bots_collection.insert_one(bot_doc)
+    bot_doc.pop("_id", None)
+
+    return {"seeded": 1, "bot": bot_doc}

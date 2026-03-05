@@ -2,7 +2,7 @@
 Metrics API - Trade cadence and countdown metrics
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 import logging
@@ -16,11 +16,17 @@ router = APIRouter(prefix="/api/metrics", tags=["Metrics"])
 
 
 @router.get("/trade-cadence")
-async def get_trade_cadence(user_id: str = Depends(get_current_user)):
+async def get_trade_cadence(
+    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
+    user_id: str = Depends(get_current_user),
+):
     """Get trade cadence and countdown metrics
     
     Only starts countdown after >= 10 trades
     Computes rolling average trade interval from last 30 trades
+    
+    Args:
+        bot_type: Optional filter by bot type (normal or scalper)
     
     Returns:
         - next_trade_eta: ISO timestamp of estimated next trade
@@ -31,12 +37,21 @@ async def get_trade_cadence(user_id: str = Depends(get_current_user)):
         - last_trade_at: Timestamp of most recent trade
     """
     try:
+        trade_query = {
+            "user_id": user_id,
+            "status": "closed"
+        }
+        if bot_type:
+            matching_bots = await db.bots_collection.find(
+                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
+                {"_id": 0, "id": 1}
+            ).to_list(200)
+            bot_ids = [b["id"] for b in matching_bots]
+            trade_query["bot_id"] = {"$in": bot_ids}
+
         # Get all closed trades for user, sorted by timestamp descending
         trades = await db.trades_collection.find(
-            {
-                "user_id": user_id,
-                "status": "closed"
-            },
+            trade_query,
             {
                 "_id": 0,
                 "timestamp": 1,
