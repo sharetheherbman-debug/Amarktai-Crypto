@@ -94,7 +94,7 @@ run_test "OpenAPI contains /api/keys/test endpoint" \
 run_test "Get providers list (GET /api/keys/providers)" \
     "curl -sf '$BASE_URL/api/keys/providers' | grep -q '\"success\":true'"
 
-# Test 5: Providers list includes all 10 providers
+# Test 5: Providers list includes all 9 providers
 TEST_OUTPUT=$(curl -sf "$BASE_URL/api/keys/providers" 2>/dev/null)
 if echo "$TEST_OUTPUT" | grep -q '"openai"' && \
    echo "$TEST_OUTPUT" | grep -q '"fetchai"' && \
@@ -115,7 +115,7 @@ else
     echo "Missing one or more providers: openai, fetchai, luno, binance, kucoin, bybit, kraken, bitget, gate"
 fi
 
-# Test 6: Total providers count is 10
+# Test 6: Total providers count is 9
 TEST_OUTPUT=$(curl -sf "$BASE_URL/api/keys/providers" 2>/dev/null)
 PROVIDER_COUNT=$(echo "$TEST_OUTPUT" | grep -o '"total":[0-9]*' | grep -o '[0-9]*')
 if [ "$PROVIDER_COUNT" = "9" ]; then

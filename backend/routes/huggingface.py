@@ -97,7 +97,7 @@ async def hf_test_connection(user_id: str = Depends(get_current_user)):
 # ---------- sentiment analysis -------------------------------------------
 
 class SentimentRequest(BaseModel):
-    texts: List[str] = Field(..., min_length=1, max_length=50)
+    texts: List[str] = Field(..., min_length=1, max_length=50)  # max 50 texts per batch
     model: Optional[str] = None
 
 
