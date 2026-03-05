@@ -11,7 +11,7 @@ Provides per-bot radar data derived from ledger/trade truth:
   market_regime, spread_estimate, slippage_estimate
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import logging
@@ -192,3 +192,72 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Radar snapshot error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Radar snapshot failed: {e}")
+
+
+@router.get("/timeseries")
+async def radar_timeseries(
+    user_id: str = Depends(get_current_user),
+    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """Return hourly-bucketed timeseries for equity, PnL, bot counts, activity.
+
+    Derived from ledger/trades truth. Supports normal/scalper split.
+    """
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+
+    # Build bot filter
+    bot_query: Dict = {"user_id": user_id, "deleted": {"$ne": True}}
+    if bot_type:
+        bot_query["bot_type"] = bot_type
+
+    bots = await db.bots_collection.find(bot_query).to_list(500)
+    bot_ids = [str(b.get("_id", b.get("bot_id", b.get("id", "")))) for b in bots]
+
+    # Fetch trades in window
+    trade_query: Dict = {"user_id": user_id, "timestamp": {"$gte": since.isoformat()}}
+    if bot_type and bot_ids:
+        trade_query["bot_id"] = {"$in": bot_ids}
+
+    trades = await db.trades_collection.find(trade_query).sort("timestamp", 1).to_list(5000)
+
+    # Bucket into hourly slots
+    buckets: Dict = {}
+    for h in range(hours + 1):
+        t = since + timedelta(hours=h)
+        key = t.strftime("%Y-%m-%dT%H:00:00Z")
+        buckets[key] = {"timestamp": key, "pnl": 0.0, "trade_count": 0, "equity": 0.0}
+
+    cumulative_pnl = 0.0
+    base_equity = sum(float(b.get("current_capital", b.get("initial_capital", 0))) for b in bots)
+
+    for trade in trades:
+        ts = trade.get("timestamp", "")
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00")) if isinstance(ts, str) else ts
+            key = dt.strftime("%Y-%m-%dT%H:00:00Z")
+        except Exception:
+            continue
+        if key in buckets:
+            pnl = float(trade.get("pnl", trade.get("profit", 0)) or 0)
+            cumulative_pnl += pnl
+            buckets[key]["pnl"] += pnl
+            buckets[key]["trade_count"] += 1
+
+    # Fill equity as base + cumulative
+    running = 0.0
+    for key in sorted(buckets.keys()):
+        running += buckets[key]["pnl"]
+        buckets[key]["equity"] = round(base_equity + running, 2)
+        buckets[key]["pnl"] = round(buckets[key]["pnl"], 2)
+
+    series = [buckets[k] for k in sorted(buckets.keys())]
+
+    return {
+        "series": series,
+        "bot_count": len(bots),
+        "bot_type": bot_type or "all",
+        "hours": hours,
+        "timestamp": now.isoformat(),
+    }

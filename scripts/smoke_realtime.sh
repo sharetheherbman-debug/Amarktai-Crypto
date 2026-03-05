@@ -47,9 +47,9 @@ if [ "$non_zero_change" != "true" ]; then
 fi
 echo "✅ change_24h looks non-zero"
 
-echo "🔍 Checking /api/flokx/status..."
-curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/flokx/status" -H "Authorization: Bearer ${TOKEN}" | grep -q "200"
-echo "✅ /api/flokx/status OK"
+echo "🔍 Checking /api/coinstats/status..."
+curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/coinstats/status" -H "Authorization: Bearer ${TOKEN}" | grep -q "200"
+echo "✅ /api/coinstats/status OK"
 
 echo "🔍 Checking /api/diagnostics/websocket..."
 curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/diagnostics/websocket" -H "Authorization: Bearer ${TOKEN}" | grep -q "200"

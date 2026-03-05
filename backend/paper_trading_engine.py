@@ -22,7 +22,7 @@ REALISM FEATURES (95% Live Accuracy):
 ✅ Slippage simulation (0.1-0.2% per trade based on order size/volatility)
 ✅ Order failure rate (3% rejection - matches real 97% fill rate)
 ✅ Execution delay (±0.05% price movement during 50-200ms latency)
-✅ 4-Source AI Intelligence (Market Regime, ML Predictor, Flokx, Fetch.ai)
+✅ 4-Source AI Intelligence (Market Regime, ML Predictor, CoinStats, Fetch.ai)
 ✅ Centralized order validation (precision, min notional, exchange rules)
 ✅ Paper wallet ledger with reserve/debit/credit system (NO FREE MONEY)
 ✅ Capital enforcement - trades blocked if insufficient funds
@@ -152,7 +152,7 @@ This paper trading engine achieves 95% accuracy compared to live trading through
 9. AI INTEGRATION (4-Source Intelligence)
    - Market Regime Detector
    - ML Price Predictor
-   - Flokx Signals
+   - CoinStats Signals
    - Fetch.ai Signals
    - Trades only execute with 2+ AI sources agreeing
    - Position sizing adjusts based on AI confidence
@@ -841,9 +841,8 @@ class PaperTradingEngine:
             from ml_predictor import ml_predictor
             prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
             
-            # 4. AI INTELLIGENCE: Get Flokx signals (if available)
-            from flokx_integration import flokx
-            flokx_data = await flokx.fetch_market_coefficients(symbol)
+            # 4. AI INTELLIGENCE: (CoinStats/HuggingFace — placeholder until live)
+            coinstats_data = {"strength": 0, "sentiment": "neutral"}
             
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
             from fetchai_integration import fetchai
@@ -914,8 +913,8 @@ class PaperTradingEngine:
             if fetchai_data.get('confidence', 0) > 60:
                 total_confidence += (fetchai_data.get('confidence', 0) / 100)
                 confidence_sources += 1
-            if flokx_data.get('strength', 0) > 60:
-                total_confidence += (flokx_data.get('strength', 0) / 100)
+            if coinstats_data.get('strength', 0) > 60:
+                total_confidence += (coinstats_data.get('strength', 0) / 100)
                 confidence_sources += 1
             
             # Require at least 2 sources with average confidence > 65%
@@ -945,7 +944,7 @@ class PaperTradingEngine:
                 ai_agreement += 1
             if fetchai_data.get('confidence', 0) > 80:
                 ai_agreement += 1
-            if flokx_data.get('strength', 0) > 75:
+            if coinstats_data.get('strength', 0) > 75:
                 ai_agreement += 1
             
             # Boost: 1-2 sources = 1.0x, 3 sources = 1.25x, 4 sources = 1.5x
@@ -1115,8 +1114,8 @@ class PaperTradingEngine:
                 "ai_confidence": round(regime.get('confidence', 0), 2),
                 "ml_prediction": prediction.get('direction', 'neutral'),
                 "ml_confidence": round(prediction.get('confidence', 0), 2),
-                "flokx_strength": round(flokx_data.get('strength', 0), 1),
-                "flokx_sentiment": flokx_data.get('sentiment', 'neutral'),
+                "coinstats_strength": round(coinstats_data.get('strength', 0), 1),
+                "coinstats_sentiment": coinstats_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
                 "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
             }

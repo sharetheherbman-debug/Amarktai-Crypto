@@ -46,11 +46,11 @@ def test_list_providers_format():
         print(f"✅ Successfully extracted {len(provider_ids)} provider IDs: {', '.join(provider_ids)}")
         
         # Verify we have exactly 10 providers
-        assert len(provider_ids) == 10, f"Expected 10 providers, got {len(provider_ids)}"
-        print("✅ Exactly 10 providers found")
+        assert len(provider_ids) == 9, f"Expected 9 providers, got {len(provider_ids)}"
+        print("✅ Exactly 9 providers found")
         
         # Verify the expected providers
-        expected = ["openai", "flokx", "fetchai", "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+        expected = ["openai", "fetchai", "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
         for expected_id in expected:
             assert expected_id in provider_ids, f"Expected provider {expected_id} not found"
         print(f"✅ All expected providers present: {', '.join(expected)}")

@@ -142,7 +142,6 @@ async def test_paper_trade_scenario_deterministic():
         patch("paper_trading_engine.risk_engine") as mock_risk_engine, \
         patch("market_regime.market_regime_detector") as mock_regime, \
         patch("ml_predictor.ml_predictor") as mock_predictor, \
-        patch("flokx_integration.flokx") as mock_flokx, \
         patch("fetchai_integration.fetchai") as mock_fetchai, \
         patch("paper_trading_engine.paper_wallet_ledger") as mock_wallet, \
         patch("paper_trading_engine.enforce_trading_gates"), \
@@ -160,7 +159,6 @@ async def test_paper_trade_scenario_deterministic():
 
         mock_regime.detect_regime = AsyncMock(return_value={"confidence": 0.9, "trend": "bullish", "regime": "trend"})
         mock_predictor.predict_price = AsyncMock(return_value={"confidence": 0.9, "direction": "up", "predicted_change": 1.0})
-        mock_flokx.fetch_market_coefficients = AsyncMock(return_value={"strength": 90, "sentiment": "bullish", "volatility": 20})
         mock_fetchai.fetch_market_signals = AsyncMock(return_value={"confidence": 90, "signal": "BUY"})
 
         mock_wallet.get_balance = AsyncMock(side_effect=get_balance)

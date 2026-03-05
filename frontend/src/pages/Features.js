@@ -8,7 +8,7 @@ export default function Features() {
     },
     {
       title: 'Real-time Market Intelligence',
-      body: 'Streaming trade data, FlokX alerts, and AI summaries surface high-impact signals fast.'
+      body: 'Streaming trade data, market intelligence, and AI summaries surface high-impact signals fast.'
     },
     {
       title: 'Secure API Orchestration',

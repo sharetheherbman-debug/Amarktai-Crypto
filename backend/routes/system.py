@@ -234,3 +234,6 @@ async def get_system_gates() -> dict:
 # async def set_system_mode(payload: Dict = Body(...), user_id: str = Depends(get_current_user)) -> dict:
 #     """REMOVED - See system_mode.py for canonical implementation"""
 #     pass
+
+# NOTE: paper-reset endpoint is defined in routes/system_mode.py (canonical)
+# Do not add a duplicate here - it causes route collisions.

@@ -65,6 +65,7 @@ async def get_trade_metrics(
 @router.get("/recent")
 async def get_recent_trades(
     limit: int = Query(50, ge=1, le=500),
+    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -73,14 +74,24 @@ async def get_recent_trades(
     
     Args:
         limit: Maximum number of trades to return (1-500)
+        bot_type: Optional filter by bot type (normal or scalper)
         user_id: Current authenticated user
         
     Returns:
         List of trades with full timestamps and metrics
     """
     try:
+        match_query = {"user_id": user_id}
+        if bot_type:
+            matching_bots = await db.bots_collection.find(
+                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
+                {"_id": 0, "id": 1}
+            ).to_list(200)
+            bot_ids = [b["id"] for b in matching_bots]
+            match_query["bot_id"] = {"$in": bot_ids}
+
         pipeline = [
-            {"$match": {"user_id": user_id}},
+            {"$match": match_query},
             {"$addFields": {"_sort_ts": {"$ifNull": ["$timestamp", "$created_at"]}}},
             {"$sort": {"_sort_ts": -1}},
             {"$limit": limit},
@@ -124,18 +135,31 @@ async def get_recent_trades(
 
 @router.get("/stats")
 async def get_trade_stats(
+    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
     user_id: str = Depends(get_current_user)
 ):
     """
     Get trade statistics summary
     
+    Args:
+        bot_type: Optional filter by bot type (normal or scalper)
+    
     Returns:
         Summary statistics for all user trades
     """
     try:
+        query = {"user_id": user_id}
+        if bot_type:
+            matching_bots = await db.bots_collection.find(
+                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
+                {"_id": 0, "id": 1}
+            ).to_list(200)
+            bot_ids = [b["id"] for b in matching_bots]
+            query["bot_id"] = {"$in": bot_ids}
+
         # Get all trades
         trades = await db.trades_collection.find(
-            {"user_id": user_id},
+            query,
             {"_id": 0}
         ).to_list(10000)
         

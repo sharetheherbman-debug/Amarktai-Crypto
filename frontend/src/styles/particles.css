@@ -1,0 +1,99 @@
+/* Particles background — CSS-only, zero JS, zero dependencies.
+   Rendered as floating dots behind main content via ::before pseudo-element.
+   Automatically disabled on prefers-reduced-motion and small screens. */
+
+.particles-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.particles-bg::before,
+.particles-bg::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.12;
+  filter: blur(1px);
+  will-change: transform;
+}
+
+/* Layer 1 — slow large orbs */
+.particles-bg::before {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(99,102,241,0.25) 0%, transparent 70%);
+  top: 10%;
+  left: 15%;
+  animation: particle-drift-1 28s ease-in-out infinite alternate;
+}
+
+/* Layer 2 — medium accent orbs */
+.particles-bg::after {
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle, rgba(34,197,94,0.2) 0%, transparent 70%);
+  bottom: 18%;
+  right: 12%;
+  animation: particle-drift-2 22s ease-in-out infinite alternate;
+}
+
+/* Floating micro-dots via box-shadow on a tiny span */
+.particles-dots {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow:
+    120px 80px 0 0.5px rgba(99,102,241,0.3),
+    340px 160px 0 0.5px rgba(96,165,250,0.25),
+    580px 60px 0 0.5px rgba(34,197,94,0.25),
+    90px 320px 0 0.5px rgba(167,139,250,0.22),
+    440px 400px 0 0.5px rgba(99,102,241,0.2),
+    720px 280px 0 0.5px rgba(34,197,94,0.18),
+    200px 520px 0 0.5px rgba(96,165,250,0.2),
+    600px 540px 0 0.5px rgba(167,139,250,0.18),
+    850px 120px 0 0.5px rgba(99,102,241,0.22),
+    960px 380px 0 0.5px rgba(34,197,94,0.2),
+    1100px 200px 0 0.5px rgba(96,165,250,0.2),
+    300px 680px 0 0.5px rgba(167,139,250,0.15),
+    780px 600px 0 0.5px rgba(99,102,241,0.18),
+    1050px 500px 0 0.5px rgba(34,197,94,0.15),
+    150px 750px 0 0.5px rgba(96,165,250,0.18);
+  animation: particle-float 40s linear infinite;
+}
+
+@keyframes particle-drift-1 {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(60px, -40px) scale(1.08); }
+  100% { transform: translate(-30px, 30px) scale(0.95); }
+}
+
+@keyframes particle-drift-2 {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(-50px, 30px) scale(1.12); }
+  100% { transform: translate(40px, -20px) scale(0.92); }
+}
+
+@keyframes particle-float {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-60px); }
+}
+
+/* Performance: disable on reduced-motion or small screens */
+@media (prefers-reduced-motion: reduce) {
+  .particles-bg::before,
+  .particles-bg::after,
+  .particles-dots { animation: none; }
+}
+
+@media (max-width: 768px) {
+  .particles-bg::before,
+  .particles-bg::after { display: none; }
+  .particles-dots { animation: none; opacity: 0.06; }
+}

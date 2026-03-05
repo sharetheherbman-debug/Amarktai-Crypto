@@ -129,11 +129,11 @@ providers_body=$(echo "$providers_response" | head -n-1)
 
 if [ "$providers_http_code" = "200" ]; then
     provider_count=$(echo "$providers_body" | grep -o '"id"' | wc -l)
-    if [ "$provider_count" = "10" ]; then
-        pass "Provider registry returns 10 providers (7 exchanges + 3 AI)"
+    if [ "$provider_count" = "9" ]; then
+        pass "Provider registry returns 9 providers (7 exchanges + 2 AI)"
         
-        # Check for all providers (3 AI + 7 exchanges = 10 total)
-        for provider in openai flokx fetchai luno binance kucoin bybit kraken bitget gate; do
+        # Check for all providers (2 AI + 7 exchanges = 9 total)
+        for provider in openai fetchai luno binance kucoin bybit kraken bitget gate; do
             if echo "$providers_body" | grep -q "\"id\":\"$provider\""; then
                 echo "  ✓ $provider found"
             else
@@ -141,7 +141,7 @@ if [ "$providers_http_code" = "200" ]; then
             fi
         done
     else
-        fail "Provider registry returns $provider_count providers (expected 10)"
+        fail "Provider registry returns $provider_count providers (expected 9)"
     fi
 else
     fail "Provider registry request failed (HTTP $providers_http_code)"

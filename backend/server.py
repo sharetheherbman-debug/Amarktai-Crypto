@@ -174,7 +174,7 @@ async def lifespan(app: FastAPI):
         # Log error but continue - optional services may have failed
         # Critical services will be checked individually below
     
-    # Initialize Fetch.ai and FLOKx integrations if keys available
+    # Initialize Fetch.ai integration if key available
     try:
         fetchai_key = os.environ.get('FETCHAI_API_KEY', '')
         if fetchai_key:
@@ -183,15 +183,6 @@ async def lifespan(app: FastAPI):
             logger.info("🔮 Fetch.ai integration configured")
     except Exception as e:
         logger.warning(f"Could not configure Fetch.ai: {e}")
-    
-    try:
-        flokx_key = os.environ.get('FLOKX_API_KEY', '')
-        if flokx_key:
-            from flokx_integration import flokx
-            flokx.set_credentials(flokx_key)
-            logger.info("🎯 FLOKx integration configured")
-    except Exception as e:
-        logger.warning(f"Could not configure FLOKx: {e}")
     
     # Start Daily Reinvestment Scheduler (optional)
     try:
@@ -1956,31 +1947,6 @@ async def get_wallet_mode_stats(user_id: str = Depends(get_current_user)):
         logger.error(f"Wallet mode stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/flokx/alerts")
-async def get_flokx_alerts(user_id: str = Depends(get_current_user)):
-    """Get FLOKx market alerts"""
-    try:
-        from flokx_integration import flokx
-        
-        # Get alerts for major pairs
-        pairs = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
-        alerts = []
-        
-        for pair in pairs:
-            data = await flokx.fetch_market_coefficients(pair)
-            if data.get('strength', 0) > 75:
-                alerts.append({
-                    "pair": pair,
-                    "type": "strong_signal",
-                    "message": f"{pair}: Strong {data.get('sentiment', 'signal')} ({data.get('strength', 0):.0f}%)",
-                    "timestamp": data.get('timestamp')
-                })
-        
-        return {"alerts": alerts, "count": len(alerts)}
-    except Exception as e:
-        logger.error(f"Flokx alerts error: {e}")
-        return {"alerts": [], "count": 0}
-
 @api_router.post("/autopilot/enable")
 async def enable_autopilot(user_id: str = Depends(get_current_user)):
     """Enable autopilot mode"""
@@ -2303,87 +2269,6 @@ async def test_email_alert(user_id: str = Depends(get_current_user)):
         return {"sent": success, "message": "Test email sent" if success else "Email disabled (no SMTP credentials)"}
     except Exception as e:
         logger.error(f"Email test error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/flokx/status")
-async def get_flokx_status(user_id: str = Depends(get_current_user)):
-    """Get FLOKx key configuration status using canonical key store."""
-    try:
-        from routes.keys import normalize_status
-        from services.provider_registry import ProviderStatus
-
-        key_doc = await db.api_keys_collection.find_one(
-            {"user_id": str(user_id), "provider": "flokx"},
-            {"_id": 0, "status": 1, "last_tested_at": 1, "last_test_error": 1}
-        )
-
-        if key_doc:
-            status = normalize_status(key_doc.get("status", ProviderStatus.CONFIGURED_UNTESTED.value))
-            configured = status != ProviderStatus.NOT_CONFIGURED.value
-            last_tested_at = key_doc.get("last_tested_at")
-            last_error = key_doc.get("last_test_error")
-        else:
-            configured = False
-            last_tested_at = None
-            last_error = None
-
-        return {
-            "success": True,
-            "configured": configured,
-            "last_tested_at": last_tested_at,
-            "last_error": last_error,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-    except Exception as e:
-        logger.error(f"FLOKx status error: {e}")
-        return {
-            "success": False,
-            "configured": False,
-            "last_tested_at": None,
-            "last_error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
-@api_router.get("/flokx/test-connection")
-async def test_flokx_connection(user_id: str = Depends(get_current_user)):
-    """Test FLOKx API connection"""
-    try:
-        from flokx_integration import flokx
-        import os
-        api_key = os.environ.get('FLOKX_API_KEY', '')
-        if not api_key:
-            return {"connected": False, "message": "No FLOKx API key configured"}
-        
-        result = await flokx.test_connection(api_key)
-        return {"connected": result, "message": "Connected to FLOKx" if result else "Connection failed"}
-    except Exception as e:
-        logger.error(f"FLOKx connection test error: {e}")
-        return {"connected": False, "message": str(e)}
-
-@api_router.get("/flokx/coefficients/{pair}")
-async def get_flokx_coefficients(pair: str, user_id: str = Depends(get_current_user)):
-    """Get FLOKx market intelligence coefficients"""
-    try:
-        from flokx_integration import flokx
-        coeffs = await flokx.fetch_market_coefficients(pair.replace('-', '/'))
-        return coeffs
-    except Exception as e:
-        logger.error(f"FLOKx error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/flokx/create-alert")
-async def create_flokx_alert(data: dict, user_id: str = Depends(get_current_user)):
-    """Create alert from FLOKx intelligence"""
-    try:
-        from flokx_integration import flokx
-        pair = data.get('pair', 'BTC/ZAR')
-        alert = await flokx.create_alert_from_coefficients(user_id, pair)
-        if alert:
-            # Remove _id if present for JSON serialization
-            alert.pop('_id', None)
-        return alert
-    except Exception as e:
-        logger.error(f"FLOKx alert error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/fetchai/signals/{pair}")
@@ -3137,6 +3022,8 @@ routers_to_mount = [
     ("routes.exchange_status", "Exchange Status"),  # NEW - Exchange status & test for all 7 exchanges
     ("routes.admin_truth", "Admin Truth Console"),  # NEW - Truth Kernel summary endpoint
     ("routes.scalper", "Scalper Bots"),  # NEW - Scalper bot management + EV gating
+    ("routes.coinstats", "CoinStats"),  # Market intelligence / news / tickers
+    ("routes.huggingface", "HuggingFace"),  # AI sentiment analysis
 ]
 
 # Mount realtime router only if enabled via feature flag

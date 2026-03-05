@@ -1,7 +1,7 @@
 export default function SiteFooter() {
   return (
     <footer className="site-footer">
-      Amarktai Crypto — Part of Amarktai Network — Personal use only.
+      <span>Amarkt<span style={{ color: '#6366f1', fontWeight: 700 }}>AI</span> Crypto — Part of Amarkt<span style={{ color: '#6366f1', fontWeight: 700 }}>AI</span> Network — Personal use only.</span>
     </footer>
   );
 }

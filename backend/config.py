@@ -39,7 +39,6 @@ FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Crypto')
 
 # Optional Integrations
 FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')
-FLOKX_API_KEY = os.getenv('FLOKX_API_KEY', '')
 
 # ============================================================================
 # FEATURE FLAGS (Safe defaults for production)

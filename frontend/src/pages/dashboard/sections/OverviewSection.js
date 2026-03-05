@@ -46,7 +46,6 @@ export default function OverviewSection({
   aiStatus,
   autonomyStatus,
   botControlLoading,
-  flokxAlerts,
   formatDate,
   handleResetBodyguardLock,
   handleResetDailyLossLock,
@@ -93,10 +92,9 @@ export default function OverviewSection({
     { label: 'Self-Healing', value: autonomyStatus?.self_healing || autonomyStatus?.bodyguard || riskStatus?.bodyguard_lock?.active },
     { label: 'Learning', value: learningStatus?.status || learningStatus?.mode || learningStatus?.active }
   ];
-  const lastAlert = Array.isArray(flokxAlerts) && flokxAlerts.length > 0 ? flokxAlerts[0] : null;
-  const lastEventTitle = lastAlert?.title || lastAlert?.pair || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
-  const lastEventDetail = lastAlert?.message || lastAlert?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');
-  const lastEventTime = lastAlert?.timestamp ? new Date(lastAlert.timestamp).toLocaleString() : formatOverviewDate(overviewData.lastTradeTime);
+  const lastEventTitle = riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable';
+  const lastEventDetail = riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts';
+  const lastEventTime = formatOverviewDate(overviewData.lastTradeTime);
 
   return (
     <section className="section active">

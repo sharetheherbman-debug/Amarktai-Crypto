@@ -214,6 +214,7 @@ async def get_countdown_status(
 @router.get("/ledger/fills")
 async def get_fills(
     bot_id: Optional[str] = None,
+    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
     since: Optional[str] = None,
     until: Optional[str] = None,
     limit: int = Query(100, ge=1, le=1000),
@@ -225,31 +226,59 @@ async def get_fills(
     
     Parameters:
     - bot_id: Filter by bot
+    - bot_type: Filter by bot type (normal or scalper)
     - since: ISO timestamp (e.g., 2025-01-01T00:00:00Z)
     - until: ISO timestamp
     - limit: Max results
     """
     try:
+        import database as db_module
+
         ledger = get_ledger_service(db)
         user_id = current_user
-        
+
+        effective_bot_id = bot_id
+        if bot_type and not bot_id:
+            matching_bots = await db_module.bots_collection.find(
+                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
+                {"_id": 0, "id": 1}
+            ).to_list(200)
+            bot_ids = [b["id"] for b in matching_bots]
+        else:
+            bot_ids = None
+
         # Parse dates
         since_dt = datetime.fromisoformat(since.replace('Z', '+00:00')) if since else None
         until_dt = datetime.fromisoformat(until.replace('Z', '+00:00')) if until else None
         
-        fills = await ledger.get_fills(
-            user_id=user_id,
-            bot_id=bot_id,
-            since=since_dt,
-            until=until_dt,
-            limit=limit
-        )
+        if bot_ids is not None:
+            all_fills = []
+            for bid in bot_ids:
+                fills_chunk = await ledger.get_fills(
+                    user_id=user_id,
+                    bot_id=bid,
+                    since=since_dt,
+                    until=until_dt,
+                    limit=limit
+                )
+                all_fills.extend(fills_chunk)
+            all_fills.sort(key=lambda f: f.get("timestamp", ""), reverse=True)
+            fills = all_fills[:limit]
+        else:
+            fills = await ledger.get_fills(
+                user_id=user_id,
+                bot_id=effective_bot_id,
+                since=since_dt,
+                until=until_dt,
+                limit=limit
+            )
         
         return {
             "fills": fills,
             "count": len(fills),
             "filters": {
                 "bot_id": bot_id,
+                "bot_type": bot_type,
                 "since": since,
                 "until": until,
                 "limit": limit

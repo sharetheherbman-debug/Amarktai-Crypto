@@ -99,7 +99,6 @@ SMTP_PASSWORD = env_str('SMTP_PASSWORD', '')
 SMTP_FROM = env_str('SMTP_FROM', 'noreply@amarktai.io')
 
 # External Services
-FLOKX_API_KEY = env_str('FLOKX_API_KEY', '')
 FETCHAI_API_KEY = env_str('FETCHAI_API_KEY', '')
 
 # Deployment Configuration
