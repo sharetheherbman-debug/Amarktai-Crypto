@@ -16,7 +16,7 @@
   align-items: center;
   justify-content: center;
   padding: 40px;
-  background: var(--split-left-gradient);
+  background: transparent;
   z-index: 2;
 }
 
@@ -137,13 +137,14 @@
   width: 100%;
   padding: 14px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: #06111f;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: #ffffff;
   font-weight: 600;
   font-size: 1rem;
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
+  box-shadow: 0 0 18px rgba(59, 130, 246, 0.35);
 }
 
 .auth-back-btn {
