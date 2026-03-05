@@ -52,6 +52,19 @@ def get_build_hash() -> str:
             _BUILD_HASH_CACHE = build_sha
             return build_sha
         
+        # Try reading from BUILD_INFO file (written at deploy time)
+        build_info_paths = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "BUILD_INFO"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".build_sha"),
+        ]
+        for path in build_info_paths:
+            if os.path.isfile(path):
+                with open(path, "r") as f:
+                    content = f.read().strip()
+                if content:
+                    _BUILD_HASH_CACHE = content
+                    return content
+
         # Fall back to git command (with restricted scope and timeout)
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -268,11 +281,13 @@ async def health_ping() -> dict:
             db_status = "disconnected"
         
         # Build response
+        build_id = get_build_hash()
         response = {
             "status": "healthy" if db_status == "connected" else "unhealthy",
             "db": db_status,
             "timestamp": current_time.isoformat(),
-            "build_hash": get_build_hash(),
+            "build_hash": build_id,
+            "build_sha": build_id,
             "bind_ok": _bind_ok,
         }
         
@@ -295,6 +310,7 @@ async def health_ping() -> dict:
     except Exception as e:
         # Unexpected error - return 503
         logger.error(f"Health check failed: {e}")
+        err_build_id = get_build_hash()
         raise HTTPException(
             status_code=503,
             detail={
@@ -302,7 +318,8 @@ async def health_ping() -> dict:
                 "db": "error",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
-                "build_hash": get_build_hash(),
+                "build_hash": err_build_id,
+                "build_sha": err_build_id,
                 "bind_ok": _bind_ok
             }
         )

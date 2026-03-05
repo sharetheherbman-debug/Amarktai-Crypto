@@ -65,6 +65,89 @@ async def get_daily_loss_lock_status(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/risk/daily-loss-lock/status")
+async def get_daily_loss_lock_status_canonical(user_id: str = Depends(get_current_user)):
+    """Canonical status endpoint for daily loss lock.
+
+    Returns a normalized status object:
+        locked: bool
+        reason: str | None
+        since: ISO timestamp | None
+        scope: "user"
+        entity_id: current user ID
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        lock_active = user.get("daily_loss_lock_active", False)
+        return {
+            "locked": lock_active,
+            "reason": user.get("daily_loss_locked_reason") if lock_active else None,
+            "since": user.get("daily_loss_locked_at") if lock_active else None,
+            "scope": "user",
+            "entity_id": user_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting daily loss lock status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/bodyguard/status")
+async def get_bodyguard_status(user_id: str = Depends(get_current_user)):
+    """Canonical status endpoint for bodyguard locks.
+
+    Returns a normalized status object:
+        locked: bool
+        reason: str | None
+        since: ISO timestamp | None
+        scope: "user"
+        entity_id: current user ID
+        affected_bots: list of bot IDs paused/quarantined by bodyguard
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        bodyguard_bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$ne": "deleted"},
+                "$or": [
+                    {"paused_by_bodyguard": True},
+                    {"status": "quarantined"},
+                ],
+            },
+            {"_id": 0, "id": 1, "pause_reason": 1, "bodyguard_last_pause_at": 1, "bodyguard_last_breach_at": 1},
+        ).to_list(1000)
+
+        locked = len(bodyguard_bots) > 0
+        reasons = sorted({b.get("pause_reason") for b in bodyguard_bots if b.get("pause_reason")})
+        earliest_since = None
+        for b in bodyguard_bots:
+            ts = b.get("bodyguard_last_pause_at") or b.get("bodyguard_last_breach_at")
+            if ts and (earliest_since is None or ts < earliest_since):
+                earliest_since = ts
+
+        return {
+            "locked": locked,
+            "reason": reasons[0] if reasons else None,
+            "since": earliest_since,
+            "scope": "user",
+            "entity_id": user_id,
+            "affected_bots": [b["id"] for b in bodyguard_bots if b.get("id")],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting bodyguard status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/risk/status")
 async def get_risk_status(user_id: str = Depends(get_current_user)):
     """Get consolidated risk lock status for current user."""
@@ -461,6 +544,103 @@ async def reset_bodyguard_lock(
         raise
     except Exception as e:
         logger.error(f"Error resetting bodyguard lock: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/risk/circuit-breaker/reset")
+async def reset_circuit_breaker(
+    confirmation: str,
+    bot_id: Optional[str] = None,
+    target_user_id: Optional[str] = None,
+    reason: Optional[str] = "Admin manual reset",
+    user_id: str = Depends(get_current_user),
+):
+    """Reset circuit-breaker quarantine for a specific bot or all bots of a user (ADMIN ONLY).
+
+    Requires confirmation token: ``RESET_CIRCUIT_BREAKER``
+
+    Body / query params:
+        confirmation: Must be ``RESET_CIRCUIT_BREAKER``
+        bot_id: (optional) specific bot to reset
+        target_user_id: (optional) user whose bots to reset (defaults to caller)
+        reason: (optional) audit reason string
+    """
+    try:
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not user.get("is_admin", False):
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+
+        if confirmation != "RESET_CIRCUIT_BREAKER":
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid confirmation token. Must be 'RESET_CIRCUIT_BREAKER'",
+            )
+
+        reset_user = target_user_id or user_id
+
+        query = {
+            "user_id": reset_user,
+            "status": "quarantined",
+            "requires_manual_reset": True,
+        }
+        if bot_id:
+            query["id"] = bot_id
+
+        update_result = await db.bots_collection.update_many(
+            query,
+            {
+                "$set": {
+                    "status": "paused",
+                    "requires_manual_reset": False,
+                    "paused_by_system": False,
+                    "circuit_breaker_reset_at": datetime.now(timezone.utc).isoformat(),
+                    "circuit_breaker_reset_by": user_id,
+                    "circuit_breaker_reset_reason": reason,
+                },
+                "$unset": {
+                    "quarantine_reason": "",
+                    "quarantined_at": "",
+                    "retraining_until": "",
+                },
+            },
+        )
+
+        audit_entry = {
+            "id": f"audit_{datetime.now(timezone.utc).timestamp()}",
+            "user_id": user_id,
+            "action": "reset_circuit_breaker",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "details": {
+                "target_user_id": reset_user,
+                "bot_id": bot_id,
+                "reason": reason,
+                "bots_reset": update_result.modified_count,
+            },
+        }
+        await db.audit_logs_collection.insert_one(audit_entry)
+
+        try:
+            from realtime_events import rt_events
+            await rt_events.lock_reset(reset_user, "circuit_breaker")
+        except Exception as e:
+            logger.warning(f"Failed to emit circuit breaker reset event: {e}")
+
+        return {
+            "success": True,
+            "message": "Circuit breaker quarantine reset",
+            "user_id": reset_user,
+            "bot_id": bot_id,
+            "bots_reset": update_result.modified_count,
+            "audit_id": audit_entry["id"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting circuit breaker: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

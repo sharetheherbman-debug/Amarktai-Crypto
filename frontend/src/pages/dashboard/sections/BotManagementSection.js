@@ -478,6 +478,28 @@ export default function BotManagementSection({
                               )}
                             </div>
                             <div className="bot-detail-actions">
+                              {editingBotId === selectedBot.id ? (
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: '100%' }}>
+                                  <input
+                                    type="text"
+                                    value={editingBotName}
+                                    onChange={(e) => setEditingBotName(e.target.value)}
+                                    placeholder="New bot name"
+                                    style={{ flex: 1, padding: '0.25rem 0.5rem' }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleRenameBotSubmit(selectedBot.id);
+                                      if (e.key === 'Escape') { setEditingBotId(null); setEditingBotName(''); }
+                                    }}
+                                    autoFocus
+                                  />
+                                  <button onClick={() => handleRenameBotSubmit(selectedBot.id)}>Save</button>
+                                  <button onClick={() => { setEditingBotId(null); setEditingBotName(''); }}>Cancel</button>
+                                </div>
+                              ) : (
+                                <button onClick={() => { setEditingBotId(selectedBot.id); setEditingBotName(selectedBot.name || ''); }}>
+                                  ✏️ Rename
+                                </button>
+                              )}
                               {selectedIsPaused && (
                                 <button onClick={() => handleResumeBot(selectedBot.id)}>
                                   ▶ Resume
