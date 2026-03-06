@@ -2595,8 +2595,8 @@ export default function useDashboardState(navigate) {
       const message = `🔮 Daily AI Insights\n\n` +
         `📊 Active Bots: ${result?.activeBots ?? 0}\n` +
         `💹 Today's Trades: ${result?.todaysTrades ?? 0}\n` +
-        `💰 Total Profit: R${result?.totalProfit?.toFixed(2) ?? '0.00'}\n` +
-        `🎯 Win Rate: ${result?.winRate?.toFixed(1) ?? '0.0'}%\n\n` +
+        `💰 Total Profit: R${(result?.totalProfit?.toFixed(2)) ?? '0.00'}\n` +
+        `🎯 Win Rate: ${(result?.winRate?.toFixed(1)) ?? '0.0'}%\n\n` +
         `⏱️ Generated: ${new Date().toLocaleTimeString()}`;
 
       setChatMessages(prev => [...prev, { 
