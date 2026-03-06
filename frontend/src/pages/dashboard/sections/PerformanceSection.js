@@ -3,10 +3,10 @@ import BotRadarSection from './BotRadarSection';
 import CoinStatsPanel from './CoinStatsPanel';
 import HuggingFacePanel from './HuggingFacePanel';
 
-export default function PerformanceSection({ axiosConfig, ...profitsProps }) {
+export default function PerformanceSection({ axiosConfig, ...performanceProps }) {
   return (
     <section className="section active">
-      <ProfitsSection {...profitsProps} />
+      <ProfitsSection {...performanceProps} />
       <div className="subsection-gap">
         <BotRadarSection axiosConfig={axiosConfig} />
       </div>
