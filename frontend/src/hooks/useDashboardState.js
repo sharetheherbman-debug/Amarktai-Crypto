@@ -678,38 +678,16 @@ export default function useDashboardState(navigate) {
 
   useEffect(() => {
     if (!isPaperResetMode) {
-      return undefined;
-    }
-    if (!paperResetPassword) {
+      setPaperResetPassword('');
       setPaperResetValid(false);
       setPaperResetError('');
       return undefined;
     }
-    const timer = setTimeout(async () => {
-      try {
-        setPaperResetChecking(true);
-        const response = await axios.post(
-          `${API}/system/paper-reset/validate`,
-          { password: paperResetPassword },
-          axiosConfig
-        );
-        const isValid = Boolean(response?.data?.valid);
-        setPaperResetValid(isValid);
-        setPaperResetError(isValid ? '' : 'Confirmation password does not match.');
-      } catch (err) {
-        const statusCode = err.response?.status;
-        setPaperResetValid(false);
-        if (statusCode === 404 || statusCode === 501) {
-          setPaperResetError('Reset not available in this build.');
-        } else {
-          setPaperResetError('Password validation failed. Please try again.');
-        }
-      } finally {
-        setPaperResetChecking(false);
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [paperResetPassword, isPaperResetMode, axiosConfig]);
+    const isMatch = paperResetPassword === 'RESET PAPER MODE';
+    setPaperResetValid(isMatch);
+    setPaperResetError(paperResetPassword && !isMatch ? 'Type exactly: RESET PAPER MODE' : '');
+    return undefined;
+  }, [paperResetPassword, isPaperResetMode]);
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -2015,14 +1993,14 @@ export default function useDashboardState(navigate) {
   };
 
   const handlePaperReset = async () => {
-    if (!paperResetPassword) {
-      setPaperResetError('Enter the confirmation password to continue.');
+    if (paperResetPassword !== 'RESET PAPER MODE') {
+      setPaperResetError('Type exactly: RESET PAPER MODE to confirm.');
       return;
     }
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
+      await axios.post(`${API}/system/paper-reset`, {}, axiosConfig);
       toast.success('Paper session reset completed.');
       setPaperResetPassword('');
       setShowPaperResetModal(false);

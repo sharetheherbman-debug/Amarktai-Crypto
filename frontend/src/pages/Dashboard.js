@@ -250,6 +250,7 @@ export default function Dashboard() {
 
   const renderWelcome = () => (
     <WelcomeSection
+      axiosConfig={axiosConfig}
       user={user}
       showSection={showSection}
       showAITools={showAITools}

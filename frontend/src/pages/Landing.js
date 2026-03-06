@@ -99,6 +99,37 @@ export default function Landing() {
 
       {/* LEFT — Brand + CTAs */}
       <div className="auth-left">
+        <div className="landing-particles" aria-hidden="true">
+          {[
+            {left:'8%',  top:'72%', size:5,  dur:9,  delay:0,    drift:-140, op:0.65},
+            {left:'18%', top:'80%', size:3,  dur:7,  delay:1.2,  drift:-110, op:0.5},
+            {left:'28%', top:'65%', size:7,  dur:11, delay:0.5,  drift:-160, op:0.75},
+            {left:'38%', top:'85%', size:4,  dur:8,  delay:2.1,  drift:-130, op:0.6},
+            {left:'50%', top:'75%', size:6,  dur:10, delay:0.8,  drift:-150, op:0.7},
+            {left:'62%', top:'70%', size:3,  dur:7,  delay:3.0,  drift:-100, op:0.45},
+            {left:'72%', top:'82%', size:5,  dur:9,  delay:1.5,  drift:-135, op:0.65},
+            {left:'82%', top:'60%', size:8,  dur:12, delay:0.3,  drift:-170, op:0.8},
+            {left:'12%', top:'40%', size:4,  dur:8,  delay:4.0,  drift:-120, op:0.55},
+            {left:'45%', top:'55%', size:3,  dur:6,  delay:2.5,  drift:-90,  op:0.4},
+            {left:'88%', top:'88%', size:6,  dur:10, delay:1.0,  drift:-145, op:0.7},
+            {left:'55%', top:'92%', size:4,  dur:8,  delay:3.5,  drift:-115, op:0.55},
+          ].map((p, i) => (
+            <span
+              key={i}
+              className="landing-particle"
+              style={{
+                left: p.left,
+                top: p.top,
+                width: p.size,
+                height: p.size,
+                '--dur': `${p.dur}s`,
+                '--delay': `${p.delay}s`,
+                '--drift': `${p.drift}px`,
+                '--max-opacity': p.op,
+              }}
+            />
+          ))}
+        </div>
         <div className="auth-content landing-hero-content">
           <img src="/assets/logo.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
           <h1 className="landing-headline">

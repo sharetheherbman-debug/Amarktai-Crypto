@@ -1,5 +1,41 @@
 /* Landing — video right, content left — matches auth layout */
 
+/* CSS Particles — desktop only, rendered behind content */
+.landing-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.landing-particle {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, #60a5fa, #3b82f6 40%, rgba(59,130,246,0) 75%);
+  opacity: 0;
+  animation: particleFloat var(--dur, 8s) var(--delay, 0s) ease-in-out infinite;
+}
+
+@keyframes particleFloat {
+  0%   { transform: translateY(0) scale(1);   opacity: 0; }
+  15%  { opacity: var(--max-opacity, 0.7); }
+  50%  { transform: translateY(calc(var(--drift, -120px))) scale(1.15); opacity: var(--max-opacity, 0.7); }
+  85%  { opacity: 0.1; }
+  100% { transform: translateY(calc(var(--drift, -120px) * 1.6)) scale(0.85); opacity: 0; }
+}
+
+@keyframes particleSparkle {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(96,165,250,0.5); }
+  50%       { box-shadow: 0 0 12px 3px rgba(34,211,238,0.8); }
+}
+
+.landing-particle { animation: particleFloat var(--dur, 8s) var(--delay, 0s) ease-in-out infinite, particleSparkle calc(var(--dur, 8s) * 0.6) var(--delay, 0s) ease-in-out infinite; }
+
+@media (max-width: 900px) {
+  .landing-particles { display: none; }
+}
+
 .landing-hero-content {
   display: flex;
   flex-direction: column;
