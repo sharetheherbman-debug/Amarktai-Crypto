@@ -1,25 +1,28 @@
 export const NAV = {
-  HOME: 'home',
-  AI_COMMAND: 'ai-command',
-  BOT_OPERATIONS: 'bot-operations',
-  TRADING_MONITOR: 'trading-monitor',
-  PERFORMANCE: 'performance',
+  OVERVIEW: 'overview',            // logo click only — not in nav
+  WELCOME: 'welcome',              // AI page
+  API_SETUP: 'api-setup',
+  BOT_MANAGEMENT: 'bot-management',
+  SYSTEM_MODE: 'system-mode',
+  PROFITS_PERFORMANCE: 'profits-performance',
+  LIVE_TRADES: 'live-trades',
   COUNTDOWN: 'countdown',
-  WALLET_TREASURY: 'wallet-treasury',
-  PROFILE_CONTROLS: 'profile-controls',
-  ADMIN_TRUTH: 'admin-truth',
+  WALLET_HUB: 'wallet-hub',
+  PROFILE: 'profile',
+  HIDDEN_ADMIN: 'hidden-admin',
 };
 
 export const NAV_LABELS = {
-  [NAV.HOME]: '🏠 Home',
-  [NAV.AI_COMMAND]: '🤖 AI Command',
-  [NAV.BOT_OPERATIONS]: '⚙️ Bot Operations',
-  [NAV.TRADING_MONITOR]: '📡 Trading Monitor',
-  [NAV.PERFORMANCE]: '💹 Performance',
+  [NAV.WELCOME]: '🤖 Welcome',
+  [NAV.API_SETUP]: '🔑 API Setup',
+  [NAV.BOT_MANAGEMENT]: '⚙️ Bot Management',
+  [NAV.SYSTEM_MODE]: '🎛️ System Mode',
+  [NAV.PROFITS_PERFORMANCE]: '💹 Profits & Performance',
+  [NAV.LIVE_TRADES]: '📡 Live Trades',
   [NAV.COUNTDOWN]: '⏱️ Countdown',
-  [NAV.WALLET_TREASURY]: '💰 Wallet & Treasury',
-  [NAV.PROFILE_CONTROLS]: '👤 Profile & Controls',
-  [NAV.ADMIN_TRUTH]: '🔧 Admin & Truth',
+  [NAV.WALLET_HUB]: '💰 Wallet Hub',
+  [NAV.PROFILE]: '👤 Profile',
+  [NAV.HIDDEN_ADMIN]: '🔧 Admin',
 };
 
 export const BOT_TAB = {
