@@ -34,10 +34,10 @@ export default function TradingMonitorSection({
         tradeExchangeFilter={tradeExchangeFilter}
         tradePairFilter={tradePairFilter}
       />
-      <div style={{ marginTop: '16px' }}>
+      <div className="subsection-gap">
         <BotRadarSection axiosConfig={axiosConfig} />
       </div>
-      <div style={{ marginTop: '16px' }}>
+      <div className="subsection-gap">
         <ExchangeStatusSection axiosConfig={axiosConfig} />
       </div>
     </section>

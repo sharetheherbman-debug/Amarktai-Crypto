@@ -51,12 +51,12 @@ export default function AiCommandSection({
           setShowAITools={setShowAITools}
           showAITools={showAITools}
         />
-        <div style={{ marginTop: '24px' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#3B82F6', marginBottom: '16px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Market Intelligence</h3>
+        <div className="subsection-gap">
+          <h3 className="subsection-label subsection-label--blue">Market Intelligence</h3>
           <CoinStatsPanel axiosConfig={axiosConfig} />
         </div>
-        <div style={{ marginTop: '24px' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#06B6D4', marginBottom: '16px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>HuggingFace AI</h3>
+        <div className="subsection-gap">
+          <h3 className="subsection-label subsection-label--cyan">HuggingFace AI</h3>
           <HuggingFacePanel axiosConfig={axiosConfig} />
         </div>
       </div>

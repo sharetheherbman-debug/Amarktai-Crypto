@@ -11,18 +11,16 @@ export default function HomeSection({ countdown, showSection, ...overviewProps }
     <div>
       <OverviewSection {...overviewProps} />
       {countdown && (
-        <section className="section active" style={{ marginTop: '16px' }}>
-          <div className="card" style={{ cursor: 'pointer' }} onClick={() => showSection(NAV.COUNTDOWN)}>
+        <section className="section active subsection-gap">
+          <div className="card countdown-summary-card" onClick={() => showSection(NAV.COUNTDOWN)}>
             <SectionHeader title="⏱️ Countdown Progress" subtitle="Click to open full Countdown section." />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '8px 0' }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '8px', height: '12px', overflow: 'hidden' }}>
-                  <div style={{ width: `${pct ?? 0}%`, height: '100%', background: 'linear-gradient(90deg, #3B82F6, #06B6D4)', borderRadius: '8px', transition: 'width 0.5s ease' }} />
-                </div>
+            <div className="countdown-progress-row">
+              <div className="countdown-progress-track">
+                <div className="countdown-progress-fill" style={{ width: `${pct ?? 0}%` }} />
               </div>
-              <span style={{ fontSize: '0.9rem', color: '#3B82F6', fontWeight: 700 }}>{pct ?? '—'}%</span>
+              <span className="countdown-progress-pct">{pct ?? '—'}%</span>
             </div>
-            {countdown.label && <p style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>{countdown.label}</p>}
+            {countdown.label && <p className="countdown-progress-label">{countdown.label}</p>}
           </div>
         </section>
       )}

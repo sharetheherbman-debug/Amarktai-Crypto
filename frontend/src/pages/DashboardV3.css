@@ -2538,3 +2538,53 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   border: 1px solid rgba(56, 189, 248, 0.15);
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.06), inset 0 1px 0 rgba(255,255,255,0.04);
 }
+
+/* Composite section spacing */
+.subsection-gap {
+  margin-top: 16px;
+}
+
+/* Subsection heading labels */
+.subsection-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.subsection-label--blue { color: #3B82F6; }
+.subsection-label--cyan { color: #06B6D4; }
+
+/* Countdown progress bar (Home summary card) */
+.countdown-summary-card {
+  cursor: pointer;
+}
+.countdown-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+.countdown-progress-track {
+  flex: 1;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  height: 12px;
+  overflow: hidden;
+}
+.countdown-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3B82F6, #06B6D4);
+  border-radius: 8px;
+  transition: width 0.5s ease;
+}
+.countdown-progress-pct {
+  font-size: 0.9rem;
+  color: #3B82F6;
+  font-weight: 700;
+}
+.countdown-progress-label {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.5);
+  margin-top: 4px;
+}

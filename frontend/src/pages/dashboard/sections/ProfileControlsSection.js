@@ -44,7 +44,7 @@ export default function ProfileControlsSection({
         handleProfileSave={handleProfileSave}
         handleEmergencyStop={handleEmergencyStop}
       />
-      <div style={{ marginTop: '16px' }}>
+      <div className="subsection-gap">
         <SystemModeSection
           bots={bots}
           handleEmergencyStop={handleEmergencyStop}
@@ -65,7 +65,7 @@ export default function ProfileControlsSection({
           toggleSystemMode={toggleSystemMode}
         />
       </div>
-      <div style={{ marginTop: '16px' }}>
+      <div className="subsection-gap">
         <ApiSetupSection />
       </div>
     </section>

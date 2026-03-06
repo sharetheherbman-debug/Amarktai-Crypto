@@ -12,7 +12,7 @@ export default function AdminTruthSection({ axiosConfig, ...adminProps }) {
         />
       </div>
       <AdminPanelSection {...adminProps} axiosConfig={axiosConfig} />
-      <div style={{ marginTop: '16px' }}>
+      <div className="subsection-gap">
         <TruthConsoleSection axiosConfig={axiosConfig} />
       </div>
     </section>
