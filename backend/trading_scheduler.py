@@ -22,6 +22,7 @@ from services.live_gate_service import live_gate_service
 from utils.trading_gates import TradingGateError, enforce_live_trading_gates
 from utils.trading_mode import resolve_bot_trading_mode
 from services.bot_runtime_state import bot_runtime_state
+from services.risk_lock_service import risk_lock_service
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class BotPauseReason:
     BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"  # Trading budget exhausted
     USER_PAUSED = "USER_PAUSED"  # Manually paused by user
     UNSUPPORTED_EXCHANGE = "UNSUPPORTED_EXCHANGE"  # Exchange not supported for paper trading
+    DAILY_LOSS_LOCK = "DAILY_LOSS_LOCK"  # Daily loss limit reached — locked until midnight UTC
 
 
 def _is_paper_bot(bot: dict) -> bool:
@@ -171,13 +173,22 @@ class TradingScheduler:
                     elif modes.get('emergencyStop', False):
                         users_with_trading[user_id] = False
                         users_pause_reasons[user_id] = BotPauseReason.EMERGENCY_STOP
-                    elif not modes.get('autopilot'):
-                        users_with_trading[user_id] = False
-                        users_pause_reasons[user_id] = BotPauseReason.MODE_DISABLED
                     else:
-                        # Autopilot is ON and no emergency stop
-                        users_with_trading[user_id] = True
-                        users_pause_reasons[user_id] = None
+                        # Check daily loss lock (blocks ALL bots for this user today)
+                        try:
+                            locked, _lock_reason = await risk_lock_service.is_locked_today(user_id)
+                        except Exception:
+                            locked = False
+                        if locked:
+                            users_with_trading[user_id] = False
+                            users_pause_reasons[user_id] = BotPauseReason.DAILY_LOSS_LOCK
+                        elif not modes.get('autopilot'):
+                            users_with_trading[user_id] = False
+                            users_pause_reasons[user_id] = BotPauseReason.MODE_DISABLED
+                        else:
+                            # Autopilot is ON and no emergency stop or loss lock
+                            users_with_trading[user_id] = True
+                            users_pause_reasons[user_id] = None
             
             # Update system_state to reflect paper trading status
             for user_id in users_with_trading.keys():

@@ -90,10 +90,10 @@
   100% { transform: translateX(60%); }
 }
 
-/* ── Logo in card ── */
+/* ── Logo in card — same size as Landing hero logo ── */
 .card-logo {
-  width: 80px;
-  height: 80px;
+  width: 140px;
+  height: 140px;
   cursor: pointer;
   border-radius: 50%;
   flex-shrink: 0;

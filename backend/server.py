@@ -231,7 +231,16 @@ async def lifespan(app: FastAPI):
         logger.info("💰 Balance Sync Service started")
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
-    
+
+    # Start Daily Loss Lock Auto-Reset Job
+    # Clears stale daily_loss_lock_active flags at startup and then again at 00:00:01 UTC each day.
+    try:
+        from jobs.daily_loss_reset import run_daily_loss_reset_loop
+        asyncio.create_task(run_daily_loss_reset_loop(db.db))
+        logger.info("🔓 Daily Loss Lock Auto-Reset Job started (midnight UTC scheduler)")
+    except Exception as e:
+        logger.warning(f"Could not start Daily Loss Lock Auto-Reset Job: {e}")
+
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint

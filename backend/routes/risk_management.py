@@ -331,22 +331,11 @@ async def admin_reset_risk_lock(
         # Check if lock is currently active
         was_locked = user.get("daily_loss_lock_active", False)
         
-        # Reset the lock (idempotent operation)
-        result = await db.users_collection.update_one(
-            {"id": user_id},
-            {
-                "$set": {
-                    "daily_loss_lock_active": False,
-                    "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
-                    "daily_loss_lock_reset_by": user_id
-                },
-                "$unset": {
-                    "daily_loss_locked_at": "",
-                    "daily_loss_locked_reason": "",
-                    "daily_loss_pct": "",
-                    "daily_loss_day_key": ""
-                }
-            }
+        # Reset the lock via canonical service (idempotent)
+        from services.risk_lock_service import risk_lock_service
+        await risk_lock_service.clear_daily_loss_lock(
+            user_id,
+            cleared_by=f"admin:{user_id}",
         )
         
         # Emit realtime event
@@ -413,26 +402,12 @@ async def reset_daily_loss_lock(
                 detail="Invalid confirmation token. Must be 'RESET_RISK_LOCK'"
             )
         
-        # Reset the lock for the user
-        result = await db.users_collection.update_one(
-            {"id": user_id},
-            {
-                "$set": {
-                    "daily_loss_lock_active": False,
-                    "daily_loss_lock_reset_at": datetime.now(timezone.utc).isoformat(),
-                    "daily_loss_lock_reset_by": user_id
-                },
-                "$unset": {
-                    "daily_loss_locked_at": "",
-                    "daily_loss_locked_reason": "",
-                    "daily_loss_pct": "",
-                    "daily_loss_day_key": ""
-                }
-            }
+        # Reset the lock via canonical service
+        from services.risk_lock_service import risk_lock_service
+        await risk_lock_service.clear_daily_loss_lock(
+            user_id,
+            cleared_by=f"admin:{user_id}",
         )
-        
-        if result.modified_count == 0:
-            logger.warning(f"No lock found to reset for user {user_id}")
         
         # Create audit log entry
         audit_entry = {

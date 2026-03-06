@@ -1652,3 +1652,55 @@ async def frontend_contract():
             "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"
         ],
     }
+
+
+@router.get("/daily-loss-status")
+async def get_daily_loss_status(user_id: str = Depends(get_current_user)):
+    """
+    Diagnostics: Daily loss lock state for the current user.
+
+    Returns:
+      - lock_active: whether the daily loss lock is currently set
+      - day_key: the UTC date when the lock was triggered
+      - is_stale: True if day_key != today's UTC date (lock will auto-clear)
+      - locked_reason: human-readable reason
+      - locked_at: timestamp of lock activation
+      - today_utc: today's UTC date string (YYYY-MM-DD)
+    """
+    try:
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        user = await db.users_collection.find_one(
+            {"id": user_id},
+            {
+                "_id": 0,
+                "daily_loss_lock_active": 1,
+                "daily_loss_day_key": 1,
+                "daily_loss_locked_at": 1,
+                "daily_loss_locked_reason": 1,
+                "daily_loss_pct": 1,
+                "daily_loss_lock_reset_at": 1,
+                "daily_loss_lock_reset_by": 1,
+            },
+        )
+        if not user:
+            return {"error": "User not found", "today_utc": today}
+
+        lock_active = bool(user.get("daily_loss_lock_active", False))
+        day_key = user.get("daily_loss_day_key", "")
+        is_stale = lock_active and (not day_key or day_key != today)
+
+        return {
+            "lock_active": lock_active,
+            "day_key": day_key or None,
+            "is_stale": is_stale,
+            "locked_reason": user.get("daily_loss_locked_reason") if lock_active else None,
+            "locked_at": user.get("daily_loss_locked_at") if lock_active else None,
+            "daily_loss_pct": user.get("daily_loss_pct") if lock_active else None,
+            "last_reset_at": user.get("daily_loss_lock_reset_at"),
+            "last_reset_by": user.get("daily_loss_lock_reset_by"),
+            "today_utc": today,
+        }
+    except Exception as exc:
+        logger.error(f"daily-loss-status error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
