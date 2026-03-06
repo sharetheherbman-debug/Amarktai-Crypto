@@ -1207,14 +1207,12 @@ export default function useDashboardState(navigate) {
 
   const loadOverviewData = async () => {
     try {
-      const [snapshotResult, paperWalletResult, modeResult, tradesResult, autonomyResult, aiResult, learningResult] = await Promise.allSettled([
+      const [snapshotResult, paperWalletResult, modeResult, tradesResult, autonomyResult] = await Promise.allSettled([
         get('/overview/snapshot'),
         get('/wallet/paper'),
         get('/system/mode'),
         get('/trades/recent?limit=1'),
-        get('/autonomy/status'),
-        get('/ai/status'),
-        get('/learning/status')
+        get('/autonomy/status')
       ]);
 
       const snapshotRes = snapshotResult.status === 'fulfilled' ? snapshotResult.value : {};
@@ -1222,8 +1220,6 @@ export default function useDashboardState(navigate) {
       const modeRes = modeResult.status === 'fulfilled' ? modeResult.value : {};
       const tradesRes = tradesResult.status === 'fulfilled' ? tradesResult.value : {};
       const autonomyRes = autonomyResult.status === 'fulfilled' ? autonomyResult.value : null;
-      const aiRes = aiResult.status === 'fulfilled' ? aiResult.value : null;
-      const learningRes = learningResult.status === 'fulfilled' ? learningResult.value : null;
 
       const totalProfit = safeNumber(snapshotRes?.totalProfit, 0);
       const todaysTrades = safeNumber(snapshotRes?.todaysTrades, 0);
@@ -1252,8 +1248,6 @@ export default function useDashboardState(navigate) {
         nextReinvest: snapshotRes?.nextReinvest || 'Not available'
       });
       setAutonomyStatus(autonomyRes);
-      setAiStatus(aiRes);
-      setLearningStatus(learningRes);
     } catch (err) {
       console.error('Overview data fetch error:', err);
     }
@@ -2617,19 +2611,22 @@ export default function useDashboardState(navigate) {
     try {
       setAiTaskLoading('insights');
       toast.info('🔮 Generating AI insights...');
-      
-      const result = await get('/ai/insights');
-      
+
+      const result = await get('/overview/snapshot');
+
       const message = `🔮 Daily AI Insights\n\n` +
-        `${result.insights || 'No insights available at this time.'}\n\n` +
+        `📊 Active Bots: ${result?.activeBots ?? 0}\n` +
+        `💹 Today's Trades: ${result?.todaysTrades ?? 0}\n` +
+        `💰 Total Profit: R${result?.totalProfit?.toFixed(2) ?? '0.00'}\n` +
+        `🎯 Win Rate: ${result?.winRate?.toFixed(1) ?? '0.0'}%\n\n` +
         `⏱️ Generated: ${new Date().toLocaleTimeString()}`;
-      
+
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
         type: 'system',
         content: message 
       }]);
-      
+
       toast.success('✅ Insights generated!');
     } catch (err) {
       const errorMsg = err.message || 'Failed to get insights';

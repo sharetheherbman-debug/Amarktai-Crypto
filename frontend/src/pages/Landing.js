@@ -100,15 +100,15 @@ export default function Landing() {
       {/* LEFT — Brand + CTAs */}
       <div className="auth-left">
         <div className="auth-content landing-hero-content">
-          <img src="/assets/logo.png" alt="Amarktai Network" className="auth-logo landing-logo-lg" />
+          <img src="/assets/logo.png" alt="Amarktai Crypto" className="auth-logo landing-logo-lg" />
           <h1 className="landing-headline">
             <Brand size="lg" />
-            {' '}Network
+            {' '}Crypto
           </h1>
-          <p className="landing-subheadline">Real-Time AI Trading, Built for Control</p>
+          <p className="landing-subheadline">Self-learning, self-healing AI trading bots that reinvest daily for maximum growth.</p>
           <div className="landing-cta">
             <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn landing-primary-btn">
-              Launch Dashboard
+              Login
             </Button>
             <Button onClick={() => navigate('/register')} className="auth-submit-btn landing-cta-btn landing-register-btn">
               Create Account
@@ -128,7 +128,6 @@ export default function Landing() {
         >
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
-        <div className="auth-overlay" />
       </div>
 
       <SiteFooter />

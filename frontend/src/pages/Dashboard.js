@@ -33,7 +33,6 @@ import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection'
 import BotRadarSection from './dashboard/sections/BotRadarSection';
 import ExchangeStatusSection from './dashboard/sections/ExchangeStatusSection';
 import TruthConsoleSection from './dashboard/sections/TruthConsoleSection';
-import ScalperBotsPanel from './dashboard/sections/ScalperBotsPanel';
 import CoinStatsPanel from './dashboard/sections/CoinStatsPanel';
 import HuggingFacePanel from './dashboard/sections/HuggingFacePanel';
 import '../styles/radar-exchange.css';
@@ -484,6 +483,7 @@ export default function Dashboard() {
       handleBotSetup={handleBotSetup}
       botControlLoading={botControlLoading}
       handleRenameBotSubmit={handleRenameBotSubmit}
+      axiosConfig={axiosConfig}
     />
   );
 
@@ -495,20 +495,18 @@ export default function Dashboard() {
         <aside className="sidebar">
           <img
             src="/assets/logo.png"
-            className="logo"
+            className="logo sidebar-logo"
             alt="Amarktai Crypto"
             onClick={() => showSection('overview')}
             style={{ cursor: 'pointer' }}
           />
+          <div className="sidebar-brand-text">AMARKTAI CRYPTO AI</div>
           <nav className="nav" key={`nav-${showAdmin}`}>
-            <a href="#" className={activeSection === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('overview'); }}>📈 Overview</a>
             <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
             <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
             <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
-            <a href="#" className={activeSection === 'scalper' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('scalper'); }}>⚡ Scalper Bots</a>
             <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
             <a href="#" className={activeSection === 'radar' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('radar'); }}>📡 Bot Radar</a>
-            <a href="#" className={activeSection === 'intelligence' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('intelligence'); }}>🔗 Market Intel</a>
             <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
             <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📋 Live Trades</a>
             <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
@@ -582,11 +580,6 @@ export default function Dashboard() {
         {activeSection === 'bots' && (
           <ErrorBoundary title="Bot Management section error" message="Unable to load Bot Management section.">
             {renderBots()}
-          </ErrorBoundary>
-        )}
-        {activeSection === 'scalper' && (
-          <ErrorBoundary title="Scalper Bots section error" message="Unable to load Scalper Bots section.">
-            <ScalperBotsPanel axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
         {activeSection === 'system' && (
