@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import SiteFooter from '../components/SiteFooter';
+import NeuralBackground from '../components/NeuralBackground';
 import './Auth.css';
 import './Landing.css';
 import { post } from '../lib/apiClient';
@@ -72,18 +73,19 @@ export default function Login() {
   };
 
   return (
-    <div className="auth-container">
-      {/* Left Column - Content */}
-      <div className="auth-left">
-        <div className="auth-content">
+    <div className="neural-page">
+      <NeuralBackground />
+
+      <div className="neural-center">
+        <div className="neural-card">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
-            className="auth-logo landing-logo-lg"
+            className="auth-logo logo-float"
             onClick={() => navigate('/')}
           />
-          
-          <h1 className="auth-title">Login</h1>
+
+          <h1 className="auth-title">Login to Amarktai</h1>
           <p className="auth-step" aria-label={`Step ${step} of 2: ${step === 1 ? 'Enter your email' : 'Enter your password'}`}>Step {step} of 2</p>
 
           <form onSubmit={handleSubmit} className="auth-form">
@@ -156,24 +158,12 @@ export default function Login() {
           </form>
 
           <p className="auth-alt-link">
-            Don't have an account?{' '}
-            <span onClick={() => navigate('/register')} className="link">Register</span>
+            No account?{' '}
+            <span onClick={() => navigate('/register')} className="link">Create one</span>
           </p>
         </div>
       </div>
 
-      {/* Right Column - Video */}
-      <div className="auth-right">
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster="/assets/poster.jpg"
-        >
-          <source src="/assets/background.mp4" type="video/mp4" />
-        </video>
-      </div>
       <SiteFooter />
     </div>
   );

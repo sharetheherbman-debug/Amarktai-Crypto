@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import SiteFooter from '../components/SiteFooter';
+import NeuralBackground from '../components/NeuralBackground';
 import { post } from '@/lib/apiClient';
 import './Auth.css';
 import './Landing.css';
@@ -84,17 +85,18 @@ export default function Register() {
   };
 
   return (
-    <div className="auth-container">
-      {/* Left Column - Content */}
-      <div className="auth-left">
-        <div className="auth-content">
+    <div className="neural-page">
+      <NeuralBackground />
+
+      <div className="neural-center">
+        <div className="neural-card">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
-            className="auth-logo landing-logo-lg"
+            className="auth-logo logo-float"
             onClick={() => navigate('/')}
           />
-          
+
           <h1 className="auth-title">Create Account</h1>
           <p className="auth-step">Step {step} of 4</p>
 
@@ -268,18 +270,6 @@ export default function Register() {
         </div>
       </div>
 
-      {/* Right Column - Video */}
-      <div className="auth-right">
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          poster="/assets/poster.jpg"
-        >
-          <source src="/assets/background.mp4" type="video/mp4" />
-        </video>
-      </div>
       <SiteFooter />
     </div>
   );
