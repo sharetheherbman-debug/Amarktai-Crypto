@@ -7,6 +7,7 @@ import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import SiteFooter from '../components/SiteFooter';
 import { post } from '@/lib/apiClient';
 import './Auth.css';
+import './Landing.css';
 
 export default function Register() {
   const [step, setStep] = useState(1);
@@ -86,11 +87,11 @@ export default function Register() {
     <div className="auth-container">
       {/* Left Column - Content */}
       <div className="auth-left">
-        <div className="auth-content bright-glass-panel">
+        <div className="auth-content">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
-            className="auth-logo"
+            className="auth-logo landing-logo-lg"
             onClick={() => navigate('/')}
           />
           
@@ -278,7 +279,6 @@ export default function Register() {
         >
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
-        <div className="auth-overlay" />
       </div>
       <SiteFooter />
     </div>

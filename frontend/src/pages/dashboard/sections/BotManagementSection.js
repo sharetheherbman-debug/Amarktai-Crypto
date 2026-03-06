@@ -77,6 +77,7 @@ const formatDuration = (seconds) => {
 export default function BotManagementSection({
   autoSpawnStatus,
   autopilotReinvestStatus,
+  axiosConfig,
   botDetailTab,
   botManagementTab,
   botStatusFilter,
@@ -260,7 +261,7 @@ export default function BotManagementSection({
         </div>
 
         {botManagementTab === 'scalper' && (
-          <ScalperBotsPanel axiosConfig={{ headers: {} }} />
+          <ScalperBotsPanel axiosConfig={axiosConfig || { headers: {} }} />
         )}
 
         {botManagementTab === 'creation' && (

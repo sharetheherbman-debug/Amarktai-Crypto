@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import SiteFooter from '../components/SiteFooter';
 import './Auth.css';
+import './Landing.css';
 import { post } from '../lib/apiClient';
 
 export default function Login() {
@@ -74,11 +75,11 @@ export default function Login() {
     <div className="auth-container">
       {/* Left Column - Content */}
       <div className="auth-left">
-        <div className="auth-content bright-glass-panel">
+        <div className="auth-content">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
-            className="auth-logo"
+            className="auth-logo landing-logo-lg"
             onClick={() => navigate('/')}
           />
           
@@ -172,7 +173,6 @@ export default function Login() {
         >
           <source src="/assets/background.mp4" type="video/mp4" />
         </video>
-        <div className="auth-overlay" />
       </div>
       <SiteFooter />
     </div>

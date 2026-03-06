@@ -1,30 +1,22 @@
 import SectionHeader from '@/ui/components/SectionHeader';
 
-const NOT_AVAILABLE = 'Not available';
-
 export default function SystemModeSection({
   bots,
-  handleEmergencyStop,
   handlePaperReset,
   handleRiskProfileChange,
-  paperResetChecking,
   paperResetError,
   paperResetLoading,
   paperResetPassword,
-  paperResetValid,
   riskProfile,
   setPaperResetError,
   setPaperResetPassword,
-  setPaperResetValid,
   setShowPaperResetModal,
   showPaperResetModal,
   systemModes,
   toggleSystemMode,
 }) {
-  const hasLiveBots = bots.some(b => b.trading_mode === 'live' && b.status === 'active');
-  const showPaperReset = true;
-  const isPaperResetReady = paperResetValid && !paperResetChecking;
   const isPaperResetMode = systemModes.paperTrading && !systemModes.liveTrading;
+  const isPaperResetReady = paperResetPassword === 'RESET PAPER MODE' && !paperResetLoading;
 
   return (
     <section className="section active">
@@ -80,7 +72,7 @@ export default function SystemModeSection({
             Bodyguard uses this tier to pause bots when drawdown exceeds your selected threshold.
           </div>
         </div>
-        {showPaperReset && (
+        {isPaperResetMode && (
           <div className="system-reset-card">
             <div className="system-reset-header">
               <div>
@@ -89,66 +81,39 @@ export default function SystemModeSection({
                   Clears bots, trades, and analytics snapshots, and resets the paper wallet. Live trading must be off to proceed.
                 </p>
               </div>
-              <span className="system-reset-badge">{isPaperResetMode ? 'Paper-only' : 'Unavailable in Live'}</span>
+              <span className="system-reset-badge">Paper-only</span>
             </div>
             <button
               onClick={() => {
                 setPaperResetError('');
                 setPaperResetPassword('');
-                setPaperResetValid(false);
                 setShowPaperResetModal(true);
               }}
-              disabled={!isPaperResetMode || paperResetLoading}
+              disabled={paperResetLoading}
               className="system-reset-button"
             >
               {paperResetLoading ? 'Resetting...' : 'Reset Runtime'}
             </button>
-            {!isPaperResetMode && (
-              <div className="system-reset-hint">Disable live trading to enable reset.</div>
-            )}
           </div>
         )}
-        <div style={{marginTop: '24px', padding: '16px', background: 'var(--panel)', border: '2px solid var(--error)', borderRadius: '8px'}}>
-          <h3 style={{color: 'var(--error)', marginBottom: '8px'}}>🚨 Emergency Controls</h3>
-          <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
-            Immediately stop ALL bots and trading activity system-wide
-          </p>
-          <button
-            onClick={handleEmergencyStop}
-            style={{
-              padding: '12px 24px',
-              background: 'var(--error)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: 700,
-              fontSize: '1rem',
-              cursor: 'pointer',
-              width: '100%',
-              maxWidth: '300px'
-            }}
-          >
-            🚨 EMERGENCY STOP
-          </button>
-        </div>
       </div>
       {showPaperResetModal && (
         <div className="modal-overlay" onClick={() => setShowPaperResetModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3 style={{marginTop: 0}}>Confirm Paper Reset</h3>
             <p style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
-              Enter the confirmation password to reset paper bots, trades, and training funds.
+              Type the confirmation phrase to reset paper bots, trades, and training funds.
             </p>
             <div className="system-reset-input" style={{marginTop: '16px'}}>
-              <label htmlFor="paper-reset-password-modal">Confirmation Password</label>
+              <label htmlFor="paper-reset-confirm-modal">Confirmation Phrase</label>
               <input
-                id="paper-reset-password-modal"
-                type="password"
+                id="paper-reset-confirm-modal"
+                type="text"
                 value={paperResetPassword}
                 onChange={(e) => setPaperResetPassword(e.target.value)}
-                placeholder="Enter confirmation password"
+                placeholder="Type RESET PAPER MODE to confirm"
               />
-              <span className="system-reset-hint">Reset remains unavailable in live trading.</span>
+              <span className="system-reset-hint">Type exactly: RESET PAPER MODE</span>
             </div>
             {paperResetError && (
               <div className="system-reset-error">
@@ -161,15 +126,14 @@ export default function SystemModeSection({
                 onClick={handlePaperReset}
                 disabled={!isPaperResetReady || paperResetLoading}
               >
-                {paperResetLoading ? 'Resetting...' : paperResetChecking ? 'Checking...' : 'Confirm Reset'}
+                {paperResetLoading ? 'Resetting...' : 'Confirm Reset'}
               </button>
               <button
                 onClick={() => {
                   setShowPaperResetModal(false);
                   setPaperResetPassword('');
                   setPaperResetError('');
-                }}
-                style={{
+                }}                style={{
                   padding: '10px 16px',
                   borderRadius: '999px',
                   border: '1px solid var(--line)',

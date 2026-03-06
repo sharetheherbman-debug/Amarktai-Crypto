@@ -1,7 +1,6 @@
 import React from 'react';
 import { Line } from 'react-chartjs-2';
 import SectionHeader from '@/ui/components/SectionHeader';
-import StatCard from '@/ui/components/StatCard';
 import ErrorBoundary from '../../../components/ErrorBoundary';
 
 const NOT_AVAILABLE = 'Not available';
@@ -122,14 +121,6 @@ const ProfitsSection = ({
           subtitle="Track equity, drawdown, and performance metrics across bots."
         />
 
-        <div className="profit-kpi-grid">
-          <StatCard label="Net P&L" value={formatZAR(overviewData?.totalProfit)} />
-          <StatCard label="Win Rate" value={safePercent(overviewData?.winRate, 1)} />
-          <StatCard label="Max Drawdown" value={maxDrawdown !== undefined && maxDrawdown !== null ? `${safeToFixed(maxDrawdown, 2)}%` : NOT_AVAILABLE} />
-          <StatCard label="Trades/Day" value={safeNumber(overviewData?.todaysTrades, 0)} />
-          <StatCard label="Fees" value={feesValue !== null ? formatZAR(feesValue) : NOT_AVAILABLE} />
-        </div>
-        
         {/* Horizontal Sub-tabs */}
         <div className="profit-tabs">
           <button

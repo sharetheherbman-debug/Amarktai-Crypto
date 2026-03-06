@@ -80,26 +80,37 @@ class PaperWalletService:
         }
 
     async def reset(self, user_id: str) -> Dict:
+        """Reset paper wallet for a user, clearing all non-ZAR balances and restoring starting capital."""
         await self.init_db()
+        existing = await self.collection.find_one({"user_id": user_id, "type": "paper"})
+        existing_currencies = list((existing.get("balances") or {}).keys()) if existing else []
+        unset_fields = {f"balances.{c}": "" for c in existing_currencies if c != "ZAR"}
+
+        update = {
+            "$set": {
+                "balances.ZAR": float(PAPER_STARTING_CAPITAL_ZAR),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            },
+            "$setOnInsert": {
+                "user_id": user_id,
+                "type": "paper",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+        if unset_fields:
+            update["$unset"] = unset_fields
+
         result = await self.collection.find_one_and_update(
             {"user_id": user_id, "type": "paper"},
-            {
-                "$set": {
-                    "balances": {"ZAR": 0.0},
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                },
-                "$setOnInsert": {
-                    "user_id": user_id,
-                    "type": "paper",
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-            },
+            update,
             upsert=True,
             return_document=ReturnDocument.AFTER
         )
+        balances = result.get("balances") or {"ZAR": float(PAPER_STARTING_CAPITAL_ZAR)}
+        total = sum(float(v or 0) for v in balances.values())
         return {
-            "balances": result.get("balances") or {"ZAR": 0.0},
-            "total": 0.0
+            "balances": balances,
+            "total": total
         }
 
     async def reserve_funds(self, user_id: str, amount: float, currency: str) -> Tuple[bool, str]:

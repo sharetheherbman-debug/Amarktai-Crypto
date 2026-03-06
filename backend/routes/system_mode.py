@@ -355,7 +355,7 @@ class ModeToggleRequest(BaseModel):
 
 class PaperResetRequest(BaseModel):
     """Request to reset paper trading data"""
-    password: str
+    password: Optional[str] = None
 
 
 async def perform_paper_reset(user_id: str) -> dict:
@@ -684,13 +684,6 @@ async def paper_reset(
 ):
     """Reset all paper trading data for the authenticated user."""
     try:
-        allowed, retry_after = check_paper_reset_attempts(user_id)
-        if not allowed:
-            raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
-        if not is_paper_reset_password_valid(request.password):
-            raise HTTPException(status_code=403, detail="Invalid reset password")
-        reset_paper_reset_attempts(user_id)
-
         current_mode = await get_system_mode(user_id)
         if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
             raise HTTPException(
