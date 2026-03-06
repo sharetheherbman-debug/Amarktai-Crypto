@@ -123,11 +123,40 @@ def _blocked_response(action: str, bot: Optional[Dict], blocker: Dict) -> JSONRe
 async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
     user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
     if user and user.get("daily_loss_lock_active", False):
-        return _build_block_detail(
-            "daily_loss_lock",
-            user.get("daily_loss_locked_reason", "Daily loss lock is active"),
-            "Reset the daily loss lock or contact admin",
-        )
+        # Auto-expire lock if it was set on a previous UTC day
+        from datetime import datetime, timezone
+        today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        stored_day_key = user.get("daily_loss_day_key", "")
+        if stored_day_key and stored_day_key != today_key:
+            # Lock is from a previous day — clear it silently and allow the bot to proceed
+            logger.info(
+                f"[BotBlockers] Auto-expiring stale daily_loss_lock for user {user_id} "
+                f"(lock day={stored_day_key}, today={today_key})"
+            )
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await db.users_collection.update_one(
+                {"id": user_id},
+                {
+                    "$set": {
+                        "daily_loss_lock_active": False,
+                        "daily_loss_lock_reset_at": now_iso,
+                        "daily_loss_lock_reset_by": "system:day_boundary",
+                    },
+                    "$unset": {
+                        "daily_loss_locked_at": "",
+                        "daily_loss_locked_reason": "",
+                        "daily_loss_pct": "",
+                        "daily_loss_day_key": "",
+                    },
+                },
+            )
+            # Do NOT block — lock is expired
+        else:
+            return _build_block_detail(
+                "daily_loss_lock",
+                user.get("daily_loss_locked_reason", "Daily loss lock is active"),
+                "Reset the daily loss lock or contact admin",
+            )
 
     modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
     if modes and modes.get("emergencyStop", False):

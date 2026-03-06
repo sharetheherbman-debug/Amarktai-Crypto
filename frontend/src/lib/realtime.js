@@ -266,12 +266,13 @@ class RealtimeClient {
     this.emit('connection', { status: 'connected', mode: 'polling' });
 
     // Poll different endpoints at different intervals
+    // Use API_BASE so paths work with any deployment config (no double /api/)
     const pollingConfig = [
-      { type: 'trades', endpoint: '/api/trades/recent?limit=50', interval: 5000 },
-      { type: 'bots', endpoint: '/api/bots', interval: 10000 },
-      { type: 'balances', endpoint: '/api/wallet/balances', interval: 15000 },
-      { type: 'metrics', endpoint: '/api/portfolio/summary', interval: 10000 },
-      { type: 'system_health', endpoint: '/api/system/health', interval: 30000 },
+      { type: 'trades', endpoint: `${API_BASE}/trades/recent?limit=50`, interval: 5000 },
+      { type: 'bots', endpoint: `${API_BASE}/bots`, interval: 10000 },
+      { type: 'balances', endpoint: `${API_BASE}/wallet/balances`, interval: 15000 },
+      { type: 'metrics', endpoint: `${API_BASE}/portfolio/summary`, interval: 10000 },
+      { type: 'system_health', endpoint: `${API_BASE}/system/health`, interval: 30000 },
     ];
 
     pollingConfig.forEach(({ type, endpoint, interval }) => {
