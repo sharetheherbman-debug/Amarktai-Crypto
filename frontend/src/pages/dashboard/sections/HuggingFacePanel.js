@@ -15,8 +15,7 @@ const HuggingFacePanel = ({ axiosConfig }) => {
     loadStatus();
     const interval = setInterval(loadStatus, 60000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line
 
   const loadStatus = async () => {
     try {

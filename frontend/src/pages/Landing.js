@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import SiteFooter from '../components/SiteFooter';
+import Brand from '../components/Brand';
 import { Volume2, VolumeX } from 'lucide-react';
 import './Auth.css';
 import './Landing.css';
@@ -100,7 +101,10 @@ export default function Landing() {
       <div className="auth-left">
         <div className="auth-content landing-hero-content">
           <img src="/assets/logo.png" alt="Amarktai Network" className="auth-logo landing-logo-lg" />
-          <h1 className="landing-headline">Amarktai Network</h1>
+          <h1 className="landing-headline">
+            <Brand size="lg" />
+            {' '}Network
+          </h1>
           <p className="landing-subheadline">Real-Time AI Trading, Built for Control</p>
           <div className="landing-cta">
             <Button onClick={() => navigate('/login')} className="auth-submit-btn landing-cta-btn landing-primary-btn">

@@ -1,7 +1,8 @@
 export default function SiteFooter() {
+  const year = new Date().getFullYear();
   return (
     <footer className="site-footer">
-      <span>Amarkt<span style={{ color: '#6366f1', fontWeight: 700 }}>AI</span> Crypto — Part of Amarkt<span style={{ color: '#6366f1', fontWeight: 700 }}>AI</span> Network — Personal use only.</span>
+      <span>© {year} Amarkt<span style={{ color: '#3B82F6', fontWeight: 700 }}>AI</span> Crypto — Part of Amarkt<span style={{ color: '#3B82F6', fontWeight: 700 }}>AI</span> Network — Personal use only.</span>
     </footer>
   );
 }

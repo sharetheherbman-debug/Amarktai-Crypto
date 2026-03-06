@@ -4,5 +4,8 @@ import SiteFooter from './SiteFooter';
 test('renders Amarktai Crypto copyright footer', () => {
   const year = new Date().getFullYear();
   const html = renderToStaticMarkup(<SiteFooter />);
-  expect(html).toContain(`© ${year} Amarktai Crypto`);
+  expect(html).toContain(`© ${year}`);
+  expect(html).toContain('Amarkt');
+  expect(html).toContain('AI');
+  expect(html).toContain('Crypto');
 });

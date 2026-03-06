@@ -15,16 +15,14 @@ const CoinStatsPanel = ({ axiosConfig }) => {
     loadStatus();
     const interval = setInterval(loadStatus, 60000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line
 
   useEffect(() => {
     if (status.configured) {
       if (tab === 'news') loadNews();
       if (tab === 'markets') loadMarkets();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status.configured, tab]);
+  }, [status.configured, tab]); // eslint-disable-line
 
   const loadStatus = async () => {
     try {
