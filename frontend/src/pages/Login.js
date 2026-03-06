@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
@@ -10,13 +9,23 @@ import './Auth.css';
 import './Landing.css';
 import { post } from '../lib/apiClient';
 
+function StepDots({ current, total }) {
+  return (
+    <div className="step-dots" aria-label={`Step ${current} of ${total}`}>
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className={`step-dot${i + 1 < current ? ' done' : i + 1 === current ? ' active' : ''}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function Login() {
   const [step, setStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -45,23 +54,17 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateStep()) return;
-
     setLoading(true);
     try {
       const response = await post('/auth/login', {
         email: formData.email,
-        password: formData.password
+        password: formData.password,
       });
       console.log('Login response:', response);
-      
-      // Clear all previous session data including chat
       localStorage.clear();
       sessionStorage.clear();
-      
-      // TASK B - Use access_token from standardized auth response
       localStorage.setItem('token', response.access_token);
       localStorage.setItem('user', JSON.stringify(response.user));
-      
       toast.success('Welcome back!');
       navigate('/dashboard');
     } catch (error) {
@@ -75,83 +78,87 @@ export default function Login() {
   return (
     <div className="neural-page">
       <NeuralBackground />
+      <div className="neural-vignette" aria-hidden="true" />
 
       <div className="neural-center">
         <div className="neural-card">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
-            className="auth-logo logo-float"
+            className="card-logo logo-float"
             onClick={() => navigate('/')}
           />
 
-          <h1 className="auth-title">Login to Amarktai</h1>
-          <p className="auth-step" aria-label={`Step ${step} of 2: ${step === 1 ? 'Enter your email' : 'Enter your password'}`}>Step {step} of 2</p>
+          <div className="card-brand" onClick={() => navigate('/')}>
+            Amarkt<span className="wordmark-ai">AI</span> Crypto
+          </div>
+
+          <h1 className="auth-title">Welcome Back</h1>
+          <StepDots current={step} total={2} />
 
           <form onSubmit={handleSubmit} className="auth-form">
-            {/* Step 1: Email */}
             {step === 1 && (
               <div className="form-step">
-                <Input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="Email"
-                  required
-                  className="auth-input"
-                  data-testid="email-input"
-                  autoFocus
-                />
-                <Button
-                  type="button"
-                  onClick={handleNext}
-                  className="auth-submit-btn"
-                >
-                  Next
-                </Button>
+                <div className="field-group">
+                  <label className="field-label">Email address</label>
+                  <Input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    placeholder="you@example.com"
+                    required
+                    className="auth-input"
+                    data-testid="email-input"
+                    autoFocus
+                  />
+                </div>
+                <button type="button" onClick={handleNext} className="lp-btn lp-btn-primary btn-full">
+                  Continue
+                </button>
               </div>
             )}
 
-            {/* Step 2: Password */}
             {step === 2 && (
               <div className="form-step">
-                <div className="password-wrapper">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    placeholder="Password"
-                    required
-                    className="auth-input"
-                    data-testid="password-input"
-                    autoFocus
-                  />
+                <div className="field-group">
+                  <label className="field-label">Password</label>
+                  <div className="password-wrapper">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      placeholder="••••••••"
+                      required
+                      className="auth-input"
+                      data-testid="password-input"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="eye-btn"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="button-row">
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="eye-btn"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-
-                <div className="button-row">
-                  <Button
-                    type="button"
                     onClick={handleBack}
-                    className="auth-back-btn"
+                    className="lp-btn lp-btn-ghost"
                     aria-label="Go back to email entry"
                   >
-                    <ArrowLeft size={18} /> Back
-                  </Button>
-                  <Button
+                    <ArrowLeft size={16} /> Back
+                  </button>
+                  <button
                     type="submit"
                     disabled={loading}
-                    className="auth-submit-btn"
-                    data-testid="submit-button"
+                    className="lp-btn lp-btn-primary btn-flex"
+                  data-testid="submit-button"
                   >
-                    {loading ? 'Logging in...' : 'Login'}
-                  </Button>
+                    {loading ? 'Signing in…' : 'Login'}
+                  </button>
                 </div>
               </div>
             )}

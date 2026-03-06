@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
@@ -9,6 +8,21 @@ import NeuralBackground from '../components/NeuralBackground';
 import { post } from '@/lib/apiClient';
 import './Auth.css';
 import './Landing.css';
+
+function StepDots({ current, total }) {
+  return (
+    <div className="step-dots" aria-label={`Step ${current} of ${total}`}>
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className={`step-dot${i + 1 < current ? ' done' : i + 1 === current ? ' active' : ''}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+const STEP_LABELS = ['Your Name', 'Email', 'Password', 'Access Code'];
 
 export default function Register() {
   const [step, setStep] = useState(1);
@@ -20,7 +34,7 @@ export default function Register() {
     email: '',
     password: '',
     confirmPassword: '',
-    invite_code: ''
+    invite_code: '',
   });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -62,17 +76,14 @@ export default function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateStep()) return;
-
     setLoading(true);
     try {
       const response = await post('/auth/register', {
         first_name: formData.first_name,
         email: formData.email,
         password: formData.password,
-        invite_code: formData.invite_code
+        invite_code: formData.invite_code,
       });
-      
-      // TASK B - Use access_token from standardized auth response
       localStorage.setItem('token', response.access_token);
       localStorage.setItem('user', JSON.stringify(response.user));
       toast.success('Account created successfully!');
@@ -87,177 +98,154 @@ export default function Register() {
   return (
     <div className="neural-page">
       <NeuralBackground />
+      <div className="neural-vignette" aria-hidden="true" />
 
       <div className="neural-center">
         <div className="neural-card">
           <img
             src="/assets/logo.png"
             alt="Amarktai Crypto"
-            className="auth-logo logo-float"
+            className="card-logo logo-float"
             onClick={() => navigate('/')}
           />
 
+          <div className="card-brand" onClick={() => navigate('/')}>
+            Amarkt<span className="wordmark-ai">AI</span> Crypto
+          </div>
+
           <h1 className="auth-title">Create Account</h1>
-          <p className="auth-step">Step {step} of 4</p>
+          <StepDots current={step} total={4} />
+          <p className="step-hint">{STEP_LABELS[step - 1]}</p>
 
           <form onSubmit={handleSubmit} className="auth-form">
-            {/* Step 1: Name */}
             {step === 1 && (
               <div className="form-step">
-                <Input
-                  type="text"
-                  value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  placeholder="Full Name"
-                  required
-                  className="auth-input"
-                  data-testid="name-input"
-                  autoFocus
-                />
-                <Button
-                  type="button"
-                  onClick={handleNext}
-                  className="auth-submit-btn"
-                >
-                  Next
-                </Button>
-              </div>
-            )}
-
-            {/* Step 2: Email */}
-            {step === 2 && (
-              <div className="form-step">
-                <Input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="Email"
-                  required
-                  className="auth-input"
-                  data-testid="email-input"
-                  autoFocus
-                />
-                <div className="button-row">
-                  <Button
-                    type="button"
-                    onClick={handleBack}
-                    className="auth-back-btn"
-                  >
-                    <ArrowLeft size={18} /> Back
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    className="auth-submit-btn"
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Password */}
-            {step === 3 && (
-              <div className="form-step">
-                <div className="password-wrapper">
+                <div className="field-group">
+                  <label className="field-label">Full Name</label>
                   <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    placeholder="Password"
+                    type="text"
+                    value={formData.first_name}
+                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                    placeholder="Your full name"
                     required
                     className="auth-input"
-                    data-testid="password-input"
+                    data-testid="name-input"
                     autoFocus
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="eye-btn"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
                 </div>
+                <button type="button" onClick={handleNext} className="lp-btn lp-btn-primary btn-full">
+                  Continue
+                </button>
+              </div>
+            )}
 
-                <div className="password-wrapper">
+            {step === 2 && (
+              <div className="form-step">
+                <div className="field-group">
+                  <label className="field-label">Email address</label>
                   <Input
-                    type={showConfirm ? 'text' : 'password'}
-                    value={formData.confirmPassword}
-                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                    placeholder="Confirm Password"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    placeholder="you@example.com"
                     required
                     className="auth-input"
-                    data-testid="confirm-password-input"
+                    data-testid="email-input"
+                    autoFocus
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirm(!showConfirm)}
-                    className="eye-btn"
-                  >
-                    {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
                 </div>
-
                 <div className="button-row">
-                  <Button
-                    type="button"
-                    onClick={handleBack}
-                    className="auth-back-btn"
-                  >
-                    <ArrowLeft size={18} /> Back
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    className="auth-submit-btn"
-                  >
-                    Next
-                  </Button>
+                  <button type="button" onClick={handleBack} className="lp-btn lp-btn-ghost">
+                    <ArrowLeft size={16} /> Back
+                  </button>
+                  <button type="button" onClick={handleNext} className="lp-btn lp-btn-primary btn-flex">
+                    Continue
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Step 4: Invite Code */}
-            {step === 4 && (
+            {step === 3 && (
               <div className="form-step">
-                <div className="invite-header">
-                  <label className="invite-label">Exclusive Access Code</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowInvite(!showInvite)}
-                    className="show-toggle"
-                  >
-                    {showInvite ? 'Hide' : 'Show'}
+                <div className="field-group">
+                  <label className="field-label">Password</label>
+                  <div className="password-wrapper">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      placeholder="Min. 6 characters"
+                      required
+                      className="auth-input"
+                      data-testid="password-input"
+                      autoFocus
+                    />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="eye-btn">
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="field-group">
+                  <label className="field-label">Confirm Password</label>
+                  <div className="password-wrapper">
+                    <Input
+                      type={showConfirm ? 'text' : 'password'}
+                      value={formData.confirmPassword}
+                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                      placeholder="Repeat password"
+                      required
+                      className="auth-input"
+                      data-testid="confirm-password-input"
+                    />
+                    <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="eye-btn">
+                      {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="button-row">
+                  <button type="button" onClick={handleBack} className="lp-btn lp-btn-ghost">
+                    <ArrowLeft size={16} /> Back
+                  </button>
+                  <button type="button" onClick={handleNext} className="lp-btn lp-btn-primary btn-flex">
+                    Continue
                   </button>
                 </div>
-                <Input
-                  type={showInvite ? 'text' : 'password'}
-                  value={formData.invite_code}
-                  onChange={(e) => setFormData({ ...formData, invite_code: e.target.value })}
-                  placeholder="Enter access code"
-                  required
-                  className="auth-input"
-                  data-testid="invite-code-input"
-                  autoFocus
-                />
-                <p className="invite-hint">Only available to select members</p>
+              </div>
+            )}
 
+            {step === 4 && (
+              <div className="form-step">
+                <div className="field-group">
+                  <div className="invite-header">
+                    <label className="field-label">Exclusive Access Code</label>
+                    <button type="button" onClick={() => setShowInvite(!showInvite)} className="show-toggle">
+                      {showInvite ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <Input
+                    type={showInvite ? 'text' : 'password'}
+                    value={formData.invite_code}
+                    onChange={(e) => setFormData({ ...formData, invite_code: e.target.value })}
+                    placeholder="Enter access code"
+                    required
+                    className="auth-input"
+                    data-testid="invite-code-input"
+                    autoFocus
+                  />
+                  <p className="invite-hint">Only available to select members</p>
+                </div>
                 <div className="button-row">
-                  <Button
-                    type="button"
-                    onClick={handleBack}
-                    className="auth-back-btn"
-                  >
-                    <ArrowLeft size={18} /> Back
-                  </Button>
-                  <Button
+                  <button type="button" onClick={handleBack} className="lp-btn lp-btn-ghost">
+                    <ArrowLeft size={16} /> Back
+                  </button>
+                  <button
                     type="submit"
                     disabled={loading}
-                    className="auth-submit-btn"
+                    className="lp-btn lp-btn-primary btn-flex"
                     data-testid="submit-button"
                   >
-                    {loading ? 'Creating...' : 'Create Account'}
-                  </Button>
+                    {loading ? 'Creating…' : 'Create Account'}
+                  </button>
                 </div>
               </div>
             )}
@@ -274,3 +262,4 @@ export default function Register() {
     </div>
   );
 }
+
