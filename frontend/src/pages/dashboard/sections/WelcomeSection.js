@@ -1,7 +1,5 @@
 import SectionHeader from '@/ui/components/SectionHeader';
 import AiChatSection from './AiChatSection';
-import CoinStatsPanel from './CoinStatsPanel';
-import HuggingFacePanel from './HuggingFacePanel';
 
 export default function WelcomeSection({
   axiosConfig,
@@ -55,8 +53,6 @@ export default function WelcomeSection({
           handleReinvestProfits={handleReinvestProfits}
         />
       </div>
-      <CoinStatsPanel axiosConfig={axiosConfig} />
-      <HuggingFacePanel axiosConfig={axiosConfig} />
     </section>
   );
 }

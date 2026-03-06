@@ -120,7 +120,7 @@ const formatReasonInline = (reason) => {
 
 export default function useDashboardState(navigate) {
   const [user, setUser] = useState(null);
-  const [activeSection, setActiveSection] = useState(NAV.HOME);
+  const [activeSection, setActiveSection] = useState(NAV.OVERVIEW);
   const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
   const [metricsTab, setMetricsTab] = useState('decision-trace'); // Tab state for Metrics section
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
@@ -1699,7 +1699,7 @@ export default function useDashboardState(navigate) {
             
             // Auto-switch to admin section
             setTimeout(() => {
-              setActiveSection(NAV.ADMIN_TRUTH);
+              setActiveSection(NAV.HIDDEN_ADMIN);
               console.log('Admin section activated, showAdmin:', true);
             }, 100);
             
@@ -1716,13 +1716,13 @@ export default function useDashboardState(navigate) {
             }
           } else if (adminAction === 'hide') {
             console.log('🔒 HIDING ADMIN - Setting state to FALSE');
-            const currentlyInAdmin = activeSection === NAV.ADMIN_TRUTH;
+            const currentlyInAdmin = activeSection === NAV.HIDDEN_ADMIN;
             
               setShowAdmin(false);
               
               // If currently viewing admin, switch to home
             if (currentlyInAdmin) {
-              setActiveSection(NAV.HOME);
+              setActiveSection(NAV.OVERVIEW);
             }
             
             // Success feedback message
@@ -2231,7 +2231,7 @@ export default function useDashboardState(navigate) {
       const createdCount = res.data.bots?.length || res.data.created || botSetup.count;
       showNotification(`✅ Created ${createdCount} bots successfully!`, 'success');
       await refreshBotState();
-      showSection(NAV.BOT_OPERATIONS);
+      showSection(NAV.BOT_MANAGEMENT);
     } catch (err) {
       const detail = err.response?.data?.detail;
       const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create bots';
@@ -2466,7 +2466,7 @@ export default function useDashboardState(navigate) {
     try {
       setAiTaskLoading('bodyguard');
       showNotification('🛡️ AI Bodyguard scanning system...', 'info');
-      setActiveSection(NAV.AI_COMMAND); // Switch to chat to see results
+      setActiveSection(NAV.WELCOME); // Switch to chat to see results
       
       const res = await axios.post(`${API}/autonomous/bodyguard/system-check`, {}, axiosConfig);
       const report = res.data;
@@ -2512,7 +2512,7 @@ export default function useDashboardState(navigate) {
     try {
       setAiTaskLoading('learning');
       showNotification('📚 AI Learning in progress...', 'info');
-      setActiveSection(NAV.AI_COMMAND); // Switch to chat to see results
+      setActiveSection(NAV.WELCOME); // Switch to chat to see results
       
       const res = await axios.post(`${API}/autonomous/learning/trigger`, {}, axiosConfig);
       
