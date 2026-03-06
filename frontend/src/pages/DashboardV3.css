@@ -11,14 +11,27 @@
   --overview-height-min: 540px;
   --overview-height-max: 760px;
   --overview-height-offset: calc(100vh - var(--topbar-height) - 220px);
+
+  /* ── Premium terminal color tokens — aligned with Landing / Auth design system ── */
+  --bg:            #020409;
+  --glass:         rgba(10, 14, 26, 0.85);
+  --line:          rgba(59, 130, 246, 0.12);
+  --text:          #e4f0ff;
+  --muted:         rgba(180, 210, 255, 0.55);
+  --accent2:       #3B82F6;
+  --accent-bright: #00e5ff;
+  --success:       #22c55e;
+  --error:         #ef4444;
+  --blur:          18px;
 }
 
-/* Premium Terminal Theme overrides */
+/* ── Sidebar ── */
 .sidebar {
   background: linear-gradient(180deg, rgba(5, 8, 15, 0.98) 0%, rgba(8, 12, 22, 0.98) 100%);
   border-right: 1px solid rgba(59, 130, 246, 0.2);
 }
 
+/* ── Navigation ── */
 .nav a {
   display: block;
   padding: 10px 16px;
@@ -45,20 +58,11 @@
   font-weight: 700;
 }
 
+/* ── Topbar ── */
 .topbar {
   background: rgba(5, 8, 15, 0.95);
   border-bottom: 1px solid rgba(59, 130, 246, 0.2);
   backdrop-filter: blur(12px);
-}
-
-.card {
-  border: 1px solid rgba(59, 130, 246, 0.12);
-  background: rgba(10, 14, 26, 0.85);
-}
-
-.card:hover {
-  border-color: rgba(59, 130, 246, 0.25);
-  transform: none;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -298,6 +302,11 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   margin-bottom: 16px;
   backdrop-filter: blur(var(--blur));
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+}
+
+.card:hover {
+  border-color: rgba(59, 130, 246, 0.25);
+  transform: none;
 }
 
 .card h2 {
