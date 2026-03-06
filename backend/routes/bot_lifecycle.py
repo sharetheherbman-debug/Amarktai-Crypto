@@ -16,6 +16,7 @@ from websocket_manager import manager
 from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
+from services.risk_lock_service import risk_lock_service
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
@@ -121,42 +122,30 @@ def _blocked_response(action: str, bot: Optional[Dict], blocker: Dict) -> JSONRe
 
 
 async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
-    user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-    if user and user.get("daily_loss_lock_active", False):
-        # Auto-expire lock if it was set on a previous UTC day
+    # Use the canonical risk lock service to check daily loss lock status.
+    # is_locked_today() already handles stale-lock detection (returns False if
+    # day_key != today UTC). If the lock is stale, the background midnight job
+    # will clear it; the inline guard in the service returns False immediately so
+    # the bot is not blocked.
+    try:
+        is_locked, lock_reason = await risk_lock_service.is_locked_today(user_id)
+    except Exception as _rls_err:
+        logger.warning(f"[BotBlockers] risk_lock_service.is_locked_today failed: {_rls_err}")
+        # Fallback: read the field directly from the DB so we never silently allow a locked user
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "daily_loss_lock_active": 1, "daily_loss_day_key": 1, "daily_loss_locked_reason": 1})
         from datetime import datetime, timezone
         today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        stored_day_key = user.get("daily_loss_day_key", "")
-        if stored_day_key and stored_day_key != today_key:
-            # Lock is from a previous day — clear it silently and allow the bot to proceed
-            logger.info(
-                f"[BotBlockers] Auto-expiring stale daily_loss_lock for user {user_id} "
-                f"(lock day={stored_day_key}, today={today_key})"
-            )
-            now_iso = datetime.now(timezone.utc).isoformat()
-            await db.users_collection.update_one(
-                {"id": user_id},
-                {
-                    "$set": {
-                        "daily_loss_lock_active": False,
-                        "daily_loss_lock_reset_at": now_iso,
-                        "daily_loss_lock_reset_by": "system:day_boundary",
-                    },
-                    "$unset": {
-                        "daily_loss_locked_at": "",
-                        "daily_loss_locked_reason": "",
-                        "daily_loss_pct": "",
-                        "daily_loss_day_key": "",
-                    },
-                },
-            )
-            # Do NOT block — lock is expired
-        else:
-            return _build_block_detail(
-                "daily_loss_lock",
-                user.get("daily_loss_locked_reason", "Daily loss lock is active"),
-                "Reset the daily loss lock or contact admin",
-            )
+        raw_active = bool(user.get("daily_loss_lock_active", False)) if user else False
+        raw_day_key = (user or {}).get("daily_loss_day_key", "")
+        is_locked = raw_active and raw_day_key == today_key
+        lock_reason = (user or {}).get("daily_loss_locked_reason", "Daily loss lock is active") if is_locked else None
+
+    if is_locked:
+        return _build_block_detail(
+            "daily_loss_lock",
+            lock_reason or "Daily loss lock is active",
+            "Reset the daily loss lock or contact admin",
+        )
 
     modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
     if modes and modes.get("emergencyStop", False):

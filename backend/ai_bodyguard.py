@@ -14,6 +14,10 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# Lazy imports — these modules require database connections so we import
+# them inside methods, but risk_lock_service has no side-effects at import time.
+from services.risk_lock_service import risk_lock_service
+
 class AIBodyguard:
     def __init__(self):
         self.db = None
@@ -248,6 +252,22 @@ class AIBodyguard:
                             {'user_id': user_id},
                             {'$set': {'status': 'paused'}}
                         )
+
+                        # Set the daily loss lock field via canonical service
+                        # so auto-reset, bot-start guard, and diagnostics all see it
+                        try:
+                            import database as _db
+                            await risk_lock_service.activate_daily_loss_lock(
+                                user_id,
+                                reason=(
+                                    f"Daily loss {daily_loss_percent:.1f}% exceeds "
+                                    f"{max_daily_loss:.1f}% threshold (profile={profile})"
+                                ),
+                                loss_pct=daily_loss_percent,
+                                db=_db,
+                            )
+                        except Exception as _lock_err:
+                            logger.error(f"Failed to set daily_loss_lock via service: {_lock_err}")
                         
                         await self.create_alert(
                             user_id,
