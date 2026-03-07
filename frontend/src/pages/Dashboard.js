@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -30,6 +31,7 @@ import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import PerformanceSection from './dashboard/sections/PerformanceSection';
 import AdminTruthSection from './dashboard/sections/AdminTruthSection';
+import BotFleetSection from './dashboard/sections/BotFleetSection';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
@@ -54,6 +56,7 @@ const safeToFixed = (value, digits = 2, fallback = '0.00') => {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   const {
     actionLoading,
@@ -501,6 +504,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === NAV.WELCOME ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WELCOME); }}>{NAV_LABELS[NAV.WELCOME]}</a>
             <a href="#" className={activeSection === NAV.API_SETUP ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.API_SETUP); }}>{NAV_LABELS[NAV.API_SETUP]}</a>
             <a href="#" className={activeSection === NAV.BOT_MANAGEMENT ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_MANAGEMENT); }}>{NAV_LABELS[NAV.BOT_MANAGEMENT]}</a>
+            <a href="#" className={activeSection === NAV.BOT_FLEET ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_FLEET); }}>{NAV_LABELS[NAV.BOT_FLEET]}</a>
             <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
             <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
             <a href="#" className={activeSection === NAV.LIVE_TRADES ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.LIVE_TRADES); }}>{NAV_LABELS[NAV.LIVE_TRADES]}</a>
@@ -518,7 +522,7 @@ export default function Dashboard() {
       {!isMobile && (
         <header className="topbar">
             <div className="topbar-brand">
-              <div className="topbar-title"><Brand /></div>
+              <div className="topbar-title">Amarktai Crypto</div>
             </div>
           <div className="top-actions">
             <Badge variant={modeTone} className="topbar-badge">
@@ -538,18 +542,30 @@ export default function Dashboard() {
       {/* Mobile Topbar */}
       {isMobile && (
         <div className="mobile-topbar">
-          <button className="mobile-logo-btn" onClick={() => showSection(NAV.OVERVIEW)}>
-            <img
-              src="/assets/logo.png"
-              className="mobile-logo"
-              alt="Amarktai Crypto"
-            />
+          <button className="mobile-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
+          <button className="mobile-logo-btn" onClick={() => { showSection(NAV.OVERVIEW); setMobileDrawerOpen(false); }}>
+            <img src="/assets/logo.png" className="mobile-logo" alt="Amarktai Crypto" />
           </button>
-          <div className="mobile-btns">
-            <button className="mobile-btn" onClick={() => showSection(NAV.OVERVIEW)}>Overview</button>
-            <button className="mobile-btn" onClick={handleLogout}>Logout</button>
-          </div>
+          <button className="logout-btn" onClick={handleLogout} style={{fontSize:'0.8rem',padding:'6px 10px'}}>Logout</button>
         </div>
+      )}
+
+      {/* Mobile Drawer */}
+      {isMobile && (
+        <>
+          <div className={`mobile-drawer-overlay ${mobileDrawerOpen ? 'open' : ''}`} onClick={() => setMobileDrawerOpen(false)} />
+          <div className={`mobile-drawer ${mobileDrawerOpen ? 'open' : ''}`}>
+            <img src="/assets/logo.png" className="logo sidebar-logo" alt="Amarktai Crypto" onClick={() => { showSection(NAV.OVERVIEW); setMobileDrawerOpen(false); }} style={{cursor:'pointer',margin:'0 auto 16px'}} />
+            <nav className="nav">
+              {Object.entries(NAV_LABELS).map(([key, label]) => {
+                if (key === NAV.HIDDEN_ADMIN && !showAdmin) return null;
+                return (
+                  <a key={key} href="#" className={activeSection === key ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(key); setMobileDrawerOpen(false); }}>{label}</a>
+                );
+              })}
+            </nav>
+          </div>
+        </>
       )}
 
       {/* Main Content */}
@@ -640,6 +656,33 @@ export default function Dashboard() {
               setEditingBotName={setEditingBotName}
               handleBotSetup={handleBotSetup}
               botControlLoading={botControlLoading}
+              handleRenameBotSubmit={handleRenameBotSubmit}
+              axiosConfig={axiosConfig}
+            />
+          </ErrorBoundary>
+        )}
+        {activeSection === NAV.BOT_FLEET && (
+          <ErrorBoundary title="Bot Fleet error" message="Unable to load Bot Fleet section.">
+            <BotFleetSection
+              bots={bots}
+              formatDate={formatDate}
+              handleDeleteBot={handleDeleteBot}
+              handleResumeBot={handleResumeBot}
+              handleStartBot={handleStartBot}
+              handleToggleBotMode={handleToggleBotMode}
+              botControlLoading={botControlLoading}
+              selectedBotDetailId={selectedBotDetailId}
+              setSelectedBotDetailId={setSelectedBotDetailId}
+              botDetailTab={botDetailTab}
+              setBotDetailTab={setBotDetailTab}
+              botStatusFilter={botStatusFilter}
+              setBotStatusFilter={setBotStatusFilter}
+              platformFilter={platformFilter}
+              setPlatformFilter={setPlatformFilter}
+              editingBotId={editingBotId}
+              setEditingBotId={setEditingBotId}
+              editingBotName={editingBotName}
+              setEditingBotName={setEditingBotName}
               handleRenameBotSubmit={handleRenameBotSubmit}
               axiosConfig={axiosConfig}
             />
