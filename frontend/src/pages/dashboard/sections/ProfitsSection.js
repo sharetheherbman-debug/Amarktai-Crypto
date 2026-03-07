@@ -49,13 +49,20 @@ const ProfitsSection = ({
       label: 'Profit (ZAR)',
       data: profitData?.values || [0, 0, 0, 0, 0, 0, 0],
       borderColor: '#22c55e',
-      backgroundColor: 'rgba(34, 197, 94, 0.15)',
+      backgroundColor: (context) => {
+        const ctx = context.chart.ctx;
+        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+        gradient.addColorStop(0, 'rgba(34, 197, 94, 0.25)');
+        gradient.addColorStop(0.5, 'rgba(34, 197, 94, 0.08)');
+        gradient.addColorStop(1, 'rgba(34, 197, 94, 0)');
+        return gradient;
+      },
       fill: true,
-      tension: 0.4,
-      pointRadius: 4,
-      pointHoverRadius: 8,
+      tension: 0.35,
+      pointRadius: 3,
+      pointHoverRadius: 7,
       pointBackgroundColor: '#22c55e',
-      pointBorderColor: 'rgba(34, 197, 94, 0.6)',
+      pointBorderColor: 'rgba(34, 197, 94, 0.5)',
       pointBorderWidth: 2,
       borderWidth: 2.5,
       segment: { borderColor: ctx => ctx.p0.parsed.y > ctx.p1.parsed.y ? '#ef4444' : '#22c55e' }
@@ -66,51 +73,50 @@ const ProfitsSection = ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: {
-        display: false
-      },
+      legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(10, 12, 20, 0.95)',
-        titleColor: 'var(--success)',
-        bodyColor: '#ffffff',
-        borderColor: 'rgba(34, 197, 94, 0.6)',
+        backgroundColor: 'rgba(5, 8, 15, 0.95)',
+        titleColor: '#22c55e',
+        bodyColor: '#e4f0ff',
+        borderColor: 'rgba(59, 130, 246, 0.3)',
         borderWidth: 1,
-        padding: 12,
-        titleFont: { size: 14, weight: 'bold' },
-        bodyFont: { size: 13 }
+        padding: 14,
+        titleFont: { size: 13, weight: 'bold' },
+        bodyFont: { size: 12 },
+        cornerRadius: 8,
+        displayColors: false,
+        callbacks: {
+          label: function(context) {
+            const val = context.parsed.y;
+            return `R${Math.abs(val).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+          }
+        }
       }
     },
     scales: {
       y: {
         beginAtZero: true,
         ticks: {
-          color: 'var(--muted)',
+          color: 'rgba(180, 210, 255, 0.5)',
           font: { size: 11 },
-          callback: function(value) {
-            return 'R' + value;
-          }
+          padding: 8,
+          callback: function(value) { return 'R' + value.toLocaleString(); }
         },
-        grid: { 
-          color: 'rgba(255, 255, 255, 0.05)',
-          drawBorder: false
-        },
+        grid: { color: 'rgba(59, 130, 246, 0.06)', drawBorder: false },
         border: { display: false }
       },
       x: {
         ticks: {
-          color: 'var(--muted)',
-          font: { size: 11 }
+          color: 'rgba(180, 210, 255, 0.5)',
+          font: { size: 11 },
+          padding: 8,
         },
-        grid: { 
-          display: false
-        },
+        grid: { display: false },
         border: { display: false }
       }
     },
-    interaction: {
-      intersect: false,
-      mode: 'index'
-    }
+    interaction: { intersect: false, mode: 'index' },
+    elements: { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } }
   };
 
   return (
@@ -401,15 +407,22 @@ const ProfitsSection = ({
                         datasets: [{
                           label: 'Equity (ZAR)',
                           data: equityData.equity_curve.map(p => p.equity),
-                          borderColor: 'var(--success)',
-                          backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                          borderColor: '#22c55e',
+                          backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 280);
+                            gradient.addColorStop(0, 'rgba(34, 197, 94, 0.2)');
+                            gradient.addColorStop(1, 'rgba(34, 197, 94, 0)');
+                            return gradient;
+                          },
                           fill: true,
-                          tension: 0.4,
-                          pointRadius: 3,
+                          tension: 0.35,
+                          pointRadius: 2,
                           pointHoverRadius: 6,
-                          pointBackgroundColor: 'var(--success)',
-                          pointBorderColor: '#ffffff',
-                          pointBorderWidth: 2
+                          pointBackgroundColor: '#22c55e',
+                          pointBorderColor: 'rgba(34, 197, 94, 0.5)',
+                          pointBorderWidth: 2,
+                          borderWidth: 2.5
                         }]
                       }}
                       options={{
@@ -418,14 +431,16 @@ const ProfitsSection = ({
                         plugins: {
                           legend: { display: false },
                           tooltip: {
-                            backgroundColor: 'rgba(0, 0, 42, 0.95)',
-                            titleColor: 'var(--success)',
-                            bodyColor: '#ffffff',
-                            borderColor: 'var(--success)',
-                            borderWidth: 2,
-                            padding: 12,
-                            titleFont: { size: 14, weight: 'bold' },
-                            bodyFont: { size: 13 },
+                            backgroundColor: 'rgba(5, 8, 15, 0.95)',
+                            titleColor: '#22c55e',
+                            bodyColor: '#e4f0ff',
+                            borderColor: 'rgba(59, 130, 246, 0.3)',
+                            borderWidth: 1,
+                            padding: 14,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            titleFont: { size: 13, weight: 'bold' },
+                            bodyFont: { size: 12 },
                             callbacks: {
                               label: (context) => `Equity: R${safeToFixed(context.parsed.y, 2)}`
                             }
@@ -435,17 +450,21 @@ const ProfitsSection = ({
                           y: {
                             beginAtZero: false,
                             ticks: { 
-                              color: '#8b8b8b',
+                              color: 'rgba(180, 210, 255, 0.5)',
                               font: { size: 11 },
-                              callback: (value) => 'R' + safeToFixed(value, 0, '0')
+                              padding: 8,
+                              callback: (value) => 'R' + value.toLocaleString()
                             },
-                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
+                            grid: { color: 'rgba(59, 130, 246, 0.06)', drawBorder: false },
+                            border: { display: false }
                           },
                           x: {
-                            ticks: { color: '#8b8b8b', font: { size: 10 }, maxRotation: 45, minRotation: 45 },
-                            grid: { display: false }
+                            ticks: { color: 'rgba(180, 210, 255, 0.5)', font: { size: 10 }, maxRotation: 45, minRotation: 45, padding: 6 },
+                            grid: { display: false },
+                            border: { display: false }
                           }
-                        }
+                        },
+                        elements: { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } }
                       }}
                     />
                   )}
@@ -558,10 +577,9 @@ const ProfitsSection = ({
                   minHeight: '350px', 
                   height: '350px',
                   padding: '20px',
-                  background: 'linear-gradient(135deg, rgba(0, 0, 42, 0.4) 0%, rgba(0, 0, 20, 0.6) 100%)',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                  background: 'rgba(10, 14, 26, 0.6)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(239, 68, 68, 0.15)',
                   display: 'flex',
                   flexDirection: 'column'
                 }}>
@@ -573,14 +591,21 @@ const ProfitsSection = ({
                           label: 'Drawdown %',
                           data: drawdownData.drawdown_curve.map(p => -p.drawdown_pct),
                           borderColor: '#ef4444',
-                          backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                          backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 280);
+                            gradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
+                            gradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+                            return gradient;
+                          },
                           fill: true,
-                          tension: 0.4,
-                          pointRadius: 3,
+                          tension: 0.35,
+                          pointRadius: 2,
                           pointHoverRadius: 6,
                           pointBackgroundColor: '#ef4444',
-                          pointBorderColor: '#ffffff',
-                          pointBorderWidth: 2
+                          pointBorderColor: 'rgba(239, 68, 68, 0.5)',
+                          pointBorderWidth: 2,
+                          borderWidth: 2.5
                         }]
                       }}
                       options={{
@@ -589,14 +614,16 @@ const ProfitsSection = ({
                         plugins: {
                           legend: { display: false },
                           tooltip: {
-                            backgroundColor: 'rgba(0, 0, 42, 0.95)',
+                            backgroundColor: 'rgba(5, 8, 15, 0.95)',
                             titleColor: '#ef4444',
-                            bodyColor: '#ffffff',
-                            borderColor: '#ef4444',
-                            borderWidth: 2,
-                            padding: 12,
-                            titleFont: { size: 14, weight: 'bold' },
-                            bodyFont: { size: 13 },
+                            bodyColor: '#e4f0ff',
+                            borderColor: 'rgba(239, 68, 68, 0.3)',
+                            borderWidth: 1,
+                            padding: 14,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            titleFont: { size: 13, weight: 'bold' },
+                            bodyFont: { size: 12 },
                             callbacks: {
                               label: (context) => `Drawdown: ${safeToFixed(Math.abs(context.parsed.y), 2)}%`
                             }
@@ -607,17 +634,21 @@ const ProfitsSection = ({
                             reverse: false,
                             max: 0,
                             ticks: { 
-                              color: '#8b8b8b',
+                              color: 'rgba(180, 210, 255, 0.5)',
                               font: { size: 11 },
+                              padding: 8,
                               callback: (value) => safeToFixed(Math.abs(value), 1, '0.0') + '%'
                             },
-                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
+                            grid: { color: 'rgba(59, 130, 246, 0.06)', drawBorder: false },
+                            border: { display: false }
                           },
                           x: {
-                            ticks: { color: '#8b8b8b', font: { size: 10 }, maxRotation: 45, minRotation: 45 },
-                            grid: { display: false }
+                            ticks: { color: 'rgba(180, 210, 255, 0.5)', font: { size: 10 }, maxRotation: 45, minRotation: 45, padding: 6 },
+                            grid: { display: false },
+                            border: { display: false }
                           }
-                        }
+                        },
+                        elements: { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } }
                       }}
                     />
                   ) : (
