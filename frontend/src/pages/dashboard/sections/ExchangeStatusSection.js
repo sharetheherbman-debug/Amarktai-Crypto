@@ -1,3 +1,4 @@
+// ARCHIVED: Only referenced by dead TradingMonitorSection. Not mounted.
 import { useState, useEffect, useCallback } from 'react';
 
 /**
