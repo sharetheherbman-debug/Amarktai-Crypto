@@ -1723,7 +1723,8 @@ async def scheduler_health_diagnostic(user_id: str = Depends(get_current_user)):
 
         is_running = getattr(trading_scheduler, 'is_running', False)
         last_heartbeat = getattr(trading_scheduler, 'last_heartbeat', None)
-        task_alive = trading_scheduler.task is not None and not trading_scheduler.task.done() if getattr(trading_scheduler, 'task', None) else False
+        task = getattr(trading_scheduler, 'task', None)
+        task_alive = task is not None and not task.done()
 
         return {
             "scheduler_running": is_running,

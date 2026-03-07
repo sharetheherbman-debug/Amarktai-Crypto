@@ -9,13 +9,10 @@ CANONICAL ENV VARIABLE NAMES (Pass 1 Go-Live Recovery):
   All runtime gate code must read through the canonical names above.
 """
 import os
-import logging
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-
-_config_logger = logging.getLogger(__name__)
 
 # ============================================================================
 # ENVIRONMENT VARIABLES (from .env)

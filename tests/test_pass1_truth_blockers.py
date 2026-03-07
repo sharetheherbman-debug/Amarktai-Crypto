@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 # Ensure test-safe environment
 os.environ.setdefault("ENVIRONMENT", "testing")
-os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production-use-only")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-testing-only")
 
 
 # =====================================================================

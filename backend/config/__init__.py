@@ -21,13 +21,17 @@ except ImportError:
     pass  # dotenv not available, use environment variables directly
 
 # ---------------------------------------------------------------------------
-# Helper — must match utils/env_utils.py:env_bool
+# Helper — import from canonical source utils/env_utils.py
 # ---------------------------------------------------------------------------
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+try:
+    from utils.env_utils import env_bool as _env_bool
+except ImportError:
+    # Fallback if utils not importable (e.g. standalone config import)
+    def _env_bool(name: str, default: bool = False) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
 
 # ---------------------------------------------------------------------------
 # CANONICAL trading-gate variables  (1 / 0 style via _env_bool)
