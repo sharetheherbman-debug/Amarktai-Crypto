@@ -265,8 +265,27 @@ export default function OverviewSection({
 
         <div className="overview-grid">
           <div className="overview-left-col">
-            <div className="overview-image-card">
-              <img src="/assets/background.jpg" alt="Trading workspace" className="overview-image-asset" />
+            <div className="overview-image-card" style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '32px',
+              background: 'linear-gradient(135deg, rgba(10, 14, 26, 0.9) 0%, rgba(5, 8, 15, 0.95) 100%)',
+              borderRadius: '14px',
+              border: '1px solid var(--line)',
+              minHeight: '280px',
+            }}>
+              <img
+                src="/assets/logo.png"
+                alt="Amarktai Crypto Overview"
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '240px',
+                  height: 'auto',
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 4px 20px rgba(59, 130, 246, 0.3))',
+                }}
+              />
             </div>
           </div>
           <div className="overview-right-col">
