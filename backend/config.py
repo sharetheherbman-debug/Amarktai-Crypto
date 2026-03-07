@@ -2,12 +2,20 @@
 Production Configuration
 All system limits and settings
 Reads from environment variables
+
+CANONICAL ENV VARIABLE NAMES (Pass 1 Go-Live Recovery):
+  Trading gates:  PAPER_TRADING (1/0), LIVE_TRADING (1/0), AUTOPILOT_ENABLED (1/0)
+  Legacy aliases: ENABLE_PAPER_TRADING, ENABLE_LIVE_TRADING, ENABLE_AUTOPILOT
+  All runtime gate code must read through the canonical names above.
 """
 import os
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+_config_logger = logging.getLogger(__name__)
 
 # ============================================================================
 # ENVIRONMENT VARIABLES (from .env)
@@ -43,12 +51,25 @@ FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')
 # ============================================================================
 # FEATURE FLAGS (Safe defaults for production)
 # ============================================================================
+from utils.env_utils import env_bool
 
-# Trading Feature Flags
+# ---------------------------------------------------------------------------
+# CANONICAL trading-gate variables  (1 / 0 style via env_bool)
+# These are the ONLY names that trading_gates.py and trading_mode_validator.py
+# should read.  Legacy ENABLE_* aliases are provided for backward compat.
+# ---------------------------------------------------------------------------
+PAPER_TRADING = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+LIVE_TRADING = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
+AUTOPILOT_ENABLED = env_bool('AUTOPILOT_ENABLED', False) or env_bool('ENABLE_AUTOPILOT', False)
+
+# Backward-compatible aliases — code that still imports these will get
+# the same resolved value as the canonical name above.
+ENABLE_PAPER_TRADING = PAPER_TRADING
+ENABLE_LIVE_TRADING = LIVE_TRADING
+ENABLE_AUTOPILOT = AUTOPILOT_ENABLED
+
+# Other Trading Feature Flags
 ENABLE_TRADING = os.getenv('ENABLE_TRADING', 'true').lower() == 'true'  # Enable for paper trading
-ENABLE_PAPER_TRADING = os.getenv('ENABLE_PAPER_TRADING', 'true').lower() == 'true'  # Paper trading safe by default
-ENABLE_LIVE_TRADING = os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true'  # Live trading OFF by default
-ENABLE_AUTOPILOT = os.getenv('ENABLE_AUTOPILOT', 'true').lower() == 'true'  # Autopilot for bot management
 ENABLE_AUTOPILOT_GROWTH = os.getenv('ENABLE_AUTOPILOT_GROWTH', 'false').lower() == 'true'
 ENABLE_AUTOPILOT_REINVEST = os.getenv('ENABLE_AUTOPILOT_REINVEST', 'false').lower() == 'true'
 ENABLE_BODYGUARD = os.getenv('ENABLE_BODYGUARD', 'true').lower() == 'true'  # AI Bodyguard protection

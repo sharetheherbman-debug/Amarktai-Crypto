@@ -12,6 +12,33 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")  # Allow override via env
 ALGORITHM = JWT_ALGORITHM  # Keep for backward compatibility
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
+# ---------- Startup validation ----------
+_UNSAFE_JWT_DEFAULTS = {
+    "your-secret-key",
+    "your-secret-key-change-in-production",
+    "change-me-use-openssl-rand-hex-32",
+    "changeme",
+    "",
+}
+
+def validate_jwt_secret():
+    """Fail fast if JWT_SECRET is still a placeholder.
+
+    Called once at import time so the server refuses to start with an
+    insecure configuration.  The check is skipped when ENVIRONMENT is
+    explicitly set to 'testing' (used by the test-suite).
+    """
+    env = os.getenv("ENVIRONMENT", "").lower()
+    if env == "testing":
+        return  # allow tests to run with dummy values
+    if JWT_SECRET in _UNSAFE_JWT_DEFAULTS:
+        raise RuntimeError(
+            "CRITICAL: JWT_SECRET is not set or is still a default placeholder. "
+            "Set a strong random value via: openssl rand -hex 32"
+        )
+
+validate_jwt_secret()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)
