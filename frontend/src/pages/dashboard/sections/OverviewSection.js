@@ -269,21 +269,20 @@ export default function OverviewSection({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '32px',
-              background: 'linear-gradient(135deg, rgba(10, 14, 26, 0.9) 0%, rgba(5, 8, 15, 0.95) 100%)',
+              padding: '0',
+              background: 'rgba(10, 14, 26, 0.6)',
               borderRadius: '14px',
               border: '1px solid var(--line)',
-              minHeight: '280px',
+              overflow: 'hidden',
             }}>
               <img
-                src="/assets/logo.png"
+                src="/assets/overview.jpg"
                 alt="Amarktai Crypto Overview"
                 style={{
-                  maxWidth: '100%',
-                  maxHeight: '240px',
+                  width: '100%',
                   height: 'auto',
+                  display: 'block',
                   objectFit: 'contain',
-                  filter: 'drop-shadow(0 4px 20px rgba(59, 130, 246, 0.3))',
                 }}
               />
             </div>
