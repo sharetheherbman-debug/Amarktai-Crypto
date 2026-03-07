@@ -69,7 +69,9 @@ async def start_fresh(
             "orders_deleted": 0,
             "fills_deleted": 0,
             "telemetry_deleted": 0,
-            "risk_locks_reset": 0
+            "risk_locks_reset": 0,
+            "paper_wallet_reset": False,
+            "ledger_entries_deleted": 0
         }
         
         # Step 1: Stop/Delete bots based on scope
@@ -168,6 +170,30 @@ async def start_fresh(
             if risk_result.modified_count > 0:
                 summary["risk_locks_reset"] = 1
                 logger.info(f"Start Fresh: Reset risk locks for user {user_id}")
+        
+        # Step 3b: Reset paper wallet balances
+        try:
+            if hasattr(db, 'paper_wallets_collection'):
+                pw_result = await db.paper_wallets_collection.delete_many(
+                    {"user_id": user_id}
+                )
+                if pw_result.deleted_count > 0:
+                    summary["paper_wallet_reset"] = True
+                    logger.info(f"Start Fresh: Reset paper wallet for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not reset paper wallet: {e}")
+
+        # Step 3c: Reset ledger entries for deleted bots
+        try:
+            if deleted_bot_ids and hasattr(db, 'ledger_collection'):
+                ledger_result = await db.ledger_collection.delete_many(
+                    {"bot_id": {"$in": deleted_bot_ids}}
+                )
+                summary["ledger_entries_deleted"] = ledger_result.deleted_count
+                if ledger_result.deleted_count > 0:
+                    logger.info(f"Start Fresh: Deleted {ledger_result.deleted_count} ledger entries for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Could not delete ledger entries: {e}")
         
         # Step 4: Clear training/quarantine states
         try:

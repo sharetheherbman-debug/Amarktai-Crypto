@@ -454,8 +454,8 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         from datetime import datetime, timezone
         from services.canonical import get_canonical_bot_counts
 
-        # Get scheduler status
-        scheduler_status = trading_scheduler.get_status() if hasattr(trading_scheduler, 'get_status') else {}
+        # Get scheduler status — use the real is_running attribute
+        scheduler_running = getattr(trading_scheduler, 'is_running', False)
 
         # Get paper trading engine status
         engine_status = {}
@@ -525,7 +525,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
             "runnable_bots": counts["runnable"],
             "total_bots": counts["total"],
             "trades_today": trades_today,
-            "scheduler_running": scheduler_status.get('running', False),
+            "scheduler_running": scheduler_running,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
@@ -1703,4 +1703,246 @@ async def get_daily_loss_status(user_id: str = Depends(get_current_user)):
         }
     except Exception as exc:
         logger.error(f"daily-loss-status error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# =====================================================================
+# NEW DIAGNOSTIC ENDPOINTS — Pass 1 Go-Live Recovery
+# =====================================================================
+
+
+@router.get("/scheduler-health")
+async def scheduler_health_diagnostic(user_id: str = Depends(get_current_user)):
+    """Canonical scheduler-health diagnostic.
+
+    Reports comprehensive scheduler state including tick history,
+    last trade info, queue status, and heartbeat.
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+
+        return trading_scheduler.get_health_snapshot()
+    except Exception as exc:
+        logger.error(f"scheduler-health error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/reset-proof")
+async def reset_proof_diagnostic(user_id: str = Depends(get_current_user)):
+    """Canonical reset-proof diagnostic.
+
+    Returns counts for every collection affected by a paper-reset so
+    operators can verify that a reset actually cleared the expected data.
+    """
+    try:
+        bots_count = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": {"$nin": ["deleted"]},
+        })
+
+        trades_count = await db.trades_collection.count_documents({
+            "user_id": user_id,
+        })
+
+        orders_count = await db.orders_collection.count_documents({
+            "user_id": user_id,
+        })
+
+        fills_count = 0
+        if hasattr(db, 'fills_collection'):
+            fills_count = await db.fills_collection.count_documents({
+                "user_id": user_id,
+            })
+
+        paper_wallet_count = 0
+        if hasattr(db, 'paper_wallets_collection'):
+            paper_wallet_count = await db.paper_wallets_collection.count_documents({
+                "user_id": user_id,
+            })
+
+        ledger_count = 0
+        if hasattr(db, 'ledger_collection'):
+            ledger_count = await db.ledger_collection.count_documents({
+                "user_id": user_id,
+            })
+
+        risk_user = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "daily_loss_lock_active": 1, "emergency_stop": 1}
+        )
+
+        return {
+            "user_id_prefix": user_id[:8] + "...",
+            "bots_non_deleted": bots_count,
+            "trades": trades_count,
+            "orders": orders_count,
+            "fills": fills_count,
+            "paper_wallets": paper_wallet_count,
+            "ledger_entries": ledger_count,
+            "daily_loss_lock_active": (risk_user or {}).get("daily_loss_lock_active", False),
+            "emergency_stop": (risk_user or {}).get("emergency_stop", False),
+            "is_clean": (
+                bots_count == 0
+                and trades_count == 0
+                and orders_count == 0
+                and fills_count == 0
+                and paper_wallet_count == 0
+                and ledger_count == 0
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error(f"reset-proof error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/paper-activity")
+async def paper_activity_diagnostic(user_id: str = Depends(get_current_user)):
+    """Canonical paper-trading-activity diagnostic.
+
+    Proves whether end-to-end paper trading execution has occurred by
+    showing the most recent trade, fill, and decision for the user.
+    """
+    try:
+        from services.canonical import get_canonical_bot_counts
+
+        counts = await get_canonical_bot_counts(user_id)
+
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        trades_today = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": today_start.isoformat()},
+        })
+
+        last_trade = await db.trades_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "timestamp": 1, "pair": 1, "side": 1, "amount": 1, "price": 1, "bot_id": 1},
+            sort=[("timestamp", -1)],
+        )
+
+        last_fill = None
+        if hasattr(db, 'fills_collection'):
+            last_fill = await db.fills_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "timestamp": 1, "pair": 1, "side": 1},
+                sort=[("timestamp", -1)],
+            )
+
+        return {
+            "active_bots": counts.get("active", 0),
+            "total_bots": counts.get("total", 0),
+            "trades_today": trades_today,
+            "last_trade": last_trade,
+            "last_fill": last_fill,
+            "execution_proven": trades_today > 0 or last_trade is not None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error(f"paper-activity error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/go-live")
+async def go_live_diagnostic(user_id: str = Depends(get_current_user)):
+    """Consolidated go-live readiness check.
+
+    Evaluates all subsystems needed for a confident go-live decision:
+    - scheduler health
+    - paper execution proof
+    - reset cleanliness
+    - risk status
+    - heartbeat vitals
+    - queue health
+    """
+    try:
+        checks = {}
+        blockers = []
+
+        # 1. Scheduler health
+        from trading_scheduler import trading_scheduler
+        sched = trading_scheduler.get_health_snapshot()
+        checks["scheduler"] = {
+            "running": sched["scheduler_running"],
+            "task_alive": sched["task_alive"],
+            "last_tick_at": sched["last_tick_at"],
+            "total_ticks": sched["total_ticks"],
+            "total_trades_executed": sched["total_trades_executed"],
+        }
+        if not sched["scheduler_running"]:
+            blockers.append("scheduler_not_running")
+        if not sched["task_alive"]:
+            blockers.append("scheduler_task_dead")
+
+        # 2. Paper execution proof
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        trades_today = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": today_start.isoformat()},
+        })
+        last_trade_doc = await db.trades_collection.find_one(
+            {"user_id": user_id},
+            sort=[("timestamp", -1)],
+            projection={"_id": 0, "timestamp": 1, "pair": 1, "side": 1, "profit_loss": 1},
+        )
+        checks["execution"] = {
+            "trades_today": trades_today,
+            "last_trade": last_trade_doc,
+            "execution_proven": trades_today > 0 or last_trade_doc is not None,
+        }
+
+        # 3. Bot status
+        total_bots = await db.bots_collection.count_documents({"user_id": user_id, "status": {"$ne": "deleted"}})
+        active_bots = await db.bots_collection.count_documents({"user_id": user_id, "status": "active"})
+        checks["bots"] = {"total": total_bots, "active": active_bots}
+        if active_bots == 0:
+            blockers.append("no_active_bots")
+
+        # 4. Risk status
+        try:
+            from services.risk_lock_service import risk_lock_service as _rls
+            locked, lock_reason = await _rls.is_locked_today(user_id)
+        except Exception:
+            locked, lock_reason = False, None
+        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+        emergency_stop = (modes or {}).get("emergencyStop", False)
+        checks["risk"] = {
+            "daily_loss_locked": locked,
+            "lock_reason": lock_reason,
+            "emergency_stop": emergency_stop,
+        }
+        if emergency_stop:
+            blockers.append("emergency_stop_active")
+        if locked:
+            blockers.append("daily_loss_locked")
+
+        # 5. Heartbeat vitals
+        try:
+            from services.autonomy_heartbeat import heartbeat_registry
+            hb = heartbeat_registry.snapshot()
+            sched_hb = hb.get("trading_scheduler", {})
+            checks["heartbeat"] = {
+                "trading_scheduler": sched_hb,
+            }
+            if sched_hb.get("last_error_at") and not sched_hb.get("last_ok_at"):
+                blockers.append("scheduler_heartbeat_error_only")
+        except Exception:
+            checks["heartbeat"] = {"error": "heartbeat_registry_unavailable"}
+
+        # 6. Queue health
+        from engines.trade_staggerer import trade_staggerer as _ts
+        queue_status = await _ts.get_queue_status()
+        checks["queue"] = queue_status
+
+        ready = len(blockers) == 0
+        return {
+            "ready": ready,
+            "blockers": blockers,
+            "checks": checks,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error(f"go-live diagnostic error: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))

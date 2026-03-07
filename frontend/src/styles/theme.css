@@ -1,3 +1,9 @@
+/*
+ * Global theme tokens — shared between Landing, Login, Register pages.
+ * Dashboard pages override overlapping tokens via DashboardV3.css.
+ * Tokens unique to this file (--accent, --surface, --shadow-*, --radius-*)
+ * are used by public pages and UI components.
+ */
 :root {
   --bg1: #111d46;
   --bg2: #1a2c62;

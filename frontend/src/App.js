@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -13,6 +14,23 @@ function PrivateRoute({ children }) {
   return token ? children : <Navigate to="/login" replace />;
 }
 
+/**
+ * Global auth:unauthorized listener — redirects to /login on 401.
+ * Prevents silent 401 polling loops by catching the event from apiClient.
+ */
+function AuthListener() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const handler = () => {
+      localStorage.removeItem('token');
+      navigate('/login', { replace: true });
+    };
+    window.addEventListener('auth:unauthorized', handler);
+    return () => window.removeEventListener('auth:unauthorized', handler);
+  }, [navigate]);
+  return null;
+}
+
 function App() {
   return (
     <div className="App">
@@ -21,6 +39,7 @@ function App() {
         <span className="particles-dots" />
       </div>
       <BrowserRouter>
+        <AuthListener />
         <div className="app-shell">
           <Routes>
             <Route path="/" element={<Landing />} />

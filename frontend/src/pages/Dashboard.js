@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -14,7 +15,6 @@ import {
 import './DashboardV3.css';
 import ErrorBoundary from '../components/ErrorBoundary';
 import SiteFooter from '../components/SiteFooter';
-import Brand from '../components/Brand';
 import useDashboardState from '../hooks/useDashboardState';
 import Badge from '@/ui/components/Badge';
 import ModalConfirm from '@/ui/components/ModalConfirm';
@@ -30,6 +30,7 @@ import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import PerformanceSection from './dashboard/sections/PerformanceSection';
 import AdminTruthSection from './dashboard/sections/AdminTruthSection';
+import BotFleetSection from './dashboard/sections/BotFleetSection';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
@@ -54,6 +55,7 @@ const safeToFixed = (value, digits = 2, fallback = '0.00') => {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   const {
     actionLoading,
@@ -244,246 +246,6 @@ export default function Dashboard() {
     />
   );
 
-  const renderWelcome = () => (
-    <WelcomeSection
-      axiosConfig={axiosConfig}
-      user={user}
-      showSection={showSection}
-      showAITools={showAITools}
-      setShowAITools={setShowAITools}
-      aiTaskLoading={aiTaskLoading}
-      handleTriggerLearning={handleTriggerLearning}
-      handleEvolveBots={handleEvolveBots}
-      handleGetInsights={handleGetInsights}
-      handlePredictPrice={handlePredictPrice}
-      handleReinvestProfits={handleReinvestProfits}
-      chatMessages={chatMessages}
-      chatEndRef={chatEndRef}
-      chatInput={chatInput}
-      setChatInput={setChatInput}
-      chatSending={chatSending}
-      awaitingPassword={awaitingPassword}
-      handleChatKeyDown={handleChatKeyDown}
-      handleSendMessage={handleSendMessage}
-      loadChatHistory={loadChatHistory}
-      handleClearChatHistory={handleClearChatHistory}
-    />
-  );
-
-  const renderOverview = () => (
-    <OverviewSection
-      user={user}
-      aiStatus={aiStatus}
-      autonomyStatus={autonomyStatus}
-      botControlLoading={botControlLoading}
-      formatDate={formatDate}
-      handleResetBodyguardLock={handleResetBodyguardLock}
-      handleResetDailyLossLock={handleResetDailyLossLock}
-      handleResumeAllBots={handleResumeAllBots}
-      learningStatus={learningStatus}
-      livePrices={livePrices}
-      metrics={metrics}
-      modeLabel={modeLabel}
-      overviewData={overviewData}
-      riskStatus={riskStatus}
-      systemModes={systemModes}
-    />
-  );
-
-  const renderProfile = () => (
-    <ProfileSection
-      user={user}
-      bots={bots}
-      formatDate={formatDate}
-      profileData={profileData}
-      handleProfileChange={handleProfileChange}
-      handleProfileSave={handleProfileSave}
-      handleEmergencyStop={handleEmergencyStop}
-    />
-  );
-
-  // Handle API Key Migration
-
-  const renderAdmin = () => (
-    <AdminPanelSection
-      user={user}
-      actionLoading={actionLoading}
-      adminApiHealth={adminApiHealth}
-      adminBots={adminBots}
-      adminUsers={adminUsers}
-      aiTaskLoading={aiTaskLoading}
-      allUsers={allUsers}
-      axiosConfig={axiosConfig}
-      bodyguardStatus={bodyguardStatus}
-      bots={bots}
-      clearUserEmergencyOverride={clearUserEmergencyOverride}
-      emergencyOverrideStatus={emergencyOverrideStatus}
-      filteredAdminBots={filteredAdminBots}
-      formatDate={formatDate}
-      handleBlockUser={handleBlockUser}
-      handleChangeBotExchange={handleChangeBotExchange}
-      handleChangeBotMode={handleChangeBotMode}
-      handleChangePassword={handleChangePassword}
-      handleDeleteUser={handleDeleteUser}
-      handleDeleteUserAdmin={handleDeleteUserAdmin}
-      handleEmailAllUsers={handleEmailAllUsers}
-      handleForceLogout={handleForceLogout}
-      handleMigrateApiKeys={handleMigrateApiKeys}
-      handleResetPassword={handleResetPassword}
-      handleToggleBlockUser={handleToggleBlockUser}
-      handleToggleBotPause={handleToggleBotPause}
-      handleTriggerBodyguard={handleTriggerBodyguard}
-      handleUserSelection={handleUserSelection}
-      loadAdminUsers={loadAdminUsers}
-      loadAdminBots={loadAdminBots}
-      loadingBots={loadingBots}
-      loadingUsers={loadingUsers}
-      selectedBotId={selectedBotId}
-      selectedUserId={selectedUserId}
-      setActiveSection={setActiveSection}
-      setChatMessages={setChatMessages}
-      setSelectedBotId={setSelectedBotId}
-      setSelectedUserId={setSelectedUserId}
-      showNotification={showNotification}
-      showSection={showSection}
-      storageData={storageData}
-      storageError={storageError}
-      storageTotals={storageTotals}
-      systemStats={systemStats}
-      updateGlobalEmergencyOverride={updateGlobalEmergencyOverride}
-      updateUserEmergencyOverride={updateUserEmergencyOverride}
-    />
-  );
-
-  const renderSystemMode = () => (
-    <SystemModeSection
-      bots={bots}
-      handleEmergencyStop={handleEmergencyStop}
-      handlePaperReset={handlePaperReset}
-      handleRiskProfileChange={handleRiskProfileChange}
-      paperResetChecking={paperResetChecking}
-      paperResetError={paperResetError}
-      paperResetLoading={paperResetLoading}
-      paperResetPassword={paperResetPassword}
-      paperResetValid={paperResetValid}
-      riskProfile={riskProfile}
-      setPaperResetError={setPaperResetError}
-      setPaperResetPassword={setPaperResetPassword}
-      setPaperResetValid={setPaperResetValid}
-      setShowPaperResetModal={setShowPaperResetModal}
-      showPaperResetModal={showPaperResetModal}
-      systemModes={systemModes}
-      toggleSystemMode={toggleSystemMode}
-    />
-  );
-
-  const renderLiveTradeFeed = () => (
-    <LiveTradesSection
-      recentTrades={recentTrades}
-      selectedTradeId={selectedTradeId}
-      setSelectedTradeId={setSelectedTradeId}
-      setTradeBotFilter={setTradeBotFilter}
-      setTradeExchangeFilter={setTradeExchangeFilter}
-      setTradePairFilter={setTradePairFilter}
-      tradeBotFilter={tradeBotFilter}
-      tradeExchangeFilter={tradeExchangeFilter}
-      tradePairFilter={tradePairFilter}
-    />
-  );
-
-  const renderProfitGraphs = () => (
-    <ProfitsSection
-      bots={bots}
-      drawdownData={drawdownData}
-      drawdownRange={drawdownRange}
-      equityData={equityData}
-      equityRange={equityRange}
-      formatDate={formatDate}
-      getAlertColor={getAlertColor}
-      graphPeriod={graphPeriod}
-      overviewData={overviewData}
-      profitData={profitData}
-      profitsTab={profitsTab}
-      setDrawdownRange={setDrawdownRange}
-      setEquityRange={setEquityRange}
-      setGraphPeriod={setGraphPeriod}
-      setProfitsTab={setProfitsTab}
-      setWinRatePeriod={setWinRatePeriod}
-      showSection={showSection}
-      winRateData={winRateData}
-      winRatePeriod={winRatePeriod}
-      metricsTab={metricsTab}
-      setMetricsTab={setMetricsTab}
-      renderMetricsWithTabs={renderMetricsWithTabs}
-    />
-  );
-
-  const renderCountdown = () => (
-    <CountdownSection
-      countdown={countdown}
-      customCountdowns={customCountdowns}
-      metrics={metrics}
-      newCountdownAmount={newCountdownAmount}
-      newCountdownLabel={newCountdownLabel}
-      setNewCountdownAmount={setNewCountdownAmount}
-      setNewCountdownLabel={setNewCountdownLabel}
-      setShowAddCountdown={setShowAddCountdown}
-      showAddCountdown={showAddCountdown}
-      addCustomCountdown={addCustomCountdown}
-      deleteCustomCountdown={deleteCustomCountdown}
-    />
-  );
-
-  const renderWalletHub = () => (
-    <WalletHubSection
-      balances={balances}
-      systemModes={systemModes}
-    />
-  );
-
-  const renderAPIKeys = () => (
-    <ApiSetupSection />
-  );
-
-  const renderApiSetup = renderAPIKeys;
-
-  const renderBots = () => (
-    <BotManagementSection
-      autoSpawnStatus={autoSpawnStatus}
-      autopilotReinvestStatus={autopilotReinvestStatus}
-      botDetailTab={botDetailTab}
-      botManagementTab={botManagementTab}
-      botStatusFilter={botStatusFilter}
-      bots={bots}
-      formatDate={formatDate}
-      handleCreateBot={handleCreateBot}
-      handleCreateUAgent={handleCreateUAgent}
-      handleDeleteBot={handleDeleteBot}
-      handleResumeBot={handleResumeBot}
-      handleStartBot={handleStartBot}
-      handleToggleBotMode={handleToggleBotMode}
-      platformFilter={platformFilter}
-      selectedBotDetailId={selectedBotDetailId}
-      setBotDetailTab={setBotDetailTab}
-      setBotManagementTab={setBotManagementTab}
-      setBotStatusFilter={setBotStatusFilter}
-      setPlatformFilter={setPlatformFilter}
-      setSelectedBotDetailId={setSelectedBotDetailId}
-      botSetup={botSetup}
-      setBotSetup={setBotSetup}
-      activeBotTab={activeBotTab}
-      setActiveBotTab={setActiveBotTab}
-      editingBotId={editingBotId}
-      setEditingBotId={setEditingBotId}
-      editingBotName={editingBotName}
-      setEditingBotName={setEditingBotName}
-      handleBotSetup={handleBotSetup}
-      botControlLoading={botControlLoading}
-      handleRenameBotSubmit={handleRenameBotSubmit}
-      axiosConfig={axiosConfig}
-    />
-  );
-
 
   return (
     <div className="app">
@@ -501,6 +263,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === NAV.WELCOME ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WELCOME); }}>{NAV_LABELS[NAV.WELCOME]}</a>
             <a href="#" className={activeSection === NAV.API_SETUP ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.API_SETUP); }}>{NAV_LABELS[NAV.API_SETUP]}</a>
             <a href="#" className={activeSection === NAV.BOT_MANAGEMENT ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_MANAGEMENT); }}>{NAV_LABELS[NAV.BOT_MANAGEMENT]}</a>
+            <a href="#" className={activeSection === NAV.BOT_FLEET ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_FLEET); }}>{NAV_LABELS[NAV.BOT_FLEET]}</a>
             <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
             <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
             <a href="#" className={activeSection === NAV.LIVE_TRADES ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.LIVE_TRADES); }}>{NAV_LABELS[NAV.LIVE_TRADES]}</a>
@@ -518,7 +281,7 @@ export default function Dashboard() {
       {!isMobile && (
         <header className="topbar">
             <div className="topbar-brand">
-              <div className="topbar-title"><Brand /></div>
+              <div className="topbar-title">Amarktai Crypto</div>
             </div>
           <div className="top-actions">
             <Badge variant={modeTone} className="topbar-badge">
@@ -538,18 +301,30 @@ export default function Dashboard() {
       {/* Mobile Topbar */}
       {isMobile && (
         <div className="mobile-topbar">
-          <button className="mobile-logo-btn" onClick={() => showSection(NAV.OVERVIEW)}>
-            <img
-              src="/assets/logo.png"
-              className="mobile-logo"
-              alt="Amarktai Crypto"
-            />
+          <button className="mobile-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
+          <button className="mobile-logo-btn" onClick={() => { showSection(NAV.OVERVIEW); setMobileDrawerOpen(false); }}>
+            <img src="/assets/logo.png" className="mobile-logo" alt="Amarktai Crypto" />
           </button>
-          <div className="mobile-btns">
-            <button className="mobile-btn" onClick={() => showSection(NAV.OVERVIEW)}>Overview</button>
-            <button className="mobile-btn" onClick={handleLogout}>Logout</button>
-          </div>
+          <button className="logout-btn" onClick={handleLogout} style={{fontSize:'0.8rem',padding:'6px 10px'}}>Logout</button>
         </div>
+      )}
+
+      {/* Mobile Drawer */}
+      {isMobile && (
+        <>
+          <div className={`mobile-drawer-overlay ${mobileDrawerOpen ? 'open' : ''}`} onClick={() => setMobileDrawerOpen(false)} />
+          <div className={`mobile-drawer ${mobileDrawerOpen ? 'open' : ''}`}>
+            <img src="/assets/logo.png" className="logo sidebar-logo" alt="Amarktai Crypto" onClick={() => { showSection(NAV.OVERVIEW); setMobileDrawerOpen(false); }} style={{cursor:'pointer',margin:'0 auto 16px'}} />
+            <nav className="nav">
+              {Object.entries(NAV_LABELS).map(([key, label]) => {
+                if (key === NAV.HIDDEN_ADMIN && !showAdmin) return null;
+                return (
+                  <a key={key} href="#" className={activeSection === key ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(key); setMobileDrawerOpen(false); }}>{label}</a>
+                );
+              })}
+            </nav>
+          </div>
+        </>
       )}
 
       {/* Main Content */}
@@ -640,6 +415,33 @@ export default function Dashboard() {
               setEditingBotName={setEditingBotName}
               handleBotSetup={handleBotSetup}
               botControlLoading={botControlLoading}
+              handleRenameBotSubmit={handleRenameBotSubmit}
+              axiosConfig={axiosConfig}
+            />
+          </ErrorBoundary>
+        )}
+        {activeSection === NAV.BOT_FLEET && (
+          <ErrorBoundary title="Bot Fleet error" message="Unable to load Bot Fleet section.">
+            <BotFleetSection
+              bots={bots}
+              formatDate={formatDate}
+              handleDeleteBot={handleDeleteBot}
+              handleResumeBot={handleResumeBot}
+              handleStartBot={handleStartBot}
+              handleToggleBotMode={handleToggleBotMode}
+              botControlLoading={botControlLoading}
+              selectedBotDetailId={selectedBotDetailId}
+              setSelectedBotDetailId={setSelectedBotDetailId}
+              botDetailTab={botDetailTab}
+              setBotDetailTab={setBotDetailTab}
+              botStatusFilter={botStatusFilter}
+              setBotStatusFilter={setBotStatusFilter}
+              platformFilter={platformFilter}
+              setPlatformFilter={setPlatformFilter}
+              editingBotId={editingBotId}
+              setEditingBotId={setEditingBotId}
+              editingBotName={editingBotName}
+              setEditingBotName={setEditingBotName}
               handleRenameBotSubmit={handleRenameBotSubmit}
               axiosConfig={axiosConfig}
             />

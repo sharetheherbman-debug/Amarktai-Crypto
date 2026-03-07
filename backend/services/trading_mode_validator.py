@@ -136,7 +136,7 @@ class TradingModeValidator:
             bot_id = bot_data.get('id')
             exchange = bot_data.get('exchange', 'unknown')
 
-            live_enabled = env_bool('ENABLE_LIVE_TRADING', False) or env_bool('LIVE_TRADING', False)
+            live_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
             if not live_enabled:
                 return False, "live", "Live trading not enabled globally"
             

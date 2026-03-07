@@ -1,3 +1,5 @@
+// ARCHIVED: This file is not mounted in the dashboard and exists only for reference.
+// Canonical section for this functionality lives elsewhere.
 import SectionHeader from '@/ui/components/SectionHeader';
 import BotManagementSection from './BotManagementSection';
 

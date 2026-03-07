@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const API = process.env.REACT_APP_API_URL || '';
+/** Use empty base — all fetch URLs already include /api prefix */
+const API = '';
 
 const CoinStatsPanel = ({ axiosConfig }) => {
   const [status, setStatus] = useState({ configured: false, reachable: false });
