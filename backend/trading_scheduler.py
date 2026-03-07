@@ -52,14 +52,36 @@ class TradingScheduler:
         self.check_interval = 10  # Check every 10 seconds for ready trades
         self.last_heartbeat = None
         self.heartbeat_interval = 10  # Emit heartbeat every 10 seconds
+        # --- Pass 3: Observability state ---
+        self.last_tick_at = None          # ISO timestamp of last execute_bot_trades call
+        self.last_tick_bots = 0           # How many bots were scanned on last tick
+        self.last_tick_queued = 0         # How many new trades were queued on last tick
+        self.last_tick_executed = 0       # How many trades were executed on last tick
+        self.last_tick_noop_reason = None # Why last tick did nothing (if it did nothing)
+        self.last_trade_at = None         # ISO timestamp of last successful trade execution
+        self.last_trade_bot = None        # bot_id of last successful trade
+        self.last_trade_result = None     # Summary of last trade result
+        self.total_ticks = 0             # Total scheduler ticks since start
+        self.total_trades_executed = 0   # Total trades executed since start
+        self.total_noop_ticks = 0        # Total ticks that produced no trade
         
     async def execute_bot_trades(self):
         """Execute trades using staggered queue - CONTINUOUS OPERATION"""
+        tick_time = datetime.now(timezone.utc)
+        self.last_tick_at = tick_time.isoformat()
+        self.total_ticks += 1
+        tick_executed = 0
+        tick_queued = 0
         try:
             # Check system gate first
             should_run, gate_reason = system_gate.validate_scheduler_tick()
             if not should_run:
                 logger.debug(f"Scheduler tick skipped: {gate_reason}")
+                self.last_tick_noop_reason = f"gate: {gate_reason}"
+                self.last_tick_bots = 0
+                self.last_tick_queued = 0
+                self.last_tick_executed = 0
+                self.total_noop_ticks += 1
                 return
             
             logger.info("📊 Paper tick start")
@@ -72,6 +94,11 @@ class TradingScheduler:
             
             if not active_bots:
                 logger.debug("No active bots found")
+                self.last_tick_noop_reason = "no_active_bots"
+                self.last_tick_bots = 0
+                self.last_tick_queued = 0
+                self.last_tick_executed = 0
+                self.total_noop_ticks += 1
                 return
             
             logger.info(f"📊 Bots scanned: {len(active_bots)} active")
@@ -156,6 +183,11 @@ class TradingScheduler:
             
             if not active_bots:
                 logger.debug("No bots on supported exchanges")
+                self.last_tick_noop_reason = "no_supported_bots"
+                self.last_tick_bots = 0
+                self.last_tick_queued = 0
+                self.last_tick_executed = 0
+                self.total_noop_ticks += 1
                 return
             
             # Check each user's System Mode settings and track reasons
@@ -277,7 +309,14 @@ class TradingScheduler:
                     logger.warning(f"Failed to emit bot_status_changed event: {e}")
             
             if not active_bots:
+                self.last_tick_noop_reason = "all_bots_paused"
+                self.last_tick_bots = 0
+                self.last_tick_queued = 0
+                self.last_tick_executed = 0
+                self.total_noop_ticks += 1
                 return
+            
+            self.last_tick_bots = len(active_bots)
             
             # Process ready trades from queue
             for _ in range(5):  # Process up to 5 trades per cycle
@@ -332,12 +371,34 @@ class TradingScheduler:
                             profit = trade.get('profit_loss', 0)
                             logger.info(f"✅ Trade inserted: id={trade_id}, profit={profit:.2f}")
                             logger.info(f"📡 Realtime event emitted: trade_id={trade_id}")
+                            # --- Pass 3: Track successful trade ---
+                            tick_executed += 1
+                            self.last_trade_at = datetime.now(timezone.utc).isoformat()
+                            self.last_trade_bot = bot_id
+                            self.last_trade_result = {
+                                "bot_name": bot.get('name'),
+                                "pair": trade.get('pair', trade.get('symbol', 'unknown')),
+                                "profit_loss": profit,
+                                "side": trade.get('side', 'unknown'),
+                                "is_paper": True,
+                            }
                     else:
                         # LIVE TRADING - Use live_trading_engine
                         logger.info(f"🔴 LIVE TRADING: {bot['name']} on {bot.get('exchange')}")
                         
                         # Execute live trade
                         result = await self.execute_live_trade(bot)
+                        if result and isinstance(result, dict) and result.get('trade'):
+                            tick_executed += 1
+                            self.last_trade_at = datetime.now(timezone.utc).isoformat()
+                            self.last_trade_bot = bot_id
+                            self.last_trade_result = {
+                                "bot_name": bot.get('name'),
+                                "pair": result['trade'].get('pair', 'unknown'),
+                                "profit_loss": result['trade'].get('profit_loss', 0),
+                                "side": result['trade'].get('side', 'unknown'),
+                                "is_paper": False,
+                            }
                     
                     # Register trade complete
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
@@ -375,10 +436,15 @@ class TradingScheduler:
                     logger.error(f"Trade execution error for {bot['name']}: {e}")
                     await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
             
-            # Add new trades to queue
+            # Add new trades to queue (with dedup — skip bots already queued)
+            queued_bot_ids = {item['bot_id'] for item in trade_staggerer.trade_queue}
             for bot in active_bots:
                 bot_id = bot['id']
                 exchange = bot.get('exchange', 'binance')
+                
+                # Skip if bot is already in queue (prevents duplicate queue spam)
+                if bot_id in queued_bot_ids:
+                    continue
                 
                 # Check if bot can trade
                 can_execute, reason = await trade_staggerer.can_execute_now(bot_id, exchange)
@@ -386,6 +452,17 @@ class TradingScheduler:
                 if can_execute:
                     # Add to queue
                     await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
+                    tick_queued += 1
+            
+            # --- Pass 3: Update tick observability ---
+            self.last_tick_queued = tick_queued
+            self.last_tick_executed = tick_executed
+            self.total_trades_executed += tick_executed
+            if tick_executed == 0:
+                self.last_tick_noop_reason = "no_trades_executed"
+                self.total_noop_ticks += 1
+            else:
+                self.last_tick_noop_reason = None
         
         except Exception as e:
             logger.error(f"Trading cycle error: {e}")
@@ -582,6 +659,31 @@ class TradingScheduler:
                     pass
                 await asyncio.sleep(self.check_interval)
     
+    def get_health_snapshot(self) -> dict:
+        """Return a comprehensive scheduler health snapshot for diagnostics."""
+        task = self.task
+        task_alive = task is not None and not task.done()
+        return {
+            "scheduler_running": self.is_running,
+            "task_alive": task_alive,
+            "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
+            "check_interval_seconds": self.check_interval,
+            "last_tick_at": self.last_tick_at,
+            "last_tick_bots": self.last_tick_bots,
+            "last_tick_queued": self.last_tick_queued,
+            "last_tick_executed": self.last_tick_executed,
+            "last_tick_noop_reason": self.last_tick_noop_reason,
+            "last_trade_at": self.last_trade_at,
+            "last_trade_bot": self.last_trade_bot,
+            "last_trade_result": self.last_trade_result,
+            "total_ticks": self.total_ticks,
+            "total_trades_executed": self.total_trades_executed,
+            "total_noop_ticks": self.total_noop_ticks,
+            "queue_size": len(trade_staggerer.trade_queue),
+            "active_trades": len(trade_staggerer.active_trades),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
     def start(self):
         """Start the trading scheduler"""
         if not self.is_running:
