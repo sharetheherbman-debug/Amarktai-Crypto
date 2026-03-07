@@ -2,6 +2,10 @@
 Config package
 Re-exports constants from ../config.py for backward compatibility with imports like:
     from config import PAPER_TRAINING_DAYS
+
+CANONICAL ENV VARIABLE NAMES (Pass 1 Go-Live Recovery):
+  Trading gates:  PAPER_TRADING (1/0), LIVE_TRADING (1/0), AUTOPILOT_ENABLED (1/0)
+  Legacy aliases: ENABLE_PAPER_TRADING, ENABLE_LIVE_TRADING, ENABLE_AUTOPILOT
 """
 
 # These constants are duplicated here to avoid circular import issues
@@ -15,6 +19,27 @@ try:
     load_dotenv()
 except ImportError:
     pass  # dotenv not available, use environment variables directly
+
+# ---------------------------------------------------------------------------
+# Helper — must match utils/env_utils.py:env_bool
+# ---------------------------------------------------------------------------
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+# ---------------------------------------------------------------------------
+# CANONICAL trading-gate variables  (1 / 0 style via _env_bool)
+# ---------------------------------------------------------------------------
+PAPER_TRADING = _env_bool('PAPER_TRADING', False) or _env_bool('ENABLE_PAPER_TRADING', False)
+LIVE_TRADING = _env_bool('LIVE_TRADING', False) or _env_bool('ENABLE_LIVE_TRADING', False)
+AUTOPILOT_ENABLED = _env_bool('AUTOPILOT_ENABLED', False) or _env_bool('ENABLE_AUTOPILOT', False)
+
+# Backward-compatible aliases
+ENABLE_PAPER_TRADING = PAPER_TRADING
+ENABLE_LIVE_TRADING = LIVE_TRADING
+ENABLE_AUTOPILOT = AUTOPILOT_ENABLED
 
 # Paper -> Live promotion criteria (most commonly imported)
 PAPER_TRAINING_DAYS = int(os.getenv('PAPER_TRAINING_DAYS', '7'))  # Must be 7 days minimum
@@ -147,11 +172,9 @@ AI_MODELS = {
     'chatops': 'gpt-4o'
 }
 
-# Feature flags
+# Feature flags — ENABLE_PAPER_TRADING, ENABLE_LIVE_TRADING, ENABLE_AUTOPILOT
+# already resolved above as canonical aliases.
 ENABLE_TRADING = os.getenv('ENABLE_TRADING', 'true').lower() == 'true'  # Enable for paper trading
-ENABLE_PAPER_TRADING = os.getenv('ENABLE_PAPER_TRADING', 'true').lower() == 'true'  # Paper trading safe
-ENABLE_LIVE_TRADING = os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true'  # Live OFF by default
-ENABLE_AUTOPILOT = os.getenv('ENABLE_AUTOPILOT', 'true').lower() == 'true'  # Autonomous management
 ENABLE_BODYGUARD = os.getenv('ENABLE_BODYGUARD', 'true').lower() == 'true'  # AI protection
 ENABLE_REALTIME = os.getenv('ENABLE_REALTIME', 'true').lower() == 'true'  # SSE/WS events
 ENABLE_SELF_LEARNING = os.getenv('ENABLE_SELF_LEARNING', 'true').lower() == 'true'
@@ -186,6 +209,9 @@ __all__ = [
     'STOP_LOSS_SAFE', 'STOP_LOSS_BALANCED', 'STOP_LOSS_AGGRESSIVE',
     'MAX_HOURLY_LOSS_PERCENT', 'MAX_DAILY_LOSS_PERCENT', 'MAX_DRAWDOWN_PERCENT',
     'MIN_POSITION_SIZE_PERCENT', 'MAX_POSITION_SIZE_PERCENT', 'MAX_ERRORS_PER_HOUR',
+    # Canonical trading gate names
+    'PAPER_TRADING', 'LIVE_TRADING', 'AUTOPILOT_ENABLED',
+    # Legacy aliases (resolve to same values)
     'ENABLE_TRADING', 'ENABLE_PAPER_TRADING', 'ENABLE_LIVE_TRADING', 'ENABLE_AUTOPILOT',
     'ENABLE_BODYGUARD', 'ENABLE_REALTIME', 'ENABLE_REALTIME_TRANSFERS', 'ENABLE_SCHEDULERS',
     'ENABLE_SELF_LEARNING', 'ENABLE_SELF_HEALING',
