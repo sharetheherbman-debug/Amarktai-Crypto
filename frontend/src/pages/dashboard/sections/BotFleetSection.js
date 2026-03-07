@@ -12,8 +12,9 @@ function safeNum(v, fallback = 0) {
 }
 
 function fmtZAR(v, digits = 2, fallback = 'R 0.00') {
+  if (v == null) return fallback;
   const n = safeNum(v);
-  return n === 0 && v == null ? fallback : `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 function fmtPct(v, fallback = '—') {

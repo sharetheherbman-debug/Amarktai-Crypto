@@ -69,11 +69,19 @@ export default function LiveTradesSection({
 
   const formatTime = (ts) => {
     if (!ts) return NA;
-    try { return new Date(ts).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return NA; }
+    try {
+      return new Date(ts).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return NA;
+    }
   };
   const formatDateTime = (ts) => {
     if (!ts) return NA;
-    try { return new Date(ts).toLocaleString('en-ZA'); } catch { return NA; }
+    try {
+      return new Date(ts).toLocaleString('en-ZA');
+    } catch {
+      return NA;
+    }
   };
 
   const getSideColor = (side) => {
