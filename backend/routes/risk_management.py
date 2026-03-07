@@ -640,3 +640,63 @@ async def resume_all_bots_with_risk_check(
     except Exception as e:
         logger.error(f"Error resuming all bots: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/risk/summary")
+async def get_risk_summary(user_id: str = Depends(get_current_user)):
+    """Canonical risk summary endpoint.
+
+    Aggregates daily-loss lock, bodyguard status, emergency stop, and
+    per-bot risk data into a single response for go-live diagnostics.
+    """
+    try:
+        from services.risk_lock_service import risk_lock_service
+
+        # User-level risk state
+        user = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "daily_loss_lock_active": 1, "emergency_stop": 1,
+             "daily_loss_pct": 1, "daily_loss_locked_at": 1,
+             "daily_loss_locked_reason": 1}
+        )
+        user = user or {}
+
+        lock_active = user.get("daily_loss_lock_active", False)
+        emergency_stop = user.get("emergency_stop", False)
+
+        # Bodyguard status
+        bodyguard_status = "unknown"
+        try:
+            from ai_bodyguard import bodyguard
+            bodyguard_status = "active" if getattr(bodyguard, 'enabled', False) else "inactive"
+        except Exception:
+            pass
+
+        # Count bots by risk state
+        total_bots = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": {"$nin": ["deleted"]},
+        })
+        quarantined_bots = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": "quarantined",
+        })
+        paused_bots = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": "paused",
+        })
+
+        return {
+            "daily_loss_lock_active": lock_active,
+            "emergency_stop": emergency_stop,
+            "bodyguard_status": bodyguard_status,
+            "daily_loss_pct": user.get("daily_loss_pct"),
+            "total_bots": total_bots,
+            "quarantined_bots": quarantined_bots,
+            "paused_bots": paused_bots,
+            "risk_healthy": not lock_active and not emergency_stop and quarantined_bots == 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error(f"risk summary error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
