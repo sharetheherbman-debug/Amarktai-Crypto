@@ -49,9 +49,15 @@ class MetricsService:
             total_profit = accounting_metrics["net_realised_pnl_zar"]
             executed_trades_count = accounting_metrics["executed_trades_count"]
             
-            # Get all user's bots (excluding deleted)
+            # Get all user's bots (excluding deleted/ghost bots — canonical filter)
             bots_cursor = db.bots_collection.find(
-                {"user_id": user_id, "status": {"$ne": "deleted"}},
+                {
+                    "user_id": user_id,
+                    "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                    "deleted": {"$ne": True},
+                    "is_deleted": {"$ne": True},
+                    "deleted_at": {"$exists": False},
+                },
                 {"_id": 0}
             )
             all_bots = await bots_cursor.to_list(1000)

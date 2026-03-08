@@ -4,7 +4,8 @@ export default function AiChatSection({
   chatMessages, chatEndRef, chatInput, setChatInput, chatSending, awaitingPassword,
   handleChatKeyDown, handleSendMessage, loadChatHistory, handleClearChatHistory,
   showAITools, setShowAITools, aiTaskLoading,
-  handleTriggerLearning, handleEvolveBots, handleGetInsights, handlePredictPrice, handleReinvestProfits
+  handleTriggerLearning, handleEvolveBots, handleGetInsights, handlePredictPrice, handleReinvestProfits,
+  hideInlineTools = false,
 }) {
   const [showAnalytics, setShowAnalytics] = useState(false);
   return (
@@ -41,7 +42,9 @@ export default function AiChatSection({
           >
             🗑️ Clear History
           </button>
-          {setShowAITools && (
+          {/* AI Tools / Analytics toggles are hidden when the parent component
+              already provides dedicated tabs for these (e.g. WelcomeSection). */}
+          {!hideInlineTools && setShowAITools && (
             <button
               onClick={() => setShowAITools(!showAITools)}
               style={{
@@ -58,21 +61,23 @@ export default function AiChatSection({
               🧠 AI Tools {showAITools ? '▼' : '▶'}
             </button>
           )}
-          <button
-            onClick={() => setShowAnalytics(!showAnalytics)}
-            style={{
-              padding: '6px 12px',
-              fontSize: '0.8rem',
-              background: showAnalytics ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.15)',
-              color: 'var(--text)',
-              border: '1px solid rgba(34, 197, 94, 0.4)',
-              borderRadius: '999px',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
-            📊 Analytics {showAnalytics ? '▼' : '▶'}
-          </button>
+          {!hideInlineTools && (
+            <button
+              onClick={() => setShowAnalytics(!showAnalytics)}
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                background: showAnalytics ? 'rgba(34, 197, 94, 0.4)' : 'rgba(34, 197, 94, 0.15)',
+                color: 'var(--text)',
+                border: '1px solid rgba(34, 197, 94, 0.4)',
+                borderRadius: '999px',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              📊 Analytics {showAnalytics ? '▼' : '▶'}
+            </button>
+          )}
         </div>
         <div className={`amk-chat-indicator ${chatSending ? 'active' : ''}`}>
           {chatSending ? 'Sending...' : 'Ready'}
@@ -80,8 +85,8 @@ export default function AiChatSection({
         <img src="/assets/ai/ai-wave.svg" alt="" className="amk-chat-banner" />
       </div>
 
-      {/* AI Tools inline toggle */}
-      {showAITools && handleTriggerLearning && (
+      {/* AI Tools inline toggle — only shown when hideInlineTools is false */}
+      {!hideInlineTools && showAITools && handleTriggerLearning && (
         <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', padding: '8px 0'}}>
           <button
             onClick={handleTriggerLearning}
@@ -107,8 +112,8 @@ export default function AiChatSection({
         </div>
       )}
 
-      {/* Analytics inline toggle */}
-      {showAnalytics && handlePredictPrice && (
+      {/* Analytics inline toggle — only shown when hideInlineTools is false */}
+      {!hideInlineTools && showAnalytics && handlePredictPrice && (
         <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', padding: '8px 0'}}>
           <button
             onClick={handlePredictPrice}
