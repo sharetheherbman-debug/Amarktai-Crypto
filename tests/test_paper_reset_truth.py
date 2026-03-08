@@ -374,3 +374,20 @@ class TestStartFreshFullReset:
         assert "daily_loss_lock_active" in source, (
             "perform_paper_reset must reset daily_loss_lock_active"
         )
+
+    def test_perform_paper_reset_clears_global_disabled(self):
+        """perform_paper_reset must clear global_disabled in admin_overrides
+        when the reason indicates it was set by a reset operation."""
+        import inspect
+        from routes import system_mode as sm_module
+
+        source = inspect.getsource(sm_module.perform_paper_reset)
+        assert "global_disabled" in source, (
+            "perform_paper_reset must clear global_disabled in emergency_stop admin_overrides"
+        )
+        assert "admin_overrides" in source, (
+            "perform_paper_reset must reference admin_overrides doc in emergency_stop_collection"
+        )
+        assert "emergency_stop_collection" in source, (
+            "perform_paper_reset must touch emergency_stop_collection to clear reset-stuck global_disabled"
+        )

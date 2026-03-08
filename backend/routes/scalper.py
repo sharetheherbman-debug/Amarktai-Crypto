@@ -221,4 +221,29 @@ async def scalper_seed(
     await db.bots_collection.insert_one(bot_doc)
     bot_doc.pop("_id", None)
 
+    # Auto-start paper learning period if this is the user's first bot
+    try:
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id}, {"paper_learning_start_ts": 1, "_id": 0}
+        )
+        if not (user_doc or {}).get("paper_learning_start_ts"):
+            from config import PAPER_TRAINING_DAYS as _PTD
+            _start_ts = datetime.now(timezone.utc).isoformat()
+            await db.users_collection.update_one(
+                {"id": user_id},
+                {
+                    "$set": {
+                        "paper_learning_start_ts": _start_ts,
+                        "paper_learning_days_required": _PTD,
+                    }
+                },
+                upsert=True,
+            )
+            logger.info(
+                f"Auto-started paper learning for {user_id[:8]} on scalper seed "
+                f"(required: {_PTD} days)"
+            )
+    except Exception as _e:
+        logger.warning(f"Auto-start paper learning failed: {_e}")
+
     return {"seeded": 1, "bot": bot_doc}

@@ -1077,6 +1077,43 @@ export default function useDashboardState(navigate) {
         }
         break;
       
+      case 'paper_reset':
+        // Backend has completed a full paper reset — clear ALL client state immediately
+        // so the dashboard reflects the clean zero state before the backend refresh arrives.
+        console.log('🔄 PAPER RESET WebSocket event — clearing all client state');
+        setProfitData({ labels: [], values: [], total: 0, avg_daily: 0, best_day: 0, growth_rate: 0 });
+        setEquityData(null);
+        setDrawdownData(null);
+        setCountdown(null);
+        setRecentTrades([]);
+        setBots([]);
+        setBalances({ zar: 0, btc: 0 });
+        setMetrics({ total_profit: 0, total_trades: 0, win_rate: 0, active_bots: 0 });
+        setOverviewData(prev => ({
+          ...prev,
+          totalProfit: 0,
+          todaysTrades: 0,
+          openPositions: 0,
+          winRate: 0,
+          activeBots: 0,
+          paperWalletTotal: 0,
+          paperWalletAllocated: 0,
+          lastTradeTime: null,
+        }));
+        sessionStorage.removeItem('profitData');
+        sessionStorage.removeItem('recentTrades');
+        // Brief delay so all MongoDB writes from the reset are visible before
+        // we re-query.  Without this, a same-tick read can return stale data.
+        const RESET_REHYDRATE_DELAY_MS = 200;
+        setTimeout(() => {
+          refreshAllDashboardData();
+          loadProfitData();
+          loadBalances();
+          loadEquityData();
+          loadDrawdownData();
+        }, RESET_REHYDRATE_DELAY_MS);
+        break;
+
       case 'force_refresh':
         // FORCE IMMEDIATE REFRESH from AI action - COMPLETE STATE RESET
         console.log('🔄 FORCE REFRESH - Clearing ALL state');
@@ -1513,9 +1550,11 @@ export default function useDashboardState(navigate) {
       setProfitData(res.data);
     } catch (err) {
       console.error('Profit data error:', err);
+      // Do NOT substitute fake placeholder labels — show an empty chart instead
+      // so the display always reflects real backend state.
       setProfitData({
-        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-        values: [0, 0, 0, 0, 0, 0, 0],
+        labels: [],
+        values: [],
         total: 0,
         avg_daily: 0,
         best_day: 0,

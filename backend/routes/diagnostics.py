@@ -1946,3 +1946,211 @@ async def go_live_diagnostic(user_id: str = Depends(get_current_user)):
     except Exception as exc:
         logger.error(f"go-live diagnostic error: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/subsystem-health")
+async def get_subsystem_health(user_id: str = Depends(get_current_user)):
+    """User-accessible subsystem health summary.
+
+    Returns the live status of every key subsystem so users can immediately
+    see what is healthy, degraded, or blocked — and why.  Includes a
+    dependency chain so a single failed component's downstream impact is
+    visible.
+
+    Unlike /api/admin/truth/summary this endpoint is available to all
+    authenticated users, not only admins.
+    """
+    # database already imported as db at module top
+    try:
+        now = datetime.now(timezone.utc)
+
+        # ── 1. Scheduler health ────────────────────────────────────────────
+        try:
+            from trading_scheduler import trading_scheduler
+            snap = trading_scheduler.get_health_snapshot()
+            last_tick_at = snap.get("last_tick_at")
+            lag_s = None
+            if last_tick_at:
+                try:
+                    lt = datetime.fromisoformat(str(last_tick_at).replace("Z", "+00:00"))
+                    lag_s = round((now - lt).total_seconds(), 1)
+                except Exception:
+                    lag_s = None
+            sched_healthy = snap.get("running", False) and (lag_s is None or lag_s < 120)
+            scheduler_status = {
+                "healthy": sched_healthy,
+                "status": "healthy" if sched_healthy else "stale",
+                "last_tick_at": last_tick_at,
+                "lag_seconds": lag_s,
+                "total_ticks": snap.get("total_ticks", 0),
+                "total_trades": snap.get("total_trades_executed", 0),
+                "reason": None if sched_healthy else (
+                    "Scheduler not running" if not snap.get("running") else
+                    f"No tick in {lag_s}s (stale threshold: 120s)"
+                ),
+            }
+        except Exception as _e:
+            scheduler_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 2. WebSocket / realtime ────────────────────────────────────────
+        try:
+            ws_count = len(manager.active_connections) if hasattr(manager, "active_connections") else 0
+            ws_status = {"healthy": True, "status": "healthy", "active_connections": ws_count, "reason": None}
+        except Exception as _e:
+            ws_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 3. Market intelligence ─────────────────────────────────────────
+        try:
+            recent_alert = await db.alerts_collection.find_one(
+                {"user_id": user_id, "is_simulated": True},
+                sort=[("created_at", -1)],
+            )
+            mi_degraded = recent_alert is not None
+            mi_status = {
+                "healthy": not mi_degraded,
+                "status": "degraded" if mi_degraded else "healthy",
+                "reason": (
+                    "Recent market intelligence alerts flagged as simulated "
+                    "(source unavailable / DNS failure)" if mi_degraded else None
+                ),
+                "last_simulated_alert": (recent_alert or {}).get("created_at"),
+            }
+        except Exception as _e:
+            mi_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 4. Paper wallet ────────────────────────────────────────────────
+        try:
+            from services.paper_wallet_service import paper_wallet_service
+            wallet = await paper_wallet_service.get_balances(user_id)
+            total = wallet.get("total", 0)
+            wallet_status = {
+                "healthy": True,
+                "status": "healthy",
+                "total_zar": total,
+                "funded": total > 0,
+                "reason": None if total > 0 else "Paper wallet is empty — fund via Wallet Hub",
+            }
+        except Exception as _e:
+            wallet_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 5. Exchange readiness ──────────────────────────────────────────
+        try:
+            from rules.bot_rules import SUPPORTED_EXCHANGES as _SX
+            configured_exchanges = []
+            for ex in _SX:
+                key_doc = await db.api_keys_collection.find_one(
+                    {"user_id": user_id, "provider": ex}
+                )
+                if key_doc and key_doc.get("api_key"):
+                    configured_exchanges.append(ex)
+            ex_status = {
+                "healthy": len(configured_exchanges) > 0,
+                "status": "healthy" if configured_exchanges else "no_keys",
+                "configured_exchanges": configured_exchanges,
+                "reason": None if configured_exchanges else "No exchange API keys configured",
+            }
+        except Exception as _e:
+            ex_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 6. Risk locks ──────────────────────────────────────────────────
+        try:
+            from services.risk_lock_service import risk_lock_service
+            daily_lock = await risk_lock_service.get_lock_status(user_id)
+            from emergency_stop import emergency_stop_service
+            es = await emergency_stop_service.get_status(user_id)
+            global_disabled = es.get("global_disabled", False)
+            daily_locked = daily_lock.get("daily_loss_lock_active", False)
+            risk_ok = not global_disabled and not daily_locked
+            risk_status = {
+                "healthy": risk_ok,
+                "status": "healthy" if risk_ok else "locked",
+                "global_disabled": global_disabled,
+                "daily_loss_lock": daily_locked,
+                "reason": (
+                    "Emergency/global disable is active" if global_disabled else
+                    "Daily loss lock is active" if daily_locked else None
+                ),
+            }
+        except Exception as _e:
+            risk_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 7. Live-trading eligibility ────────────────────────────────────
+        try:
+            from routes.live_trading_gate import check_user_live_eligibility
+            eligibility = await check_user_live_eligibility(user_id)
+            live_status = {
+                "healthy": eligibility.get("eligible", False),
+                "status": "eligible" if eligibility.get("eligible") else "not_yet_eligible",
+                "eligible": eligibility.get("eligible", False),
+                "days_elapsed": (eligibility.get("statistics") or {}).get("days_elapsed"),
+                "reasons": eligibility.get("reasons", []),
+                "warnings": eligibility.get("warnings", []),
+                "reason": (
+                    None if eligibility.get("eligible") else
+                    "; ".join(eligibility.get("reasons", ["Requirements not met"]))
+                ),
+            }
+        except Exception as _e:
+            live_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── 8. Learning / training pipeline ────────────────────────────────
+        try:
+            perf_count = await db.performance_metrics_collection.count_documents(
+                {"user_id": user_id}
+            )
+            training_count = await db.training_jobs_collection.count_documents(
+                {"user_id": user_id}
+            )
+            learning_status = {
+                "healthy": True,
+                "status": "healthy" if perf_count > 0 else "no_data",
+                "performance_metrics_count": perf_count,
+                "training_jobs_count": training_count,
+                "reason": (
+                    None if perf_count > 0 else
+                    "No performance metrics yet — will populate as bots trade"
+                ),
+            }
+        except Exception as _e:
+            learning_status = {"healthy": False, "status": "error", "reason": str(_e)}
+
+        # ── Aggregate overall health ────────────────────────────────────────
+        subsystems = {
+            "scheduler": scheduler_status,
+            "websocket": ws_status,
+            "market_intelligence": mi_status,
+            "paper_wallet": wallet_status,
+            "exchange_keys": ex_status,
+            "risk_locks": risk_status,
+            "live_eligibility": live_status,
+            "learning_pipeline": learning_status,
+        }
+
+        # Determine blocking chain: which failing subsystems block trading
+        BLOCKS_TRADING = ("scheduler", "risk_locks")
+        BLOCKS_LIVE = ("exchange_keys", "live_eligibility")
+
+        trading_blockers = [
+            k for k in BLOCKS_TRADING
+            if not subsystems[k].get("healthy", True)
+        ]
+        live_blockers = [
+            k for k in BLOCKS_LIVE
+            if not subsystems[k].get("healthy", True)
+        ]
+
+        overall_healthy = all(v.get("healthy", True) for v in subsystems.values())
+
+        return {
+            "timestamp": now.isoformat(),
+            "overall_healthy": overall_healthy,
+            "trading_blocked": bool(trading_blockers),
+            "trading_blockers": trading_blockers,
+            "live_blocked": bool(live_blockers),
+            "live_blockers": live_blockers,
+            "subsystems": subsystems,
+        }
+
+    except Exception as exc:
+        logger.error(f"Subsystem health error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
