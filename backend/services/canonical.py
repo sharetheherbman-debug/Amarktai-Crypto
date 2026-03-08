@@ -80,7 +80,8 @@ async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
     )
     runnable = sum(1 for b in normalized if b.get("eligible_to_trade"))
     scalper = sum(1 for b in normalized if b.get("bot_type") == "scalper")
-    normal = len(normalized) - scalper
+    uagent = sum(1 for b in normalized if b.get("bot_type") == "uagent")
+    normal = len(normalized) - scalper - uagent
 
     by_exchange: Dict[str, int] = {}
     for b in raw:
@@ -95,6 +96,7 @@ async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
         "stopped": stopped,
         "training": training,
         "scalper_count": scalper,
+        "uagent_count": uagent,
         "normal_count": normal,
         "by_exchange": by_exchange,
     }
@@ -166,6 +168,7 @@ def _empty_counts() -> Dict[str, Any]:
         "stopped": 0,
         "training": 0,
         "scalper_count": 0,
+        "uagent_count": 0,
         "normal_count": 0,
         "by_exchange": {},
     }

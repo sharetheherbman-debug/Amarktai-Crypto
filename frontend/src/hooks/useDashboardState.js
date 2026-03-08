@@ -2128,6 +2128,7 @@ export default function useDashboardState(navigate) {
     formData.append('file', file);
     formData.append('strategy', strategy);
     formData.append('type', 'uagent');
+    formData.append('bot_type', 'uagent'); // canonical bot_type for fleet/truth tracking
 
     try {
       await axios.post(`${API}/bots/uagent`, formData, {

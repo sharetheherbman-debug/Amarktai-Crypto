@@ -142,6 +142,7 @@ const STATUS_FILTERS = [
 const FLEET_TABS = [
   { key: 'normal', label: '🤖 Normal Bots' },
   { key: 'scalper', label: '⚡ Scalper Bots' },
+  { key: 'uagent', label: '🌐 uAgents' },
 ];
 
 const DETAIL_TABS = [
@@ -190,11 +191,19 @@ export default function BotFleetSection({
       const st = getBotStatus(bot);
       // Exclude deleted/ghost bots from all fleet views
       if (st === 'deleted' || bot.deleted_at || bot.deleted === true || bot.is_deleted === true) return false;
+      // Partition by tab — normal tab shows non-scalper non-uagent bots; uagent tab shows uagent bots
+      if (fleetTab === 'normal') {
+        const bt = (bot.bot_type || '').toLowerCase();
+        if (bt === 'scalper' || bt === 'uagent') return false;
+      }
+      if (fleetTab === 'uagent') {
+        if ((bot.bot_type || '').toLowerCase() !== 'uagent') return false;
+      }
       if (botStatusFilter && botStatusFilter !== 'all' && st !== botStatusFilter) return false;
       if (platformFilter && platformFilter !== 'all' && (bot.exchange || '').toLowerCase() !== platformFilter) return false;
       return true;
     });
-  }, [bots, botStatusFilter, platformFilter]);
+  }, [bots, botStatusFilter, platformFilter, fleetTab]);
 
   const selectedBot = useMemo(() => {
     if (!selectedBotDetailId) return null;
@@ -269,6 +278,42 @@ export default function BotFleetSection({
 
       {/* Scalper Tab */}
       {fleetTab === 'scalper' && <ScalperBotsPanel axiosConfig={axiosConfig} />}
+
+      {/* uAgents Tab */}
+      {fleetTab === 'uagent' && (
+        <>
+          {filteredBots.length === 0 ? (
+            <div style={{ color: 'var(--muted)', textAlign: 'center', padding: '40px 0', fontSize: 14 }}>
+              No uAgents deployed yet. Create one in <strong>Bot Management → Fetch.ai / uAgents</strong>.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+              {filteredBots.map((bot) => {
+                const st = getBotStatus(bot);
+                const isSelected = selectedBotDetailId === bot.id;
+                return (
+                  <div
+                    key={bot.id}
+                    style={{ ...S.card, ...(isSelected ? S.cardSelected : {}) }}
+                    onClick={() => selectBot(bot.id)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>{bot.name || 'Unnamed uAgent'}</span>
+                      <span style={S.pill(statusColor(st))}>{statusLabel(st)}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Exchange: {getPlatformDisplayName(bot.exchange)} • Mode: <span style={{ color: modeColor(bot) }}>{modeLabel(bot)}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                      Capital: {fmtZAR(bot.current_capital)} • P&L: <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(bot.profit)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Normal Bots Tab */}
       {fleetTab === 'normal' && (

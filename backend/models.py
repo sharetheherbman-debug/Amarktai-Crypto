@@ -27,6 +27,7 @@ class BotStatus(str, Enum):
 class BotType(str, Enum):
     NORMAL = "normal"
     SCALPER = "scalper"
+    UAGENT = "uagent"
 
 class ScalperProfitRouting(str, Enum):
     SCALPER_GROWTH = "SCALPER_GROWTH"

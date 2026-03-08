@@ -31,6 +31,7 @@ import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection'
 import PerformanceSection from './dashboard/sections/PerformanceSection';
 import AdminTruthSection from './dashboard/sections/AdminTruthSection';
 import BotFleetSection from './dashboard/sections/BotFleetSection';
+import BotRadarSection from './dashboard/sections/BotRadarSection';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
@@ -243,6 +244,7 @@ export default function Dashboard() {
       metrics={metrics}
       metricsTab={metricsTab}
       setMetricsTab={setMetricsTab}
+      axiosConfig={axiosConfig}
     />
   );
 
@@ -264,6 +266,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === NAV.API_SETUP ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.API_SETUP); }}>{NAV_LABELS[NAV.API_SETUP]}</a>
             <a href="#" className={activeSection === NAV.BOT_MANAGEMENT ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_MANAGEMENT); }}>{NAV_LABELS[NAV.BOT_MANAGEMENT]}</a>
             <a href="#" className={activeSection === NAV.BOT_FLEET ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_FLEET); }}>{NAV_LABELS[NAV.BOT_FLEET]}</a>
+            <a href="#" className={activeSection === NAV.BOT_RADAR ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_RADAR); }}>{NAV_LABELS[NAV.BOT_RADAR]}</a>
             <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
             <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
             <a href="#" className={activeSection === NAV.LIVE_TRADES ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.LIVE_TRADES); }}>{NAV_LABELS[NAV.LIVE_TRADES]}</a>
@@ -385,38 +388,11 @@ export default function Dashboard() {
         {activeSection === NAV.BOT_MANAGEMENT && (
           <ErrorBoundary title="Bot Management error" message="Unable to load Bot Management section.">
             <BotManagementSection
-              autoSpawnStatus={autoSpawnStatus}
-              autopilotReinvestStatus={autopilotReinvestStatus}
-              botDetailTab={botDetailTab}
+              axiosConfig={axiosConfig}
               botManagementTab={botManagementTab}
-              botStatusFilter={botStatusFilter}
-              bots={bots}
-              formatDate={formatDate}
               handleCreateBot={handleCreateBot}
               handleCreateUAgent={handleCreateUAgent}
-              handleDeleteBot={handleDeleteBot}
-              handleResumeBot={handleResumeBot}
-              handleStartBot={handleStartBot}
-              handleToggleBotMode={handleToggleBotMode}
-              platformFilter={platformFilter}
-              selectedBotDetailId={selectedBotDetailId}
-              setBotDetailTab={setBotDetailTab}
               setBotManagementTab={setBotManagementTab}
-              setBotStatusFilter={setBotStatusFilter}
-              setPlatformFilter={setPlatformFilter}
-              setSelectedBotDetailId={setSelectedBotDetailId}
-              botSetup={botSetup}
-              setBotSetup={setBotSetup}
-              activeBotTab={activeBotTab}
-              setActiveBotTab={setActiveBotTab}
-              editingBotId={editingBotId}
-              setEditingBotId={setEditingBotId}
-              editingBotName={editingBotName}
-              setEditingBotName={setEditingBotName}
-              handleBotSetup={handleBotSetup}
-              botControlLoading={botControlLoading}
-              handleRenameBotSubmit={handleRenameBotSubmit}
-              axiosConfig={axiosConfig}
             />
           </ErrorBoundary>
         )}
@@ -445,6 +421,11 @@ export default function Dashboard() {
               handleRenameBotSubmit={handleRenameBotSubmit}
               axiosConfig={axiosConfig}
             />
+          </ErrorBoundary>
+        )}
+        {activeSection === NAV.BOT_RADAR && (
+          <ErrorBoundary title="Bot Radar error" message="Unable to load Bot Radar section.">
+            <BotRadarSection axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
         {activeSection === NAV.SYSTEM_MODE && (
