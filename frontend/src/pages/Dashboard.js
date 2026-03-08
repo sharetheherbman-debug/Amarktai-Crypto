@@ -239,15 +239,6 @@ export default function Dashboard() {
     winRatePeriod,
   } = useDashboardState(navigate);
 
-  const renderMetricsWithTabs = () => (
-    <MetricsWithTabsSection
-      metrics={metrics}
-      metricsTab={metricsTab}
-      setMetricsTab={setMetricsTab}
-      axiosConfig={axiosConfig}
-    />
-  );
-
 
   return (
     <div className="app">
