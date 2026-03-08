@@ -239,15 +239,6 @@ export default function Dashboard() {
     winRatePeriod,
   } = useDashboardState(navigate);
 
-  const renderMetricsWithTabs = () => (
-    <MetricsWithTabsSection
-      metrics={metrics}
-      metricsTab={metricsTab}
-      setMetricsTab={setMetricsTab}
-      axiosConfig={axiosConfig}
-    />
-  );
-
 
   return (
     <div className="app">
@@ -268,6 +259,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === NAV.BOT_FLEET ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_FLEET); }}>{NAV_LABELS[NAV.BOT_FLEET]}</a>
             <a href="#" className={activeSection === NAV.BOT_RADAR ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_RADAR); }}>{NAV_LABELS[NAV.BOT_RADAR]}</a>
             <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
+            <a href="#" className={activeSection === NAV.ANALYTICS_METRICS ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.ANALYTICS_METRICS); }}>{NAV_LABELS[NAV.ANALYTICS_METRICS]}</a>
             <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
             <a href="#" className={activeSection === NAV.LIVE_TRADES ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.LIVE_TRADES); }}>{NAV_LABELS[NAV.LIVE_TRADES]}</a>
             <a href="#" className={activeSection === NAV.COUNTDOWN ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.COUNTDOWN); }}>{NAV_LABELS[NAV.COUNTDOWN]}</a>
@@ -451,6 +443,16 @@ export default function Dashboard() {
             />
           </ErrorBoundary>
         )}
+        {activeSection === NAV.ANALYTICS_METRICS && (
+          <ErrorBoundary title="Analytics & Metrics error" message="Unable to load Analytics & Metrics section.">
+            <MetricsWithTabsSection
+              metrics={metrics}
+              metricsTab={metricsTab}
+              setMetricsTab={setMetricsTab}
+              axiosConfig={axiosConfig}
+            />
+          </ErrorBoundary>
+        )}
         {activeSection === NAV.PROFITS_PERFORMANCE && (
           <ErrorBoundary title="Profits & Performance error" message="Unable to load Profits & Performance section.">
             <PerformanceSection
@@ -474,9 +476,6 @@ export default function Dashboard() {
               showSection={showSection}
               winRateData={winRateData}
               winRatePeriod={winRatePeriod}
-              metricsTab={metricsTab}
-              setMetricsTab={setMetricsTab}
-              renderMetricsWithTabs={renderMetricsWithTabs}
             />
           </ErrorBoundary>
         )}

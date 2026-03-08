@@ -1,10 +1,12 @@
 export const NAV = {
   OVERVIEW: 'overview',            // logo click only — not in nav
-  WELCOME: 'welcome',              // AI page
+  WELCOME: 'welcome',              // AI chat page
   API_SETUP: 'api-setup',
   BOT_MANAGEMENT: 'bot-management',
-  BOT_FLEET: 'bot-fleet',          // separate bot monitoring section
-  BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section  SYSTEM_MODE: 'system-mode',
+  BOT_FLEET: 'bot-fleet',          // monitor + control only
+  BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section
+  SYSTEM_MODE: 'system-mode',
+  ANALYTICS_METRICS: 'analytics-metrics', // intelligence terminal: decision trace, whale flow, market intelligence, AI analysis
   PROFITS_PERFORMANCE: 'profits-performance',
   LIVE_TRADES: 'live-trades',
   COUNTDOWN: 'countdown',
@@ -20,6 +22,7 @@ export const NAV_LABELS = {
   [NAV.BOT_FLEET]: '🚀 Bot Fleet',
   [NAV.BOT_RADAR]: '📡 Bot Radar',
   [NAV.SYSTEM_MODE]: '🎛️ System Mode',
+  [NAV.ANALYTICS_METRICS]: '📊 Analytics & Metrics',
   [NAV.PROFITS_PERFORMANCE]: '💹 Profits & Performance',
   [NAV.LIVE_TRADES]: '📡 Live Trades',
   [NAV.COUNTDOWN]: '⏱️ Countdown',

@@ -22,7 +22,7 @@ export default function BotManagementSection({
             className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('creation')}
           >
-            🤖 Normal Bot Creator
+            🤖 Bot Creator
           </button>
           <button
             className={`bot-tab ${botManagementTab === 'scalper' ? 'active' : ''}`}
@@ -34,7 +34,7 @@ export default function BotManagementSection({
             className={`bot-tab ${botManagementTab === 'uagent' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('uagent')}
           >
-            🌐 uAgents Creator
+            🌐 Fetch.ai / uAgents
           </button>
         </div>
 
@@ -45,7 +45,7 @@ export default function BotManagementSection({
         {botManagementTab === 'creation' && (
           <div>
             <div className="bot-form-card">
-              <h3>🤖 Normal Bot Creator</h3>
+              <h3>🤖 Bot Creator</h3>
               <p style={{color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px'}}>
                 Standard trading bot with a 7-day learning period. Starts in paper mode automatically.
               </p>
