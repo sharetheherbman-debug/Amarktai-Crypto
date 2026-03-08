@@ -106,5 +106,64 @@ class BotRuntimeStateStore:
             return
         await collection.delete_one({"bot_id": bot_id})
 
+    async def remove_for_user(self, user_id: str) -> int:
+        """Delete all runtime-state rows for *user_id*.
+
+        Called by ``perform_paper_reset`` to guarantee that every reset
+        leaves zero stale runtime-state rows regardless of whether the rows
+        still carry a now-deleted bot_id.
+
+        Returns the number of rows deleted.
+        """
+        collection = self._collection()
+        if collection is None:
+            return 0
+        result = await collection.delete_many({"user_id": user_id})
+        return result.deleted_count
+
+    async def reconcile_with_bot_doc(self, bot_id: str, bot_doc: Dict) -> Dict:
+        """Reconcile runtime state against the canonical bot document.
+
+        The bot document in the ``bots`` collection is the single source of
+        truth for bot lifecycle state.  If the runtime-state store disagrees
+        (e.g. it says ``active`` while the bot doc says ``paused`` or
+        ``deleted``), this method overwrites the runtime row to match the bot
+        document so that the scheduler and dashboard always agree.
+
+        Returns the (potentially updated) runtime-state row.
+        """
+        doc_status = _normalize_state(bot_doc.get("status", ""))
+        user_id = bot_doc.get("user_id", "")
+
+        # Deleted bots must never have an active runtime-state row.
+        if doc_status == "deleted" or bot_doc.get("deleted_at"):
+            await self.remove(bot_id)
+            logger.info(
+                "reconcile_with_bot_doc: removed runtime state for deleted bot %s", bot_id
+            )
+            return {}
+
+        existing = await self.get_state(bot_id)
+        if existing is None:
+            # No row yet — bootstrap from the bot document.
+            return await self.ensure_state(bot_doc)
+
+        existing_state = existing.get("state", "")
+        if existing_state == doc_status:
+            return existing  # already in sync
+
+        logger.warning(
+            "reconcile_with_bot_doc: state drift for bot %s — "
+            "runtime=%s bot_doc=%s → overwriting with bot_doc truth",
+            bot_id, existing_state, doc_status,
+        )
+        return await self.set_state(
+            bot_id=bot_id,
+            user_id=user_id,
+            state=doc_status,
+            reason=bot_doc.get("pause_reason") or bot_doc.get("stop_reason"),
+            source="reconcile",
+        )
+
 
 bot_runtime_state = BotRuntimeStateStore()

@@ -6,6 +6,7 @@ Handles all database operations and provides stable collection API
 import os
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import OperationFailure
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -313,120 +314,170 @@ async def setup_collections():
 # Database Initialization (Indexes)
 # ============================================================================
 
+async def _safe_create_index(collection, keys, **kwargs):
+    """Create an index idempotently.
+
+    Handles ``IndexKeySpecsConflict`` (error code 86) that occurs when an
+    index with the same name already exists but with different options
+    (e.g. ``sparse:true`` vs ``sparse:false``).  In that case the existing
+    index is dropped first and then re-created so that startup never
+    crashes because of stale legacy index definitions on the VPS.
+    """
+    try:
+        await collection.create_index(keys, **kwargs)
+    except OperationFailure as exc:
+        if exc.code == 86:  # IndexKeySpecsConflict
+            index_name = exc.details.get("conflictingIndex", {}).get("name") if exc.details else None
+            if not index_name:
+                # Derive a best-effort name from the key spec.
+                if isinstance(keys, str):
+                    index_name = f"{keys}_1"
+                elif isinstance(keys, list):
+                    parts = []
+                    for k in keys:
+                        if isinstance(k, (list, tuple)) and len(k) == 2:
+                            parts.append(f"{k[0]}_{k[1]}")
+                        else:
+                            parts.append(str(k))
+                    index_name = "_".join(parts)
+                else:
+                    index_name = str(keys)
+            logger.warning(
+                "⚠️ IndexKeySpecsConflict on '%s' — dropping stale index '%s' and recreating",
+                collection.name, index_name,
+            )
+            try:
+                await collection.drop_index(index_name)
+                await collection.create_index(keys, **kwargs)
+                logger.info("✅ Recreated index '%s' on '%s'", index_name, collection.name)
+            except Exception as inner:
+                logger.error(
+                    "❌ Failed to recreate index '%s' on '%s': %s",
+                    index_name, collection.name, inner,
+                )
+        else:
+            logger.error(
+                "❌ Index creation failed on '%s' (code %s): %s",
+                collection.name, exc.code, exc,
+            )
+    except Exception as exc:
+        logger.error("❌ Unexpected error creating index on '%s': %s", collection.name, exc)
+
+
 async def init_db():
     """
-    Create database indexes for optimal performance
-    Safe to call multiple times - MongoDB handles duplicate index creation
+    Create database indexes for optimal performance.
+    Safe to call multiple times — each index is created idempotently.
+    IndexKeySpecsConflict (sparse mismatch etc.) is resolved automatically.
     """
     if db is None:
         logger.warning("⚠️ Database not connected, cannot create indexes")
         return
-    
-    try:
-        logger.info("📊 Creating database indexes...")
-        
-        # User indexes
-        if users_collection is not None:
-            await users_collection.create_index("id", unique=True)
-            await users_collection.create_index("email", unique=True)
-        
-        # Bot indexes
-        if bots_collection is not None:
-            await bots_collection.create_index("id", unique=True)
-            await bots_collection.create_index("user_id")
-            await bots_collection.create_index([("user_id", 1), ("status", 1)])
-        
-        # Trade indexes
-        if trades_collection is not None:
-            await trades_collection.create_index("id", unique=True)
-            await trades_collection.create_index("bot_id")
-            await trades_collection.create_index("user_id")
-            await trades_collection.create_index("timestamp")
-            await trades_collection.create_index([("bot_id", 1), ("timestamp", -1)])
-        
-        # API key indexes
-        if api_keys_collection is not None:
-            await api_keys_collection.create_index("id", unique=True)
-            await api_keys_collection.create_index("user_id")
-        
-        # Alert indexes
-        if alerts_collection is not None:
-            await alerts_collection.create_index("user_id")
-            await alerts_collection.create_index("timestamp")
-        
-        # Session indexes
-        if sessions_collection is not None:
-            await sessions_collection.create_index("user_id")
-            await sessions_collection.create_index("created_at", expireAfterSeconds=86400)  # 24 hours
 
-        # Chat indexes
-        if chat_messages_collection is not None:
-            await chat_messages_collection.create_index("user_id")
-            await chat_messages_collection.create_index("timestamp")
-        if chatops_confirmations_collection is not None:
-            await chatops_confirmations_collection.create_index("confirmation_id", unique=True)
-            await chatops_confirmations_collection.create_index("user_id")
-            await chatops_confirmations_collection.create_index("expires_at")
-        
-        # Bot lifecycle indexes
-        if bot_lifecycle_collection is not None:
-            await bot_lifecycle_collection.create_index("bot_id")
-            await bot_lifecycle_collection.create_index("user_id")
-            await bot_lifecycle_collection.create_index("timestamp")
-        
-        # Metrics indexes
-        if bot_metrics_collection is not None:
-            await bot_metrics_collection.create_index("bot_id")
-            await bot_metrics_collection.create_index("timestamp")
-        
-        if system_metrics_collection is not None:
-            await system_metrics_collection.create_index("timestamp")
-        
-        # Audit log indexes
-        if audit_logs_collection is not None:
-            await audit_logs_collection.create_index("user_id")
-            await audit_logs_collection.create_index("action")
-            await audit_logs_collection.create_index("timestamp")
-        
-        # Notification indexes
-        if notifications_collection is not None:
-            await notifications_collection.create_index("user_id")
-            await notifications_collection.create_index("timestamp")
-            await notifications_collection.create_index([("user_id", 1), ("read", 1)])
+    logger.info("📊 Creating database indexes...")
 
-        if autopilot_milestones_collection is not None:
-            await autopilot_milestones_collection.create_index(
-                [("user_id", 1), ("platform", 1), ("milestone_index", 1)],
-                unique=True
-            )
-            await autopilot_milestones_collection.create_index(
-                [("user_id", 1), ("platform", 1), ("triggered_at", -1)]
-            )
+    # User indexes
+    if users_collection is not None:
+        await _safe_create_index(users_collection, "id", unique=True)
+        await _safe_create_index(users_collection, "email", unique=True)
 
-        if autopilot_reinvest_events_collection is not None:
-            await autopilot_reinvest_events_collection.create_index(
-                [("user_id", 1), ("platform", 1), ("date_key", 1)],
-                unique=True
-            )
-            await autopilot_reinvest_events_collection.create_index(
-                [("user_id", 1), ("platform", 1), ("created_at", -1)]
-            )
-        
-        # Financial tracking indexes
-        if wallet_balances_collection is not None:
-            await wallet_balances_collection.create_index("user_id")
-            await wallet_balances_collection.create_index("timestamp")
-        
-        if capital_injections_collection is not None:
-            await capital_injections_collection.create_index("bot_id")
-            await capital_injections_collection.create_index("user_id")
-            await capital_injections_collection.create_index("timestamp")
-        
-        logger.info("✅ Database indexes created successfully")
-        
-    except Exception as e:
-        logger.error(f"❌ Error creating indexes: {e}")
-        # Don't raise - indexes are optional for basic functionality
+    # Bot indexes
+    if bots_collection is not None:
+        await _safe_create_index(bots_collection, "id", unique=True)
+        await _safe_create_index(bots_collection, "user_id")
+        await _safe_create_index(bots_collection, [("user_id", 1), ("status", 1)])
+
+    # Trade indexes
+    if trades_collection is not None:
+        await _safe_create_index(trades_collection, "id", unique=True)
+        await _safe_create_index(trades_collection, "bot_id")
+        await _safe_create_index(trades_collection, "user_id")
+        await _safe_create_index(trades_collection, "timestamp")
+        await _safe_create_index(trades_collection, [("bot_id", 1), ("timestamp", -1)])
+
+    # API key indexes
+    if api_keys_collection is not None:
+        await _safe_create_index(api_keys_collection, "id", unique=True)
+        await _safe_create_index(api_keys_collection, "user_id")
+
+    # Alert indexes
+    if alerts_collection is not None:
+        await _safe_create_index(alerts_collection, "user_id")
+        await _safe_create_index(alerts_collection, "timestamp")
+
+    # Session indexes
+    if sessions_collection is not None:
+        await _safe_create_index(sessions_collection, "user_id")
+        await _safe_create_index(sessions_collection, "created_at", expireAfterSeconds=86400)
+
+    # Chat indexes
+    if chat_messages_collection is not None:
+        await _safe_create_index(chat_messages_collection, "user_id")
+        await _safe_create_index(chat_messages_collection, "timestamp")
+    if chatops_confirmations_collection is not None:
+        await _safe_create_index(chatops_confirmations_collection, "confirmation_id", unique=True)
+        await _safe_create_index(chatops_confirmations_collection, "user_id")
+        await _safe_create_index(chatops_confirmations_collection, "expires_at")
+
+    # Bot lifecycle indexes
+    if bot_lifecycle_collection is not None:
+        await _safe_create_index(bot_lifecycle_collection, "bot_id")
+        await _safe_create_index(bot_lifecycle_collection, "user_id")
+        await _safe_create_index(bot_lifecycle_collection, "timestamp")
+
+    # Metrics indexes
+    if bot_metrics_collection is not None:
+        await _safe_create_index(bot_metrics_collection, "bot_id")
+        await _safe_create_index(bot_metrics_collection, "timestamp")
+
+    if system_metrics_collection is not None:
+        await _safe_create_index(system_metrics_collection, "timestamp")
+
+    # Audit log indexes
+    if audit_logs_collection is not None:
+        await _safe_create_index(audit_logs_collection, "user_id")
+        await _safe_create_index(audit_logs_collection, "action")
+        await _safe_create_index(audit_logs_collection, "timestamp")
+
+    # Notification indexes
+    if notifications_collection is not None:
+        await _safe_create_index(notifications_collection, "user_id")
+        await _safe_create_index(notifications_collection, "timestamp")
+        await _safe_create_index(notifications_collection, [("user_id", 1), ("read", 1)])
+
+    if autopilot_milestones_collection is not None:
+        await _safe_create_index(
+            autopilot_milestones_collection,
+            [("user_id", 1), ("platform", 1), ("milestone_index", 1)],
+            unique=True,
+        )
+        await _safe_create_index(
+            autopilot_milestones_collection,
+            [("user_id", 1), ("platform", 1), ("triggered_at", -1)],
+        )
+
+    if autopilot_reinvest_events_collection is not None:
+        await _safe_create_index(
+            autopilot_reinvest_events_collection,
+            [("user_id", 1), ("platform", 1), ("date_key", 1)],
+            unique=True,
+        )
+        await _safe_create_index(
+            autopilot_reinvest_events_collection,
+            [("user_id", 1), ("platform", 1), ("created_at", -1)],
+        )
+
+    # Financial tracking indexes
+    if wallet_balances_collection is not None:
+        await _safe_create_index(wallet_balances_collection, "user_id")
+        await _safe_create_index(wallet_balances_collection, "timestamp")
+
+    if capital_injections_collection is not None:
+        await _safe_create_index(capital_injections_collection, "bot_id")
+        await _safe_create_index(capital_injections_collection, "user_id")
+        await _safe_create_index(capital_injections_collection, "timestamp")
+
+    logger.info("✅ Database indexes created successfully")
 
 
 # ============================================================================

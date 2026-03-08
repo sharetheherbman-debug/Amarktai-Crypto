@@ -91,14 +91,17 @@ class TradingScheduler:
                 {"status": "active"},
                 {"_id": 0}
             ).to_list(1000)
-            
+
             if not active_bots:
-                logger.debug("No active bots found")
                 self.last_tick_noop_reason = "no_active_bots"
                 self.last_tick_bots = 0
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
                 self.total_noop_ticks += 1
+                logger.info(
+                    "📊 Scheduler tick — Bots scanned: 0 active | "
+                    "Noop reason: no_active_bots"
+                )
                 return
             
             logger.info(f"📊 Bots scanned: {len(active_bots)} active")
@@ -167,6 +170,7 @@ class TradingScheduler:
 
             # Sync with runtime truth store (pause/stopped bots are skipped)
             runtime_filtered = []
+            runtime_skipped = 0
             for bot in active_bots:
                 runtime_state = await bot_runtime_state.ensure_state(bot)
                 state = runtime_state.get("state") if runtime_state else bot.get("status", "active")
@@ -177,17 +181,23 @@ class TradingScheduler:
                             {"$set": {"status": state, "pause_reason": runtime_state.get("reason")}}
                         )
                     logger.debug(f"Runtime gate: skipping {bot['name']} ({state})")
+                    runtime_skipped += 1
                     continue
                 runtime_filtered.append(bot)
             active_bots = runtime_filtered
-            
+
             if not active_bots:
-                logger.debug("No bots on supported exchanges")
                 self.last_tick_noop_reason = "no_supported_bots"
                 self.last_tick_bots = 0
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
                 self.total_noop_ticks += 1
+                logger.info(
+                    "📊 Scheduler tick — Bots scanned: %d active | "
+                    "Runtime filtered: %d | Final runnable bots: 0 | "
+                    "Noop reason: no_supported_bots",
+                    len(supported_bots) + len(unsupported_bots), runtime_skipped,
+                )
                 return
             
             # Check each user's System Mode settings and track reasons
@@ -314,6 +324,17 @@ class TradingScheduler:
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
                 self.total_noop_ticks += 1
+                # Log the first unique pause reason so dashboards / ops can see why
+                sample_reason = None
+                if paused_bots:
+                    sample_uid = paused_bots[0].get("user_id")
+                    sample_reason = users_pause_reasons.get(sample_uid, "unknown")
+                logger.info(
+                    "📊 Scheduler tick — Bots scanned: %d | "
+                    "Mode blocked: %d | Final runnable bots: 0 | "
+                    "Noop reason: all_bots_paused (sample: %s)",
+                    len(paused_bots), len(paused_bots), sample_reason,
+                )
                 return
             
             self.last_tick_bots = len(active_bots)
@@ -461,8 +482,19 @@ class TradingScheduler:
             if tick_executed == 0:
                 self.last_tick_noop_reason = "no_trades_executed"
                 self.total_noop_ticks += 1
+                logger.info(
+                    "📊 Scheduler tick — Bots scanned: %d active | "
+                    "Final runnable bots: %d | Queued: %d | "
+                    "Noop reason: no_trades_executed",
+                    self.last_tick_bots, self.last_tick_bots, tick_queued,
+                )
             else:
                 self.last_tick_noop_reason = None
+                logger.info(
+                    "📊 Scheduler tick — Bots scanned: %d active | "
+                    "Final runnable bots: %d | Queued: %d | Executed: %d",
+                    self.last_tick_bots, self.last_tick_bots, tick_queued, tick_executed,
+                )
         
         except Exception as e:
             logger.error(f"Trading cycle error: {e}")
