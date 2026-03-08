@@ -2112,6 +2112,47 @@ export default function useDashboardState(navigate) {
     }
   };
 
+  const handleCreateScalperBot = async (e) => {
+    e.preventDefault();
+    const name = e.target['scalper-name'].value;
+    const budget = parseInt(e.target['scalper-budget'].value);
+    const exchange = e.target['scalper-exchange'].value;
+    const riskMode = e.target['scalper-risk'].value;
+    const profitRouting = e.target['scalper-routing']?.value || 'RETURN_TO_MAIN';
+
+    if (!name) {
+      showNotification('Please enter a bot name', 'error');
+      return;
+    }
+    if (budget < 500) {
+      showNotification('Minimum budget for scalper bots is R500', 'error');
+      return;
+    }
+
+    try {
+      const botData = {
+        name,
+        exchange,
+        trading_mode: 'paper',
+        risk_mode: riskMode,
+        initial_capital: budget,
+        strategy_preset: 'scalping',
+        bot_type: 'scalper',
+        profit_routing: profitRouting,
+        created_by: 'user',
+      };
+      await axios.post(`${API}/bots`, botData, axiosConfig);
+      showNotification(`Scalper bot "${name}" created!`, 'success');
+      await refreshBotState();
+      e.target.reset();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create scalper bot';
+      showNotification(errorMsg, 'error');
+      console.error('Scalper bot creation error:', err);
+    }
+  };
+
   const handleCreateUAgent = async (e) => {
     e.preventDefault();
     const name = e.target['uagent-name'].value;
@@ -3120,6 +3161,7 @@ export default function useDashboardState(navigate) {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
+    handleCreateScalperBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,

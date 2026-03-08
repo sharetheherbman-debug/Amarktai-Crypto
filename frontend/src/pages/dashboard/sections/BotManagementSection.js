@@ -1,12 +1,12 @@
 import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
-import ScalperBotsPanel from './ScalperBotsPanel';
 import { getAllExchanges } from '../../../config/exchanges';
 
 export default function BotManagementSection({
-  axiosConfig,
+  axiosConfig, // kept for forward-compat
   botManagementTab,
   handleCreateBot,
+  handleCreateScalperBot,
   handleCreateUAgent,
   setBotManagementTab,
 }) {
@@ -15,7 +15,7 @@ export default function BotManagementSection({
       <div className="card">
         <SectionHeader
           title="🤖 Bot Management"
-          subtitle="Create and deploy trading bots. Use Bot Fleet to monitor and control them."
+          subtitle="Create and configure trading bots. Use Bot Fleet to monitor and control them."
         />
         <div className="bot-tabs">
           <button
@@ -38,15 +38,12 @@ export default function BotManagementSection({
           </button>
         </div>
 
-        {botManagementTab === 'scalper' && (
-          <ScalperBotsPanel axiosConfig={axiosConfig || { headers: {} }} />
-        )}
-
+        {/* ── Tab 1: Bot Creator ─────────────────────────────── */}
         {botManagementTab === 'creation' && (
           <div>
             <div className="bot-form-card">
               <h3>🤖 Bot Creator</h3>
-              <p style={{color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px'}}>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
                 Standard trading bot with a 7-day learning period. Starts in paper mode automatically.
               </p>
               <form onSubmit={handleCreateBot}>
@@ -71,11 +68,7 @@ export default function BotManagementSection({
                     <label htmlFor="bot-exchange">Exchange Platform</label>
                     <select id="bot-exchange" name="bot-exchange" defaultValue="luno">
                       {getAllExchanges().map(exchange => (
-                        <option
-                          key={exchange.id}
-                          value={exchange.id}
-                          disabled={exchange.comingSoon}
-                        >
+                        <option key={exchange.id} value={exchange.id} disabled={exchange.comingSoon}>
                           {exchange.icon} {exchange.displayName}
                         </option>
                       ))}
@@ -108,16 +101,81 @@ export default function BotManagementSection({
             </div>
             <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '12px' }}>
               💡 To monitor and control your bots, go to <strong>Bot Fleet</strong> in the sidebar.
-              To create a ⚡ Scalper Bot, use the <strong>Scalper Bots</strong> tab above.
             </p>
           </div>
         )}
 
+        {/* ── Tab 2: Scalper Bot Creator ─────────────────────── */}
+        {botManagementTab === 'scalper' && (
+          <div>
+            <div className="bot-form-card">
+              <h3>⚡ Scalper Bot Creator</h3>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
+                High-frequency scalper bot optimised for short-duration trades. Starts in paper mode. Minimum capital R500.
+              </p>
+              <form onSubmit={handleCreateScalperBot}>
+                <div className="bot-form-grid">
+                  <div>
+                    <label htmlFor="scalper-name">Bot Name</label>
+                    <input id="scalper-name" name="scalper-name" placeholder="My Scalper Bot" type="text" required />
+                  </div>
+                  <div>
+                    <label htmlFor="scalper-budget">Capital Allocation (Min R500)</label>
+                    <input
+                      id="scalper-budget"
+                      name="scalper-budget"
+                      type="number"
+                      min="500"
+                      step="100"
+                      defaultValue="500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="scalper-exchange">Exchange Platform</label>
+                    <select id="scalper-exchange" name="scalper-exchange" defaultValue="luno">
+                      {getAllExchanges().map(exchange => (
+                        <option key={exchange.id} value={exchange.id} disabled={exchange.comingSoon}>
+                          {exchange.icon} {exchange.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="scalper-risk">Risk Profile</label>
+                    <select id="scalper-risk" name="scalper-risk" defaultValue="balanced">
+                      <option value="safe">Conservative — tighter spreads, slower entries</option>
+                      <option value="balanced">Balanced — standard scalper thresholds</option>
+                      <option value="aggressive">Aggressive — wider EV range, faster execution</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="scalper-routing">Profit Routing</label>
+                    <select id="scalper-routing" name="scalper-routing" defaultValue="RETURN_TO_MAIN">
+                      <option value="RETURN_TO_MAIN">Return to Main — profits go back to main capital</option>
+                      <option value="SCALPER_GROWTH">Scalper Growth — profits reinvested in scalper pool</option>
+                    </select>
+                  </div>
+                  {/* Hidden field ensures bot_type is always sent as 'scalper' */}
+                  <input type="hidden" name="bot-type" value="scalper" />
+                  <div>
+                    <button type="submit">Deploy Scalper Bot</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '12px' }}>
+              💡 Scalper bots appear in <strong>Bot Fleet → Scalper Bots</strong>. Exchange caps apply per platform.
+            </p>
+          </div>
+        )}
+
+        {/* ── Tab 3: Fetch.ai / uAgents ─────────────────────── */}
         {botManagementTab === 'uagent' && (
           <div>
             <div className="bot-form-card">
-              <h3>🌐 Fetch.ai / uAgents Creator</h3>
-              <p style={{color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px'}}>
+              <h3>🌐 Fetch.ai / uAgents</h3>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
                 Deploy a Fetch.ai autonomous agent. Upload your agent script and configure its strategy.
               </p>
               <form onSubmit={handleCreateUAgent}>

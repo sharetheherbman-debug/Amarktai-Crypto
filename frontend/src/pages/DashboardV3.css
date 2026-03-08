@@ -23,6 +23,17 @@
   --success:       #22c55e;
   --error:         #ef4444;
   --blur:          18px;
+
+  /* ── Override Tailwind shadcn tokens to dark for the dashboard ── */
+  --card:                 230 30% 4%;
+  --card-foreground:      215 35% 92%;
+  --background:           230 40% 2%;
+  --foreground:           215 35% 92%;
+  --border:               220 40% 12%;
+  --input:                220 40% 10%;
+  --muted-foreground:     220 15% 55%;
+  --popover:              230 30% 4%;
+  --popover-foreground:   215 35% 92%;
 }
 
 /* ── Sidebar ── */
