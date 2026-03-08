@@ -34,7 +34,7 @@ export default function BotManagementSection({
             className={`bot-tab ${botManagementTab === 'uagent' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('uagent')}
           >
-            🌐 Fetch.ai / uAgents
+            🌐 uAgents Creator
           </button>
         </div>
 

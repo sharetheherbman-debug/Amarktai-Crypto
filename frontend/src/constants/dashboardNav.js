@@ -4,8 +4,7 @@ export const NAV = {
   API_SETUP: 'api-setup',
   BOT_MANAGEMENT: 'bot-management',
   BOT_FLEET: 'bot-fleet',          // separate bot monitoring section
-  BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section
-  SYSTEM_MODE: 'system-mode',
+  BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section  SYSTEM_MODE: 'system-mode',
   PROFITS_PERFORMANCE: 'profits-performance',
   LIVE_TRADES: 'live-trades',
   COUNTDOWN: 'countdown',

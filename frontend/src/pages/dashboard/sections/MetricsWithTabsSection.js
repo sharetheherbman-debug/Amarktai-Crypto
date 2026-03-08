@@ -23,8 +23,7 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
   return (
       <section className="section active">
         <div className="card">
-          <h2>📊 Analytics &amp; Metrics</h2>
-          
+          <h2>📊 Analytics & Metrics</h2>
           {/* Horizontal Tabs */}
           <div style={{
             display: 'flex', 

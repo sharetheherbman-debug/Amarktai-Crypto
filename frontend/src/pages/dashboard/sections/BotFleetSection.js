@@ -305,7 +305,7 @@ export default function BotFleetSection({
                       Exchange: {getPlatformDisplayName(bot.exchange)} • Mode: <span style={{ color: modeColor(bot) }}>{modeLabel(bot)}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                      Capital: {fmtZAR(bot.current_capital)} • P&amp;L: <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(bot.profit)}</span>
+                      Capital: {fmtZAR(bot.current_capital)} • P&L: <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(bot.profit)}</span>
                     </div>
                   </div>
                 );

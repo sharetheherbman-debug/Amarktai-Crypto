@@ -546,12 +546,20 @@ async def create_uagent_bot(
     in Bot Fleet → uAgents tab and Truth Console scalper/uagent counts.
     """
     from uuid import uuid4
-    import re
 
+    _ALLOWED_STRATEGIES = {"adaptive", "trend", "mean_reversion"}
+
+    # Validate file extension and content type
     if not file.filename or not file.filename.endswith('.py'):
         raise HTTPException(status_code=400, detail="Agent file must be a .py script")
+    content_type = file.content_type or ""
+    if content_type and content_type not in ("text/x-python", "text/plain", "application/octet-stream", "application/x-python-code"):
+        raise HTTPException(status_code=400, detail="Agent file must be a Python (.py) script")
 
-    safe_strategy = re.sub(r'[^a-z0-9_]', '', strategy.lower()) or 'adaptive'
+    # Validate strategy against whitelist
+    safe_strategy = strategy.lower().strip() if strategy else "adaptive"
+    if safe_strategy not in _ALLOWED_STRATEGIES:
+        safe_strategy = "adaptive"
 
     bot_doc = {
         "id": str(uuid4()),
