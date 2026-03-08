@@ -534,6 +534,38 @@ async def perform_paper_reset(user_id: str) -> dict:
         upsert=True
     )
 
+    # Clear any global_disabled state that was set by a reset operation.
+    # If the emergency_stop admin_overrides document has global_disabled=true with
+    # global_reason containing "Reset" (case-insensitive), it was set by a prior
+    # reset and must be cleared so paper trading is not permanently blocked.
+    try:
+        if db.emergency_stop_collection is not None:
+            override_doc = await db.emergency_stop_collection.find_one(
+                {"id": "admin_overrides"}, {"_id": 0}
+            )
+            if override_doc and override_doc.get("global_disabled"):
+                reason = (override_doc.get("global_reason") or "").lower()
+                if "reset" in reason or reason == "":
+                    await db.emergency_stop_collection.update_one(
+                        {"id": "admin_overrides"},
+                        {
+                            "$set": {
+                                "global_disabled": False,
+                                "global_reason": "cleared_by_paper_reset",
+                                "global_updated_by": user_id,
+                                "global_updated_at": delete_timestamp,
+                            }
+                        },
+                        upsert=True,
+                    )
+                    collection_counts["emergency_stop_override_cleared"] = 1
+                    logger.info(
+                        "Paper reset cleared global_disabled=true in admin_overrides "
+                        "(reason was: %r)", override_doc.get("global_reason")
+                    )
+    except Exception as e:
+        logger.warning(f"Emergency stop override clear failed during paper reset: {e}")
+
     try:
         await db.audit_logs_collection.insert_one({
             "user_id": user_id,
