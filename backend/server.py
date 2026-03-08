@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query, Body
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query, Body, Form, UploadFile, File
 from routes.auth import router as auth_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
@@ -530,6 +530,56 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     logger.info(f"✅ Bot created: {result['name']} for user {user_id[:8]}")
     
     return result
+
+
+@api_router.post("/bots/uagent")
+async def create_uagent_bot(
+    name: str = Form(...),
+    strategy: str = Form("adaptive"),
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user)
+):
+    """Deploy a Fetch.ai uAgent bot.
+
+    Accepts a multipart upload of a Python agent script and registers
+    the agent as a bot with bot_type='uagent' so it appears correctly
+    in Bot Fleet → uAgents tab and Truth Console scalper/uagent counts.
+    """
+    from uuid import uuid4
+    import re
+
+    if not file.filename or not file.filename.endswith('.py'):
+        raise HTTPException(status_code=400, detail="Agent file must be a .py script")
+
+    safe_strategy = re.sub(r'[^a-z0-9_]', '', strategy.lower()) or 'adaptive'
+
+    bot_doc = {
+        "id": str(uuid4()),
+        "user_id": user_id,
+        "name": name,
+        "bot_type": "uagent",
+        "exchange": "luno",           # default; uAgents can target any exchange
+        "trading_mode": "paper",
+        "status": "active",
+        "strategy_preset": safe_strategy,
+        "initial_capital": 0,
+        "current_capital": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "uagent_filename": file.filename,
+        "learning_complete": False,
+    }
+    await db.bots_collection.insert_one(bot_doc)
+    bot_doc.pop("_id", None)
+
+    try:
+        from realtime_events import rt_events
+        await rt_events.bot_created(user_id, bot_doc)
+        await rt_events.force_refresh(user_id, f"uAgent '{name}' deployed")
+    except Exception as rt_err:
+        logger.warning(f"uAgent realtime notify failed: {rt_err}")
+
+    logger.info(f"✅ uAgent created: {name} for user {user_id[:8]}")
+    return {"success": True, "bot": bot_doc}
 
 
 @api_router.post("/bots/spawn")
@@ -2775,163 +2825,6 @@ async def diagnostics_chat(user_id: str = Depends(get_current_user)):
             "chat_available": False
         }
 
-
-@api_router.get("/diagnostics/go-live")
-async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
-    """Go-live diagnostics endpoint - comprehensive system status (admin only)
-    
-    Returns PASS/FAIL report for production readiness:
-    - Health check
-    - Database connectivity  
-    - Build hash
-    - System mode flags
-    - Risk locks
-    - API keys status (openai + 7 exchanges)
-    - Chat diagnostic summary
-    - Bots scheduler state
-    - Realtime health
-    """
-    if not await is_admin(user_id):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    try:
-        report = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "overall_status": "CHECKING",
-            "checks": {}
-        }
-        
-        # 1. Health check
-        try:
-            report["checks"]["health"] = {"status": "PASS", "message": "Server is running"}
-        except Exception as e:
-            report["checks"]["health"] = {"status": "FAIL", "error": str(e)}
-        
-        # 2. Database connectivity
-        try:
-            await db.users_collection.find_one({}, {"_id": 1})
-            report["checks"]["database"] = {"status": "PASS", "message": "MongoDB connected"}
-        except Exception as e:
-            report["checks"]["database"] = {"status": "FAIL", "error": str(e)}
-        
-        # 3. Build hash (if available)
-        build_hash = os.environ.get('BUILD_HASH', 'unknown')
-        report["checks"]["build_hash"] = {"status": "INFO", "value": build_hash}
-        
-        # 4. System modes
-        try:
-            modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
-            report["checks"]["system_modes"] = {
-                "status": "INFO",
-                "paper_trading": modes.get('paperTrading', False),
-                "live_trading": modes.get('liveTrading', False),
-                "autopilot": modes.get('autopilot', False),
-                "emergency_stop": modes.get('emergencyStop', False)
-            }
-        except Exception as e:
-            report["checks"]["system_modes"] = {"status": "FAIL", "error": str(e)}
-        
-        # 5. API keys status
-        try:
-            from services.keys_service import keys_service
-            keys_status = {}
-            
-            # Check OpenAI
-            openai_key = await keys_service.get_user_api_key(user_id, 'openai')
-            keys_status['openai'] = openai_key.get('status') if openai_key else 'not_configured'
-            
-            # Check exchanges
-            for exchange in ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']:
-                exchange_key = await keys_service.get_user_api_key(user_id, exchange)
-                keys_status[exchange] = exchange_key.get('status') if exchange_key else 'not_configured'
-            
-            report["checks"]["api_keys"] = {"status": "INFO", "keys": keys_status}
-        except Exception as e:
-            report["checks"]["api_keys"] = {"status": "FAIL", "error": str(e)}
-        
-        # 6. Chat diagnostic
-        try:
-            chat_diag = await diagnostics_chat(user_id)
-            report["checks"]["chat"] = {
-                "status": "PASS" if chat_diag.get('chat_available') else "WARN",
-                "key_source": chat_diag.get('key_source_would_use'),
-                "available": chat_diag.get('chat_available')
-            }
-        except Exception as e:
-            report["checks"]["chat"] = {"status": "FAIL", "error": str(e)}
-        
-        # 7. Bots scheduler state
-        try:
-            # Check if scheduler is running
-            from engines.scheduler import trading_scheduler
-            scheduler_running = trading_scheduler.running if hasattr(trading_scheduler, 'running') else False
-            report["checks"]["scheduler"] = {
-                "status": "PASS" if scheduler_running else "WARN",
-                "running": scheduler_running
-            }
-        except Exception as e:
-            report["checks"]["scheduler"] = {"status": "WARN", "error": str(e)}
-        
-        # 8. Realtime health (WebSocket)
-        try:
-            from websocket_manager import manager as ws_manager
-            active_connections = len(ws_manager.active_connections) if hasattr(ws_manager, 'active_connections') else 0
-            report["checks"]["realtime"] = {
-                "status": "PASS",
-                "active_connections": active_connections
-            }
-        except Exception as e:
-            report["checks"]["realtime"] = {"status": "WARN", "error": str(e)}
-        
-        # Determine overall status
-        failed_checks = [k for k, v in report["checks"].items() if v.get("status") == "FAIL"]
-        if failed_checks:
-            report["overall_status"] = "FAIL"
-            report["failed_checks"] = failed_checks
-        else:
-            warn_checks = [k for k, v in report["checks"].items() if v.get("status") == "WARN"]
-            if warn_checks:
-                report["overall_status"] = "PASS_WITH_WARNINGS"
-                report["warning_checks"] = warn_checks
-            else:
-                report["overall_status"] = "PASS"
-
-        # Category-level PASS/FAIL summary — derived from Truth Kernel (single source of truth)
-        try:
-            from services.truth_kernel import compute_truth_summary
-            truth = await compute_truth_summary(user_id, db.db)
-            truth_subsystems = truth.get("subsystems", {})
-            report["categories"] = {
-                sub: truth_subsystems.get(sub, {}).get("status", "UNKNOWN")
-                for sub in truth_subsystems
-            }
-            report["contradictions"] = truth.get("contradictions", [])
-            report["rule_precedence"] = truth.get("rule_precedence", [])
-        except Exception as truth_err:
-            logger.warning(f"Truth Kernel failed in go-live, falling back: {truth_err}")
-            report["categories"] = {
-                "TRUTH_KERNEL": "WARN",
-                "PAPER_ENGINE": report["checks"].get("scheduler", {}).get("status", "UNKNOWN"),
-                "WALLET_RECONCILIATION": "PASS",
-                "RISK_BASELINES": "PASS",
-                "REALTIME": report["checks"].get("realtime", {}).get("status", "UNKNOWN"),
-                "AI_CHATOPS": report["checks"].get("chat", {}).get("status", "UNKNOWN"),
-                "EXCHANGE_HEALTH": report["checks"].get("api_keys", {}).get("status", "UNKNOWN"),
-                "TRAINING_GATE": "PASS",
-                "UI_HEALTH": "PASS",
-                "SCALPER": "PASS",
-            }
-            report["contradictions"] = []
-        
-        return report
-        
-    except Exception as e:
-        logger.error(f"Go-live diagnostics error: {e}")
-        return {
-            "overall_status": "ERROR",
-            "error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
 
 # Mount API router (includes auth and other inline endpoints)
 app.include_router(api_router, prefix="/api")

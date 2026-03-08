@@ -3,7 +3,8 @@ export const NAV = {
   WELCOME: 'welcome',              // AI page
   API_SETUP: 'api-setup',
   BOT_MANAGEMENT: 'bot-management',
-  BOT_FLEET: 'bot-fleet',          // NEW — separate bot monitoring section
+  BOT_FLEET: 'bot-fleet',          // separate bot monitoring section
+  BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section
   SYSTEM_MODE: 'system-mode',
   PROFITS_PERFORMANCE: 'profits-performance',
   LIVE_TRADES: 'live-trades',
@@ -18,6 +19,7 @@ export const NAV_LABELS = {
   [NAV.API_SETUP]: '🔑 API Setup',
   [NAV.BOT_MANAGEMENT]: '⚙️ Bot Management',
   [NAV.BOT_FLEET]: '🚀 Bot Fleet',
+  [NAV.BOT_RADAR]: '📡 Bot Radar',
   [NAV.SYSTEM_MODE]: '🎛️ System Mode',
   [NAV.PROFITS_PERFORMANCE]: '💹 Profits & Performance',
   [NAV.LIVE_TRADES]: '📡 Live Trades',

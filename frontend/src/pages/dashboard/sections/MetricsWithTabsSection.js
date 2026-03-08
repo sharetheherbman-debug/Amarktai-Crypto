@@ -3,14 +3,27 @@ import ErrorBoundary from '../../../components/ErrorBoundary';
 import DecisionTrace from '../../../components/DecisionTrace';
 import WhaleFlowHeatmap from '../../../components/WhaleFlowHeatmap';
 import PrometheusMetrics from '../../../components/PrometheusMetrics';
+import CoinStatsPanel from './CoinStatsPanel';
+import HuggingFacePanel from './HuggingFacePanel';
 
-const NOT_AVAILABLE = 'Not available';
+const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfig }) => {
+  const tabStyle = (active) => ({
+    padding: '10px 20px',
+    background: active ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
+    border: '2px solid ' + (active ? 'var(--accent2)' : 'var(--line)'),
+    borderRadius: '8px',
+    color: active ? '#fff' : 'var(--text)',
+    cursor: 'pointer',
+    fontSize: '0.95rem',
+    fontWeight: active ? '700' : '600',
+    transition: 'all 0.3s',
+    boxShadow: active ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none',
+  });
 
-const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab }) => {
   return (
       <section className="section active">
         <div className="card">
-          <h2>📊 Metrics Dashboard</h2>
+          <h2>📊 Analytics &amp; Metrics</h2>
           
           {/* Horizontal Tabs */}
           <div style={{
@@ -22,56 +35,20 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab }) => {
             paddingBottom: '10px',
             flexWrap: 'wrap'
           }}>
-            <button 
-              onClick={() => setMetricsTab('decision-trace')}
-              style={{
-                padding: '10px 20px',
-                background: metricsTab === 'decision-trace' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'decision-trace' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: metricsTab === 'decision-trace' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: metricsTab === 'decision-trace' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: metricsTab === 'decision-trace' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
+            <button onClick={() => setMetricsTab('decision-trace')} style={tabStyle(metricsTab === 'decision-trace')}>
               🎬 Decision Trace
             </button>
-            <button 
-              onClick={() => setMetricsTab('whale-flow')}
-              style={{
-                padding: '10px 20px',
-                background: metricsTab === 'whale-flow' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'whale-flow' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: metricsTab === 'whale-flow' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: metricsTab === 'whale-flow' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: metricsTab === 'whale-flow' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
+            <button onClick={() => setMetricsTab('whale-flow')} style={tabStyle(metricsTab === 'whale-flow')}>
               🐋 Whale Flow
             </button>
-            <button 
-              onClick={() => setMetricsTab('system-metrics')}
-              style={{
-                padding: '10px 20px',
-                background: metricsTab === 'system-metrics' ? 'linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 100%)' : 'var(--glass)',
-                border: '2px solid ' + (metricsTab === 'system-metrics' ? 'var(--accent2)' : 'var(--line)'),
-                borderRadius: '8px',
-                color: metricsTab === 'system-metrics' ? '#fff' : 'var(--text)',
-                cursor: 'pointer',
-                fontSize: '0.95rem',
-                fontWeight: metricsTab === 'system-metrics' ? '700' : '600',
-                transition: 'all 0.3s',
-                boxShadow: metricsTab === 'system-metrics' ? '0 4px 12px rgba(74, 144, 226, 0.4)' : 'none'
-              }}
-            >
+            <button onClick={() => setMetricsTab('system-metrics')} style={tabStyle(metricsTab === 'system-metrics')}>
               📊 System Metrics
+            </button>
+            <button onClick={() => setMetricsTab('coinstats')} style={tabStyle(metricsTab === 'coinstats')}>
+              📈 Market Intelligence
+            </button>
+            <button onClick={() => setMetricsTab('huggingface')} style={tabStyle(metricsTab === 'huggingface')}>
+              🤗 AI Analysis
             </button>
           </div>
 
@@ -90,6 +67,16 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab }) => {
             {metricsTab === 'system-metrics' && (
               <ErrorBoundary title="System Metrics Error" message="Unable to load system metrics. Prometheus may not be configured.">
                 <PrometheusMetrics />
+              </ErrorBoundary>
+            )}
+            {metricsTab === 'coinstats' && (
+              <ErrorBoundary title="Market Intelligence Error" message="Unable to load CoinStats market data.">
+                <CoinStatsPanel axiosConfig={axiosConfig} />
+              </ErrorBoundary>
+            )}
+            {metricsTab === 'huggingface' && (
+              <ErrorBoundary title="AI Analysis Error" message="Unable to load HuggingFace AI analysis.">
+                <HuggingFacePanel axiosConfig={axiosConfig} />
               </ErrorBoundary>
             )}
           </div>

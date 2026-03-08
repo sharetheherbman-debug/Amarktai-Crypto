@@ -411,17 +411,23 @@ class TestGoLiveTruthIntegration:
     """Tests that go-live diagnostics uses Truth Kernel."""
 
     def test_go_live_imports_truth_kernel(self):
-        """Verify server.py references truth kernel in go-live handler."""
+        """Verify go-live handler references truth kernel.
+
+        The canonical go-live endpoint lives in routes/diagnostics.py.
+        server.py previously had a duplicate that has been removed to fix
+        the route collision. We check the canonical file instead.
+        """
         import os
-        server_path = os.path.join(
-            os.path.dirname(__file__), '..', 'backend', 'server.py'
+        # Check canonical go-live location (routes/diagnostics.py)
+        diag_path = os.path.join(
+            os.path.dirname(__file__), '..', 'backend', 'routes', 'diagnostics.py'
         )
-        with open(server_path) as f:
+        with open(diag_path) as f:
             content = f.read()
         assert 'compute_truth_summary' in content, \
-            "go-live should use compute_truth_summary from truth kernel"
+            "go-live should use compute_truth_summary from truth kernel (routes/diagnostics.py)"
         assert 'contradictions' in content, \
-            "go-live should include contradictions from truth kernel"
+            "go-live should include contradictions from truth kernel (routes/diagnostics.py)"
 
     def test_scalper_router_exists(self):
         """Verify scalper router file exists."""
