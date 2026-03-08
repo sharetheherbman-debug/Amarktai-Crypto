@@ -80,15 +80,24 @@ class PaperWalletService:
         }
 
     async def reset(self, user_id: str) -> Dict:
-        """Reset paper wallet for a user, clearing all non-ZAR balances and restoring starting capital."""
+        """Reset paper wallet for a user to a clean zero state.
+
+        This is a TRUE RESET — all balances are set to zero so the
+        dashboard accurately reflects an empty paper-trading account
+        immediately after reset.  The user must explicitly fund the
+        paper wallet (or create bots that trigger initial funding) before
+        trading resumes.  This mirrors the behaviour of a live account
+        reset where you would not automatically receive money.
+        """
         await self.init_db()
         existing = await self.collection.find_one({"user_id": user_id, "type": "paper"})
         existing_currencies = list((existing.get("balances") or {}).keys()) if existing else []
-        unset_fields = {f"balances.{c}": "" for c in existing_currencies if c != "ZAR"}
+        # Unset ALL currency balances (including ZAR) to reach a true zero state.
+        unset_fields = {f"balances.{c}": "" for c in existing_currencies}
 
-        update = {
+        update: dict = {
             "$set": {
-                "balances.ZAR": float(PAPER_STARTING_CAPITAL_ZAR),
+                "balances": {},
                 "updated_at": datetime.now(timezone.utc).isoformat()
             },
             "$setOnInsert": {
@@ -97,8 +106,6 @@ class PaperWalletService:
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
         }
-        if unset_fields:
-            update["$unset"] = unset_fields
 
         result = await self.collection.find_one_and_update(
             {"user_id": user_id, "type": "paper"},
@@ -106,7 +113,7 @@ class PaperWalletService:
             upsert=True,
             return_document=ReturnDocument.AFTER
         )
-        balances = result.get("balances") or {"ZAR": float(PAPER_STARTING_CAPITAL_ZAR)}
+        balances = result.get("balances") or {}
         total = sum(float(v or 0) for v in balances.values())
         return {
             "balances": balances,

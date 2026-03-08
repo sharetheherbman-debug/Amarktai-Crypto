@@ -310,17 +310,17 @@ class PaperTradingEngine:
         self.last_error = None
         self.trade_count = 0
         
-        # Dual-mode support: 'demo' (no keys) or 'verified' (with Luno keys)
-        self.current_mode = 'demo'  # Default to demo/public mode
+        # Dual-mode support: 'paper' (public endpoints, no keys) or 'verified' (authenticated with Luno keys)
+        self.current_mode = 'paper'  # Default to paper/public mode
         self.user_id = None  # Track which user's keys we're using (if any)
         self.luno_keys_available = False
         
-    async def init_exchanges(self, mode='demo', user_keys=None):
+    async def init_exchanges(self, mode='paper', user_keys=None):
         """
         Initialize all supported exchanges with dual-mode support
         
         Args:
-            mode: 'demo' (public endpoints, no keys) or 'verified' (authenticated with Luno keys)
+            mode: 'paper' (public endpoints, no keys) or 'verified' (authenticated with Luno keys)
             user_keys: Dict with Luno API credentials if mode='verified'
                       {'api_key': '...', 'api_secret': '...'}
         """
@@ -424,9 +424,9 @@ class PaperTradingEngine:
             }
         else:
             return {
-                'mode': 'demo',
-                'label': 'Estimated (Demo)',
-                'description': 'Using public market data only - simulated for demonstration purposes'
+                'mode': 'paper',
+                'label': 'Live Public Data',
+                'description': 'Using real public market data via exchange APIs for paper trading'
             }
     
     async def get_available_pairs(self, exchange: str = 'luno') -> list:
@@ -562,35 +562,24 @@ class PaperTradingEngine:
                     }
                 return float(cached_price)
         
-        # Fallback 2: Default safe prices (never None)
-        if 'BTC' in symbol:
-            fallback_price = 50000.0
-        elif 'ETH' in symbol:
-            fallback_price = 3000.0
-        elif 'BNB' in symbol:
-            fallback_price = 300.0
-        elif 'SOL' in symbol:
-            fallback_price = 100.0
-        elif 'XRP' in symbol:
-            fallback_price = 0.5
-        else:
-            fallback_price = 1.0
-        
-        logger.warning(f"Using fallback price for {symbol}: {fallback_price}")
-        self.price_cache[symbol] = fallback_price
-        
+        # No real price and no cached price — market data is truly unavailable.
+        # Do NOT substitute hardcoded fake prices; callers must handle None explicitly.
+        logger.warning(
+            f"Market data unavailable for {symbol} on {exchange}: "
+            "no live price, no valid cache entry. Returning None."
+        )
         if with_label:
             return {
-                'price': fallback_price,
+                'price': None,
                 'symbol': symbol,
                 'exchange': exchange,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'source': 'fallback',
-                'mode': 'demo',
-                'label': 'Estimated (Fallback)',
-                'description': 'Using safe fallback price - real market data unavailable'
+                'source': 'unavailable',
+                'mode': 'paper',
+                'label': 'Unavailable',
+                'description': 'Market data unavailable — trade blocked to prevent fake-price execution'
             }
-        return fallback_price
+        return None
 
     async def get_market_snapshot(self, symbol: str, exchange: str = "luno") -> Dict:
         """Get best bid/ask snapshot for a symbol with fallback pricing."""
@@ -613,7 +602,7 @@ class PaperTradingEngine:
         bid_volume = None
         ask_volume = None
         depth_notional = None
-        source = "fallback"
+        source = "unavailable"  # default; updated below when real data is obtained
 
         if exchange_obj:
             try:
@@ -645,7 +634,27 @@ class PaperTradingEngine:
 
         if mid is None:
             mid = await self.get_real_price(symbol, exchange)
-            source = "fallback"
+            if mid is not None:
+                source = "cache"  # get_real_price returned a cached value
+            else:
+                # Market data is genuinely unavailable — return explicit sentinel.
+                # Callers MUST check source == "unavailable" and block execution.
+                logger.warning(
+                    f"No market data for {symbol} on {exchange}: "
+                    "returning unavailable snapshot to block fake-price trades."
+                )
+                return {
+                    "bid": None,
+                    "ask": None,
+                    "mid": None,
+                    "spread": 0.0,
+                    "spread_bps": 0.0,
+                    "bid_volume": None,
+                    "ask_volume": None,
+                    "depth_notional": None,
+                    "source": "unavailable",
+                    "timestamp": timestamp,
+                }
 
         if bid is None:
             bid = mid * (1 - (PAPER_SPREAD_BPS / 20000))
@@ -796,12 +805,24 @@ class PaperTradingEngine:
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
-            
-            # CRITICAL: Guard against None or invalid price
-            if current_price is None or current_price <= 0:
-                logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
-                self.last_error = f"Invalid price: {current_price}"
-                return {"success": False, "bot_id": bot_id, "error": f"Market unavailable for {symbol}"}
+            market_source = market_snapshot.get("source", "unavailable")
+
+            # CRITICAL: Block trades when market data is unavailable.
+            # source == "unavailable" means no real price could be obtained.
+            # We never use fake/hardcoded fallback prices in trading decisions.
+            if market_source == "unavailable" or current_price is None or current_price <= 0:
+                reason = (
+                    f"Real market data unavailable for {symbol} on {exchange} — "
+                    "trade blocked to prevent fake-price execution"
+                )
+                logger.error(reason)
+                self.last_error = reason
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "error": reason,
+                    "skip_reason": "market_data_unavailable",
+                }
 
             spread_pct = (market_snapshot.get("spread", 0) / current_price) * 100 if current_price else 0
             if spread_pct > PAPER_MAX_SPREAD_PCT and not bot_data.get("allow_wide_spread"):
