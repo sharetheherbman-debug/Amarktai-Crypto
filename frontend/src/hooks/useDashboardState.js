@@ -124,7 +124,7 @@ export default function useDashboardState(navigate) {
   const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
   const [metricsTab, setMetricsTab] = useState('decision-trace'); // Tab state for Metrics section
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
-  const [profitsTab, setProfitsTab] = useState('metrics'); // Tab state for Profits & Performance parent section
+  const [profitsTab, setProfitsTab] = useState('profit-history'); // Tab state for Profits & Performance parent section
   const [botStatusFilter, setBotStatusFilter] = useState('all');
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   // Admin panel state - Hidden by default each session, only shown after password unlock

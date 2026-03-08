@@ -485,6 +485,7 @@ export default function Dashboard() {
           <ErrorBoundary title="Live Trades error" message="Unable to load Live Trades section.">
             <LiveTradesSection
               recentTrades={recentTrades}
+              realtimeConnected={realtimeConnected}
               selectedTradeId={selectedTradeId}
               setSelectedTradeId={setSelectedTradeId}
               setTradeBotFilter={setTradeBotFilter}
