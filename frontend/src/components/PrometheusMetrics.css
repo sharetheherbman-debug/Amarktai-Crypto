@@ -87,7 +87,10 @@
 .prometheus-metrics .bg-green-500    { background-color: #22c55e !important; }
 .prometheus-metrics .bg-yellow-500   { background-color: #f59e0b !important; }
 .prometheus-metrics .bg-red-500      { background-color: #ef4444 !important; }
-.prometheus-metrics button.border    { border-color: rgba(59, 130, 246, 0.2) !important; color: rgba(180, 210, 255, 0.8) !important; }
+.prometheus-metrics button.border {
+  border-color: rgba(59, 130, 246, 0.2) !important;
+  color: rgba(180, 210, 255, 0.8) !important;
+}
 .prometheus-metrics button.hover\:bg-gray-50:hover { background-color: rgba(59, 130, 246, 0.1) !important; }
 .prometheus-metrics .bg-green-50.border-green-500 {
   background-color: rgba(34, 197, 94, 0.12) !important;

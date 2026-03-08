@@ -111,7 +111,7 @@ export default function BotManagementSection({
             <div className="bot-form-card">
               <h3>⚡ Scalper Bot Creator</h3>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '12px' }}>
-                High-frequency scalper bot optimised for short-duration trades. Starts in paper mode. Minimum capital R500.
+                High-frequency scalper bot optimized for short-duration trades. Starts in paper mode. Minimum capital R500.
               </p>
               <form onSubmit={handleCreateScalperBot}>
                 <div className="bot-form-grid">

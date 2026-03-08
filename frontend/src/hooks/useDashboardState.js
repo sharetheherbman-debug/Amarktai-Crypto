@@ -2147,7 +2147,12 @@ export default function useDashboardState(navigate) {
       e.target.reset();
     } catch (err) {
       const detail = err.response?.data?.detail;
-      const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create scalper bot';
+      let errorMsg;
+      if (typeof detail === 'object') {
+        errorMsg = detail.message || JSON.stringify(detail);
+      } else {
+        errorMsg = detail || 'Failed to create scalper bot';
+      }
       showNotification(errorMsg, 'error');
       console.error('Scalper bot creation error:', err);
     }

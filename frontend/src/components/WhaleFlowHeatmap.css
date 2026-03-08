@@ -67,4 +67,7 @@
 .whale-flow-heatmap .hover\:bg-gray-200:hover {
   background-color: rgba(59, 130, 246, 0.12) !important;
 }
-.whale-flow-heatmap button.border { border-color: rgba(59, 130, 246, 0.2) !important; color: rgba(180, 210, 255, 0.8) !important; }
+.whale-flow-heatmap button.border {
+  border-color: rgba(59, 130, 246, 0.2) !important;
+  color: rgba(180, 210, 255, 0.8) !important;
+}
