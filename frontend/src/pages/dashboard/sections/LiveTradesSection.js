@@ -34,8 +34,27 @@ const selectStyle = {
   minWidth: '120px',
 };
 
+const modePillStyle = (isLive) => ({
+  display: 'inline-block',
+  padding: '2px 8px',
+  borderRadius: '999px',
+  fontSize: '0.68rem',
+  fontWeight: 700,
+  background: isLive ? 'rgba(34, 197, 94, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+  color: isLive ? '#22c55e' : '#3B82F6',
+  border: `1px solid ${isLive ? 'rgba(34, 197, 94, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+});
+
+const isLiveTrade = (trade) => {
+  const mode = (trade.trading_mode || trade.mode || '').toLowerCase();
+  return mode === 'live';
+};
+
 export default function LiveTradesSection({
   recentTrades = [],
+  realtimeConnected = false,
   selectedTradeId,
   setSelectedTradeId,
   setTradeBotFilter,
@@ -67,6 +86,9 @@ export default function LiveTradesSection({
     return { total: filteredTrades.length, wins, losses: filteredTrades.length - wins, totalPL };
   }, [filteredTrades]);
 
+  // Last trade timestamp
+  const lastTradeAt = recentTrades.length > 0 ? recentTrades[0]?.timestamp : null;
+
   const formatTime = (ts) => {
     if (!ts) return NA;
     try {
@@ -94,13 +116,38 @@ export default function LiveTradesSection({
   return (
     <section className="section active">
       {/* Header Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
         <SectionHeader title="📡 Live Trades" subtitle="Real-time execution monitor" />
-        <div style={{ display: 'flex', gap: '6px' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {/* Live connection status */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '5px 12px', borderRadius: '999px',
+            background: realtimeConnected ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+            border: `1px solid ${realtimeConnected ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            fontSize: '0.75rem', fontWeight: 600,
+            color: realtimeConnected ? '#22c55e' : '#f59e0b',
+          }}>
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: realtimeConnected ? '#22c55e' : '#f59e0b',
+              boxShadow: realtimeConnected ? '0 0 0 2px rgba(34,197,94,0.25)' : 'none',
+              animation: realtimeConnected ? 'pulse 2s infinite' : 'none',
+              display: 'inline-block', flexShrink: 0,
+            }} />
+            {realtimeConnected ? 'Live' : 'Reconnecting'}
+          </div>
           <button style={pill(viewMode === 'feed')} onClick={() => setViewMode('feed')}>Feed</button>
           <button style={pill(viewMode === 'table')} onClick={() => setViewMode('table')}>Table</button>
         </div>
       </div>
+
+      {/* Last update strip */}
+      {lastTradeAt && (
+        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '12px' }}>
+          Last trade: <span style={{ color: 'var(--text)' }}>{formatDateTime(lastTradeAt)}</span>
+        </div>
+      )}
 
       {/* Stats Strip */}
       <div style={{
@@ -154,9 +201,25 @@ export default function LiveTradesSection({
           overflow: 'hidden',
         }}>
           {filteredTrades.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📭</div>
-              <p>No trades match your filters yet.</p>
+            <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--muted)' }}>
+              <div style={{ fontSize: '2.2rem', marginBottom: '12px' }}>
+                {realtimeConnected ? '📡' : '🔌'}
+              </div>
+              {recentTrades.length === 0 ? (
+                <>
+                  <p style={{ fontSize: '0.95rem', color: 'var(--text)', marginBottom: '6px' }}>
+                    {realtimeConnected ? 'Watching for trades…' : 'Connecting to live feed…'}
+                  </p>
+                  <p style={{ fontSize: '0.82rem' }}>
+                    Trades will appear here as soon as your bots execute.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: '0.95rem', color: 'var(--text)', marginBottom: '6px' }}>No trades match your filters.</p>
+                  <p style={{ fontSize: '0.82rem' }}>Try clearing the exchange, bot, or pair filter.</p>
+                </>
+              )}
             </div>
           ) : viewMode === 'table' ? (
             /* Table View */
@@ -164,7 +227,7 @@ export default function LiveTradesSection({
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ background: 'rgba(59, 130, 246, 0.06)', borderBottom: '1px solid var(--line)' }}>
-                    {['Time', 'Bot', 'Pair', 'Exchange', 'Side', 'Price', 'Size', 'P/L', 'Fees'].map(h => (
+                    {['Time', 'Bot', 'Pair', 'Exchange', 'Mode', 'Side', 'Price', 'Size', 'P/L', 'Fees'].map(h => (
                       <th key={h} style={{ padding: '10px 12px', color: 'var(--muted)', fontWeight: 600, textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -187,6 +250,11 @@ export default function LiveTradesSection({
                         <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text)' }}>{trade.bot_name || 'Bot'}</td>
                         <td style={{ padding: '8px 12px', color: 'var(--text)' }}>{trade.symbol || NA}</td>
                         <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{getPlatformDisplayName(trade.exchange?.toLowerCase())}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={modePillStyle(isLiveTrade(trade))}>
+                            {isLiveTrade(trade) ? 'Live' : 'Paper'}
+                          </span>
+                        </td>
                         <td style={{ padding: '8px 12px' }}>
                           <span style={{ color: getSideColor(trade.side || trade.action), fontWeight: 700, textTransform: 'uppercase', fontSize: '0.78rem' }}>
                             {(trade.side || trade.action || 'TRADE').toString().toUpperCase()}
@@ -228,7 +296,7 @@ export default function LiveTradesSection({
                     }}
                   >
                     <div>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: '0.9rem' }}>{trade.bot_name || 'Bot'}</span>
                         <span style={{
                           fontSize: '0.72rem',
@@ -239,6 +307,9 @@ export default function LiveTradesSection({
                           color: getSideColor(side),
                           textTransform: 'uppercase',
                         }}>{side}</span>
+                        <span style={modePillStyle(isLiveTrade(trade))}>
+                          {isLiveTrade(trade) ? 'LIVE' : 'PAPER'}
+                        </span>
                         <span style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>{trade.symbol || ''}</span>
                       </div>
                       <div style={{ display: 'flex', gap: '12px', fontSize: '0.78rem', color: 'var(--muted)' }}>
@@ -269,9 +340,14 @@ export default function LiveTradesSection({
             alignSelf: 'start',
           }}>
             <div style={{ marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
-                {selectedTrade.symbol || NA}
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                  {selectedTrade.symbol || NA}
+                </h3>
+                <span style={modePillStyle(isLiveTrade(selectedTrade))}>
+                  {isLiveTrade(selectedTrade) ? 'LIVE' : 'PAPER'}
+                </span>
+              </div>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
                 {selectedTrade.bot_name || 'Bot'} • {getPlatformDisplayName(selectedTrade.exchange?.toLowerCase())}
               </p>

@@ -363,13 +363,21 @@ async def perform_paper_reset(user_id: str) -> dict:
 
     This is the CANONICAL reset path.  Every admin/user reset endpoint must
     call this function so that all resets are guaranteed to cover:
-    - bots (soft-delete + runtime-state removal for ALL user bots)
+    - bots (hard-delete so ghost bots never pollute truth/admin/radar after reset)
     - trades, orders, positions
     - fills / ledger / paper_ledger
     - wallet_balances / wallets
     - profits / metrics caches
     - bodyguard, daily-loss-lock, circuit-breaker, quarantine flags
     - any stale pause_reason / last_order_error carryover
+
+    PRESERVED (never deleted by paper reset — omit from all deletion lists below):
+    - user account / profile
+    - api_keys (exchange credentials)
+    - strategy_versions (durable learned strategy parameters — carry over resets;
+      preserved by NOT including this collection in the deletion loops below)
+    - user_memory (AI assistant context and user preferences — carry over resets;
+      preserved by NOT including this collection in the deletion loops below)
     """
     summary = {
         "bots_deleted": 0,
@@ -393,28 +401,14 @@ async def perform_paper_reset(user_id: str) -> dict:
     ).to_list(1000)
     all_bot_ids = [bot.get("id") for bot in all_bots if bot.get("id")]
 
-    # Only soft-delete bots that are NOT already deleted
-    bots = await db.bots_collection.find(
-        {"user_id": user_id, "deleted_at": {"$exists": False}},
-        {"_id": 0, "id": 1}
-    ).to_list(1000)
-    bot_ids = [bot.get("id") for bot in bots if bot.get("id")]
-
-    delete_timestamp = datetime.now(timezone.utc).isoformat()
-    if bot_ids:
-        bot_result = await db.bots_collection.update_many(
-            {"id": {"$in": bot_ids}, "user_id": user_id},
-            {
-                "$set": {
-                    "status": "deleted",
-                    "deleted_at": delete_timestamp,
-                    "deleted_by": user_id,
-                    "deletion_reason": "paper_reset"
-                }
-            }
+    # Hard-delete ALL bots for this user (not soft-delete) so that ghost bots
+    # cannot pollute truth console / admin / radar / fleet after the reset.
+    if all_bot_ids:
+        bot_result = await db.bots_collection.delete_many(
+            {"user_id": user_id}
         )
-        summary["bots_deleted"] = bot_result.modified_count
-        collection_counts["bots"] = bot_result.modified_count
+        summary["bots_deleted"] = bot_result.deleted_count
+        collection_counts["bots"] = bot_result.deleted_count
 
     bot_linked = [
         ("trades", "trades_deleted", db.trades_collection),
@@ -451,7 +445,8 @@ async def perform_paper_reset(user_id: str) -> dict:
         ("learning_runs", "learning_deleted", db.learning_runs_collection),
         ("learning_changes", "learning_deleted", db.learning_changes_collection),
         ("learning_metrics", "learning_deleted", db.learning_metrics_collection),
-        ("strategy_versions", "learning_deleted", db.strategy_versions_collection),
+        # strategy_versions is PRESERVED — durable learned strategy parameters survive paper resets
+        # user_memory is PRESERVED — AI assistant context and user preferences survive paper resets
         ("bot_strategy_assignments", "learning_deleted", db.bot_strategy_assignments_collection),
         ("decisions", "decisions_deleted", db.decisions_collection),
         ("autopilot_actions", "decisions_deleted", db.autopilot_actions_collection),
@@ -462,7 +457,7 @@ async def perform_paper_reset(user_id: str) -> dict:
         ("profit_ledger", "metrics_deleted", db.profit_ledger_collection),
         ("reinvest_requests", "metrics_deleted", db.reinvest_requests_collection),
         ("user_countdowns", "metrics_deleted", db.user_countdowns_collection),
-        ("user_memory", "metrics_deleted", db.user_memory_collection),
+        # user_memory is PRESERVED — AI assistant context and user preferences survive paper resets
         ("reports", "metrics_deleted", db.reports_collection),
         ("notifications", "metrics_deleted", db.notifications_collection),
         ("paper_ledger", "metrics_deleted", db.paper_ledger_collection),

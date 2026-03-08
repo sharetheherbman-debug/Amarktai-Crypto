@@ -124,7 +124,7 @@ export default function useDashboardState(navigate) {
   const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
   const [metricsTab, setMetricsTab] = useState('decision-trace'); // Tab state for Metrics section
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
-  const [profitsTab, setProfitsTab] = useState('metrics'); // Tab state for Profits & Performance parent section
+  const [profitsTab, setProfitsTab] = useState('profit-history'); // Tab state for Profits & Performance parent section
   const [botStatusFilter, setBotStatusFilter] = useState('all');
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   // Admin panel state - Hidden by default each session, only shown after password unlock
@@ -2112,6 +2112,52 @@ export default function useDashboardState(navigate) {
     }
   };
 
+  const handleCreateScalperBot = async (e) => {
+    e.preventDefault();
+    const name = e.target['scalper-name'].value;
+    const budget = parseInt(e.target['scalper-budget'].value);
+    const exchange = e.target['scalper-exchange'].value;
+    const riskMode = e.target['scalper-risk'].value;
+    const profitRouting = e.target['scalper-routing']?.value || 'RETURN_TO_MAIN';
+
+    if (!name) {
+      showNotification('Please enter a bot name', 'error');
+      return;
+    }
+    if (budget < 500) {
+      showNotification('Minimum budget for scalper bots is R500', 'error');
+      return;
+    }
+
+    try {
+      const botData = {
+        name,
+        exchange,
+        trading_mode: 'paper',
+        risk_mode: riskMode,
+        initial_capital: budget,
+        strategy_preset: 'scalping',
+        bot_type: 'scalper',
+        profit_routing: profitRouting,
+        created_by: 'user',
+      };
+      await axios.post(`${API}/bots`, botData, axiosConfig);
+      showNotification(`Scalper bot "${name}" created!`, 'success');
+      await refreshBotState();
+      e.target.reset();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      let errorMsg;
+      if (typeof detail === 'object') {
+        errorMsg = detail.message || JSON.stringify(detail);
+      } else {
+        errorMsg = detail || 'Failed to create scalper bot';
+      }
+      showNotification(errorMsg, 'error');
+      console.error('Scalper bot creation error:', err);
+    }
+  };
+
   const handleCreateUAgent = async (e) => {
     e.preventDefault();
     const name = e.target['uagent-name'].value;
@@ -3120,6 +3166,7 @@ export default function useDashboardState(navigate) {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
+    handleCreateScalperBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,

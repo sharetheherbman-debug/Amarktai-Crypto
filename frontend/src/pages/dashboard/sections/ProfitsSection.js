@@ -130,12 +130,6 @@ const ProfitsSection = ({
         {/* Horizontal Sub-tabs */}
         <div className="profit-tabs">
           <button
-            onClick={() => setProfitsTab('metrics')}
-            className={`profit-tab ${profitsTab === 'metrics' ? 'active' : ''}`}
-          >
-            📊 Metrics
-          </button>
-          <button
             onClick={() => setProfitsTab('profit-history')}
             className={`profit-tab ${profitsTab === 'profit-history' ? 'active' : ''}`}
           >
@@ -162,31 +156,6 @@ const ProfitsSection = ({
         </div>
         
         {/* Tab Content */}
-        {profitsTab === 'metrics' && (
-          <div style={{marginTop: '20px'}}>
-            <ErrorBoundary title="Metrics Error" message="Unable to load metrics data.">
-              <div>
-                <h3 style={{marginBottom: '16px'}}>📊 System Metrics</h3>
-                
-                {/* Market Intelligence */}
-                <div style={{marginBottom: '20px'}}>
-                  <h3 style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-                    📊 Market Alerts & Intelligence
-                  </h3>
-                </div>
-
-                <div style={{marginTop: '20px'}}>
-                  <div style={{padding: '40px', textAlign: 'center', background: 'var(--panel)', borderRadius: '6px', border: '1px solid var(--line)'}}>
-                    <p style={{color: 'var(--muted)'}}>
-                      ✓ No alerts at this time - System running smoothly
-                    </p>
-                  </div>
-                </div>
-                </div>
-            </ErrorBoundary>
-          </div>
-        )}
-        
         {profitsTab === 'profit-history' && (
           <div style={{marginTop: '20px'}}>
             {/* Header with period selector */}

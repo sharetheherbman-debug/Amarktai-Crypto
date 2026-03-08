@@ -113,6 +113,7 @@ export default function Dashboard() {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
+    handleCreateScalperBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,
@@ -383,6 +384,7 @@ export default function Dashboard() {
               axiosConfig={axiosConfig}
               botManagementTab={botManagementTab}
               handleCreateBot={handleCreateBot}
+              handleCreateScalperBot={handleCreateScalperBot}
               handleCreateUAgent={handleCreateUAgent}
               setBotManagementTab={setBotManagementTab}
             />
@@ -483,6 +485,7 @@ export default function Dashboard() {
           <ErrorBoundary title="Live Trades error" message="Unable to load Live Trades section.">
             <LiveTradesSection
               recentTrades={recentTrades}
+              realtimeConnected={realtimeConnected}
               selectedTradeId={selectedTradeId}
               setSelectedTradeId={setSelectedTradeId}
               setTradeBotFilter={setTradeBotFilter}
