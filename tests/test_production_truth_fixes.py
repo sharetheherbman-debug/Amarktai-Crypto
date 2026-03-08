@@ -180,9 +180,8 @@ class TestPaperWalletResetToZero:
         from services.paper_wallet_service import PaperWalletService
 
         source = inspect.getsource(PaperWalletService.reset)
-        # The reset function must NOT write PAPER_STARTING_CAPITAL_ZAR into balances
-        assert "PAPER_STARTING_CAPITAL_ZAR" not in source or \
-               '"balances.ZAR": float(PAPER_STARTING_CAPITAL_ZAR)' not in source, (
+        # The reset function must NOT seed balances with starting capital
+        assert '"balances.ZAR": float(PAPER_STARTING_CAPITAL_ZAR)' not in source, (
             "reset() must not seed the wallet with PAPER_STARTING_CAPITAL_ZAR — "
             "paper reset must return the wallet to a true zero state."
         )
@@ -291,4 +290,156 @@ class TestPaperResetWebSocketHandler:
         handler_block = content[paper_reset_idx:force_refresh_idx]
         assert "setBalances" in handler_block, (
             "paper_reset WebSocket handler must call setBalances to reset wallet to zero"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 5. Bot update endpoint — live-trading gate validation
+# ---------------------------------------------------------------------------
+
+class TestBotUpdateEndpoint:
+    """PUT /api/bots/{bot_id} must validate live-trading gates."""
+
+    def test_update_bot_route_exists_in_server(self):
+        """PUT /bots/{bot_id} must be registered in server.py api_router."""
+        path = os.path.join(os.path.dirname(__file__), "..", "backend", "server.py")
+        with open(path) as f:
+            content = f.read()
+        assert '@api_router.put("/bots/{bot_id}")' in content or \
+               "@api_router.put('/bots/{bot_id}')" in content, (
+            "server.py must register PUT /bots/{bot_id} so the frontend "
+            "handleToggleBotMode function (PUT /api/bots/{botId}) works."
+        )
+
+    def test_update_bot_blocks_live_mode_when_env_disabled(self):
+        """Bot update in server.py must refuse trading_mode=live when LIVE_TRADING env var is not set."""
+        path = os.path.join(os.path.dirname(__file__), "..", "backend", "server.py")
+        with open(path) as f:
+            content = f.read()
+        assert "LIVE_TRADING" in content, (
+            "server.py update_bot must check the LIVE_TRADING env var before allowing mode=live"
+        )
+
+    def test_update_bot_blocks_live_without_user_eligibility(self):
+        """Bot update must check user live_allowed flag before permitting mode=live."""
+        path = os.path.join(os.path.dirname(__file__), "..", "backend", "server.py")
+        with open(path) as f:
+            content = f.read()
+        assert "live_allowed" in content, (
+            "server.py update_bot must verify user.live_allowed before trading_mode='live'"
+        )
+
+    def test_no_duplicate_update_bot_in_bot_lifecycle(self):
+        """bot_lifecycle.py must NOT define its own PUT /{bot_id} (prevents collision)."""
+        import inspect
+        from routes.bot_lifecycle import router
+        routes_with_methods = [
+            (r.methods, r.path) for r in router.routes if hasattr(r, 'methods')
+        ]
+        put_bare = [
+            (m, p) for m, p in routes_with_methods
+            if p == '/{bot_id}' and 'PUT' in (m or [])
+        ]
+        assert not put_bare, (
+            "bot_lifecycle.py must NOT register PUT /{bot_id} — the canonical "
+            "update_bot lives in server.py. Duplicate routes cause a server collision."
+        )
+
+
+# ---------------------------------------------------------------------------
+# 6. Auto-start paper learning on bot creation
+# ---------------------------------------------------------------------------
+
+class TestPaperLearningAutoStart:
+    """Bot creation must auto-start the paper learning period."""
+
+    def test_server_py_auto_starts_paper_learning(self):
+        """server.py bot creation flow must auto-start paper learning period."""
+        path = os.path.join(os.path.dirname(__file__), "..", "backend", "server.py")
+        with open(path) as f:
+            content = f.read()
+        assert "paper_learning_start_ts" in content, (
+            "server.py bot creation must auto-set paper_learning_start_ts so users "
+            "are automatically enrolled in the 7-day evaluation window."
+        )
+
+    def test_scalper_seed_auto_starts_paper_learning(self):
+        """Scalper seed endpoint must also auto-start paper learning."""
+        path = os.path.join(os.path.dirname(__file__), "..", "backend", "routes", "scalper.py")
+        with open(path) as f:
+            content = f.read()
+        assert "paper_learning_start_ts" in content, (
+            "routes/scalper.py scalper_seed must auto-set paper_learning_start_ts"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 7. Subsystem health endpoint registered
+# ---------------------------------------------------------------------------
+
+class TestSubsystemHealthEndpoint:
+    """The /api/diagnostics/subsystem-health endpoint must exist."""
+
+    def test_subsystem_health_route_exists(self):
+        """diagnostics.py must have a /subsystem-health GET route."""
+        import inspect
+        from routes.diagnostics import router
+        paths = [r.path for r in router.routes if hasattr(r, 'path')]
+        assert (
+            "/api/diagnostics/subsystem-health" in paths or
+            "/subsystem-health" in paths
+        ), (
+            "/subsystem-health must be registered in diagnostics.py "
+            "so all users can see which subsystems are healthy/blocked. "
+            f"Current paths ending in health: {[p for p in paths if 'health' in p]}"
+        )
+
+    def test_subsystem_health_returns_trading_blockers(self):
+        """subsystem-health source must include 'trading_blocked' in its response."""
+        path = os.path.join(os.path.dirname(__file__), "..", "backend", "routes", "diagnostics.py")
+        with open(path) as f:
+            content = f.read()
+        assert "trading_blocked" in content, (
+            "subsystem-health must return 'trading_blocked' so frontend can show "
+            "whether trading is currently blocked and why."
+        )
+
+
+# ---------------------------------------------------------------------------
+# 8. Growth Engine section — disabled reason visibility
+# ---------------------------------------------------------------------------
+
+class TestGrowthEngineSectionBlockers:
+    """GrowthEngineSection.js must show disabled reasons clearly."""
+
+    def _read_section(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "frontend", "src",
+            "pages", "dashboard", "sections", "GrowthEngineSection.js"
+        )
+        with open(path) as f:
+            return f.read()
+
+    def test_reason_labels_map_exists(self):
+        """GrowthEngineSection must have a human-readable REASON_LABELS map."""
+        content = self._read_section()
+        assert "REASON_LABELS" in content, (
+            "GrowthEngineSection.js must have a REASON_LABELS map so backend reason "
+            "codes like AUTOPILOT_GROWTH_DISABLED are shown as human-readable text."
+        )
+
+    def test_disabled_panel_shown_when_engine_off(self):
+        """GrowthEngineSection must render a DisabledPanel when the engine is off."""
+        content = self._read_section()
+        assert "DisabledPanel" in content, (
+            "GrowthEngineSection.js must render a DisabledPanel component when "
+            "growthEnabled is false, showing the user why it is disabled."
+        )
+
+    def test_blocked_reasons_surfaced_per_platform(self):
+        """Each PlatformGrowthCard must show blocked_reasons from backend."""
+        content = self._read_section()
+        assert "blocked_reasons" in content, (
+            "GrowthEngineSection.js must read blocked_reasons from each platform's "
+            "status and display them so the user knows what is blocking the engine."
         )

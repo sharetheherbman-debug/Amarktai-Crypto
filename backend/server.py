@@ -505,6 +505,34 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     # Insert validated bot
     await db.bots_collection.insert_one(result)
 
+    # Auto-start the paper learning period on first bot creation.
+    # This ensures users are automatically enrolled in the 7-day evaluation
+    # window needed for live-trading eligibility — they no longer need to
+    # manually call POST /api/system/start-paper-learning.
+    try:
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id}, {"paper_learning_start_ts": 1, "_id": 0}
+        )
+        if not (user_doc or {}).get("paper_learning_start_ts"):
+            from config import PAPER_TRAINING_DAYS as _PTD
+            _start_ts = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+            await db.users_collection.update_one(
+                {"id": user_id},
+                {
+                    "$set": {
+                        "paper_learning_start_ts": _start_ts,
+                        "paper_learning_days_required": _PTD,
+                    }
+                },
+                upsert=True,
+            )
+            logger.info(
+                f"✅ Auto-started paper learning period for user {user_id[:8]} "
+                f"on first bot creation (required days: {_PTD})"
+            )
+    except Exception as _e:
+        logger.warning(f"Auto-start paper learning failed for {user_id[:8]}: {_e}")
+
     # Ensure paper wallet reserved for new bot
     try:
         from bot_lifecycle import bot_lifecycle
@@ -782,19 +810,92 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     }
 
 @api_router.put("/bots/{bot_id}")
+@api_router.patch("/bots/{bot_id}")
 async def update_bot(bot_id: str, update: dict, user_id: str = Depends(get_current_user)):
+    """Partial update of a bot's mutable fields.
+
+    Enforces live-trading gates when trading_mode='live' is requested:
+    1. LIVE_TRADING env var must be enabled.
+    2. System liveTrading mode flag must be True for the user.
+    3. User must have live_allowed=True (passed 7-day eligibility check).
+    4. Verified API keys must exist for the bot's exchange.
+    """
+    from datetime import datetime, timezone
+
     bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
-    
-    update_data = {k: v for k, v in update.items() if v is not None}
-    
+
+    # Whitelist: only allow safe mutable fields
+    ALLOWED_FIELDS = {
+        "trading_mode", "trading_enabled", "risk_mode",
+        "max_daily_trades", "max_position_pct", "max_drawdown_pct",
+        "name", "notes", "pair", "take_profit_pct", "stop_loss_pct",
+    }
+    update_data = {k: v for k, v in update.items() if k in ALLOWED_FIELDS and v is not None}
+    if not update_data:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No recognised updatable fields in request. "
+                f"Allowed fields: {sorted(ALLOWED_FIELDS)}"
+            )
+        )
+
+    # ── Live-trading gate ────────────────────────────────────────────────
+    if update_data.get("trading_mode") == "live":
+        live_env = (
+            os.getenv("LIVE_TRADING", "0") in ("1", "true", "True") or
+            os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
+        )
+        if not live_env:
+            raise HTTPException(
+                status_code=403,
+                detail="Live trading is globally disabled (LIVE_TRADING env var not enabled)"
+            )
+
+        # System-mode gate
+        modes_doc = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
+        if modes_doc and not modes_doc.get("liveTrading", False):
+            raise HTTPException(
+                status_code=403,
+                detail="System mode is not set to live — switch system mode to live first."
+            )
+
+        # User eligibility gate
+        user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not (user_doc or {}).get("live_allowed", False):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "You have not yet qualified for live trading. "
+                    "Complete the 7-day paper learning period and pass the performance "
+                    "criteria via POST /api/system/request-live."
+                )
+            )
+
+        # API-key gate
+        exchange = (bot.get("exchange") or "").lower()
+        if exchange:
+            api_key_doc = await db.api_keys_collection.find_one(
+                {"user_id": user_id, "provider": exchange}
+            )
+            if not api_key_doc or not api_key_doc.get("api_key"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"No verified API keys found for exchange '{exchange}'. "
+                        "Add and test your API keys before switching to live mode."
+                    )
+                )
+
     if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.bots_collection.update_one(
             {"id": bot_id},
             {"$set": update_data}
         )
-    
+
     updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
     return updated_bot
 

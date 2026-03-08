@@ -1380,6 +1380,12 @@ async def toggle_bot_trading(bot_id: str, data: Dict, user_id: str = Depends(get
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+# NOTE: PUT/PATCH /{bot_id} is the canonical update endpoint for bots.
+# It is defined in server.py (api_router) and includes live-trading gate
+# enforcement.  Do NOT add a duplicate here — the server's route collision
+# detector will refuse to start if both exist.
+
 @router.delete("/{bot_id}")
 async def delete_bot(
     bot_id: str,

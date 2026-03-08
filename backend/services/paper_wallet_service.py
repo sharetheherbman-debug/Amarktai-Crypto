@@ -95,7 +95,7 @@ class PaperWalletService:
         # Unset ALL currency balances (including ZAR) to reach a true zero state.
         unset_fields = {f"balances.{c}": "" for c in existing_currencies}
 
-        update: dict = {
+        update = {
             "$set": {
                 "balances": {},
                 "updated_at": datetime.now(timezone.utc).isoformat()

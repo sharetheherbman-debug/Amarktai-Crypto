@@ -1102,14 +1102,16 @@ export default function useDashboardState(navigate) {
         }));
         sessionStorage.removeItem('profitData');
         sessionStorage.removeItem('recentTrades');
-        // Reload all data from backend (wallet now at zero after reset fix)
+        // Brief delay so all MongoDB writes from the reset are visible before
+        // we re-query.  Without this, a same-tick read can return stale data.
+        const RESET_REHYDRATE_DELAY_MS = 200;
         setTimeout(() => {
           refreshAllDashboardData();
           loadProfitData();
           loadBalances();
           loadEquityData();
           loadDrawdownData();
-        }, 200);
+        }, RESET_REHYDRATE_DELAY_MS);
         break;
 
       case 'force_refresh':
