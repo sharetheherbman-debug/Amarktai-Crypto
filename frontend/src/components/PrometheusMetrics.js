@@ -373,15 +373,6 @@ export default function PrometheusMetrics() {
               </div>
             )}
 
-            {/* Raw Metrics View */}
-            <div>
-              <h3 className="text-lg font-semibold mb-3">Raw Prometheus Metrics</h3>
-              <div className="raw-metrics">
-                <pre className="text-xs overflow-auto max-h-96 p-4 bg-gray-50 rounded">
-                  {metrics}
-                </pre>
-              </div>
-            </div>
           </>
         )}
       </Card>

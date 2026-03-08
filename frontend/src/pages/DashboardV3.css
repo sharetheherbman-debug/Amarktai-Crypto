@@ -107,7 +107,7 @@ body {
 @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
 .card, .msg, .bot-item { animation: fadeIn 0.5s ease-out; }
-.card:hover, button:hover, .nav a:hover, .system-card:hover, .api-header:hover, .bot-tab:hover { transform: translateY(-2px); }
+.card:hover, button:hover, .system-card:hover, .api-header:hover, .bot-tab:hover { transform: translateY(-2px); }
 button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transition); }
 .motivational { animation: pulse 2s infinite; }
 
@@ -127,7 +127,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   display: flex;
   flex-direction: column;
   align-items: center;
-  overflow-y: hidden;
+  overflow: hidden;
 }
 
 .logo { 
@@ -153,25 +153,35 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   width: 100%; 
   display: flex; 
   flex-direction: column; 
-  gap: 4px; 
-  padding: 0 14px; 
+  gap: 2px; 
+  padding: 0 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
 }
 
 .nav a { 
   display: block; 
   color: var(--muted); 
-  padding: 10px 14px; 
-  border-radius: 10px; 
+  padding: 9px 12px; 
+  border-radius: 8px; 
+  margin: 0;
   font-weight: 500; 
-  font-size: 0.88rem; 
+  font-size: 0.85rem; 
   text-decoration: none; 
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+  border: 1px solid transparent;
 }
 
 .nav a:hover, .nav a.active { 
   background: rgba(56, 189, 248, 0.15); 
   color: var(--text); 
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-color: rgba(56, 189, 248, 0.3);
+  transform: none;
 }
 
 /* TOPBAR */
