@@ -3124,6 +3124,7 @@ export default function useDashboardState(navigate) {
     allUsers,
     autoSpawnStatus,
     autonomyStatus,
+    autopilotGrowthStatus,
     autopilotReinvestStatus,
     awaitingPassword,
     axiosConfig,

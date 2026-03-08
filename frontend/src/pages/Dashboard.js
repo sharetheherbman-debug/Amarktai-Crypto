@@ -32,6 +32,7 @@ import PerformanceSection from './dashboard/sections/PerformanceSection';
 import AdminTruthSection from './dashboard/sections/AdminTruthSection';
 import BotFleetSection from './dashboard/sections/BotFleetSection';
 import BotRadarSection from './dashboard/sections/BotRadarSection';
+import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
@@ -71,6 +72,7 @@ export default function Dashboard() {
     allUsers,
     autoSpawnStatus,
     autonomyStatus,
+    autopilotGrowthStatus,
     autopilotReinvestStatus,
     awaitingPassword,
     axiosConfig,
@@ -259,6 +261,7 @@ export default function Dashboard() {
             <a href="#" className={activeSection === NAV.BOT_MANAGEMENT ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_MANAGEMENT); }}>{NAV_LABELS[NAV.BOT_MANAGEMENT]}</a>
             <a href="#" className={activeSection === NAV.BOT_FLEET ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_FLEET); }}>{NAV_LABELS[NAV.BOT_FLEET]}</a>
             <a href="#" className={activeSection === NAV.BOT_RADAR ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_RADAR); }}>{NAV_LABELS[NAV.BOT_RADAR]}</a>
+            <a href="#" className={activeSection === NAV.GROWTH_ENGINE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.GROWTH_ENGINE); }}>{NAV_LABELS[NAV.GROWTH_ENGINE]}</a>
             <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
             <a href="#" className={activeSection === NAV.ANALYTICS_METRICS ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.ANALYTICS_METRICS); }}>{NAV_LABELS[NAV.ANALYTICS_METRICS]}</a>
             <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
@@ -420,6 +423,14 @@ export default function Dashboard() {
         {activeSection === NAV.BOT_RADAR && (
           <ErrorBoundary title="Bot Radar error" message="Unable to load Bot Radar section.">
             <BotRadarSection axiosConfig={axiosConfig} />
+          </ErrorBoundary>
+        )}
+        {activeSection === NAV.GROWTH_ENGINE && (
+          <ErrorBoundary title="Growth Engine error" message="Unable to load Growth Engine section.">
+            <GrowthEngineSection
+              autopilotGrowthStatus={autopilotGrowthStatus}
+              autopilotReinvestStatus={autopilotReinvestStatus}
+            />
           </ErrorBoundary>
         )}
         {activeSection === NAV.SYSTEM_MODE && (

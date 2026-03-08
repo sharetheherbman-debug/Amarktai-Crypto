@@ -5,6 +5,7 @@ export const NAV = {
   BOT_MANAGEMENT: 'bot-management',
   BOT_FLEET: 'bot-fleet',          // monitor + control only
   BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section
+  GROWTH_ENGINE: 'growth-engine',  // autopilot growth + reinvest engine
   SYSTEM_MODE: 'system-mode',
   ANALYTICS_METRICS: 'analytics-metrics', // intelligence terminal: decision trace, whale flow, market intelligence, AI analysis
   PROFITS_PERFORMANCE: 'profits-performance',
@@ -21,6 +22,7 @@ export const NAV_LABELS = {
   [NAV.BOT_MANAGEMENT]: '⚙️ Bot Management',
   [NAV.BOT_FLEET]: '🚀 Bot Fleet',
   [NAV.BOT_RADAR]: '📡 Bot Radar',
+  [NAV.GROWTH_ENGINE]: '🌱 Growth Engine',
   [NAV.SYSTEM_MODE]: '🎛️ System Mode',
   [NAV.ANALYTICS_METRICS]: '📊 Analytics & Metrics',
   [NAV.PROFITS_PERFORMANCE]: '💹 Profits & Performance',
