@@ -164,9 +164,15 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
 
     try:
-        # Fetch all bots for user
+        # Fetch only non-deleted active/paused bots for user
         bots_cursor = db.bots_collection.find(
-            {"user_id": user_id, "deleted": {"$ne": True}},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
         )
         bots = await bots_cursor.to_list(length=200)
 

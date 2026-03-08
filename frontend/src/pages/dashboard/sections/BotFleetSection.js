@@ -184,10 +184,12 @@ export default function BotFleetSection({
     return ['all', ...Array.from(set).sort()];
   }, [bots]);
 
-  /* filtered bots */
+  /* filtered bots — always exclude deleted/ghost bots regardless of filter */
   const filteredBots = useMemo(() => {
     return bots.filter((bot) => {
       const st = getBotStatus(bot);
+      // Exclude deleted/ghost bots from all fleet views
+      if (st === 'deleted' || bot.deleted_at || bot.deleted === true || bot.is_deleted === true) return false;
       if (botStatusFilter && botStatusFilter !== 'all' && st !== botStatusFilter) return false;
       if (platformFilter && platformFilter !== 'all' && (bot.exchange || '').toLowerCase() !== platformFilter) return false;
       return true;
@@ -253,7 +255,7 @@ export default function BotFleetSection({
     <section className="section active" id="bot-fleet">
       <SectionHeader
         title="🚀 Bot Fleet"
-        subtitle={`Monitor and manage your active bots — ${bots.length} total`}
+        subtitle={`Monitor and manage your deployed bots — ${filteredBots.length} displayed (ghost bots excluded)`}
       />
 
       {/* Fleet Tabs */}

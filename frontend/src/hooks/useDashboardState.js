@@ -2094,6 +2094,7 @@ export default function useDashboardState(navigate) {
         risk_mode: riskMode,
         initial_capital: budget,
         strategy_preset: strategyPreset,
+        bot_type: 'normal', // Explicit canonical bot type — scalper bots use ScalperBotsPanel
         created_by: 'user', // Track origin
         paper_start_date: new Date().toISOString(), // Start 7-day countdown
         learning_complete: false

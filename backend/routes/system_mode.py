@@ -359,7 +359,18 @@ class PaperResetRequest(BaseModel):
 
 
 async def perform_paper_reset(user_id: str) -> dict:
-    """Clear paper trading data for a user and return deletion summaries."""
+    """Clear paper trading data for a user and return deletion summaries.
+
+    This is the CANONICAL reset path.  Every admin/user reset endpoint must
+    call this function so that all resets are guaranteed to cover:
+    - bots (soft-delete + runtime-state removal for ALL user bots)
+    - trades, orders, positions
+    - fills / ledger / paper_ledger
+    - wallet_balances / wallets
+    - profits / metrics caches
+    - bodyguard, daily-loss-lock, circuit-breaker, quarantine flags
+    - any stale pause_reason / last_order_error carryover
+    """
     summary = {
         "bots_deleted": 0,
         "trades_deleted": 0,
@@ -373,6 +384,16 @@ async def perform_paper_reset(user_id: str) -> dict:
     }
     collection_counts = {"bots": 0, "paper_wallet": 0}
 
+    # Collect ALL bot IDs for this user — including already-deleted ones —
+    # so that runtime-state rows and linked records for ghost bots are
+    # cleaned up too (fixes stale runtime_state drift after partial resets).
+    all_bots = await db.bots_collection.find(
+        {"user_id": user_id},
+        {"_id": 0, "id": 1}
+    ).to_list(1000)
+    all_bot_ids = [bot.get("id") for bot in all_bots if bot.get("id")]
+
+    # Only soft-delete bots that are NOT already deleted
     bots = await db.bots_collection.find(
         {"user_id": user_id, "deleted_at": {"$exists": False}},
         {"_id": 0, "id": 1}
@@ -400,11 +421,13 @@ async def perform_paper_reset(user_id: str) -> dict:
         ("orders", "orders_deleted", db.orders_collection),
         ("positions", "positions_deleted", db.positions_collection),
     ]
+    # Use all_bot_ids (includes already-deleted bots) so ghost trade records
+    # from prior partial resets are also cleaned up.
     for name, summary_key, collection in bot_linked:
         collection_counts[name] = 0
-        if collection is None or not bot_ids:
+        if collection is None or not all_bot_ids:
             continue
-        result = await collection.delete_many({"bot_id": {"$in": bot_ids}})
+        result = await collection.delete_many({"bot_id": {"$in": all_bot_ids}})
         summary[summary_key] = result.deleted_count
         collection_counts[name] = result.deleted_count
 
@@ -462,13 +485,13 @@ async def perform_paper_reset(user_id: str) -> dict:
             summary["metrics_deleted"] += fills_result.deleted_count
             collection_counts["fills_ledger"] = fills_result.deleted_count
             # Also clear bot-level fills for bots belonging to this user
-            if bot_ids:
-                bot_fills = await db.db["fills_ledger"].delete_many({"bot_id": {"$in": bot_ids}})
+            if all_bot_ids:
+                bot_fills = await db.db["fills_ledger"].delete_many({"bot_id": {"$in": all_bot_ids}})
                 summary["metrics_deleted"] += bot_fills.deleted_count
 
             # Clear stale circuit-breaker state so fresh paper session starts unblocked
             cb_result = await db.db["circuit_breaker_state"].update_many(
-                {"entity_id": {"$in": bot_ids}} if bot_ids else {"entity_id": user_id},
+                {"entity_id": {"$in": all_bot_ids}} if all_bot_ids else {"entity_id": user_id},
                 {"$set": {"reset_at": datetime.now(timezone.utc), "reset_reason": "paper_reset"}},
             )
             collection_counts["circuit_breaker_state"] = cb_result.modified_count

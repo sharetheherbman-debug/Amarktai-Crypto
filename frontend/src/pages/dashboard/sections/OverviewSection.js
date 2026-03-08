@@ -88,9 +88,27 @@ export default function OverviewSection({
   };
   const autonomyItems = [
     { label: 'Autopilot', value: systemModes.autopilot },
-    { label: 'Scheduler', value: autonomyStatus?.scheduler || autonomyStatus?.scheduler_status },
-    { label: 'Self-Healing', value: autonomyStatus?.self_healing || autonomyStatus?.bodyguard || riskStatus?.bodyguard_lock?.active },
-    { label: 'Learning', value: learningStatus?.status || learningStatus?.mode || learningStatus?.active }
+    {
+      label: 'Scheduler',
+      value: autonomyStatus?.subsystems?.trading_scheduler?.running
+        ?? autonomyStatus?.scheduler
+        ?? autonomyStatus?.scheduler_status,
+    },
+    {
+      label: 'Self-Healing',
+      value: autonomyStatus?.subsystems?.self_heal?.running
+        ?? autonomyStatus?.subsystems?.bodyguard?.running
+        ?? autonomyStatus?.self_healing
+        ?? autonomyStatus?.bodyguard
+        ?? riskStatus?.bodyguard_lock?.active,
+    },
+    {
+      label: 'Learning',
+      value: autonomyStatus?.subsystems?.learning_loop?.running
+        ?? learningStatus?.status
+        ?? learningStatus?.mode
+        ?? learningStatus?.active,
+    },
   ];
   const lastEventTitle = riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable';
   const lastEventDetail = riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts';
@@ -265,25 +283,11 @@ export default function OverviewSection({
 
         <div className="overview-grid">
           <div className="overview-left-col">
-            <div className="overview-image-card" style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0',
-              background: 'rgba(10, 14, 26, 0.6)',
-              borderRadius: '14px',
-              border: '1px solid var(--line)',
-              overflow: 'hidden',
-            }}>
+            <div className="overview-image-card">
               <img
                 src="/assets/overview.jpg"
                 alt="Amarktai Crypto Overview"
-                style={{
-                  width: '100%',
-                  height: 'auto',
-                  display: 'block',
-                  objectFit: 'contain',
-                }}
+                className="overview-image-asset"
               />
             </div>
           </div>

@@ -89,14 +89,7 @@ export default function WelcomeSection({
             handleSendMessage={handleSendMessage}
             loadChatHistory={loadChatHistory}
             handleClearChatHistory={handleClearChatHistory}
-            showAITools={showAITools}
-            setShowAITools={setShowAITools}
-            aiTaskLoading={aiTaskLoading}
-            handleTriggerLearning={handleTriggerLearning}
-            handleEvolveBots={handleEvolveBots}
-            handleGetInsights={handleGetInsights}
-            handlePredictPrice={handlePredictPrice}
-            handleReinvestProfits={handleReinvestProfits}
+            hideInlineTools={true}
           />
         )}
 
