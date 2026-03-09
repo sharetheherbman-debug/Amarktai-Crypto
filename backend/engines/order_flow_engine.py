@@ -50,6 +50,13 @@ class OrderFlowEngine:
       - composite microstructure score
     """
 
+    # ── Composite score weights ──────────────────────────────────────────
+    WEIGHT_LIQUIDITY_IMBALANCE = 0.40
+    WEIGHT_AGGRESSIVE_RATIO = 0.30
+    WEIGHT_SPREAD = 0.20
+    WEIGHT_VACUUM = 0.10
+    SPREAD_CAP_PCT = 1.0   # spreads above this % contribute zero signal
+
     def __init__(self, history_limit: int = 200):
         self._history_limit = history_limit
         self._trade_buffer: Dict[str, List[Dict]] = {}
@@ -162,17 +169,17 @@ class OrderFlowEngine:
         # Normalize aggressive ratio to [-1, +1]
         agg_signal = (agg - 0.5) * 2.0
 
-        # Spread contribution: tighter spread = better (cap at 1%)
-        spread_signal = max(0.0, 1.0 - spread) if spread < 1.0 else 0.0
+        # Spread contribution: tighter spread = better
+        spread_signal = max(0.0, 1.0 - spread) if spread < self.SPREAD_CAP_PCT else 0.0
 
         # Vacuum penalty
         vacuum_pen = -0.2 if vacuum else 0.0
 
         raw = (
-            0.40 * liq_imb
-            + 0.30 * agg_signal
-            + 0.20 * spread_signal
-            + 0.10 * vacuum_pen
+            self.WEIGHT_LIQUIDITY_IMBALANCE * liq_imb
+            + self.WEIGHT_AGGRESSIVE_RATIO * agg_signal
+            + self.WEIGHT_SPREAD * spread_signal
+            + self.WEIGHT_VACUUM * vacuum_pen
         )
         score = round(max(-1.0, min(1.0, raw)), 4)
 

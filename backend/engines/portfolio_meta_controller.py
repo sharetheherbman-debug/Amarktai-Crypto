@@ -79,6 +79,13 @@ class PortfolioMetaController:
     and sets exposure / risk limits based on market conditions.
     """
 
+    # ── Exposure & risk constants ────────────────────────────────────────
+    MAX_EXCHANGE_EXPOSURE = 0.30    # hard cap per exchange
+    BASE_EXCHANGE_EXPOSURE = 0.25   # base limit before risk adjustment
+    MAX_PAIR_EXPOSURE = 0.15        # hard cap per pair
+    BASE_PAIR_EXPOSURE = 0.10       # base limit before risk adjustment
+    MIN_RISK_DIVISOR = 0.3          # floor on risk_mult when computing exposure
+
     # Regime -> base scalper weight (rest goes to normal bots)
     REGIME_SCALPER_BIAS: Dict[str, float] = {
         "trending": 0.30,
@@ -169,8 +176,10 @@ class PortfolioMetaController:
         risk_mult = round(max(0.1, min(2.0, risk_mult)), 2)
 
         # 9. Exposure limits - tighter when risk is high
-        exchange_limit = round(min(0.30, 0.25 / max(risk_mult, 0.3)), 2)
-        pair_limit = round(min(0.15, 0.10 / max(risk_mult, 0.3)), 2)
+        exchange_limit = round(min(self.MAX_EXCHANGE_EXPOSURE,
+                                   self.BASE_EXCHANGE_EXPOSURE / max(risk_mult, self.MIN_RISK_DIVISOR)), 2)
+        pair_limit = round(min(self.MAX_PAIR_EXPOSURE,
+                               self.BASE_PAIR_EXPOSURE / max(risk_mult, self.MIN_RISK_DIVISOR)), 2)
 
         # 10. Hold-time profile from regime
         hold_profile = self.REGIME_HOLD_PROFILE.get(regime, HoldTimeProfile.MEDIUM.value)
