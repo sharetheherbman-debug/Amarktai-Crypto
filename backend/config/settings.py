@@ -101,6 +101,32 @@ SMTP_FROM = env_str('SMTP_FROM', 'noreply@amarktai.io')
 # External Services
 FETCHAI_API_KEY = env_str('FETCHAI_API_KEY', '')
 
+# Market Data Provider Keys
+CRYPTOCOMPARE_API_KEY = env_str('CRYPTOCOMPARE_API_KEY', '')
+COINGECKO_API_KEY = env_str('COINGECKO_API_KEY', '')
+COINRANKING_API_KEY = env_str('COINRANKING_API_KEY', '')
+COINMARKETCAP_API_KEY = env_str('COINMARKETCAP_API_KEY', '')
+LUZIA_API_KEY = env_str('LUZIA_API_KEY', '')
+
+# On-Chain & Whale Tracking Keys
+GLASSNODE_API_KEY = env_str('GLASSNODE_API_KEY', '')
+ETHERSCAN_API_KEY = env_str('ETHERSCAN_API_KEY', '')
+WHALE_ALERT_API_KEY = env_str('WHALE_ALERT_API_KEY', '')
+
+# Social Sentiment & News Keys
+LUNARCRUSH_API_KEY = env_str('LUNARCRUSH_API_KEY', '')
+CRYPTOPANIC_API_KEY = env_str('CRYPTOPANIC_API_KEY', '')
+SANTIMENT_API_KEY = env_str('SANTIMENT_API_KEY', '')
+KAIKO_API_KEY = env_str('KAIKO_API_KEY', '')
+
+# Risk Engine Thresholds
+DAILY_LOSS_LIMIT = float(env_str('DAILY_LOSS_LIMIT', '0.05'))   # 5% of equity
+MAX_DRAW_DOWN = float(env_str('MAX_DRAW_DOWN', '0.10'))          # 10% drawdown
+
+# Bot Intelligence
+BOT_GENETICS_ENABLED = env_bool('BOT_GENETICS_ENABLED', False)
+HIVE_MIND_ENABLED = env_bool('HIVE_MIND_ENABLED', False)
+
 # Deployment Configuration
 DEPLOYMENT_ENV = env_str('DEPLOYMENT_ENV', 'development')  # development, staging, production
 IS_PRODUCTION = DEPLOYMENT_ENV == 'production'
@@ -121,6 +147,8 @@ def get_feature_flags() -> dict:
         'ENABLE_LIVE_TRADING': ENABLE_LIVE_TRADING,
         'RATE_LIMIT_ENABLED': RATE_LIMIT_ENABLED,
         'SMTP_ENABLED': SMTP_ENABLED,
+        'BOT_GENETICS_ENABLED': BOT_GENETICS_ENABLED,
+        'HIVE_MIND_ENABLED': HIVE_MIND_ENABLED,
     }
 
 
