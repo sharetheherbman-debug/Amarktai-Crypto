@@ -5,7 +5,8 @@ Tests:
 2. _paper_trading_enabled() - uses canonical config 
 3. bot_runtime_state reconcile fixes state drift
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, 'backend')
 os.environ['ENVIRONMENT'] = 'testing'
 
@@ -70,7 +71,7 @@ def test_paper_trading_enabled_with_enable_flag():
     os.environ.pop('PAPER_TRADING', None)
     os.environ.pop('LIVE_TRADING', None)
     os.environ['ENABLE_PAPER_TRADING'] = 'true'
-    
+
     # Emulate what _paper_trading_enabled() does
     from config import PAPER_TRADING
     result = (
@@ -81,19 +82,20 @@ def test_paper_trading_enabled_with_enable_flag():
     assert result is True, "Expected paper trading enabled with ENABLE_PAPER_TRADING=true"
 
 
-def test_paper_trading_disabled_when_no_flags():
-    """_paper_trading_enabled() returns False when no paper flags are set."""
+def test_paper_trading_enabled_by_default():
+    """_paper_trading_enabled() returns True by default (ENABLE_PAPER_TRADING defaults to 'true')."""
     os.environ.pop('PAPER_TRADING', None)
     os.environ.pop('ENABLE_PAPER_TRADING', None)
-    
+
     from config import PAPER_TRADING
     result = (
         PAPER_TRADING
         or os.environ.get('PAPER_TRADING') == '1'
         or os.environ.get('ENABLE_PAPER_TRADING', 'true').lower() == 'true'
     )
-    # With default 'true' for ENABLE_PAPER_TRADING, paper is enabled by default
-    assert result is True, "Paper trading is enabled by default via ENABLE_PAPER_TRADING default"
+    # The helper falls back to ENABLE_PAPER_TRADING default of 'true',
+    # meaning paper trading is enabled by default in production.
+    assert result is True, "Paper trading must be enabled by default"
 
 
 # ─── Test 3: bot_runtime_state reconcile ────────────────────────────────────
@@ -116,6 +118,6 @@ if __name__ == '__main__':
     test_active_bot_without_stale_flags_is_eligible()
     test_active_bot_with_paused_by_user_is_eligible()
     test_paper_trading_enabled_with_enable_flag()
-    test_paper_trading_disabled_when_no_flags()
+    test_paper_trading_enabled_by_default()
     test_normalize_state_mapping()
     print("All targeted fix tests PASSED")
