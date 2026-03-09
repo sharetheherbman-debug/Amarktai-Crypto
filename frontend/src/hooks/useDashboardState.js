@@ -143,6 +143,7 @@ export default function useDashboardState(navigate) {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [pendingConfirmationId, setPendingConfirmationId] = useState(null);
   const [bots, setBots] = useState([]);
   const [apiKeys, setApiKeys] = useState({});
   const [metrics, setMetrics] = useState({
@@ -1885,11 +1886,18 @@ export default function useDashboardState(navigate) {
 
       // Send all other messages to AI backend
       try {
-        const res = await axios.post(`${API}/chat/message`, {
+        const requestBody = {
           message: originalInput,
           context: 'dashboard',
           request_action: true
-        }, axiosConfig);
+        };
+        // If there's a pending confirmation, include the confirmation_id so the
+        // backend can complete the confirmed action instead of triggering OpenAI again.
+        if (pendingConfirmationId) {
+          requestBody.confirmation_id = pendingConfirmationId;
+          setPendingConfirmationId(null);
+        }
+        const res = await axios.post(`${API}/chat/message`, requestBody, axiosConfig);
         const payload = res.data || {};
         if (payload?.error_code === 'OPENAI_KEY_MISSING') {
           setChatMessages(prev => [...prev, {
@@ -1912,6 +1920,11 @@ export default function useDashboardState(navigate) {
           const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
           const reason = payload.reason ? `: ${payload.reason}` : '';
           finalReply = `${reply}\n\n${statusLabel}${reason}`;
+        }
+        // If this response requires confirmation, store the confirmation_id so the
+        // next message automatically carries it for the backend to resolve.
+        if (payload?.requires_confirmation && payload?.confirmation_id) {
+          setPendingConfirmationId(payload.confirmation_id);
         }
         const assistantMsg = { role: 'assistant', content: finalReply };
         setChatMessages(prev => [...prev, assistantMsg]);

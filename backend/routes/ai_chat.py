@@ -165,9 +165,16 @@ def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[st
     if "autopilot" in content_lower:
         enabled = "disable" not in content_lower
         return {"action": "pause_autonomy_subsystem", "params": {"subsystem": "autopilot"}} if not enabled else {"action": "resume_autonomy_subsystem", "params": {"subsystem": "autopilot"}}
-    if "live" in content_lower and ("switch" in content_lower or "enable" in content_lower):
+    if "live" in content_lower and ("switch" in content_lower or "enable" in content_lower or "turn on" in content_lower):
         return {"action": "set_system_mode", "params": {"mode": "live"}}
-    if "paper" in content_lower and ("switch" in content_lower or "enable" in content_lower):
+    if ("paper" in content_lower or "live" in content_lower) and (
+        "off" in content_lower or "disable" in content_lower or "deactivate" in content_lower
+    ):
+        # "turn paper mode off" = switch to live; "turn live mode off" = switch to paper
+        if "live" in content_lower and ("off" in content_lower or "disable" in content_lower):
+            return {"action": "set_system_mode", "params": {"mode": "paper"}}
+        return {"action": "set_system_mode", "params": {"mode": "live"}}
+    if "paper" in content_lower and ("switch" in content_lower or "enable" in content_lower or "turn on" in content_lower):
         return {"action": "set_system_mode", "params": {"mode": "paper"}}
     if "transfer" in content_lower or "withdraw" in content_lower:
         return {"action": "transfer_funds"}
@@ -804,13 +811,32 @@ async def _handle_get_risk_status(user_id: str, params: Dict[str, Any]) -> Dict[
 
 
 async def _handle_set_system_mode(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    from routes.system_mode import switch_mode, ModeSwitchRequest
+    from routes.system_mode import set_system_mode, live_trading_enabled, check_live_readiness
+    from realtime_events import rt_events as _rt_events
     mode = (params.get("mode") or "").lower()
     if mode not in {"paper", "live", "autopilot"}:
         return {"success": False, "error": "Invalid mode. Use paper, live, or autopilot."}
-    confirmation_token = CONFIRM_LIVE_TRADING if mode == "live" else None
-    data = await switch_mode(ModeSwitchRequest(mode=mode, confirmation_token=confirmation_token), user_id)
-    return {"success": True, "data": data, "message": f"System mode switched to {mode}."}
+
+    if mode == "live":
+        if not live_trading_enabled():
+            return {
+                "success": False,
+                "error": "Live trading is globally disabled. Contact your administrator to enable ENABLE_LIVE_TRADING.",
+            }
+        ready, errors = await check_live_readiness(user_id)
+        if not ready:
+            return {
+                "success": False,
+                "error": f"Cannot enable live trading: {'; '.join(errors)}",
+            }
+
+    new_state = await set_system_mode(mode, user_id)
+    try:
+        await _rt_events.mode_switched(user_id, mode, new_state)
+    except Exception:
+        pass
+    logger.info("AI ChatOps: mode switched to %s for user=%s", mode, user_id[:8])
+    return {"success": True, "data": new_state, "message": f"✅ System mode switched to {mode}."}
 
 
 async def _handle_list_bots(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1239,10 +1265,9 @@ ACTION_REGISTRY = {
         "handler": _handle_get_risk_status,
     },
     "set_system_mode": {
-        "description": "Switch system mode (paper/live/autopilot).",
+        "description": "Switch system mode. Paper mode executes immediately. Live/autopilot modes require confirmation.",
         "params": ["mode"],
-        "requires_confirmation": True,
-        "confirmation_phrase": CONFIRM_LIVE_TRADING,
+        "requires_confirmation": False,  # handled dynamically in execute_tool_action
         "handler": _handle_set_system_mode,
     },
     "list_bots": {
@@ -1266,19 +1291,19 @@ ACTION_REGISTRY = {
     "pause_bot": {
         "description": "Pause a bot.",
         "params": ["bot_id", "reason"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_pause_bot,
     },
     "resume_bot": {
         "description": "Resume a bot.",
         "params": ["bot_id"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_resume_bot,
     },
     "stop_bot": {
         "description": "Stop a bot.",
         "params": ["bot_id"],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_stop_bot,
     },
     "pause_all_bots": {
@@ -1435,7 +1460,12 @@ async def execute_tool_action(
     if tool.get("admin_only") and not await _is_admin_user(user_id):
         return {"success": False, "error": "Admin access required."}
 
+    # For set_system_mode: live/autopilot mode requires confirmation; paper mode does not
     requires_confirmation = tool.get("requires_confirmation", False)
+    if action == "set_system_mode":
+        mode = (params.get("mode") or "").lower()
+        requires_confirmation = mode in {"live", "autopilot"}
+
     confirmation_phrase = tool.get("confirmation_phrase")
     if requires_confirmation and not from_confirmation:
         record = await create_confirmation_record(
@@ -1444,24 +1474,44 @@ async def execute_tool_action(
             params,
             confirmation_phrase=confirmation_phrase,
         )
-        message = tool.get("confirmation_message") or (
-            f"Confirmation required. Reply with confirmation_id {record['confirmation_id']}" +
-            (f" and phrase: {record['confirmation_phrase']}" if record.get("confirmation_phrase") else "")
+        mode = (params.get("mode") or "").lower()
+        if action == "set_system_mode" and mode == "live":
+            confirm_msg = (
+                f"⚠️ Switching to LIVE trading will use real funds. "
+                f"To confirm, reply with your confirmation ID: {record['confirmation_id']}"
+            )
+        else:
+            confirm_msg = tool.get("confirmation_message") or (
+                f"Confirmation required. Reply with confirmation_id {record['confirmation_id']}" +
+                (f" and phrase: {record['confirmation_phrase']}" if record.get("confirmation_phrase") else "")
+            )
+        logger.info(
+            "AI ChatOps: action=%s blocked pending confirmation=%s user=%s",
+            action, record["confirmation_id"], user_id[:8]
         )
         return {
             "success": False,
             "requires_confirmation": True,
             "confirmation_id": record["confirmation_id"],
-            "reply": message,
+            "reply": confirm_msg,
         }
 
+    logger.info("AI ChatOps: executing action=%s params=%s user=%s", action, params, user_id[:8])
     try:
         result = await tool["handler"](user_id, params)
+        if result.get("success"):
+            logger.info("AI ChatOps: action=%s succeeded user=%s", action, user_id[:8])
+        else:
+            logger.warning(
+                "AI ChatOps: action=%s failed reason=%s user=%s",
+                action, result.get("error") or result.get("message"), user_id[:8]
+            )
         return {"success": True, "result": result, "reply": result.get("message") or "Action completed."}
     except HTTPException as exc:
+        logger.warning("AI ChatOps: action=%s http_error=%s user=%s", action, exc.detail, user_id[:8])
         return {"success": False, "error": exc.detail}
     except Exception as exc:
-        logger.error("Tool action error (%s): %s", action, exc)
+        logger.error("AI ChatOps: action=%s exception=%s user=%s", action, exc, user_id[:8])
         return {"success": False, "error": str(exc)}
 
 
@@ -1826,10 +1876,6 @@ async def ai_chat(
                     - Live Trading: {system_mode_status.get("liveTrading", False)}
                     - Autopilot: {system_mode_status.get("autopilot", False)}
 
-                    Capabilities:
-                    - {"; ".join(capabilities)}
-                    - Allowed Actions: {allowed_actions}
-
                     Grounded System Context (JSON):
                     {context_payload}
 
@@ -1838,21 +1884,15 @@ async def ai_chat(
                     - Last 7-day summary: {recent_summary}
                     - Last commands: {memory_commands}
 
-                    Available Tools (JSON):
-                    {tools_payload}
-
-                    User Question: {content}
-
                     Instructions:
-                    - Respond in plain language (no code blocks unless the user asks for code)
-                    - Use the grounded system context. Do not guess unknown values.
-                    - Never claim an action completed unless the tool reports success.
-                    - If an action requires confirmation, ask for confirmation before executing.
-                    - If an action is needed, respond with JSON: {{ "action": "<tool_name>", "params": {{...}}, "reply": "<short response>" }}
-                    - If multiple actions are needed, respond with JSON: {{ "tool_actions": [{{"action": "...", "params": {{...}}}}], "reply": "<short response>" }}
-                    - Explain safety checks and confirmations as needed
-                    - Provide concise next steps
-                    - Use conversation history for context to maintain continuity
+                    - ALWAYS respond in plain, friendly natural language. NEVER output raw JSON or code payloads to the user.
+                    - Use the grounded system context above. Do not guess unknown values.
+                    - Never claim an action completed unless you can confirm it succeeded.
+                    - If the user asks to take an action, describe what you understand they want and confirm the current state.
+                    - If you cannot fulfil a request, explain clearly why (e.g. missing API key, live trading disabled).
+                    - Provide concise, helpful responses. Use bullet points or short paragraphs.
+                    - Do NOT produce JSON, code blocks, or internal tool payloads in your reply.
+                    - Use conversation history for context to maintain continuity.
                     """
                     
                     # Build messages with history for context
@@ -2007,7 +2047,32 @@ async def ai_chat(
                             failure_reason = action_meta.get("reason") or "Action failed."
                             ai_response += f" {failure_reason}"
         except Exception as tool_error:
-            logger.warning(f"Tool action parsing failed: {tool_error}")
+            logger.warning("AI ChatOps: tool parsing error=%s", tool_error)
+
+        # JSON leakage guard: if ai_response still looks like a raw JSON action payload,
+        # replace it with a safe fallback so the user never sees internal tool payloads.
+        if isinstance(ai_response, str):
+            _stripped = ai_response.strip()
+            if _stripped.startswith("{") and _stripped.endswith("}"):
+                try:
+                    _candidate = json.loads(_stripped)
+                    if isinstance(_candidate, dict) and ("action" in _candidate or "tool_actions" in _candidate):
+                        # Extract the human-readable reply if present
+                        _safe_reply = (
+                            _candidate.get("reply")
+                            or _candidate.get("response")
+                            or _candidate.get("content")
+                        )
+                        if _safe_reply:
+                            ai_response = _safe_reply
+                        else:
+                            ai_response = "I understood your request but was unable to process it right now. Please try again or rephrase."
+                        logger.warning(
+                            "AI ChatOps: suppressed raw JSON payload in ai_response, used safe fallback. user=%s",
+                            user_id[:8]
+                        )
+                except (json.JSONDecodeError, ValueError):
+                    pass
 
         # Save AI response
         ai_msg = {
