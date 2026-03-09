@@ -1,8 +1,9 @@
 // ARCHIVED: This file is not mounted in the dashboard and exists only for reference.
 // Canonical section for this functionality lives elsewhere.
+// NOTE: CoinStatsPanel has been replaced by MarketIntelligencePanel (canonical).
 import SectionHeader from '@/ui/components/SectionHeader';
 import AiChatSection from './AiChatSection';
-import CoinStatsPanel from './CoinStatsPanel';
+import MarketIntelligencePanel from './MarketIntelligencePanel';
 import HuggingFacePanel from './HuggingFacePanel';
 
 export default function AiCommandSection({
@@ -55,7 +56,7 @@ export default function AiCommandSection({
         />
         <div className="subsection-gap">
           <h3 className="subsection-label subsection-label--blue">Market Intelligence</h3>
-          <CoinStatsPanel axiosConfig={axiosConfig} />
+          <MarketIntelligencePanel />
         </div>
         <div className="subsection-gap">
           <h3 className="subsection-label subsection-label--cyan">HuggingFace AI</h3>

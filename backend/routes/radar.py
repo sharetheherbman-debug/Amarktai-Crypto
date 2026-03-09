@@ -35,6 +35,46 @@ DEFAULT_MAX_HOLD = {
 DEFAULT_DAILY_PROFIT_TARGET = 0.015   # 1.5% daily
 DEFAULT_TRADE_PROFIT_TARGET = 0.005   # 0.5% per trade
 RISK_THRESHOLD_PCT = 0.03             # 3% unrealized loss triggers risk exit
+EXIT_FORECAST_TIME_THRESHOLD = 600    # 600 seconds (10 min) — time exit proximity threshold
+NO_STOP_DISTANCE = 999.0              # sentinel — distance when no stop price is configured
+
+
+def _format_hold_timer(elapsed_seconds: float) -> str:
+    """Human-readable hold timer like '2h 15m' or '45s'."""
+    if elapsed_seconds < 60:
+        return f"{int(elapsed_seconds)}s"
+    if elapsed_seconds < 3600:
+        return f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60)}s"
+    hours = int(elapsed_seconds // 3600)
+    mins = int((elapsed_seconds % 3600) // 60)
+    return f"{hours}h {mins}m"
+
+
+def _compute_exit_forecast(
+    entry_price: float,
+    current_price: float,
+    target_price: Optional[float],
+    stop_price: Optional[float],
+    remaining_seconds: float,
+    unrealized_pnl: float,
+) -> Optional[str]:
+    """Forecast the most likely exit scenario."""
+    if target_price and entry_price > 0:
+        dist_to_target = abs(target_price - current_price) / entry_price
+        dist_to_stop = abs(current_price - stop_price) / entry_price if stop_price else NO_STOP_DISTANCE
+        if dist_to_target < dist_to_stop:
+            return "likely_target"
+        elif remaining_seconds < EXIT_FORECAST_TIME_THRESHOLD:
+            return "likely_time_exit"
+        elif unrealized_pnl < 0:
+            return "at_risk"
+        else:
+            return "holding"
+    if remaining_seconds < EXIT_FORECAST_TIME_THRESHOLD:
+        return "likely_time_exit"
+    if unrealized_pnl < 0:
+        return "at_risk"
+    return "holding"
 
 
 def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -> Dict:
@@ -60,15 +100,22 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "trailing_stop_price": None,
         "realized_pnl_today": float(bot.get("realized_pnl_today", 0)),
         "unrealized_pnl": 0.0,
+        "capital_allocated": capital,
+        "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
         "trade_profit_target": trade_target,
         "position_opened_at": None,
         "max_hold_seconds": max_hold,
         "remaining_hold_seconds": None,
+        "hold_timer_display": None,
         "next_action": "WAIT",
         "next_action_reason_code": "NO_POSITION",
         "next_action_reason_text": "No open position – waiting for entry signal",
         "market_regime": bot.get("market_regime", "unknown"),
+        "confidence_score": float(bot.get("confidence_score", bot.get("confidence", 0))),
+        "strategy_name": bot.get("strategy", bot.get("strategy_type", "balanced")),
+        "regime_tag": bot.get("market_regime", "unknown"),
+        "exit_forecast": None,
         "spread_estimate": bot.get("spread_estimate"),
         "slippage_estimate": bot.get("slippage_estimate"),
         "lifecycle_stage": bot.get("lifecycle_stage", "unknown"),
@@ -142,11 +189,17 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             "stop_price": float(sl) if sl else None,
             "trailing_stop_price": float(trailing) if trailing else None,
             "unrealized_pnl": round(unrealized, 2),
+            "exposure_pct": round(abs(unrealized) / capital * 100, 2) if capital > 0 else 0.0,
             "position_opened_at": opened_at.isoformat(),
             "remaining_hold_seconds": round(remaining),
+            "hold_timer_display": _format_hold_timer(elapsed),
             "next_action": action,
             "next_action_reason_code": code,
             "next_action_reason_text": text,
+            "exit_forecast": _compute_exit_forecast(
+                entry_price, current_price, float(tp) if tp else None,
+                float(sl) if sl else None, remaining, unrealized
+            ),
         })
 
     return entry

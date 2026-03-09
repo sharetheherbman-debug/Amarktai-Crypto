@@ -1,21 +1,31 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './APIKeySettings.css';
-import { ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
+import {
+  PLATFORM_CONFIG,
+  PROVIDER_TYPES,
+  getCanonicalProviders,
+  getProvidersByType,
+} from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
 import { get, post, del, notifyError } from '../lib/apiClient';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
-  // Build providers list from platform config (10 providers: 3 AI + 7 exchanges)
-  const PROVIDERS = ALL_PROVIDERS.map(id => {
+
+  // Build providers list from canonical config (excludes legacy/deprecated)
+  const PROVIDERS = getCanonicalProviders().map(id => {
     const config = PLATFORM_CONFIG[id];
     return {
       id: config.id,
       name: config.displayName || config.name,
       icon: config.icon,
-      fields: config.requiredKeyFields
+      fields: config.requiredKeyFields,
+      type: config.type,
+      helpText: config.helpText || '',
     };
   });
+
+  const providerGroups = useMemo(() => getProvidersByType(), []);
 
   const [providers, setProviders] = useState([]);
   const [formData, setFormData] = useState({});
@@ -291,13 +301,126 @@ const APIKeySettings = () => {
     return { label: 'Not configured', tone: 'muted' };
   };
   
+  // Render a single provider card
+  const renderProviderCard = (provider) => {
+    const providerStatus = providers.find(p => p.provider === provider.id);
+    const status = providerStatus?.status || 'not_configured';
+    const isAvailable = isProviderAvailable(provider.id);
+    const statusBadge = getStatusBadge(status, isAvailable);
+    const statusDetails = isAvailable
+      ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error)
+      : 'Not available in this build';
+    const isConfigured = status !== 'not_configured';
+
+    return (
+      <div
+        key={provider.id}
+        className={`api-key-card ${!isAvailable ? 'disabled' : ''} ${activeProviderId === provider.id ? 'expanded' : ''}`}
+        aria-disabled={!isAvailable}
+      >
+        <div className="api-key-card-header" onClick={() => {
+          if (isAvailable) {
+            setActiveProviderId(activeProviderId === provider.id ? null : provider.id);
+          }
+        }} style={{cursor: isAvailable ? 'pointer' : 'default'}}>
+          <div className="api-key-card-title">
+            <span className="api-key-icon">
+              <span>{provider.icon}</span>
+            </span>
+            <div>
+              <h3>{provider.name}</h3>
+              <span className={`api-key-badge ${statusBadge.tone}`}>{statusBadge.label}</span>
+            </div>
+          </div>
+          <span className="api-key-card-cta">{isAvailable ? (activeProviderId === provider.id ? '▼' : 'Add/Update ▶') : 'Unavailable'}</span>
+        </div>
+
+        <div className="api-key-card-meta">
+          <span>Status: {statusDetails}</span>
+          <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : NOT_AVAILABLE}</span>
+        </div>
+
+        {/* Accordion: inline form when expanded */}
+        {activeProviderId === provider.id && isAvailable && (
+          <div className="api-key-accordion-body">
+            {provider.helpText && (
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 10px' }}>{provider.helpText}</p>
+            )}
+            <div className="api-key-fields">
+              {provider.fields.map(field => (
+                <div key={field} className="api-key-field">
+                  <label>
+                    {field === 'api_key' ? 'API Key' :
+                     field === 'api_secret' ? 'API Secret' :
+                     field === 'passphrase' ? 'Passphrase' : field}
+                  </label>
+                  <input
+                    type="password"
+                    value={formData[provider.id]?.[field] || ''}
+                    onChange={(e) => handleInputChange(provider.id, field, e.target.value)}
+                    placeholder={`Enter ${field.replace('_', ' ')}`}
+                    disabled={loading}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="api-key-actions">
+              <button
+                onClick={() => saveApiKey(provider.id)}
+                disabled={loading}
+                className="api-key-button primary"
+              >
+                {loading ? 'Saving...' : 'Save Key'}
+              </button>
+              {isConfigured && (
+                <>
+                  <button
+                    onClick={() => testApiKey(provider.id)}
+                    disabled={loading}
+                    className="api-key-button ghost"
+                  >
+                    Test
+                  </button>
+                  <button
+                    onClick={() => deleteApiKey(provider.id, provider.name)}
+                    disabled={loading}
+                    className="api-key-button danger"
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
+            {providerStatus?.last_test_error && (
+              <div className="api-key-error">
+                Last error: {providerStatus.last_test_error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isAvailable && (
+          <div className="api-key-disabled">
+            Not available in this build
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Group providers by type for display
+  const exchangeProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.EXCHANGE);
+  const aiProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.AI);
+  const marketDataProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.MARKET_DATA);
+  const enricherProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER);
+
   return (
     <div className="api-key-settings">
       <div className="api-key-header">
         <div>
           <h2>🔑 API Key Management</h2>
           <p className="api-key-subtitle">
-            Select a provider to add, update, or test your credentials. Keys are encrypted and scoped to your account.
+            Configure credentials for exchanges, AI providers, market data sources, and intelligence enrichers. Keys are encrypted and scoped to your account.
           </p>
         </div>
       </div>
@@ -308,109 +431,36 @@ const APIKeySettings = () => {
         </div>
       )}
 
+      {/* Exchanges */}
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
+        🏦 Exchanges
+      </h3>
       <div className="api-key-grid">
-        {PROVIDERS.map(provider => {
-          const providerStatus = providers.find(p => p.provider === provider.id);
-          const status = providerStatus?.status || 'not_configured';
-          const isAvailable = isProviderAvailable(provider.id);
-          const statusBadge = getStatusBadge(status, isAvailable);
-          const statusDetails = isAvailable
-            ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error)
-            : 'Not available in this build';
-          const isConfigured = status !== 'not_configured';
+        {exchangeProviders.map(renderProviderCard)}
+      </div>
 
-          return (
-            <div
-              key={provider.id}
-              className={`api-key-card ${!isAvailable ? 'disabled' : ''} ${activeProviderId === provider.id ? 'expanded' : ''}`}
-              aria-disabled={!isAvailable}
-            >
-              <div className="api-key-card-header" onClick={() => {
-                if (isAvailable) {
-                  setActiveProviderId(activeProviderId === provider.id ? null : provider.id);
-                }
-              }} style={{cursor: isAvailable ? 'pointer' : 'default'}}>
-                <div className="api-key-card-title">
-                  <span className="api-key-icon">
-                    <span>{provider.icon}</span>
-                  </span>
-                  <div>
-                    <h3>{provider.name}</h3>
-                    <span className={`api-key-badge ${statusBadge.tone}`}>{statusBadge.label}</span>
-                  </div>
-                </div>
-                <span className="api-key-card-cta">{isAvailable ? (activeProviderId === provider.id ? '▼' : 'Add/Update ▶') : 'Unavailable'}</span>
-              </div>
+      {/* AI Providers */}
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
+        🤖 AI Providers
+      </h3>
+      <div className="api-key-grid">
+        {aiProviders.map(renderProviderCard)}
+      </div>
 
-              <div className="api-key-card-meta">
-                <span>Status: {statusDetails}</span>
-                <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : 'Not available in this build'}</span>
-              </div>
+      {/* Market Data Providers */}
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
+        📈 Market Data Providers
+      </h3>
+      <div className="api-key-grid">
+        {marketDataProviders.map(renderProviderCard)}
+      </div>
 
-              {/* Accordion: inline form when expanded */}
-              {activeProviderId === provider.id && isAvailable && (
-                <div className="api-key-accordion-body">
-                  <div className="api-key-fields">
-                    {provider.fields.map(field => (
-                      <div key={field} className="api-key-field">
-                        <label>
-                          {field === 'api_key' ? 'API Key' :
-                           field === 'api_secret' ? 'API Secret' :
-                           field === 'passphrase' ? 'Passphrase' : field}
-                        </label>
-                        <input
-                          type="password"
-                          value={formData[provider.id]?.[field] || ''}
-                          onChange={(e) => handleInputChange(provider.id, field, e.target.value)}
-                          placeholder={`Enter ${field.replace('_', ' ')}`}
-                          disabled={loading}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="api-key-actions">
-                    <button
-                      onClick={() => saveApiKey(provider.id)}
-                      disabled={loading}
-                      className="api-key-button primary"
-                    >
-                      {loading ? 'Saving...' : 'Save Key'}
-                    </button>
-                    {isConfigured && (
-                      <>
-                        <button
-                          onClick={() => testApiKey(provider.id)}
-                          disabled={loading}
-                          className="api-key-button ghost"
-                        >
-                          Test
-                        </button>
-                        <button
-                          onClick={() => deleteApiKey(provider.id, provider.name)}
-                          disabled={loading}
-                          className="api-key-button danger"
-                        >
-                          Remove
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {providerStatus?.last_test_error && (
-                    <div className="api-key-error">
-                      Last error: {providerStatus.last_test_error}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!isAvailable && (
-                <div className="api-key-disabled">
-                  Not available in this build
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* Intelligence Enrichers */}
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
+        🔍 Intelligence Enrichers
+      </h3>
+      <div className="api-key-grid">
+        {enricherProviders.map(renderProviderCard)}
       </div>
 
       <div className="api-key-security">

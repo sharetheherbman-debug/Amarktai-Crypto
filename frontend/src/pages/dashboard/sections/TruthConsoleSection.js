@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { post, notifyError } from '../../../lib/apiClient';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { post, get, notifyError } from '../../../lib/apiClient';
 
 const BOT_ID_DISPLAY_LENGTH = 8; // Characters of bot ID to show in reason display
 
@@ -34,6 +34,7 @@ export default function TruthConsoleSection({ axiosConfig }) {
   const [repairResult, setRepairResult] = useState(null);
   const [repairingTypes, setRepairingTypes] = useState(false);
   const [repairTypesResult, setRepairTypesResult] = useState(null);
+  const [keyStatus, setKeyStatus] = useState(null);
 
   const fetchTruth = useCallback(async () => {
     try {
@@ -55,11 +56,39 @@ export default function TruthConsoleSection({ axiosConfig }) {
     }
   }, [axiosConfig]);
 
+  // Fetch API key status for AI vs Exchange key breakdown
+  const fetchKeyStatus = useCallback(async () => {
+    try {
+      const res = await get('/keys/status');
+      setKeyStatus(res?.status_map || null);
+    } catch {
+      // non-critical — silently ignore
+    }
+  }, []);
+
   useEffect(() => {
     fetchTruth();
+    fetchKeyStatus();
     const interval = setInterval(fetchTruth, 30000);
     return () => clearInterval(interval);
-  }, [fetchTruth]);
+  }, [fetchTruth, fetchKeyStatus]);
+
+  // Classify keys into AI vs exchange
+  const AI_PROVIDER_IDS = useMemo(() => new Set(['openai', 'huggingface', 'fetchai']), []);
+  const EXCHANGE_IDS = useMemo(() => new Set(['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']), []);
+
+  const keyCounts = useMemo(() => {
+    if (!keyStatus) return { ai: 0, exchange: 0, enricher: 0 };
+    let ai = 0, exchange = 0, enricher = 0;
+    for (const [id, info] of Object.entries(keyStatus)) {
+      const st = info?.status || '';
+      if (st === 'not_configured') continue;
+      if (AI_PROVIDER_IDS.has(id)) ai++;
+      else if (EXCHANGE_IDS.has(id)) exchange++;
+      else enricher++;
+    }
+    return { ai, exchange, enricher };
+  }, [keyStatus, AI_PROVIDER_IDS, EXCHANGE_IDS]);
 
   const handleRepairBots = async () => {
     setRepairing(true);
@@ -197,6 +226,44 @@ export default function TruthConsoleSection({ axiosConfig }) {
             <div key={i} style={{ fontSize: '0.78rem', color: '#f59e0b', marginTop: 2 }}>• {b}</div>
           ))}
         </div>
+      </div>
+
+      {/* API Key Summary — AI vs Exchange */}
+      <div style={{
+        display: 'flex', gap: 12, flexWrap: 'wrap', margin: '12px 0',
+      }}>
+        <div style={{
+          flex: 1, minWidth: 140, padding: '10px 14px',
+          background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8,
+        }}>
+          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#818cf8' }}>🤖 AI Keys</div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text)' }}>{keyCounts.ai}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>OpenAI / HuggingFace / FetchAI</div>
+        </div>
+        <div style={{
+          flex: 1, minWidth: 140, padding: '10px 14px',
+          background: keyCounts.exchange > 0 ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+          border: `1px solid ${keyCounts.exchange > 0 ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)'}`,
+          borderRadius: 8,
+        }}>
+          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: keyCounts.exchange > 0 ? '#22c55e' : '#f59e0b' }}>
+            🔑 Exchange Keys
+          </div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text)' }}>{keyCounts.exchange}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
+            {keyCounts.exchange === 0 ? 'Not required for paper mode' : `${keyCounts.exchange} exchange(s) configured`}
+          </div>
+        </div>
+        {keyCounts.enricher > 0 && (
+          <div style={{
+            flex: 1, minWidth: 140, padding: '10px 14px',
+            background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 8,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#a78bfa' }}>📡 Enricher Keys</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text)' }}>{keyCounts.enricher}</div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>Whale Alert, Glassnode, etc.</div>
+          </div>
+        )}
       </div>
 
       {/* Repair button */}
