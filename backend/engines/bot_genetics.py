@@ -26,7 +26,7 @@ class BotGenetics:
 
     A *parent* bot that meets fitness criteria can spawn a *child* that
     inherits the parent's strategy type but mutates numeric parameters
-    (lot size, stop‑loss %, take‑profit %, entry conditions).
+    (stop-loss %, take-profit %, strategy_params).
     """
 
     def __init__(
@@ -40,7 +40,7 @@ class BotGenetics:
         self.mutation_range = mutation_range
         self.min_win_rate = min_win_rate
         self.min_trades = min_trades
-        # In‑memory registry of spawned children (id → parent_id)
+        # In-memory registry of spawned children (id -> parent_id)
         self._children: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
