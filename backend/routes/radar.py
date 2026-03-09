@@ -35,6 +35,8 @@ DEFAULT_MAX_HOLD = {
 DEFAULT_DAILY_PROFIT_TARGET = 0.015   # 1.5% daily
 DEFAULT_TRADE_PROFIT_TARGET = 0.005   # 0.5% per trade
 RISK_THRESHOLD_PCT = 0.03             # 3% unrealized loss triggers risk exit
+EXIT_FORECAST_TIME_THRESHOLD = 600    # 600 seconds (10 min) — time exit proximity threshold
+NO_STOP_DISTANCE = 999.0              # sentinel — distance when no stop price is configured
 
 
 def _format_hold_timer(elapsed_seconds: float) -> str:
@@ -59,16 +61,16 @@ def _compute_exit_forecast(
     """Forecast the most likely exit scenario."""
     if target_price and entry_price > 0:
         dist_to_target = abs(target_price - current_price) / entry_price
-        dist_to_stop = abs(current_price - stop_price) / entry_price if stop_price else 999
+        dist_to_stop = abs(current_price - stop_price) / entry_price if stop_price else NO_STOP_DISTANCE
         if dist_to_target < dist_to_stop:
             return "likely_target"
-        elif remaining_seconds < 600:
+        elif remaining_seconds < EXIT_FORECAST_TIME_THRESHOLD:
             return "likely_time_exit"
         elif unrealized_pnl < 0:
             return "at_risk"
         else:
             return "holding"
-    if remaining_seconds < 600:
+    if remaining_seconds < EXIT_FORECAST_TIME_THRESHOLD:
         return "likely_time_exit"
     if unrealized_pnl < 0:
         return "at_risk"

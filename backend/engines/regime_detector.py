@@ -237,12 +237,12 @@ class RegimeDetector:
         Map numerical regime ID to semantic market state.
 
         Classification priority (evaluated top-to-bottom):
-        1. PANIC        – extreme negative returns + very high volatility
-        2. VOLATILE      – high volatility regardless of direction
-        3. TRENDING      – clear directional momentum, moderate volatility
-        4. RANGING       – low momentum, moderate volatility
-        5. LOW_VOLATILITY – very low volatility, unclear direction
-        6. ACCUMULATION  – low volatility with rising volume / mild positive drift
+        1. PANIC        - extreme negative returns + very high volatility
+        2. VOLATILE      - high volatility regardless of direction
+        3. TRENDING      - clear directional momentum, moderate volatility
+        4. RANGING       - low momentum, moderate volatility
+        5. LOW_VOLATILITY - very low volatility, unclear direction
+        6. ACCUMULATION  - low volatility with rising volume / mild positive drift
         """
         if regime_id < 0 or len(features) == 0:
             return MarketRegime.UNKNOWN

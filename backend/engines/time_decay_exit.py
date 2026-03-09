@@ -37,14 +37,14 @@ class TimeDecayResult:
 
 # Default hold-time windows (seconds)
 HOLD_WINDOWS = {
-    BotClass.SCALPER: {"min": 10, "expected": 120, "max": 300},       # 10s – 2min expected – 5min max
-    BotClass.NORMAL: {"min": 300, "expected": 3600, "max": 7200},     # 5min – 1h expected – 2h max
+    BotClass.SCALPER: {"min": 10, "expected": 120, "max": 300},       # 10s - 2min expected - 5min max
+    BotClass.NORMAL: {"min": 300, "expected": 3600, "max": 7200},     # 5min - 1h expected - 2h max
 }
 
 # Default profit targets
 PROFIT_TARGETS = {
-    BotClass.SCALPER: {"min": 0.002, "target": 0.005, "max": 0.008},  # 0.2% – 0.5% – 0.8%
-    BotClass.NORMAL: {"min": 0.005, "target": 0.015, "max": 0.03},    # 0.5% – 1.5% – 3%
+    BotClass.SCALPER: {"min": 0.002, "target": 0.005, "max": 0.008},  # 0.2% - 0.5% - 0.8%
+    BotClass.NORMAL: {"min": 0.005, "target": 0.015, "max": 0.03},    # 0.5% - 1.5% - 3%
 }
 
 
