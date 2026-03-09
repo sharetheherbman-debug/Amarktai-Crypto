@@ -431,6 +431,105 @@ async def build_ai_status(user_id: str) -> Dict[str, Any]:
     }
 
 
+def _normalize_provider_status(raw_status: Optional[str]) -> str:
+    status = raw_status or "not_configured"
+    mapping = {
+        "saved_untested": "configured_untested",
+        "test_ok": "configured_valid",
+        "test_failed": "configured_invalid",
+    }
+    return mapping.get(status, status)
+
+
+def _provider_is_usable(status: str) -> bool:
+    return status in {"configured_valid", "configured_untested", "configured_rate_limited"}
+
+
+async def build_ai_capability_status(user_id: str) -> Dict[str, Any]:
+    """Build canonical AI capability and degradation status for UI truth."""
+    ai_status = await build_ai_status(user_id)
+    key_docs = await db.api_keys_collection.find(
+        {
+            "user_id": str(user_id),
+            "provider": {"$in": ["openai", "huggingface", "fetchai"]},
+        },
+        {"_id": 0, "provider": 1, "status": 1},
+    ).to_list(20)
+    key_map = {k.get("provider"): _normalize_provider_status(k.get("status")) for k in key_docs}
+
+    openai_state = "configured_valid" if ai_status.get("key_configured") else key_map.get("openai", "not_configured")
+    huggingface_state = key_map.get("huggingface", "not_configured")
+    fetchai_state = key_map.get("fetchai", "not_configured")
+
+    providers = {
+        "openai": {
+            "configured": ai_status.get("key_configured", False),
+            "status": openai_state,
+            "usable": _provider_is_usable(openai_state),
+        },
+        "huggingface": {
+            "configured": huggingface_state != "not_configured",
+            "status": huggingface_state,
+            "usable": _provider_is_usable(huggingface_state),
+        },
+        "fetchai": {
+            "configured": fetchai_state != "not_configured",
+            "status": fetchai_state,
+            "usable": _provider_is_usable(fetchai_state),
+        },
+    }
+
+    capabilities = {
+        "chatops": {
+            "implemented": True,
+            "available": providers["openai"]["usable"],
+            "requires": ["openai"],
+            "degraded_reason": None if providers["openai"]["usable"] else "OpenAI key not configured or invalid",
+        },
+        "learning": {
+            "implemented": True,
+            "available": True,
+            "requires": [],
+            "degraded_reason": None,
+        },
+        "bot_evolution": {
+            "implemented": True,
+            "available": True,
+            "requires": [],
+            "degraded_reason": None,
+        },
+        "insights": {
+            "implemented": True,
+            "available": True,
+            "requires": [],
+            "degraded_reason": None,
+        },
+        "predict_price": {
+            "implemented": True,
+            "available": providers["fetchai"]["usable"] or providers["huggingface"]["usable"] or providers["openai"]["usable"],
+            "requires": ["fetchai", "huggingface", "openai"],
+            "degraded_reason": None if (
+                providers["fetchai"]["usable"] or providers["huggingface"]["usable"] or providers["openai"]["usable"]
+            ) else "No AI model provider key configured (FetchAI/HuggingFace/OpenAI)",
+        },
+        "reinvest_profits": {
+            "implemented": True,
+            "available": True,
+            "requires": [],
+            "degraded_reason": None,
+        },
+    }
+
+    degraded_features = [name for name, meta in capabilities.items() if not meta.get("available", False)]
+    return {
+        "providers": providers,
+        "capabilities": capabilities,
+        "degraded_mode": len(degraded_features) > 0,
+        "degraded_features": degraded_features,
+        "status_timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 async def build_grounded_context(user_id: str) -> Dict[str, Any]:
     from routes.system_status import get_system_status
     from routes.system_mode import get_mode
@@ -2129,6 +2228,13 @@ async def get_ai_status(user_id: str = Depends(get_current_user)):
     """Return AI configuration status for the authenticated user."""
     data = await build_ai_status(user_id)
     return {"success": True, **data}
+
+
+@router.get("/capability-status")
+async def get_ai_capability_status(user_id: str = Depends(get_current_user)):
+    """Canonical capability status for AI panels and tool availability badges."""
+    status = await build_ai_capability_status(user_id)
+    return {"success": True, **status}
 
 
 @router.get("/chat/history")

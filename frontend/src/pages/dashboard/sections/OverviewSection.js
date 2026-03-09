@@ -54,6 +54,7 @@ export default function OverviewSection({
   livePrices,
   metrics,
   modeLabel,
+  notableEvent,
   overviewData,
   riskStatus,
   systemModes,
@@ -96,7 +97,9 @@ export default function OverviewSection({
     },
     {
       label: 'Self-Healing',
-      value: autonomyStatus?.subsystems?.self_heal?.running
+      value: autonomyStatus?.subsystems?.self_heal?.status
+        ?? autonomyStatus?.subsystems?.bodyguard?.status
+        ?? autonomyStatus?.subsystems?.self_heal?.running
         ?? autonomyStatus?.subsystems?.bodyguard?.running
         ?? autonomyStatus?.self_healing
         ?? autonomyStatus?.bodyguard
@@ -110,9 +113,9 @@ export default function OverviewSection({
         ?? learningStatus?.active,
     },
   ];
-  const lastEventTitle = riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable';
-  const lastEventDetail = riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts';
-  const lastEventTime = formatOverviewDate(overviewData.lastTradeTime);
+  const lastEventTitle = notableEvent?.title || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
+  const lastEventDetail = notableEvent?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');
+  const lastEventTime = formatOverviewDate(notableEvent?.timestamp || overviewData.lastTradeTime);
 
   return (
     <section className="section active">

@@ -230,6 +230,7 @@ export default function useDashboardState(navigate) {
   const [autonomyStatus, setAutonomyStatus] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
   const [learningStatus, setLearningStatus] = useState(null);
+  const [notableEvent, setNotableEvent] = useState(null);
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
@@ -357,6 +358,8 @@ export default function useDashboardState(navigate) {
     loadMetrics();
     loadSystemModes();
     loadApiStatuses();
+    loadAiStatus();
+    loadLearningStatus();
     loadRecentTrades();
     loadCountdown();
     loadCustomCountdowns();
@@ -445,6 +448,7 @@ export default function useDashboardState(navigate) {
     const interval = setInterval(() => {
       loadOverviewData();
       loadRiskStatus();
+      loadLearningStatus();
       if (realtimeFallback) {
         loadSystemHealth();
         loadCountdown();
@@ -606,6 +610,7 @@ export default function useDashboardState(navigate) {
     if (task.status === 'completed') {
       setAiTaskLoading(null);
       toast.success(`${task.task_type} completed successfully`);
+      registerNotableEvent('ai task completed', `${task.task_type} completed`);
       
       // Refresh data based on task type
       if (task.task_type === 'bot_evolution') {
@@ -613,10 +618,13 @@ export default function useDashboardState(navigate) {
       } else if (task.task_type === 'profit_reinvestment') {
         loadMetrics();
         loadBalances();
+      } else if (task.task_type === 'learning') {
+        loadLearningStatus();
       }
     } else if (task.status === 'failed') {
       setAiTaskLoading(null);
       toast.error(`${task.task_type} failed: ${task.error || 'Unknown error'}`);
+      registerNotableEvent('ai task failed', `${task.task_type} failed`);
     } else if (task.status === 'running') {
       toast.info(`${task.task_type} in progress: ${Math.round(task.progress * 100)}%`);
     }
@@ -648,6 +656,8 @@ export default function useDashboardState(navigate) {
       loadMetrics(),
       loadSystemModes(),
       loadApiStatuses(),
+      loadAiStatus(),
+      loadLearningStatus(),
       loadRecentTrades(),
       loadCountdown(),
       loadLivePrices(),
@@ -797,10 +807,41 @@ export default function useDashboardState(navigate) {
     loadCountdown();
   }, [loadRecentTrades, loadMetrics, loadCountdown]);
 
+  const registerNotableEvent = useCallback((title, detail) => {
+    setNotableEvent({
+      title: title || 'System event',
+      detail: detail || 'Update received',
+      timestamp: new Date().toISOString(),
+    });
+  }, []);
+
   const handleRealTimeUpdate = (data) => {
     const eventType = typeof data.type === 'string' ? data.type.toLowerCase() : '';
     if (!eventType) {
       return;
+    }
+    const notableEventTypes = new Set([
+      'self_healing',
+      'ai_evolution',
+      'trade_executed',
+      'trade_opened',
+      'trade_closed',
+      'system_mode_update',
+      'bot_created',
+      'bot_paused',
+      'bot_resumed',
+      'bot_deleted',
+      'profit_updated',
+      'countdown_update',
+      'key_saved',
+      'key_tested',
+      'key_deleted',
+      'api_key_update',
+      'system_update',
+      'emergency_stop',
+    ]);
+    if (data?.message && notableEventTypes.has(eventType)) {
+      registerNotableEvent(eventType.replace(/_/g, ' '), data.message);
     }
     switch (eventType) {
       case 'connection':
@@ -995,6 +1036,7 @@ export default function useDashboardState(navigate) {
       case 'api_key_update':
         // API key connected/updated
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1002,6 +1044,7 @@ export default function useDashboardState(navigate) {
         // API key saved (realtime event)
         console.log('🔑 Key saved event:', data);
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1009,6 +1052,7 @@ export default function useDashboardState(navigate) {
         // API key tested (realtime event)
         console.log('🔑 Key tested event:', data);
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) {
           if (data.success) {
             toast.success(data.message);
@@ -1022,6 +1066,7 @@ export default function useDashboardState(navigate) {
         // API key deleted (realtime event)
         console.log('🔑 Key deleted event:', data);
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1062,6 +1107,7 @@ export default function useDashboardState(navigate) {
         // AI learning/evolution happened
         if (data.message) toast.info(data.message);
         loadBots(); // May have new bots
+        loadLearningStatus();
         break;
       
       case 'system_update':
@@ -1460,6 +1506,44 @@ export default function useDashboardState(navigate) {
       setApiKeys(statusMap);
     } catch (err) {
       console.error('API keys fetch error:', err);
+    }
+  };
+
+  const loadAiStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/ai/capability-status`, axiosConfig);
+      setAiStatus(res.data);
+    } catch (err) {
+      console.error('AI status fetch error:', err);
+      setAiStatus(null);
+    }
+  };
+
+  const loadLearningStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/learning/status`, axiosConfig);
+      setLearningStatus(res.data);
+      if (res.data?.last_run) {
+        setNotableEvent((prev) => {
+          const previousAt = prev?.timestamp ? Date.parse(prev.timestamp) : 0;
+          const learningAt = res.data.last_run ? Date.parse(res.data.last_run) : Number.NaN;
+          if (
+            !prev
+            || (Number.isNaN(previousAt) && !Number.isNaN(learningAt))
+            || (!Number.isNaN(learningAt) && !Number.isNaN(previousAt) && learningAt > previousAt)
+          ) {
+            return {
+              title: 'learning loop',
+              detail: 'Last successful learning cycle available',
+              timestamp: res.data.last_run,
+            };
+          }
+          return prev;
+        });
+      }
+    } catch (err) {
+      console.error('Learning status fetch error:', err);
+      setLearningStatus(null);
     }
   };
 
@@ -3314,6 +3398,7 @@ export default function useDashboardState(navigate) {
     modeTone,
     newCountdownAmount,
     newCountdownLabel,
+    notableEvent,
     overviewData,
     paperResetChecking,
     paperResetError,

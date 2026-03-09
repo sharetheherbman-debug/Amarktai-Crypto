@@ -165,6 +165,7 @@ export default function Dashboard() {
     newCountdownAmount,
     newCountdownLabel,
     overviewData,
+    notableEvent,
     paperResetChecking,
     paperResetError,
     paperResetLoading,
@@ -345,6 +346,7 @@ export default function Dashboard() {
               livePrices={livePrices}
               metrics={metrics}
               modeLabel={modeLabel}
+              notableEvent={notableEvent}
               overviewData={overviewData}
               riskStatus={riskStatus}
               systemModes={systemModes}

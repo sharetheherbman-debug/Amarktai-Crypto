@@ -81,3 +81,36 @@ def test_countdown_daily_roi_uses_canonical_trade_pnl_fields():
 def test_scheduler_uses_single_canonical_trade_websocket_emit_path():
     src = _read("backend/trading_scheduler.py")
     assert "Legacy WebSocket update" not in src
+
+
+def test_ai_capability_status_endpoint_exists_with_honest_degradation_fields():
+    src = _read("backend/routes/ai_chat.py")
+    assert '@router.get("/capability-status")' in src
+    assert '"capabilities"' in src
+    assert '"degraded_mode"' in src
+    assert '"degraded_features"' in src
+    assert '"degraded_reason"' in src
+
+
+def test_ai_chat_section_uses_backend_capability_truth_and_realtime_key_updates():
+    src = _read("frontend/src/pages/dashboard/sections/AiChatSection.js")
+    assert "get('/ai/capability-status')" in src
+    assert "realtimeClient.on('key_saved'" in src
+    assert "realtimeClient.on('key_tested'" in src
+    assert "realtimeClient.on('key_deleted'" in src
+    assert "AI Degraded" in src
+
+
+def test_overview_uses_realtime_notable_event_and_self_heal_status_fields():
+    src = _read("frontend/src/pages/dashboard/sections/OverviewSection.js")
+    assert "notableEvent?.title" in src
+    assert "notableEvent?.detail" in src
+    assert "notableEvent?.timestamp" in src
+    assert "autonomyStatus?.subsystems?.self_heal?.status" in src
+
+
+def test_dashboard_state_tracks_notable_events_and_learning_self_heal_refresh():
+    src = _read("frontend/src/hooks/useDashboardState.js")
+    assert "const [notableEvent, setNotableEvent] = useState(null);" in src
+    assert "registerNotableEvent" in src
+    assert "loadLearningStatus();" in src
