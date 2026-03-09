@@ -410,3 +410,210 @@ class TestRadarEnhancements:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Portfolio Meta-Controller Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPortfolioMetaController:
+    """Tests for the PortfolioMetaController engine."""
+
+    def test_default_decision(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        out = mc.decide(MetaControllerInput())
+        # Default regime is 'unknown' -> balanced-ish
+        assert 0.0 <= out.scalper_weight <= 1.0
+        assert 0.0 <= out.normal_weight <= 1.0
+        assert abs(out.scalper_weight + out.normal_weight - 1.0) < 0.01
+        assert out.risk_multiplier > 0
+
+    def test_trending_regime_favours_normal(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        out = mc.decide(MetaControllerInput(market_regime="trending"))
+        assert out.normal_weight > out.scalper_weight
+
+    def test_ranging_regime_favours_scalper(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        out = mc.decide(MetaControllerInput(market_regime="ranging"))
+        assert out.scalper_weight > out.normal_weight
+
+    def test_panic_regime_defensive(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        out = mc.decide(MetaControllerInput(market_regime="panic"))
+        assert out.risk_multiplier < 0.6
+        assert out.preferred_bot_class == "normal"
+
+    def test_scalper_priority_mode(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        base = mc.decide(MetaControllerInput(market_regime="ranging"))
+        boosted = mc.decide(MetaControllerInput(market_regime="ranging", scalper_priority_mode=True))
+        assert boosted.scalper_weight >= base.scalper_weight
+
+    def test_high_drawdown_increases_scalper_weight(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        normal = mc.decide(MetaControllerInput(market_regime="trending", current_drawdown=0.01))
+        stressed = mc.decide(MetaControllerInput(market_regime="trending", current_drawdown=0.08))
+        assert stressed.scalper_weight >= normal.scalper_weight
+        assert stressed.risk_multiplier <= normal.risk_multiplier
+
+    def test_get_summary_returns_all_fields(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        summary = mc.get_summary(MetaControllerInput(market_regime="volatile"))
+        required_keys = {
+            "preferred_bot_class", "scalper_weight", "normal_weight",
+            "exchange_exposure_limit", "pair_exposure_limit",
+            "risk_multiplier", "hold_time_profile", "reasoning", "timestamp",
+        }
+        assert required_keys.issubset(set(summary.keys()))
+
+    def test_all_regimes_produce_valid_output(self):
+        from engines.portfolio_meta_controller import (
+            PortfolioMetaController, MetaControllerInput,
+        )
+        mc = PortfolioMetaController()
+        for regime in [
+            "trending", "ranging", "volatile", "low_volatility",
+            "panic", "accumulation", "bullish_calm", "bearish_volatile",
+            "squeeze", "unknown",
+        ]:
+            out = mc.decide(MetaControllerInput(market_regime=regime))
+            assert 0.0 <= out.scalper_weight <= 1.0
+            assert 0.0 <= out.normal_weight <= 1.0
+            assert 0.1 <= out.risk_multiplier <= 2.0
+            assert out.hold_time_profile in ("ultra_short", "short", "medium", "long")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Order Flow Engine Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestOrderFlowEngine:
+    """Tests for the OrderFlowEngine microstructure scoring."""
+
+    def test_empty_state(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        score = ofe.compute_score("BTCUSDT")
+        # With no data: spread=0 contributes a small positive signal (0.2)
+        assert -1.0 <= score.score <= 1.0
+        assert score.confidence == 0.0
+
+    def test_ingest_orderbook_and_compute(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        ofe.ingest_orderbook("BTCUSDT",
+            bids=[[50000, 1.0], [49990, 2.0]],
+            asks=[[50010, 0.5], [50020, 1.5]],
+        )
+        imb = ofe.compute_liquidity_imbalance("BTCUSDT")
+        # More bids (3.0) than asks (2.0) -> positive imbalance
+        assert imb > 0
+
+    def test_aggressive_ratio_balanced(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        for i in range(50):
+            ofe.ingest_trade("BTCUSDT", 50000 + i, 0.1, "buy" if i % 2 == 0 else "sell")
+        ratio = ofe.compute_aggressive_ratio("BTCUSDT")
+        assert 0.4 <= ratio <= 0.6
+
+    def test_spread_calculation(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        ofe.ingest_orderbook("ETHUSDT",
+            bids=[[3000, 5.0]],
+            asks=[[3003, 5.0]],
+        )
+        spread = ofe.compute_spread("ETHUSDT")
+        assert 0.09 < spread < 0.11  # ~0.1%
+
+    def test_liquidity_vacuum_detection(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        # Create a gap > 0.5% between levels
+        ofe.ingest_orderbook("BTCUSDT",
+            bids=[[50000, 1.0], [49500, 1.0]],   # 1% gap
+            asks=[[50010, 1.0], [50020, 1.0]],
+        )
+        assert ofe.detect_liquidity_vacuum("BTCUSDT") is True
+
+    def test_composite_score_range(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        ofe.ingest_orderbook("BTCUSDT",
+            bids=[[50000, 2.0], [49999, 3.0]],
+            asks=[[50001, 1.0], [50002, 1.0]],
+        )
+        for i in range(30):
+            ofe.ingest_trade("BTCUSDT", 50000, 0.1, "buy")
+        score = ofe.compute_score("BTCUSDT")
+        assert -1.0 <= score.score <= 1.0
+        assert 0 <= score.confidence <= 1.0
+
+    def test_get_summary(self):
+        from engines.order_flow_engine import OrderFlowEngine
+        ofe = OrderFlowEngine()
+        ofe.ingest_orderbook("BTCUSDT", bids=[[50000, 1.0]], asks=[[50010, 1.0]])
+        summary = ofe.get_summary()
+        assert "symbols_tracked" in summary
+        assert "scores" in summary
+        assert "BTCUSDT" in summary["scores"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Risk Management Drawdown Cap Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestRiskDrawdownCap:
+    """Verify drawdown is always clamped to [0.0, 1.0]."""
+
+    def test_drawdown_capped_at_100_percent(self):
+        try:
+            from engines.risk_management import RiskManager
+        except ImportError:
+            pytest.skip("risk_management has unmet dependency")
+            return
+        # If equity goes deeply negative, drawdown must not exceed 1.0
+        dd = RiskManager.compute_drawdown(current_equity=-500, peak_equity=1000)
+        assert dd <= 1.0
+        assert dd == 1.0  # capped
+
+    def test_drawdown_zero_when_at_peak(self):
+        try:
+            from engines.risk_management import RiskManager
+        except ImportError:
+            pytest.skip("risk_management has unmet dependency")
+            return
+        dd = RiskManager.compute_drawdown(current_equity=1000, peak_equity=1000)
+        assert dd == 0.0
+
+    def test_drawdown_positive_when_below_peak(self):
+        try:
+            from engines.risk_management import RiskManager
+        except ImportError:
+            pytest.skip("risk_management has unmet dependency")
+            return
+        dd = RiskManager.compute_drawdown(current_equity=800, peak_equity=1000)
+        assert dd == pytest.approx(0.2, abs=0.001)

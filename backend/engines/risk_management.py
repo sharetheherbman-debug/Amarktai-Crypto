@@ -186,10 +186,11 @@ class RiskManagement:
 
     @staticmethod
     def compute_drawdown(current_equity: float, peak_equity: float) -> float:
-        """Return drawdown as a positive fraction (0.0 – 1.0)."""
+        """Return drawdown as a positive fraction clamped to [0.0, 1.0]."""
         if peak_equity <= 0:
             return 0.0
-        return max(0.0, (peak_equity - current_equity) / peak_equity)
+        raw = (peak_equity - current_equity) / peak_equity
+        return max(0.0, min(1.0, raw))
 
     def check_max_drawdown(self, current_equity: float, peak_equity: float) -> bool:
         """Return True if drawdown exceeds MAX_DRAW_DOWN threshold."""

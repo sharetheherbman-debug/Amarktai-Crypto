@@ -19,7 +19,7 @@ const REASON_LABELS = {
   MAX_BOTS_REACHED:             'Maximum bots for this platform already reached',
   API_KEYS_MISSING:             'No API keys configured for this exchange',
   API_KEYS_INVALID:             'API keys exist but failed validation — re-test in API Setup',
-  INSUFFICIENT_AVAILABLE_FUNDS: 'Insufficient paper wallet funds for bot spawn',
+  INSUFFICIENT_AVAILABLE_FUNDS: 'Insufficient funds — check available vs reserved capital below',
   PROFIT_BELOW_THRESHOLD:       'Profit has not yet reached the milestone threshold',
 };
 
@@ -166,6 +166,28 @@ function PlatformGrowthCard({ platform, data, threshold }) {
       {blocked.length > 0 && (
         <div style={{ fontSize: '0.78rem', color: '#f59e0b' }}>
           ⚠ {blocked.map(r => REASON_LABELS[r] || r).join(' • ')}
+        </div>
+      )}
+
+      {/* Capital breakdown when funds are insufficient */}
+      {blocked.includes('INSUFFICIENT_AVAILABLE_FUNDS') && (
+        <div style={{
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: '8px', padding: '10px', fontSize: '0.75rem',
+        }}>
+          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: '4px' }}>Capital Breakdown</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
+            <span>Min required</span>
+            <span>{fmtZAR(safeNum(data?.min_capital_required ?? data?.spawn_minimum))}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
+            <span>Available</span>
+            <span>{fmtZAR(safeNum(data?.available_capital))}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
+            <span>Reserved</span>
+            <span>{fmtZAR(safeNum(data?.reserved_capital))}</span>
+          </div>
         </div>
       )}
     </div>
