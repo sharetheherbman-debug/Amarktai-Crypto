@@ -7,7 +7,6 @@ from typing import Dict, List
 import logging
 
 import database as db
-from config import PAPER_STARTING_CAPITAL_ZAR
 from utils.bot_state import normalize_bot_state
 from services.system_mode_service import system_mode_service
 
@@ -71,19 +70,16 @@ class WalletSummaryService:
             await self._sync_paper_wallet_balance(user_id, balance)
             return balance
 
-        injected_capital = await self._get_injected_capital(user_id)
-        starting_balance = injected_capital if injected_capital > 0 else PAPER_STARTING_CAPITAL_ZAR
-
-        if user_id not in self._warned_missing_wallets:
-            logger.warning(
-                "Paper wallet missing for user %s. Auto-creating with R%.2f",
-                user_id[:8],
-                starting_balance
-            )
-            self._warned_missing_wallets.add(user_id)
-
-        await self._ensure_paper_wallet_doc(user_id, starting_balance)
-        return starting_balance
+        # Paper wallet ledger returned None (likely a transient error or no
+        # wallet exists yet).  Do NOT auto-seed with PAPER_STARTING_CAPITAL_ZAR
+        # — that would silently recreate 30000 after a paper reset.
+        # The caller will receive 0 and the user must fund explicitly.
+        logger.warning(
+            "Paper wallet ledger returned None for user %s — reporting 0 "
+            "(wallet may need explicit funding)",
+            user_id[:8],
+        )
+        return 0.0
 
     async def _get_live_balance(self, user_id: str) -> float:
         wallet_doc = await self._get_wallet_doc(user_id) or {}
@@ -122,15 +118,24 @@ class WalletSummaryService:
             if b.get("active")
             and (b.get("trading_mode") or b.get("mode") or "paper") == mode
         ]
-        non_deleted = [b for b in normalized if not b.get("is_deleted")]
 
         required_funds = sum(
             float(b.get("initial_capital") or 1000) for b in active_bots
         )
+
+        # allocated_funds only counts bots that are genuinely capital-reserving:
+        # active or training bots with a positive capital figure.  Paused /
+        # stopped / deleted bots are excluded so a dirty or reset-survivor bot
+        # cannot inflate the allocated total.
+        capital_reserving_statuses = {"active", "training"}
         allocated_funds = sum(
-            float(b.get("allocated_capital") or b.get("initial_capital") or 1000)
-            for b in non_deleted
+            float(b.get("allocated_capital") or b.get("initial_capital") or 0)
+            for b in normalized
+            if not b.get("is_deleted")
+            and b.get("status") in capital_reserving_statuses
+            and float(b.get("allocated_capital") or b.get("initial_capital") or 0) > 0
         )
+
         reserved_funds = 0.0
         if db.wallet_balances_collection is not None:
             reserved_docs = await db.wallet_balances_collection.find(

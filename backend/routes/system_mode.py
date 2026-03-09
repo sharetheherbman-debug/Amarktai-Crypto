@@ -379,6 +379,10 @@ async def perform_paper_reset(user_id: str) -> dict:
     - user_memory (AI assistant context and user preferences — carry over resets;
       preserved by NOT including this collection in the deletion loops below)
     """
+    # Canonical timestamp for this reset operation — used throughout this function
+    # for audit log, user-doc updates, and the return payload.
+    delete_timestamp = datetime.now(timezone.utc).isoformat()
+
     summary = {
         "bots_deleted": 0,
         "trades_deleted": 0,
