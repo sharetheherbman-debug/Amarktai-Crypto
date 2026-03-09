@@ -265,10 +265,7 @@ class TradeStaggerer:
                 if bot_id not in valid_bot_ids:
                     removed_missing += 1
                     continue
-                try:
-                    queued_at = datetime.fromisoformat(str(item.get("queued_at")).replace("Z", "+00:00"))
-                except Exception:
-                    queued_at = now
+                queued_at = self._parse_queued_at(item.get("queued_at"), now)
                 age_minutes = (now - queued_at).total_seconds() / 60
                 if age_minutes >= 30:
                     removed_stale += 1
@@ -313,6 +310,20 @@ class TradeStaggerer:
                     await self.clear_bot(bot_id)
         except Exception as e:
             logger.warning(f"clear_user queue cleanup failed: {e}")
+
+    @staticmethod
+    def _parse_queued_at(value, fallback: datetime) -> datetime:
+        """Best-effort queued_at parser for queue cleanup."""
+        if isinstance(value, datetime):
+            return value
+        try:
+            raw = str(value or "").strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(raw)
+            return parsed
+        except Exception:
+            return fallback
 
 # Global instance
 trade_staggerer = TradeStaggerer()

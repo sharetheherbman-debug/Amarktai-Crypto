@@ -30,6 +30,15 @@ def _normalize_key_status(status: Optional[str]) -> str:
     return legacy_map.get(normalized, normalized)
 
 
+def _exchange_reserved_from_summary(summary: Dict, platform: str) -> float:
+    """Extract reserved capital for a platform from reserved summary payload."""
+    if not isinstance(summary, dict):
+        return 0.0
+    by_exchange = summary.get("by_exchange") or {}
+    exchange_data = by_exchange.get(platform) or {}
+    return float(exchange_data.get("total_reserved", 0) or 0)
+
+
 def _platform_bot_limit(platform: str) -> int:
     if config.AUTOPILOT_MAX_BOTS_PER_PLATFORM > 0:
         return config.AUTOPILOT_MAX_BOTS_PER_PLATFORM
@@ -183,11 +192,7 @@ class AutopilotGrowthService:
             self.user_id, platform, "ZAR", spawn_capital
         )
         reserved_summary = await reserved_funds_service.get_reserved_summary(self.user_id)
-        reserved_capital = 0.0
-        if isinstance(reserved_summary, dict):
-            reserved_capital = float(
-                ((reserved_summary.get("by_exchange") or {}).get(platform) or {}).get("total_reserved", 0) or 0
-            )
+        reserved_capital = _exchange_reserved_from_summary(reserved_summary, platform)
         shortfall = max(0.0, spawn_capital - float(available_capital))
         block_reason_details = []
         if not has_funds or "INSUFFICIENT_AVAILABLE_FUNDS" in reasons:

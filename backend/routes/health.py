@@ -49,7 +49,7 @@ def get_build_metadata() -> dict:
         "hash": "unknown",
         "source": "unknown",
         "environment": os.getenv("ENVIRONMENT", "unknown"),
-        "build_timestamp": os.getenv("BUILD_TIMESTAMP"),
+        "build_timestamp": os.getenv("BUILD_TIMESTAMP") or "unknown",
         "git_branch": None,
         "git_dirty": None,
     }

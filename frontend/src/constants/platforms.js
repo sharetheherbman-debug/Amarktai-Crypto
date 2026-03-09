@@ -219,7 +219,7 @@ export const PLATFORM_CONFIG = {
     enabled: true,
     priority: 2,
     requiredKeyFields: ['api_key'],
-    helpText: 'Primary market data provider — prices, OHLCV, metadata.',
+    helpText: 'Secondary market data provider — prices, OHLCV, metadata.',
     capabilities: ['prices', 'ohlcv', 'metadata'],
   },
   coingecko: {
@@ -232,7 +232,7 @@ export const PLATFORM_CONFIG = {
     enabled: true,
     priority: 3,
     requiredKeyFields: ['api_key'],
-    helpText: 'Secondary market data provider — broad coverage, free tier available.',
+    helpText: 'Tertiary market data provider — broad coverage, free tier available.',
     capabilities: ['prices', 'ohlcv', 'metadata', 'market_cap'],
   },
   coinranking: {
@@ -245,7 +245,7 @@ export const PLATFORM_CONFIG = {
     enabled: true,
     priority: 4,
     requiredKeyFields: ['api_key'],
-    helpText: 'Tertiary market data provider — additional fallback coverage.',
+    helpText: 'Quaternary market data provider — additional fallback coverage.',
     capabilities: ['prices', 'metadata'],
   },
 

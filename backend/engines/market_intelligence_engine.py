@@ -206,8 +206,8 @@ class CoinDeskProvider(PriceProvider):
     def _headers(self) -> Dict[str, str]:
         headers: Dict[str, str] = {}
         if self._api_key:
-            # CoinDesk key header is accepted when configured; public endpoint
-            # can still return data when key is absent.
+            # CoinDesk key is optional for this public endpoint. If configured,
+            # we send it for production consistency and future quota telemetry.
             headers["X-API-Key"] = self._api_key
         return headers
 

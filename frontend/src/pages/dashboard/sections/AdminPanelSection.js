@@ -104,7 +104,7 @@ export default function AdminPanelSection({
         
         <div className="admin-stack">
           <div className="admin-card">
-            <h3 style={{ marginBottom: '12px', color: '#ffffff' }}>🔐 API Key Monitor (Admin)</h3>
+            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔐 API Key Monitor (Admin)</h3>
             {adminKeyMonitor?.providers?.length > 0 ? (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>

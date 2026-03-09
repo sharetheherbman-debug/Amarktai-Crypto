@@ -554,7 +554,7 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         required_fields=["api_key"],
         test_method=test_coindesk,
         icon="coindesk.svg",
-        description="Primary market data — canonical price source and first fallback tier"
+        description="Primary market data provider — canonical price source and first fallback tier"
     ),
     "cryptocompare": ProviderDefinition(
         provider_id="cryptocompare",

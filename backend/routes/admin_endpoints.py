@@ -285,7 +285,7 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
         from engines.market_intelligence_engine import market_intelligence_engine
 
         providers = list_providers()
-        fallback_priority = {p["id"]: idx + 1 for idx, p in enumerate(providers)}
+        provider_priority_order = {p["id"]: idx + 1 for idx, p in enumerate(providers)}
         usage_map: Dict[str, Dict[str, Any]] = {}
         try:
             usage_map = market_intelligence_engine.get_provider_usage() or {}
@@ -351,7 +351,7 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
                 },
                 "rate_limit_status": rate_limit_status,
                 "quota_threshold_warning": monthly_pct >= 80 or minute_pct >= 80,
-                "fallback_priority": fallback_priority.get(provider_id),
+                "fallback_priority": provider_priority_order.get(provider_id),
                 "health_latency_ms": doc.get("avg_latency_ms") or doc.get("last_latency_ms"),
                 "last_error": doc.get("last_test_error"),
                 "updated_at": doc.get("updated_at"),
