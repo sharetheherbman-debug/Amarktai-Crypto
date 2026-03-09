@@ -8,6 +8,8 @@ import database as db
 from logger_config import logger
 from config import NEW_BOT_CAPITAL
 
+ALLOCATION_SYNC_TOLERANCE = 0.01
+
 
 class CapitalValidator:
     """
@@ -37,7 +39,7 @@ class CapitalValidator:
             
             # Get balance fields (with defaults if missing)
             balance = user.get("balance", 0.0)
-            allocated_balance = user.get("allocated_balance", 0.0)
+            stored_allocated_balance = user.get("allocated_balance", 0.0)
             reserved_balance = user.get("reserved_balance", 0.0)
             
             # Get all active bots
@@ -46,11 +48,18 @@ class CapitalValidator:
                 "status": {"$in": ["active", "paused"]}  # Not stopped/deleted
             }).to_list(None)
             
-            # Calculate total allocated capital from bots
-            total_bot_capital = sum(
-                bot.get("allocated_capital", bot.get("current_capital", 0.0))
-                for bot in active_bots
-            )
+            # Calculate total allocated capital from bots (canonical source).
+            # Bot documents are the execution source-of-truth; user aggregate
+            # fields can drift after partial resets/retries and are synchronized below.
+            def _bot_allocated_value(bot_doc: Dict) -> float:
+                if "allocated_capital" in bot_doc and bot_doc.get("allocated_capital") is not None:
+                    return float(bot_doc.get("allocated_capital") or 0.0)
+                if "current_capital" in bot_doc and bot_doc.get("current_capital") is not None:
+                    return float(bot_doc.get("current_capital") or 0.0)
+                return float(bot_doc.get("initial_capital") or 0.0)
+
+            total_bot_capital = sum(_bot_allocated_value(bot) for bot in active_bots)
+            allocated_balance = round(total_bot_capital, 2)
 
             # Paper wallet fallback when balance is not set
             if balance <= 0:
@@ -58,10 +67,18 @@ class CapitalValidator:
                     from services.paper_wallet_service import paper_wallet_service
                     paper_wallet = await paper_wallet_service.get_balances(user_id)
                     balance = max(balance, paper_wallet.get("total", 0.0))
-                    if allocated_balance <= 0:
-                        allocated_balance = total_bot_capital
                 except Exception as e:
                     logger.debug(f"Paper wallet fallback skipped: {e}")
+
+            # Keep user aggregate in sync with canonical bot allocation total.
+            if abs(float(stored_allocated_balance or 0.0) - allocated_balance) > ALLOCATION_SYNC_TOLERANCE:
+                await db.users_collection.update_one(
+                    {"id": user_id},
+                    {"$set": {
+                        "allocated_balance": allocated_balance,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
             
             # Calculate available balance
             available = balance - allocated_balance - reserved_balance
@@ -72,7 +89,7 @@ class CapitalValidator:
                 "reserved_balance": reserved_balance,
                 "available_balance": max(0, available),  # Never negative
                 "active_bot_count": len(active_bots),
-                "total_bot_capital": total_bot_capital
+                "total_bot_capital": allocated_balance
             }
         
         except Exception as e:

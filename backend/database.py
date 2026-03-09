@@ -392,6 +392,7 @@ async def init_db():
         await _safe_create_index(trades_collection, "id", unique=True)
         await _safe_create_index(trades_collection, "bot_id")
         await _safe_create_index(trades_collection, "user_id")
+        await _safe_create_index(trades_collection, [("user_id", 1), ("status", 1)])
         await _safe_create_index(trades_collection, "timestamp")
         await _safe_create_index(trades_collection, [("bot_id", 1), ("timestamp", -1)])
 
