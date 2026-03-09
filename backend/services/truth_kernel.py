@@ -266,6 +266,8 @@ async def compute_exchange_readiness(user_id: str, db) -> Dict[str, Any]:
                 test_passed = True
             elif status in {"configured_invalid", "test_failed"}:
                 test_passed = False
+            # configured_untested/saved_untested and unknown statuses intentionally
+            # remain None to represent "configured but not yet conclusively tested".
         results[ex] = {
             "configured": configured,
             "test_passed": test_passed,

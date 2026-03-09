@@ -256,7 +256,7 @@ export default function TruthConsoleSection({ axiosConfig }) {
           </div>
           <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text)' }}>{keyCounts.marketData}</div>
           <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
-            CoinDesk / CryptoCompare / CoinGecko / Coinranking
+            CoinDesk / CryptoCompare / CoinGecko / Coinranking / Luzia / CoinStats
           </div>
         </div>
         <div style={{
