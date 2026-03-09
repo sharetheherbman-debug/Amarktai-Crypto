@@ -264,10 +264,10 @@ export default function LiveTradesSection({
                             {(trade.side || trade.action || 'TRADE').toString().toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ padding: '8px 12px', color: 'var(--text)' }}>{formatZAR(trade.price || trade.avg_price)}</td>
-                        <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{trade.size || trade.quantity || NA}</td>
+                        <td style={{ padding: '8px 12px', color: 'var(--text)' }}>{formatZAR(trade.entry_price || trade.price || trade.avg_price)}</td>
+                        <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{trade.size || trade.quantity || trade.qty || trade.amount || NA}</td>
                         <td style={{ padding: '8px 12px', fontWeight: 700, color: pl >= 0 ? '#22c55e' : '#ef4444' }}>{formatZAR(pl)}</td>
-                        <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatZAR(trade.fees || trade.fee)}</td>
+                        <td style={{ padding: '8px 12px', color: 'var(--muted)' }}>{formatZAR(trade.fees || trade.fee || trade.fee_total || trade.fee_amount)}</td>
                       </tr>
                     );
                   })}
@@ -363,11 +363,11 @@ export default function LiveTradesSection({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               {[
                 { label: 'Side', value: (selectedTrade.side || selectedTrade.action || 'Trade').toString().toUpperCase(), color: getSideColor(selectedTrade.side || selectedTrade.action) },
-                { label: 'Price', value: formatZAR(selectedTrade.price || selectedTrade.avg_price) },
-                { label: 'Size', value: selectedTrade.size || selectedTrade.quantity || NA },
-                { label: 'P/L', value: formatZAR(selectedTrade.profit_loss), color: (Number(selectedTrade.profit_loss) || 0) >= 0 ? '#22c55e' : '#ef4444' },
-                { label: 'Fees', value: formatZAR(selectedTrade.fees || selectedTrade.fee) },
-                { label: 'Slippage', value: selectedTrade.slippage || NA },
+                { label: 'Price', value: formatZAR(selectedTrade.entry_price || selectedTrade.price || selectedTrade.avg_price) },
+                { label: 'Size', value: selectedTrade.size || selectedTrade.quantity || selectedTrade.qty || selectedTrade.amount || NA },
+                { label: 'P/L', value: formatZAR(selectedTrade.profit_loss ?? selectedTrade.net_profit_loss ?? selectedTrade.net_pnl), color: (Number(selectedTrade.profit_loss ?? selectedTrade.net_profit_loss ?? 0) || 0) >= 0 ? '#22c55e' : '#ef4444' },
+                { label: 'Fees', value: formatZAR(selectedTrade.fees || selectedTrade.fee || selectedTrade.fee_total || selectedTrade.fee_amount) },
+                { label: 'Slippage', value: (selectedTrade.slippage != null || selectedTrade.slippage_cost != null) ? formatZAR(selectedTrade.slippage ?? selectedTrade.slippage_cost) : NA },
               ].map(({ label, value, color }) => (
                 <div key={label} style={{
                   background: 'rgba(10, 14, 26, 0.5)',

@@ -25,22 +25,48 @@ COINSTATS_BASE = "https://openapiv1.coinstats.app"
 
 
 async def _get_coinstats_key(user_id: str) -> Optional[str]:
-    """Retrieve the user's stored CoinStats API key (falls back to env)."""
+    """Retrieve the user's stored CoinStats API key (falls back to env).
+    
+    Keys are stored encrypted (api_key_encrypted) via the standard API key management
+    route. This function decrypts the key before returning it.
+    """
     doc = await db.api_keys_collection.find_one(
         {"user_id": user_id, "provider": "coinstats"},
-        {"_id": 0, "api_key": 1},
+        {"_id": 0, "api_key": 1, "api_key_encrypted": 1},
     )
-    if doc and doc.get("api_key"):
-        return doc["api_key"]
+    if doc:
+        # Prefer encrypted storage (standard path from /api/keys/save)
+        encrypted = doc.get("api_key_encrypted")
+        if encrypted:
+            try:
+                from routes.api_key_management import decrypt_api_key
+                decrypted = decrypt_api_key(encrypted)
+                if decrypted:
+                    return decrypted
+            except Exception:
+                pass
+        # Fallback: plain-text key (legacy / alternative storage)
+        plain = doc.get("api_key")
+        if plain:
+            return plain
     return os.getenv("COINSTATS_API_KEY", "")
 
 
 @router.get("/status")
 async def coinstats_status(user_id: str = Depends(get_current_user)):
-    """Check whether CoinStats is configured and reachable."""
+    """Check whether CoinStats is configured and reachable.
+    
+    Returns one of these status strings:
+      connected         — key present and API call succeeded
+      rate_limited      — key present but HTTP 429 returned
+      invalid_key       — key present but HTTP 401/403 returned
+      service_unreachable — key present but network/timeout error
+      not_configured    — no key stored and no env var set
+    """
     key = await _get_coinstats_key(user_id)
     configured = bool(key)
     reachable = False
+    status_label = "not_configured"
     error_msg = None
 
     if configured:
@@ -51,16 +77,27 @@ async def coinstats_status(user_id: str = Depends(get_current_user)):
                     headers={"X-API-KEY": key, "accept": "application/json"},
                     params={"limit": 1},
                 )
-                reachable = resp.status_code == 200
-                if not reachable:
+                if resp.status_code == 200:
+                    reachable = True
+                    status_label = "connected"
+                elif resp.status_code == 429:
+                    status_label = "rate_limited"
+                    error_msg = "Rate limited (HTTP 429)"
+                elif resp.status_code in (401, 403):
+                    status_label = "invalid_key"
+                    error_msg = f"Invalid key (HTTP {resp.status_code})"
+                else:
+                    status_label = "service_unreachable"
                     error_msg = f"HTTP {resp.status_code}"
         except Exception as exc:
+            status_label = "service_unreachable"
             error_msg = str(exc)[:120]
-
+    
     return {
         "success": True,
         "configured": configured,
         "reachable": reachable,
+        "status": status_label,
         "last_error": error_msg,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

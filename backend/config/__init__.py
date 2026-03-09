@@ -38,7 +38,18 @@ except ImportError:
 # ---------------------------------------------------------------------------
 PAPER_TRADING = _env_bool('PAPER_TRADING', False) or _env_bool('ENABLE_PAPER_TRADING', False)
 LIVE_TRADING = _env_bool('LIVE_TRADING', False) or _env_bool('ENABLE_LIVE_TRADING', False)
-AUTOPILOT_ENABLED = _env_bool('AUTOPILOT_ENABLED', False) or _env_bool('ENABLE_AUTOPILOT', False)
+# AUTOPILOT_ENABLED defaults to True so that users who enable autopilot in the UI
+# are not silently blocked by a missing env var.
+# Explicit override: set AUTOPILOT_ENABLED=0 or AUTOPILOT_ENABLED=false to disable globally.
+# Precedence: AUTOPILOT_ENABLED (canonical) → ENABLE_AUTOPILOT (legacy) → default True
+_autopilot_env = os.getenv('AUTOPILOT_ENABLED')
+_autopilot_legacy = os.getenv('ENABLE_AUTOPILOT')
+if _autopilot_env is not None:
+    AUTOPILOT_ENABLED = _autopilot_env.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+elif _autopilot_legacy is not None:
+    AUTOPILOT_ENABLED = _autopilot_legacy.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+else:
+    AUTOPILOT_ENABLED = True  # Default: enabled when not explicitly set
 
 # Backward-compatible aliases
 ENABLE_PAPER_TRADING = PAPER_TRADING

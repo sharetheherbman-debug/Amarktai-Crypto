@@ -689,6 +689,14 @@ async def toggle_mode(
                     )
         elif mode_name == "autopilot":
             new_state["autopilot"] = enabled
+            # Sync user.autopilot_enabled so guardrails (growth/reinvest) reflect the same state
+            try:
+                await db.users_collection.update_one(
+                    {"id": user_id},
+                    {"$set": {"autopilot_enabled": enabled}}
+                )
+            except Exception as _e:
+                logger.warning(f"Failed to sync user.autopilot_enabled: {_e}")
         else:
             raise HTTPException(
                 status_code=400,

@@ -316,19 +316,39 @@ async def get_whale_signal(
 
 @router.get("/whale/summary")
 async def get_whale_summary(current_user: User = Depends(get_current_user)):
-    """Get summary of whale activity for all tracked coins"""
+    """Get summary of whale activity for all tracked coins.
+    
+    Returns empty signals when whale monitoring is not available
+    (service unavailable or not configured) instead of raising an error.
+    """
     if not WHALE_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Whale monitoring not available")
+        return {
+            "status": "unavailable",
+            "message": "Whale monitoring service is not configured",
+            "data": None,
+            "summary": None,
+            "signals": [],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
     
     try:
         summary = await whale_monitor.get_summary()
         return {
+            "status": "success",
+            "data": summary,
             "summary": summary,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         logger.error(f"Error getting whale summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "error",
+            "message": str(e)[:200],
+            "data": None,
+            "summary": None,
+            "signals": [],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
 
 
 # ============================================================================

@@ -179,7 +179,8 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
         radar_entries: List[Dict] = []
         for raw_bot in bots:
             bot = normalize_bot_state(raw_bot)
-            bot_id = str(raw_bot.get("_id", ""))
+            # Use the canonical string bot ID (not MongoDB _id) — trades are stored with bot.id
+            bot_id = raw_bot.get("id") or str(raw_bot.get("_id", ""))
 
             # Find open trade for this bot
             open_trade = await db.trades_collection.find_one(
