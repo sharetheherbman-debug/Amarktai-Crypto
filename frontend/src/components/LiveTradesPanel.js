@@ -16,7 +16,7 @@ import './LiveTradesPanel.css';
 export default function LiveTradesPanel({ platformFilter = 'all' }) {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
-  const lastUpdate = useLastUpdate('trades');
+  const lastUpdate = useLastUpdate('trade_executed');
 
   // Load initial trades
   useEffect(() => {
@@ -35,7 +35,8 @@ export default function LiveTradesPanel({ platformFilter = 'all' }) {
   };
 
   // Subscribe to real-time trade updates
-  useRealtimeEvent('trades', (newTrade) => {
+  useRealtimeEvent('trade_executed', (payload) => {
+    const newTrade = payload?.trade || payload;
     setTrades(prev => [newTrade, ...prev].slice(0, 50));
   }, []);
 

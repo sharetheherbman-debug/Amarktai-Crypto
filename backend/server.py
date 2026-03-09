@@ -158,6 +158,17 @@ async def lifespan(app: FastAPI):
         except Exception as migration_error:
             logger.warning(f"⚠️ bot_type migration failed (non-fatal): {migration_error}")
             # Continue - migrations are best-effort repairs
+
+        # ========================================================================
+        # STEP 1.7: Queue/runtime cleanup at startup (remove stale drift)
+        # ========================================================================
+        try:
+            from engines.trade_staggerer import trade_staggerer
+            await trade_staggerer.clear_stale_trades()
+            await trade_staggerer.purge_orphaned_queue()
+            logger.info("✅ Startup queue/runtime cleanup completed")
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️ Startup queue cleanup failed (non-fatal): {cleanup_error}")
             
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)
@@ -1687,8 +1698,10 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         is_live = system_mode.get('liveTrading', False) if system_mode else False
 
         ledger = get_ledger_service(db.db)
-        stats = await ledger.get_stats(user_id)
-        trades_total = stats.get("total_fills", 0)
+        trades_total = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "status": "closed",
+        })
         ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
         
         # Get current balance (paper or live based on mode)
@@ -1707,8 +1720,16 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         
         # BACKEND TRUTH: Get all bots total capital from MongoDB
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-        total_bot_capital = sum(bot.get('current_capital', 0) for bot in bots)
-        total_capital = max(current_capital, total_bot_capital, ledger_equity)
+        total_bot_capital = sum(float(bot.get('current_capital', 0) or 0) for bot in bots)
+        if ledger_equity and ledger_equity > 0:
+            total_capital = float(ledger_equity)
+            capital_source = "ledger_equity_zar"
+        elif total_bot_capital > 0:
+            total_capital = total_bot_capital
+            capital_source = "bots_current_capital_sum"
+        else:
+            total_capital = float(current_capital)
+            capital_source = "wallet_snapshot"
         
         target = 1_000_000
 
@@ -1718,7 +1739,9 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "message": "Need at least 10 trades",
                 "trades_remaining": 10 - trades_total,
                 "trades_total": trades_total,
+                "trade_count_source": "closed_trades_documents",
                 "current_capital": round(total_capital, 2),
+                "capital_source": capital_source,
                 "target": target,
                 "remaining": round(target - total_capital, 2),
                 "progress_pct": round((total_capital / target) * 100, 2) if target > 0 else 0,
@@ -1738,7 +1761,9 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "mode": "Live" if is_live else "Paper",
                 "status": "achieved",
                 "message": "🎉 TARGET ACHIEVED! You reached R1 Million!",
-                "compound_projection": None
+                "compound_projection": None,
+                "trade_count_source": "closed_trades_documents",
+                "capital_source": capital_source,
             }
         
         # BACKEND TRUTH: Calculate daily ROI from ledger profit series
@@ -1840,6 +1865,8 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "days_of_data": unique_trade_days,
                 "total_trades": trades_total
             },
+            "trade_count_source": "closed_trades_documents",
+            "capital_source": capital_source,
             "projections": {
                 "simple": simple_days,
                 "compound": compound_days,

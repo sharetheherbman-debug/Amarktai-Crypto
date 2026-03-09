@@ -230,6 +230,7 @@ export default function useDashboardState(navigate) {
   const [autonomyStatus, setAutonomyStatus] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
   const [learningStatus, setLearningStatus] = useState(null);
+  const [notableEvent, setNotableEvent] = useState(null);
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
@@ -256,6 +257,7 @@ export default function useDashboardState(navigate) {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
+  const [adminKeyMonitor, setAdminKeyMonitor] = useState({ providers: [], timestamp: null });
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingBots, setLoadingBots] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
@@ -356,6 +358,8 @@ export default function useDashboardState(navigate) {
     loadMetrics();
     loadSystemModes();
     loadApiStatuses();
+    loadAiStatus();
+    loadLearningStatus();
     loadRecentTrades();
     loadCountdown();
     loadCustomCountdowns();
@@ -444,6 +448,7 @@ export default function useDashboardState(navigate) {
     const interval = setInterval(() => {
       loadOverviewData();
       loadRiskStatus();
+      loadLearningStatus();
       if (realtimeFallback) {
         loadSystemHealth();
         loadCountdown();
@@ -605,6 +610,7 @@ export default function useDashboardState(navigate) {
     if (task.status === 'completed') {
       setAiTaskLoading(null);
       toast.success(`${task.task_type} completed successfully`);
+      registerNotableEvent('ai task completed', `${task.task_type} completed`);
       
       // Refresh data based on task type
       if (task.task_type === 'bot_evolution') {
@@ -612,10 +618,13 @@ export default function useDashboardState(navigate) {
       } else if (task.task_type === 'profit_reinvestment') {
         loadMetrics();
         loadBalances();
+      } else if (task.task_type === 'learning') {
+        loadLearningStatus();
       }
     } else if (task.status === 'failed') {
       setAiTaskLoading(null);
       toast.error(`${task.task_type} failed: ${task.error || 'Unknown error'}`);
+      registerNotableEvent('ai task failed', `${task.task_type} failed`);
     } else if (task.status === 'running') {
       toast.info(`${task.task_type} in progress: ${Math.round(task.progress * 100)}%`);
     }
@@ -637,7 +646,7 @@ export default function useDashboardState(navigate) {
       loadAutopilotReinvestStatus()
     ]);
     if (showAdmin) {
-      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats()]);
+      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats(), loadAdminKeyMonitor()]);
     }
   };
 
@@ -647,6 +656,8 @@ export default function useDashboardState(navigate) {
       loadMetrics(),
       loadSystemModes(),
       loadApiStatuses(),
+      loadAiStatus(),
+      loadLearningStatus(),
       loadRecentTrades(),
       loadCountdown(),
       loadLivePrices(),
@@ -790,10 +801,47 @@ export default function useDashboardState(navigate) {
   // Rate limiter for unknown message types
   const unknownMessageRateLimit = useRef({ count: 0, lastReset: Date.now() });
 
+  const refreshCanonicalTradeTruth = useCallback(() => {
+    loadRecentTrades();
+    loadMetrics();
+    loadCountdown();
+  }, [loadRecentTrades, loadMetrics, loadCountdown]);
+
+  const registerNotableEvent = useCallback((title, detail) => {
+    setNotableEvent({
+      title: title || 'System event',
+      detail: detail || 'Update received',
+      timestamp: new Date().toISOString(),
+    });
+  }, []);
+
   const handleRealTimeUpdate = (data) => {
     const eventType = typeof data.type === 'string' ? data.type.toLowerCase() : '';
     if (!eventType) {
       return;
+    }
+    const notableEventTypes = new Set([
+      'self_healing',
+      'ai_evolution',
+      'trade_executed',
+      'trade_opened',
+      'trade_closed',
+      'system_mode_update',
+      'bot_created',
+      'bot_paused',
+      'bot_resumed',
+      'bot_deleted',
+      'profit_updated',
+      'countdown_update',
+      'key_saved',
+      'key_tested',
+      'key_deleted',
+      'api_key_update',
+      'system_update',
+      'emergency_stop',
+    ]);
+    if (data?.message && notableEventTypes.has(eventType)) {
+      registerNotableEvent(eventType.replace(/_/g, ' '), data.message);
     }
     switch (eventType) {
       case 'connection':
@@ -864,6 +912,9 @@ export default function useDashboardState(navigate) {
         const tradesPayload = data.data?.trades || data.trades;
         if (Array.isArray(tradesPayload)) {
           setRecentTrades(tradesPayload);
+        } else {
+          // Canonical fallback: server emitted delta payload, refresh from source.
+          loadRecentTrades();
         }
         break;
       }
@@ -877,33 +928,9 @@ export default function useDashboardState(navigate) {
         }]);
         break;
       case 'trade_executed':
-        // Real-time trade feed update - only update state, don't reload
-        setRecentTrades(prev => {
-          // Prevent duplicates by checking if trade already exists
-          const tradeExists = prev.some(t => t.id === data.trade?.id);
-          if (tradeExists) return prev;
-          
-          return [{
-            ...data.trade,
-            bot_name: data.bot_name,
-            timestamp: new Date().toISOString()
-          }, ...prev.slice(0, 49)]; // Keep last 50 trades
-        });
-        
-        // Update bot data
-        setBots(prev => prev.map(bot => 
-          bot.id === data.bot_id 
-            ? { 
-                ...bot, 
-                current_capital: data.new_capital,
-                total_profit: data.total_profit,
-                name: bot.name || data.bot_name // Preserve bot name
-              }
-            : bot
-        ));
-        
-        // Refresh metrics to show new profit
-        loadMetrics();
+        // Trade truth must come from backend canonical source (not screen-local merges).
+        refreshCanonicalTradeTruth();
+        loadCustomCountdowns();
         
         // Refresh analytics tabs if they are active
         if (profitsTab === 'equity') {
@@ -915,6 +942,16 @@ export default function useDashboardState(navigate) {
         } else if (profitsTab === 'profit-history') {
           loadProfitData();
         }
+        break;
+      case 'trade_opened':
+      case 'trade_closed':
+        // Keep live/open/closed truth in sync with canonical backend collections.
+        refreshCanonicalTradeTruth();
+        loadCustomCountdowns();
+        break;
+      case 'analytics_update':
+        // Recompute dashboard surfaces from canonical endpoints.
+        refreshCanonicalTradeTruth();
         break;
       
       case 'profit_update':
@@ -999,6 +1036,7 @@ export default function useDashboardState(navigate) {
       case 'api_key_update':
         // API key connected/updated
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1006,6 +1044,7 @@ export default function useDashboardState(navigate) {
         // API key saved (realtime event)
         console.log('🔑 Key saved event:', data);
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1013,6 +1052,7 @@ export default function useDashboardState(navigate) {
         // API key tested (realtime event)
         console.log('🔑 Key tested event:', data);
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) {
           if (data.success) {
             toast.success(data.message);
@@ -1026,6 +1066,7 @@ export default function useDashboardState(navigate) {
         // API key deleted (realtime event)
         console.log('🔑 Key deleted event:', data);
         loadApiStatuses();
+        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1066,6 +1107,7 @@ export default function useDashboardState(navigate) {
         // AI learning/evolution happened
         if (data.message) toast.info(data.message);
         loadBots(); // May have new bots
+        loadLearningStatus();
         break;
       
       case 'system_update':
@@ -1467,6 +1509,44 @@ export default function useDashboardState(navigate) {
     }
   };
 
+  const loadAiStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/ai/capability-status`, axiosConfig);
+      setAiStatus(res.data);
+    } catch (err) {
+      console.error('AI status fetch error:', err);
+      setAiStatus(null);
+    }
+  };
+
+  const loadLearningStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/learning/status`, axiosConfig);
+      setLearningStatus(res.data);
+      if (res.data?.last_run) {
+        setNotableEvent((prev) => {
+          const previousAt = prev?.timestamp ? Date.parse(prev.timestamp) : 0;
+          const learningAt = res.data.last_run ? Date.parse(res.data.last_run) : Number.NaN;
+          if (
+            !prev
+            || (Number.isNaN(previousAt) && !Number.isNaN(learningAt))
+            || (!Number.isNaN(learningAt) && !Number.isNaN(previousAt) && learningAt > previousAt)
+          ) {
+            return {
+              title: 'learning loop',
+              detail: 'Last successful learning cycle available',
+              timestamp: res.data.last_run,
+            };
+          }
+          return prev;
+        });
+      }
+    } catch (err) {
+      console.error('Learning status fetch error:', err);
+      setLearningStatus(null);
+    }
+  };
+
   const loadCountdown = async () => {
     try {
       const res = await axios.get(`${API}/analytics/countdown-to-million`, axiosConfig);
@@ -1715,6 +1795,22 @@ export default function useDashboardState(navigate) {
         error: errorMsg
       });
       toast.error(errorMsg);
+    }
+  }, [axiosConfig]);
+
+  const loadAdminKeyMonitor = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/admin/key-monitor`, axiosConfig);
+      setAdminKeyMonitor({
+        providers: Array.isArray(res.data?.providers) ? res.data.providers : [],
+        timestamp: res.data?.timestamp || new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Admin key monitor error:', err);
+      setAdminKeyMonitor(prev => ({
+        providers: Array.isArray(prev?.providers) ? prev.providers : [],
+        timestamp: new Date().toISOString(),
+      }));
     }
   }, [axiosConfig]);
 
@@ -2986,9 +3082,10 @@ export default function useDashboardState(navigate) {
       loadAdminUsers();
       loadAdminBots();
       loadAdminHealth();
+      loadAdminKeyMonitor();
       loadEmergencyOverrideStatus();
     }
-  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadAdminKeyMonitor, loadEmergencyOverrideStatus]);
 
   useEffect(() => {
     if (!showAdmin) return undefined;
@@ -2997,10 +3094,11 @@ export default function useDashboardState(navigate) {
       loadAdminUsers();
       loadAdminBots();
       loadAdminHealth();
+      loadAdminKeyMonitor();
       loadEmergencyOverrideStatus();
     }, 15000);
     return () => clearInterval(interval);
-  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadAdminKeyMonitor, loadEmergencyOverrideStatus]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {
@@ -3201,6 +3299,7 @@ export default function useDashboardState(navigate) {
     activeSection,
     addCustomCountdown,
     adminApiHealth,
+    adminKeyMonitor,
     adminBots,
     adminUsers,
     aiStatus,
@@ -3299,6 +3398,7 @@ export default function useDashboardState(navigate) {
     modeTone,
     newCountdownAmount,
     newCountdownLabel,
+    notableEvent,
     overviewData,
     paperResetChecking,
     paperResetError,

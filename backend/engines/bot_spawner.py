@@ -138,14 +138,29 @@ class BotSpawner:
             )
             
             if not has_funds:
+                reserved_summary = await reserved_funds_service.get_reserved_summary(user_id)
+                exchange_reserved = (
+                    ((reserved_summary.get("by_exchange") or {}).get(config['exchange']) or {}).get("total_reserved", 0)
+                    if isinstance(reserved_summary, dict) else 0
+                )
+                shortfall = max(0.0, float(config['capital']) - float(available))
+                detail_message = (
+                    f"Bot spawn blocked — minimum required: R{config['capital']:.2f}, "
+                    f"available: R{available:.2f}, reserved: R{exchange_reserved:.2f}, "
+                    f"shortfall: R{shortfall:.2f}"
+                )
                 logger.warning(
-                    f"Bot spawn blocked: Insufficient available funds. "
-                    f"Available: R{available:.2f}, Required: R{config['capital']:.2f}"
+                    detail_message
                 )
                 return {
                     "success": False,
-                    "error": f"Insufficient available funds. Available: R{available:.2f}, Required: R{config['capital']:.2f}",
-                    "error_code": "INSUFFICIENT_AVAILABLE_FUNDS"
+                    "error": detail_message,
+                    "error_code": "INSUFFICIENT_AVAILABLE_FUNDS",
+                    "min_required": round(float(config['capital']), 2),
+                    "available": round(float(available), 2),
+                    "reserved": round(float(exchange_reserved), 2),
+                    "shortfall": round(float(shortfall), 2),
+                    "block_reason": "insufficient_available_funds",
                 }
             
             # Validate funding FIRST before attempting to spawn

@@ -21,8 +21,16 @@ from config.platforms import (
     SUPPORTED_PLATFORMS,
     TOTAL_BOT_CAPACITY
 )
+from exchange_limits import get_scalper_cap, get_normal_cap, MAX_SCALPER_BOTS_GLOBAL
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_int_cap(value, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(fallback)
 
 class BotValidator:
     """Validates bot creation parameters"""
@@ -206,6 +214,54 @@ class BotValidator:
         valid_bot_types = {'normal', 'scalper', 'uagent'}
         raw_bot_type = (bot_data.get("bot_type") or "normal").lower()
         bot_type = raw_bot_type if raw_bot_type in valid_bot_types else "normal"
+
+        # Enforce bot-class caps (scalper and normal) per exchange + global.
+        if bot_type == "scalper":
+            global_scalpers = await db.bots_collection.count_documents({
+                "user_id": user_id,
+                "bot_type": "scalper",
+                "status": {"$ne": "deleted"},
+                "deleted": {"$ne": True},
+            })
+            if global_scalpers >= MAX_SCALPER_BOTS_GLOBAL:
+                return False, {
+                    "code": "SCALPER_GLOBAL_CAP_REACHED",
+                    "message": f"Scalper global cap reached ({global_scalpers}/{MAX_SCALPER_BOTS_GLOBAL})",
+                    "action": "Delete or pause existing scalper bots before creating another.",
+                    "severity": "error",
+                }
+
+            exchange_scalpers = await db.bots_collection.count_documents({
+                "user_id": user_id,
+                "exchange": exchange,
+                "bot_type": "scalper",
+                "status": {"$ne": "deleted"},
+                "deleted": {"$ne": True},
+            })
+            scalper_cap = _safe_int_cap(get_scalper_cap(exchange), fallback=2)
+            if exchange_scalpers >= scalper_cap:
+                return False, {
+                    "code": "SCALPER_EXCHANGE_CAP_REACHED",
+                    "message": f"Scalper cap reached on {exchange} ({exchange_scalpers}/{scalper_cap})",
+                    "action": "Use another exchange or retire an existing scalper bot.",
+                    "severity": "error",
+                }
+        elif bot_type == "normal":
+            exchange_normal = await db.bots_collection.count_documents({
+                "user_id": user_id,
+                "exchange": exchange,
+                "bot_type": {"$ne": "scalper"},
+                "status": {"$ne": "deleted"},
+                "deleted": {"$ne": True},
+            })
+            normal_cap = _safe_int_cap(get_normal_cap(exchange), fallback=get_max_bots(exchange))
+            if exchange_normal >= normal_cap:
+                return False, {
+                    "code": "NORMAL_EXCHANGE_CAP_REACHED",
+                    "message": f"Normal-bot cap reached on {exchange} ({exchange_normal}/{normal_cap})",
+                    "action": "Use another exchange or retire an existing normal bot.",
+                    "severity": "error",
+                }
 
         # profit_routing controls where scalper profits are directed.
         valid_profit_routings = {'RETURN_TO_MAIN', 'SCALPER_GROWTH'}

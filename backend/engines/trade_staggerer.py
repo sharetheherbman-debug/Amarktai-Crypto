@@ -6,7 +6,7 @@ Trade Staggerer - 24/7 Staggered Trade Execution
 """
 
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Optional, Set
 from datetime import datetime, timezone, timedelta
 from collections import deque
 import logging
@@ -241,6 +241,89 @@ class TradeStaggerer:
                     
         except Exception as e:
             logger.error(f"Clear stale trades error: {e}")
+
+    async def purge_orphaned_queue(self, valid_bot_ids: Optional[Set[str]] = None) -> Dict:
+        """Remove queue items for deleted/non-existent bots and stale queued items."""
+        try:
+            if valid_bot_ids is None:
+                docs = await db.bots_collection.find(
+                    {
+                        "status": {"$ne": "deleted"},
+                        "deleted_at": {"$exists": False},
+                    },
+                    {"_id": 0, "id": 1},
+                ).to_list(5000)
+                valid_bot_ids = {d.get("id") for d in docs if d.get("id")}
+
+            now = datetime.now(timezone.utc)
+            kept = deque()
+            removed_missing = 0
+            removed_stale = 0
+
+            for item in list(self.trade_queue):
+                bot_id = item.get("bot_id")
+                if bot_id not in valid_bot_ids:
+                    removed_missing += 1
+                    continue
+                queued_at = self._parse_queued_at(item.get("queued_at"), now)
+                age_minutes = (now - queued_at).total_seconds() / 60
+                if age_minutes >= 30:
+                    removed_stale += 1
+                    continue
+                kept.append(item)
+
+            self.trade_queue = kept
+
+            # Active-trade entries for invalid bots should be removed too.
+            stale_active = [bid for bid in list(self.active_trades.keys()) if bid not in valid_bot_ids]
+            for bid in stale_active:
+                self.active_trades.pop(bid, None)
+
+            if removed_missing or removed_stale or stale_active:
+                logger.info(
+                    "🧹 Queue cleanup: removed_missing=%d removed_stale=%d stale_active=%d queue_size=%d",
+                    removed_missing, removed_stale, len(stale_active), len(self.trade_queue),
+                )
+
+            return {
+                "removed_missing": removed_missing,
+                "removed_stale": removed_stale,
+                "stale_active_removed": len(stale_active),
+                "queue_size": len(self.trade_queue),
+            }
+        except Exception as e:
+            logger.error(f"Purge orphaned queue error: {e}")
+            return {"error": str(e), "queue_size": len(self.trade_queue)}
+
+    async def clear_bot(self, bot_id: str) -> None:
+        """Remove all queued/active runtime state for a bot."""
+        self.active_trades.pop(bot_id, None)
+        self.trade_queue = deque([item for item in self.trade_queue if item.get("bot_id") != bot_id])
+
+    async def clear_user(self, user_id: str) -> None:
+        """Remove queued/active runtime state for all bots belonging to user."""
+        try:
+            docs = await db.bots_collection.find({"user_id": user_id}, {"_id": 0, "id": 1}).to_list(5000)
+            for doc in docs:
+                bot_id = doc.get("id")
+                if bot_id:
+                    await self.clear_bot(bot_id)
+        except Exception as e:
+            logger.warning(f"clear_user queue cleanup failed: {e}")
+
+    @staticmethod
+    def _parse_queued_at(value, fallback: datetime) -> datetime:
+        """Best-effort queued_at parser for queue cleanup."""
+        if isinstance(value, datetime):
+            return value
+        try:
+            raw = str(value or "").strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(raw)
+            return parsed
+        except Exception:
+            return fallback
 
 # Global instance
 trade_staggerer = TradeStaggerer()

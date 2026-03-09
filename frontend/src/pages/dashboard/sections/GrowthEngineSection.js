@@ -10,7 +10,7 @@ const REASON_LABELS = {
   AUTOPILOT_GROWTH_DISABLED:    'Growth Engine is disabled (ENABLE_AUTOPILOT_GROWTH env var)',
   AUTOPILOT_REINVEST_DISABLED:  'Reinvest Engine is disabled (ENABLE_AUTOPILOT_REINVEST env var)',
   AUTOPILOT_DISABLED:           'Autopilot is globally disabled',
-  TRADING_MODE_DISABLED:        'No trading mode is enabled (PAPER_TRADING / LIVE_TRADING)',
+  TRADING_MODE_DISABLED:        'No trading mode is enabled (ENABLE_PAPER_TRADING / ENABLE_LIVE_TRADING)',
   AUTOPILOT_OFF_FOR_USER:       'Autopilot is turned off in your profile',
   DAILY_LOSS_LOCK_ACTIVE:       'Daily loss limit reached — unlock via Risk panel',
   AUTOPILOT_MODE_DISABLED:      'System mode is not set to Autopilot',

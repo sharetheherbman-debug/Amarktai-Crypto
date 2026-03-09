@@ -65,6 +65,7 @@ export default function Dashboard() {
     activeSection,
     addCustomCountdown,
     adminApiHealth,
+    adminKeyMonitor,
     adminBots,
     adminUsers,
     aiStatus,
@@ -164,6 +165,7 @@ export default function Dashboard() {
     newCountdownAmount,
     newCountdownLabel,
     overviewData,
+    notableEvent,
     paperResetChecking,
     paperResetError,
     paperResetLoading,
@@ -344,6 +346,7 @@ export default function Dashboard() {
               livePrices={livePrices}
               metrics={metrics}
               modeLabel={modeLabel}
+              notableEvent={notableEvent}
               overviewData={overviewData}
               riskStatus={riskStatus}
               systemModes={systemModes}
@@ -557,6 +560,7 @@ export default function Dashboard() {
               user={user}
               actionLoading={actionLoading}
               adminApiHealth={adminApiHealth}
+              adminKeyMonitor={adminKeyMonitor}
               adminBots={adminBots}
               adminUsers={adminUsers}
               aiTaskLoading={aiTaskLoading}

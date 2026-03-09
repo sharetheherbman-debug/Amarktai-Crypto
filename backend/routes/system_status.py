@@ -107,7 +107,9 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
             system_modes = {
                 "paper_trading": modes.get("paperTrading", False),
                 "live_trading": modes.get("liveTrading", False),
-                "autonomous": modes.get("autopilot", False)
+                "autopilot": modes.get("autopilot", False),
+                # backward-compatible alias
+                "autonomous": modes.get("autopilot", False),
             }
         except Exception as e:
             logger.error(f"Error fetching system modes: {e}")

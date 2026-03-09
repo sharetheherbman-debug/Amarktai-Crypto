@@ -60,6 +60,7 @@ from config import (
 from realtime_events import rt_events
 
 logger = logging.getLogger(__name__)
+SUPPORTED_QUOTE_CURRENCIES = {"ZAR", "USDT"}
 
 # EXCHANGE FEE STRUCTURES (realistic simulation)
 # Updated to match actual exchange fee schedules (as of 2024)
@@ -1078,7 +1079,7 @@ class PaperTradingEngine:
             stop_loss_pct = float(bot_data.get("stop_loss_pct", 0.02))
             take_profit_pct = float(bot_data.get("take_profit_pct", 0.03))
 
-            fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
+            fee_currency = self._resolve_quote_currency(symbol)
             market_source = market_snapshot.get("source") if isinstance(market_snapshot, dict) else data_source
             spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if isinstance(market_snapshot, dict) else PAPER_SPREAD_BPS
 
@@ -1196,6 +1197,20 @@ class PaperTradingEngine:
         "balanced": 3 * 3600,    # 3 hours
         "aggressive": 90 * 60,   # 90 minutes
     }
+
+    @staticmethod
+    def _resolve_quote_currency(symbol: str, preferred: Optional[str] = None) -> str:
+        """Resolve trade quote currency.
+
+        Priority:
+        1) preferred (when an existing trade already carries fee_currency),
+        2) symbol quote inference (/ZAR => ZAR),
+        3) USDT default fallback.
+        """
+        pref = str(preferred or "").upper().strip()
+        if pref in SUPPORTED_QUOTE_CURRENCIES:
+            return pref
+        return "ZAR" if "/ZAR" in str(symbol or "").upper() else "USDT"
 
     async def _close_open_trade(self, bot_id: str, bot_data: Dict, open_trade: Dict) -> Optional[Dict]:
         """Close an open paper trade if exit conditions are met.
@@ -1328,7 +1343,10 @@ class PaperTradingEngine:
             if net_profit > 0 and net_profit < MIN_TRADE_PROFIT_THRESHOLD_ZAR:
                 close_reason = "take_profit" if close_reason == "take_profit" else close_reason
 
-            fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
+            fee_currency = self._resolve_quote_currency(
+                symbol,
+                open_trade.get("fee_currency") or open_trade.get("currency")
+            )
             spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS)
 
             quality_score = self._calculate_trade_quality(net_profit, fees, entry_value, profit_pct)
@@ -1446,7 +1464,10 @@ class PaperTradingEngine:
                         ledger_db = getattr(db, "db", None)
                         if ledger_db is not None:
                             ledger = get_ledger_service(ledger_db)
-                            currency = "ZAR" if "/ZAR" in trade_result.get("symbol", "") else "USDT"
+                            currency = self._resolve_quote_currency(
+                                trade_result.get("symbol", ""),
+                                trade_result.get("fee_currency"),
+                            )
                             await ledger.ensure_bot_funding(
                                 user_id=bot_data['user_id'],
                                 bot_id=bot_id,
@@ -1521,7 +1542,10 @@ class PaperTradingEngine:
                 ledger_db = getattr(db, "db", None)
                 if ledger_db is not None:
                     ledger = get_ledger_service(ledger_db)
-                    currency = "ZAR" if "/ZAR" in trade_result.get("symbol", "") else "USDT"
+                    currency = self._resolve_quote_currency(
+                        trade_result.get("symbol", ""),
+                        trade_result.get("fee_currency"),
+                    )
                     await ledger.ensure_bot_funding(
                         user_id=bot_data['user_id'],
                         bot_id=bot_id,

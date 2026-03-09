@@ -76,19 +76,21 @@ class ProviderScheduler:
     Rotates requests across price providers to stay within free-tier limits.
 
     Priority order (configurable):
-      1. CryptoCompare  – 100 k calls/month
-      2. CoinGecko      – 30 req/min, no daily cap
-      3. Coinranking     – 10 k calls/month
+      1. CoinDesk       – primary market-data source
+      2. CryptoCompare  – secondary
+      3. CoinGecko      – tertiary
+      4. Coinranking    – quaternary
     """
 
     DEFAULT_QUOTAS: Dict[str, Dict] = {
+        "coindesk":      {"monthly_limit": 200_000, "per_minute_limit": 60},
         "cryptocompare": {"monthly_limit": 100_000, "per_minute_limit": 50},
         "coingecko":     {"monthly_limit": 999_999, "per_minute_limit": 30},
         "coinranking":   {"monthly_limit": 10_000,  "per_minute_limit": 5},
     }
 
     def __init__(self, priority: Optional[List[str]] = None):
-        self._priority = priority or ["cryptocompare", "coingecko", "coinranking"]
+        self._priority = priority or ["coindesk", "cryptocompare", "coingecko", "coinranking"]
         self._quotas: Dict[str, ProviderQuota] = {}
         for name in self._priority:
             defaults = self.DEFAULT_QUOTAS.get(name, {})
@@ -190,6 +192,71 @@ class PriceProvider:
 
     async def ping(self) -> bool:
         raise NotImplementedError
+
+
+class CoinDeskProvider(PriceProvider):
+    """CoinDesk price provider (primary)."""
+
+    name = "coindesk"
+    BASE = "https://api.coindesk.com/v1/bpi/currentprice"
+
+    def __init__(self, api_key: str = ""):
+        self._api_key = api_key
+
+    def _headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {}
+        if self._api_key:
+            # CoinDesk key is optional for this public endpoint. If configured,
+            # we send it for production consistency and future quota telemetry.
+            headers["X-API-Key"] = self._api_key
+        return headers
+
+    async def get_price(self, symbol: str, vs_currency: str = "usd") -> Optional[Dict]:
+        # CoinDesk currentprice endpoint is BTC-first; non-BTC symbols should
+        # gracefully fall through to secondary providers.
+        if symbol.upper() != "BTC":
+            return None
+        fiat = vs_currency.upper()
+        url = f"{self.BASE}/{fiat}.json"
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(url, headers=self._headers(), timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    if r.status != 200:
+                        return None
+                    data = await r.json()
+                    bpi = data.get("bpi", {})
+                    quote = bpi.get(fiat)
+                    if not quote:
+                        return None
+                    price = quote.get("rate_float")
+                    if price is None:
+                        return None
+                    return {"symbol": "BTC", "price": price, "currency": vs_currency, "source": self.name}
+        except Exception as exc:
+            logger.error("CoinDesk price error (%s): %s", symbol, exc)
+        return None
+
+    async def get_prices_batch(self, symbols: List[str], vs_currency: str = "usd") -> Dict[str, Dict]:
+        # Batch endpoint parity not available in this provider; return only BTC
+        # when requested and let scheduler fallback for remaining symbols.
+        result: Dict[str, Dict] = {}
+        if any(sym.upper() == "BTC" for sym in symbols):
+            btc = await self.get_price("BTC", vs_currency)
+            if btc is not None:
+                result["BTC"] = btc
+        return result
+
+    async def ping(self) -> bool:
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    f"{self.BASE}/USD.json",
+                    headers=self._headers(),
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as r:
+                    return r.status == 200
+        except Exception:
+            return False
 
 
 class CryptoCompareProvider(PriceProvider):
@@ -704,6 +771,7 @@ class MarketIntelligenceEngine:
 
     def __init__(self):
         # Build providers from env keys
+        cd_key = os.getenv("COINDESK_API_KEY", "")
         cc_key = os.getenv("CRYPTOCOMPARE_API_KEY", "")
         cg_key = os.getenv("COINGECKO_API_KEY", "")
         cr_key = os.getenv("COINRANKING_API_KEY", "")
@@ -712,6 +780,7 @@ class MarketIntelligenceEngine:
         self.aggregator = PriceAggregator(scheduler=self.scheduler, cache_ttl=60)
 
         # Register providers that have keys (or work without)
+        self.aggregator.register_provider(CoinDeskProvider(api_key=cd_key))
         self.aggregator.register_provider(CryptoCompareProvider(api_key=cc_key))
         self.aggregator.register_provider(CoinGeckoProvider(api_key=cg_key))
         if cr_key:

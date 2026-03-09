@@ -144,9 +144,11 @@ async def get_countdown_status(
         # Get current equity
         current_equity = await ledger.compute_equity(user_id, currency="ZAR")
 
-        # Total trades from ledger (paper + live)
-        stats = await ledger.get_stats(user_id)
-        trades_total = stats.get("total_fills", 0)
+        # Total trades should count closed trade documents (fills inflate counts).
+        trades_total = await db["trades"].count_documents({
+            "user_id": user_id,
+            "status": "closed",
+        })
 
         if trades_total < 10:
             remaining_trades = 10 - trades_total

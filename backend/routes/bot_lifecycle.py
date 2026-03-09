@@ -1466,6 +1466,11 @@ async def delete_bot(
         )
 
         await bot_runtime_state.remove(bot_id)
+        try:
+            from engines.trade_staggerer import trade_staggerer
+            await trade_staggerer.clear_bot(bot_id)
+        except Exception as e:
+            logger.warning(f"Failed to clear scheduler queue/runtime for bot {bot_id}: {e}")
 
         try:
             from services.paper_wallet_ledger import paper_wallet_ledger

@@ -3,8 +3,8 @@ Test Provider Truth Model
 Ensures the canonical provider hierarchy is correctly implemented:
   - CoinStats is NOT in canonical provider lists (AI, market data, enricher)
   - CoinStats is in legacy list, marked deprecated, disabled, hidden
-  - CryptoCompare is primary market data provider
-  - CoinGecko is secondary, Coinranking is tertiary
+  - CoinDesk is primary market data provider
+  - CryptoCompare is secondary, CoinGecko tertiary, Coinranking quaternary
   - Provider registry matches frontend constants
   - No stale CoinStats-first wiring in active dashboard code
 """
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 CANONICAL_EXCHANGES = {'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'}
 CANONICAL_AI_PROVIDERS = {'openai', 'huggingface', 'fetchai'}
-CANONICAL_MARKET_DATA = {'cryptocompare', 'coingecko', 'coinranking'}
+CANONICAL_MARKET_DATA = {'coindesk', 'cryptocompare', 'coingecko', 'coinranking'}
 CANONICAL_ENRICHERS = {'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic'}
 LEGACY_PROVIDERS = {'coinstats'}
 
@@ -140,7 +140,7 @@ class TestFrontendProviderTruth:
         match = re.search(r"export const MARKET_DATA_PROVIDERS\s*=\s*\[([^\]]+)\]", content)
         assert match, "MARKET_DATA_PROVIDERS not found in platforms.js"
         md_list = match.group(1)
-        for p in ['cryptocompare', 'coingecko', 'coinranking']:
+        for p in ['coindesk', 'cryptocompare', 'coingecko', 'coinranking']:
             assert p in md_list, f"{p} missing from MARKET_DATA_PROVIDERS"
 
     def test_platforms_js_has_intelligence_enrichers(self):

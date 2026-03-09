@@ -54,11 +54,22 @@ export default function OverviewSection({
   livePrices,
   metrics,
   modeLabel,
+  notableEvent,
   overviewData,
   riskStatus,
   systemModes,
 }) {
-  const aiKeyConfigured = aiStatus?.key_configured;
+  const aiProviders = aiStatus?.providers || {};
+  const aiCapabilities = aiStatus?.capabilities || {};
+  const aiProviderIds = Object.keys(aiProviders);
+  const aiCapabilityIds = Object.keys(aiCapabilities);
+  const aiUsableProviders = aiProviderIds.filter((id) => aiProviders[id]?.usable).length;
+  const aiAvailableCapabilities = aiCapabilityIds.filter((id) => aiCapabilities[id]?.available).length;
+  const aiDegraded = Boolean(aiStatus?.degraded_mode);
+  const aiKeyConfigured = aiStatus?.key_configured
+    ?? aiProviders?.openai?.configured
+    ?? aiProviders?.openai?.usable
+    ?? false;
   const formatOverviewDate = (value) => {
     const formatted = formatDate(value);
     return formatted;
@@ -96,7 +107,9 @@ export default function OverviewSection({
     },
     {
       label: 'Self-Healing',
-      value: autonomyStatus?.subsystems?.self_heal?.running
+      value: autonomyStatus?.subsystems?.self_heal?.status
+        ?? autonomyStatus?.subsystems?.bodyguard?.status
+        ?? autonomyStatus?.subsystems?.self_heal?.running
         ?? autonomyStatus?.subsystems?.bodyguard?.running
         ?? autonomyStatus?.self_healing
         ?? autonomyStatus?.bodyguard
@@ -110,9 +123,9 @@ export default function OverviewSection({
         ?? learningStatus?.active,
     },
   ];
-  const lastEventTitle = riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable';
-  const lastEventDetail = riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts';
-  const lastEventTime = formatOverviewDate(overviewData.lastTradeTime);
+  const lastEventTitle = notableEvent?.title || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
+  const lastEventDetail = notableEvent?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');
+  const lastEventTime = formatOverviewDate(notableEvent?.timestamp || overviewData.lastTradeTime);
 
   return (
     <section className="section active">
@@ -328,6 +341,23 @@ export default function OverviewSection({
                     <strong>{formatStatusValue(item.value)}</strong>
                   </div>
                 ))}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="overview-card">
+              <div className="overview-card-header">
+                <h3>AI Capability</h3>
+                <span className="overview-card-meta">{aiDegraded ? 'Degraded' : 'Healthy'}</span>
+              </div>
+              <div className="overview-status-list">
+                <div className="overview-status-row">
+                  <span>Providers Usable</span>
+                  <strong>{aiUsableProviders}/{aiProviderIds.length || 0}</strong>
+                </div>
+                <div className="overview-status-row">
+                  <span>Features Available</span>
+                  <strong>{aiAvailableCapabilities}/{aiCapabilityIds.length || 0}</strong>
+                </div>
               </div>
             </GlassCard>
 

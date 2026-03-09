@@ -64,7 +64,7 @@ class TestProviderScheduler:
     def test_default_priority_returns_first(self):
         from engines.market_intelligence_engine import ProviderScheduler
         sched = ProviderScheduler()
-        assert sched.next_provider() == "cryptocompare"
+        assert sched.next_provider() == "coindesk"
 
     def test_record_call_increments(self):
         from engines.market_intelligence_engine import ProviderScheduler
@@ -77,19 +77,19 @@ class TestProviderScheduler:
         from engines.market_intelligence_engine import ProviderScheduler, ProviderQuota
         sched = ProviderScheduler()
         # Manually exhaust primary
-        q = sched._quotas["cryptocompare"]
+        q = sched._quotas["coindesk"]
         q.monthly_calls = int(q.monthly_limit * q.switch_threshold) + 1
         next_p = sched.next_provider()
-        assert next_p == "coingecko"
+        assert next_p == "cryptocompare"
 
     def test_per_minute_limit_triggers_rotation(self):
         from engines.market_intelligence_engine import ProviderScheduler
         sched = ProviderScheduler()
-        q = sched._quotas["cryptocompare"]
+        q = sched._quotas["coindesk"]
         q.minute_calls = q.per_minute_limit  # exhaust per-minute
         q.minute_window_start = time.time()  # within current window
         next_p = sched.next_provider()
-        assert next_p == "coingecko"
+        assert next_p == "cryptocompare"
 
     def test_set_priority(self):
         from engines.market_intelligence_engine import ProviderScheduler
@@ -115,7 +115,7 @@ class TestProviderScheduler:
     def test_all_exhausted_returns_most_headroom(self):
         from engines.market_intelligence_engine import ProviderScheduler
         sched = ProviderScheduler()
-        for name in ["cryptocompare", "coingecko", "coinranking"]:
+        for name in ["coindesk", "cryptocompare", "coingecko", "coinranking"]:
             q = sched._quotas[name]
             q.monthly_calls = int(q.monthly_limit * q.switch_threshold) + 1
         # Should still return one (the one with most headroom)

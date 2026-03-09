@@ -37,20 +37,31 @@ def set_bind_ok(status: bool = True):
 _BUILD_HASH_CACHE = None
 
 
-def get_build_hash() -> str:
-    """Get current git commit SHA for build identification (cached)."""
+def get_build_metadata() -> dict:
+    """Get build metadata/provenance (cached)."""
     global _BUILD_HASH_CACHE
     
     # Return cached value if available
     if _BUILD_HASH_CACHE is not None:
         return _BUILD_HASH_CACHE
-    
+
+    metadata = {
+        "hash": "unknown",
+        "source": "unknown",
+        "environment": os.getenv("ENVIRONMENT", "unknown"),
+        "build_timestamp": os.getenv("BUILD_TIMESTAMP") or "unknown",
+        "git_branch": None,
+        "git_dirty": None,
+    }
+
     try:
         # First try BUILD_SHA environment variable
         build_sha = os.environ.get("BUILD_SHA")
         if build_sha:
-            _BUILD_HASH_CACHE = build_sha
-            return build_sha
+            metadata["hash"] = build_sha
+            metadata["source"] = "env_BUILD_SHA"
+            _BUILD_HASH_CACHE = metadata
+            return metadata
         
         # Fall back to git command (with restricted scope and timeout)
         result = subprocess.run(
@@ -62,14 +73,40 @@ def get_build_hash() -> str:
             check=False  # Don't raise on non-zero exit
         )
         if result.returncode == 0:
-            _BUILD_HASH_CACHE = result.stdout.strip()
-            return _BUILD_HASH_CACHE
+            metadata["hash"] = result.stdout.strip()
+            metadata["source"] = "git_rev_parse"
+
+            branch = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                check=False
+            )
+            if branch.returncode == 0:
+                metadata["git_branch"] = branch.stdout.strip()
+
+            dirty = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                check=False
+            )
+            if dirty.returncode == 0:
+                metadata["git_dirty"] = bool((dirty.stdout or "").strip())
     except Exception as e:
         logger.debug(f"Could not get build hash: {e}")
-    
-    # Cache the unknown value to avoid repeated failures
-    _BUILD_HASH_CACHE = "unknown"
-    return "unknown"
+
+    _BUILD_HASH_CACHE = metadata
+    return metadata
+
+
+def get_build_hash() -> str:
+    """Backwards-compatible accessor for legacy callers."""
+    return get_build_metadata().get("hash", "unknown")
 
 
 def set_router_status(mounted: list, failed: list):
@@ -273,6 +310,7 @@ async def health_ping() -> dict:
             "db": db_status,
             "timestamp": current_time.isoformat(),
             "build_hash": get_build_hash(),
+            "build": get_build_metadata(),
             "bind_ok": _bind_ok,
         }
         
@@ -303,6 +341,7 @@ async def health_ping() -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
                 "build_hash": get_build_hash(),
+                "build": get_build_metadata(),
                 "bind_ok": _bind_ok
             }
         )

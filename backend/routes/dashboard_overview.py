@@ -16,6 +16,7 @@ from typing import Dict, Optional
 
 from auth import get_current_user
 import database as db
+from routes.system_mode import get_system_mode
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -84,17 +85,20 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         # Calculate total profit from bots
         total_profit = sum(b.get("total_profit", 0) for b in bots)
         
-        # Get user info for system modes
+        # Get user info for profile-derived fields
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # System modes
+        # System modes (canonical source: system_modes collection)
+        canonical_mode = await get_system_mode(user_id)
         system_mode = {
-            "paper_trading": user.get("system_mode") == "testing" or user.get("system_mode") == "paper",
-            "live_trading": user.get("system_mode") == "live_trading",
-            "autonomous": user.get("autopilot_enabled", False)
+            "paper_trading": bool(canonical_mode.get("paperTrading", False)),
+            "live_trading": bool(canonical_mode.get("liveTrading", False)),
+            "autopilot": bool(canonical_mode.get("autopilot", False)),
+            # Backward-compatible alias used by some older frontend cards
+            "autonomous": bool(canonical_mode.get("autopilot", False)),
         }
         
         # Bodyguard/risk lock status
