@@ -226,6 +226,23 @@ async def get_current_user_profile(user_id: str = Depends(get_current_user)):
         # Neither field present - add both using the user_id from token
         sanitized_user['id'] = user_id
         sanitized_user['user_id'] = user_id
+
+    # Canonical system mode fields (single source: system_modes collection)
+    try:
+        from routes.system_mode import get_system_mode as _get_system_mode
+        mode_doc = await _get_system_mode(user_id)
+        paper_trading = bool(mode_doc.get("paperTrading", False))
+        live_trading = bool(mode_doc.get("liveTrading", False))
+        autopilot = bool(mode_doc.get("autopilot", False))
+        trading_mode = "live" if live_trading else "paper" if paper_trading else "testing"
+        sanitized_user["trading_mode"] = trading_mode
+        sanitized_user["paperTrading"] = paper_trading
+        sanitized_user["liveTrading"] = live_trading
+        sanitized_user["autopilot"] = autopilot
+        sanitized_user["autonomy"] = autopilot
+    except Exception:
+        # Non-fatal: keep auth/me available even if mode subsystem is degraded
+        pass
     
     return sanitized_user
 

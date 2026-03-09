@@ -232,19 +232,45 @@ async def compute_scheduler_state(db) -> Dict[str, Any]:
 
 
 async def compute_exchange_readiness(user_id: str, db) -> Dict[str, Any]:
-    """Per-exchange health from API keys collection."""
+    """Per-exchange health from canonical API key documents.
+
+    Uses the same underlying key documents that power /api/keys/status to avoid
+    truth drift between Truth Console EXCHANGE_HEALTH and key-status panels.
+    """
     from services.exchange_adapter import SUPPORTED_EXCHANGES
 
     results = {}
     for ex in SUPPORTED_EXCHANGES:
         key_doc = await db["api_keys"].find_one(
-            {"user_id": user_id, "provider": ex}
+            {"user_id": user_id, "provider": ex},
+            {
+                "_id": 0,
+                "api_key": 1,
+                "api_key_encrypted": 1,
+                "status": 1,
+                "last_test_ok": 1,
+                "last_tested_at": 1,
+                "last_test_error": 1,
+            },
         )
-        configured = bool(key_doc and key_doc.get("api_key"))
+        configured = bool(
+            key_doc and (
+                key_doc.get("api_key")
+                or key_doc.get("api_key_encrypted")
+            )
+        )
+        test_passed = key_doc.get("last_test_ok") if key_doc else None
+        if test_passed is None and key_doc:
+            status = (key_doc.get("status") or "").lower()
+            if status in {"configured_valid", "test_ok"}:
+                test_passed = True
+            elif status in {"configured_invalid", "test_failed"}:
+                test_passed = False
         results[ex] = {
             "configured": configured,
-            "test_passed": key_doc.get("test_passed") if key_doc else None,
-            "error": key_doc.get("error_reason") if key_doc else None,
+            "test_passed": test_passed,
+            "error": key_doc.get("last_test_error") if key_doc else None,
+            "last_tested_at": key_doc.get("last_tested_at") if key_doc else None,
         }
     configured_count = sum(1 for v in results.values() if v["configured"])
     return {
