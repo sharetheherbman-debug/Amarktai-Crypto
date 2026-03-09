@@ -308,10 +308,10 @@ export const PLATFORM_CONFIG = {
     icon: '📊',
     color: '#F59E0B',
     type: PROVIDER_TYPES.LEGACY,
-    enabled: false,       // disabled by default
-    deprecated: true,     // marked deprecated
-    fallbackOnly: true,   // never a primary source
-    hidden: true,         // hidden from default UI
+    enabled: false,
+    deprecated: true,
+    fallbackOnly: true,
+    hidden: true,
     requiredKeyFields: ['api_key'],
     helpText: 'Legacy market data fallback — deprecated, use CryptoCompare instead.',
     capabilities: ['prices', 'news'],

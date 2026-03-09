@@ -194,11 +194,11 @@ class TestNoCoinStatsCanonicalWiring:
 
     def test_coinstats_panel_marked_deprecated(self):
         cs_file = self.sections_dir / 'CoinStatsPanel.js'
-        if cs_file.exists():
-            content = cs_file.read_text()
-            assert 'DEPRECATED' in content, (
-                "CoinStatsPanel.js should be marked DEPRECATED"
-            )
+        assert cs_file.exists(), "CoinStatsPanel.js should still exist (retained as legacy)"
+        content = cs_file.read_text()
+        assert 'DEPRECATED' in content, (
+            "CoinStatsPanel.js should be marked DEPRECATED"
+        )
 
 
 if __name__ == "__main__":

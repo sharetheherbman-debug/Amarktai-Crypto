@@ -199,8 +199,7 @@ class KeysService:
         elif provider_lower in ['fetchai', 'coinstats', 'huggingface',
                                   'cryptocompare', 'coingecko', 'coinranking',
                                   'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic']:
-            # Generic validation for AI providers without live test
-            # Could implement actual API tests if endpoints available
+            # Generic format validation for non-exchange providers (AI, market data, enrichers, legacy)
             metadata = {'provider': provider_lower, 'test_type': 'format_validation'}
             return True, metadata, None
             
