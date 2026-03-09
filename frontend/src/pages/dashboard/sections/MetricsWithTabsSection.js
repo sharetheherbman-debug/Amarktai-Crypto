@@ -5,6 +5,14 @@ import WhaleFlowHeatmap from '../../../components/WhaleFlowHeatmap';
 import PrometheusMetrics from '../../../components/PrometheusMetrics';
 import MarketIntelligencePanel from './MarketIntelligencePanel';
 import HuggingFacePanel from './HuggingFacePanel';
+import {
+  MarketBrainPanel,
+  WhaleFlowPanel,
+  SentimentPanel,
+  OrderbookPanel,
+  CapitalPanel,
+  GeneticsPanel,
+} from './DashboardIntelligencePanels';
 
 const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfig }) => {
   const tabStyle = (active) => ({
@@ -46,6 +54,9 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
             <button onClick={() => setMetricsTab('market-intelligence')} style={tabStyle(metricsTab === 'market-intelligence')}>
               🧠 Market Intelligence
             </button>
+            <button onClick={() => setMetricsTab('intelligence-panels')} style={tabStyle(metricsTab === 'intelligence-panels')}>
+              🔬 Intelligence Panels
+            </button>
             <button onClick={() => setMetricsTab('huggingface')} style={tabStyle(metricsTab === 'huggingface')}>
               🤗 AI Analysis
             </button>
@@ -71,6 +82,18 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
             {metricsTab === 'market-intelligence' && (
               <ErrorBoundary title="Market Intelligence Error" message="Unable to load market intelligence data.">
                 <MarketIntelligencePanel />
+              </ErrorBoundary>
+            )}
+            {metricsTab === 'intelligence-panels' && (
+              <ErrorBoundary title="Intelligence Panels Error" message="Unable to load intelligence panels.">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+                  <MarketBrainPanel />
+                  <WhaleFlowPanel />
+                  <SentimentPanel />
+                  <OrderbookPanel />
+                  <CapitalPanel />
+                  <GeneticsPanel />
+                </div>
               </ErrorBoundary>
             )}
             {metricsTab === 'huggingface' && (

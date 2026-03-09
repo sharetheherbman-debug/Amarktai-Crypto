@@ -24,7 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 class MarketRegime(Enum):
-    """Market regime states"""
+    """Market regime states — canonical set for strategy selection"""
+    TRENDING = "trending"
+    RANGING = "ranging"
+    VOLATILE = "volatile"
+    LOW_VOLATILITY = "low_volatility"
+    PANIC = "panic"
+    ACCUMULATION = "accumulation"
+    # Legacy aliases (kept for backward compatibility with existing callers)
     BULLISH_CALM = "bullish_calm"
     BEARISH_VOLATILE = "bearish_volatile"
     SQUEEZE = "squeeze"
@@ -227,44 +234,56 @@ class RegimeDetector:
         features: np.ndarray
     ) -> MarketRegime:
         """
-        Map numerical regime ID to semantic market state
-        
-        Args:
-            regime_id: Detected regime cluster ID
-            features: Feature matrix for analysis
-            
-        Returns:
-            MarketRegime enum
+        Map numerical regime ID to semantic market state.
+
+        Classification priority (evaluated top-to-bottom):
+        1. PANIC        – extreme negative returns + very high volatility
+        2. VOLATILE      – high volatility regardless of direction
+        3. TRENDING      – clear directional momentum, moderate volatility
+        4. RANGING       – low momentum, moderate volatility
+        5. LOW_VOLATILITY – very low volatility, unclear direction
+        6. ACCUMULATION  – low volatility with rising volume / mild positive drift
         """
         if regime_id < 0 or len(features) == 0:
             return MarketRegime.UNKNOWN
-        
-        # Analyze recent features
-        recent_features = features[-10:]
-        
-        # Calculate regime characteristics
-        avg_return = np.mean(recent_features[:, 0])  # Log returns
-        avg_volatility = np.mean(recent_features[:, 1])  # Volatility
-        avg_momentum = np.mean(recent_features[:, 2])  # Momentum
-        
-        # Classification logic
-        # Bullish/Calm: Positive returns, low volatility
-        if avg_return > 0 and avg_volatility < np.median(features[:, 1]):
-            return MarketRegime.BULLISH_CALM
-        
-        # Bearish/Volatile: Negative returns, high volatility
-        elif avg_return < 0 and avg_volatility > np.median(features[:, 1]):
-            return MarketRegime.BEARISH_VOLATILE
-        
-        # Squeeze: Low volatility with unclear direction
-        elif avg_volatility < np.percentile(features[:, 1], 25):
-            return MarketRegime.SQUEEZE
-        
-        # Default based on momentum
-        elif avg_momentum > 0:
-            return MarketRegime.BULLISH_CALM
-        else:
-            return MarketRegime.BEARISH_VOLATILE
+
+        recent = features[-10:]
+        avg_return = float(np.mean(recent[:, 0]))
+        avg_vol = float(np.mean(recent[:, 1]))
+        avg_momentum = float(np.mean(recent[:, 2]))
+
+        vol_median = float(np.median(features[:, 1]))
+        vol_p75 = float(np.percentile(features[:, 1], 75))
+        vol_p25 = float(np.percentile(features[:, 1], 25))
+
+        # 1. PANIC — extreme drawdown with high volatility
+        if avg_return < -0.005 and avg_vol > vol_p75:
+            return MarketRegime.PANIC
+
+        # 2. VOLATILE — high volatility without clear trend
+        if avg_vol > vol_p75:
+            return MarketRegime.VOLATILE
+
+        # 3. TRENDING — clear directional momentum, moderate volatility
+        if abs(avg_momentum) > 0.01 and avg_vol >= vol_p25:
+            return MarketRegime.TRENDING
+
+        # 4. ACCUMULATION — low volatility with mild positive drift
+        if avg_vol < vol_median and avg_return > 0 and avg_momentum > 0:
+            return MarketRegime.ACCUMULATION
+
+        # 5. LOW_VOLATILITY — very quiet market
+        if avg_vol < vol_p25:
+            return MarketRegime.LOW_VOLATILITY
+
+        # 6. RANGING — no clear direction, moderate volatility
+        if abs(avg_momentum) < 0.005:
+            return MarketRegime.RANGING
+
+        # Fallback — use momentum direction
+        if avg_momentum > 0:
+            return MarketRegime.TRENDING
+        return MarketRegime.RANGING
     
     async def detect_regime(self, symbol: str) -> Optional[RegimeState]:
         """
@@ -346,49 +365,97 @@ class RegimeDetector:
     
     def get_trading_parameters(self, regime_state: RegimeState) -> Dict[str, float]:
         """
-        Get adaptive trading parameters based on regime
-        
-        Args:
-            regime_state: Current market regime
-            
+        Get adaptive trading parameters based on regime.
+
         Returns:
-            Dictionary of trading parameters
+            Dictionary of trading parameters tuned for the current regime
         """
-        if regime_state.regime == MarketRegime.BULLISH_CALM:
-            return {
+        regime = regime_state.regime
+
+        PARAMS = {
+            MarketRegime.TRENDING: {
                 'position_size_multiplier': 1.2,
                 'stop_loss_pct': 2.0,
                 'take_profit_pct': 5.0,
                 'max_trades_per_day': 10,
-                'confidence_threshold': 0.6
-            }
-        
-        elif regime_state.regime == MarketRegime.BEARISH_VOLATILE:
-            return {
+                'confidence_threshold': 0.6,
+                'preferred_strategy': 'trend_following',
+            },
+            MarketRegime.RANGING: {
+                'position_size_multiplier': 0.9,
+                'stop_loss_pct': 1.5,
+                'take_profit_pct': 2.5,
+                'max_trades_per_day': 12,
+                'confidence_threshold': 0.65,
+                'preferred_strategy': 'mean_reversion',
+            },
+            MarketRegime.VOLATILE: {
                 'position_size_multiplier': 0.5,
                 'stop_loss_pct': 3.0,
                 'take_profit_pct': 3.0,
                 'max_trades_per_day': 5,
-                'confidence_threshold': 0.75
-            }
-        
-        elif regime_state.regime == MarketRegime.SQUEEZE:
-            return {
+                'confidence_threshold': 0.75,
+                'preferred_strategy': 'momentum_scalping',
+            },
+            MarketRegime.LOW_VOLATILITY: {
+                'position_size_multiplier': 0.7,
+                'stop_loss_pct': 1.0,
+                'take_profit_pct': 1.5,
+                'max_trades_per_day': 15,
+                'confidence_threshold': 0.55,
+                'preferred_strategy': 'mean_reversion',
+            },
+            MarketRegime.PANIC: {
+                'position_size_multiplier': 0.3,
+                'stop_loss_pct': 4.0,
+                'take_profit_pct': 2.0,
+                'max_trades_per_day': 3,
+                'confidence_threshold': 0.85,
+                'preferred_strategy': 'defensive',
+            },
+            MarketRegime.ACCUMULATION: {
+                'position_size_multiplier': 1.0,
+                'stop_loss_pct': 2.0,
+                'take_profit_pct': 4.0,
+                'max_trades_per_day': 8,
+                'confidence_threshold': 0.6,
+                'preferred_strategy': 'breakout',
+            },
+            # Legacy aliases
+            MarketRegime.BULLISH_CALM: {
+                'position_size_multiplier': 1.2,
+                'stop_loss_pct': 2.0,
+                'take_profit_pct': 5.0,
+                'max_trades_per_day': 10,
+                'confidence_threshold': 0.6,
+                'preferred_strategy': 'trend_following',
+            },
+            MarketRegime.BEARISH_VOLATILE: {
+                'position_size_multiplier': 0.5,
+                'stop_loss_pct': 3.0,
+                'take_profit_pct': 3.0,
+                'max_trades_per_day': 5,
+                'confidence_threshold': 0.75,
+                'preferred_strategy': 'momentum_scalping',
+            },
+            MarketRegime.SQUEEZE: {
                 'position_size_multiplier': 0.7,
                 'stop_loss_pct': 1.5,
                 'take_profit_pct': 2.5,
                 'max_trades_per_day': 8,
-                'confidence_threshold': 0.65
-            }
-        
-        else:  # UNKNOWN
-            return {
-                'position_size_multiplier': 0.8,
-                'stop_loss_pct': 2.5,
-                'take_profit_pct': 4.0,
-                'max_trades_per_day': 7,
-                'confidence_threshold': 0.7
-            }
+                'confidence_threshold': 0.65,
+                'preferred_strategy': 'breakout',
+            },
+        }
+
+        return PARAMS.get(regime, {
+            'position_size_multiplier': 0.8,
+            'stop_loss_pct': 2.5,
+            'take_profit_pct': 4.0,
+            'max_trades_per_day': 7,
+            'confidence_threshold': 0.7,
+            'preferred_strategy': 'balanced',
+        })
     
     async def get_regime_summary(self) -> Dict[str, Dict]:
         """
