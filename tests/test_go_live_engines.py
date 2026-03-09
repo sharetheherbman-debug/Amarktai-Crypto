@@ -617,3 +617,98 @@ class TestRiskDrawdownCap:
             return
         dd = RiskManager.compute_drawdown(current_equity=800, peak_equity=1000)
         assert dd == pytest.approx(0.2, abs=0.001)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Paper Trading Close Path Tests — Emergency Fix Validation
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPaperClosePathIntegration:
+    """Verify that the paper-trade close path now properly wires
+    risk-mode max_hold and time-decay logic."""
+
+    def test_risk_mode_max_hold_constants_exist(self):
+        """PaperTradingEngine must define RISK_MODE_MAX_HOLD
+        consistent with radar.py DEFAULT_MAX_HOLD."""
+        try:
+            from paper_trading_engine import PaperTradingEngine
+        except ImportError:
+            pytest.skip("paper_trading_engine has unmet dependency")
+            return
+        assert hasattr(PaperTradingEngine, 'RISK_MODE_MAX_HOLD')
+        hold = PaperTradingEngine.RISK_MODE_MAX_HOLD
+        assert hold["safe"] == 6 * 3600
+        assert hold["balanced"] == 3 * 3600
+        assert hold["aggressive"] == 90 * 60
+
+    def test_risk_mode_max_hold_matches_radar(self):
+        """RISK_MODE_MAX_HOLD in paper engine must match DEFAULT_MAX_HOLD in radar."""
+        try:
+            from paper_trading_engine import PaperTradingEngine
+            from routes.radar import DEFAULT_MAX_HOLD
+        except ImportError:
+            pytest.skip("paper_trading_engine or radar has unmet dependency")
+            return
+        for mode in ("safe", "balanced", "aggressive"):
+            assert PaperTradingEngine.RISK_MODE_MAX_HOLD[mode] == DEFAULT_MAX_HOLD[mode], \
+                f"Mismatch for {mode}: engine={PaperTradingEngine.RISK_MODE_MAX_HOLD[mode]} vs radar={DEFAULT_MAX_HOLD[mode]}"
+
+    def test_time_decay_scalper_forces_exit_after_max_hold(self):
+        """Scalper holding for 6 minutes (360s) should trigger max_hold_exceeded
+        since scalper max is 300s."""
+        from engines.time_decay_exit import time_decay_exit_engine
+        result = time_decay_exit_engine.evaluate(
+            bot_id="test-scalper-1",
+            bot_class="scalper",
+            hold_seconds=360,      # 6 minutes — exceeds 300s max
+            profit_pct=0.001,      # small positive profit
+        )
+        assert result.should_exit is True
+        assert "max_hold_exceeded" in result.exit_reason
+
+    def test_time_decay_scalper_exits_on_decay(self):
+        """Scalper past expected hold with tiny profit should trigger time_decay_exit."""
+        from engines.time_decay_exit import time_decay_exit_engine
+        result = time_decay_exit_engine.evaluate(
+            bot_id="test-scalper-2",
+            bot_class="scalper",
+            hold_seconds=200,      # past expected 120s, under max 300s
+            profit_pct=0.0005,     # below adjusted target
+        )
+        assert result.should_exit is True
+        assert "time_decay" in result.exit_reason
+
+    def test_time_decay_normal_bot_no_exit_within_expected(self):
+        """Normal bot well within expected hold should not be forced out."""
+        from engines.time_decay_exit import time_decay_exit_engine
+        result = time_decay_exit_engine.evaluate(
+            bot_id="test-normal-1",
+            bot_class="normal",
+            hold_seconds=1800,     # 30 min — within expected 3600s
+            profit_pct=0.01,       # decent profit
+        )
+        assert result.should_exit is False
+
+    def test_time_decay_normal_bot_force_exit_after_max(self):
+        """Normal bot past max hold (7200s) should force exit regardless."""
+        from engines.time_decay_exit import time_decay_exit_engine
+        result = time_decay_exit_engine.evaluate(
+            bot_id="test-normal-2",
+            bot_class="normal",
+            hold_seconds=7500,     # past 7200s max
+            profit_pct=0.02,       # even with good profit
+        )
+        assert result.should_exit is True
+        assert "max_hold_exceeded" in result.exit_reason
+
+    def test_unknown_regime_does_not_block_time_exit(self):
+        """Unknown market regime must not prevent time-based exits."""
+        from engines.time_decay_exit import time_decay_exit_engine
+        # Scalper past max hold — should exit regardless of regime
+        result = time_decay_exit_engine.evaluate(
+            bot_id="test-unknown-regime",
+            bot_class="scalper",
+            hold_seconds=400,      # way past 300s max
+            profit_pct=-0.001,     # losing money
+        )
+        assert result.should_exit is True

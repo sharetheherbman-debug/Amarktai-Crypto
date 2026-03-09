@@ -1190,8 +1190,23 @@ class PaperTradingEngine:
         else:
             return 3   # Very poor
 
+    # Max hold times per risk_mode (seconds) — must stay consistent with radar.py
+    RISK_MODE_MAX_HOLD = {
+        "safe": 6 * 3600,        # 6 hours
+        "balanced": 3 * 3600,    # 3 hours
+        "aggressive": 90 * 60,   # 90 minutes
+    }
+
     async def _close_open_trade(self, bot_id: str, bot_data: Dict, open_trade: Dict) -> Optional[Dict]:
-        """Close an open paper trade if exit conditions are met."""
+        """Close an open paper trade if exit conditions are met.
+
+        Exit priority:
+          1. Take-profit hit
+          2. Stop-loss hit
+          3. Risk-mode max hold exceeded (force exit regardless of PnL)
+          4. Time-decay adaptive exit (scalper/normal aware)
+          5. Legacy stale-exit fallback (age >= PAPER_STALE_EXIT_MINUTES and pnl <= 0)
+        """
         try:
             symbol = open_trade.get("pair") or open_trade.get("symbol")
             exchange = open_trade.get("exchange", "luno")
@@ -1212,15 +1227,57 @@ class PaperTradingEngine:
             except Exception:
                 entry_time = datetime.now(timezone.utc)
 
-            age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
+            age_seconds = (datetime.now(timezone.utc) - entry_time).total_seconds()
+            age_minutes = age_seconds / 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
+            # Risk-mode max hold (consistent with radar.py DEFAULT_MAX_HOLD)
+            risk_mode = (bot_data.get("risk_mode") or "balanced").lower()
+            max_hold_seconds = self.RISK_MODE_MAX_HOLD.get(risk_mode, self.RISK_MODE_MAX_HOLD["balanced"])
+
+            # Bot class for time-decay engine
+            bot_class = (bot_data.get("bot_type") or "normal").lower()
+            if bot_class not in ("scalper", "normal"):
+                bot_class = "normal"
+
             close_reason = None
+
+            # 1. Take-profit
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
+            # 2. Stop-loss
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
-            elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
+            # 3. Risk-mode max hold exceeded — force close regardless of PnL
+            elif age_seconds >= max_hold_seconds:
+                close_reason = "time_exit"
+                logger.warning(
+                    f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
+                    f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
+                    f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
+                )
+            else:
+                # 4. Time-decay adaptive exit (scalper/normal aware)
+                try:
+                    from engines.time_decay_exit import time_decay_exit_engine
+                    td_result = time_decay_exit_engine.evaluate(
+                        bot_id=bot_id,
+                        bot_class=bot_class,
+                        hold_seconds=age_seconds,
+                        profit_pct=pnl_pct / 100,  # engine expects fraction, not percentage
+                    )
+                    if td_result.should_exit:
+                        close_reason = td_result.exit_reason or "time_decay_exit"
+                        logger.info(
+                            f"📉 Time-decay exit {bot_data.get('name', bot_id)[:20]} | "
+                            f"class={bot_class} | hold={age_seconds:.0f}s | "
+                            f"reason={td_result.exit_reason}"
+                        )
+                except Exception as td_err:
+                    logger.debug(f"Time-decay eval skipped: {td_err}")
+
+            # 5. Legacy stale-exit fallback
+            if not close_reason and age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
 
             if not close_reason:
