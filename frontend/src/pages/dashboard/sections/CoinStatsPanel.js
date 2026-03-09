@@ -1,3 +1,9 @@
+/**
+ * DEPRECATED — Legacy CoinStats panel.
+ * Retained only as optional fallback. Not imported by any active dashboard section.
+ * Canonical replacement: MarketIntelligencePanel.js
+ * Do NOT use this component in new code.
+ */
 import React, { useState, useEffect } from 'react';
 
 /** Use empty base — all fetch URLs already include /api prefix */

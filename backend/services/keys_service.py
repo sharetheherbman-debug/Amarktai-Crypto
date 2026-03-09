@@ -18,10 +18,18 @@ from config.models import get_model_fallback_chain, get_default_model
 logger = logging.getLogger(__name__)
 
 
-# All supported providers — must match provider_registry.py (11 total)
+# All supported providers — must match provider_registry.py
 SUPPORTED_PROVIDERS = [
-    'openai', 'fetchai', 'coinstats', 'huggingface',  # AI providers
-    'luno', 'binance', 'kucoin', 'bybit', 'bitget', 'kraken', 'gate'  # Exchange providers (7)
+    # AI providers
+    'openai', 'fetchai', 'huggingface',
+    # Market data providers
+    'cryptocompare', 'coingecko', 'coinranking',
+    # Intelligence enrichers
+    'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic',
+    # Exchange providers (7)
+    'luno', 'binance', 'kucoin', 'bybit', 'bitget', 'kraken', 'gate',
+    # Legacy (deprecated, fallback-only)
+    'coinstats',
 ]
 
 
@@ -188,7 +196,9 @@ class KeysService:
                 return False, None, "API secret required for exchange"
             return await self.test_exchange_key(provider_lower, api_key, api_secret, passphrase)
             
-        elif provider_lower in ['fetchai', 'coinstats', 'huggingface']:
+        elif provider_lower in ['fetchai', 'coinstats', 'huggingface',
+                                  'cryptocompare', 'coingecko', 'coinranking',
+                                  'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic']:
             # Generic validation for AI providers without live test
             # Could implement actual API tests if endpoints available
             metadata = {'provider': provider_lower, 'test_type': 'format_validation'}

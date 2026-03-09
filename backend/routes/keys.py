@@ -275,8 +275,19 @@ async def save_key(
         # Normalize provider ID to lowercase and validate
         provider_id = data.provider.lower().strip()
         
-        # Strict normalization to the 7 supported exchange IDs + AI providers
-        VALID_PROVIDERS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'openai', 'fetchai', 'coinstats', 'huggingface']
+        # Strict normalization to the 7 exchanges + AI providers + market data + enrichers + legacy
+        VALID_PROVIDERS = [
+            # Exchanges
+            'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate',
+            # AI providers
+            'openai', 'fetchai', 'huggingface',
+            # Market data providers
+            'cryptocompare', 'coingecko', 'coinranking',
+            # Intelligence enrichers
+            'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic',
+            # Legacy (deprecated, fallback-only)
+            'coinstats',
+        ]
         
         if provider_id not in VALID_PROVIDERS:
             raise HTTPException(
