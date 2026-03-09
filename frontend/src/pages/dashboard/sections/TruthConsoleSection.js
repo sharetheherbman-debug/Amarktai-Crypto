@@ -32,6 +32,8 @@ export default function TruthConsoleSection({ axiosConfig }) {
   const [expandedSubs, setExpandedSubs] = useState({});
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState(null);
+  const [repairingTypes, setRepairingTypes] = useState(false);
+  const [repairTypesResult, setRepairTypesResult] = useState(null);
 
   const fetchTruth = useCallback(async () => {
     try {
@@ -70,6 +72,20 @@ export default function TruthConsoleSection({ axiosConfig }) {
       notifyError(err, 'Repair failed');
     } finally {
       setRepairing(false);
+    }
+  };
+
+  const handleRepairBotTypes = async () => {
+    setRepairingTypes(true);
+    setRepairTypesResult(null);
+    try {
+      const result = await post('/admin/truth/repair-bot-types', {});
+      setRepairTypesResult(result);
+      await fetchTruth();
+    } catch (err) {
+      notifyError(err, 'Bot type repair failed');
+    } finally {
+      setRepairingTypes(false);
     }
   };
 
@@ -199,6 +215,24 @@ export default function TruthConsoleSection({ axiosConfig }) {
         {repairResult && (
           <span style={{ marginLeft: 10, fontSize: '0.8rem', color: '#22c55e' }}>
             ✅ Reconciled {repairResult.reconciled_count} bot(s)
+          </span>
+        )}
+        {' '}
+        <button
+          onClick={handleRepairBotTypes}
+          disabled={repairingTypes}
+          style={{
+            marginLeft: 8, padding: '6px 14px', borderRadius: 6,
+            border: '1px solid var(--success, #22c55e)',
+            background: 'rgba(34,197,94,0.1)', color: 'var(--success, #22c55e)',
+            cursor: repairingTypes ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600,
+          }}
+        >
+          {repairingTypes ? '⏳ Fixing...' : '⚡ Fix Scalper Bot Types'}
+        </button>
+        {repairTypesResult && (
+          <span style={{ marginLeft: 10, fontSize: '0.8rem', color: '#22c55e' }}>
+            ✅ {repairTypesResult.message}
           </span>
         )}
       </div>

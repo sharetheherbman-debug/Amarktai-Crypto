@@ -199,7 +199,19 @@ class BotValidator:
             risk_mode = 'safe'
 
         strategy_preset = bot_data.get("strategy_preset") or "adaptive"
-        
+
+        # 9. Preserve bot classification fields sent by the caller.
+        # bot_type identifies the bot's operational class (normal / scalper / uagent).
+        # Stripping this field was the root cause of scalper bots appearing as normal bots.
+        valid_bot_types = {'normal', 'scalper', 'uagent'}
+        raw_bot_type = (bot_data.get("bot_type") or "normal").lower()
+        bot_type = raw_bot_type if raw_bot_type in valid_bot_types else "normal"
+
+        # profit_routing controls where scalper profits are directed.
+        valid_profit_routings = {'RETURN_TO_MAIN', 'SCALPER_GROWTH'}
+        raw_routing = (bot_data.get("profit_routing") or "RETURN_TO_MAIN").upper()
+        profit_routing = raw_routing if raw_routing in valid_profit_routings else "RETURN_TO_MAIN"
+
         # All validations passed - return validated data with lifecycle fields
         validated_data = {
             "name": name,
@@ -224,7 +236,11 @@ class BotValidator:
             "promoted_to_live_at": None,
             "user_id": user_id,
             "strategy_preset": strategy_preset,
-            "strategy": {"preset": strategy_preset}
+            "strategy": {"preset": strategy_preset},
+            # Bot classification — must be preserved so scalper/uagent bots
+            # appear in the correct fleet tab and counters.
+            "bot_type": bot_type,
+            "profit_routing": profit_routing,
         }
         
         return True, validated_data

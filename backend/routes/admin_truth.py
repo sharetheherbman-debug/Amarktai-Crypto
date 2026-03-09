@@ -103,3 +103,38 @@ async def repair_bot_states(user_id: str = Depends(require_admin)):
     except Exception as e:
         logger.error(f"repair-bots error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Bot repair failed: {e}")
+
+
+@router.post("/repair-bot-types")
+async def repair_bot_types(user_id: str = Depends(require_admin)):
+    """
+    POST /api/admin/truth/repair-bot-types
+
+    Admin-only. Backfills missing bot_type fields for bots created before
+    the validator fix.  Uses the same heuristics as the startup migration:
+    strategy_preset='scalping' or name starts with 'Scalper' → bot_type='scalper'.
+    All other bots with a missing/null bot_type get bot_type='normal'.
+
+    This is idempotent — already-correct bots are not modified.
+    """
+    try:
+        from migrations.fix_bot_type_field import run_bot_type_migration
+
+        now = datetime.now(timezone.utc).isoformat()
+        fixed_scalper, fixed_normal = await run_bot_type_migration(db)
+
+        return {
+            "success": True,
+            "timestamp": now,
+            "fixed_scalper": fixed_scalper,
+            "fixed_normal": fixed_normal,
+            "message": (
+                f"Promoted {fixed_scalper} bots to scalper, set {fixed_normal} bots to normal"
+                if fixed_scalper or fixed_normal
+                else "All bots already have bot_type set — no changes needed"
+            ),
+        }
+    except Exception as e:
+        logger.error(f"repair-bot-types error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Bot type repair failed: {e}")
+
