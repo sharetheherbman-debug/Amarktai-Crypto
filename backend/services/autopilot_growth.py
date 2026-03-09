@@ -177,6 +177,25 @@ class AutopilotGrowthService:
         profit_ready = profit >= next_threshold
         if not profit_ready:
             reasons.append("PROFIT_BELOW_THRESHOLD")
+
+        spawn_capital = float(config.NEW_BOT_CAPITAL)
+        has_funds, available_capital = await reserved_funds_service.check_available_funds(
+            self.user_id, platform, "ZAR", spawn_capital
+        )
+        reserved_summary = await reserved_funds_service.get_reserved_summary(self.user_id)
+        reserved_capital = 0.0
+        if isinstance(reserved_summary, dict):
+            reserved_capital = float(
+                ((reserved_summary.get("by_exchange") or {}).get(platform) or {}).get("total_reserved", 0) or 0
+            )
+        shortfall = max(0.0, spawn_capital - float(available_capital))
+        block_reason_details = []
+        if not has_funds or "INSUFFICIENT_AVAILABLE_FUNDS" in reasons:
+            block_reason_details.append(
+                f"minimum required={spawn_capital:.2f}, available={float(available_capital):.2f}, "
+                f"reserved={reserved_capital:.2f}, shortfall={shortfall:.2f}"
+            )
+
         return {
             "realized_profit_zar": round(profit, 2),
             "next_threshold_zar": round(next_threshold, 2),
@@ -185,7 +204,12 @@ class AutopilotGrowthService:
             "milestones_spawned": milestones_spawned,
             "eligible": eligible and profit_ready,
             "blocked_reasons": reasons,
-            "last_spawn_event": last_event
+            "last_spawn_event": last_event,
+            "min_capital_required": round(spawn_capital, 2),
+            "available_capital": round(float(available_capital), 2),
+            "reserved_capital": round(reserved_capital, 2),
+            "shortfall_capital": round(shortfall, 2),
+            "block_reason_details": block_reason_details,
         }
 
     async def _get_last_milestone_index(self, platform: str) -> int:

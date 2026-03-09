@@ -94,6 +94,10 @@ class TradingScheduler:
                 {"_id": 0}
             ).to_list(1000)
 
+            # Pre-cycle queue hygiene: remove stale/deleted bot queue items.
+            active_bot_ids = {bot.get("id") for bot in active_bots if bot.get("id")}
+            await trade_staggerer.purge_orphaned_queue(active_bot_ids)
+
             if not active_bots:
                 self.last_tick_noop_reason = "no_active_bots"
                 self.last_tick_bots = 0

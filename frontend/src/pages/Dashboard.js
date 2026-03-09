@@ -65,6 +65,7 @@ export default function Dashboard() {
     activeSection,
     addCustomCountdown,
     adminApiHealth,
+    adminKeyMonitor,
     adminBots,
     adminUsers,
     aiStatus,
@@ -557,6 +558,7 @@ export default function Dashboard() {
               user={user}
               actionLoading={actionLoading}
               adminApiHealth={adminApiHealth}
+              adminKeyMonitor={adminKeyMonitor}
               adminBots={adminBots}
               adminUsers={adminUsers}
               aiTaskLoading={aiTaskLoading}

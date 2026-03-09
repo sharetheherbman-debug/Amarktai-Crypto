@@ -584,6 +584,12 @@ async def perform_paper_reset(user_id: str) -> dict:
         "type": "paper_reset",
         "message": "Paper trading data reset completed."
     })
+    try:
+        from engines.trade_staggerer import trade_staggerer
+        await trade_staggerer.clear_user(user_id)
+        await trade_staggerer.purge_orphaned_queue()
+    except Exception as e:
+        logger.warning(f"Paper reset queue cleanup failed: {e}")
     await rt_events.force_refresh(user_id, reason="Paper trading reset completed.")
 
     return {

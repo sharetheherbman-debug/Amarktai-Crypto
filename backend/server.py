@@ -158,6 +158,17 @@ async def lifespan(app: FastAPI):
         except Exception as migration_error:
             logger.warning(f"⚠️ bot_type migration failed (non-fatal): {migration_error}")
             # Continue - migrations are best-effort repairs
+
+        # ========================================================================
+        # STEP 1.7: Queue/runtime cleanup at startup (remove stale drift)
+        # ========================================================================
+        try:
+            from engines.trade_staggerer import trade_staggerer
+            await trade_staggerer.clear_stale_trades()
+            await trade_staggerer.purge_orphaned_queue()
+            logger.info("✅ Startup queue/runtime cleanup completed")
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️ Startup queue cleanup failed (non-fatal): {cleanup_error}")
             
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)

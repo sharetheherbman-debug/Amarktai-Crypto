@@ -256,6 +256,7 @@ export default function useDashboardState(navigate) {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
+  const [adminKeyMonitor, setAdminKeyMonitor] = useState({ providers: [], timestamp: null });
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingBots, setLoadingBots] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
@@ -637,7 +638,7 @@ export default function useDashboardState(navigate) {
       loadAutopilotReinvestStatus()
     ]);
     if (showAdmin) {
-      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats()]);
+      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats(), loadAdminKeyMonitor()]);
     }
   };
 
@@ -1715,6 +1716,22 @@ export default function useDashboardState(navigate) {
         error: errorMsg
       });
       toast.error(errorMsg);
+    }
+  }, [axiosConfig]);
+
+  const loadAdminKeyMonitor = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/admin/key-monitor`, axiosConfig);
+      setAdminKeyMonitor({
+        providers: Array.isArray(res.data?.providers) ? res.data.providers : [],
+        timestamp: res.data?.timestamp || new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Admin key monitor error:', err);
+      setAdminKeyMonitor(prev => ({
+        providers: Array.isArray(prev?.providers) ? prev.providers : [],
+        timestamp: new Date().toISOString(),
+      }));
     }
   }, [axiosConfig]);
 
@@ -2986,9 +3003,10 @@ export default function useDashboardState(navigate) {
       loadAdminUsers();
       loadAdminBots();
       loadAdminHealth();
+      loadAdminKeyMonitor();
       loadEmergencyOverrideStatus();
     }
-  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadAdminKeyMonitor, loadEmergencyOverrideStatus]);
 
   useEffect(() => {
     if (!showAdmin) return undefined;
@@ -2997,10 +3015,11 @@ export default function useDashboardState(navigate) {
       loadAdminUsers();
       loadAdminBots();
       loadAdminHealth();
+      loadAdminKeyMonitor();
       loadEmergencyOverrideStatus();
     }, 15000);
     return () => clearInterval(interval);
-  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadAdminKeyMonitor, loadEmergencyOverrideStatus]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {
@@ -3201,6 +3220,7 @@ export default function useDashboardState(navigate) {
     activeSection,
     addCustomCountdown,
     adminApiHealth,
+    adminKeyMonitor,
     adminBots,
     adminUsers,
     aiStatus,

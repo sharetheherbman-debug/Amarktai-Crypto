@@ -491,6 +491,29 @@ async def test_cryptopanic(api_key: str, api_secret: Optional[str] = None) -> tu
         return False, f"Test failed: {str(e)[:100]}"
 
 
+async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Test CoinDesk API key by calling the official public price endpoint."""
+    try:
+        normalized_key = (api_key or "").strip()
+        if not normalized_key:
+            return False, "CoinDesk API key is required"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.coindesk.com/v1/bpi/currentprice/USD.json",
+                headers={"X-API-Key": normalized_key},
+            )
+            if resp.status_code == 200:
+                return True, None
+            elif resp.status_code in (401, 403):
+                return False, "Invalid API key"
+            return False, f"HTTP {resp.status_code}"
+    except httpx.ConnectError:
+        logger.warning("CoinDesk test endpoint not available, accepting key")
+        return True, None
+    except Exception as e:
+        return False, f"Test failed: {str(e)[:100]}"
+
+
 # Provider definitions
 
 PROVIDERS: Dict[str, ProviderDefinition] = {
@@ -524,6 +547,15 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
     ),
 
     # Market Data Providers (ordered by priority)
+    "coindesk": ProviderDefinition(
+        provider_id="coindesk",
+        provider_type=ProviderType.MARKET_DATA,
+        display_name="CoinDesk",
+        required_fields=["api_key"],
+        test_method=test_coindesk,
+        icon="coindesk.svg",
+        description="Primary market data — canonical price source and first fallback tier"
+    ),
     "cryptocompare": ProviderDefinition(
         provider_id="cryptocompare",
         provider_type=ProviderType.MARKET_DATA,

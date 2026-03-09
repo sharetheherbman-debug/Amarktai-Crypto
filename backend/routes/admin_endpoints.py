@@ -277,6 +277,96 @@ async def admin_health(admin_id: str = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/key-monitor")
+async def admin_key_monitor(admin_id: str = Depends(require_admin)):
+    """Admin-only API key monitor with provider telemetry and fallback order."""
+    try:
+        from services.provider_registry import list_providers
+        from engines.market_intelligence_engine import market_intelligence_engine
+
+        providers = list_providers()
+        fallback_priority = {p["id"]: idx + 1 for idx, p in enumerate(providers)}
+        usage_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            usage_map = market_intelligence_engine.get_provider_usage() or {}
+        except Exception:
+            usage_map = {}
+
+        keys = await db.api_keys_collection.find(
+            {"user_id": str(admin_id)},
+            {
+                "_id": 0,
+                "provider": 1,
+                "status": 1,
+                "last_test_ok": 1,
+                "last_tested_at": 1,
+                "last_test_error": 1,
+                "api_key": 1,
+                "api_key_encrypted": 1,
+                "call_count": 1,
+                "last_latency_ms": 1,
+                "avg_latency_ms": 1,
+                "rate_limit_remaining": 1,
+                "quota_remaining": 1,
+                "updated_at": 1,
+            },
+        ).to_list(500)
+        key_map = {k.get("provider"): k for k in keys if k.get("provider")}
+
+        entries = []
+        for p in providers:
+            provider_id = p["id"]
+            doc = key_map.get(provider_id, {})
+            status = str(doc.get("status") or "not_configured")
+            configured = bool(doc.get("api_key") or doc.get("api_key_encrypted"))
+            valid = bool(doc.get("last_test_ok")) or status in {"configured_valid", "test_ok"}
+            provider_usage = usage_map.get(provider_id, {})
+            monthly_pct = float(provider_usage.get("monthly_pct", 0) or 0)
+            minute_calls = float(provider_usage.get("minute_calls", 0) or 0)
+            minute_limit = float(provider_usage.get("per_minute_limit", 0) or 0)
+            minute_pct = (minute_calls / minute_limit * 100.0) if minute_limit > 0 else 0.0
+
+            if status == "configured_rate_limited":
+                rate_limit_status = "rate_limited"
+            elif minute_pct >= 90:
+                rate_limit_status = "near_limit"
+            else:
+                rate_limit_status = "ok"
+
+            entries.append({
+                "provider": provider_id,
+                "display_name": p.get("display_name", provider_id),
+                "type": p.get("type"),
+                "configured": configured,
+                "valid": valid,
+                "status": status,
+                "last_tested_at": doc.get("last_tested_at"),
+                "estimated_call_usage": {
+                    "monthly_calls": provider_usage.get("monthly_calls", doc.get("call_count", 0)),
+                    "monthly_limit": provider_usage.get("monthly_limit"),
+                    "monthly_pct": round(monthly_pct, 1),
+                    "minute_calls": provider_usage.get("minute_calls"),
+                    "per_minute_limit": provider_usage.get("per_minute_limit"),
+                    "minute_pct": round(minute_pct, 1),
+                },
+                "rate_limit_status": rate_limit_status,
+                "quota_threshold_warning": monthly_pct >= 80 or minute_pct >= 80,
+                "fallback_priority": fallback_priority.get(provider_id),
+                "health_latency_ms": doc.get("avg_latency_ms") or doc.get("last_latency_ms"),
+                "last_error": doc.get("last_test_error"),
+                "updated_at": doc.get("updated_at"),
+            })
+
+        return {
+            "success": True,
+            "providers": entries,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Admin key monitor error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/reset-system")
 async def reset_system_zero(
     request: SystemResetRequest,

@@ -27,6 +27,7 @@ const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
 export default function AdminPanelSection({
   actionLoading,
   adminApiHealth,
+  adminKeyMonitor,
   adminBots,
   adminUsers,
   aiTaskLoading,
@@ -102,6 +103,56 @@ export default function AdminPanelSection({
         </div>
         
         <div className="admin-stack">
+          <div className="admin-card">
+            <h3 style={{ marginBottom: '12px', color: '#ffffff' }}>🔐 API Key Monitor (Admin)</h3>
+            {adminKeyMonitor?.providers?.length > 0 ? (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Provider</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Configured</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Valid</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Last Tested</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Usage</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Rate/Quota</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Priority</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Latency</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Last Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminKeyMonitor.providers.map((row) => (
+                      <tr key={row.provider} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '8px 6px', color: 'var(--text)' }}>{row.display_name || row.provider}</td>
+                        <td style={{ padding: '8px 6px' }}>{row.configured ? '✅' : '—'}</td>
+                        <td style={{ padding: '8px 6px' }}>{row.valid ? '✅' : row.configured ? '❌' : '—'}</td>
+                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{row.last_tested_at ? formatDate(row.last_tested_at) : NOT_AVAILABLE}</td>
+                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>
+                          {safeNumber(row.estimated_call_usage?.monthly_calls, 0)} / {safeNumber(row.estimated_call_usage?.monthly_limit, 0)}
+                        </td>
+                        <td style={{ padding: '8px 6px', color: row.quota_threshold_warning ? '#f59e0b' : 'var(--muted)' }}>
+                          {row.rate_limit_status || 'ok'}
+                        </td>
+                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{row.fallback_priority ?? NOT_AVAILABLE}</td>
+                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>
+                          {row.health_latency_ms != null ? `${safeToFixed(row.health_latency_ms, 1)} ms` : NOT_AVAILABLE}
+                        </td>
+                        <td style={{ padding: '8px 6px', color: row.last_error ? 'var(--error)' : 'var(--muted)' }}>
+                          {row.last_error || NOT_AVAILABLE}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>
+                No key telemetry available yet.
+              </div>
+            )}
+          </div>
+
           {/* VPS Resource Summary */}
           {systemStats?.vps_resources && (
             <div className="admin-card">

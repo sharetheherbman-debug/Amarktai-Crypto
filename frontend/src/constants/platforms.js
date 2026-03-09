@@ -5,7 +5,7 @@
  * Provider hierarchy:
  *   Exchanges:        luno, binance, kucoin, bybit, kraken, bitget, gate
  *   AI Providers:     openai, huggingface, fetchai
- *   Market Data:      cryptocompare (PRIMARY), coingecko (SECONDARY), coinranking (TERTIARY)
+ *   Market Data:      coindesk (PRIMARY), cryptocompare (SECONDARY), coingecko (TERTIARY), coinranking (FOURTH)
  *   Enrichers:        glassnode, etherscan, whale_alert, lunarcrush, cryptopanic
  *   Legacy fallback:  coinstats (deprecated — hidden by default, fallback-only)
  */
@@ -20,7 +20,7 @@ export const SUPPORTED_AI_PROVIDERS = ['openai', 'huggingface', 'fetchai'];
 
 // ─── Market Data Providers (canonical, ordered by priority) ─────────────────
 
-export const MARKET_DATA_PROVIDERS = ['cryptocompare', 'coingecko', 'coinranking'];
+export const MARKET_DATA_PROVIDERS = ['coindesk', 'cryptocompare', 'coingecko', 'coinranking'];
 
 // ─── Intelligence Enrichers (optional, not pricing sources) ─────────────────
 
@@ -196,6 +196,19 @@ export const PLATFORM_CONFIG = {
   },
 
   // ── Market Data Providers ────────────────────────────────────────────────
+  coindesk: {
+    id: 'coindesk',
+    name: 'CoinDesk',
+    displayName: 'CoinDesk',
+    icon: '📰',
+    color: '#2563EB',
+    type: PROVIDER_TYPES.MARKET_DATA,
+    enabled: true,
+    priority: 1,
+    requiredKeyFields: ['api_key'],
+    helpText: 'Primary market data provider — canonical first-tier fallback source.',
+    capabilities: ['prices', 'metadata'],
+  },
   cryptocompare: {
     id: 'cryptocompare',
     name: 'CryptoCompare',
@@ -204,7 +217,7 @@ export const PLATFORM_CONFIG = {
     color: '#2196F3',
     type: PROVIDER_TYPES.MARKET_DATA,
     enabled: true,
-    priority: 1,
+    priority: 2,
     requiredKeyFields: ['api_key'],
     helpText: 'Primary market data provider — prices, OHLCV, metadata.',
     capabilities: ['prices', 'ohlcv', 'metadata'],
@@ -217,7 +230,7 @@ export const PLATFORM_CONFIG = {
     color: '#8DC63F',
     type: PROVIDER_TYPES.MARKET_DATA,
     enabled: true,
-    priority: 2,
+    priority: 3,
     requiredKeyFields: ['api_key'],
     helpText: 'Secondary market data provider — broad coverage, free tier available.',
     capabilities: ['prices', 'ohlcv', 'metadata', 'market_cap'],
@@ -230,7 +243,7 @@ export const PLATFORM_CONFIG = {
     color: '#0052FF',
     type: PROVIDER_TYPES.MARKET_DATA,
     enabled: true,
-    priority: 3,
+    priority: 4,
     requiredKeyFields: ['api_key'],
     helpText: 'Tertiary market data provider — additional fallback coverage.',
     capabilities: ['prices', 'metadata'],

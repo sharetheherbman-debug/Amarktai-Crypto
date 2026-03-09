@@ -23,7 +23,7 @@ SUPPORTED_PROVIDERS = [
     # AI providers
     'openai', 'fetchai', 'huggingface',
     # Market data providers
-    'cryptocompare', 'coingecko', 'coinranking',
+    'coindesk', 'cryptocompare', 'coingecko', 'coinranking',
     # Intelligence enrichers
     'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic',
     # Exchange providers (7)
@@ -196,7 +196,7 @@ class KeysService:
                 return False, None, "API secret required for exchange"
             return await self.test_exchange_key(provider_lower, api_key, api_secret, passphrase)
             
-        elif provider_lower in ['fetchai', 'coinstats', 'huggingface',
+        elif provider_lower in ['fetchai', 'coinstats', 'huggingface', 'coindesk',
                                   'cryptocompare', 'coingecko', 'coinranking',
                                   'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic']:
             # Generic format validation for non-exchange providers (AI, market data, enrichers, legacy)
