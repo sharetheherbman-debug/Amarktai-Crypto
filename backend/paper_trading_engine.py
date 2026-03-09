@@ -1250,7 +1250,7 @@ class PaperTradingEngine:
                 close_reason = "stop_loss"
             # 3. Risk-mode max hold exceeded — force close regardless of PnL
             elif age_seconds >= max_hold_seconds:
-                close_reason = "time_exit"
+                close_reason = "max_hold_exceeded"
                 logger.warning(
                     f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
                     f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
