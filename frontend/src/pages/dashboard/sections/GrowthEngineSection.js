@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import { get, notifyError } from '../../../lib/apiClient';
 import { useRealtimeEvent } from '../../../hooks/useRealtime';
@@ -255,39 +255,92 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
                       'EMERGENCY_STOP_ACTIVE','BODYGUARD_LOCK_ACTIVE'].includes(r))
     : (growthEnabled === false ? ['AUTOPILOT_GROWTH_DISABLED'] : []);
 
+  // Aggregate stats across all platforms
+  const aggregateStats = useMemo(() => {
+    if (!growthData?.platforms) return { totalSpawned: 0, eligiblePlatforms: 0, blockedPlatforms: 0 };
+    const entries = Object.values(growthData.platforms);
+    return {
+      totalSpawned: entries.reduce((s, p) => s + safeNum(p?.milestones_spawned ?? p?.total_spawned), 0),
+      eligiblePlatforms: entries.filter(p => p?.eligible).length,
+      blockedPlatforms: entries.filter(p => !p?.eligible && (p?.blocked_reasons || []).some(r => r !== 'PROFIT_BELOW_THRESHOLD')).length,
+    };
+  }, [growthData]);
+
+  // Determine overall growth engine operational status
+  const growthStatus = useMemo(() => {
+    if (!growthEnabled) return 'disabled';
+    if (globalGrowthBlockers.length > 0) return 'blocked';
+    if (aggregateStats.eligiblePlatforms > 0) return 'ready';
+    return 'accumulating';
+  }, [growthEnabled, globalGrowthBlockers, aggregateStats]);
+
+  const STATUS_BADGE = {
+    disabled: { label: 'Disabled', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.3)' },
+    blocked:  { label: 'Blocked', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)' },
+    ready:    { label: 'Ready to Spawn', color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.3)' },
+    accumulating: { label: 'Active — Accumulating', color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)' },
+  };
+
   return (
     <section className="section active">
       <div className="card">
         <SectionHeader
           title="🌱 Growth Engine"
-          subtitle="Autopilot profit milestone tracking and autonomous bot spawning."
+          subtitle="Tracks realized profit milestones and autonomously spawns new bots."
         />
 
-        {/* Status banner */}
+        {/* ── Engine Status Row ── */}
         <div style={{
-          display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '20px',
-          padding: '14px 16px',
-          background: 'rgba(255,255,255,0.03)',
-          border: '1px solid var(--line)',
-          borderRadius: '10px',
-          alignItems: 'center',
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '10px', marginBottom: '20px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>Growth Engine:</span>
-            <StatusBadge active={growthEnabled} label={growthEnabled ? 'Active' : 'Disabled'} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>Reinvest Engine:</span>
-            <StatusBadge active={reinvestEnabled} label={reinvestEnabled ? 'Active' : 'Disabled'} />
-          </div>
-          {lastUpdated && (
-            <span style={{ color: 'var(--muted)', fontSize: '0.75rem', marginLeft: 'auto' }}>
-              Updated {lastUpdated.toLocaleTimeString()}
+          {/* Growth Engine status tile */}
+          {(() => {
+            const sd = STATUS_BADGE[growthStatus] || STATUS_BADGE.accumulating;
+            return (
+              <div style={{
+                background: sd.bg, border: `1px solid ${sd.border}`,
+                borderRadius: '10px', padding: '12px 14px',
+                display: 'flex', flexDirection: 'column', gap: '4px',
+              }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Growth Engine</span>
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: sd.color }}>● {sd.label}</span>
+              </div>
+            );
+          })()}
+          {/* Reinvest status tile */}
+          <div style={{
+            background: reinvestEnabled ? 'rgba(96,165,250,0.1)' : 'rgba(100,116,139,0.08)',
+            border: `1px solid ${reinvestEnabled ? 'rgba(96,165,250,0.3)' : 'var(--line)'}`,
+            borderRadius: '10px', padding: '12px 14px',
+            display: 'flex', flexDirection: 'column', gap: '4px',
+          }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reinvest Engine</span>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: reinvestEnabled ? '#60a5fa' : 'var(--muted)' }}>
+              {reinvestEnabled ? '● Active' : '○ Disabled'}
             </span>
+          </div>
+          {/* Bots spawned tile */}
+          <div style={{ background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bots Spawned</span>
+            <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text)' }}>{aggregateStats.totalSpawned}</span>
+          </div>
+          {/* Threshold tile */}
+          <div style={{ background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Milestone Threshold</span>
+            <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--accent2)' }}>{fmtZAR(threshold)}</span>
+          </div>
+          {/* Last updated */}
+          {lastUpdated && (
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+              <span style={{ color: 'var(--muted)', fontSize: '0.72rem' }}>
+                ↻ {lastUpdated.toLocaleTimeString()}
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Tabs */}
+        {/* ── Tabs ── */}
         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
           <button style={S.tab(activeTab === 'growth')} onClick={() => setActiveTab('growth')}>
             📈 Bot Spawning
@@ -305,33 +358,44 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
           <>
             {activeTab === 'growth' && (
               <div>
-                {/* Show disabled panel when feature flag is off */}
+                {/* Disabled state */}
                 {!growthEnabled && (
                   <DisabledPanel title="Growth Engine" reasons={globalGrowthBlockers} />
                 )}
 
+                {/* Blocked state — engine enabled but guardrails blocking */}
                 {growthEnabled && globalGrowthBlockers.length > 0 && (
                   <div style={{
                     background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.3)',
                     borderRadius: '10px', padding: '14px 16px', marginBottom: '16px',
-                    fontSize: '0.83rem', color: '#f59e0b',
                   }}>
-                    ⚠ Growth Engine is active but currently blocked:
-                    <ul style={{ listStyle: 'none', padding: '6px 0 0 0', margin: 0 }}>
+                    <div style={{ fontWeight: 700, color: '#f59e0b', fontSize: '0.88rem', marginBottom: '8px' }}>
+                      ⚠ Growth Engine blocked — resolve these before auto-spawning can trigger:
+                    </div>
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                       {globalGrowthBlockers.map((r, i) => (
-                        <li key={i}>• {REASON_LABELS[r] || r}</li>
+                        <li key={i} style={{ fontSize: '0.82rem', color: 'var(--muted)', padding: '3px 0' }}>
+                          • {REASON_LABELS[r] || r}
+                        </li>
                       ))}
                     </ul>
+                    <div style={{ marginTop: '8px', fontSize: '0.78rem', color: 'var(--muted)' }}>
+                      ℹ Enable Autopilot in System Mode and ensure your paper wallet has funds to unblock.
+                    </div>
                   </div>
                 )}
 
-                <div style={{ marginBottom: '14px' }}>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '0 0 4px 0' }}>
-                    Automatically spawns a new bot when realized profit crosses a milestone threshold.
-                  </p>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.82rem', margin: 0 }}>
-                    Milestone threshold: <strong style={{ color: 'var(--text)' }}>{fmtZAR(threshold)}</strong>
-                  </p>
+                {/* How it works */}
+                <div style={{
+                  background: 'rgba(96,165,250,0.05)', border: '1px solid rgba(96,165,250,0.15)',
+                  borderRadius: '10px', padding: '12px 14px', marginBottom: '16px',
+                  fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.6',
+                }}>
+                  <strong style={{ color: 'var(--text)', display: 'block', marginBottom: '4px' }}>How it works</strong>
+                  Each exchange tracks its own realized profit independently.
+                  When profit crosses the milestone threshold ({fmtZAR(threshold)}),
+                  a new bot is automatically seeded on that exchange.
+                  Each subsequent milestone triggers another spawn.
                 </div>
 
                 {platforms.length === 0 ? (
@@ -366,18 +430,21 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
                   />
                 )}
 
-                <div style={{ marginBottom: '14px' }}>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '0 0 4px 0' }}>
-                    Daily reinvestment allocates realized profits back into active bots when the cap is reached.
-                  </p>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.82rem', margin: 0 }}>
-                    Minimum reinvest: <strong style={{ color: 'var(--text)' }}>{fmtZAR(minReinvest)}</strong>
-                  </p>
+                {/* How it works */}
+                <div style={{
+                  background: 'rgba(96,165,250,0.05)', border: '1px solid rgba(96,165,250,0.15)',
+                  borderRadius: '10px', padding: '12px 14px', marginBottom: '16px',
+                  fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.6',
+                }}>
+                  <strong style={{ color: 'var(--text)', display: 'block', marginBottom: '4px' }}>How it works</strong>
+                  Daily reinvestment runs once per day. When realized profit on an exchange
+                  exceeds the minimum ({fmtZAR(minReinvest)}) and bots are near their capital cap,
+                  profits are redistributed as additional capital to active bots.
                 </div>
 
                 {reinvestPlatforms.length === 0 ? (
                   <div style={{ color: 'var(--muted)', padding: '24px', textAlign: 'center' }}>
-                    No reinvest data available yet.
+                    No reinvest data available yet. Profits will appear here once closed trades are recorded.
                   </div>
                 ) : (
                   <div style={{

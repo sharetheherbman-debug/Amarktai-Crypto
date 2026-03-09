@@ -38,7 +38,18 @@ except ImportError:
 # ---------------------------------------------------------------------------
 PAPER_TRADING = _env_bool('PAPER_TRADING', False) or _env_bool('ENABLE_PAPER_TRADING', False)
 LIVE_TRADING = _env_bool('LIVE_TRADING', False) or _env_bool('ENABLE_LIVE_TRADING', False)
-AUTOPILOT_ENABLED = _env_bool('AUTOPILOT_ENABLED', False) or _env_bool('ENABLE_AUTOPILOT', False)
+# AUTOPILOT_ENABLED defaults to True so that users who enable autopilot in the UI
+# are not silently blocked by a missing env var.
+# Explicit override: set AUTOPILOT_ENABLED=0 or AUTOPILOT_ENABLED=false to disable globally.
+# Precedence: AUTOPILOT_ENABLED (canonical) → ENABLE_AUTOPILOT (legacy) → default True
+_autopilot_env = os.getenv('AUTOPILOT_ENABLED')
+_autopilot_legacy = os.getenv('ENABLE_AUTOPILOT')
+if _autopilot_env is not None:
+    AUTOPILOT_ENABLED = _autopilot_env.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+elif _autopilot_legacy is not None:
+    AUTOPILOT_ENABLED = _autopilot_legacy.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+else:
+    AUTOPILOT_ENABLED = True  # Default: enabled when not explicitly set
 
 # Backward-compatible aliases
 ENABLE_PAPER_TRADING = PAPER_TRADING
@@ -147,8 +158,9 @@ EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  #
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% threshold
 
 # Autopilot growth + reinvest controls
-ENABLE_AUTOPILOT_GROWTH = os.getenv('ENABLE_AUTOPILOT_GROWTH', 'false').lower() == 'true'
-ENABLE_AUTOPILOT_REINVEST = os.getenv('ENABLE_AUTOPILOT_REINVEST', 'false').lower() == 'true'
+# Default: enabled — can be disabled via env var ENABLE_AUTOPILOT_GROWTH=false
+ENABLE_AUTOPILOT_GROWTH = os.getenv('ENABLE_AUTOPILOT_GROWTH', 'true').lower() == 'true'
+ENABLE_AUTOPILOT_REINVEST = os.getenv('ENABLE_AUTOPILOT_REINVEST', 'true').lower() == 'true'
 AUTOPILOT_PROFIT_MILESTONE_ZAR = float(os.getenv('AUTOPILOT_PROFIT_MILESTONE_ZAR', '1000'))
 AUTOPILOT_REINVEST_MIN_ZAR = float(os.getenv('AUTOPILOT_REINVEST_MIN_ZAR', '100'))
 AUTOPILOT_MAX_BOTS_PER_PLATFORM = int(os.getenv('AUTOPILOT_MAX_BOTS_PER_PLATFORM', '0'))

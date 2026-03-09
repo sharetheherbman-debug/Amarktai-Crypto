@@ -56,6 +56,17 @@ const CoinStatsPanel = ({ axiosConfig }) => {
     setLoading(false);
   };
 
+  const getStatusDisplay = () => {
+    const s = status.status;
+    if (s === 'connected' || status.reachable) return { label: '● Connected', bg: 'rgba(16,185,129,0.15)', color: '#10b981', border: 'rgba(16,185,129,0.3)' };
+    if (s === 'rate_limited') return { label: '⚠ Rate Limited', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' };
+    if (s === 'invalid_key') return { label: '✗ Invalid Key', bg: 'rgba(239,68,68,0.15)', color: '#ef4444', border: 'rgba(239,68,68,0.3)' };
+    if (s === 'service_unreachable') return { label: '○ Service Unreachable', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' };
+    if (status.configured) return { label: '○ Unreachable', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' };
+    return { label: '○ Not configured', bg: 'rgba(239,68,68,0.15)', color: '#ef4444', border: 'rgba(239,68,68,0.3)' };
+  };
+  const sd = getStatusDisplay();
+
   return (
     <div style={{
       background: 'rgba(15,23,42,0.7)',
@@ -74,17 +85,23 @@ const CoinStatsPanel = ({ axiosConfig }) => {
           borderRadius: 20,
           fontSize: 11,
           fontWeight: 600,
-          background: status.reachable ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-          color: status.reachable ? '#10b981' : '#ef4444',
-          border: `1px solid ${status.reachable ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+          background: sd.bg,
+          color: sd.color,
+          border: `1px solid ${sd.border}`,
         }}>
-          {status.reachable ? '● Connected' : status.configured ? '○ Unreachable' : '○ Not configured'}
+          {sd.label}
         </span>
       </div>
 
-      {!status.configured && (
+      {!status.configured && !status.reachable && (
         <p style={{ color: '#94a3b8', fontSize: 13 }}>
           Configure your CoinStats API key in API Setup to enable market intelligence.
+        </p>
+      )}
+
+      {status.last_error && status.configured && !status.reachable && (
+        <p style={{ color: '#f59e0b', fontSize: 12, marginTop: 4 }}>
+          Last error: {status.last_error}
         </p>
       )}
 

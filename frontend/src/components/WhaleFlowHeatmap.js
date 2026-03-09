@@ -56,18 +56,26 @@ export default function WhaleFlowHeatmap() {
       if (data.status === 'success') {
         setWhaleData(data.data);
         setError(null);
-      } else if (data.message && data.message.includes('not configured')) {
-        setError('Whale data not configured. Please configure whale tracking service.');
+      } else if (data.status === 'unavailable') {
+        // Service not configured — show empty state, not an error
+        setWhaleData(null);
+        setError(null);
+      } else if (data.status === 'error') {
+        setWhaleData(null);
+        setError(data.message || 'Whale data temporarily unavailable');
+      } else if (data.data) {
+        // Backward-compat: response has data directly
+        setWhaleData(data.data);
+        setError(null);
       } else {
-        setError(data.message || 'Failed to fetch whale data');
+        setWhaleData(null);
+        setError(null);
       }
     } catch (err) {
       console.error('Error fetching whale data:', err);
-      if (err.message && err.message.includes('not configured')) {
-        setError('Whale data not configured. Please configure whale tracking service.');
-      } else {
-        setError(err.message || 'Failed to fetch whale data');
-      }
+      // Treat any network/parse error as "no data yet" — don't surface raw error to user
+      setWhaleData(null);
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -212,11 +220,33 @@ export default function WhaleFlowHeatmap() {
     );
   }
 
+  if (!whaleData) {
+    return (
+      <Card className="p-6">
+        <div className="text-center" style={{ padding: '32px 0' }}>
+          <p style={{ fontSize: '1.5rem', marginBottom: '12px' }}>🐋</p>
+          <p style={{ color: 'var(--muted, #94a3b8)', fontSize: '0.9rem', fontWeight: 600 }}>No whale signals detected</p>
+          <p style={{ color: 'var(--muted, #64748b)', fontSize: '0.8rem', marginTop: '6px' }}>
+            Whale monitoring will show on-chain exchange flows when signals are available.
+          </p>
+          <button
+            onClick={fetchWhaleData}
+            style={{ marginTop: '16px', padding: '7px 18px', borderRadius: '8px', background: 'rgba(59,130,246,0.2)', border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6', cursor: 'pointer', fontSize: '0.82rem' }}
+          >
+            🔄 Check again
+          </button>
+        </div>
+      </Card>
+    );
+  }
+
   if (error) {
     return (
       <Card className="p-6">
-        <div className="text-center text-red-600">
-          <p>Error: {error}</p>
+        <div className="text-center">
+          <p style={{ color: 'var(--muted, #94a3b8)', fontSize: '0.9rem', marginBottom: '10px' }}>
+            ⚠ {error}
+          </p>
           <button
             onClick={fetchWhaleData}
             className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"

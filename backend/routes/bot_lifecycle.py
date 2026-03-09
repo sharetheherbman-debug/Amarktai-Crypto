@@ -321,6 +321,11 @@ async def get_bots_status(
                 "exchange": bot.get('exchange', 'unknown'),
                 "state": state,
                 "status": status,  # Keep original for compatibility
+                # --- Bot classification (critical for fleet tab routing) ---
+                "bot_type": bot.get('bot_type', 'normal'),
+                "profit_routing": bot.get('profit_routing', 'RETURN_TO_MAIN'),
+                "strategy_preset": bot.get('strategy_preset'),
+                "user_id": bot.get('user_id'),
                 "paused_reason": pause_reason,  # Canonical field (support legacy)
                 "paused_reason_code": pause_reason_code,
                 "paused_reason_message": pause_reason_message,
@@ -336,9 +341,14 @@ async def get_bots_status(
                 "training_state": bot.get('training_state'),
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
+                "initial_capital": bot.get('initial_capital', 0),
                 "current_capital": bot.get('current_capital', 0),
+                "open_position_value": bot.get('open_position_value', 0),
                 "total_profit": bot.get('total_profit', 0),
                 "trades_count": bot.get('trades_count', 0),
+                "win_count": bot.get('win_count', 0),
+                "loss_count": bot.get('loss_count', 0),
+                "last_trade": bot.get('last_trade'),
                 "training_complete": bot.get('training_complete', False),
                 "training_failed_reason": bot.get('training_failed_reason'),
                 "training_in_progress": bot.get('training_in_progress', False),

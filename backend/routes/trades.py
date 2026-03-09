@@ -271,30 +271,48 @@ async def get_live_trades(
                 # Trade details
                 "symbol": trade.get('symbol') or trade.get('pair', 'UNKNOWN'),
                 "side": trade.get('side', 'buy'),
+                # Size field — multiple aliases for frontend compatibility
                 "quantity": trade.get('amount', 0),
+                "qty": trade.get('qty', trade.get('amount', 0)),
+                "size": trade.get('qty', trade.get('amount', 0)),
                 
                 # Prices
                 "entry_price": trade.get('entry_price') or trade.get('price', 0),
                 "exit_price": trade.get('exit_price') or trade.get('price', 0),
+                "price": trade.get('entry_price') or trade.get('price', 0),
                 
                 # P&L breakdown (from accounting service - consistent!)
                 "gross_profit_loss": trade.get('gross_pnl', 0),
-                "fee_total": trade.get('fee_amount', 0),
+                "gross_pnl": trade.get('gross_pnl', 0),
+                "fee_total": trade.get('fee_amount', trade.get('fees_total', trade.get('fees', 0))),
+                "fees": trade.get('fees_total', trade.get('fee_amount', trade.get('fees', 0))),
+                "fee": trade.get('fees_total', trade.get('fee_amount', trade.get('fees', 0))),
                 "net_profit_loss": trade.get('net_pnl', 0),
+                "net_pnl": trade.get('net_pnl', 0),
+                "profit_loss": trade.get('net_pnl', trade.get('profit_loss', 0)),
+                # Slippage
+                "slippage": trade.get('slippage_cost', trade.get('slippage', 0)),
+                "slippage_cost": trade.get('slippage_cost', trade.get('slippage', 0)),
                 
                 # Display labels
                 "net_pnl_display": trade.get('net_pnl_display', f"R{trade.get('net_pnl', 0):.2f}"),
                 "gross_pnl_display": trade.get('gross_pnl_display', f"R{trade.get('gross_pnl', 0):.2f}"),
-                "fee_display": trade.get('fee_display', f"R{trade.get('fee_amount', 0):.2f}"),
+                "fee_display": trade.get('fee_display', f"R{trade.get('fee_amount', trade.get('fees', 0)):.2f}"),
                 
                 # Strategy/signal
                 "strategy_tag": trade.get('strategy_tag') or trade.get('trend', 'unknown'),
                 "signal_reason": trade.get('signal_reason') or trade.get('ai_regime', 'unknown'),
                 
                 # Metadata
+                "id": trade.get('id') or trade.get('trade_id'),
                 "timestamp": timestamp,
                 "trading_mode": trade.get('trading_mode', 'paper'),
+                "mode": trade.get('trading_mode', 'paper'),
                 "status": trade.get('status', 'closed'),
+                # Classify as profitable: check if PnL > 0 (treat exactly-zero as not profitable)
+                "is_profitable": (
+                    (trade.get('net_pnl') if trade.get('net_pnl') is not None else trade.get('profit_loss', 0)) > 0
+                ),
                 
                 # Additional context
                 "data_source": "accounting_service",
