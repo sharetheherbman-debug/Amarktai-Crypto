@@ -226,10 +226,11 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
         mode_flags = snapshot.get("trading_mode_flags") or {}
         if mode_flags.get("live_trading"):
             system_mode = "live"
-        elif mode_flags.get("autopilot"):
-            system_mode = "autopilot"
-        else:
+        elif mode_flags.get("paper_trading"):
             system_mode = "paper"
+        else:
+            system_mode = "testing"
+        automation_mode = "autopilot" if mode_flags.get("autopilot") else "manual"
 
         open_positions = 0
         if db.positions_collection is not None:
@@ -246,6 +247,7 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
 
         normalized_snapshot = {
             "systemMode": system_mode,
+            "automationMode": automation_mode,
             "activeBots": counts["active"],
             "runnableBots": counts["runnable"],
             "totalBots": counts["total"],

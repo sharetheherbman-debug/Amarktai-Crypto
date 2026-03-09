@@ -46,10 +46,12 @@ def get_build_metadata() -> dict:
         return _BUILD_HASH_CACHE
 
     metadata = {
+        "version": os.getenv("BUILD_VERSION") or "unknown",
+        "tag": os.getenv("BUILD_VERSION_TAG") or "unknown",
         "hash": "unknown",
         "source": "unknown",
         "environment": os.getenv("ENVIRONMENT", "unknown"),
-        "build_timestamp": os.getenv("BUILD_TIMESTAMP") or "unknown",
+        "build_timestamp": os.getenv("BUILD_TIMESTAMP") or os.getenv("BUILD_TIME") or "unknown",
         "git_branch": None,
         "git_dirty": None,
     }
@@ -59,6 +61,8 @@ def get_build_metadata() -> dict:
         build_sha = os.environ.get("BUILD_SHA")
         if build_sha:
             metadata["hash"] = build_sha
+            if metadata["version"] == "unknown":
+                metadata["version"] = build_sha
             metadata["source"] = "env_BUILD_SHA"
             _BUILD_HASH_CACHE = metadata
             return metadata
@@ -74,6 +78,8 @@ def get_build_metadata() -> dict:
         )
         if result.returncode == 0:
             metadata["hash"] = result.stdout.strip()
+            if metadata["version"] == "unknown":
+                metadata["version"] = metadata["hash"]
             metadata["source"] = "git_rev_parse"
 
             branch = subprocess.run(
@@ -86,6 +92,18 @@ def get_build_metadata() -> dict:
             )
             if branch.returncode == 0:
                 metadata["git_branch"] = branch.stdout.strip()
+
+            if metadata["tag"] == "unknown":
+                tag = subprocess.run(
+                    ["git", "describe", "--tags", "--exact-match"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    check=False
+                )
+                if tag.returncode == 0 and (tag.stdout or "").strip():
+                    metadata["tag"] = tag.stdout.strip()
 
             dirty = subprocess.run(
                 ["git", "status", "--porcelain"],

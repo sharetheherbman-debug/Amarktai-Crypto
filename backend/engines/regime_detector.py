@@ -319,7 +319,14 @@ class RegimeDetector:
         features = self._extract_features(prices)
         
         if len(features) < 10:
-            return None
+            return RegimeState(
+                regime=MarketRegime.UNKNOWN,
+                confidence=0.0,
+                volatility=0.0,
+                trend_strength=0.0,
+                timestamp=datetime.now(timezone.utc),
+                features={}
+            )
         
         # Detect with HMM (primary method)
         hmm_regime, hmm_confidence = self._detect_with_hmm(features)

@@ -17,6 +17,7 @@ get_canonical_wallet_truth(user_id) -> WalletTruth
 from __future__ import annotations
 
 from typing import Dict, Any
+from datetime import datetime, timezone
 import logging
 
 import database as db
@@ -100,6 +101,46 @@ async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
         "normal_count": normal,
         "by_exchange": by_exchange,
     }
+
+
+async def get_canonical_trade_counts(user_id: str) -> Dict[str, int]:
+    """Return canonical closed-trade totals scoped to active user bots.
+
+    This mirrors overview snapshot semantics so diagnostics/countdown/history
+    surfaces don't drift from each other.
+    """
+    if db.bots_collection is None or db.trades_collection is None:
+        return {"total": 0, "today": 0}
+
+    try:
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {"_id": 0, "id": 1},
+        ).to_list(length=_MAX_BOTS)
+        bot_ids = [b.get("id") for b in bots if b.get("id")]
+        if not bot_ids:
+            return {"total": 0, "today": 0}
+
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        total = await db.trades_collection.count_documents({
+            "bot_id": {"$in": bot_ids},
+            "status": "closed",
+        })
+        today = await db.trades_collection.count_documents({
+            "bot_id": {"$in": bot_ids},
+            "status": "closed",
+            "timestamp": {"$gte": today_start},
+        })
+        return {"total": int(total or 0), "today": int(today or 0)}
+    except Exception as exc:
+        logger.warning("get_canonical_trade_counts failed for user %s: %s", user_id, exc)
+        return {"total": 0, "today": 0}
 
 
 async def get_canonical_wallet_truth(user_id: str) -> Dict[str, Any]:

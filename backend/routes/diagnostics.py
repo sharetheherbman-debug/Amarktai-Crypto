@@ -452,7 +452,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         from paper_trading_engine import paper_trading_engine
         from trading_scheduler import trading_scheduler
         from datetime import datetime, timezone
-        from services.canonical import get_canonical_bot_counts
+        from services.canonical import get_canonical_bot_counts, get_canonical_trade_counts
 
         # Get scheduler status — use the real is_running attribute
         scheduler_running = getattr(trading_scheduler, 'is_running', False)
@@ -465,12 +465,8 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         # Canonical bot counts (same function used by /api/bots/status and /api/overview/snapshot)
         counts = await get_canonical_bot_counts(user_id)
 
-        # Count trades today (any mode for this user)
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        trades_today = await db.trades_collection.count_documents({
-            "user_id": user_id,
-            "timestamp": {"$gte": today_start.isoformat()},
-        })
+        trade_counts = await get_canonical_trade_counts(user_id)
+        trades_today = trade_counts["today"]
 
         # Get last trade/order info
         last_trade = await db.trades_collection.find_one(
@@ -1804,18 +1800,11 @@ async def paper_activity_diagnostic(user_id: str = Depends(get_current_user)):
     showing the most recent trade, fill, and decision for the user.
     """
     try:
-        from services.canonical import get_canonical_bot_counts
+        from services.canonical import get_canonical_bot_counts, get_canonical_trade_counts
 
         counts = await get_canonical_bot_counts(user_id)
 
-        today_start = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-
-        trades_today = await db.trades_collection.count_documents({
-            "user_id": user_id,
-            "timestamp": {"$gte": today_start.isoformat()},
-        })
+        trades_today = (await get_canonical_trade_counts(user_id))["today"]
 
         last_trade = await db.trades_collection.find_one(
             {"user_id": user_id},
@@ -1877,11 +1866,8 @@ async def go_live_diagnostic(user_id: str = Depends(get_current_user)):
             blockers.append("scheduler_task_dead")
 
         # 2. Paper execution proof
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        trades_today = await db.trades_collection.count_documents({
-            "user_id": user_id,
-            "timestamp": {"$gte": today_start.isoformat()},
-        })
+        from services.canonical import get_canonical_trade_counts
+        trades_today = (await get_canonical_trade_counts(user_id))["today"]
         last_trade_doc = await db.trades_collection.find_one(
             {"user_id": user_id},
             sort=[("timestamp", -1)],

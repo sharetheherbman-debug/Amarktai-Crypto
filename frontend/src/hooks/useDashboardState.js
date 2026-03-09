@@ -25,7 +25,9 @@ const safeNumber = (value, fallback = 0) => {
 
 const resolveSystemMode = (modeRes) => {
   if (!modeRes) return 'paper';
-  return modeRes.mode || (modeRes.liveTrading ? 'live' : modeRes.autopilot ? 'autopilot' : 'paper');
+  if (modeRes.system_mode) return modeRes.system_mode;
+  if (modeRes.mode && modeRes.mode !== 'autopilot') return modeRes.mode;
+  return modeRes.liveTrading ? 'live' : modeRes.paperTrading ? 'paper' : 'testing';
 };
 
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -805,7 +807,7 @@ export default function useDashboardState(navigate) {
     loadRecentTrades();
     loadMetrics();
     loadCountdown();
-  }, [loadRecentTrades, loadMetrics, loadCountdown]);
+  }, []);
 
   const registerNotableEvent = useCallback((title, detail) => {
     setNotableEvent({
@@ -1781,9 +1783,10 @@ export default function useDashboardState(navigate) {
 
   const loadAdminHealth = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/admin/health-check`, axiosConfig);
+      const res = await axios.get(`${API}/admin/health`, axiosConfig);
       setAdminApiHealth({
-        status: res.data?.health_status || 'Healthy',
+        status: res.data?.status || 'Healthy',
+        build: res.data?.build || null,
         lastCheck: new Date().toISOString(),
         error: null
       });

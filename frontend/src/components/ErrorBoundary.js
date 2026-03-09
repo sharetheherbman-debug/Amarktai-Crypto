@@ -43,6 +43,8 @@ class ErrorBoundary extends React.Component {
       timestamp: new Date().toISOString(),
       buildVersion: process.env.REACT_APP_VERSION || 'unknown',
       buildSha: process.env.REACT_APP_BUILD_SHA || 'unknown',
+      buildTag: process.env.REACT_APP_VERSION_TAG || 'unknown',
+      buildTimestamp: process.env.REACT_APP_BUILD_TIMESTAMP || process.env.REACT_APP_BUILD_TIME || 'unknown',
       component: this.props.title || 'unknown',
       error: error ? error.toString() : null,
       componentStack: errorInfo ? errorInfo.componentStack : null,

@@ -87,14 +87,19 @@ ok "Code updated"
 
 # Recapture SHA after pull
 BUILD_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TAG=$(git -C "$REPO_ROOT" describe --tags --exact-match 2>/dev/null || echo "unknown")
 
 # ── 3. Frontend build ─────────────────────────────────────────────────────────
 if [[ "$SKIP_FRONTEND" == "false" ]]; then
   info "Building frontend..."
   cd "$FRONTEND_DIR"
   npm ci --prefer-offline --no-audit --quiet
-  # Inject build SHA so the frontend bundle can report it via REACT_APP_BUILD_SHA
-  REACT_APP_BUILD_SHA="$BUILD_SHA" npm run build
+  # Inject build metadata so frontend diagnostics can trace deployed bundle
+  REACT_APP_BUILD_SHA="$BUILD_SHA" \
+  REACT_APP_BUILD_TIMESTAMP="$BUILD_DATE" \
+  REACT_APP_VERSION="$BUILD_SHA" \
+  REACT_APP_VERSION_TAG="$BUILD_TAG" \
+  npm run build
   ok "Frontend built"
 
   # Write build hash file
@@ -135,14 +140,21 @@ if [[ "$SKIP_BACKEND" == "false" ]]; then
     warn "Venv not found at $VENV_PATH – skipping pip install"
   fi
 
-  # Inject BUILD_SHA into the systemd env so /api/health/ping can report it
-  info "Injecting BUILD_SHA=$BUILD_SHA into $ENV_FILE..."
-  if grep -q "^BUILD_SHA=" "$ENV_FILE"; then
-    sudo sed -i "s|^BUILD_SHA=.*|BUILD_SHA=$BUILD_SHA|" "$ENV_FILE"
-  else
-    echo "BUILD_SHA=$BUILD_SHA" | sudo tee -a "$ENV_FILE" > /dev/null
-  fi
-  ok "BUILD_SHA updated in env file"
+  # Inject canonical backend build metadata for health/admin diagnostics
+  info "Injecting build metadata into $ENV_FILE..."
+  for key_value in \
+    "BUILD_SHA=$BUILD_SHA" \
+    "BUILD_TIMESTAMP=$BUILD_DATE" \
+    "BUILD_VERSION=$BUILD_SHA" \
+    "BUILD_VERSION_TAG=$BUILD_TAG"; do
+    key="${key_value%%=*}"
+    if grep -q "^${key}=" "$ENV_FILE"; then
+      sudo sed -i "s|^${key}=.*|${key_value}|" "$ENV_FILE"
+    else
+      echo "$key_value" | sudo tee -a "$ENV_FILE" > /dev/null
+    fi
+  done
+  ok "Build metadata updated in env file"
 
   # Restart service
   info "Restarting $BACKEND_SERVICE..."
