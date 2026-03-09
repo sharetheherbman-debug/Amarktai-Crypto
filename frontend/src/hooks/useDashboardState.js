@@ -1340,6 +1340,34 @@ export default function useDashboardState(navigate) {
     }
   };
 
+  const handlePauseBot = async (botId) => {
+    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
+    try {
+      await post(`/bots/${botId}/pause`, {});
+      toast.success('Bot paused');
+      await refreshBotState();
+    } catch (err) {
+      const errorMsg = formatActionError(err, 'Failed to pause bot');
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    } finally {
+      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
+    }
+  };
+
+  const handleRestartBot = async (botId) => {
+    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
+    try {
+      await post(`/bots/${botId}/restart`, {});
+      toast.success('Bot restarted successfully');
+      await refreshBotState();
+    } catch (err) {
+      const errorMsg = formatActionError(err, 'Failed to restart bot');
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    } finally {
+      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
+    }
+  };
+
   const handleResumeAllBots = async () => {
     setBotControlLoading(prev => ({ ...prev, 'all': true }));
     try {
@@ -2232,14 +2260,18 @@ export default function useDashboardState(navigate) {
   };
 
   const handleDeleteBot = async (botId) => {
-    if (!window.confirm('Delete this bot? This cannot be undone.')) return;
-    
+    // Confirmation is handled by the UI's two-step confirm flow in BotFleetSection;
+    // do NOT use window.confirm() here as that would double-prompt the user.
+    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
     try {
       await axios.delete(`${API}/bots/${botId}`, axiosConfig);
-      showNotification('Bot deleted');
+      toast.success('Bot deleted');
       await refreshBotState();
     } catch (err) {
-      showNotification('Failed to delete bot', 'error');
+      const errorMsg = formatActionError(err, 'Failed to delete bot');
+      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
+    } finally {
+      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
     }
   };
 
@@ -3229,6 +3261,8 @@ export default function useDashboardState(navigate) {
     handleResetPassword,
     handleResumeAllBots,
     handleResumeBot,
+    handlePauseBot,
+    handleRestartBot,
     handleRiskProfileChange,
     handleSendMessage,
     handleStartBot,

@@ -159,6 +159,8 @@ export default function BotFleetSection({
   handleDeleteBot,
   handleResumeBot,
   handleStartBot,
+  handlePauseBot,
+  handleRestartBot,
   handleToggleBotMode,
   botControlLoading,
   selectedBotDetailId,
@@ -499,21 +501,33 @@ export default function BotFleetSection({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {(() => {
                         const st = getBotStatus(selectedBot);
-                        const loading = botControlLoading;
+                        // Fix: use per-bot loading flag, not the whole map object
+                        const loading = botControlLoading?.[selectedBot.id] ?? false;
                         return (
                           <>
+                            {/* Resume paused bot */}
                             {st === 'paused' && handleResumeBot && (
                               <button style={S.btn('success')} disabled={loading} onClick={() => handleResumeBot(selectedBot.id)}>
-                                {loading ? '...' : '▶ Resume Bot'}
+                                {loading ? '⏳ ...' : '▶ Resume Bot'}
                               </button>
                             )}
+                            {/* Start stopped/inactive bot */}
                             {(st === 'stopped' || st === 'inactive') && handleStartBot && (
                               <button style={S.btn('success')} disabled={loading} onClick={() => handleStartBot(selectedBot.id)}>
-                                {loading ? '...' : '▶ Start Bot'}
+                                {loading ? '⏳ ...' : '▶ Start Bot'}
                               </button>
                             )}
-                            {(st === 'active' || st === 'running') && (
-                              <span style={{ color: 'var(--success)', fontSize: 13 }}>✅ Bot is running</span>
+                            {/* Pause active bot */}
+                            {(st === 'active' || st === 'running') && handlePauseBot && (
+                              <button style={S.btn('warning')} disabled={loading} onClick={() => handlePauseBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '⏸ Pause Bot'}
+                              </button>
+                            )}
+                            {/* Restart any non-deleted bot */}
+                            {st !== 'deleted' && handleRestartBot && (
+                              <button style={S.btn('default')} disabled={loading} onClick={() => handleRestartBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '🔄 Restart Bot'}
+                              </button>
                             )}
                             {handleToggleBotMode && (
                               <button
@@ -521,8 +535,14 @@ export default function BotFleetSection({
                                 disabled={loading}
                                 onClick={() => handleToggleBotMode(selectedBot.id)}
                               >
-                                {loading ? '...' : `Switch to ${modeLabel(selectedBot) === 'LIVE' ? 'Paper' : 'Live'} Mode`}
+                                {loading ? '⏳ ...' : `Switch to ${modeLabel(selectedBot) === 'LIVE' ? 'Paper' : 'Live'} Mode`}
                               </button>
+                            )}
+                            {/* Pause reason hint */}
+                            {st === 'paused' && selectedBot.pause_reason && (
+                              <div style={{ fontSize: 12, color: '#f59e0b', padding: '6px 10px', background: 'rgba(245,158,11,0.08)', borderRadius: 6 }}>
+                                ⚠ Pause reason: {selectedBot.pause_reason}
+                              </div>
                             )}
                             <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 4 }}>
                               {confirmDelete === selectedBot.id ? (
