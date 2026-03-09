@@ -97,22 +97,47 @@ async def compute_bot_eligibility(user_id: str, db) -> Dict[str, Any]:
 
 
 async def compute_wallet_balances(user_id: str, db) -> Dict[str, Any]:
-    """Canonical wallet balances per currency."""
-    wallet = await db["paper_wallets"].find_one({"user_id": user_id}) or {}
-    total = float(wallet.get("total", wallet.get("available", 0)))
-    available = float(wallet.get("available", 0))
-    reserved = float(wallet.get("reserved", 0))
-    zar = float(wallet.get("zar_available", 0))
-    usdt = float(wallet.get("usdt_available", 0))
+    """Canonical wallet balances for the paper wallet.
+
+    Reads from the same source as /api/wallet/paper:
+    - ``wallet_balances`` collection keyed by user_id stores the cached totals
+      that paper_wallet_ledger._update_user_wallet_balance() writes after every
+      reserve / debit / credit operation.
+    - Falls back to reading the raw ``wallets`` document (type=paper) directly
+      in case the cached fields are absent.
+
+    This ensures truth_kernel WALLET_RECONCILIATION agrees with /api/wallet/paper
+    and the Truth Console rather than reading from a non-existent ``paper_wallets``
+    collection.
+    """
+    # Primary: cached totals written by paper_wallet_ledger
+    wb = await db["wallet_balances"].find_one({"user_id": user_id}) or {}
+    total = float(wb.get("paper_wallet_balance_zar", 0) or 0)
+    available = float(wb.get("paper_wallet_available_zar", 0) or 0)
+    allocated = float(wb.get("paper_wallet_allocated_zar", 0) or 0)
+
+    # Fallback: raw wallets doc (type=paper, balances dict)
+    if total == 0 and available == 0 and allocated == 0:
+        raw = await db["wallets"].find_one({"user_id": user_id, "type": "paper"}) or {}
+        balances = raw.get("balances") or {}
+        zar_raw = float(balances.get("ZAR", 0) or 0)
+        if zar_raw > 0:
+            available = zar_raw
+            total = zar_raw
+
+    zar = available
+    usdt = 0.0  # paper mode is ZAR-only; extend here if multi-currency is added
+
+    balance_check = abs(total - (available + allocated)) < BALANCE_TOLERANCE
 
     return {
-        "total": total,
-        "available": available,
-        "reserved": reserved,
-        "zar_available": zar,
+        "total": round(total, 2),
+        "available": round(available, 2),
+        "reserved": round(allocated, 2),
+        "zar_available": round(zar, 2),
         "usdt_available": usdt,
-        "balance_check": abs(total - (available + reserved)) < BALANCE_TOLERANCE,
-        "negative_balance": available < 0 or reserved < 0,
+        "balance_check": balance_check,
+        "negative_balance": available < 0 or allocated < 0,
     }
 
 
@@ -147,32 +172,60 @@ async def compute_risk_state(user_id: str, db) -> Dict[str, Any]:
 
 
 async def compute_scheduler_state(db) -> Dict[str, Any]:
-    """Canonical scheduler state from heartbeat."""
-    heartbeat = await db["scheduler_heartbeat"].find_one(
-        {}, sort=[("timestamp", -1)]
-    )
-    if not heartbeat:
-        return {
-            "running": False,
-            "last_tick": None,
-            "lag_seconds": None,
-            "stale": True,
-        }
+    """Canonical scheduler state.
 
-    last_tick = heartbeat.get("timestamp") or heartbeat.get("last_tick")
-    if isinstance(last_tick, str):
+    Uses the same live heartbeat_registry that /api/autonomy/status uses, so
+    PAPER_ENGINE in the Truth Console agrees with the autonomy subsystem panel.
+
+    The ``scheduler_heartbeat`` MongoDB collection is never written to by the
+    current trading_scheduler, so relying on it always showed FAIL even while
+    the scheduler was running.  We now read the in-process registry and, as a
+    secondary cross-check, also inspect trading_scheduler.is_running.
+    """
+    try:
+        from services.autonomy_heartbeat import heartbeat_registry
+        watchdog = heartbeat_registry.check_stale()
+        ts_state = watchdog.get("trading_scheduler", {})
+        alive = ts_state.get("alive", False)
+        last_ok = ts_state.get("last_ok_at")
+    except (ImportError, AttributeError, KeyError) as exc:
+        logger.debug("heartbeat_registry check failed in compute_scheduler_state: %s", exc)
+        alive = False
+        last_ok = None
+
+    # Cross-check with the scheduler's own is_running flag
+    try:
+        from trading_scheduler import trading_scheduler as _ts
+        is_running = getattr(_ts, "is_running", False)
+        last_tick_at = getattr(_ts, "last_tick_at", None)
+    except (ImportError, AttributeError) as exc:
+        logger.debug("trading_scheduler import failed in compute_scheduler_state: %s", exc)
+        is_running = False
+        last_tick_at = None
+
+    running = is_running or alive
+
+    # Determine lag from last_tick_at (most granular) or last heartbeat ok
+    last_tick_str = last_tick_at or last_ok
+    lag: Optional[float] = None
+    if last_tick_str:
         try:
-            last_tick = datetime.fromisoformat(last_tick.replace("Z", "+00:00"))
+            if isinstance(last_tick_str, str):
+                ts_dt = datetime.fromisoformat(last_tick_str.replace("Z", "+00:00"))
+            else:
+                ts_dt = last_tick_str
+            lag = (datetime.now(timezone.utc) - ts_dt).total_seconds()
         except Exception:
-            last_tick = None
+            lag = None
 
-    now = datetime.now(timezone.utc)
-    lag = (now - last_tick).total_seconds() if last_tick else None
-    stale = lag is not None and lag > SCHEDULER_STALE_THRESHOLD_SECONDS
+    stale = (lag is not None and lag > SCHEDULER_STALE_THRESHOLD_SECONDS) or (
+        not running and lag is None
+    )
 
     return {
-        "running": heartbeat.get("running", False),
-        "last_tick": last_tick.isoformat() if last_tick else None,
+        "running": running,
+        "scheduler_running": running,
+        "last_tick": last_tick_str,
         "lag_seconds": round(lag, 1) if lag is not None else None,
         "stale": stale,
     }

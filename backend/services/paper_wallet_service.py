@@ -8,7 +8,6 @@ from typing import Dict, Optional, Tuple
 from pymongo import ReturnDocument
 
 import database as db
-from config import PAPER_STARTING_CAPITAL_ZAR
 
 
 class PaperWalletService:
@@ -31,10 +30,14 @@ class PaperWalletService:
         if wallet:
             return wallet
 
+        # Create a zero-balance wallet.  Capital must be deposited explicitly
+        # (or injected via the funding flow).  We do NOT auto-seed with
+        # PAPER_STARTING_CAPITAL_ZAR here because that would silently
+        # recreate 30000 after a paper reset.
         wallet = {
             "user_id": user_id,
             "type": "paper",
-            "balances": {"ZAR": float(PAPER_STARTING_CAPITAL_ZAR)},
+            "balances": {},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         }

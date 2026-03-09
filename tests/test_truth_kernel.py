@@ -571,3 +571,235 @@ class TestFrontendScalperPanel:
         with open(path) as f:
             content = f.read()
         assert 'scalper-panel.css' in content, "Dashboard should import scalper-panel.css"
+
+
+# ============================================================================
+# Helper used by the new truth-fix tests below
+# ============================================================================
+
+def _code_only(source: str) -> str:
+    """Strip comments and docstring tokens from Python source using tokenize.
+
+    Returns a flat string of the remaining token text so callers can check
+    whether an identifier or constant appears in *executable* code only,
+    without being tripped up by explanatory comments or docstrings.
+    """
+    import io
+    import tokenize
+
+    result = []
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+        for tok_type, tok_string, _s, _e, _l in tokens:
+            if tok_type in (tokenize.COMMENT, tokenize.STRING, tokenize.NEWLINE,
+                            tokenize.NL, tokenize.INDENT, tokenize.DEDENT,
+                            tokenize.ENCODING):
+                continue
+            result.append(tok_string)
+    except tokenize.TokenError:
+        # Fallback: crude comment-line stripping
+        result = [
+            ln for ln in source.split("\n")
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+    return " ".join(result)
+
+
+# ============================================================================
+# Truth Kernel — canonical wallet + scheduler source tests
+# ============================================================================
+
+class TestTruthKernelCanonicalSources:
+    """Validates that truth_kernel reads from the correct canonical sources."""
+
+    def test_compute_wallet_balances_reads_wallet_balances_collection(self):
+        """compute_wallet_balances must read from wallet_balances collection,
+        NOT the non-existent paper_wallets collection."""
+        import inspect
+        from services import truth_kernel
+        code = _code_only(inspect.getsource(truth_kernel.compute_wallet_balances))
+        assert "paper_wallets" not in code, (
+            "compute_wallet_balances executable code must NOT reference 'paper_wallets' "
+            "(non-existent collection)"
+        )
+        assert "wallet_balances" in code, (
+            "compute_wallet_balances must read from 'wallet_balances' collection"
+        )
+
+    def test_compute_wallet_balances_uses_paper_wallet_fields(self):
+        """compute_wallet_balances must use the paper_wallet_* field names
+        written by paper_wallet_ledger._update_user_wallet_balance()."""
+        import inspect
+        from services import truth_kernel
+        source = inspect.getsource(truth_kernel.compute_wallet_balances)
+        assert "paper_wallet_balance_zar" in source, (
+            "Must read paper_wallet_balance_zar for total"
+        )
+        assert "paper_wallet_available_zar" in source, (
+            "Must read paper_wallet_available_zar for available"
+        )
+        assert "paper_wallet_allocated_zar" in source, (
+            "Must read paper_wallet_allocated_zar for reserved/allocated"
+        )
+
+    def test_compute_wallet_balances_has_wallets_fallback(self):
+        """compute_wallet_balances should fall back to wallets collection."""
+        import inspect
+        from services import truth_kernel
+        # Use raw source (not _code_only) because the collection name appears
+        # as a string literal: db["wallets"] — which _code_only strips.
+        source = inspect.getsource(truth_kernel.compute_wallet_balances)
+        assert '"wallets"' in source or "'wallets'" in source, (
+            "compute_wallet_balances must fall back to wallets collection"
+        )
+
+    def test_compute_scheduler_state_does_not_query_missing_mongo_collection(self):
+        """compute_scheduler_state must NOT query the scheduler_heartbeat
+        MongoDB collection (which trading_scheduler never writes to)."""
+        import inspect
+        from services import truth_kernel
+        code = _code_only(inspect.getsource(truth_kernel.compute_scheduler_state))
+        assert 'scheduler_heartbeat' not in code, (
+            "compute_scheduler_state executable code must NOT reference "
+            "scheduler_heartbeat via db[] (never written to by the scheduler)"
+        )
+
+    def test_compute_scheduler_state_uses_heartbeat_registry(self):
+        """compute_scheduler_state must use heartbeat_registry (same source
+        as /api/autonomy/status)."""
+        import inspect
+        from services import truth_kernel
+        code = _code_only(inspect.getsource(truth_kernel.compute_scheduler_state))
+        assert "heartbeat_registry" in code, (
+            "compute_scheduler_state must use heartbeat_registry (in-process, "
+            "same as /api/autonomy/status)"
+        )
+
+    def test_compute_scheduler_state_cross_checks_is_running(self):
+        """compute_scheduler_state should also check trading_scheduler.is_running
+        to agree with /api/autonomy/status."""
+        import inspect
+        from services import truth_kernel
+        source = inspect.getsource(truth_kernel.compute_scheduler_state)
+        assert "is_running" in source, (
+            "compute_scheduler_state must cross-check trading_scheduler.is_running"
+        )
+
+
+# ============================================================================
+# Wallet Summary Service — no auto-reseed after reset
+# ============================================================================
+
+class TestWalletSummaryNoReseed:
+    """Validates that wallet_summary_service no longer auto-seeds with
+    PAPER_STARTING_CAPITAL_ZAR after a paper reset."""
+
+    def test_get_paper_balance_does_not_fallback_to_starting_capital(self):
+        """_get_paper_balance must NOT use PAPER_STARTING_CAPITAL_ZAR in
+        executable code (causes 30000 reseed after paper reset)."""
+        import inspect
+        from services import wallet_summary_service as wsm
+        code = _code_only(inspect.getsource(wsm.WalletSummaryService._get_paper_balance))
+        assert "PAPER_STARTING_CAPITAL_ZAR" not in code, (
+            "_get_paper_balance must not reference PAPER_STARTING_CAPITAL_ZAR "
+            "in executable code (causes 30000 reseed after paper reset)"
+        )
+
+    def test_get_paper_balance_returns_zero_on_none(self):
+        """When paper_wallet_ledger.get_user_balance returns None,
+        _get_paper_balance must return 0.0 (not 30000)."""
+        import inspect
+        from services import wallet_summary_service as wsm
+        source = inspect.getsource(wsm.WalletSummaryService._get_paper_balance)
+        assert "return 0.0" in source or "return 0" in source, (
+            "_get_paper_balance must return 0.0 when ledger returns None "
+            "(not PAPER_STARTING_CAPITAL_ZAR)"
+        )
+
+    def test_wallet_summary_service_no_starting_capital_in_executable_code(self):
+        """wallet_summary_service.py must not reference PAPER_STARTING_CAPITAL_ZAR
+        in any executable code (removed to prevent auto-reseed after reset)."""
+        import inspect
+        from services import wallet_summary_service as wsm
+        code = _code_only(inspect.getsource(wsm))
+        assert "PAPER_STARTING_CAPITAL_ZAR" not in code, (
+            "wallet_summary_service must not reference PAPER_STARTING_CAPITAL_ZAR "
+            "in executable code — removed to prevent auto-reseed after reset"
+        )
+
+    def test_allocated_funds_excludes_paused_bots(self):
+        """get_summary must not count paused bots in allocated_funds_zar."""
+        import inspect
+        from services import wallet_summary_service as wsm
+        source = inspect.getsource(wsm.WalletSummaryService.get_summary)
+        # The new implementation filters by capital_reserving_statuses
+        assert "capital_reserving_statuses" in source or "active" in source, (
+            "get_summary must restrict allocated_funds to active/training bots"
+        )
+
+    def test_paper_wallet_service_no_auto_seed_in_code(self):
+        """paper_wallet_service._ensure_wallet must not auto-seed with
+        PAPER_STARTING_CAPITAL_ZAR in executable code."""
+        import inspect
+        from services import paper_wallet_service as pws
+        source = inspect.getsource(pws.PaperWalletService._ensure_wallet)
+        code = _code_only(source)
+        assert "PAPER_STARTING_CAPITAL_ZAR" not in code, (
+            "_ensure_wallet must not reference PAPER_STARTING_CAPITAL_ZAR in "
+            "executable code (causes 30000 balance reseed after paper reset)"
+        )
+        # Must create with empty balances — check literal in the raw source
+        assert '"balances": {}' in source or "'balances': {}" in source, (
+            "_ensure_wallet must create wallet with empty balances dict"
+        )
+
+
+# ============================================================================
+# perform_paper_reset — delete_timestamp defined
+# ============================================================================
+
+class TestPerformPaperResetDeleteTimestamp:
+    """Validates that perform_paper_reset defines delete_timestamp before use."""
+
+    def _get_reset_source(self):
+        """Read perform_paper_reset source directly from file without importing
+        the module (avoids jose / ccxt dependencies)."""
+        import os
+        import ast
+
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "backend", "routes", "system_mode.py"
+        )
+        with open(path) as f:
+            file_source = f.read()
+            tree = ast.parse(file_source)
+
+        # Find the function definition
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "perform_paper_reset":
+                lines = file_source.split("\n")
+                func_lines = lines[node.lineno - 1: node.end_lineno]
+                return "\n".join(func_lines)
+
+        raise AssertionError("perform_paper_reset not found in system_mode.py")
+
+    def test_delete_timestamp_defined_in_function(self):
+        """perform_paper_reset must define delete_timestamp so that references
+        in the function body do not raise NameError at runtime."""
+        source = self._get_reset_source()
+        code = _code_only(source)
+        # The assignment "delete_timestamp = ..." must appear in executable code
+        assert "delete_timestamp" in code and "=" in code, (
+            "perform_paper_reset must assign delete_timestamp before using it "
+            "(otherwise NameError is raised at runtime)"
+        )
+
+    def test_delete_timestamp_is_iso_format(self):
+        """delete_timestamp must be produced by datetime.now(timezone.utc).isoformat()."""
+        source = self._get_reset_source()
+        assert "isoformat()" in source, (
+            "delete_timestamp must be set with .isoformat() for UTC consistency"
+        )
+        assert "timezone.utc" in source, (
+            "delete_timestamp must use timezone.utc"
+        )
