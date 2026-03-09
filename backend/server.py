@@ -146,6 +146,18 @@ async def lifespan(app: FastAPI):
         except Exception as migration_error:
             logger.warning(f"⚠️ Startup migrations failed (non-fatal): {migration_error}")
             # Continue - migrations are best-effort repairs
+
+        # ========================================================================
+        # STEP 1.6: Repair bot_type field for bots created before the validator fix
+        # ========================================================================
+        try:
+            from migrations.fix_bot_type_field import run_bot_type_migration
+            fixed_s, fixed_n = await run_bot_type_migration(db)
+            if fixed_s or fixed_n:
+                logger.info(f"✅ bot_type repair: {fixed_s} bots promoted to scalper, {fixed_n} set to normal")
+        except Exception as migration_error:
+            logger.warning(f"⚠️ bot_type migration failed (non-fatal): {migration_error}")
+            # Continue - migrations are best-effort repairs
             
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)

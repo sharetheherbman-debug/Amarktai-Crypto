@@ -168,18 +168,16 @@ class TradingScheduler:
             
             active_bots = supported_bots
 
-            # Sync with runtime truth store (pause/stopped bots are skipped)
+            # Sync with runtime truth store (pause/stopped bots are skipped).
+            # Use reconcile_with_bot_doc so that stale runtime-state rows are
+            # overwritten by the authoritative bot document, preventing the scheduler
+            # from re-pausing bots that were resumed via the API.
             runtime_filtered = []
             runtime_skipped = 0
             for bot in active_bots:
-                runtime_state = await bot_runtime_state.ensure_state(bot)
+                runtime_state = await bot_runtime_state.reconcile_with_bot_doc(bot["id"], bot)
                 state = runtime_state.get("state") if runtime_state else bot.get("status", "active")
                 if state in {"paused", "stopped"}:
-                    if bot.get("status") != state:
-                        await db.bots_collection.update_one(
-                            {"id": bot["id"]},
-                            {"$set": {"status": state, "pause_reason": runtime_state.get("reason")}}
-                        )
                     logger.debug(f"Runtime gate: skipping {bot['name']} ({state})")
                     runtime_skipped += 1
                     continue

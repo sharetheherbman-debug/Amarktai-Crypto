@@ -128,6 +128,7 @@ export default function Dashboard() {
     handleLogout,
     handleMigrateApiKeys,
     handlePaperReset,
+    handlePauseBot,
     handlePredictPrice,
     handleProfileChange,
     handleProfileSave,
@@ -138,6 +139,7 @@ export default function Dashboard() {
     handleResetPassword,
     handleResumeAllBots,
     handleResumeBot,
+    handleRestartBot,
     handleRiskProfileChange,
     handleSendMessage,
     handleStartBot,
@@ -401,6 +403,8 @@ export default function Dashboard() {
               handleDeleteBot={handleDeleteBot}
               handleResumeBot={handleResumeBot}
               handleStartBot={handleStartBot}
+              handlePauseBot={handlePauseBot}
+              handleRestartBot={handleRestartBot}
               handleToggleBotMode={handleToggleBotMode}
               botControlLoading={botControlLoading}
               selectedBotDetailId={selectedBotDetailId}

@@ -20,12 +20,24 @@ from services.risk_lock_service import risk_lock_service
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
+# Canonical trading-gate flags — use config module (supports all env-var aliases)
+from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
 bots_collection = db.bots_collection
 ALL_EXCHANGES = list(SUPPORTED_EXCHANGES)
+
+
+def _paper_trading_enabled() -> bool:
+    """Return True when paper trading is enabled (canonical config check)."""
+    return _cfg_paper_trading or os.getenv('PAPER_TRADING') == '1' or os.getenv('ENABLE_PAPER_TRADING', 'true').lower() == 'true'
+
+
+def _live_trading_enabled() -> bool:
+    """Return True when live trading is enabled (canonical config check)."""
+    return _cfg_live_trading or os.getenv('LIVE_TRADING') == '1' or os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true'
 
 class BlockDetail(TypedDict, total=False):
     code: str
@@ -437,8 +449,8 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         # 2. Check trading mode is enabled (Paper or Live)
         # Validate that the bot's trading mode (paper/live) is enabled in environment config
         # This prevents starting bots in modes that are disabled system-wide
-        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
-        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        paper_trading_enabled = _paper_trading_enabled()
+        live_trading_enabled = _live_trading_enabled()
         
         if trading_mode == 'paper' and not paper_trading_enabled:
             return _blocked_response(
@@ -799,8 +811,8 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             return _blocked_response("resume", bot, blocker)
 
         trading_mode = bot.get('trading_mode', 'paper')
-        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
-        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        paper_trading_enabled = _paper_trading_enabled()
+        live_trading_enabled = _live_trading_enabled()
         modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
             return _blocked_response(
@@ -955,8 +967,8 @@ async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             )
 
         trading_mode = bot.get('trading_mode', 'paper')
-        paper_trading_enabled = os.getenv('PAPER_TRADING', '0') == '1'
-        live_trading_enabled = os.getenv('LIVE_TRADING', '0') == '1'
+        paper_trading_enabled = _paper_trading_enabled()
+        live_trading_enabled = _live_trading_enabled()
         modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
             return _blocked_response(
@@ -1035,8 +1047,18 @@ async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             }
         )
 
+        # Sync runtime state — critical to prevent scheduler from re-pausing the bot
+        await bot_runtime_state.set_state(
+            bot_id=bot_id,
+            user_id=user_id,
+            state="active",
+            reason=None,
+            source="api"
+        )
+
         updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
         await rt_events.bot_resumed(user_id, updated_bot)
+        await audit_logger.log_bot_action("restarted", user_id, bot_id, bot.get("name", "bot"))
         logger.info(f"✅ Bot {bot.get('name')} restarted by user {user_id[:8]}")
 
         return _action_payload(

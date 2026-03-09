@@ -159,6 +159,8 @@ export default function BotFleetSection({
   handleDeleteBot,
   handleResumeBot,
   handleStartBot,
+  handlePauseBot,
+  handleRestartBot,
   handleToggleBotMode,
   botControlLoading,
   selectedBotDetailId,
@@ -191,19 +193,35 @@ export default function BotFleetSection({
       const st = getBotStatus(bot);
       // Exclude deleted/ghost bots from all fleet views
       if (st === 'deleted' || bot.deleted_at || bot.deleted === true || bot.is_deleted === true) return false;
-      // Partition by tab — normal tab shows non-scalper non-uagent bots; uagent tab shows uagent bots
+      // Partition by tab — each tab shows only its own bot type
+      const bt = (bot.bot_type || '').toLowerCase();
       if (fleetTab === 'normal') {
-        const bt = (bot.bot_type || '').toLowerCase();
         if (bt === 'scalper' || bt === 'uagent') return false;
       }
+      if (fleetTab === 'scalper') {
+        if (bt !== 'scalper') return false;
+      }
       if (fleetTab === 'uagent') {
-        if ((bot.bot_type || '').toLowerCase() !== 'uagent') return false;
+        if (bt !== 'uagent') return false;
       }
       if (botStatusFilter && botStatusFilter !== 'all' && st !== botStatusFilter) return false;
       if (platformFilter && platformFilter !== 'all' && (bot.exchange || '').toLowerCase() !== platformFilter) return false;
       return true;
     });
   }, [bots, botStatusFilter, platformFilter, fleetTab]);
+
+  /* per-tab bot counts shown as tab badges */
+  const tabCounts = useMemo(() => {
+    const nonDeleted = bots.filter((b) => {
+      const st = getBotStatus(b);
+      return st !== 'deleted' && !b.deleted_at && b.deleted !== true && b.is_deleted !== true;
+    });
+    return {
+      normal: nonDeleted.filter((b) => { const bt = (b.bot_type || '').toLowerCase(); return bt !== 'scalper' && bt !== 'uagent'; }).length,
+      scalper: nonDeleted.filter((b) => (b.bot_type || '').toLowerCase() === 'scalper').length,
+      uagent: nonDeleted.filter((b) => (b.bot_type || '').toLowerCase() === 'uagent').length,
+    };
+  }, [bots]);
 
   const selectedBot = useMemo(() => {
     if (!selectedBotDetailId) return null;
@@ -264,7 +282,7 @@ export default function BotFleetSection({
     <section className="section active" id="bot-fleet">
       <SectionHeader
         title="🚀 Bot Fleet"
-        subtitle={`Monitor and manage your deployed bots — ${filteredBots.length} displayed (ghost bots excluded)`}
+        subtitle={`Monitor and manage your deployed bots — ${filteredBots.length} ${fleetTab === 'scalper' ? 'scalper ' : fleetTab === 'uagent' ? 'uAgent ' : ''}bot${filteredBots.length !== 1 ? 's' : ''} displayed`}
       />
 
       {/* Fleet Tabs */}
@@ -272,12 +290,128 @@ export default function BotFleetSection({
         {FLEET_TABS.map((t) => (
           <button key={t.key} style={S.tab(fleetTab === t.key)} onClick={() => setFleetTab(t.key)}>
             {t.label}
+            {tabCounts[t.key] > 0 && (
+              <span style={{
+                marginLeft: 6, padding: '1px 6px', borderRadius: 10,
+                background: fleetTab === t.key ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
+                fontSize: 11, fontWeight: 700,
+              }}>
+                {tabCounts[t.key]}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
       {/* Scalper Tab */}
-      {fleetTab === 'scalper' && <ScalperBotsPanel axiosConfig={axiosConfig} />}
+      {fleetTab === 'scalper' && (
+        <>
+          {/* Aggregate scalper stats at the top */}
+          <ScalperBotsPanel axiosConfig={axiosConfig} />
+
+          {/* Individual scalper bot cards — controls, pause, delete etc. */}
+          {filteredBots.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
+                {filteredBots.length} scalper bot{filteredBots.length !== 1 ? 's' : ''} — click to manage
+              </div>
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 380px', minWidth: 320, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {filteredBots.map((bot) => {
+                    const st = getBotStatus(bot);
+                    const isSelected = bot.id === selectedBotDetailId;
+                    return (
+                      <div
+                        key={bot.id}
+                        style={{ ...S.card, ...(isSelected ? S.cardSelected : {}) }}
+                        onClick={() => selectBot(bot.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectBot(bot.id); }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <span style={{ color: 'var(--text)', fontWeight: 600, fontSize: 14 }}>
+                            ⚡ {bot.name || `Scalper ${bot.id?.slice(-6) || '?'}`}
+                          </span>
+                          <span style={S.pill(statusColor(st))}>{statusLabel(st)}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 12 }}>
+                          <span style={{ color: 'var(--muted)' }}>{getPlatformDisplayName(bot.exchange)}</span>
+                          <span style={{ color: modeColor(bot), fontWeight: 600 }}>{modeLabel(bot)}</span>
+                          <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(bot.profit)}</span>
+                          <span style={{ color: 'var(--muted)' }}>Cap: {fmtZAR(bot.current_capital)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Detail panel re-used for scalper bots */}
+                {selectedBot && (selectedBot.bot_type || '').toLowerCase() === 'scalper' && detailSections && (
+                  <div style={{
+                    flex: '1 1 360px', minWidth: 300, maxWidth: 480,
+                    background: 'var(--glass)', border: '1px solid var(--line)',
+                    borderRadius: 'var(--radius-md, 14px)', padding: 20,
+                    alignSelf: 'flex-start', position: 'sticky', top: 16,
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h3 style={{ color: 'var(--text)', margin: 0, fontSize: 16 }}>
+                        ⚡ {selectedBot.name || `Scalper ${selectedBot.id?.slice(-6)}`}
+                      </h3>
+                      <button
+                        style={{ ...S.btn(), padding: '4px 8px', fontSize: 12, marginLeft: 4 }}
+                        onClick={() => selectBot(null)}
+                        title="Close detail"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {/* Controls tab inline for scalper */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(() => {
+                        const st = getBotStatus(selectedBot);
+                        const loading = botControlLoading?.[selectedBot.id] ?? false;
+                        return (
+                          <>
+                            {st === 'paused' && handleResumeBot && (
+                              <button style={S.btn('success')} disabled={loading} onClick={() => handleResumeBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '▶ Resume'}
+                              </button>
+                            )}
+                            {(st === 'active' || st === 'running') && handlePauseBot && (
+                              <button style={S.btn('warning')} disabled={loading} onClick={() => handlePauseBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '⏸ Pause'}
+                              </button>
+                            )}
+                            {handleRestartBot && (
+                              <button style={S.btn('default')} disabled={loading} onClick={() => handleRestartBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '🔄 Restart'}
+                              </button>
+                            )}
+                            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 4 }}>
+                              {confirmDelete === selectedBot.id ? (
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                  <span style={{ color: 'var(--error)', fontSize: 13 }}>Confirm delete?</span>
+                                  <button style={S.btn('danger')} disabled={loading}
+                                    onClick={() => { handleDeleteBot(selectedBot.id); setConfirmDelete(null); setSelectedBotDetailId(null); }}>
+                                    Yes, Delete
+                                  </button>
+                                  <button style={S.btn()} onClick={() => setConfirmDelete(null)}>Cancel</button>
+                                </div>
+                              ) : (
+                                <button style={S.btn('danger')} onClick={() => setConfirmDelete(selectedBot.id)}>🗑 Delete Bot</button>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* uAgents Tab */}
       {fleetTab === 'uagent' && (
@@ -499,21 +633,33 @@ export default function BotFleetSection({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {(() => {
                         const st = getBotStatus(selectedBot);
-                        const loading = botControlLoading;
+                        // Fix: use per-bot loading flag, not the whole map object
+                        const loading = botControlLoading?.[selectedBot.id] ?? false;
                         return (
                           <>
+                            {/* Resume paused bot */}
                             {st === 'paused' && handleResumeBot && (
                               <button style={S.btn('success')} disabled={loading} onClick={() => handleResumeBot(selectedBot.id)}>
-                                {loading ? '...' : '▶ Resume Bot'}
+                                {loading ? '⏳ ...' : '▶ Resume Bot'}
                               </button>
                             )}
+                            {/* Start stopped/inactive bot */}
                             {(st === 'stopped' || st === 'inactive') && handleStartBot && (
                               <button style={S.btn('success')} disabled={loading} onClick={() => handleStartBot(selectedBot.id)}>
-                                {loading ? '...' : '▶ Start Bot'}
+                                {loading ? '⏳ ...' : '▶ Start Bot'}
                               </button>
                             )}
-                            {(st === 'active' || st === 'running') && (
-                              <span style={{ color: 'var(--success)', fontSize: 13 }}>✅ Bot is running</span>
+                            {/* Pause active bot */}
+                            {(st === 'active' || st === 'running') && handlePauseBot && (
+                              <button style={S.btn('warning')} disabled={loading} onClick={() => handlePauseBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '⏸ Pause Bot'}
+                              </button>
+                            )}
+                            {/* Restart any non-deleted bot */}
+                            {st !== 'deleted' && handleRestartBot && (
+                              <button style={S.btn('default')} disabled={loading} onClick={() => handleRestartBot(selectedBot.id)}>
+                                {loading ? '⏳ ...' : '🔄 Restart Bot'}
+                              </button>
                             )}
                             {handleToggleBotMode && (
                               <button
@@ -521,8 +667,14 @@ export default function BotFleetSection({
                                 disabled={loading}
                                 onClick={() => handleToggleBotMode(selectedBot.id)}
                               >
-                                {loading ? '...' : `Switch to ${modeLabel(selectedBot) === 'LIVE' ? 'Paper' : 'Live'} Mode`}
+                                {loading ? '⏳ ...' : `Switch to ${modeLabel(selectedBot) === 'LIVE' ? 'Paper' : 'Live'} Mode`}
                               </button>
+                            )}
+                            {/* Pause reason hint */}
+                            {st === 'paused' && selectedBot.pause_reason && (
+                              <div style={{ fontSize: 12, color: '#f59e0b', padding: '6px 10px', background: 'rgba(245,158,11,0.08)', borderRadius: 6 }}>
+                                ⚠ Pause reason: {selectedBot.pause_reason}
+                              </div>
                             )}
                             <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 4 }}>
                               {confirmDelete === selectedBot.id ? (

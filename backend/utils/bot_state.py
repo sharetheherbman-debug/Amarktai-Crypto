@@ -59,7 +59,16 @@ def _compute_eligible_to_trade(
 
 
 def normalize_bot_state(bot: Dict) -> Dict:
-    """Return bot payload with consistent flags for status and deletion."""
+    """Return bot payload with consistent flags for status and deletion.
+
+    The canonical bot ``status`` field is the single source of truth for
+    whether a bot is active, paused, or stopped.  The ``paused_by_system``
+    and ``paused_by_user`` flags are supplementary metadata explaining *why*
+    the bot was paused — they must NOT override an ``active`` status, because
+    the resume/restart endpoints clear these flags at the same time as they set
+    ``status = 'active'``.  Treating them as independent pause triggers was
+    causing bots to appear ineligible even after a successful resume.
+    """
     status = bot.get("status", "unknown")
     deleted = bool(
         status == "deleted"
@@ -67,7 +76,10 @@ def normalize_bot_state(bot: Dict) -> Dict:
         or bot.get("is_deleted")
         or bot.get("deleted_at")
     )
-    paused = bool(status == "paused" or bot.get("paused_by_system") or bot.get("paused_by_user"))
+    # A bot is paused only when its canonical status is "paused".
+    # paused_by_system / paused_by_user are metadata fields — they do NOT
+    # independently mark a bot as paused if its status is "active".
+    paused = bool(status == "paused")
     stopped = bool(status == "stopped")
     active = bool(status == "active" and not paused and not stopped and not deleted)
 
