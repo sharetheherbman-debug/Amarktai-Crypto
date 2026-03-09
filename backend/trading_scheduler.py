@@ -57,6 +57,7 @@ class TradingScheduler:
         self.last_tick_bots = 0           # How many bots were scanned on last tick
         self.last_tick_queued = 0         # How many new trades were queued on last tick
         self.last_tick_executed = 0       # How many trades were executed on last tick
+        self.last_tick_processed = 0      # How many trade requests were attempted (dequeued) on last tick
         self.last_tick_noop_reason = None # Why last tick did nothing (if it did nothing)
         self.last_trade_at = None         # ISO timestamp of last successful trade execution
         self.last_trade_bot = None        # bot_id of last successful trade
@@ -72,6 +73,7 @@ class TradingScheduler:
         self.total_ticks += 1
         tick_executed = 0
         tick_queued = 0
+        tick_processed = 0  # Trade requests dequeued and attempted (even if result=None)
         try:
             # Check system gate first
             should_run, gate_reason = system_gate.validate_scheduler_tick()
@@ -383,6 +385,7 @@ class TradingScheduler:
                             bot,
                             {'bots': db.bots_collection, 'trades': db.trades_collection}
                         )
+                        tick_processed += 1
                         
                         if result and result.get('trade'):
                             trade = result['trade']
@@ -407,6 +410,7 @@ class TradingScheduler:
                         
                         # Execute live trade
                         result = await self.execute_live_trade(bot)
+                        tick_processed += 1
                         if result and isinstance(result, dict) and result.get('trade'):
                             tick_executed += 1
                             self.last_trade_at = datetime.now(timezone.utc).isoformat()
@@ -476,16 +480,29 @@ class TradingScheduler:
             # --- Pass 3: Update tick observability ---
             self.last_tick_queued = tick_queued
             self.last_tick_executed = tick_executed
+            self.last_tick_processed = tick_processed
             self.total_trades_executed += tick_executed
             if tick_executed == 0:
-                self.last_tick_noop_reason = "no_trades_executed"
-                self.total_noop_ticks += 1
-                logger.info(
-                    "📊 Scheduler tick — Bots scanned: %d active | "
-                    "Final runnable bots: %d | Queued: %d | "
-                    "Noop reason: no_trades_executed",
-                    self.last_tick_bots, self.last_tick_bots, tick_queued,
-                )
+                # Differentiate: were trade requests processed (open positions managed) or nothing happened?
+                if tick_processed > 0:
+                    # Trades were attempted but no new open/close happened — open positions are being managed
+                    self.last_tick_noop_reason = "managing_open_positions"
+                    self.total_noop_ticks += 1
+                    logger.info(
+                        "📊 Scheduler tick — Bots scanned: %d active | "
+                        "Final runnable bots: %d | Processed: %d | Queued: %d | "
+                        "Noop reason: managing_open_positions",
+                        self.last_tick_bots, self.last_tick_bots, tick_processed, tick_queued,
+                    )
+                else:
+                    self.last_tick_noop_reason = "no_trades_executed"
+                    self.total_noop_ticks += 1
+                    logger.info(
+                        "📊 Scheduler tick — Bots scanned: %d active | "
+                        "Final runnable bots: %d | Queued: %d | "
+                        "Noop reason: no_trades_executed",
+                        self.last_tick_bots, self.last_tick_bots, tick_queued,
+                    )
             else:
                 self.last_tick_noop_reason = None
                 logger.info(
@@ -702,6 +719,7 @@ class TradingScheduler:
             "last_tick_bots": self.last_tick_bots,
             "last_tick_queued": self.last_tick_queued,
             "last_tick_executed": self.last_tick_executed,
+            "last_tick_processed": getattr(self, 'last_tick_processed', 0),
             "last_tick_noop_reason": self.last_tick_noop_reason,
             "last_trade_at": self.last_trade_at,
             "last_trade_bot": self.last_trade_bot,

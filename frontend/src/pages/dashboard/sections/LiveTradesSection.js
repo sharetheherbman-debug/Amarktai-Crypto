@@ -79,11 +79,14 @@ export default function LiveTradesSection({
 
   const selectedTrade = filteredTrades.find(t => t.id === selectedTradeId) || null;
 
-  // Summary stats
+  // Summary stats — wins/losses only counted for CLOSED trades; open positions shown separately
   const stats = useMemo(() => {
-    const wins = filteredTrades.filter(t => t.is_profitable || t.profit_loss > 0).length;
+    const closedTrades = filteredTrades.filter(t => (t.status || '').toLowerCase() === 'closed');
+    const openTrades = filteredTrades.filter(t => (t.status || '').toLowerCase() === 'open');
+    const wins = closedTrades.filter(t => t.is_profitable || (Number(t.profit_loss) || 0) > 0).length;
+    const losses = closedTrades.length - wins;
     const totalPL = filteredTrades.reduce((s, t) => s + (Number(t.profit_loss) || 0), 0);
-    return { total: filteredTrades.length, wins, losses: filteredTrades.length - wins, totalPL };
+    return { total: filteredTrades.length, closed: closedTrades.length, open: openTrades.length, wins, losses, totalPL };
   }, [filteredTrades]);
 
   // Last trade timestamp
@@ -158,6 +161,7 @@ export default function LiveTradesSection({
       }}>
         {[
           { label: 'Total Trades', value: stats.total, color: '#3B82F6' },
+          { label: 'Open Positions', value: stats.open, color: '#f59e0b' },
           { label: 'Wins', value: stats.wins, color: '#22c55e' },
           { label: 'Losses', value: stats.losses, color: '#ef4444' },
           { label: 'Net P/L', value: formatZAR(stats.totalPL), color: stats.totalPL >= 0 ? '#22c55e' : '#ef4444' },
