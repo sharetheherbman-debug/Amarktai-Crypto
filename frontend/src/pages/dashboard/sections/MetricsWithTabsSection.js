@@ -3,7 +3,7 @@ import ErrorBoundary from '../../../components/ErrorBoundary';
 import DecisionTrace from '../../../components/DecisionTrace';
 import WhaleFlowHeatmap from '../../../components/WhaleFlowHeatmap';
 import PrometheusMetrics from '../../../components/PrometheusMetrics';
-import CoinStatsPanel from './CoinStatsPanel';
+import MarketIntelligencePanel from './MarketIntelligencePanel';
 import HuggingFacePanel from './HuggingFacePanel';
 
 const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfig }) => {
@@ -43,8 +43,8 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
             <button onClick={() => setMetricsTab('system-metrics')} style={tabStyle(metricsTab === 'system-metrics')}>
               📊 System Metrics
             </button>
-            <button onClick={() => setMetricsTab('coinstats')} style={tabStyle(metricsTab === 'coinstats')}>
-              📈 Market Intelligence
+            <button onClick={() => setMetricsTab('market-intelligence')} style={tabStyle(metricsTab === 'market-intelligence')}>
+              🧠 Market Intelligence
             </button>
             <button onClick={() => setMetricsTab('huggingface')} style={tabStyle(metricsTab === 'huggingface')}>
               🤗 AI Analysis
@@ -68,9 +68,9 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
                 <PrometheusMetrics />
               </ErrorBoundary>
             )}
-            {metricsTab === 'coinstats' && (
-              <ErrorBoundary title="Market Intelligence Error" message="Unable to load CoinStats market data.">
-                <CoinStatsPanel axiosConfig={axiosConfig} />
+            {metricsTab === 'market-intelligence' && (
+              <ErrorBoundary title="Market Intelligence Error" message="Unable to load market intelligence data.">
+                <MarketIntelligencePanel />
               </ErrorBoundary>
             )}
             {metricsTab === 'huggingface' && (
