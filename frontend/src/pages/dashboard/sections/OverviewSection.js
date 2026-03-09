@@ -59,7 +59,17 @@ export default function OverviewSection({
   riskStatus,
   systemModes,
 }) {
-  const aiKeyConfigured = aiStatus?.key_configured;
+  const aiProviders = aiStatus?.providers || {};
+  const aiCapabilities = aiStatus?.capabilities || {};
+  const aiProviderIds = Object.keys(aiProviders);
+  const aiCapabilityIds = Object.keys(aiCapabilities);
+  const aiUsableProviders = aiProviderIds.filter((id) => aiProviders[id]?.usable).length;
+  const aiAvailableCapabilities = aiCapabilityIds.filter((id) => aiCapabilities[id]?.available).length;
+  const aiDegraded = Boolean(aiStatus?.degraded_mode);
+  const aiKeyConfigured = aiStatus?.key_configured
+    ?? aiProviders?.openai?.configured
+    ?? aiProviders?.openai?.usable
+    ?? false;
   const formatOverviewDate = (value) => {
     const formatted = formatDate(value);
     return formatted;
@@ -331,6 +341,23 @@ export default function OverviewSection({
                     <strong>{formatStatusValue(item.value)}</strong>
                   </div>
                 ))}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="overview-card">
+              <div className="overview-card-header">
+                <h3>AI Capability</h3>
+                <span className="overview-card-meta">{aiDegraded ? 'Degraded' : 'Healthy'}</span>
+              </div>
+              <div className="overview-status-list">
+                <div className="overview-status-row">
+                  <span>Providers Usable</span>
+                  <strong>{aiUsableProviders}/{aiProviderIds.length || 0}</strong>
+                </div>
+                <div className="overview-status-row">
+                  <span>Features Available</span>
+                  <strong>{aiAvailableCapabilities}/{aiCapabilityIds.length || 0}</strong>
+                </div>
               </div>
             </GlassCard>
 

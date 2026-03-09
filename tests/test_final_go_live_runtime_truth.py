@@ -114,3 +114,12 @@ def test_dashboard_state_tracks_notable_events_and_learning_self_heal_refresh():
     assert "const [notableEvent, setNotableEvent] = useState(null);" in src
     assert "registerNotableEvent" in src
     assert "loadLearningStatus();" in src
+
+
+def test_overview_has_compact_ai_capability_summary_card():
+    src = _read("frontend/src/pages/dashboard/sections/OverviewSection.js")
+    assert "<h3>AI Capability</h3>" in src
+    assert "Providers Usable" in src
+    assert "Features Available" in src
+    assert "aiStatus?.providers" in src
+    assert "aiStatus?.capabilities" in src
