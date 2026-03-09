@@ -114,8 +114,12 @@ async def calculate_daily_roi(user_id: str) -> float:
         if not trades:
             return 0.0
         
-        # Calculate total profit
-        total_profit = sum(t.get("realized_profit", 0) for t in trades) - sum(t.get("fees", 0) for t in trades)
+        # Calculate total profit from canonical realized fields (single pass).
+        total_profit = 0.0
+        for trade in trades:
+            net_pnl = trade.get("net_pnl")
+            pnl = net_pnl if net_pnl is not None else trade.get("profit_loss", 0)
+            total_profit += float(pnl or 0) - float(trade.get("fees", 0) or 0)
         
         # Get starting capital (7 days ago)
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})

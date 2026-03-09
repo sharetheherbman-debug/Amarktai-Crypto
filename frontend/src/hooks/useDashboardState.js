@@ -791,6 +791,12 @@ export default function useDashboardState(navigate) {
   // Rate limiter for unknown message types
   const unknownMessageRateLimit = useRef({ count: 0, lastReset: Date.now() });
 
+  const refreshCanonicalTradeTruth = useCallback(() => {
+    loadRecentTrades();
+    loadMetrics();
+    loadCountdown();
+  }, [loadRecentTrades, loadMetrics, loadCountdown]);
+
   const handleRealTimeUpdate = (data) => {
     const eventType = typeof data.type === 'string' ? data.type.toLowerCase() : '';
     if (!eventType) {
@@ -865,6 +871,9 @@ export default function useDashboardState(navigate) {
         const tradesPayload = data.data?.trades || data.trades;
         if (Array.isArray(tradesPayload)) {
           setRecentTrades(tradesPayload);
+        } else {
+          // Canonical fallback: server emitted delta payload, refresh from source.
+          loadRecentTrades();
         }
         break;
       }
@@ -878,33 +887,9 @@ export default function useDashboardState(navigate) {
         }]);
         break;
       case 'trade_executed':
-        // Real-time trade feed update - only update state, don't reload
-        setRecentTrades(prev => {
-          // Prevent duplicates by checking if trade already exists
-          const tradeExists = prev.some(t => t.id === data.trade?.id);
-          if (tradeExists) return prev;
-          
-          return [{
-            ...data.trade,
-            bot_name: data.bot_name,
-            timestamp: new Date().toISOString()
-          }, ...prev.slice(0, 49)]; // Keep last 50 trades
-        });
-        
-        // Update bot data
-        setBots(prev => prev.map(bot => 
-          bot.id === data.bot_id 
-            ? { 
-                ...bot, 
-                current_capital: data.new_capital,
-                total_profit: data.total_profit,
-                name: bot.name || data.bot_name // Preserve bot name
-              }
-            : bot
-        ));
-        
-        // Refresh metrics to show new profit
-        loadMetrics();
+        // Trade truth must come from backend canonical source (not screen-local merges).
+        refreshCanonicalTradeTruth();
+        loadCustomCountdowns();
         
         // Refresh analytics tabs if they are active
         if (profitsTab === 'equity') {
@@ -916,6 +901,16 @@ export default function useDashboardState(navigate) {
         } else if (profitsTab === 'profit-history') {
           loadProfitData();
         }
+        break;
+      case 'trade_opened':
+      case 'trade_closed':
+        // Keep live/open/closed truth in sync with canonical backend collections.
+        refreshCanonicalTradeTruth();
+        loadCustomCountdowns();
+        break;
+      case 'analytics_update':
+        // Recompute dashboard surfaces from canonical endpoints.
+        refreshCanonicalTradeTruth();
         break;
       
       case 'profit_update':

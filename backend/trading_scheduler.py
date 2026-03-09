@@ -449,15 +449,7 @@ class TradingScheduler:
                             except Exception as e:
                                 logger.warning(f"Failed to emit trade_executed event: {e}")
                         
-                        # Legacy WebSocket update (keep for backwards compatibility)
-                        await manager.send_message(bot['user_id'], {
-                            "type": "trade_executed",
-                            "bot_id": result['bot_id'],
-                            "bot_name": bot['name'],
-                            "new_capital": result.get('new_capital', 0),
-                            "total_profit": result.get('total_profit', 0),
-                            "trade": trade_data
-                        })
+                        # Canonical trade websocket flow is emitted via rt_events/realtime_service.
                     
                 except Exception as e:
                     logger.error(f"Trade execution error for {bot['name']}: {e}")

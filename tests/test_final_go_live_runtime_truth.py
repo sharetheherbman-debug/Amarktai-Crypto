@@ -51,3 +51,33 @@ def test_bot_validator_enforces_scalper_and_normal_caps():
     assert "SCALPER_GLOBAL_CAP_REACHED" in src
     assert "SCALPER_EXCHANGE_CAP_REACHED" in src
     assert "NORMAL_EXCHANGE_CAP_REACHED" in src
+
+
+def test_dashboard_realtime_trade_events_refresh_canonical_trade_truth():
+    src = _read("frontend/src/hooks/useDashboardState.js")
+    assert "case 'trade_executed'" in src
+    assert "case 'trade_opened'" in src
+    assert "case 'trade_closed'" in src
+    assert "case 'analytics_update'" in src
+    assert "loadRecentTrades();" in src
+
+
+def test_dashboard_data_hook_handles_trade_event_variants():
+    src = _read("frontend/src/hooks/useDashboardData.js")
+    assert "realtimeClient.on('trade_executed'" in src
+    assert "realtimeClient.on('trade_opened'" in src
+    assert "realtimeClient.on('trade_closed'" in src
+    assert "realtimeClient.on('analytics_update'" in src
+    assert "loadRecentTrades();" in src
+
+
+def test_countdown_daily_roi_uses_canonical_trade_pnl_fields():
+    src = _read("backend/routes/user_countdowns.py")
+    assert 'trade.get("net_pnl")' in src
+    assert 'trade.get("profit_loss", 0)' in src
+    assert 't.get("realized_profit", 0)' not in src
+
+
+def test_scheduler_uses_single_canonical_trade_websocket_emit_path():
+    src = _read("backend/trading_scheduler.py")
+    assert "Legacy WebSocket update" not in src
