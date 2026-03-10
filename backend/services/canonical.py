@@ -16,7 +16,7 @@ get_canonical_wallet_truth(user_id) -> WalletTruth
 
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime, timezone
 import logging
 
@@ -212,4 +212,68 @@ def _empty_counts() -> Dict[str, Any]:
         "uagent_count": 0,
         "normal_count": 0,
         "by_exchange": {},
+    }
+
+
+async def _get_active_user_bot_ids(user_id: str) -> List[str]:
+    if db.bots_collection is None:
+        return []
+    bots = await db.bots_collection.find(
+        {
+            "user_id": user_id,
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
+        },
+        {"_id": 0, "id": 1},
+    ).to_list(length=_MAX_BOTS)
+    return [str(b.get("id")) for b in bots if b.get("id")]
+
+
+async def get_canonical_open_position_count(user_id: str) -> int:
+    """Canonical open-position count derived from user bots + open trades."""
+    if db.trades_collection is None:
+        return 0
+    try:
+        bot_ids = await _get_active_user_bot_ids(user_id)
+        if not bot_ids:
+            return 0
+        return int(await db.trades_collection.count_documents({
+            "bot_id": {"$in": bot_ids},
+            "status": {"$in": ["open", "active", "pending"]},
+        }))
+    except Exception as exc:
+        logger.warning("get_canonical_open_position_count failed for user %s: %s", user_id, exc)
+        return 0
+
+
+async def get_canonical_paper_wallet_equity(user_id: str) -> Dict[str, Any]:
+    """Canonical paper-wallet equity including available + allocated balances."""
+    available_total = 0.0
+    allocated_total = 0.0
+    try:
+        available = await paper_wallet_service.get_balances(user_id)
+        available_total = float(available.get("total", 0) or 0)
+    except Exception as exc:
+        logger.warning("paper wallet available fetch failed for %s: %s", user_id, exc)
+
+    try:
+        if db.paper_ledger_collection is not None:
+            pipeline = [
+                {"$match": {"user_id": user_id, "status": "active"}},
+                {"$group": {"_id": None, "total": {"$sum": "$current_balance"}}},
+            ]
+            rows = await db.paper_ledger_collection.aggregate(pipeline).to_list(1)
+            if rows:
+                allocated_total = float(rows[0].get("total", 0) or 0)
+    except Exception as exc:
+        logger.warning("paper wallet allocated fetch failed for %s: %s", user_id, exc)
+
+    total_equity = max(0.0, available_total + allocated_total)
+    return {
+        "total_equity": round(total_equity, 2),
+        "available_total": round(available_total, 2),
+        "allocated_total": round(allocated_total, 2),
+        "source": "paper_wallet_total_equity",
     }

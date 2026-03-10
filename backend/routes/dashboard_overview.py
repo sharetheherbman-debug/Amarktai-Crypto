@@ -213,7 +213,7 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
     """
     try:
         from services.overview_service import overview_service
-        from services.canonical import get_canonical_bot_counts
+        from services.canonical import get_canonical_bot_counts, get_canonical_open_position_count
 
         # Get complete snapshot from centralized service
         snapshot = await overview_service.get_snapshot(user_id)
@@ -232,15 +232,7 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
             system_mode = "testing"
         automation_mode = "autopilot" if mode_flags.get("autopilot") else "manual"
 
-        open_positions = 0
-        if db.positions_collection is not None:
-            try:
-                open_positions = await db.positions_collection.count_documents({
-                    "user_id": user_id,
-                    "status": {"$ne": "closed"}
-                })
-            except Exception:
-                open_positions = await db.positions_collection.count_documents({"user_id": user_id})
+        open_positions = await get_canonical_open_position_count(user_id)
 
         # Canonical bot counts — guaranteed consistent with /api/bots/status
         counts = await get_canonical_bot_counts(user_id)

@@ -46,6 +46,7 @@ from services.order_validation import order_validator
 from utils.trading_gates import enforce_trading_gates, TradingGateError
 from services.paper_wallet_ledger import paper_wallet_ledger
 from services.trading_mode_validator import trading_mode_validator
+from services.hold_policy import resolve_hold_policy
 from config import (
     MIN_TRADE_PROFIT_THRESHOLD_ZAR,
     EDGE_BUFFER_PCT,
@@ -979,6 +980,9 @@ class PaperTradingEngine:
             slippage_pct_roundtrip = slippage_rate * 2 * 100
             estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
             edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
+            bot_type = str(bot_data.get("bot_type") or "normal").lower()
+            if bot_type == "scalper":
+                edge_required_pct = max(edge_required_pct + 0.20, estimated_cost_pct * 1.75)
 
             if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:
                 return {
@@ -1218,6 +1222,7 @@ class PaperTradingEngine:
                 "expected_move_pct": round(expected_move_pct, 4),
                 "estimated_cost_pct": round(estimated_cost_pct, 4),
                 "edge_buffer_pct": EDGE_BUFFER_PCT,
+                "edge_required_pct": round(edge_required_pct, 4),
                 # AI Intelligence metadata
                 "ai_regime": regime.get('regime', 'unknown'),
                 "ai_confidence": round(regime.get('confidence', 0), 2),
@@ -1339,9 +1344,10 @@ class PaperTradingEngine:
             age_minutes = age_seconds / 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
-            # Risk-mode max hold (consistent with radar.py DEFAULT_MAX_HOLD)
-            risk_mode = (bot_data.get("risk_mode") or "balanced").lower()
-            max_hold_seconds = self.RISK_MODE_MAX_HOLD.get(risk_mode, self.RISK_MODE_MAX_HOLD["balanced"])
+            # Canonical hold policy (shared with radar/API)
+            hold_policy = resolve_hold_policy(bot_data, open_trade=open_trade)
+            risk_mode = hold_policy["risk_mode"]
+            max_hold_seconds = int(hold_policy["max_hold_seconds"])
 
             # Bot class for time-decay engine
             bot_class = (bot_data.get("bot_type") or "normal").lower()

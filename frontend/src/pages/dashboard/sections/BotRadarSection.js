@@ -222,11 +222,11 @@ export default function BotRadarSection({ axiosConfig }) {
                   </div>
                   <div className="radar-intent-row">
                     <span>Daily Target:</span>
-                    <span>{Number(entry.daily_profit_target).toFixed(2)}</span>
+                    <span>{entry.daily_profit_target == null ? 'Not configured' : Number(entry.daily_profit_target).toFixed(2)}</span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Trade Target:</span>
-                    <span>{Number(entry.trade_profit_target).toFixed(2)}</span>
+                    <span>{entry.trade_profit_target == null ? 'Not configured' : Number(entry.trade_profit_target).toFixed(2)}</span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Max Hold:</span>
