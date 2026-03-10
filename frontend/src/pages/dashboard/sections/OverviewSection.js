@@ -107,12 +107,9 @@ export default function OverviewSection({
     },
     {
       label: 'Self-Healing',
-      value: autonomyStatus?.subsystems?.self_heal?.status
-        ?? autonomyStatus?.subsystems?.bodyguard?.status
-        ?? autonomyStatus?.subsystems?.self_heal?.running
-        ?? autonomyStatus?.subsystems?.bodyguard?.running
+      value: autonomyStatus?.self_healing_detail?.health_state
+        ?? autonomyStatus?.subsystems?.self_heal?.status
         ?? autonomyStatus?.self_healing
-        ?? autonomyStatus?.bodyguard
         ?? riskStatus?.bodyguard_lock?.active,
     },
     {
@@ -125,7 +122,6 @@ export default function OverviewSection({
     {
       label: 'Self-Heal Last Result',
       value: autonomyStatus?.self_healing_detail?.last_result
-        ?? autonomyStatus?.self_healing_detail?.last_reason_code
         ?? autonomyStatus?.subsystems?.self_heal?.last_error_message
         ?? NOT_AVAILABLE,
     },

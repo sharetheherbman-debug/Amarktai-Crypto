@@ -271,3 +271,13 @@ async def run_autonomy_now(
         "message": "Autonomy cycle triggered",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/self-healing/status")
+async def get_self_healing_status(user_id: str = Depends(get_current_user)):
+    """Return canonical self-healing runtime status."""
+    return {
+        "success": True,
+        **self_healing.get_status(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

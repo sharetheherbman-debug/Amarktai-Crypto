@@ -1,21 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import realtimeClient from '../../../lib/realtime';
 
-const RADAR_REFRESH_MS = 10000; // Refresh radar data every 10 seconds
+const RADAR_REFRESH_MS = 10000;
 
 /**
- * BotRadarSection — Bot Radar / Bot Map visualization
+ * BotRadarSection — Clean, practical trading-status panel
  *
- * Shows each bot's current position on a live price line:
- * entry → current → target → stop, with time-remaining and next-action info.
- * Supports bot_type filter: all / normal / scalper.
+ * Shows each bot's current state: name, exchange, type, status,
+ * position info, equity, action, and human-readable decision summary.
  */
 export default function BotRadarSection({ axiosConfig }) {
   const [radarData, setRadarData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedBot, setSelectedBot] = useState(null);
-  const [typeFilter, setTypeFilter] = useState('all'); // all / normal / scalper
+  const [typeFilter, setTypeFilter] = useState('all');
   const refreshTimeoutRef = useRef(null);
 
   const fetchRadar = useCallback(async () => {
@@ -102,9 +101,11 @@ export default function BotRadarSection({ axiosConfig }) {
     const m = Math.floor((seconds % 3600) / 60);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
-  const formatMaybeNumber = (value, digits = 2) => {
+  const formatZAR = (value) => {
     const num = Number(value);
-    return value === null || value === undefined || !Number.isFinite(num) ? '—' : num.toFixed(digits);
+    if (!Number.isFinite(num)) return '—';
+    const prefix = num >= 0 ? 'R' : '-R';
+    return `${prefix}${Math.abs(num).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const getActionColor = (action) => {
@@ -119,57 +120,30 @@ export default function BotRadarSection({ axiosConfig }) {
     }
   };
 
-  const getActionabilityLabel = (entry) => {
-    if (entry.has_open_position) return 'In Position';
-    if (!entry.eligible_to_trade || !entry.runnable) return 'Blocked';
-    return 'Ready';
+  const getStatusInfo = (entry) => {
+    if (entry.has_open_position) return { label: 'In Position', color: '#3b82f6' };
+    if (!entry.eligible_to_trade || !entry.runnable) return { label: 'Blocked', color: '#ef4444' };
+    return { label: 'Ready', color: '#22c55e' };
   };
 
   const renderPriceBar = (entry) => {
     if (!entry.entry_price || !entry.current_price) return null;
-
     const prices = [entry.entry_price, entry.current_price];
     if (entry.target_price) prices.push(entry.target_price);
     if (entry.stop_price) prices.push(entry.stop_price);
-
     const min = Math.min(...prices) * 0.999;
     const max = Math.max(...prices) * 1.001;
     const range = max - min || 1;
-
     const pct = (p) => ((p - min) / range) * 100;
-
     return (
       <div className="radar-price-bar">
         {entry.stop_price && (
-          <div
-            className="radar-marker radar-stop"
-            style={{ left: `${pct(entry.stop_price)}%` }}
-            title={`SL: ${entry.stop_price}`}
-          />
+          <div className="radar-marker radar-stop" style={{ left: `${pct(entry.stop_price)}%` }} title={`SL: ${entry.stop_price}`} />
         )}
-        <div
-          className="radar-marker radar-entry"
-          style={{ left: `${pct(entry.entry_price)}%` }}
-          title={`Entry: ${entry.entry_price}`}
-        />
-        <div
-          className="radar-marker radar-current"
-          style={{ left: `${pct(entry.current_price)}%` }}
-          title={`Current: ${entry.current_price}`}
-        />
+        <div className="radar-marker radar-entry" style={{ left: `${pct(entry.entry_price)}%` }} title={`Entry: ${entry.entry_price}`} />
+        <div className="radar-marker radar-current" style={{ left: `${pct(entry.current_price)}%` }} title={`Current: ${entry.current_price}`} />
         {entry.target_price && (
-          <div
-            className="radar-marker radar-target"
-            style={{ left: `${pct(entry.target_price)}%` }}
-            title={`TP: ${entry.target_price}`}
-          />
-        )}
-        {entry.trailing_stop_price && (
-          <div
-            className="radar-marker radar-trail"
-            style={{ left: `${pct(entry.trailing_stop_price)}%` }}
-            title={`Trail: ${entry.trailing_stop_price}`}
-          />
+          <div className="radar-marker radar-target" style={{ left: `${pct(entry.target_price)}%` }} title={`TP: ${entry.target_price}`} />
         )}
       </div>
     );
@@ -187,7 +161,7 @@ export default function BotRadarSection({ axiosConfig }) {
         <h2>📡 Bot Radar</h2>
         <div className="radar-summary">
           <span className="radar-stat">{radarData?.total_bots || 0} bots</span>
-          <span className="radar-stat radar-active">{radarData?.bots_with_positions || 0} with positions</span>
+          <span className="radar-stat radar-active">{radarData?.bots_with_positions || 0} in position</span>
         </div>
         <div className="radar-filters">
           {['all', 'normal', 'scalper'].map((f) => (
@@ -206,134 +180,146 @@ export default function BotRadarSection({ axiosConfig }) {
         <p className="radar-empty">No {typeFilter === 'all' ? '' : typeFilter + ' '}bots available.</p>
       ) : (
         <div className="radar-grid">
-          {filteredRadar.map((entry) => (
-            <div
-              key={entry.bot_id}
-              className={`radar-card ${selectedBot === entry.bot_id ? 'radar-card-selected' : ''}`}
-              onClick={() => setSelectedBot(selectedBot === entry.bot_id ? null : entry.bot_id)}
-            >
-              <div className="radar-card-top">
-                <span className="radar-bot-name">{entry.name}</span>
-                {entry.bot_type === 'scalper' && <span className="radar-type-badge radar-scalper-badge">⚡ Scalper</span>}
-                <span className="radar-exchange">{entry.exchange}</span>
-                <span className="radar-symbol">{entry.symbol}</span>
-                <span className={`radar-type-badge ${getActionabilityLabel(entry) !== 'Blocked' ? 'radar-scalper-badge' : ''}`}>
-                  {getActionabilityLabel(entry)}
-                </span>
-                <span
-                  className="radar-action-badge"
-                  style={{ background: getActionColor(entry.next_action) }}
-                >
-                  {entry.next_action}
-                </span>
-              </div>
-
-              {entry.side ? (
-                <>
-                  {renderPriceBar(entry)}
-                  <div className="radar-card-metrics">
-                    <div className="radar-metric">
-                      <span className="radar-metric-label">Side</span>
-                      <span className={`radar-metric-value ${entry.side === 'buy' ? 'radar-buy' : 'radar-sell'}`}>
-                        {entry.side.toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="radar-metric">
-                      <span className="radar-metric-label">Unrealized</span>
-                      <span className={`radar-metric-value ${entry.unrealized_pnl >= 0 ? 'radar-profit' : 'radar-loss'}`}>
-                        {entry.unrealized_pnl >= 0 ? '+' : ''}{Number(entry.unrealized_pnl).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="radar-metric">
-                      <span className="radar-metric-label">Remaining</span>
-                      <span className="radar-metric-value">{formatTime(entry.remaining_hold_seconds)}</span>
-                    </div>
-                    <div className="radar-metric">
-                      <span className="radar-metric-label">Realized Today</span>
-                      <span className="radar-metric-value">{Number(entry.realized_pnl_today).toFixed(2)}</span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="radar-no-position">
-                  {entry.next_action_reason_text || 'No open position — waiting for signal'}
-                </div>
-              )}
-
-              {/* Trade Intent Panel */}
-              {selectedBot === entry.bot_id && (
-                <div className="radar-intent-panel">
-                  <h4>Trade Intent</h4>
-                  <div className="radar-intent-row">
-                    <span>Next Action:</span>
-                    <span style={{ color: getActionColor(entry.next_action) }}>{entry.next_action_reason_text}</span>
-                  </div>
-                  <div className="radar-intent-row">
-                    <span>Daily Target:</span>
-                    <span>{entry.daily_profit_target === null || entry.daily_profit_target === undefined ? 'Not configured' : Number(entry.daily_profit_target).toFixed(2)}</span>
-                  </div>
-                  <div className="radar-intent-row">
-                    <span>Trade Target:</span>
-                    <span>{entry.trade_profit_target === null || entry.trade_profit_target === undefined ? 'Not configured' : Number(entry.trade_profit_target).toFixed(2)}</span>
-                  </div>
-                  <div className="radar-intent-row">
-                    <span>Total Equity:</span>
-                    <span>
-                      {entry.capital_summary?.total_equity === null || entry.capital_summary?.total_equity === undefined
-                        ? Number(entry.capital_allocated || 0).toFixed(2)
-                        : Number(entry.capital_summary.total_equity).toFixed(2)}
+          {filteredRadar.map((entry) => {
+            const status = getStatusInfo(entry);
+            const equity = entry.capital_summary?.total_equity ?? entry.capital_allocated ?? 0;
+            const isExpanded = selectedBot === entry.bot_id;
+            return (
+              <div
+                key={entry.bot_id}
+                className={`radar-card ${isExpanded ? 'radar-card-selected' : ''}`}
+                onClick={() => setSelectedBot(isExpanded ? null : entry.bot_id)}
+                style={{ cursor: 'pointer' }}
+              >
+                {/* Card Header: Name, Type Badge, Exchange, Status */}
+                <div className="radar-card-top">
+                  <span className="radar-bot-name" style={{ fontSize: '1rem', fontWeight: 600 }}>{entry.name}</span>
+                  {entry.bot_type === 'scalper' && <span className="radar-type-badge radar-scalper-badge">⚡ Scalper</span>}
+                  <span className="radar-exchange" style={{ opacity: 0.7 }}>{entry.exchange}</span>
+                  <span className="radar-symbol">{entry.symbol}</span>
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '2px 10px',
+                    borderRadius: '12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    background: `${status.color}22`,
+                    color: status.color,
+                  }}>
+                    {status.label}
+                  </span>
+                  {entry.has_open_position && (
+                    <span
+                      className="radar-action-badge"
+                      style={{ background: getActionColor(entry.next_action), fontSize: '0.78rem' }}
+                    >
+                      {entry.next_action}
                     </span>
-                  </div>
-                  <div className="radar-intent-row">
-                    <span>Max Hold:</span>
-                    <span>{formatTime(entry.max_hold_seconds)}</span>
-                  </div>
-                  {entry.entry_price && (
-                    <>
-                      <div className="radar-intent-row">
-                        <span>Entry:</span>
-                        <span>{entry.entry_price}</span>
-                      </div>
-                      <div className="radar-intent-row">
-                        <span>TP / SL:</span>
-                        <span>{entry.target_price || '—'} / {entry.stop_price || '—'}</span>
-                      </div>
-                      {entry.trailing_stop_price && (
-                        <div className="radar-intent-row">
-                          <span>Trailing Stop:</span>
-                          <span>{entry.trailing_stop_price}</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  <div className="radar-intent-row">
-                    <span>Market Regime:</span>
-                    <span>{entry.market_regime || 'unknown'}</span>
-                  </div>
-                  {entry.regime_confidence !== null && entry.regime_confidence !== undefined && (
-                    <div className="radar-intent-row">
-                      <span>Regime Confidence:</span>
-                      <span>{formatMaybeNumber(entry.regime_confidence)}</span>
-                    </div>
-                  )}
-                  <div className="radar-intent-row">
-                    <span>Entry Confidence:</span>
-                    <span>{formatMaybeNumber(entry.entry_confidence_score)}</span>
-                  </div>
-                  <div className="radar-intent-row">
-                    <span>Expectancy Edge %:</span>
-                    <span>{formatMaybeNumber(entry.expectancy_net_edge_pct)}</span>
-                  </div>
-                  {!entry.eligible_to_trade && (
-                    <div className="radar-intent-row">
-                      <span>Blocked Reason:</span>
-                      <span>{(entry.not_eligible_reasons || []).join(', ') || 'eligibility_gate'}</span>
-                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Position Info or Waiting State */}
+                {entry.has_open_position ? (
+                  <>
+                    {renderPriceBar(entry)}
+                    <div className="radar-card-metrics" style={{ gap: '16px', padding: '8px 0' }}>
+                      <div className="radar-metric">
+                        <span className="radar-metric-label">Side</span>
+                        <span className={`radar-metric-value ${entry.side === 'buy' ? 'radar-buy' : 'radar-sell'}`}>
+                          {(entry.side || '').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="radar-metric">
+                        <span className="radar-metric-label">Unrealized P/L</span>
+                        <span className={`radar-metric-value ${entry.unrealized_pnl >= 0 ? 'radar-profit' : 'radar-loss'}`}>
+                          {formatZAR(entry.unrealized_pnl)}
+                        </span>
+                      </div>
+                      <div className="radar-metric">
+                        <span className="radar-metric-label">Hold Timer</span>
+                        <span className="radar-metric-value">{formatTime(entry.remaining_hold_seconds)}</span>
+                      </div>
+                      <div className="radar-metric">
+                        <span className="radar-metric-label">Total Equity</span>
+                        <span className="radar-metric-value">{formatZAR(equity)}</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="radar-no-position" style={{ padding: '12px 0', fontSize: '0.9rem' }}>
+                    <div style={{ marginBottom: '4px' }}>
+                      {entry.next_action_reason_text || 'No open position — waiting for signal'}
+                    </div>
+                    <div style={{ opacity: 0.6, fontSize: '0.82rem' }}>
+                      Equity: {formatZAR(equity)}
+                      {entry.market_regime && entry.market_regime !== 'unknown' &&
+                        ` · Regime: ${entry.market_regime}`
+                      }
+                    </div>
+                  </div>
+                )}
+
+                {/* Expanded Details — only useful info */}
+                {isExpanded && (
+                  <div className="radar-intent-panel" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', marginTop: '8px' }}>
+                    <h4 style={{ fontSize: '0.9rem', marginBottom: '8px' }}>Details</h4>
+                    <div className="radar-intent-row">
+                      <span>Current Action:</span>
+                      <span style={{ color: getActionColor(entry.next_action) }}>{entry.next_action_reason_text}</span>
+                    </div>
+                    {entry.daily_profit_target != null && (
+                      <div className="radar-intent-row">
+                        <span>Daily Target ({entry.daily_target_pct ?? '—'}%):</span>
+                        <span>{formatZAR(entry.daily_profit_target)}</span>
+                      </div>
+                    )}
+                    {entry.trade_profit_target != null && (
+                      <div className="radar-intent-row">
+                        <span>Trade Target ({entry.trade_target_pct ?? '—'}%):</span>
+                        <span>{formatZAR(entry.trade_profit_target)}</span>
+                      </div>
+                    )}
+                    {entry.target_source && (
+                      <div className="radar-intent-row">
+                        <span>Target Source:</span>
+                        <span style={{ textTransform: 'capitalize' }}>{entry.target_source.replace('_', ' ')}</span>
+                      </div>
+                    )}
+                    <div className="radar-intent-row">
+                      <span>Total Equity:</span>
+                      <span>{formatZAR(equity)}</span>
+                    </div>
+                    {entry.has_open_position && (
+                      <>
+                        <div className="radar-intent-row">
+                          <span>Max Hold:</span>
+                          <span>{formatTime(entry.max_hold_seconds)}</span>
+                        </div>
+                        {entry.entry_price && (
+                          <div className="radar-intent-row">
+                            <span>Entry / TP / SL:</span>
+                            <span>{entry.entry_price} / {entry.target_price || '—'} / {entry.stop_price || '—'}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {entry.market_regime && entry.market_regime !== 'unknown' && (
+                      <div className="radar-intent-row">
+                        <span>Market Regime:</span>
+                        <span>{entry.market_regime}</span>
+                      </div>
+                    )}
+                    {!entry.eligible_to_trade && (entry.not_eligible_reasons || []).length > 0 && (
+                      <div className="radar-intent-row">
+                        <span>Blocked:</span>
+                        <span>{(entry.not_eligible_reasons || []).join(', ')}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
