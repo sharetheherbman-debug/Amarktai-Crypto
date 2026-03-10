@@ -492,24 +492,30 @@ async def test_cryptopanic(api_key: str, api_secret: Optional[str] = None) -> tu
 
 
 async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CoinDesk API key by calling the official public price endpoint."""
+    """Test CoinDesk API key using authenticated Data API endpoints."""
     try:
         normalized_key = (api_key or "").strip()
         if not normalized_key:
             return False, "CoinDesk API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        endpoint = "https://data-api.coindesk.com/news/v1/article/list"
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            # CoinDesk Data API accepts API key auth via request headers.
             resp = await client.get(
-                "https://api.coindesk.com/v1/bpi/currentprice/USD.json",
-                headers={"X-API-Key": normalized_key},
+                endpoint,
+                params={"lang": "EN", "limit": 1},
+                headers={"X-API-KEY": normalized_key},
             )
             if resp.status_code == 200:
                 return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
+            if resp.status_code in (401, 403):
+                return False, "CoinDesk rejected the API key (401/403). Confirm the key is active and has Data API access."
+            if resp.status_code == 429:
+                return False, "CoinDesk rate limit reached while validating key. Retry in a few seconds."
+            if resp.status_code == 404:
+                return False, "CoinDesk validation endpoint unavailable (404). Verify Data API base URL or account entitlement."
+            return False, f"CoinDesk validation failed with HTTP {resp.status_code}"
     except httpx.ConnectError:
-        logger.warning("CoinDesk test endpoint not available, accepting key")
-        return True, None
+        return False, "Could not reach CoinDesk Data API endpoint. Check network connectivity and firewall rules."
     except Exception as e:
         return False, f"Test failed: {str(e)[:100]}"
 

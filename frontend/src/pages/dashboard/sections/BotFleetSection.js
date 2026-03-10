@@ -56,19 +56,30 @@ function modeColor(bot) {
 
 function botMetrics(bot = {}) {
   const capitalSummary = bot.capital_summary || {};
+  const hasCanonicalCapital = Object.keys(capitalSummary).length > 0;
+  const performance = bot.performance || {};
+  const initialCapital = safeNum(capitalSummary.initial_capital ?? (hasCanonicalCapital ? 0 : bot.initial_capital));
+  const allocatedCapital = safeNum(capitalSummary.allocated_capital ?? (hasCanonicalCapital ? 0 : bot.allocated_capital));
+  const availableCapital = safeNum(capitalSummary.available_capital ?? (hasCanonicalCapital ? 0 : bot.available_capital));
+  const openPositionValue = safeNum(capitalSummary.open_position_value ?? (hasCanonicalCapital ? 0 : bot.open_position_value));
+  const unrealizedProfit = safeNum(capitalSummary.unrealized_profit ?? 0);
+  const derivedTotalEquity = availableCapital + openPositionValue + unrealizedProfit;
+  const totalEquity = safeNum(capitalSummary.total_equity ?? (hasCanonicalCapital ? derivedTotalEquity : bot.current_capital));
+  const realizedProfit = safeNum(
+    capitalSummary.realized_profit
+    ?? performance.profit_realized
+    ?? (hasCanonicalCapital ? 0 : bot.total_profit)
+  );
   const currentCapital = safeNum(
-    capitalSummary.total_equity
+    totalEquity
     ?? bot.capital?.current
-    ?? bot.current_capital
   );
   const profit = safeNum(
-    capitalSummary.realized_profit
-    ?? bot.performance?.profit_realized
+    realizedProfit
     ?? bot.profit
-    ?? bot.total_profit
   );
-  const totalTrades = safeNum(bot.performance?.trade_count ?? bot.total_trades ?? bot.trades_count);
-  let winRate = bot.performance?.win_rate_pct ?? bot.win_rate;
+  const totalTrades = safeNum(performance.trade_count ?? bot.total_trades ?? bot.trades_count);
+  let winRate = performance.win_rate_pct ?? bot.win_rate;
   if (safeNum(winRate) > 0 && safeNum(winRate) <= 1) {
     winRate = safeNum(winRate) * 100;
   }
@@ -78,13 +89,13 @@ function botMetrics(bot = {}) {
     totalTrades,
     winRate: winRate == null ? null : safeNum(winRate),
     capitalSummary: {
-      initialCapital: safeNum(capitalSummary.initial_capital ?? bot.initial_capital),
-      allocatedCapital: safeNum(capitalSummary.allocated_capital ?? bot.allocated_capital ?? bot.current_capital),
-      availableCapital: safeNum(capitalSummary.available_capital ?? bot.available_capital),
-      openPositionValue: safeNum(capitalSummary.open_position_value ?? bot.open_position_value),
-      totalEquity: safeNum(capitalSummary.total_equity ?? bot.current_capital),
-      realizedProfit: safeNum(capitalSummary.realized_profit ?? bot.performance?.profit_realized ?? bot.total_profit),
-      unrealizedProfit: safeNum(capitalSummary.unrealized_profit),
+      initialCapital,
+      allocatedCapital,
+      availableCapital,
+      openPositionValue,
+      totalEquity,
+      realizedProfit,
+      unrealizedProfit,
     },
   };
 }

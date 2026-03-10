@@ -282,7 +282,7 @@ async def save_key(
             # AI providers
             'openai', 'fetchai', 'huggingface',
             # Market data providers
-            'cryptocompare', 'coingecko', 'coinranking',
+            'coindesk', 'cryptocompare', 'coingecko', 'coinranking',
             # Intelligence enrichers
             'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic',
             # Legacy (deprecated, fallback-only)

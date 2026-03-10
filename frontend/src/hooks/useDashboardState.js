@@ -907,10 +907,9 @@ export default function useDashboardState(navigate) {
         break;
       }
       case 'bots_update': {
-        const botsPayload = data.data?.bots || data.bots;
-        if (Array.isArray(botsPayload)) {
-          setBots(botsPayload);
-        }
+        // Event payloads can be partial; always re-fetch canonical bot status.
+        refreshBotState();
+        loadMetrics();
         break;
       }
       case 'trades_update':
@@ -1019,10 +1018,9 @@ export default function useDashboardState(navigate) {
         break;
       
       case 'bot_updated':
-        // Update specific bot
-        setBots(prev => prev.map(bot => 
-          bot.id === data.bot_id ? { ...bot, ...data.changes } : bot
-        ));
+        // Avoid stale local merges; re-sync from canonical /api/bots/status.
+        refreshBotState();
+        loadMetrics();
         break;
       case 'bot_paused':
       case 'bot_resumed':

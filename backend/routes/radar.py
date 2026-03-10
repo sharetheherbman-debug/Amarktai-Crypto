@@ -92,7 +92,7 @@ def _compute_exit_forecast(
 
 def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -> Dict:
     """Build a single radar entry from bot + its current open trade."""
-    bot_id = str(bot.get("_id", bot.get("bot_id", "")))
+    bot_id = str(bot.get("id") or bot.get("_id") or bot.get("bot_id", ""))
     hold_policy = resolve_hold_policy(bot, open_trade=open_trade)
     max_hold = int(hold_policy["max_hold_seconds"])
     capital = float(bot.get("current_capital", bot.get("initial_capital", 0)))
@@ -143,6 +143,9 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "slippage_estimate": bot.get("slippage_estimate"),
         "lifecycle_stage": bot.get("lifecycle_stage", "unknown"),
         "eligible_to_trade": bot.get("eligible_to_trade", False),
+        "activity_state": bot.get("activity_state", "active_record"),
+        "activity_reason_code": bot.get("activity_reason_code"),
+        "runnable": bot.get("runnable", False),
     }
 
     if open_trade:
