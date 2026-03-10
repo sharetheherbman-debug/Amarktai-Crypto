@@ -17,6 +17,8 @@ CANONICAL_REGIMES: Set[str] = {
     "low_volatility",
     "unknown",
 }
+BASE_REGIME_CONFIDENCE = 0.35
+DEPTH_NOTIONAL_NORMALIZATION_FACTOR = 2_000_000.0
 
 _REGIME_ALIAS_MAP = {
     "stable_uptrend": "trending_up",
@@ -68,12 +70,12 @@ def classify_regime(
     elif abs(trend_pct) < 1.2 and volatility_pct >= 2.2:
         candidate = "mean_reversion"
 
-    confidence = 0.35
+    confidence = BASE_REGIME_CONFIDENCE
     confidence += min(0.25, abs(trend_pct) / 10.0)
     confidence += min(0.2, volatility_pct / 10.0)
     confidence -= min(0.25, max(spread_pct, 0) / 3.0)
     if depth_notional is not None and depth_notional > 0:
-        confidence += min(0.15, depth_notional / 2_000_000.0)
+        confidence += min(0.15, depth_notional / DEPTH_NOTIONAL_NORMALIZATION_FACTOR)
     confidence = max(0.0, min(1.0, confidence))
 
     market_quality = max(0.0, min(1.0, confidence - min(0.4, max(spread_pct, 0) / 5.0)))

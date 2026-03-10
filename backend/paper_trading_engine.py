@@ -103,6 +103,10 @@ SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.75
 NORMAL_MIN_AVG_CONFIDENCE = float(os.getenv("NORMAL_MIN_AVG_CONFIDENCE", "0.68"))
 SCALPER_NO_PROGRESS_HOLD_RATIO = float(os.getenv("SCALPER_NO_PROGRESS_HOLD_RATIO", "0.55"))
 NORMAL_NO_PROGRESS_HOLD_RATIO = float(os.getenv("NORMAL_NO_PROGRESS_HOLD_RATIO", "0.45"))
+MIN_PROVEN_WINNER_PCT = float(os.getenv("MIN_PROVEN_WINNER_PCT", "0.18"))
+TAKE_PROFIT_PROVEN_MULTIPLIER = float(os.getenv("TAKE_PROFIT_PROVEN_MULTIPLIER", "0.35"))
+MIN_ADAPTIVE_TRAILING_PCT = float(os.getenv("MIN_ADAPTIVE_TRAILING_PCT", "0.0015"))
+PROVEN_WINNER_TRAILING_MULTIPLIER = float(os.getenv("PROVEN_WINNER_TRAILING_MULTIPLIER", "0.6"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1670,10 +1674,12 @@ class PaperTradingEngine:
             close_reason = None
 
             # Update trailing reference prices before evaluating exits.
-            proven_winner = pnl_pct >= max(0.18, take_profit_pct * 100 * 0.35)
+            # pnl_pct is expressed in percentage points (e.g., 1.2 = 1.2%),
+            # while take_profit_pct is fractional (e.g., 0.02 = 2%), hence * 100 conversion.
+            proven_winner = pnl_pct >= max(MIN_PROVEN_WINNER_PCT, take_profit_pct * 100 * TAKE_PROFIT_PROVEN_MULTIPLIER)
             adaptive_trailing_pct = trailing_stop_pct
             if proven_winner:
-                adaptive_trailing_pct = max(0.0015, trailing_stop_pct * 0.6)
+                adaptive_trailing_pct = max(MIN_ADAPTIVE_TRAILING_PCT, trailing_stop_pct * PROVEN_WINNER_TRAILING_MULTIPLIER)
 
             if current_price > highest_price:
                 highest_price = current_price
@@ -1855,7 +1861,7 @@ class PaperTradingEngine:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trade_type": "BUY->SELL",
                 "trade_close_reason": close_reason,
-                "trade_close_reason_code": str(close_reason or "unknown").upper(),
+                "trade_close_reason_code": str(close_reason or "UNSPECIFIED_CLOSE").upper(),
                 "data_source": open_trade.get("data_source"),
                 "fee_rate": round(fee_rate, 6),
                 "slippage_rate": round(slippage_rate, 6),

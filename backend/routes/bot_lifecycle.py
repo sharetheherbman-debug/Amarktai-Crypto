@@ -105,12 +105,14 @@ def _bots_status_payload(
     exchange_counts = {} if exchange_counts is None else exchange_counts
     all_exchanges = [] if all_exchanges is None else all_exchanges
     activity = activity or {}
-    fallback_active = sum(
-        1
-        for bot in bots
-        if bot.get("state") == "active" or bot.get("status") == "active"
-    )
-    active_bots = int(activity.get("active_bot_records", activity.get("active", fallback_active)) or 0)
+    active_from_activity = activity.get("active_bot_records", activity.get("active"))
+    if active_from_activity is None:
+        active_from_activity = sum(
+            1
+            for bot in bots
+            if bot.get("state") == "active" or bot.get("status") == "active"
+        )
+    active_bots = int(active_from_activity or 0)
     runnable_bots = int(activity.get("runnable_active_bots", activity.get("runnable", active_bots)) or 0)
     return {
         "success": success,

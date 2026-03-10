@@ -6,6 +6,11 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+SCALPER_CONFIDENCE_THRESHOLD = 0.78
+NORMAL_CONFIDENCE_THRESHOLD = 0.68
+SCALPER_BASE_EDGE_PCT = 0.45
+NORMAL_BASE_EDGE_PCT = 0.2
+
 
 def compute_entry_confidence(
     *,
@@ -33,7 +38,7 @@ def compute_entry_confidence(
         score -= 0.08
 
     score = max(0.0, min(1.0, score))
-    threshold = 0.78 if str(bot_type).lower() == "scalper" else 0.68
+    threshold = SCALPER_CONFIDENCE_THRESHOLD if str(bot_type).lower() == "scalper" else NORMAL_CONFIDENCE_THRESHOLD
     accepted = score >= threshold
     return {
         "entry_confidence_score": round(score, 4),
@@ -57,7 +62,7 @@ def evaluate_expectancy_gate(
     quality_multiplier = max(0.45, min(1.25, (market_quality * 0.7) + (entry_confidence_score * 0.55)))
     effective_move = expected_move_pct * quality_multiplier
     net_edge_pct = effective_move - estimated_cost_pct - timeout_risk_pct
-    base_required = 0.45 if str(bot_type).lower() == "scalper" else 0.2
+    base_required = SCALPER_BASE_EDGE_PCT if str(bot_type).lower() == "scalper" else NORMAL_BASE_EDGE_PCT
     required_net_edge_pct = base_required + max(0.0, adaptive_edge_uplift_pct)
     accepted = net_edge_pct >= required_net_edge_pct
     return {
