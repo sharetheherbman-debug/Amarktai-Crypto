@@ -77,12 +77,12 @@ async def websocket_endpoint(
         await websocket.close(code=1008, reason="Authentication required")
         return
     
-    # Import manager
-    from websocket_manager_redis import manager
+    # Import canonical manager used by realtime emitters
+    from websocket_manager import manager
     
     # Connect client
     logger.info(f"✅ WebSocket connection ACCEPTED for user {user_id[:8]}... (client: {websocket.client})")
-    await manager.connect(websocket, user_id, last_event_id)
+    await manager.connect(websocket, user_id)
     
     try:
         # Keep connection alive and handle messages

@@ -993,9 +993,12 @@ export default function AdminPanelSection({
               <button 
                 onClick={async () => {
                   try {
-                    const res = await axios.get(`${API}/admin/health-check`, axiosConfig);
-                    const services = res.data.services;
-                    const score = res.data.health_score;
+                    const res = await axios.get(`${API}/admin/health`, axiosConfig);
+                    const services = {
+                      database: res.data?.database?.status || 'unknown',
+                      scheduler: res.data?.scheduler?.running ? 'healthy' : 'degraded'
+                    };
+                    const score = res.data?.status === 'ok' ? 100 : 60;
                     
                     let statusHTML = `Health Score: ${score}/100\n\n`;
                     statusHTML += 'Services Status:\n';

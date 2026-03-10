@@ -819,9 +819,10 @@ async def get_countdown_to_target(
         else:
             days_to_target_estimate = None  # Can't estimate with zero or negative avg
         
-        # Calculate confidence metric
-        # More trades and more days = higher confidence
-        total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+        # Calculate confidence metric using canonical closed-trade counter
+        # shared with overview/diagnostics to avoid truth drift.
+        from services.canonical import get_canonical_trade_counts
+        total_trades = (await get_canonical_trade_counts(user_id))["total"]
         if total_trades < 10:
             return {
                 "target_amount": target_amount,
@@ -837,9 +838,7 @@ async def get_countdown_to_target(
                 "last_updated_at": datetime.now(timezone.utc).isoformat()
             }
         
-        if total_trades < 10:
-            confidence = "low"
-        elif total_trades < 50 or days_elapsed < 3:
+        if total_trades < 50 or days_elapsed < 3:
             confidence = "medium"
         else:
             confidence = "high"

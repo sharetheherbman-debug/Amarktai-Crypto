@@ -19,6 +19,7 @@ from auth import get_current_user, require_admin
 from utils.bot_state import normalize_bot_state
 from services.wallet_summary_service import wallet_summary_service
 from services.emergency_stop_override_service import emergency_stop_override_service
+from routes.health import get_build_metadata
 import database as db
 from engines.audit_logger import audit_logger
 from json_utils import serialize_doc, serialize_list
@@ -270,6 +271,7 @@ async def admin_health(admin_id: str = Depends(require_admin)):
             "status": "ok" if db_status == "ok" else "degraded",
             "database": {"status": db_status},
             "scheduler": scheduler_status,
+            "build": get_build_metadata(),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:

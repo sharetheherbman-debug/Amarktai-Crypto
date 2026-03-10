@@ -1926,21 +1926,21 @@ async def get_backend_health(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/admin/health-check")
 async def system_health_check(user_id: str = Depends(get_current_user)):
-    """Comprehensive system health check"""
+    """Deprecated alias. Canonical endpoint is /api/admin/health."""
     try:
-        from system_health import get_system_health
-        health_data = await get_system_health()
-        return health_data
+        from routes.admin_endpoints import admin_health
+        payload = await admin_health(admin_id=user_id)
+        payload["deprecated"] = True
+        payload["canonical_endpoint"] = "/api/admin/health"
+        return payload
     except Exception as e:
         logger.error(f"Health check error: {e}")
         return {
-            "health_score": 0,
-            "services": {
-                "database": "error",
-                "trading_engine": "error",
-                "ai_systems": "error",
-                "autonomous": "error"
-            },
+            "status": "error",
+            "database": {"status": "error"},
+            "scheduler": {"running": False, "last_heartbeat": None},
+            "deprecated": True,
+            "canonical_endpoint": "/api/admin/health",
             "error": str(e)
         }
 

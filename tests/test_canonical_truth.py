@@ -16,6 +16,7 @@ implementation.
 import sys
 import os
 import asyncio
+import importlib.util
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -177,6 +178,61 @@ class TestGetCanonicalWalletTruth:
         assert truth["funded_status"] == "UNFUNDED"
         assert truth["status"] == "UNFUNDED"
         assert truth["shortfall"] > 0
+
+
+class TestGetCanonicalTradeCounts:
+    pytestmark = pytest.mark.skipif(
+        importlib.util.find_spec("motor") is None,
+        reason="canonical service dependencies (motor/database) not installed",
+    )
+
+    @pytest.mark.asyncio
+    async def test_trade_counts_scoped_to_closed_trades_for_user_bots(self):
+        from services.canonical import get_canonical_trade_counts
+
+        bots_cursor = MagicMock()
+        bots_cursor.to_list = AsyncMock(return_value=[
+            {"id": "bot-1", "user_id": "u1"},
+            {"id": "bot-2", "user_id": "u1"},
+        ])
+        bots_collection = MagicMock()
+        bots_collection.find.return_value = bots_cursor
+
+        trades_collection = MagicMock()
+        trades_collection.count_documents = AsyncMock(side_effect=[12, 4])
+
+        with patch("services.canonical.db") as mock_db:
+            mock_db.bots_collection = bots_collection
+            mock_db.trades_collection = trades_collection
+            counts = await get_canonical_trade_counts("u1")
+
+        assert counts == {"total": 12, "today": 4}
+        first_query = trades_collection.count_documents.await_args_list[0].args[0]
+        second_query = trades_collection.count_documents.await_args_list[1].args[0]
+        assert first_query["status"] == "closed"
+        assert second_query["status"] == "closed"
+        assert first_query["bot_id"]["$in"] == ["bot-1", "bot-2"]
+        assert second_query["bot_id"]["$in"] == ["bot-1", "bot-2"]
+
+    @pytest.mark.asyncio
+    async def test_trade_counts_zero_when_user_has_no_bots(self):
+        from services.canonical import get_canonical_trade_counts
+
+        bots_cursor = MagicMock()
+        bots_cursor.to_list = AsyncMock(return_value=[])
+        bots_collection = MagicMock()
+        bots_collection.find.return_value = bots_cursor
+
+        trades_collection = MagicMock()
+        trades_collection.count_documents = AsyncMock()
+
+        with patch("services.canonical.db") as mock_db:
+            mock_db.bots_collection = bots_collection
+            mock_db.trades_collection = trades_collection
+            counts = await get_canonical_trade_counts("u1")
+
+        assert counts == {"total": 0, "today": 0}
+        trades_collection.count_documents.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_status_funded_status_never_contradict(self):
