@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import realtimeClient from '../../../lib/realtime';
 
 const RADAR_REFRESH_MS = 10000; // Refresh radar data every 10 seconds
@@ -16,6 +16,7 @@ export default function BotRadarSection({ axiosConfig }) {
   const [error, setError] = useState(null);
   const [selectedBot, setSelectedBot] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all'); // all / normal / scalper
+  const refreshTimeoutRef = useRef(null);
 
   const fetchRadar = useCallback(async () => {
     try {
@@ -40,7 +41,13 @@ export default function BotRadarSection({ axiosConfig }) {
   }, [fetchRadar]);
 
   useEffect(() => {
-    const refreshFromCanonical = () => fetchRadar();
+    const refreshFromCanonical = () => {
+      if (refreshTimeoutRef.current) return;
+      refreshTimeoutRef.current = setTimeout(() => {
+        refreshTimeoutRef.current = null;
+        fetchRadar();
+      }, 250);
+    };
     const unsubs = [
       realtimeClient.on('bots_update', refreshFromCanonical),
       realtimeClient.on('bot_created', refreshFromCanonical),
@@ -55,7 +62,13 @@ export default function BotRadarSection({ axiosConfig }) {
       realtimeClient.on('trade_executed', refreshFromCanonical),
       realtimeClient.on('analytics_update', refreshFromCanonical),
     ];
-    return () => unsubs.forEach((unsub) => unsub && unsub());
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+      unsubs.forEach((unsub) => unsub && unsub());
+    };
   }, [fetchRadar]);
 
   if (loading) {

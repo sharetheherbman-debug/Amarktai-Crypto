@@ -1283,7 +1283,7 @@ class PaperTradingEngine:
                         exchange=exchange,
                         decision="reject",
                         reason_code="LOW_ENTRY_CONFIDENCE",
-                        reason_text="Scalper quality threshold not met",
+                        reason_text="Scalper signal confidence threshold not met",
                         details={"avg_confidence": avg_confidence, "confidence_sources": confidence_sources, "consensus": consensus},
                     )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Scalper quality threshold not met"}
