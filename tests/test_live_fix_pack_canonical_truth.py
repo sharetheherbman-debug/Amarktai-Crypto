@@ -109,13 +109,16 @@ def test_frontend_bot_metrics_use_canonical_capital_summary():
 
 
 def test_engine_has_early_exit_reasons_before_timeout_fallback():
-    path = os.path.join(os.path.dirname(__file__), "..", "backend", "paper_trading_engine.py")
-    with open(path) as f:
-        source = f.read()
-    assert "scalper_no_progress_exit" in source
-    assert "normal_no_progress_exit" in source
-    assert "regime_deterioration_exit" in source
-    assert "if not close_reason and age_seconds >= max_hold_seconds" in source
+    engine_path = os.path.join(os.path.dirname(__file__), "..", "backend", "paper_trading_engine.py")
+    quality_path = os.path.join(os.path.dirname(__file__), "..", "backend", "services", "entry_quality.py")
+    with open(engine_path) as f:
+        engine_source = f.read()
+    with open(quality_path) as f:
+        quality_source = f.read()
+    assert "scalper_no_progress_exit" in quality_source
+    assert "normal_no_progress_exit" in quality_source
+    assert "regime_deterioration_exit" in quality_source
+    assert "if not close_reason and age_seconds >= max_hold_seconds" in engine_source
 
 
 def test_frontend_bots_update_refreshes_canonical_status():
