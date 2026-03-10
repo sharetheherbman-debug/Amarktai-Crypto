@@ -16,6 +16,11 @@ const REASON_LABELS = {
   balance_mismatch: 'Wallet balance does not reconcile',
   negative_balance: 'Wallet has negative balance',
   no_active_bots_not_configured: 'Exchange not configured',
+  regime_unknown_low_confidence: 'Market regime is unknown with low confidence — waiting for better signal',
+  regime_block: 'Strategy blocked by current market regime',
+  eligibility_gate_blocked: 'Bot eligibility gate blocked — check status and configuration',
+  exchange_not_configured: 'Exchange API keys not configured',
+  wallet_insufficient: 'Insufficient wallet balance for trading',
 };
 
 /**
