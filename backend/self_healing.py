@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
 try:
     import database as db  # type: ignore
     _DB_AVAILABLE = True
-except (ImportError, Exception):  # pragma: no cover
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
     db = None  # type: ignore
     _DB_AVAILABLE = False
 

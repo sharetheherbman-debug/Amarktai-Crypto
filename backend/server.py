@@ -718,7 +718,7 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     current_bot_count = await db.bots_collection.count_documents({
         "user_id": user_id,
         "exchange": exchange,
-        "bot_type": {"$ne": "scalper"},
+        "bot_type": "normal",  # count only normal bots — scalpers have separate caps
         "status": {"$ne": "deleted"}  # Don't count deleted bots
     })
 

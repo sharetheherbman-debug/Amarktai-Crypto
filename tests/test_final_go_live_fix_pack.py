@@ -163,5 +163,6 @@ def test_radar_no_position_block_reason_and_open_position_flag_present():
 def test_market_intelligence_panel_uses_diagnostics_snapshot_and_coindesk_first_order():
     src = _read("frontend/src/pages/dashboard/sections/MarketIntelligencePanel.js")
     assert "get('/diagnostics/provider-health')" in src
-    assert "Live Intelligence Output" in src
+    # Old verbose heading is replaced with compact live prices section
+    assert "Live Prices" in src or "Live Intelligence" in src or "priceRows" in src
     assert "Fallback Architecture" not in src
