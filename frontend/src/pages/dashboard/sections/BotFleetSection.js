@@ -55,8 +55,18 @@ function modeColor(bot) {
 }
 
 function botMetrics(bot = {}) {
-  const currentCapital = safeNum(bot.capital?.current ?? bot.current_capital);
-  const profit = safeNum(bot.performance?.profit_realized ?? bot.profit ?? bot.total_profit);
+  const capitalSummary = bot.capital_summary || {};
+  const currentCapital = safeNum(
+    capitalSummary.total_equity
+    ?? bot.capital?.current
+    ?? bot.current_capital
+  );
+  const profit = safeNum(
+    capitalSummary.realized_profit
+    ?? bot.performance?.profit_realized
+    ?? bot.profit
+    ?? bot.total_profit
+  );
   const totalTrades = safeNum(bot.performance?.trade_count ?? bot.total_trades ?? bot.trades_count);
   let winRate = bot.performance?.win_rate_pct ?? bot.win_rate;
   if (safeNum(winRate) > 0 && safeNum(winRate) <= 1) {
@@ -67,6 +77,15 @@ function botMetrics(bot = {}) {
     profit,
     totalTrades,
     winRate: winRate == null ? null : safeNum(winRate),
+    capitalSummary: {
+      initialCapital: safeNum(capitalSummary.initial_capital ?? bot.initial_capital),
+      allocatedCapital: safeNum(capitalSummary.allocated_capital ?? bot.allocated_capital ?? bot.current_capital),
+      availableCapital: safeNum(capitalSummary.available_capital ?? bot.available_capital),
+      openPositionValue: safeNum(capitalSummary.open_position_value ?? bot.open_position_value),
+      totalEquity: safeNum(capitalSummary.total_equity ?? bot.current_capital),
+      realizedProfit: safeNum(capitalSummary.realized_profit ?? bot.performance?.profit_realized ?? bot.total_profit),
+      unrealizedProfit: safeNum(capitalSummary.unrealized_profit),
+    },
   };
 }
 
@@ -284,11 +303,16 @@ export default function BotFleetSection({
         ...(selectedBot.paused_reason_message ? [{ label: 'Paused Reason', value: selectedBot.paused_reason_message }] : []),
       ],
       performance: [
-        { label: 'Capital', value: fmtZAR(perf.currentCapital) },
-        { label: 'Profit', value: fmtZAR(perf.profit), color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' },
+        { label: 'Total Equity', value: fmtZAR(perf.capitalSummary.totalEquity) },
+        { label: 'Realized Profit', value: fmtZAR(perf.capitalSummary.realizedProfit), color: perf.capitalSummary.realizedProfit >= 0 ? 'var(--success)' : 'var(--error)' },
+        { label: 'Initial Capital', value: fmtZAR(perf.capitalSummary.initialCapital) },
+        { label: 'Allocated Capital', value: fmtZAR(perf.capitalSummary.allocatedCapital) },
+        { label: 'Available Capital', value: fmtZAR(perf.capitalSummary.availableCapital) },
+        { label: 'Open Position Value', value: fmtZAR(perf.capitalSummary.openPositionValue) },
+        { label: 'Unrealized P/L', value: fmtZAR(perf.capitalSummary.unrealizedProfit), color: perf.capitalSummary.unrealizedProfit >= 0 ? 'var(--success)' : 'var(--error)' },
         { label: 'Win Rate', value: fmtPct(perf.winRate) },
         { label: 'Total Trades', value: safeNum(perf.totalTrades).toString() },
-        { label: 'ROI', value: perf.currentCapital ? fmtPct((safeNum(perf.profit) / safeNum(perf.currentCapital, 1)) * 100) : '—' },
+        { label: 'ROI', value: perf.capitalSummary.initialCapital ? fmtPct((safeNum(perf.profit) / safeNum(perf.capitalSummary.initialCapital, 1)) * 100) : '—' },
       ],
     };
   }, [selectedBot, formatDate]);

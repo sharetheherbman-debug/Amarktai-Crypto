@@ -36,7 +36,9 @@ def test_bots_status_returns_empty_when_no_bots():
 
     assert payload.get("success") is True
     assert payload.get("active_bots") == 0
+    assert payload.get("runnable_bots") == 0
     assert payload.get("bots") == []
+    assert payload.get("activity", {}).get("active_bot_records", 0) == 0
     exchange_counts = payload.get("exchange_counts")
     assert exchange_counts
     assert payload.get("platforms") == exchange_counts
@@ -99,6 +101,7 @@ def test_bots_status_exposes_trade_truth_fields_for_cards():
         "exchange": "luno",
         "status": "active",
         "bot_type": "normal",
+        "trading_mode": "paper",
         "initial_capital": 1000,
         "current_capital": 1180,
         "open_position_value": 80,
@@ -142,5 +145,9 @@ def test_bots_status_exposes_trade_truth_fields_for_cards():
     assert bot["available_capital"] == 1100.0
     assert bot["capital"]["current"] == 1180.0
     assert bot["capital"]["available"] == 1100.0
+    assert bot["capital_summary"]["total_equity"] == 1180.0
+    assert "semantics" in bot["capital_summary"]
     assert bot["performance"]["profit_realized"] == 180.0
     assert bot["performance"]["win_rate_pct"] == 60.0
+    assert payload["active_bots"] == 1
+    assert payload["runnable_bots"] == 1

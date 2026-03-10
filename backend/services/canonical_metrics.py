@@ -43,6 +43,37 @@ def _empty_snapshot() -> Dict[str, Any]:
     }
 
 
+def build_canonical_capital_summary(
+    *,
+    capital_initial: float,
+    capital_allocated: float,
+    capital_available: float,
+    open_position_value: float,
+    profit_realized: float,
+    unrealized_profit: float = 0.0,
+) -> Dict[str, Any]:
+    """Frontend-safe canonical capital semantics for a bot."""
+    total_equity = max(0.0, capital_available + open_position_value + unrealized_profit)
+    return {
+        "initial_capital": round(capital_initial, 2),
+        "allocated_capital": round(capital_allocated, 2),
+        "available_capital": round(capital_available, 2),
+        "open_position_value": round(open_position_value, 2),
+        "total_equity": round(total_equity, 2),
+        "realized_profit": round(profit_realized, 2),
+        "unrealized_profit": round(unrealized_profit, 2),
+        "semantics": {
+            "initial_capital": "Starting capital assigned when the bot was created.",
+            "allocated_capital": "Capital currently assigned to this bot for trading.",
+            "available_capital": "Uncommitted capital available for new entries.",
+            "open_position_value": "Current marked value of capital in open positions.",
+            "total_equity": "Available capital + open position value + unrealized profit.",
+            "realized_profit": "Closed-trade profit/loss already realized.",
+            "unrealized_profit": "Profit/loss on currently open positions (estimate).",
+        },
+    }
+
+
 async def backfill_missing_current_capital(user_id: str) -> int:
     """Set current_capital=initial_capital where missing/null for user's active bots."""
     if db.bots_collection is None or not hasattr(db.bots_collection, "update_many"):
@@ -141,6 +172,14 @@ async def get_canonical_metrics_snapshot(user_id: str, bots: Optional[List[Dict[
             "capital_available": round(capital_available, 2),
             "open_position_value": round(open_position_value, 2),
             "profit_realized": round(profit_realized, 2),
+            "capital_summary": build_canonical_capital_summary(
+                capital_initial=capital_initial,
+                capital_allocated=capital_allocated,
+                capital_available=capital_available,
+                open_position_value=open_position_value,
+                profit_realized=profit_realized,
+                unrealized_profit=_num(bot.get("unrealized_profit", 0)),
+            ),
             "roi_pct": round(roi_pct, 2),
             "trade_count": trade_count,
             "winning_trades": winning_trades,

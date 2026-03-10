@@ -84,11 +84,12 @@ def test_scalper_edge_gate_is_stricter():
     path = os.path.join(os.path.dirname(__file__), "..", "backend", "paper_trading_engine.py")
     with open(path) as f:
         source = f.read()
-    assert "estimated_cost_pct * 1.75" in source
-    assert "edge_required_pct + 0.20" in source
+    assert "estimated_cost_pct * 2.25" in source
+    assert "edge_required_pct + 0.35" in source
+    assert "scalper_conflicting_signals" in source
 
 
-def test_frontend_bot_metrics_removed_stale_fallbacks():
+def test_frontend_bot_metrics_use_canonical_capital_summary():
     path = os.path.join(
         os.path.dirname(__file__),
         "..",
@@ -101,9 +102,20 @@ def test_frontend_bot_metrics_removed_stale_fallbacks():
     )
     with open(path) as f:
         source = f.read()
-    assert "allocated_capital" not in source
-    assert "initial_capital" not in source
-    assert "winCount + lossCount" not in source
+    assert "capital_summary" in source
+    assert "Total Equity" in source
+    assert "Initial Capital" in source
+    assert "Allocated Capital" in source
+
+
+def test_engine_has_early_exit_reasons_before_timeout_fallback():
+    path = os.path.join(os.path.dirname(__file__), "..", "backend", "paper_trading_engine.py")
+    with open(path) as f:
+        source = f.read()
+    assert "scalper_no_progress_exit" in source
+    assert "normal_no_progress_exit" in source
+    assert "regime_deterioration_exit" in source
+    assert "if not close_reason and age_seconds >= max_hold_seconds" in source
 
 
 def test_frontend_bots_update_refreshes_canonical_status():
@@ -120,3 +132,18 @@ def test_frontend_bots_update_refreshes_canonical_status():
     assert re.search(r"realtimeClient\.on\(['\"]bots_update['\"],\s*\(\)\s*=>\s*\{", source)
     assert re.search(r"\bloadBots\(\)\s*;", source)
     assert re.search(r"\[\s*token\s*,\s*loadRecentTrades\s*,\s*loadCountdown\s*,\s*loadMetrics\s*,\s*loadBots\s*\]", source)
+
+
+def test_frontend_activity_counts_distinguish_runnable_vs_active():
+    hook_path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "frontend",
+        "src",
+        "hooks",
+        "useDashboardData.js",
+    )
+    with open(hook_path) as f:
+        source = f.read()
+    assert "runnable /" in source
+    assert "runnableBots" in source

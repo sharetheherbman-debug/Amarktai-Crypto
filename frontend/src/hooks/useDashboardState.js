@@ -894,12 +894,13 @@ export default function useDashboardState(navigate) {
       case 'overview_update': {
         const overview = data.data?.overview || data.overview;
         if (overview) {
-          const totalBots = safeNumber(overview.bots_active, 0) + safeNumber(overview.bots_paused, 0) + safeNumber(overview.bots_training, 0) + safeNumber(overview.bots_quarantine, 0);
+          const activeBots = safeNumber(overview.bots_active, 0);
+          const runnableBots = safeNumber(overview.runnable_bots, activeBots);
           setOverviewData(prev => ({ ...prev, ...overview }));
           setMetrics(prev => ({
             ...prev,
             totalProfit: `R${safeNumber(overview.total_profit, 0).toFixed(2)}`,
-            activeBots: `${safeNumber(overview.bots_active, 0)} / ${totalBots}`,
+            activeBots: `${runnableBots} runnable / ${activeBots} active`,
             lastUpdate: formatTimestamp(new Date(), { includeDate: false })
           }));
         }
@@ -968,12 +969,16 @@ export default function useDashboardState(navigate) {
       case 'overview_updated':
         // Update overview data from WebSocket
         if (data.overview) {
+          const activeBots = safeNumber(data.overview.active_bots, 0);
+          const runnableBots = safeNumber(data.overview.runnable_bots, activeBots);
           setMetrics(prev => ({
             ...prev,
             totalProfit: Number.isFinite(Number(data.overview.portfolio_value))
               ? `R${safeToFixed(data.overview.portfolio_value, 2)}`
               : prev.totalProfit,
-            activeBots: data.overview.active_bots !== undefined ? `${safeNumber(data.overview.active_bots, 0)}` : prev.activeBots,
+            activeBots: data.overview.active_bots !== undefined
+              ? `${runnableBots} runnable / ${activeBots} active`
+              : prev.activeBots,
             exposure: Number.isFinite(Number(data.overview.exposure)) ? `${safeToFixed(data.overview.exposure, 1, '0.0')}%` : prev.exposure,
             riskLevel: data.overview.risk_level || prev.riskLevel
           }));
@@ -1291,6 +1296,7 @@ export default function useDashboardState(navigate) {
       const openPositions = safeNumber(snapshotRes?.openPositions, 0);
       const winRate = safeNumber(snapshotRes?.winRate, 0);
       const activeBots = safeNumber(snapshotRes?.activeBots, 0);
+      const runnableBots = safeNumber(snapshotRes?.runnableBots, activeBots);
       const paperWalletTotal = safeNumber(paperWalletRes?.total, 0);
       const paperWalletAllocated = Object.values(paperWalletRes?.allocated || {}).reduce(
         (sum, value) => sum + safeNumber(value, 0),
@@ -1305,6 +1311,7 @@ export default function useDashboardState(navigate) {
         openPositions,
         winRate,
         activeBots,
+        runnableBots,
         paperWalletTotal,
         paperWalletAllocated,
         lastTradeTime,

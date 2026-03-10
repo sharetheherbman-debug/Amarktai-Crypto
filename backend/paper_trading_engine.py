@@ -91,6 +91,11 @@ NORMAL_TAKE_PROFIT_DEFAULT = float(os.getenv("NORMAL_TAKE_PROFIT_DEFAULT", "0.02
 NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "0.01"))
 ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
 ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
+SCALPER_MIN_EDGE_PCT = float(os.getenv("SCALPER_MIN_EDGE_PCT", "1.0"))
+SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.75"))
+NORMAL_MIN_AVG_CONFIDENCE = float(os.getenv("NORMAL_MIN_AVG_CONFIDENCE", "0.68"))
+SCALPER_NO_PROGRESS_HOLD_RATIO = float(os.getenv("SCALPER_NO_PROGRESS_HOLD_RATIO", "0.55"))
+NORMAL_NO_PROGRESS_HOLD_RATIO = float(os.getenv("NORMAL_NO_PROGRESS_HOLD_RATIO", "0.45"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -354,6 +359,36 @@ class PaperTradingEngine:
             "stop_loss_pct": max(0.001, stop_loss_pct),
             "take_profit_pct": max(0.001, take_profit_pct),
             "trailing_stop_pct": max(0.001, trailing_stop_pct),
+        }
+
+    @staticmethod
+    def _signal_direction(value: Optional[str]) -> str:
+        v = str(value or "").lower().strip()
+        if v in {"bullish", "buy", "long", "up"}:
+            return "bullish"
+        if v in {"bearish", "sell", "short", "down"}:
+            return "bearish"
+        return "neutral"
+
+    @classmethod
+    def _compute_signal_consensus(cls, regime: Dict, prediction: Dict, fetchai_data: Dict) -> Dict[str, int]:
+        """Compute directional consensus across high-confidence signal sources."""
+        signals = []
+        if float(regime.get("confidence", 0) or 0) >= 0.6:
+            signals.append(cls._signal_direction(regime.get("trend")))
+        if float(prediction.get("confidence", 0) or 0) >= 0.65:
+            signals.append(cls._signal_direction(prediction.get("direction")))
+        if float(fetchai_data.get("confidence", 0) or 0) >= 70:
+            signals.append(cls._signal_direction(fetchai_data.get("signal")))
+        bullish = sum(1 for s in signals if s == "bullish")
+        bearish = sum(1 for s in signals if s == "bearish")
+        neutral = sum(1 for s in signals if s == "neutral")
+        return {
+            "sources": len(signals),
+            "bullish": bullish,
+            "bearish": bearish,
+            "neutral": neutral,
+            "consensus_strength": abs(bullish - bearish),
         }
 
     async def _apply_dynamic_exit_targets(
@@ -984,7 +1019,11 @@ class PaperTradingEngine:
             if bot_type == "scalper":
                 # Scalpers have short holds and higher turnover, so require stronger edge.
                 # Gate is tightened by both an absolute uplift and a relative-cost multiplier.
-                edge_required_pct = max(edge_required_pct + 0.20, estimated_cost_pct * 1.75)
+                edge_required_pct = max(
+                    edge_required_pct + 0.35,
+                    estimated_cost_pct * 2.25,
+                    SCALPER_MIN_EDGE_PCT,
+                )
 
             if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:
                 return {
@@ -1004,8 +1043,7 @@ class PaperTradingEngine:
                     }
                 }
             
-            # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
-            # Only trade if at least 2 AI sources have decent confidence
+            # QUALITY FILTER: Skip low-confidence or conflicting trades
             total_confidence = 0
             confidence_sources = 0
             
@@ -1021,11 +1059,41 @@ class PaperTradingEngine:
             if coinstats_data.get('strength', 0) > 60:
                 total_confidence += (coinstats_data.get('strength', 0) / 100)
                 confidence_sources += 1
-            
-            # Require at least 2 sources with average confidence > 65%
-            if confidence_sources < 2 or (total_confidence / max(confidence_sources, 1)) < 0.65:
-                logger.debug(f"Trade quality filter: Skipping low-confidence trade (sources: {confidence_sources}, avg: {total_confidence/max(confidence_sources,1):.2%})")
-                return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
+
+            avg_confidence = total_confidence / max(confidence_sources, 1)
+            consensus = self._compute_signal_consensus(regime, prediction, fetchai_data)
+            regime_name = str(regime.get("regime", "unknown")).lower()
+            trend_direction = self._signal_direction(trend)
+            dominant_direction = "neutral"
+            if consensus["bullish"] > consensus["bearish"]:
+                dominant_direction = "bullish"
+            elif consensus["bearish"] > consensus["bullish"]:
+                dominant_direction = "bearish"
+
+            if bot_type == "scalper":
+                if regime_name in {"unknown", "choppy", "sideways"} and float(regime.get("confidence", 0) or 0) < 0.75:
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "error": "Scalper trade blocked in low-confidence regime"}
+                if confidence_sources < 3 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
+                    logger.debug(
+                        "Scalper quality filter: low confidence (sources=%s avg=%.2f)",
+                        confidence_sources,
+                        avg_confidence,
+                    )
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_low_confidence", "error": "Scalper quality threshold not met"}
+                if consensus["consensus_strength"] < 2 or consensus["sources"] < 2:
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_conflicting_signals", "error": "Scalper signal consensus too weak"}
+                if dominant_direction == "neutral" or (trend_direction != "neutral" and dominant_direction != trend_direction):
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_direction_conflict", "error": "Scalper signals conflict with trend"}
+            else:
+                if confidence_sources < 2 or avg_confidence < NORMAL_MIN_AVG_CONFIDENCE:
+                    logger.debug(
+                        "Normal quality filter: low confidence (sources=%s avg=%.2f)",
+                        confidence_sources,
+                        avg_confidence,
+                    )
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "low_confidence", "error": "Trade quality threshold not met"}
+                if consensus["consensus_strength"] == 0 and avg_confidence < 0.75:
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "conflicting_signals", "error": "Signal consensus threshold not met"}
             
             # Candidate notional is full available paper capital.
             # Final size is risk-capped by fixed-fractional sizing below.
@@ -1233,7 +1301,10 @@ class PaperTradingEngine:
                 "coinstats_strength": round(coinstats_data.get('strength', 0), 1),
                 "coinstats_sentiment": coinstats_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
-                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
+                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1),
+                "signal_consensus_strength": consensus.get("consensus_strength", 0),
+                "signal_sources": consensus.get("sources", 0),
+                "avg_ai_confidence": round(avg_confidence, 3),
             }
 
             # RECORD TRADE FOR RATE LIMITER (entry)
@@ -1381,15 +1452,31 @@ class PaperTradingEngine:
             # 3. Trailing stop
             elif current_price <= trailing_stop_price and highest_price > entry_price:
                 close_reason = "trailing_stop"
-            # 4. Risk-mode max hold exceeded — force close regardless of PnL
-            elif age_seconds >= max_hold_seconds:
-                close_reason = "max_hold_exceeded"
-                logger.warning(
-                    f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
-                    f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
-                    f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
-                )
             else:
+                # 4. Strategic early invalidation before timeout dominates.
+                #    Make max-hold a rare fallback rather than the default exit path.
+                hold_ratio = (age_seconds / max_hold_seconds) if max_hold_seconds > 0 else 0
+                min_progress_pct = max(0.05, take_profit_pct * 100 * 0.12)
+
+                # Regime deterioration: exit normal trades earlier when direction quality collapses.
+                if bot_class == "normal" and hold_ratio >= 0.25:
+                    try:
+                        from market_regime import market_regime_detector
+                        live_regime = await market_regime_detector.detect_regime(symbol, exchange)
+                        regime_trend = self._signal_direction(live_regime.get("trend"))
+                        if regime_trend == "bearish" and float(live_regime.get("confidence", 0) or 0) >= 0.6 and pnl_pct <= 0.15:
+                            close_reason = "regime_deterioration_exit"
+                    except Exception as regime_err:
+                        logger.debug(f"Regime deterioration check skipped: {regime_err}")
+
+                # No-progress exits to reduce time-exit churn.
+                if not close_reason and bot_class == "scalper" and hold_ratio >= SCALPER_NO_PROGRESS_HOLD_RATIO and pnl_pct <= min_progress_pct:
+                    close_reason = "scalper_no_progress_exit"
+                if not close_reason and bot_class == "normal" and hold_ratio >= NORMAL_NO_PROGRESS_HOLD_RATIO and pnl_pct <= min_progress_pct:
+                    close_reason = "normal_no_progress_exit"
+                if not close_reason and hold_ratio >= 0.35 and pnl_pct < -0.25:
+                    close_reason = "early_invalidation_exit"
+
                 # 5. Time-decay adaptive exit (single hold-truth path with custom expected hold)
                 try:
                     from engines.time_decay_exit import time_decay_exit_engine
@@ -1410,7 +1497,16 @@ class PaperTradingEngine:
                 except Exception as td_err:
                     logger.debug(f"Time-decay eval skipped: {td_err}")
 
-            # 6. Legacy stale-exit fallback
+                # 6. Risk-mode max hold exceeded — explicit fallback.
+                if not close_reason and age_seconds >= max_hold_seconds:
+                    close_reason = "max_hold_exceeded"
+                    logger.warning(
+                        f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
+                        f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
+                        f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
+                    )
+
+            # 7. Legacy stale-exit fallback
             if not close_reason and age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
 

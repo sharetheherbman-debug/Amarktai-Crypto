@@ -49,6 +49,9 @@ class TestOverviewSnapshot:
 
         for field in OVERVIEW_SNAPSHOT_KEYS:
             assert field in source, f"Overview snapshot must include '{field}'"
+        assert "activity" in source
+        assert "runnableBots" in source
+        assert "pausedBots" in source
 
     def test_overview_snapshot_keys_contract(self):
         """Verify overview snapshot contract keys list is stable"""

@@ -123,6 +123,30 @@ class TestGetCanonicalBotCounts:
         assert counts["normal_count"] == 1
         assert counts["total"] == 2
 
+    @pytest.mark.asyncio
+    async def test_activity_semantics_expose_active_vs_runnable_and_reasons(self):
+        from services.canonical import get_canonical_bot_counts
+
+        bots = [
+            _make_bot("active"),
+            {
+                **_make_bot("active"),
+                "id": "blocked-bot",
+                "trading_mode": None,
+            },
+            _make_bot("paused"),
+        ]
+        with patch("services.canonical.db") as mock_db:
+            mock_db.bots_collection = _mock_collection(bots)
+            mock_db.trades_collection = None
+            counts = await get_canonical_bot_counts("u1")
+
+        assert counts["total_bot_records"] == 3
+        assert counts["active_bot_records"] == 2
+        assert counts["runnable_active_bots"] == 1
+        assert counts["blocked_bots"] == 1
+        assert counts["non_runnable_reasons"]["no_trading_mode"] == 1
+
 
 # ---------------------------------------------------------------------------
 # Unit tests for canonical.get_canonical_wallet_truth
