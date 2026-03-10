@@ -1,17 +1,11 @@
 import React from 'react';
 import ErrorBoundary from '../../../components/ErrorBoundary';
 import DecisionTrace from '../../../components/DecisionTrace';
-import WhaleFlowHeatmap from '../../../components/WhaleFlowHeatmap';
-import PrometheusMetrics from '../../../components/PrometheusMetrics';
 import MarketIntelligencePanel from './MarketIntelligencePanel';
 import HuggingFacePanel from './HuggingFacePanel';
 import {
   MarketBrainPanel,
-  WhaleFlowPanel,
-  SentimentPanel,
-  OrderbookPanel,
   CapitalPanel,
-  GeneticsPanel,
 } from './DashboardIntelligencePanels';
 
 const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfig }) => {
@@ -31,8 +25,7 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
   return (
       <section className="section active">
         <div className="card">
-          <h2>📊 Analytics & Metrics</h2>
-          {/* Horizontal Tabs */}
+          <h2>📊 Analytics & Intelligence</h2>
           <div style={{
             display: 'flex', 
             gap: '10px', 
@@ -43,22 +36,16 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
             flexWrap: 'wrap'
           }}>
             <button onClick={() => setMetricsTab('decision-trace')} style={tabStyle(metricsTab === 'decision-trace')}>
-              🎬 Decision Trace
+              🎬 Trade Decisions
             </button>
-            <button onClick={() => setMetricsTab('whale-flow')} style={tabStyle(metricsTab === 'whale-flow')}>
-              🐋 Whale Flow
+            <button onClick={() => setMetricsTab('market-state')} style={tabStyle(metricsTab === 'market-state')}>
+              🧠 Market State
             </button>
-            <button onClick={() => setMetricsTab('system-metrics')} style={tabStyle(metricsTab === 'system-metrics')}>
-              📊 System Metrics
-            </button>
-            <button onClick={() => setMetricsTab('market-intelligence')} style={tabStyle(metricsTab === 'market-intelligence')}>
-              🧠 Market Intelligence
-            </button>
-            <button onClick={() => setMetricsTab('intelligence-panels')} style={tabStyle(metricsTab === 'intelligence-panels')}>
-              🔬 Intelligence Panels
+            <button onClick={() => setMetricsTab('capital')} style={tabStyle(metricsTab === 'capital')}>
+              💰 Capital
             </button>
             <button onClick={() => setMetricsTab('huggingface')} style={tabStyle(metricsTab === 'huggingface')}>
-              🤗 AI Analysis
+              🤖 AI Analysis
             </button>
           </div>
 
@@ -69,35 +56,21 @@ const MetricsWithTabsSection = ({ metrics, metricsTab, setMetricsTab, axiosConfi
                 <DecisionTrace />
               </ErrorBoundary>
             )}
-            {metricsTab === 'whale-flow' && (
-              <ErrorBoundary title="Whale Flow Error" message="Unable to load whale flow heatmap. Data may be unavailable.">
-                <WhaleFlowHeatmap />
-              </ErrorBoundary>
-            )}
-            {metricsTab === 'system-metrics' && (
-              <ErrorBoundary title="System Metrics Error" message="Unable to load system metrics. Prometheus may not be configured.">
-                <PrometheusMetrics />
-              </ErrorBoundary>
-            )}
-            {metricsTab === 'market-intelligence' && (
-              <ErrorBoundary title="Market Intelligence Error" message="Unable to load market intelligence data.">
-                <MarketIntelligencePanel />
-              </ErrorBoundary>
-            )}
-            {metricsTab === 'intelligence-panels' && (
-              <ErrorBoundary title="Intelligence Panels Error" message="Unable to load intelligence panels.">
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+            {metricsTab === 'market-state' && (
+              <ErrorBoundary title="Market State Error" message="Unable to load market state.">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
                   <MarketBrainPanel />
-                  <WhaleFlowPanel />
-                  <SentimentPanel />
-                  <OrderbookPanel />
-                  <CapitalPanel />
-                  <GeneticsPanel />
+                  <MarketIntelligencePanel />
                 </div>
               </ErrorBoundary>
             )}
+            {metricsTab === 'capital' && (
+              <ErrorBoundary title="Capital Intelligence Error" message="Unable to load capital data.">
+                <CapitalPanel />
+              </ErrorBoundary>
+            )}
             {metricsTab === 'huggingface' && (
-              <ErrorBoundary title="AI Analysis Error" message="Unable to load HuggingFace AI analysis.">
+              <ErrorBoundary title="AI Analysis Error" message="Unable to load AI analysis.">
                 <HuggingFacePanel axiosConfig={axiosConfig} />
               </ErrorBoundary>
             )}
