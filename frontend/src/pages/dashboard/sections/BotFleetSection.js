@@ -54,6 +54,28 @@ function modeColor(bot) {
   return modeLabel(bot) === 'LIVE' ? 'var(--success)' : 'var(--accent2)';
 }
 
+function botMetrics(bot = {}) {
+  const currentCapital = safeNum(bot.current_capital ?? bot.allocated_capital ?? bot.initial_capital);
+  const totalTrades = safeNum(bot.total_trades ?? bot.trades_count);
+  const winCount = safeNum(bot.win_count);
+  const lossCount = safeNum(bot.loss_count);
+  const inferredTrades = totalTrades || (winCount + lossCount);
+  const resolvedProfit = bot.profit ?? bot.total_profit ?? bot.realized_pnl_today;
+  const profit = safeNum(resolvedProfit);
+  let winRate = bot.win_rate;
+  if (winRate == null && inferredTrades > 0) {
+    winRate = (winCount / inferredTrades) * 100;
+  } else if (safeNum(winRate) > 0 && safeNum(winRate) <= 1) {
+    winRate = safeNum(winRate) * 100;
+  }
+  return {
+    currentCapital,
+    profit,
+    totalTrades: inferredTrades,
+    winRate: winRate == null ? null : safeNum(winRate),
+  };
+}
+
 /* ── shared inline styles ─────────────────────────────────── */
 
 const S = {
@@ -254,6 +276,7 @@ export default function BotFleetSection({
   const detailSections = useMemo(() => {
     if (!selectedBot) return null;
     const st = getBotStatus(selectedBot);
+    const perf = botMetrics(selectedBot);
     return {
       overview: [
         { label: 'Bot ID', value: selectedBot.id || '—' },
@@ -267,11 +290,11 @@ export default function BotFleetSection({
         ...(selectedBot.paused_reason_message ? [{ label: 'Paused Reason', value: selectedBot.paused_reason_message }] : []),
       ],
       performance: [
-        { label: 'Capital', value: fmtZAR(selectedBot.current_capital) },
-        { label: 'Profit', value: fmtZAR(selectedBot.profit), color: safeNum(selectedBot.profit) >= 0 ? 'var(--success)' : 'var(--error)' },
-        { label: 'Win Rate', value: fmtPct(selectedBot.win_rate) },
-        { label: 'Total Trades', value: safeNum(selectedBot.total_trades).toString() },
-        { label: 'ROI', value: selectedBot.current_capital ? fmtPct((safeNum(selectedBot.profit) / safeNum(selectedBot.current_capital, 1)) * 100) : '—' },
+        { label: 'Capital', value: fmtZAR(perf.currentCapital) },
+        { label: 'Profit', value: fmtZAR(perf.profit), color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' },
+        { label: 'Win Rate', value: fmtPct(perf.winRate) },
+        { label: 'Total Trades', value: safeNum(perf.totalTrades).toString() },
+        { label: 'ROI', value: perf.currentCapital ? fmtPct((safeNum(perf.profit) / safeNum(perf.currentCapital, 1)) * 100) : '—' },
       ],
     };
   }, [selectedBot, formatDate]);
@@ -320,6 +343,7 @@ export default function BotFleetSection({
                   {filteredBots.map((bot) => {
                     const st = getBotStatus(bot);
                     const isSelected = bot.id === selectedBotDetailId;
+                    const perf = botMetrics(bot);
                     return (
                       <div
                         key={bot.id}
@@ -338,8 +362,8 @@ export default function BotFleetSection({
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 12 }}>
                           <span style={{ color: 'var(--muted)' }}>{getPlatformDisplayName(bot.exchange)}</span>
                           <span style={{ color: modeColor(bot), fontWeight: 600 }}>{modeLabel(bot)}</span>
-                          <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(bot.profit)}</span>
-                          <span style={{ color: 'var(--muted)' }}>Cap: {fmtZAR(bot.current_capital)}</span>
+                          <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(perf.profit)}</span>
+                          <span style={{ color: 'var(--muted)' }}>Cap: {fmtZAR(perf.currentCapital)}</span>
                         </div>
                       </div>
                     );
@@ -425,6 +449,7 @@ export default function BotFleetSection({
               {filteredBots.map((bot) => {
                 const st = getBotStatus(bot);
                 const isSelected = selectedBotDetailId === bot.id;
+                const perf = botMetrics(bot);
                 return (
                   <div
                     key={bot.id}
@@ -439,7 +464,7 @@ export default function BotFleetSection({
                       Exchange: {getPlatformDisplayName(bot.exchange)} • Mode: <span style={{ color: modeColor(bot) }}>{modeLabel(bot)}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                      Capital: {fmtZAR(bot.current_capital)} • P&L: <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(bot.profit)}</span>
+                      Capital: {fmtZAR(perf.currentCapital)} • P&L: <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(perf.profit)}</span>
                     </div>
                   </div>
                 );
@@ -509,6 +534,7 @@ export default function BotFleetSection({
                 {filteredBots.map((bot) => {
                   const st = getBotStatus(bot);
                   const isSelected = bot.id === selectedBotDetailId;
+                  const perf = botMetrics(bot);
                   return (
                     <div
                       key={bot.id}
@@ -531,14 +557,14 @@ export default function BotFleetSection({
                         <span style={{ color: modeColor(bot), fontWeight: 600 }}>
                           {modeLabel(bot)}
                         </span>
-                        <span style={{ color: safeNum(bot.profit) >= 0 ? 'var(--success)' : 'var(--error)' }}>
-                          {fmtZAR(bot.profit)}
+                        <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>
+                          {fmtZAR(perf.profit)}
                         </span>
                         <span style={{ color: 'var(--muted)' }}>
-                          Cap: {fmtZAR(bot.current_capital)}
+                          Cap: {fmtZAR(perf.currentCapital)}
                         </span>
                         <span style={{ color: 'var(--muted)' }}>
-                          WR: {fmtPct(bot.win_rate)}
+                          WR: {fmtPct(perf.winRate)}
                         </span>
                       </div>
                     </div>

@@ -252,6 +252,21 @@ async def get_bots_status(
             state.get("bot_id"): state
             for state in await bot_runtime_state.list_states(user_id)
         }
+        bot_ids = [b.get("id") for b in bots if b.get("id")]
+        trade_stats_map = {}
+        if bot_ids:
+            pnl_expr = {"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}
+            trade_stats = await db.trades_collection.aggregate([
+                {"$match": {"user_id": user_id, "bot_id": {"$in": bot_ids}, "status": "closed"}},
+                {"$group": {
+                    "_id": "$bot_id",
+                    "total_trades": {"$sum": 1},
+                    "wins": {"$sum": {"$cond": [{"$gt": [pnl_expr, 0]}, 1, 0]}},
+                    "losses": {"$sum": {"$cond": [{"$lt": [pnl_expr, 0]}, 1, 0]}},
+                    "realized_pnl": {"$sum": pnl_expr},
+                }},
+            ]).to_list(5000)
+            trade_stats_map = {str(item.get("_id")): item for item in trade_stats}
         
         # Enrich each bot with detailed state
         enriched_bots = []
@@ -315,6 +330,25 @@ async def get_bots_status(
                 pause_reason_message = pause_reason or 'Bot paused'
                 pause_next_action = 'Resume bot'
             
+            base_initial_capital = float(bot.get('initial_capital', bot.get('starting_capital', 0)) or 0)
+            base_current_capital = float(
+                bot.get('current_capital', bot.get('allocated_capital', base_initial_capital)) or 0
+            )
+            base_open_position = float(bot.get('open_position_value', 0) or 0)
+            trade_stats = trade_stats_map.get(str(bot.get("id")), {})
+            total_trades = int(trade_stats.get("total_trades", bot.get("trades_count", 0)) or 0)
+            win_count = int(trade_stats.get("wins", bot.get("win_count", 0)) or 0)
+            loss_count = int(trade_stats.get("losses", bot.get("loss_count", 0)) or 0)
+            realized_pnl = float(trade_stats.get("realized_pnl", bot.get("total_profit", 0)) or 0)
+            raw_win_rate = float(bot.get("win_rate", 0) or 0)
+            if total_trades > 0:
+                win_rate = (win_count / total_trades) * 100.0
+            elif 0 < raw_win_rate <= 1:
+                win_rate = raw_win_rate * 100.0
+            else:
+                win_rate = raw_win_rate
+            roi = (realized_pnl / base_initial_capital * 100.0) if base_initial_capital > 0 else 0.0
+
             enriched_bot = {
                 "id": bot.get('id'),
                 "name": bot.get('name'),
@@ -341,13 +375,19 @@ async def get_bots_status(
                 "training_state": bot.get('training_state'),
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
-                "initial_capital": bot.get('initial_capital', 0),
-                "current_capital": bot.get('current_capital', 0),
-                "open_position_value": bot.get('open_position_value', 0),
-                "total_profit": bot.get('total_profit', 0),
-                "trades_count": bot.get('trades_count', 0),
-                "win_count": bot.get('win_count', 0),
-                "loss_count": bot.get('loss_count', 0),
+                "initial_capital": round(base_initial_capital, 2),
+                "current_capital": round(base_current_capital, 2),
+                "allocated_capital": round(base_current_capital, 2),
+                "available_capital": round(max(0.0, base_current_capital - base_open_position), 2),
+                "open_position_value": round(base_open_position, 2),
+                "total_profit": round(realized_pnl, 2),
+                "profit": round(realized_pnl, 2),
+                "trades_count": total_trades,
+                "total_trades": total_trades,
+                "win_count": win_count,
+                "loss_count": loss_count,
+                "win_rate": round(win_rate, 2),
+                "roi": round(roi, 2),
                 "last_trade": bot.get('last_trade'),
                 "training_complete": bot.get('training_complete', False),
                 "training_failed_reason": bot.get('training_failed_reason'),

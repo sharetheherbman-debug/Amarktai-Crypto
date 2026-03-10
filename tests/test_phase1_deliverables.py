@@ -423,6 +423,24 @@ class TestRadarComputation:
         entry = _compute_radar_entry(bot, None, now)
         assert entry["max_hold_seconds"] == 6 * 3600
 
+    def test_radar_entry_uses_bot_specific_targets_and_hold(self):
+        from routes.radar import _compute_radar_entry
+        now = datetime.now(timezone.utc)
+        bot = {
+            "_id": "bot_cfg",
+            "exchange": "luno",
+            "pair": "BTC/ZAR",
+            "current_capital": 1000,
+            "risk_mode": "safe",
+            "max_hold_seconds": 1200,
+            "daily_profit_target_pct": 0.02,
+            "trade_profit_target_pct": 0.01,
+        }
+        entry = _compute_radar_entry(bot, None, now)
+        assert entry["max_hold_seconds"] == 1200
+        assert entry["daily_profit_target"] == 20.0
+        assert entry["trade_profit_target"] == 10.0
+
 
 # ============================================================================
 # Evidence Pack Script Tests

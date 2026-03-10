@@ -39,6 +39,17 @@ EXIT_FORECAST_TIME_THRESHOLD = 600    # 600 seconds (10 min) — time exit proxi
 NO_STOP_DISTANCE = 999.0              # sentinel — distance when no stop price is configured
 
 
+def _safe_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_bot_pct(bot: Dict, primary_key: str, fallback_key: str, default: float) -> float:
+    return max(0.0, _safe_float(bot.get(primary_key, bot.get(fallback_key, default)), default))
+
+
 def _format_hold_timer(elapsed_seconds: float) -> str:
     """Human-readable hold timer like '2h 15m' or '45s'."""
     if elapsed_seconds < 60:
@@ -81,10 +92,13 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     """Build a single radar entry from bot + its current open trade."""
     bot_id = str(bot.get("_id", bot.get("bot_id", "")))
     risk_mode = (bot.get("risk_mode") or bot.get("risk_profile") or "balanced").lower()
-    max_hold = DEFAULT_MAX_HOLD.get(risk_mode, DEFAULT_MAX_HOLD["balanced"])
+    bot_max_hold = bot.get("max_hold_seconds")
+    max_hold = int(_safe_float(bot_max_hold, DEFAULT_MAX_HOLD.get(risk_mode, DEFAULT_MAX_HOLD["balanced"])))
     capital = float(bot.get("current_capital", bot.get("initial_capital", 0)))
-    daily_target = round(capital * DEFAULT_DAILY_PROFIT_TARGET, 2)
-    trade_target = round(capital * DEFAULT_TRADE_PROFIT_TARGET, 2)
+    daily_target_pct = _safe_bot_pct(bot, "daily_profit_target_pct", "daily_target_pct", DEFAULT_DAILY_PROFIT_TARGET)
+    trade_target_pct = _safe_bot_pct(bot, "trade_profit_target_pct", "per_trade_target_pct", DEFAULT_TRADE_PROFIT_TARGET)
+    daily_target = round(capital * daily_target_pct, 2)
+    trade_target = round(capital * trade_target_pct, 2)
 
     entry = {
         "bot_id": bot_id,
