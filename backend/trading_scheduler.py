@@ -65,6 +65,18 @@ class TradingScheduler:
         self.total_ticks = 0             # Total scheduler ticks since start
         self.total_trades_executed = 0   # Total trades executed since start
         self.total_noop_ticks = 0        # Total ticks that produced no trade
+        self._queue_rotation_offset = 0  # Fair queue rotation cursor
+
+    def _fair_queue_order(self, bots: list[dict]) -> list[dict]:
+        """Rotate bot queue insertion order each tick to avoid starvation by fixed ordering."""
+        if not bots:
+            return []
+        if len(bots) == 1:
+            return bots
+        start = self._queue_rotation_offset % len(bots)
+        ordered = bots[start:] + bots[:start]
+        self._queue_rotation_offset = (self._queue_rotation_offset + 1) % len(bots)
+        return ordered
         
     async def execute_bot_trades(self):
         """Execute trades using staggered queue - CONTINUOUS OPERATION"""
@@ -457,7 +469,7 @@ class TradingScheduler:
             
             # Add new trades to queue (with dedup — skip bots already queued)
             queued_bot_ids = {item['bot_id'] for item in trade_staggerer.trade_queue}
-            for bot in active_bots:
+            for bot in self._fair_queue_order(active_bots):
                 bot_id = bot['id']
                 exchange = bot.get('exchange', 'binance')
                 
