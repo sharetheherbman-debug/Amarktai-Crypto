@@ -173,7 +173,8 @@ class RiskEngine:
         if current_equity > peak_equity:
             peak_equity = current_equity
         self.user_peak_equity[user_id] = peak_equity
-        drawdown = max(0.0, min(1.0, (peak_equity - current_equity) / peak_equity)) if peak_equity > 0 else 0.0
+        raw_drawdown = (peak_equity - current_equity) / peak_equity
+        drawdown = max(0.0, min(1.0, raw_drawdown))
         limit = MAX_DRAWDOWN_BY_MODE.get(str(risk_mode or "").lower(), MAX_DRAWDOWN_BY_MODE["balanced"])
         if drawdown >= limit:
             return True, (

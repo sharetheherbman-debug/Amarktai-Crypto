@@ -38,3 +38,19 @@ def test_dynamic_targets_use_atr_when_available():
 
     assert result["stop_loss_price"] == 98.0
     assert result["take_profit_price"] > 102.0
+
+
+def test_dynamic_targets_fallback_when_atr_unavailable():
+    engine = PaperTradingEngine()
+
+    with patch("engines.atr_stops.atr_stop_loss.calculate_atr_stop_loss", new=AsyncMock(return_value={"error": "no atr"})):
+        result = asyncio.run(engine._apply_dynamic_exit_targets(
+            bot_id="bot-1",
+            symbol="BTC/USDT",
+            entry_price=100.0,
+            stop_loss_pct=0.01,
+            take_profit_pct=0.02,
+        ))
+
+    assert result["stop_loss_price"] == 99.0
+    assert result["take_profit_price"] == 102.0

@@ -12,14 +12,14 @@ def test_fixed_fractional_max_notional_from_stop_distance():
     engine = RiskEngine()
     bot = {"stop_loss_pct": 0.01}
 
-    tight = engine._calculate_max_notional_for_risk(
+    tight_stop_max_notional = engine._calculate_max_notional_for_risk(
         bot=bot,
         bot_capital=1000.0,
         risk_fraction=0.01,
         entry_price=100.0,
         stop_loss_price=99.5,  # 0.5% stop
     )
-    wide = engine._calculate_max_notional_for_risk(
+    wide_stop_max_notional = engine._calculate_max_notional_for_risk(
         bot=bot,
         bot_capital=1000.0,
         risk_fraction=0.01,
@@ -27,8 +27,8 @@ def test_fixed_fractional_max_notional_from_stop_distance():
         stop_loss_price=95.0,  # 5% stop
     )
 
-    assert tight == 1000.0  # capped at capital
-    assert round(wide, 2) == 200.0
+    assert tight_stop_max_notional == 1000.0  # capped at capital
+    assert round(wide_stop_max_notional, 2) == 200.0
 
 
 def test_check_trade_risk_rejects_when_fractional_risk_exceeded():

@@ -20,11 +20,11 @@ from logger_config import logger
 from typing import Optional, Dict, List
 
 
-# Default risk parameters (percent values)
+# Default risk parameters in percentage points (later converted with /100 in price math)
 # Tuned to realistic scalping defaults and configurable via env.
-DEFAULT_STOP_LOSS_PCT = float(os.getenv("DEFAULT_STOP_LOSS_PCT", "0.5"))      # 0.5%
-DEFAULT_TAKE_PROFIT_PCT = float(os.getenv("DEFAULT_TAKE_PROFIT_PCT", "0.8"))  # 0.8%
-DEFAULT_TRAILING_STOP_PCT = float(os.getenv("DEFAULT_TRAILING_STOP_PCT", "0.4"))  # 0.4%
+DEFAULT_STOP_LOSS_PCT = float(os.getenv("DEFAULT_STOP_LOSS_PCT", "0.5"))      # 0.5 percentage points
+DEFAULT_TAKE_PROFIT_PCT = float(os.getenv("DEFAULT_TAKE_PROFIT_PCT", "0.8"))  # 0.8 percentage points
+DEFAULT_TRAILING_STOP_PCT = float(os.getenv("DEFAULT_TRAILING_STOP_PCT", "0.4"))  # 0.4 percentage points
 
 # Dynamic thresholds from environment (fractions of equity)
 DAILY_LOSS_LIMIT = float(os.getenv("DAILY_LOSS_LIMIT", "0.03"))   # 3%

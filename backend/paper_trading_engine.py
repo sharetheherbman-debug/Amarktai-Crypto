@@ -13,7 +13,6 @@ No risk of rate limiting or bans - tested limits are 100x higher
 PROFIT OPTIMIZATION: Quality Over Quantity
 ✅ Position Sizing: Fixed-fractional risk sizing (1-2% risk-per-trade)
 ✅ Trade Quality Filter: Only trades with 2+ AI sources, 65%+ avg confidence
-✅ AI Agreement Boost: Up to 1.5x position size when 4 AI sources agree
 ✅ Better Outcomes: 2-6% gains on high-confidence bullish trades
 
 REALISM FEATURES (95% Live Accuracy):
@@ -1024,7 +1023,6 @@ class PaperTradingEngine:
             
             # Candidate notional is full available paper capital.
             # Final size is risk-capped by fixed-fractional sizing below.
-            confidence_boost = 1.0
             
             # PHASE 4A: Check paper wallet balance BEFORE calculating trade amount
             bot_id_val = bot_data.get('id')
@@ -1049,8 +1047,7 @@ class PaperTradingEngine:
                     "error": f"Insufficient paper funds: R{paper_capital:.2f}"
                 }
             
-            final_position_size = confidence_boost
-            trade_amount = paper_capital * final_position_size
+            trade_amount = paper_capital
             
             # PHASE 4A: Verify paper wallet can afford this trade
             can_execute, wallet_check_msg = await paper_wallet_ledger.can_trade(bot_id_val, trade_amount)
@@ -1105,7 +1102,8 @@ class PaperTradingEngine:
                     "timestamp": second_entry_time
                 })
 
-            entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
+            pre_risk_adjustment_entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
+            entry_value = pre_risk_adjustment_entry_value
 
             if entry_value <= 0:
                 logger.error(f"Invalid trade values: entry={entry_value}")
@@ -1142,8 +1140,8 @@ class PaperTradingEngine:
             trade_amount = min(entry_value, max_risk_notional)
             if trade_amount <= 0:
                 return {"success": False, "bot_id": bot_id, "error": "Trade rejected by fixed-fractional sizing"}
-            if trade_amount < entry_value and entry_value > 0:
-                scale = trade_amount / entry_value
+            if trade_amount < pre_risk_adjustment_entry_value:
+                scale = trade_amount / pre_risk_adjustment_entry_value
                 for fill in entry_fills:
                     fill["qty"] = fill["qty"] * scale
                 crypto_amount = sum(fill["qty"] for fill in entry_fills)
