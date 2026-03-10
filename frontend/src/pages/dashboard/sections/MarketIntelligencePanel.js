@@ -111,7 +111,23 @@ const MarketIntelligencePanel = () => {
         diagnostics = {};
       }
       const healthMap = diagnostics?.provider_health || {};
-      setIntelligence(diagnostics?.intelligence || {});
+      let intelligencePayload = diagnostics?.intelligence || {};
+      if (!Object.keys(intelligencePayload?.prices || {}).length) {
+        try {
+          const marketPrices = await get('/market/prices');
+          const normalizedPrices = {};
+          Object.entries(marketPrices?.prices || {}).forEach(([symbol, payload]) => {
+            normalizedPrices[symbol] = {
+              price: payload?.price,
+              provider: payload?.source || payload?.provider || 'market_api',
+            };
+          });
+          intelligencePayload = { ...intelligencePayload, prices: normalizedPrices };
+        } catch {
+          // Keep diagnostics payload if market fallback is unavailable.
+        }
+      }
+      setIntelligence(intelligencePayload);
 
       const merged = {};
       const allIds = [

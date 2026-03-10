@@ -122,6 +122,13 @@ export default function OverviewSection({
         ?? learningStatus?.mode
         ?? learningStatus?.active,
     },
+    {
+      label: 'Self-Heal Last Result',
+      value: autonomyStatus?.self_healing_detail?.last_result
+        ?? autonomyStatus?.self_healing_detail?.last_reason_code
+        ?? autonomyStatus?.subsystems?.self_heal?.last_error_message
+        ?? NOT_AVAILABLE,
+    },
   ];
   const lastEventTitle = notableEvent?.title || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
   const lastEventDetail = notableEvent?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');

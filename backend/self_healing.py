@@ -18,6 +18,12 @@ class SelfHealingSystem:
         self.health_checks = []
         self.recovery_attempts = {}
         self.max_recovery_attempts = 3
+        self.last_check = None
+        self.last_action = "initialized"
+        self.last_result = "idle"
+        self.last_reason_code = "INIT"
+        self.last_error = None
+        self.monitored_systems = ["database", "memory", "disk"]
     
     async def start(self):
         """Start self-healing monitor"""
@@ -25,6 +31,9 @@ class SelfHealingSystem:
             return
         
         self.is_running = True
+        self.last_action = "start_monitor"
+        self.last_result = "started"
+        self.last_reason_code = "START_REQUESTED"
         logger.info("🏥 Self-healing system started")
         
         asyncio.create_task(self._monitor_health())
@@ -32,15 +41,23 @@ class SelfHealingSystem:
     async def stop(self):
         """Stop self-healing monitor"""
         self.is_running = False
+        self.last_action = "stop_monitor"
+        self.last_result = "stopped"
+        self.last_reason_code = "STOP_REQUESTED"
         logger.info("Self-healing system stopped")
     
     async def _monitor_health(self):
         """Monitor system health every 30 seconds"""
         while self.is_running:
             try:
+                self.last_check = datetime.now(timezone.utc)
                 await self._check_database_connection()
                 await self._check_memory_usage()
                 await self._check_disk_space()
+                self.last_action = "health_scan"
+                self.last_result = "ok"
+                self.last_reason_code = "HEALTHY"
+                self.last_error = None
                 try:
                     from services.autonomy_heartbeat import heartbeat_registry
                     heartbeat_registry.mark_ok("self_heal")
@@ -49,6 +66,10 @@ class SelfHealingSystem:
                 
             except Exception as e:
                 logger.error(f"Health monitoring error: {e}")
+                self.last_action = "health_scan"
+                self.last_result = "error"
+                self.last_reason_code = "SCAN_ERROR"
+                self.last_error = str(e)
                 try:
                     from services.autonomy_heartbeat import heartbeat_registry
                     heartbeat_registry.mark_error("self_heal", str(e))
@@ -135,12 +156,20 @@ class SelfHealingSystem:
             return False
         
         self.recovery_attempts[service_name] += 1
+        self.last_action = f"recover_{service_name}"
+        self.last_reason_code = "RECOVERY_ATTEMPT"
         logger.info(f"Attempting recovery for {service_name} (attempt {self.recovery_attempts[service_name]})")
         
         success = await recovery_func()
         
         if success:
             self.recovery_attempts[service_name] = 0
+            self.last_result = "recovered"
+            self.last_reason_code = "RECOVERY_SUCCESS"
+            self.last_error = None
+        else:
+            self.last_result = "recovery_failed"
+            self.last_reason_code = "RECOVERY_FAILED"
         
         return success
 

@@ -26,3 +26,18 @@ def test_decision_trace_supports_per_bot_recent_view():
 def test_removed_premium_providers_not_in_visible_default_lists():
     src = _read("frontend/src/constants/platforms.js")
     assert "export const INTELLIGENCE_ENRICHERS = ['etherscan', 'whale_alert', 'cryptopanic'];" in src
+
+
+def test_self_healing_status_exposes_actionable_detail():
+    backend = _read("backend/routes/autonomy_control.py")
+    frontend = _read("frontend/src/pages/dashboard/sections/OverviewSection.js")
+    assert '"self_healing_detail"' in backend
+    assert '"last_action"' in backend
+    assert '"last_result"' in backend
+    assert "Self-Heal Last Result" in frontend
+
+
+def test_market_intelligence_panel_falls_back_to_market_prices_when_diagnostics_empty():
+    src = _read("frontend/src/pages/dashboard/sections/MarketIntelligencePanel.js")
+    assert "get('/market/prices')" in src
+    assert "normalizedPrices" in src

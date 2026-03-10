@@ -125,6 +125,15 @@ async def get_autonomy_status(user_id: str = Depends(get_current_user)):
 
     return {
         "success": True,
+        "self_healing_detail": {
+            "health_state": "running" if self_healing.is_running else "stopped",
+            "monitored_systems": getattr(self_healing, "monitored_systems", []),
+            "last_action": getattr(self_healing, "last_action", None),
+            "last_result": getattr(self_healing, "last_result", None),
+            "last_reason_code": getattr(self_healing, "last_reason_code", None),
+            "last_check": self_healing.last_check.isoformat() if getattr(self_healing, "last_check", None) else None,
+            "last_error": getattr(self_healing, "last_error", None),
+        },
         "subsystems": subsystems,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
