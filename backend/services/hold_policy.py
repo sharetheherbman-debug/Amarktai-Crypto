@@ -27,6 +27,9 @@ def resolve_hold_policy(bot: Dict[str, Any], open_trade: Optional[Dict[str, Any]
 
     explicit_max_hold = source_trade.get("max_hold_seconds", bot.get("max_hold_seconds"))
     try:
+        # Explicit values may be stored as numeric strings in historical docs.
+        # float(...) handles values like "300.5"; int(...) normalizes to whole seconds.
+        # Canonical policy resolves to integer-second hold durations.
         explicit_max_hold = int(float(explicit_max_hold)) if explicit_max_hold is not None else None
     except (TypeError, ValueError):
         explicit_max_hold = None

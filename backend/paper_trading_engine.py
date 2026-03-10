@@ -982,6 +982,8 @@ class PaperTradingEngine:
             edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
             bot_type = str(bot_data.get("bot_type") or "normal").lower()
             if bot_type == "scalper":
+                # Scalpers have short holds and higher turnover, so require stronger edge.
+                # Gate is tightened by both an absolute uplift and a relative-cost multiplier.
                 edge_required_pct = max(edge_required_pct + 0.20, estimated_cost_pct * 1.75)
 
             if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:

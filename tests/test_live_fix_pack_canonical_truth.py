@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime, timezone
+import re
 
 import pytest
 
@@ -116,5 +117,6 @@ def test_frontend_bots_update_refreshes_canonical_status():
     )
     with open(path) as f:
         source = f.read()
-    assert "realtimeClient.on('bots_update', () => {" in source
-    assert "loadBots();" in source
+    assert re.search(r"realtimeClient\.on\(['\"]bots_update['\"],\s*\(\)\s*=>\s*\{", source)
+    assert re.search(r"\bloadBots\(\)\s*;", source)
+    assert re.search(r"\[\s*token\s*,\s*loadRecentTrades\s*,\s*loadCountdown\s*,\s*loadMetrics\s*,\s*loadBots\s*\]", source)

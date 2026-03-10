@@ -39,6 +39,7 @@ def _safe_float(value, default: float) -> float:
 
 
 def _configured_bot_pct(bot: Dict, *keys: str) -> Optional[float]:
+    """Return first configured non-negative percentage from bot payload keys."""
     for key in keys:
         value = bot.get(key)
         if value is None:

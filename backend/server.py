@@ -1708,6 +1708,11 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         # BACKEND TRUTH: Get all bots total capital from MongoDB
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         total_bot_capital = sum(float(bot.get('current_capital', 0) or 0) for bot in bots)
+        # Capital priority order:
+        # 1) Paper mode: canonical multi-currency paper wallet total equity
+        # 2) Ledger equity (ZAR) when available
+        # 3) Bot-capital sum fallback
+        # 4) Zero/unavailable fallback
         if not is_live and paper_equity["total_equity"] > 0:
             total_capital = float(paper_equity["total_equity"])
             capital_source = paper_equity["source"]
