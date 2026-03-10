@@ -108,9 +108,7 @@ export default function OverviewSection({
     {
       label: 'Self-Healing',
       value: autonomyStatus?.self_healing_detail?.health_state
-        ?? autonomyStatus?.subsystems?.self_heal?.status
-        ?? autonomyStatus?.self_healing
-        ?? riskStatus?.bodyguard_lock?.active,
+        ?? autonomyStatus?.subsystems?.self_heal?.status,
     },
     {
       label: 'Learning',

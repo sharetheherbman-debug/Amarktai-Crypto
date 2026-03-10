@@ -124,8 +124,6 @@ async def get_autonomy_status(user_id: str = Depends(get_current_user)):
     }
 
     sh_status = self_healing.get_status()
-
-    sh_status = self_healing.get_status()
     return {
         "success": True,
         "self_healing_detail": {

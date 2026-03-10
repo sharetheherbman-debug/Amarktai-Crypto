@@ -122,10 +122,12 @@ function KeyMonitorGrouped({ providers, formatDate }) {
     );
   };
 
+  if (other.length > 0) grouped['other'] = other;
+
   return (
     <div>
       {KEY_GROUPS.map(renderGroup)}
-      {other.length > 0 && (() => { grouped['other'] = other; return renderGroup({ id: 'other', label: '📦 Other', match: () => true }); })()}
+      {other.length > 0 && renderGroup({ id: 'other', label: '📦 Other', match: () => true })}
     </div>
   );
 }

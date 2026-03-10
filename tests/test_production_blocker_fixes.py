@@ -183,8 +183,8 @@ class TestSelfHealingEndpoint:
 
 class TestFooterBuildInfo:
 
-    def test_no_unknown_build_in_footer(self):
-        """SiteFooter.js should not show 'Build unknown' (verified by frontend test)."""
+    def test_no_build_metadata_in_footer(self):
+        """SiteFooter.js should not contain any build metadata display."""
         footer_path = os.path.join(
             os.path.dirname(__file__), '..', 'frontend', 'src', 'components', 'SiteFooter.js'
         )
