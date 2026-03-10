@@ -116,6 +116,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "realized_pnl_today": float(bot.get("realized_pnl_today", 0)),
         "unrealized_pnl": 0.0,
         "capital_allocated": capital,
+        "capital_summary": bot.get("capital_summary", {}),
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
         "trade_profit_target": trade_target,
@@ -147,7 +148,12 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "activity_state": bot.get("activity_state", "active_record"),
         "activity_reason_code": bot.get("activity_reason_code"),
         "runnable": bot.get("runnable", False),
+        "has_open_position": bool(open_trade),
     }
+    if not open_trade and not entry["eligible_to_trade"]:
+        reasons = entry.get("not_eligible_reasons") or []
+        human_reason = ", ".join(reasons) if reasons else "eligibility checks blocked this bot"
+        entry["next_action_reason_text"] = f"Waiting: {human_reason}"
 
     if open_trade:
         side = open_trade.get("side", open_trade.get("type", "buy")).lower()

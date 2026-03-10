@@ -138,7 +138,7 @@ def test_radar_entry_surfaces_canonical_decision_fields():
 def test_provider_setup_shows_advanced_premium_section():
     src = _read("frontend/src/components/APIKeySettings.js")
     assert "Advanced / Premium Providers" in src
-    assert "const PREMIUM_PROVIDER_IDS = new Set(['glassnode']);" in src
+    assert "const PREMIUM_PROVIDER_IDS = new Set(['glassnode', 'lunarcrush']);" in src
     assert "Connected" in src
     assert "Configured but untested" in src
 
@@ -149,3 +149,34 @@ def test_bot_status_payload_includes_decision_fields():
     assert '"entry_reason_code": normalized_bot.get("entry_reason_code"' in src
     assert '"entry_confidence_score": normalized_bot.get("entry_confidence_score"' in src
     assert '"expectancy_net_edge_pct": normalized_bot.get("expectancy_net_edge_pct")' in src
+
+
+def test_diagnostics_routes_expose_live_intelligence_endpoints():
+    src = _read("backend/routes/diagnostics.py")
+    assert '@router.get("/provider-health")' in src
+    assert '@router.get("/regime-summary")' in src
+    assert '@router.get("/whale-signals")' in src
+    assert '@router.get("/sentiment-summary")' in src
+    assert '@router.get("/orderbook-summary")' in src
+    assert '@router.get("/capital-efficiency")' in src
+    assert '@router.get("/genetics-summary")' in src
+
+
+def test_admin_key_monitor_marks_core_vs_premium_tiers():
+    src = _read("backend/routes/admin_endpoints.py")
+    assert 'premium_optional_providers = {"glassnode", "lunarcrush"}' in src
+    assert '"deployment_tier": "premium_optional"' in src
+    assert '"default_flow": provider_id not in premium_optional_providers' in src
+
+
+def test_radar_no_position_block_reason_and_open_position_flag_present():
+    src = _read("backend/routes/radar.py")
+    assert '"has_open_position": bool(open_trade)' in src
+    assert 'entry["next_action_reason_text"] = f"Waiting: {human_reason}"' in src
+
+
+def test_market_intelligence_panel_uses_diagnostics_snapshot_and_coindesk_first_order():
+    src = _read("frontend/src/pages/dashboard/sections/MarketIntelligencePanel.js")
+    assert "get('/diagnostics/provider-health')" in src
+    assert "Live Intelligence Output" in src
+    assert "<strong>CoinDesk</strong> — Primary" in src

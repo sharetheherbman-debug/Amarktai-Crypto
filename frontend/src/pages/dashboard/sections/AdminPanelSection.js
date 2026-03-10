@@ -111,6 +111,7 @@ export default function AdminPanelSection({
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--line)' }}>
                       <th style={{ textAlign: 'left', padding: '8px 6px' }}>Provider</th>
+                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Tier</th>
                       <th style={{ textAlign: 'left', padding: '8px 6px' }}>Configured</th>
                       <th style={{ textAlign: 'left', padding: '8px 6px' }}>Valid</th>
                       <th style={{ textAlign: 'left', padding: '8px 6px' }}>Last Tested</th>
@@ -125,6 +126,9 @@ export default function AdminPanelSection({
                     {adminKeyMonitor.providers.map((row) => (
                       <tr key={row.provider} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '8px 6px', color: 'var(--text)' }}>{row.display_name || row.provider}</td>
+                        <td style={{ padding: '8px 6px', color: row.default_flow ? 'var(--success)' : '#f59e0b' }}>
+                          {row.default_flow ? 'Core' : 'Premium/Optional'}
+                        </td>
                         <td style={{ padding: '8px 6px' }}>{row.configured ? '✅' : '—'}</td>
                         <td style={{ padding: '8px 6px' }}>{row.valid ? '✅' : row.configured ? '❌' : '—'}</td>
                         <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{row.last_tested_at ? formatDate(row.last_tested_at) : NOT_AVAILABLE}</td>

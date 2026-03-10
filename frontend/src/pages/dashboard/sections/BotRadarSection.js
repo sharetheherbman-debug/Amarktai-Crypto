@@ -211,6 +211,9 @@ export default function BotRadarSection({ axiosConfig }) {
                 {entry.bot_type === 'scalper' && <span className="radar-type-badge radar-scalper-badge">⚡ Scalper</span>}
                 <span className="radar-exchange">{entry.exchange}</span>
                 <span className="radar-symbol">{entry.symbol}</span>
+                <span className={`radar-type-badge ${entry.runnable ? 'radar-scalper-badge' : ''}`}>
+                  {entry.runnable ? 'Runnable' : 'Blocked'}
+                </span>
                 <span
                   className="radar-action-badge"
                   style={{ background: getActionColor(entry.next_action) }}
@@ -246,7 +249,9 @@ export default function BotRadarSection({ axiosConfig }) {
                   </div>
                 </>
               ) : (
-                <div className="radar-no-position">No open position — waiting for signal</div>
+                <div className="radar-no-position">
+                  {entry.next_action_reason_text || 'No open position — waiting for signal'}
+                </div>
               )}
 
               {/* Trade Intent Panel */}
@@ -264,6 +269,14 @@ export default function BotRadarSection({ axiosConfig }) {
                   <div className="radar-intent-row">
                     <span>Trade Target:</span>
                     <span>{entry.trade_profit_target === null || entry.trade_profit_target === undefined ? 'Not configured' : Number(entry.trade_profit_target).toFixed(2)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Total Equity:</span>
+                    <span>
+                      {entry.capital_summary?.total_equity === null || entry.capital_summary?.total_equity === undefined
+                        ? Number(entry.capital_allocated || 0).toFixed(2)
+                        : Number(entry.capital_summary.total_equity).toFixed(2)}
+                    </span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Max Hold:</span>

@@ -12,7 +12,7 @@ import { get, post, del, notifyError } from '../lib/apiClient';
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
   const PREMIUM_OPTIONAL_LABEL = 'Premium/optional';
-  const PREMIUM_PROVIDER_IDS = new Set(['glassnode']);
+  const PREMIUM_PROVIDER_IDS = new Set(['glassnode', 'lunarcrush']);
 
   // Build providers list from canonical config (excludes legacy/deprecated)
   const PROVIDERS = getCanonicalProviders().map(id => {
