@@ -1715,7 +1715,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         # 4) Zero/unavailable fallback
         if not is_live and paper_equity["total_equity"] > 0:
             total_capital = float(paper_equity["total_equity"])
-            capital_source = paper_equity["source"]
+            capital_source = "wallet_snapshot"
         elif ledger_equity and ledger_equity > 0:
             total_capital = float(ledger_equity)
             capital_source = "ledger_equity_zar"
@@ -1724,7 +1724,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             capital_source = "bots_current_capital_sum"
         else:
             total_capital = float(paper_equity["total_equity"] if not is_live else 0.0)
-            capital_source = paper_equity["source"] if not is_live else "unavailable"
+            capital_source = "wallet_snapshot" if not is_live else "unavailable"
         
         target = 1_000_000
 

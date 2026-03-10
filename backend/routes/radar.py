@@ -72,21 +72,16 @@ def _compute_exit_forecast(
     unrealized_pnl: float,
 ) -> Optional[str]:
     """Forecast the most likely exit scenario."""
-    if target_price and entry_price > 0:
-        dist_to_target = abs(target_price - current_price) / entry_price
-        dist_to_stop = abs(current_price - stop_price) / entry_price if stop_price else NO_STOP_DISTANCE
-        if dist_to_target < dist_to_stop:
-            return "likely_target"
-        elif remaining_seconds < EXIT_FORECAST_TIME_THRESHOLD:
-            return "likely_time_exit"
-        elif unrealized_pnl < 0:
-            return "at_risk"
-        else:
-            return "holding"
     if remaining_seconds < EXIT_FORECAST_TIME_THRESHOLD:
         return "likely_time_exit"
     if unrealized_pnl < 0:
         return "at_risk"
+    if target_price and entry_price > 0:
+        dist_to_target = abs(target_price - current_price) / entry_price
+        dist_to_stop = abs(current_price - stop_price) / entry_price if stop_price else NO_STOP_DISTANCE
+        if dist_to_target <= dist_to_stop or current_price >= entry_price:
+            return "likely_target"
+        return "holding"
     return "holding"
 
 
@@ -152,6 +147,15 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     }
     if not open_trade and not entry["eligible_to_trade"]:
         reasons = entry.get("not_eligible_reasons") or []
+        if not reasons:
+            fallback_reason = (
+                entry.get("activity_reason_code")
+                or entry.get("decision_reason_code")
+                or entry.get("entry_reason_code")
+                or "eligibility_gate_blocked"
+            )
+            reasons = [str(fallback_reason)]
+            entry["not_eligible_reasons"] = reasons
         human_reason = ", ".join(reasons) if reasons else "eligibility checks blocked this bot"
         entry["next_action_reason_text"] = f"Waiting: {human_reason}"
 

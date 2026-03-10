@@ -309,6 +309,7 @@ async def reinvest_profits(
 async def get_recent_decisions(
     limit: int = Query(100, ge=1, le=1000, description="Number of recent decisions"),
     symbol: Optional[str] = Query(None, description="Filter by symbol"),
+    bot_id: Optional[str] = Query(None, description="Filter by bot id"),
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -320,6 +321,8 @@ async def get_recent_decisions(
         query = {"user_id": user_id}
         if symbol:
             query["symbol"] = symbol
+        if bot_id:
+            query["bot_id"] = bot_id
         
         # Fetch decisions from database
         decisions = await db.decisions_collection.find(
@@ -335,6 +338,7 @@ async def get_recent_decisions(
                 result = await get_decision_history(
                     limit=limit,
                     symbol=symbol,
+                    bot_id=bot_id,
                     user_id=user_id
                 )
                 decisions = result.get("decisions", [])
@@ -345,6 +349,7 @@ async def get_recent_decisions(
             "success": True,
             "count": len(decisions),
             "limit": limit,
+            "bot_id": bot_id,
             "decisions": decisions,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }

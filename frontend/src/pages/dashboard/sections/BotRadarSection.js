@@ -119,6 +119,12 @@ export default function BotRadarSection({ axiosConfig }) {
     }
   };
 
+  const getActionabilityLabel = (entry) => {
+    if (entry.has_open_position) return 'In Position';
+    if (!entry.eligible_to_trade || !entry.runnable) return 'Blocked';
+    return 'Ready';
+  };
+
   const renderPriceBar = (entry) => {
     if (!entry.entry_price || !entry.current_price) return null;
 
@@ -211,8 +217,8 @@ export default function BotRadarSection({ axiosConfig }) {
                 {entry.bot_type === 'scalper' && <span className="radar-type-badge radar-scalper-badge">⚡ Scalper</span>}
                 <span className="radar-exchange">{entry.exchange}</span>
                 <span className="radar-symbol">{entry.symbol}</span>
-                <span className={`radar-type-badge ${entry.runnable ? 'radar-scalper-badge' : ''}`}>
-                  {entry.runnable ? 'Runnable' : 'Blocked'}
+                <span className={`radar-type-badge ${getActionabilityLabel(entry) !== 'Blocked' ? 'radar-scalper-badge' : ''}`}>
+                  {getActionabilityLabel(entry)}
                 </span>
                 <span
                   className="radar-action-badge"
@@ -304,10 +310,12 @@ export default function BotRadarSection({ axiosConfig }) {
                     <span>Market Regime:</span>
                     <span>{entry.market_regime || 'unknown'}</span>
                   </div>
-                  <div className="radar-intent-row">
-                    <span>Regime Confidence:</span>
-                    <span>{formatMaybeNumber(entry.regime_confidence)}</span>
-                  </div>
+                  {entry.regime_confidence !== null && entry.regime_confidence !== undefined && (
+                    <div className="radar-intent-row">
+                      <span>Regime Confidence:</span>
+                      <span>{formatMaybeNumber(entry.regime_confidence)}</span>
+                    </div>
+                  )}
                   <div className="radar-intent-row">
                     <span>Entry Confidence:</span>
                     <span>{formatMaybeNumber(entry.entry_confidence_score)}</span>
@@ -316,17 +324,9 @@ export default function BotRadarSection({ axiosConfig }) {
                     <span>Expectancy Edge %:</span>
                     <span>{formatMaybeNumber(entry.expectancy_net_edge_pct)}</span>
                   </div>
-                  <div className="radar-intent-row">
-                    <span>Decision Code:</span>
-                    <span>{entry.decision_reason_code || '—'}</span>
-                  </div>
-                  <div className="radar-intent-row">
-                    <span>Entry Code:</span>
-                    <span>{entry.entry_reason_code || '—'}</span>
-                  </div>
                   {!entry.eligible_to_trade && (
                     <div className="radar-intent-row">
-                      <span>Not Eligible:</span>
+                      <span>Blocked Reason:</span>
                       <span>{(entry.not_eligible_reasons || []).join(', ') || 'eligibility_gate'}</span>
                     </div>
                   )}

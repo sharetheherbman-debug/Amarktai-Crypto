@@ -287,7 +287,7 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
         from engines.market_intelligence_engine import market_intelligence_engine
 
         providers = list_providers()
-        premium_optional_providers = {"glassnode", "lunarcrush"}
+        removed_provider_ids = {"glassnode", "lunarcrush"}
         provider_priority_order = {p["id"]: idx + 1 for idx, p in enumerate(providers)}
         usage_map: Dict[str, Dict[str, Any]] = {}
         try:
@@ -319,6 +319,8 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
         entries = []
         for p in providers:
             provider_id = p["id"]
+            if provider_id in removed_provider_ids:
+                continue
             doc = key_map.get(provider_id, {})
             status = str(doc.get("status") or "not_configured")
             configured = bool(doc.get("api_key") or doc.get("api_key_encrypted"))
@@ -340,8 +342,8 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
                 "provider": provider_id,
                 "display_name": p.get("display_name", provider_id),
                 "type": p.get("type"),
-                "deployment_tier": "premium_optional" if provider_id in premium_optional_providers else "core_supported",
-                "default_flow": provider_id not in premium_optional_providers,
+                "deployment_tier": "core_supported",
+                "default_flow": True,
                 "configured": configured,
                 "valid": valid,
                 "status": status,
@@ -356,7 +358,7 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
                 },
                 "rate_limit_status": rate_limit_status,
                 "quota_threshold_warning": monthly_pct >= 80 or minute_pct >= 80,
-                "fallback_priority": provider_priority_order.get(provider_id) if provider_id not in premium_optional_providers else None,
+                "fallback_priority": provider_priority_order.get(provider_id),
                 "health_latency_ms": doc.get("avg_latency_ms") or doc.get("last_latency_ms"),
                 "last_error": doc.get("last_test_error"),
                 "updated_at": doc.get("updated_at"),

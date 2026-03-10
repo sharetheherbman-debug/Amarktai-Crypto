@@ -14,6 +14,8 @@ import './DecisionTrace.css';
  */
 export default function DecisionTrace() {
   const [decisions, setDecisions] = useState([]);
+  const [bots, setBots] = useState([]);
+  const [selectedBotId, setSelectedBotId] = useState('all');
   const [selectedDecision, setSelectedDecision] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -24,13 +26,30 @@ export default function DecisionTrace() {
 
   // Load initial decisions
   useEffect(() => {
+    loadBots();
     loadInitialDecisions();
   }, []);
 
+  useEffect(() => {
+    loadInitialDecisions();
+  }, [selectedBotId]);
+
+  const loadBots = async () => {
+    try {
+      const data = await get('/bots/status');
+      setBots(Array.isArray(data?.bots) ? data.bots : []);
+    } catch (error) {
+      console.error('Failed to load bots for decision trace:', error);
+    }
+  };
+
   const loadInitialDecisions = async () => {
     try {
-      const data = await get('/advanced/decisions/recent?limit=100');
+      const botFilter = selectedBotId && selectedBotId !== 'all' ? `&bot_id=${encodeURIComponent(selectedBotId)}` : '';
+      const data = await get(`/advanced/decisions/recent?limit=20${botFilter}`);
       setDecisions(data.decisions || []);
+      setSelectedDecision((data.decisions || [])[0] || null);
+      setCurrentIndex(0);
       setLoading(false);
     } catch (error) {
       console.error('Failed to load decisions:', error);
@@ -148,7 +167,7 @@ export default function DecisionTrace() {
         </div>
 
         {/* DVR Controls */}
-        <div className="dvr-controls flex items-center gap-2 mb-4">
+          <div className="dvr-controls flex items-center gap-2 mb-4">
           <button
             onClick={handleStop}
             className="control-btn"
@@ -183,10 +202,22 @@ export default function DecisionTrace() {
           </button>
           
           {/* Filter */}
-          <div className="ml-auto flex gap-2">
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+            <div className="ml-auto flex gap-2">
+              <select
+                value={selectedBotId}
+                onChange={(e) => setSelectedBotId(e.target.value)}
+                className="filter-select"
+              >
+                <option value="all">All Bots</option>
+                {bots.map((bot) => (
+                  <option key={bot.id} value={bot.id}>
+                    {bot.name || `Bot ${bot.id}`} ({bot.exchange || 'unknown'})
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
               className="filter-select"
             >
               <option value="all">All Decisions</option>
@@ -242,6 +273,15 @@ export default function DecisionTrace() {
                     </div>
                     <div className="text-xs text-gray-600 mt-1">
                       {decision.symbol || 'BTC/USDT'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Regime: {decision.regime || decision.market_regime || 'unknown'} •
+                      Confidence: {decision.confidence != null ? `${(Number(decision.confidence) * 100).toFixed(0)}%` : '—'} •
+                      Expectancy: {decision.expectancy_net_edge_pct != null ? `${Number(decision.expectancy_net_edge_pct).toFixed(2)}%` : '—'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Outcome: {decision.execution || decision.outcome || decision.decision_outcome || 'pending'} •
+                      Reason: {decision.reason_code || decision.decision_reason_code || decision.entry_reason_code || 'n/a'}
                     </div>
                   </div>
                 </div>

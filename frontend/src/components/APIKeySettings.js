@@ -1,18 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import './APIKeySettings.css';
 import {
   PLATFORM_CONFIG,
   PROVIDER_TYPES,
   getCanonicalProviders,
-  getProvidersByType,
 } from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
 import { get, post, del, notifyError } from '../lib/apiClient';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
-  const PREMIUM_OPTIONAL_LABEL = 'Premium/optional';
-  const PREMIUM_PROVIDER_IDS = new Set(['glassnode', 'lunarcrush']);
 
   // Build providers list from canonical config (excludes legacy/deprecated)
   const PROVIDERS = getCanonicalProviders().map(id => {
@@ -26,8 +23,6 @@ const APIKeySettings = () => {
       helpText: config.helpText || '',
     };
   });
-
-  const providerGroups = useMemo(() => getProvidersByType(), []);
 
   const [providers, setProviders] = useState([]);
   const [formData, setFormData] = useState({});
@@ -256,12 +251,7 @@ const APIKeySettings = () => {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  const isPremiumProvider = (providerId) => PREMIUM_PROVIDER_IDS.has(providerId);
-
   const getStatusDisplay = (status, lastTestError, providerId) => {
-    if (isPremiumProvider(providerId)) {
-      return PREMIUM_OPTIONAL_LABEL;
-    }
     if (!isProviderAvailable(providerId)) {
       return 'Disabled in this deployment';
     }
@@ -292,9 +282,6 @@ const APIKeySettings = () => {
   };
 
   const getStatusBadge = (status, providerId, available = true) => {
-    if (isPremiumProvider(providerId)) {
-      return { label: PREMIUM_OPTIONAL_LABEL, tone: 'warning' };
-    }
     if (!available) {
       return { label: 'Disabled in deployment', tone: 'muted' };
     }
@@ -322,7 +309,7 @@ const APIKeySettings = () => {
     const statusBadge = getStatusBadge(status, provider.id, isAvailable);
     const fallbackStatusDetails = getStatusDisplay(status, providerStatus?.last_test_error, provider.id);
     let statusDetails = fallbackStatusDetails;
-    if (!isPremiumProvider(provider.id) && isAvailable && providerStatus?.status_display) {
+    if (isAvailable && providerStatus?.status_display) {
       statusDetails = providerStatus.status_display;
     }
     const isConfigured = status !== 'not_configured';
@@ -427,8 +414,7 @@ const APIKeySettings = () => {
   const exchangeProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.EXCHANGE);
   const aiProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.AI);
   const marketDataProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.MARKET_DATA);
-  const enricherProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER && !isPremiumProvider(p.id));
-  const premiumProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER && isPremiumProvider(p.id));
+  const enricherProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER);
 
   return (
     <div className="api-key-settings">
@@ -471,20 +457,12 @@ const APIKeySettings = () => {
         {marketDataProviders.map(renderProviderCard)}
       </div>
 
-      {/* Intelligence Enrichers */}
+      {/* Optional / Supported Intelligence */}
       <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
-        🔍 Intelligence Enrichers
+        🔍 Optional / Supported Intelligence
       </h3>
       <div className="api-key-grid">
         {enricherProviders.map(renderProviderCard)}
-      </div>
-
-      {/* Advanced / Premium Providers */}
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
-        🧪 Advanced / Premium Providers
-      </h3>
-      <div className="api-key-grid">
-        {premiumProviders.map(renderProviderCard)}
       </div>
 
       <div className="api-key-security">
