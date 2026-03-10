@@ -102,6 +102,10 @@ export default function BotRadarSection({ axiosConfig }) {
     const m = Math.floor((seconds % 3600) / 60);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
+  const formatMaybeNumber = (value, digits = 2) => {
+    const num = Number(value);
+    return value === null || value === undefined || !Number.isFinite(num) ? '—' : num.toFixed(digits);
+  };
 
   const getActionColor = (action) => {
     switch (action) {
@@ -207,6 +211,9 @@ export default function BotRadarSection({ axiosConfig }) {
                 {entry.bot_type === 'scalper' && <span className="radar-type-badge radar-scalper-badge">⚡ Scalper</span>}
                 <span className="radar-exchange">{entry.exchange}</span>
                 <span className="radar-symbol">{entry.symbol}</span>
+                <span className={`radar-type-badge ${entry.runnable ? 'radar-scalper-badge' : ''}`}>
+                  {entry.runnable ? 'Runnable' : 'Blocked'}
+                </span>
                 <span
                   className="radar-action-badge"
                   style={{ background: getActionColor(entry.next_action) }}
@@ -242,7 +249,9 @@ export default function BotRadarSection({ axiosConfig }) {
                   </div>
                 </>
               ) : (
-                <div className="radar-no-position">No open position — waiting for signal</div>
+                <div className="radar-no-position">
+                  {entry.next_action_reason_text || 'No open position — waiting for signal'}
+                </div>
               )}
 
               {/* Trade Intent Panel */}
@@ -260,6 +269,14 @@ export default function BotRadarSection({ axiosConfig }) {
                   <div className="radar-intent-row">
                     <span>Trade Target:</span>
                     <span>{entry.trade_profit_target === null || entry.trade_profit_target === undefined ? 'Not configured' : Number(entry.trade_profit_target).toFixed(2)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Total Equity:</span>
+                    <span>
+                      {entry.capital_summary?.total_equity === null || entry.capital_summary?.total_equity === undefined
+                        ? Number(entry.capital_allocated || 0).toFixed(2)
+                        : Number(entry.capital_summary.total_equity).toFixed(2)}
+                    </span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Max Hold:</span>
@@ -287,6 +304,32 @@ export default function BotRadarSection({ axiosConfig }) {
                     <span>Market Regime:</span>
                     <span>{entry.market_regime || 'unknown'}</span>
                   </div>
+                  <div className="radar-intent-row">
+                    <span>Regime Confidence:</span>
+                    <span>{formatMaybeNumber(entry.regime_confidence)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Entry Confidence:</span>
+                    <span>{formatMaybeNumber(entry.entry_confidence_score)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Expectancy Edge %:</span>
+                    <span>{formatMaybeNumber(entry.expectancy_net_edge_pct)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Decision Code:</span>
+                    <span>{entry.decision_reason_code || '—'}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Entry Code:</span>
+                    <span>{entry.entry_reason_code || '—'}</span>
+                  </div>
+                  {!entry.eligible_to_trade && (
+                    <div className="radar-intent-row">
+                      <span>Not Eligible:</span>
+                      <span>{(entry.not_eligible_reasons || []).join(', ') || 'eligibility_gate'}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -24,6 +24,232 @@ router = APIRouter(prefix="/api/diagnostics", tags=["Diagnostics"])
 _MAX_BOTS_QUERY = 500
 
 
+@router.get("/provider-health")
+async def provider_health_snapshot(user_id: str = Depends(get_current_user)):
+    """Canonical provider health + live market intelligence snapshot for dashboard panels."""
+    try:
+        from services.provider_registry import list_providers
+        from engines.market_intelligence_engine import market_intelligence_engine
+
+        providers = list_providers()
+        keys = await db.api_keys_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "provider": 1, "status": 1, "last_tested_at": 1, "last_test_error": 1},
+        ).to_list(200)
+        key_map = {k.get("provider"): k for k in keys if k.get("provider")}
+
+        health_map = {}
+        for provider in providers:
+            pid = provider.get("id")
+            key_doc = key_map.get(pid, {})
+            status = str(key_doc.get("status", "not_configured")).lower()
+            if status in {"configured_valid", "test_ok"}:
+                normalized = "healthy"
+            elif status in {"configured_untested", "saved_untested", "configured_rate_limited"}:
+                normalized = "degraded"
+            elif status in {"configured_invalid", "test_failed"}:
+                normalized = "down"
+            else:
+                normalized = "unconfigured"
+            health_map[pid] = {
+                "status": normalized,
+                "last_tested": key_doc.get("last_tested_at"),
+                "last_error": key_doc.get("last_test_error"),
+                "type": provider.get("type"),
+            }
+
+        try:
+            live_health = await market_intelligence_engine.health_check()
+            usage = market_intelligence_engine.get_provider_usage() or {}
+        except Exception:
+            live_health = {}
+            usage = {}
+
+        for pid, ok in (live_health or {}).items():
+            existing = health_map.get(pid, {"status": "unconfigured"})
+            if existing.get("status") == "unconfigured":
+                existing["status"] = "healthy" if ok else "down"
+            elif existing.get("status") in {"healthy", "degraded"} and ok is False:
+                existing["status"] = "degraded"
+            existing["healthy"] = bool(ok)
+            existing["usage"] = usage.get(pid, {})
+            health_map[pid] = existing
+
+        intelligence = {}
+        try:
+            intelligence = await market_intelligence_engine.get_intelligence_summary(["BTC", "ETH"])
+        except Exception:
+            intelligence = {}
+
+        return {
+            "provider_health": health_map,
+            "intelligence": intelligence,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("provider_health_snapshot failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/regime-summary")
+async def regime_summary(user_id: str = Depends(get_current_user)):
+    """Summarize latest bot-visible regime and confidence state."""
+    try:
+        from utils.bot_state import normalize_bot_state
+
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {"_id": 0},
+        ).to_list(_MAX_BOTS_QUERY)
+        if not bots:
+            return {}
+
+        summary: Dict[str, Dict] = {}
+        for raw in bots:
+            bot = normalize_bot_state(raw)
+            symbol = str(bot.get("pair") or bot.get("symbol") or "UNKNOWN")
+            regime = str(bot.get("market_regime", bot.get("canonical_market_regime", "unknown"))).lower()
+            confidence = float(
+                bot.get("canonical_regime_confidence", bot.get("regime_confidence", bot.get("confidence_score", 0))) or 0
+            )
+            bucket = summary.setdefault(symbol, {"regime": regime, "confidence": confidence, "bots": 0})
+            bucket["bots"] += 1
+            if confidence > float(bucket.get("confidence", 0)):
+                bucket["regime"] = regime
+                bucket["confidence"] = confidence
+        return summary
+    except Exception as exc:
+        logger.error("regime_summary failed: %s", exc)
+        return {}
+
+
+@router.get("/whale-signals")
+async def whale_signals(user_id: str = Depends(get_current_user)):
+    """Whale flow signals for dashboard panel with graceful unavailable semantics."""
+    try:
+        from routes.advanced_trading_endpoints import get_whale_summary
+
+        payload = await get_whale_summary(current_user=user_id)
+        data = payload.get("data") or payload.get("summary") or {}
+        signals = data.get("signals") if isinstance(data, dict) else []
+        if not isinstance(signals, list):
+            signals = []
+        return {
+            "status": payload.get("status", "success"),
+            "signals": signals,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.warning("whale_signals unavailable: %s", exc)
+        return {"status": "unavailable", "signals": [], "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/sentiment-summary")
+async def sentiment_summary(user_id: str = Depends(get_current_user)):
+    """Sentiment summary endpoint used by intelligence panels."""
+    try:
+        from routes.advanced_trading_endpoints import get_sentiment_summary
+
+        payload = await get_sentiment_summary(current_user=user_id)
+        summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
+        if isinstance(summary, dict) and summary:
+            first = next(iter(summary.values()))
+            score = float(first.get("score", 0.5) if isinstance(first, dict) else 0.5)
+            return {
+                "score": score,
+                "label": "Bullish" if score > 0.6 else "Bearish" if score < 0.4 else "Neutral",
+                "headlines": [],
+            }
+    except Exception:
+        pass
+    return {"score": 0.5, "label": "Unavailable", "headlines": []}
+
+
+@router.get("/orderbook-summary")
+async def orderbook_summary(user_id: str = Depends(get_current_user)):
+    """Orderbook-like operational summary based on recorded spread/slippage fields."""
+    try:
+        recent = await db.trades_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "spread_estimate": 1, "slippage_estimate": 1, "type": 1, "side": 1},
+        ).sort("timestamp", -1).limit(200).to_list(200)
+        if not recent:
+            return {"imbalance": 0.0, "spread_pct": 0.0, "walls": []}
+
+        buys = sum(1 for t in recent if str(t.get("side", t.get("type", "")).lower()) in {"buy", "long"})
+        sells = sum(1 for t in recent if str(t.get("side", t.get("type", "")).lower()) in {"sell", "short"})
+        total = max(1, buys + sells)
+        imbalance = (buys - sells) / total
+        spreads = [float(t.get("spread_estimate") or 0) for t in recent if t.get("spread_estimate") is not None]
+        spread_pct = sum(spreads) / len(spreads) if spreads else 0.0
+        return {
+            "imbalance": round(float(imbalance), 4),
+            "spread_pct": round(float(spread_pct), 4),
+            "walls": [],
+        }
+    except Exception as exc:
+        logger.warning("orderbook_summary failed: %s", exc)
+        return {"imbalance": 0.0, "spread_pct": 0.0, "walls": []}
+
+
+@router.get("/capital-efficiency")
+async def capital_efficiency(user_id: str = Depends(get_current_user)):
+    """Capital efficiency snapshot derived from canonical metrics."""
+    try:
+        from services.canonical_metrics import get_canonical_metrics_snapshot
+
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {"_id": 0},
+        ).to_list(_MAX_BOTS_QUERY)
+        metrics = await get_canonical_metrics_snapshot(user_id, bots=bots)
+        summary = metrics.get("summary", {})
+        return {
+            "capital_utilization_pct": summary.get("capital_utilization_pct", 0),
+            "roi_pct": summary.get("roi_pct", 0),
+            "profit_realized": summary.get("profit_realized", 0),
+            "trade_count": summary.get("trade_count", 0),
+        }
+    except Exception as exc:
+        logger.warning("capital_efficiency failed: %s", exc)
+        return {"capital_utilization_pct": 0, "roi_pct": 0, "profit_realized": 0, "trade_count": 0}
+
+
+@router.get("/genetics-summary")
+async def genetics_summary(user_id: str = Depends(get_current_user)):
+    """Bot evolution summary for intelligence panel."""
+    try:
+        bots = await db.bots_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "parent_bot_id": 1, "generation": 1, "strategy_preset": 1},
+        ).to_list(_MAX_BOTS_QUERY)
+        if not bots:
+            return {"available": False, "reason": "no_bots"}
+        evolved = [b for b in bots if b.get("parent_bot_id")]
+        max_generation = max(int(b.get("generation", 1) or 1) for b in bots)
+        return {
+            "available": True,
+            "total_bots": len(bots),
+            "evolved_bots": len(evolved),
+            "max_generation": max_generation,
+        }
+    except Exception as exc:
+        logger.warning("genetics_summary failed: %s", exc)
+        return {"available": False, "reason": str(exc)[:120]}
+
+
 @router.get("/realtime-smoke")
 async def realtime_smoke_test(user_id: str = Depends(get_current_user)):
     """Realtime smoke test - verify events are dispatched successfully

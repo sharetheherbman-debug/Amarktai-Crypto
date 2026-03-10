@@ -18,7 +18,7 @@ from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
 from services.risk_lock_service import risk_lock_service
 from services.canonical_metrics import get_canonical_metrics_snapshot
-from services.canonical import get_canonical_bot_activity
+from services.canonical import get_canonical_bot_activity, get_latest_bot_decisions
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
@@ -264,6 +264,7 @@ async def get_bots_status(
             state.get("bot_id"): state
             for state in await bot_runtime_state.list_states(user_id)
         }
+        decision_map = await get_latest_bot_decisions(user_id, [str(bot.get("id")) for bot in bots if bot.get("id")])
         canonical_snapshot = await get_canonical_metrics_snapshot(user_id, bots=bots)
         canonical_by_bot = canonical_snapshot.get("by_bot_id", {})
         
@@ -274,7 +275,13 @@ async def get_bots_status(
             runtime_state = runtime_states.get(bot.get("id"))
             if runtime_state and runtime_state.get("state") in {"active", "paused", "stopped"}:
                 status = runtime_state.get("state")
-            normalized_bot = normalize_bot_state({**bot, "status": status})
+            decision_overlay = decision_map.get(str(bot.get("id")), {})
+            decision_fallback = {
+                key: value
+                for key, value in decision_overlay.items()
+                if key not in bot or bot.get(key) in (None, "", [])
+            }
+            normalized_bot = normalize_bot_state({**bot, **decision_fallback, "status": status})
             
             # Map status to standard states
             if status == 'active':
@@ -428,6 +435,12 @@ async def get_bots_status(
                 "activity_state": normalized_bot.get("activity_state", "active_record"),
                 "runnable": normalized_bot.get("runnable", False),
                 "activity_reason_code": normalized_bot.get("activity_reason_code"),
+                "decision_reason_code": normalized_bot.get("decision_reason_code", normalized_bot.get("last_decision_reason_code")),
+                "entry_reason_code": normalized_bot.get("entry_reason_code", normalized_bot.get("last_entry_reason_code")),
+                "entry_confidence_score": normalized_bot.get("entry_confidence_score", normalized_bot.get("last_entry_confidence_score")),
+                "expectancy_net_edge_pct": normalized_bot.get("expectancy_net_edge_pct"),
+                "market_regime": normalized_bot.get("market_regime", normalized_bot.get("canonical_market_regime", "unknown")),
+                "regime_confidence": normalized_bot.get("canonical_regime_confidence", normalized_bot.get("regime_confidence", normalized_bot.get("confidence_score", 0))),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
                 "stopped_at": bot.get('stopped_at')

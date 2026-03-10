@@ -97,20 +97,22 @@ const ProviderRow = ({ config, providerHealth }) => {
 
 const MarketIntelligencePanel = () => {
   const [providerHealth, setProviderHealth] = useState({});
+  const [intelligence, setIntelligence] = useState({});
   const [loading, setLoading] = useState(false);
 
   const fetchHealth = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await get('/keys/status');
-      const statusMap = data?.status_map || {};
-      // Also try fetching market intelligence health
-      let miHealth = {};
+      const statusRes = await get('/keys/status');
+      const statusMap = statusRes?.status_map || {};
+      let diagnostics = {};
       try {
-        miHealth = await get('/diagnostics/provider-health');
+        diagnostics = await get('/diagnostics/provider-health');
       } catch {
-        // Provider health endpoint may not exist yet — that's fine
+        diagnostics = {};
       }
+      const healthMap = diagnostics?.provider_health || {};
+      setIntelligence(diagnostics?.intelligence || {});
 
       const merged = {};
       const allIds = [
@@ -119,13 +121,14 @@ const MarketIntelligencePanel = () => {
       ];
       for (const id of allIds) {
         const keyStatus = statusMap[id]?.status;
-        const mi = miHealth?.[id];
+        const mi = healthMap?.[id];
         let status = 'unconfigured';
         if (keyStatus === 'configured_valid' || keyStatus === 'test_ok') status = 'healthy';
         else if (keyStatus === 'configured_invalid' || keyStatus === 'test_failed') status = 'down';
         else if (keyStatus === 'configured_untested' || keyStatus === 'saved_untested') status = 'degraded';
-        else if (mi?.healthy) status = 'healthy';
-        merged[id] = { status, last_tested: statusMap[id]?.last_tested_at || mi?.last_tested };
+        else if (mi?.healthy || mi?.status === 'healthy') status = 'healthy';
+        else if (mi?.status === 'degraded') status = 'degraded';
+        merged[id] = { status, last_tested: statusMap[id]?.last_tested_at || mi?.last_tested, usage: mi?.usage || {} };
       }
       setProviderHealth(merged);
     } catch (err) {
@@ -143,10 +146,9 @@ const MarketIntelligencePanel = () => {
 
   const healthyCount = Object.values(providerHealth).filter(h => h.status === 'healthy').length;
   const totalProviders = MARKET_DATA_PROVIDERS.length + INTELLIGENCE_ENRICHERS.length;
-  const missingEnrichers = INTELLIGENCE_ENRICHERS.filter(id => {
-    const h = providerHealth[id];
-    return !h || h.status === 'unconfigured';
-  });
+  const healthyMarketProviders = MARKET_DATA_PROVIDERS.filter(id => providerHealth[id]?.status === 'healthy');
+  const priceRows = Object.entries(intelligence?.prices || {});
+  const whaleSignals = intelligence?.whale_signals || [];
 
   return (
     <div>
@@ -170,8 +172,8 @@ const MarketIntelligencePanel = () => {
         {loading && <span style={{ fontSize: 12, color: '#94a3b8' }}>⟳</span>}
       </div>
 
-      {/* Degraded warning */}
-      {missingEnrichers.length > 0 && (
+      {/* Core-provider warning only (optional enrichers do not trigger degraded banner) */}
+      {healthyMarketProviders.length === 0 && (
         <div style={{
           ...cardStyle,
           background: 'rgba(245,158,11,0.08)',
@@ -180,9 +182,7 @@ const MarketIntelligencePanel = () => {
           fontSize: 12,
           color: '#f59e0b',
         }}>
-          ⚠ Intelligence is operating in degraded mode. Missing enrichers:{' '}
-          {missingEnrichers.map(id => PLATFORM_CONFIG[id]?.displayName || id).join(', ')}.
-          Configure API keys in API Setup to unlock full capabilities.
+          ⚠ No core market data provider is currently healthy. Configure or test CoinDesk/CryptoCompare/CoinGecko.
         </div>
       )}
 
@@ -197,6 +197,35 @@ const MarketIntelligencePanel = () => {
         {MARKET_DATA_PROVIDERS.map(id => (
           <ProviderRow key={id} config={PLATFORM_CONFIG[id]} providerHealth={providerHealth} />
         ))}
+      </div>
+
+      {/* Live Intelligence Output */}
+      <div style={cardStyle}>
+        <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
+          🗞️ Live Intelligence Output
+        </h4>
+        {priceRows.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+            {priceRows.map(([symbol, payload]) => (
+              <div key={symbol} style={{ background: 'rgba(30,41,59,0.6)', borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>{symbol}</div>
+                <div style={{ fontSize: 15, color: '#e2e8f0', fontWeight: 700 }}>
+                  {payload?.price != null ? Number(payload.price).toFixed(2) : '—'}
+                </div>
+                <div style={{ fontSize: 10, color: '#64748b' }}>provider: {payload?.provider || 'unknown'}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: '#64748b' }}>
+            No live price intelligence yet — once a provider is connected, live snapshots appear here.
+          </div>
+        )}
+        {whaleSignals.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
+            Whale signals: {whaleSignals.slice(0, 3).map((s) => `${s.coin || s.symbol}: ${s.signal || s.direction || 'activity'}`).join(' • ')}
+          </div>
+        )}
       </div>
 
       {/* Intelligence Enrichers */}
@@ -221,10 +250,11 @@ const MarketIntelligencePanel = () => {
         <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
           🔄 Fallback Architecture
         </h4>
-        <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.8 }}>
-          <div>1️⃣ <strong>CryptoCompare</strong> — Primary (100k calls/month, 50 req/min)</div>
-          <div>2️⃣ <strong>CoinGecko</strong> — Secondary (30 req/min, no daily cap)</div>
-          <div>3️⃣ <strong>Coinranking</strong> — Tertiary (10k calls/month)</div>
+          <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.8 }}>
+          <div>1️⃣ <strong>CoinDesk</strong> — Primary</div>
+          <div>2️⃣ <strong>CryptoCompare</strong> — Secondary</div>
+          <div>3️⃣ <strong>CoinGecko</strong> — Tertiary</div>
+          <div>4️⃣ <strong>Coinranking</strong> — Quaternary fallback</div>
           <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
             Provider rotation triggers at 70% quota threshold. All data is normalized before use.
           </div>

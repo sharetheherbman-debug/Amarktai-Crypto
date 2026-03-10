@@ -20,7 +20,7 @@ from auth import get_current_user
 import database as db
 from utils.bot_state import normalize_bot_state
 from services.hold_policy import resolve_hold_policy
-from services.canonical import get_canonical_open_position_count
+from services.canonical import get_canonical_open_position_count, get_latest_bot_decisions
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "realized_pnl_today": float(bot.get("realized_pnl_today", 0)),
         "unrealized_pnl": 0.0,
         "capital_allocated": capital,
+        "capital_summary": bot.get("capital_summary", {}),
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
         "trade_profit_target": trade_target,
@@ -132,10 +133,10 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "market_regime": bot.get("market_regime", "unknown"),
         "regime_confidence": float(bot.get("canonical_regime_confidence", bot.get("confidence_score", bot.get("confidence", 0)))),
         "confidence_score": float(bot.get("confidence_score", bot.get("confidence", 0))),
-        "decision_reason_code": bot.get("last_decision_reason_code"),
-        "entry_reason_code": None,
-        "entry_confidence_score": None,
-        "expectancy_net_edge_pct": None,
+        "decision_reason_code": bot.get("decision_reason_code", bot.get("last_decision_reason_code")),
+        "entry_reason_code": bot.get("entry_reason_code", bot.get("last_entry_reason_code")),
+        "entry_confidence_score": bot.get("entry_confidence_score", bot.get("last_entry_confidence_score")),
+        "expectancy_net_edge_pct": bot.get("expectancy_net_edge_pct"),
         "strategy_name": bot.get("strategy", bot.get("strategy_type", "balanced")),
         "regime_tag": bot.get("market_regime", "unknown"),
         "exit_forecast": None,
@@ -143,10 +144,16 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "slippage_estimate": bot.get("slippage_estimate"),
         "lifecycle_stage": bot.get("lifecycle_stage", "unknown"),
         "eligible_to_trade": bot.get("eligible_to_trade", False),
+        "not_eligible_reasons": bot.get("not_eligible_reasons", []),
         "activity_state": bot.get("activity_state", "active_record"),
         "activity_reason_code": bot.get("activity_reason_code"),
         "runnable": bot.get("runnable", False),
+        "has_open_position": bool(open_trade),
     }
+    if not open_trade and not entry["eligible_to_trade"]:
+        reasons = entry.get("not_eligible_reasons") or []
+        human_reason = ", ".join(reasons) if reasons else "eligibility checks blocked this bot"
+        entry["next_action_reason_text"] = f"Waiting: {human_reason}"
 
     if open_trade:
         side = open_trade.get("side", open_trade.get("type", "buy")).lower()
@@ -260,12 +267,20 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
             },
         )
         bots = await bots_cursor.to_list(length=200)
+        bot_ids = [str(b.get("id") or b.get("_id") or "") for b in bots if b.get("id") or b.get("_id")]
+        latest_decisions = await get_latest_bot_decisions(user_id, bot_ids)
 
         radar_entries: List[Dict] = []
         for raw_bot in bots:
-            bot = normalize_bot_state(raw_bot)
             # Use the canonical string bot ID (not MongoDB _id) — trades are stored with bot.id
             bot_id = raw_bot.get("id") or str(raw_bot.get("_id", ""))
+            decision_overlay = latest_decisions.get(str(bot_id), {})
+            decision_fallback = {
+                key: value
+                for key, value in decision_overlay.items()
+                if key not in raw_bot or raw_bot.get(key) in (None, "", [])
+            }
+            bot = normalize_bot_state({**raw_bot, **decision_fallback})
 
             # Find open trade for this bot
             open_trade = await db.trades_collection.find_one(
