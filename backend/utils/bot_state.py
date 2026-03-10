@@ -13,6 +13,33 @@ BOT_STATE_QUARANTINE = "quarantine"
 BOT_STATE_STOPPED = "stopped"
 
 
+def resolve_activity_state(bot: Dict) -> Dict:
+    """Resolve canonical user-facing bot activity state and runnable reason."""
+    status = str(bot.get("status", "unknown")).lower()
+    if status in {"training", "training_failed"} or bot.get("training_in_progress"):
+        return {"activity_state": "training", "runnable": False, "reason_code": "training"}
+    if status in {"quarantined", "quarantine"} or bot.get("quarantine_until") or bot.get("retraining_until"):
+        return {"activity_state": "quarantined", "runnable": False, "reason_code": "quarantine"}
+    if bot.get("paused_by_bodyguard"):
+        return {"activity_state": "bodyguard_locked", "runnable": False, "reason_code": "bodyguard_lock"}
+    if bot.get("paused_by_system"):
+        return {"activity_state": "paused_by_system", "runnable": False, "reason_code": "system_pause"}
+    if bot.get("paused_by_user"):
+        return {"activity_state": "paused_by_user", "runnable": False, "reason_code": "manual_pause"}
+    if status == "active":
+        if bot.get("eligible_to_trade"):
+            return {"activity_state": "runnable", "runnable": True, "reason_code": "runnable"}
+        reasons = bot.get("not_eligible_reasons") or []
+        return {
+            "activity_state": "blocked",
+            "runnable": False,
+            "reason_code": reasons[0] if reasons else "blocked",
+        }
+    if status in {"stopped", "inactive"}:
+        return {"activity_state": "blocked", "runnable": False, "reason_code": "bot_stopped"}
+    return {"activity_state": "active_record", "runnable": False, "reason_code": "unknown"}
+
+
 def _has_trading_mode(bot: Dict) -> bool:
     """Return True if the bot has any trading mode configured."""
     return bool(
@@ -105,6 +132,12 @@ def normalize_bot_state(bot: Dict) -> Dict:
         {**bot, "trading_mode": trading_mode},
         active, paused, stopped, deleted,
     )
+    activity = resolve_activity_state({
+        **bot,
+        "status": status,
+        "eligible_to_trade": eligible,
+        "not_eligible_reasons": not_eligible_reasons,
+    })
 
     return {
         **bot,
@@ -118,10 +151,12 @@ def normalize_bot_state(bot: Dict) -> Dict:
         "trading_mode": trading_mode or bot.get("trading_mode"),
         "eligible_to_trade": eligible,
         "not_eligible_reasons": not_eligible_reasons,
+        "activity_state": activity.get("activity_state"),
+        "runnable": bool(activity.get("runnable")),
+        "activity_reason_code": activity.get("reason_code"),
     }
 
 
 def is_active_bot(bot: Dict) -> bool:
     """Return True if bot should count as active."""
     return normalize_bot_state(bot).get("active", False)
-

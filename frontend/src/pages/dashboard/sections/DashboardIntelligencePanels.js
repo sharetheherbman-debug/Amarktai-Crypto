@@ -169,7 +169,7 @@ export const WhaleFlowPanel = () => {
                 }}>{s.direction?.toUpperCase()}</span>
               </div>
               <div style={{ fontSize: 10, color: '#64748b' }}>
-                {s.value_usd ? `$${Number(s.value_usd).toLocaleString()}` : 'Value unknown'} · Confidence: {((s.confidence || 0) * 100).toFixed(0)}%
+                {s.value_usd ? `USD ${Number(s.value_usd).toLocaleString()}` : 'Value unknown'} · Confidence: {((s.confidence || 0) * 100).toFixed(0)}%
               </div>
             </div>
           ))}

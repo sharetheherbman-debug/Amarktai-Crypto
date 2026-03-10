@@ -29,6 +29,7 @@ export default function PrometheusMetrics() {
   // Parse Prometheus text format
   const parsePrometheusMetrics = (text) => {
     const lines = text.split('\n');
+    let matchedMetricLines = 0;
     const parsed = {
       latency: { avg: 0, p95: 0, p99: 0 },
       traffic: { requests_total: 0, requests_per_sec: 0 },
@@ -48,6 +49,7 @@ export default function PrometheusMetrics() {
 
       // Latency metrics
       if (line.includes('trade_execution_latency_seconds')) {
+        matchedMetricLines += 1;
         if (line.includes('quantile="0.95"')) {
           const match = line.match(/(\d+\.?\d*)/);
           if (match) parsed.latency.p95 = parseFloat(match[1]) * 1000; // Convert to ms
@@ -70,32 +72,38 @@ export default function PrometheusMetrics() {
 
       // Traffic metrics
       if (line.includes('api_requests_total')) {
+        matchedMetricLines += 1;
         const match = line.match(/(\d+\.?\d*)/);
         if (match) parsed.traffic.requests_total = parseFloat(match[1]);
       }
 
       // Error metrics
       if (line.includes('api_errors_total')) {
+        matchedMetricLines += 1;
         const match = line.match(/(\d+\.?\d*)/);
         if (match) parsed.errors.errors_total = parseFloat(match[1]);
       }
 
       // Trading metrics
       if (line.includes('trades_total{') && line.includes('status="success"')) {
+        matchedMetricLines += 1;
         const match = line.match(/(\d+\.?\d*)/);
         if (match) parsed.trading.trades_success = parseFloat(match[1]);
       }
       if (line.includes('trades_total{') && line.includes('status="failed"')) {
+        matchedMetricLines += 1;
         const match = line.match(/(\d+\.?\d*)/);
         if (match) parsed.trading.trades_failed = parseFloat(match[1]);
       }
       if (line.includes('total_profit_usd')) {
+        matchedMetricLines += 1;
         const match = line.match(/(\d+\.?\d*)/);
         if (match) parsed.trading.profit_total = parseFloat(match[1]);
       }
 
       // Component health
       if (line.includes('component_health{')) {
+        matchedMetricLines += 1;
         const componentMatch = line.match(/component="([^"]+)"/);
         const valueMatch = line.match(/(\d+\.?\d*)$/);
         if (componentMatch && valueMatch) {
@@ -118,6 +126,7 @@ export default function PrometheusMetrics() {
       parsed.errors.error_rate = (parsed.errors.errors_total / parsed.traffic.requests_total) * 100;
     }
 
+    parsed.has_live_series = matchedMetricLines > 0;
     return parsed;
   };
 
@@ -131,6 +140,11 @@ export default function PrometheusMetrics() {
 
       setMetrics(metricsText);
       const parsed = parsePrometheusMetrics(metricsText);
+      if (!parsed?.has_live_series) {
+        setParsedMetrics(null);
+        setError('Metrics endpoint is reachable but no live Prometheus series are being emitted yet.');
+        return;
+      }
       setParsedMetrics(parsed);
       
       // Fetch system health

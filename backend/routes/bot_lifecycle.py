@@ -22,6 +22,7 @@ from services.canonical import get_canonical_bot_activity
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
+from utils.bot_state import normalize_bot_state
 # Canonical trading-gate flags — use config module (supports all env-var aliases)
 from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
 
@@ -273,6 +274,7 @@ async def get_bots_status(
             runtime_state = runtime_states.get(bot.get("id"))
             if runtime_state and runtime_state.get("state") in {"active", "paused", "stopped"}:
                 status = runtime_state.get("state")
+            normalized_bot = normalize_bot_state({**bot, "status": status})
             
             # Map status to standard states
             if status == 'active':
@@ -311,15 +313,15 @@ async def get_bots_status(
                 pause_reason_code = 'training'
                 pause_reason_message = bot.get('training_failed_reason') or 'Training in progress'
                 pause_next_action = 'Complete training before resuming'
-            elif bot.get('paused_by_bodyguard'):
+            elif normalized_bot.get('paused_by_bodyguard'):
                 pause_reason_code = 'bodyguard_lock'
                 pause_reason_message = pause_reason or 'Paused by bodyguard drawdown protection'
                 pause_next_action = 'Wait for drawdown recovery or reset bodyguard lock'
-            elif bot.get('paused_by_system'):
+            elif normalized_bot.get('paused_by_system'):
                 pause_reason_code = 'system_pause'
                 pause_reason_message = pause_reason or 'Paused by system'
                 pause_next_action = 'Review system status and resume when cleared'
-            elif bot.get('paused_by_user'):
+            elif normalized_bot.get('paused_by_user'):
                 pause_reason_code = 'manual_pause'
                 pause_reason_message = pause_reason or 'Paused by user'
                 pause_next_action = 'Resume bot when ready'
@@ -421,6 +423,11 @@ async def get_bots_status(
                 "paused": status == 'paused',
                 "in_quarantine": status == 'quarantined',
                 "in_training": status in ['training', 'training_failed'] or bot.get('training_in_progress'),
+                "eligible_to_trade": normalized_bot.get("eligible_to_trade", False),
+                "not_eligible_reasons": normalized_bot.get("not_eligible_reasons", []),
+                "activity_state": normalized_bot.get("activity_state", "active_record"),
+                "runnable": normalized_bot.get("runnable", False),
+                "activity_reason_code": normalized_bot.get("activity_reason_code"),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
                 "stopped_at": bot.get('stopped_at')

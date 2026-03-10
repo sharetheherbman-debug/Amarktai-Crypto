@@ -1257,6 +1257,17 @@ class PaperTradingEngine:
 
             if bot_type == "scalper":
                 if regime_name in {"unknown", "choppy", "sideways"} and float(regime.get("confidence", 0) or 0) < 0.75:
+                    await self._record_decision_trace(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        bot_data=bot_data,
+                        symbol=symbol,
+                        exchange=exchange,
+                        decision="reject",
+                        reason_code="REGIME_UNKNOWN_BLOCK",
+                        reason_text="Scalper blocked: unknown/low-confidence regime",
+                        details={"regime": canonical_regime, "consensus": consensus},
+                    )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "reason_code": "REGIME_UNKNOWN_BLOCK", "error": "Scalper trade blocked in low-confidence regime"}
                 if confidence_sources < 3 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
                     logger.debug(
@@ -1264,10 +1275,43 @@ class PaperTradingEngine:
                         confidence_sources,
                         avg_confidence,
                     )
+                    await self._record_decision_trace(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        bot_data=bot_data,
+                        symbol=symbol,
+                        exchange=exchange,
+                        decision="reject",
+                        reason_code="LOW_ENTRY_CONFIDENCE",
+                        reason_text="Scalper quality threshold not met",
+                        details={"avg_confidence": avg_confidence, "confidence_sources": confidence_sources, "consensus": consensus},
+                    )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Scalper quality threshold not met"}
                 if consensus["consensus_strength"] < 2 or consensus["sources"] < 2:
+                    await self._record_decision_trace(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        bot_data=bot_data,
+                        symbol=symbol,
+                        exchange=exchange,
+                        decision="reject",
+                        reason_code="SIGNAL_CONFLICT",
+                        reason_text="Scalper signal consensus too weak",
+                        details={"consensus": consensus, "regime": canonical_regime},
+                    )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_conflicting_signals", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signal consensus too weak"}
                 if dominant_direction == "neutral" or (trend_direction != "neutral" and dominant_direction != trend_direction):
+                    await self._record_decision_trace(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        bot_data=bot_data,
+                        symbol=symbol,
+                        exchange=exchange,
+                        decision="reject",
+                        reason_code="SIGNAL_CONFLICT",
+                        reason_text="Scalper directional signals conflict with trend",
+                        details={"trend_direction": trend_direction, "dominant_direction": dominant_direction, "consensus": consensus},
+                    )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_direction_conflict", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signals conflict with trend"}
             else:
                 if confidence_sources < 2 or avg_confidence < NORMAL_MIN_AVG_CONFIDENCE:
@@ -1276,8 +1320,30 @@ class PaperTradingEngine:
                         confidence_sources,
                         avg_confidence,
                     )
+                    await self._record_decision_trace(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        bot_data=bot_data,
+                        symbol=symbol,
+                        exchange=exchange,
+                        decision="reject",
+                        reason_code="LOW_ENTRY_CONFIDENCE",
+                        reason_text="Normal bot quality threshold not met",
+                        details={"avg_confidence": avg_confidence, "confidence_sources": confidence_sources, "consensus": consensus},
+                    )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Trade quality threshold not met"}
                 if consensus["consensus_strength"] == 0 and avg_confidence < 0.75:
+                    await self._record_decision_trace(
+                        user_id=user_id,
+                        bot_id=bot_id,
+                        bot_data=bot_data,
+                        symbol=symbol,
+                        exchange=exchange,
+                        decision="reject",
+                        reason_code="SIGNAL_CONFLICT",
+                        reason_text="Signal consensus threshold not met",
+                        details={"avg_confidence": avg_confidence, "consensus": consensus},
+                    )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "conflicting_signals", "reason_code": "SIGNAL_CONFLICT", "error": "Signal consensus threshold not met"}
 
             timeout_risk_pct = 0.12 if bot_type == "scalper" else 0.08
