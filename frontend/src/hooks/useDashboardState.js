@@ -123,7 +123,6 @@ const formatReasonInline = (reason) => {
 export default function useDashboardState(navigate) {
   const [user, setUser] = useState(null);
   const [activeSection, setActiveSection] = useState(NAV.OVERVIEW);
-  const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
   const [metricsTab, setMetricsTab] = useState('decision-trace'); // Tab state for Metrics section
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
   const [profitsTab, setProfitsTab] = useState('profit-history'); // Tab state for Profits & Performance parent section

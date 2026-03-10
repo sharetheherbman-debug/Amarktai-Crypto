@@ -21,6 +21,7 @@ import database as db
 from utils.bot_state import normalize_bot_state
 from services.hold_policy import resolve_hold_policy
 from services.canonical import get_canonical_open_position_count, get_latest_bot_decisions
+from services.target_policy import derive_targets
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +92,9 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     hold_policy = resolve_hold_policy(bot, open_trade=open_trade)
     max_hold = int(hold_policy["max_hold_seconds"])
     capital = float(bot.get("current_capital", bot.get("initial_capital", 0)))
-    daily_target_pct = _configured_bot_pct(bot, "daily_profit_target_pct", "daily_target_pct")
-    trade_target_pct = _configured_bot_pct(bot, "trade_profit_target_pct", "per_trade_target_pct")
-    daily_target = round(capital * daily_target_pct, 2) if daily_target_pct is not None else None
-    trade_target = round(capital * trade_target_pct, 2) if trade_target_pct is not None else None
+    targets = derive_targets(bot)
+    daily_target = targets["daily_profit_target"]
+    trade_target = targets["trade_profit_target"]
 
     entry = {
         "bot_id": bot_id,
@@ -115,8 +115,9 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
         "trade_profit_target": trade_target,
-        "targets_configured": daily_target_pct is not None and trade_target_pct is not None,
-        "target_source": "configured" if (daily_target_pct is not None or trade_target_pct is not None) else "not_configured",
+        "daily_target_pct": targets["daily_target_pct"],
+        "trade_target_pct": targets["trade_target_pct"],
+        "target_source": targets["target_source"],
         "position_opened_at": None,
         "max_hold_seconds": max_hold,
         "hold_policy_source": hold_policy["source"],

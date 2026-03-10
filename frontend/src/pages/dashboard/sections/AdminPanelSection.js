@@ -24,6 +24,114 @@ const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
   return `${num < 0 ? '-R' : 'R'}${formatted}`;
 };
 
+/* ── Collapsible API Key Monitor grouped by category ───────────────── */
+const KEY_GROUPS = [
+  { id: 'ai', label: '🤖 Core AI', match: (p) => ['openai', 'huggingface', 'fetchai', 'litellm', 'google_ai'].includes(p.provider) },
+  { id: 'market', label: '📈 Market Data', match: (p) => ['coindesk', 'cryptocompare', 'coingecko', 'coinranking'].includes(p.provider) },
+  { id: 'exchange', label: '🏦 Exchanges', match: (p) => ['luno', 'binance', 'kucoin', 'bybit', 'okx', 'valr'].includes(p.provider) },
+  { id: 'enricher', label: '🔬 Enrichers', match: (p) => ['whale_alert', 'glassnode', 'santiment', 'lunarcrush'].includes(p.provider) },
+];
+
+function KeyMonitorGrouped({ providers, formatDate }) {
+  const [openGroups, setOpenGroups] = React.useState({ ai: true, exchange: true });
+
+  const grouped = {};
+  const other = [];
+  for (const p of providers) {
+    let placed = false;
+    for (const g of KEY_GROUPS) {
+      if (g.match(p)) {
+        (grouped[g.id] = grouped[g.id] || []).push(p);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) other.push(p);
+  }
+
+  const toggle = (id) => setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const renderRow = (row) => {
+    const statusColor = row.valid ? 'var(--success)' : row.configured ? 'var(--error)' : 'var(--muted)';
+    const statusText = row.valid ? 'Valid' : row.configured ? 'Invalid' : 'Not set';
+    return (
+      <div key={row.provider} style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 80px 100px 100px',
+        gap: '8px',
+        padding: '8px 12px',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        fontSize: '0.82rem',
+        alignItems: 'center',
+      }}>
+        <span style={{ color: 'var(--text)', fontWeight: 500 }}>{row.display_name || row.provider}</span>
+        <span style={{ color: statusColor, fontWeight: 600 }}>{statusText}</span>
+        <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>
+          {row.last_tested_at ? formatDate(row.last_tested_at) : '—'}
+        </span>
+        <span style={{ color: row.last_error ? 'var(--error)' : 'var(--muted)', fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {row.last_error || 'OK'}
+        </span>
+      </div>
+    );
+  };
+
+  const renderGroup = (groupDef) => {
+    const items = grouped[groupDef.id] || [];
+    if (items.length === 0) return null;
+    const isOpen = openGroups[groupDef.id];
+    const validCount = items.filter((p) => p.valid).length;
+    return (
+      <div key={groupDef.id} style={{ marginBottom: '8px', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden' }}>
+        <button
+          onClick={() => toggle(groupDef.id)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 14px',
+            background: 'rgba(255,255,255,0.03)',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--text)',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+          }}
+        >
+          <span>{groupDef.label} ({validCount}/{items.length} valid)</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>{isOpen ? '▼' : '▶'}</span>
+        </button>
+        {isOpen && (
+          <div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 80px 100px 100px',
+              gap: '8px',
+              padding: '4px 12px',
+              fontSize: '0.7rem',
+              color: 'var(--muted)',
+              borderBottom: '1px solid var(--line)',
+            }}>
+              <span>Provider</span><span>Status</span><span>Tested</span><span>Error</span>
+            </div>
+            {items.map(renderRow)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (other.length > 0) grouped['other'] = other;
+
+  return (
+    <div>
+      {KEY_GROUPS.map(renderGroup)}
+      {other.length > 0 && renderGroup({ id: 'other', label: '📦 Other', match: () => true })}
+    </div>
+  );
+}
+
 export default function AdminPanelSection({
   actionLoading,
   adminApiHealth,
@@ -106,50 +214,7 @@ export default function AdminPanelSection({
           <div className="admin-card">
             <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔐 API Key Monitor (Admin)</h3>
             {adminKeyMonitor?.providers?.length > 0 ? (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Provider</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Tier</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Configured</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Valid</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Last Tested</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Usage</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Rate/Quota</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Priority</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Latency</th>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Last Error</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {adminKeyMonitor.providers.map((row) => (
-                      <tr key={row.provider} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <td style={{ padding: '8px 6px', color: 'var(--text)' }}>{row.display_name || row.provider}</td>
-                        <td style={{ padding: '8px 6px', color: row.default_flow ? 'var(--success)' : '#f59e0b' }}>
-                          {row.default_flow ? 'Core' : 'Premium/Optional'}
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>{row.configured ? '✅' : '—'}</td>
-                        <td style={{ padding: '8px 6px' }}>{row.valid ? '✅' : row.configured ? '❌' : '—'}</td>
-                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{row.last_tested_at ? formatDate(row.last_tested_at) : NOT_AVAILABLE}</td>
-                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>
-                          {safeNumber(row.estimated_call_usage?.monthly_calls, 0)} / {safeNumber(row.estimated_call_usage?.monthly_limit, 0)}
-                        </td>
-                        <td style={{ padding: '8px 6px', color: row.quota_threshold_warning ? '#f59e0b' : 'var(--muted)' }}>
-                          {row.rate_limit_status || 'ok'}
-                        </td>
-                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{row.fallback_priority ?? NOT_AVAILABLE}</td>
-                        <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>
-                          {row.health_latency_ms != null ? `${safeToFixed(row.health_latency_ms, 1)} ms` : NOT_AVAILABLE}
-                        </td>
-                        <td style={{ padding: '8px 6px', color: row.last_error ? 'var(--error)' : 'var(--muted)' }}>
-                          {row.last_error || NOT_AVAILABLE}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <KeyMonitorGrouped providers={adminKeyMonitor.providers} formatDate={formatDate} />
             ) : (
               <div style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>
                 No key telemetry available yet.

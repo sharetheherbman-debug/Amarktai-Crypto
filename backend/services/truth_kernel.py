@@ -475,6 +475,27 @@ async def compute_truth_summary(user_id: str, db) -> Dict[str, Any]:
         "endpoint": "/api/bots/status",
     }
 
+    # 15. SELF_HEALING
+    try:
+        from self_healing import self_healing as _sh
+        sh_status = _sh.get_status()
+        sh_running = sh_status.get("enabled", False)
+        sh_last = sh_status.get("last_result", "unknown")
+        subsystems["SELF_HEALING"] = {
+            "status": "PASS" if sh_running else "WARN",
+            "detail": f"state={sh_status['state']}, last_result={sh_last}",
+            "last_run": sh_status.get("last_check"),
+            "counters": sh_status,
+            "endpoint": "/api/autonomy/self-healing/status",
+        }
+    except Exception as sh_err:
+        logger.debug("self_healing check failed: %s", sh_err)
+        subsystems["SELF_HEALING"] = {
+            "status": "WARN",
+            "detail": "Self-healing module unavailable",
+            "last_run": now.isoformat(),
+        }
+
     # Determine overall
     statuses = [s["status"] for s in subsystems.values()]
     if "FAIL" in statuses:
