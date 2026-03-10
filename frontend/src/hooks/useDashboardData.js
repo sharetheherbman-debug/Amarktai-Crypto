@@ -229,6 +229,11 @@ export const useDashboardData = (token) => {
   useEffect(() => {
     if (!token) return;
     realtimeClient.connect(token);
+    const refreshTradeTruth = () => {
+      loadRecentTrades();
+      loadCountdown();
+      loadMetrics();
+    };
     const unsubscribePrices = realtimeClient.on('prices_update', (payload) => {
       const pricesPayload = payload?.prices || payload?.data?.prices || payload?.data;
       const normalized = normalizeLivePrices(pricesPayload, null);
@@ -261,40 +266,19 @@ export const useDashboardData = (token) => {
       }
     });
 
-    const unsubscribeTrades = realtimeClient.on('trades_update', (payload) => {
-      const tradesPayload = payload?.trades || payload?.data?.trades;
-      if (Array.isArray(tradesPayload)) {
-        setRecentTrades(tradesPayload);
-      } else {
-        loadRecentTrades();
-      }
-    });
-    const unsubscribeTradeExecuted = realtimeClient.on('trade_executed', () => {
-      loadRecentTrades();
-      loadCountdown();
-      loadMetrics();
-    });
-    const unsubscribeTradeOpened = realtimeClient.on('trade_opened', () => {
-      loadRecentTrades();
-      loadCountdown();
-      loadMetrics();
-    });
-    const unsubscribeTradeClosed = realtimeClient.on('trade_closed', () => {
-      loadRecentTrades();
-      loadCountdown();
-      loadMetrics();
-    });
-    const unsubscribeAnalyticsUpdate = realtimeClient.on('analytics_update', () => {
-      loadRecentTrades();
-      loadCountdown();
-      loadMetrics();
-    });
+    const unsubscribeTrades = realtimeClient.on('trades_update', refreshTradeTruth);
+    const unsubscribeTradeInserted = realtimeClient.on('trade_inserted', refreshTradeTruth);
+    const unsubscribeTradeExecuted = realtimeClient.on('trade_executed', refreshTradeTruth);
+    const unsubscribeTradeOpened = realtimeClient.on('trade_opened', refreshTradeTruth);
+    const unsubscribeTradeClosed = realtimeClient.on('trade_closed', refreshTradeTruth);
+    const unsubscribeAnalyticsUpdate = realtimeClient.on('analytics_update', refreshTradeTruth);
 
     return () => {
       unsubscribePrices();
       unsubscribeOverview();
       unsubscribeBots();
       unsubscribeTrades();
+      unsubscribeTradeInserted();
       unsubscribeTradeExecuted();
       unsubscribeTradeOpened();
       unsubscribeTradeClosed();

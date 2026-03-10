@@ -20,6 +20,7 @@ class TradeStaggerer:
         # Queue management
         self.trade_queue = deque()
         self.active_trades = {}  # {bot_id: timestamp}
+        self.last_dispatched_bot_id = None
         
         # Rate limiting per exchange
         self.exchange_limits = {
@@ -123,6 +124,7 @@ class TradeStaggerer:
         try:
             if not self.trade_queue:
                 return None
+            deferred_same_bot = None
             
             # Try each item in queue until we find one that can execute
             for _ in range(len(self.trade_queue)):
@@ -134,17 +136,31 @@ class TradeStaggerer:
                 can_execute, reason = await self.can_execute_now(bot_id, exchange)
                 
                 if can_execute:
+                    # Fairness guard: avoid repeatedly dispatching same bot back-to-back
+                    # when other queued candidates exist.
+                    if (
+                        bot_id == self.last_dispatched_bot_id
+                        and len(self.trade_queue) > 0
+                        and deferred_same_bot is None
+                    ):
+                        deferred_same_bot = trade_request
+                        continue
+                    if deferred_same_bot is not None:
+                        self.trade_queue.append(deferred_same_bot)
+                    self.last_dispatched_bot_id = bot_id
                     return trade_request
                 else:
                     # Put back in queue if still relevant
                     queued_time = datetime.fromisoformat(trade_request['queued_at'].replace('Z', '+00:00'))
-                    age_minutes = (datetime.now(timezone.utc) - queued_time).seconds / 60
+                    age_minutes = max(0.0, (datetime.now(timezone.utc) - queued_time).total_seconds() / 60)
                     
                     if age_minutes < 30:  # Only re-queue if less than 30 minutes old
                         self.trade_queue.append(trade_request)
                     else:
                         logger.warning(f"⏰ Dropped stale trade request: {bot_id[:8]} (age: {age_minutes:.1f}m)")
-            
+            if deferred_same_bot is not None:
+                self.last_dispatched_bot_id = deferred_same_bot.get("bot_id")
+                return deferred_same_bot
             return None
             
         except Exception as e:

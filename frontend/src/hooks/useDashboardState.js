@@ -828,7 +828,9 @@ export default function useDashboardState(navigate) {
       'trade_executed',
       'trade_opened',
       'trade_closed',
+      'trade_inserted',
       'system_mode_update',
+      'system_mode_changed',
       'bot_created',
       'bot_paused',
       'bot_resumed',
@@ -910,14 +912,11 @@ export default function useDashboardState(navigate) {
         }
         break;
       }
-      case 'trades_update': {
-        const tradesPayload = data.data?.trades || data.trades;
-        if (Array.isArray(tradesPayload)) {
-          setRecentTrades(tradesPayload);
-        } else {
-          // Canonical fallback: server emitted delta payload, refresh from source.
-          loadRecentTrades();
-        }
+      case 'trades_update':
+      case 'trade_inserted': {
+        // Canonical truth: always refresh from source; do not trust deltas.
+        refreshCanonicalTradeTruth();
+        loadCustomCountdowns();
         break;
       }
       case 'notification':
@@ -997,8 +996,13 @@ export default function useDashboardState(navigate) {
         break;
       
       case 'system_mode_update':
+      case 'system_mode_changed':
         // System mode changed
-        setSystemModes(data.modes);
+        if (data.modes && typeof data.modes === 'object') {
+          setSystemModes(data.modes);
+        } else if (data.mode) {
+          setSystemModes(prev => ({ ...prev, [data.mode]: !!data.enabled }));
+        }
         toast.success('System modes updated');
         break;
       

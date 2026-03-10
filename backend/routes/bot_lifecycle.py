@@ -17,6 +17,7 @@ from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
 from services.risk_lock_service import risk_lock_service
+from services.canonical_metrics import get_canonical_metrics_snapshot
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
@@ -252,6 +253,8 @@ async def get_bots_status(
             state.get("bot_id"): state
             for state in await bot_runtime_state.list_states(user_id)
         }
+        canonical_snapshot = await get_canonical_metrics_snapshot(user_id, bots=bots)
+        canonical_by_bot = canonical_snapshot.get("by_bot_id", {})
         
         # Enrich each bot with detailed state
         enriched_bots = []
@@ -315,6 +318,18 @@ async def get_bots_status(
                 pause_reason_message = pause_reason or 'Bot paused'
                 pause_next_action = 'Resume bot'
             
+            canonical = canonical_by_bot.get(str(bot.get("id")), {})
+            base_initial_capital = float(canonical.get("capital_initial", bot.get("initial_capital", bot.get("starting_capital", 0))) or 0)
+            base_current_capital = float(canonical.get("capital_current", bot.get("current_capital", bot.get("allocated_capital", base_initial_capital))) or 0)
+            base_open_position = float(canonical.get("open_position_value", bot.get("open_position_value", 0)) or 0)
+            available_capital = float(canonical.get("capital_available", max(0.0, base_current_capital - base_open_position)))
+            total_trades = int(canonical.get("trade_count", bot.get("trades_count", 0)) or 0)
+            win_count = int(canonical.get("winning_trades", bot.get("win_count", 0)) or 0)
+            loss_count = int(canonical.get("losing_trades", bot.get("loss_count", 0)) or 0)
+            realized_pnl = float(canonical.get("profit_realized", bot.get("total_profit", 0)) or 0)
+            win_rate = float(canonical.get("win_rate_pct", bot.get("win_rate", 0)) or 0)
+            roi = float(canonical.get("roi_pct", 0) or 0)
+
             enriched_bot = {
                 "id": bot.get('id'),
                 "name": bot.get('name'),
@@ -341,13 +356,34 @@ async def get_bots_status(
                 "training_state": bot.get('training_state'),
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
-                "initial_capital": bot.get('initial_capital', 0),
-                "current_capital": bot.get('current_capital', 0),
-                "open_position_value": bot.get('open_position_value', 0),
-                "total_profit": bot.get('total_profit', 0),
-                "trades_count": bot.get('trades_count', 0),
-                "win_count": bot.get('win_count', 0),
-                "loss_count": bot.get('loss_count', 0),
+                "initial_capital": round(base_initial_capital, 2),
+                "current_capital": round(base_current_capital, 2),
+                "allocated_capital": round(base_current_capital, 2),
+                "available_capital": round(available_capital, 2),
+                "open_position_value": round(base_open_position, 2),
+                "total_profit": round(realized_pnl, 2),
+                "profit": round(realized_pnl, 2),
+                "trades_count": total_trades,
+                "total_trades": total_trades,
+                "win_count": win_count,
+                "loss_count": loss_count,
+                "win_rate": round(win_rate, 2),
+                "roi": round(roi, 2),
+                "capital": {
+                    "initial": round(base_initial_capital, 2),
+                    "current": round(base_current_capital, 2),
+                    "allocated": round(base_current_capital, 2),
+                    "available": round(available_capital, 2),
+                    "open_position_value": round(base_open_position, 2),
+                },
+                "performance": {
+                    "profit_realized": round(realized_pnl, 2),
+                    "roi_pct": round(roi, 2),
+                    "trade_count": total_trades,
+                    "winning_trades": win_count,
+                    "losing_trades": loss_count,
+                    "win_rate_pct": round(win_rate, 2),
+                },
                 "last_trade": bot.get('last_trade'),
                 "training_complete": bot.get('training_complete', False),
                 "training_failed_reason": bot.get('training_failed_reason'),

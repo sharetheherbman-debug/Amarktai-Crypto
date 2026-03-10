@@ -146,10 +146,6 @@ class RealTimeEvents:
             **payload,
             "type": "system_mode_changed"
         })
-        await manager.send_message(user_id, {
-            **payload,
-            "type": "system_mode_update"
-        })
     
     @staticmethod
     async def api_key_connected(user_id: str, provider: str, status: str):
@@ -468,27 +464,5 @@ class RealTimeEvents:
         })
         logger.debug(f"📡 Real-time: price_update for user {user_id[:8]}")
     
-    @staticmethod
-    async def key_saved(user_id: str, provider: str, provider_name: str):
-        """Broadcast when API key is saved"""
-        await manager.send_message(user_id, {
-            "type": "key_saved",
-            "provider": provider,
-            "message": f"🔑 {provider_name} key saved"
-        })
-        logger.info(f"📡 Real-time: key_saved {provider} for user {user_id[:8]}")
-    
-    @staticmethod
-    async def key_tested(user_id: str, provider: str, provider_name: str, success: bool, error: str = None):
-        """Broadcast when API key is tested"""
-        await manager.send_message(user_id, {
-            "type": "key_tested",
-            "provider": provider,
-            "success": success,
-            "error": error,
-            "message": f"{'✅' if success else '❌'} {provider_name} key test {'passed' if success else 'failed'}"
-        })
-        logger.info(f"📡 Real-time: key_tested {provider} for user {user_id[:8]} - {'OK' if success else 'FAILED'}")
-
 # Global instance
 rt_events = RealTimeEvents()
