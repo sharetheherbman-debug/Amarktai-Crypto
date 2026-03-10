@@ -19,21 +19,13 @@ import logging
 from auth import get_current_user
 import database as db
 from utils.bot_state import normalize_bot_state
+from services.hold_policy import resolve_hold_policy
+from services.canonical import get_canonical_open_position_count
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/radar", tags=["Radar"])
 
-# Default max hold times by risk mode (seconds)
-DEFAULT_MAX_HOLD = {
-    "safe": 6 * 3600,        # 6 hours
-    "balanced": 3 * 3600,    # 3 hours
-    "aggressive": 90 * 60,   # 90 minutes
-}
-
-# Default profit targets (fraction of capital)
-DEFAULT_DAILY_PROFIT_TARGET = 0.015   # 1.5% daily
-DEFAULT_TRADE_PROFIT_TARGET = 0.005   # 0.5% per trade
 RISK_THRESHOLD_PCT = 0.03             # 3% unrealized loss triggers risk exit
 EXIT_FORECAST_TIME_THRESHOLD = 600    # 600 seconds (10 min) — time exit proximity threshold
 NO_STOP_DISTANCE = 999.0              # sentinel — distance when no stop price is configured
@@ -46,8 +38,18 @@ def _safe_float(value, default: float) -> float:
         return default
 
 
-def _safe_bot_pct(bot: Dict, primary_key: str, fallback_key: str, default: float) -> float:
-    return max(0.0, _safe_float(bot.get(primary_key, bot.get(fallback_key, default)), default))
+def _configured_bot_pct(bot: Dict, *keys: str) -> Optional[float]:
+    """Return first configured non-negative percentage from bot payload keys."""
+    for key in keys:
+        value = bot.get(key)
+        if value is None:
+            continue
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            continue
+        return max(0.0, pct)
+    return None
 
 
 def _format_hold_timer(elapsed_seconds: float) -> str:
@@ -91,14 +93,13 @@ def _compute_exit_forecast(
 def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -> Dict:
     """Build a single radar entry from bot + its current open trade."""
     bot_id = str(bot.get("_id", bot.get("bot_id", "")))
-    risk_mode = (bot.get("risk_mode") or bot.get("risk_profile") or "balanced").lower()
-    bot_max_hold = bot.get("max_hold_seconds")
-    max_hold = int(_safe_float(bot_max_hold, DEFAULT_MAX_HOLD.get(risk_mode, DEFAULT_MAX_HOLD["balanced"])))
+    hold_policy = resolve_hold_policy(bot, open_trade=open_trade)
+    max_hold = int(hold_policy["max_hold_seconds"])
     capital = float(bot.get("current_capital", bot.get("initial_capital", 0)))
-    daily_target_pct = _safe_bot_pct(bot, "daily_profit_target_pct", "daily_target_pct", DEFAULT_DAILY_PROFIT_TARGET)
-    trade_target_pct = _safe_bot_pct(bot, "trade_profit_target_pct", "per_trade_target_pct", DEFAULT_TRADE_PROFIT_TARGET)
-    daily_target = round(capital * daily_target_pct, 2)
-    trade_target = round(capital * trade_target_pct, 2)
+    daily_target_pct = _configured_bot_pct(bot, "daily_profit_target_pct", "daily_target_pct")
+    trade_target_pct = _configured_bot_pct(bot, "trade_profit_target_pct", "per_trade_target_pct")
+    daily_target = round(capital * daily_target_pct, 2) if daily_target_pct is not None else None
+    trade_target = round(capital * trade_target_pct, 2) if trade_target_pct is not None else None
 
     entry = {
         "bot_id": bot_id,
@@ -118,8 +119,11 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
         "trade_profit_target": trade_target,
+        "targets_configured": daily_target_pct is not None and trade_target_pct is not None,
+        "target_source": "configured" if (daily_target_pct is not None or trade_target_pct is not None) else "not_configured",
         "position_opened_at": None,
         "max_hold_seconds": max_hold,
+        "hold_policy_source": hold_policy["source"],
         "remaining_hold_seconds": None,
         "hold_timer_display": None,
         "next_action": "WAIT",
@@ -260,7 +264,7 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
         return {
             "timestamp": now.isoformat(),
             "total_bots": len(radar_entries),
-            "bots_with_positions": sum(1 for e in radar_entries if e["side"] is not None),
+            "bots_with_positions": await get_canonical_open_position_count(user_id),
             "radar": radar_entries,
         }
     except Exception as e:

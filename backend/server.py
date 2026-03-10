@@ -1690,8 +1690,8 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         - projections: Both simple and compound projections
     """
     try:
-        from paper_trading_engine import paper_engine
         from services.ledger_service import get_ledger_service
+        from services.canonical import get_canonical_paper_wallet_equity
         
         # BACKEND TRUTH: Get system mode and wallet data from MongoDB
         system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
@@ -1703,33 +1703,28 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             "status": "closed",
         })
         ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
-        
-        # Get current balance (paper or live based on mode)
-        if is_live:
-            # For live mode, calculate from real exchange balances
-            # For now, use paper as fallback (implement live balance fetching later)
-            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
-            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
-        else:
-            # Paper mode
-            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
-            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
-        
-        btc_price = await paper_engine.get_real_price('BTC/ZAR', 'luno')
-        current_capital = zar_balance + (btc_balance * btc_price)
+        paper_equity = await get_canonical_paper_wallet_equity(user_id)
         
         # BACKEND TRUTH: Get all bots total capital from MongoDB
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
         total_bot_capital = sum(float(bot.get('current_capital', 0) or 0) for bot in bots)
-        if ledger_equity and ledger_equity > 0:
+        # Capital priority order:
+        # 1) Paper mode: canonical multi-currency paper wallet total equity
+        # 2) Ledger equity (ZAR) when available
+        # 3) Bot-capital sum fallback
+        # 4) Zero/unavailable fallback
+        if not is_live and paper_equity["total_equity"] > 0:
+            total_capital = float(paper_equity["total_equity"])
+            capital_source = paper_equity["source"]
+        elif ledger_equity and ledger_equity > 0:
             total_capital = float(ledger_equity)
             capital_source = "ledger_equity_zar"
         elif total_bot_capital > 0:
             total_capital = total_bot_capital
             capital_source = "bots_current_capital_sum"
         else:
-            total_capital = float(current_capital)
-            capital_source = "wallet_snapshot"
+            total_capital = float(paper_equity["total_equity"] if not is_live else 0.0)
+            capital_source = paper_equity["source"] if not is_live else "unavailable"
         
         target = 1_000_000
 
@@ -1742,6 +1737,10 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "trade_count_source": "closed_trades_documents",
                 "current_capital": round(total_capital, 2),
                 "capital_source": capital_source,
+                "capital_components": {
+                    "available": paper_equity["available_total"] if not is_live else None,
+                    "allocated": paper_equity["allocated_total"] if not is_live else None,
+                },
                 "target": target,
                 "remaining": round(target - total_capital, 2),
                 "progress_pct": round((total_capital / target) * 100, 2) if target > 0 else 0,
@@ -1764,6 +1763,10 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "compound_projection": None,
                 "trade_count_source": "closed_trades_documents",
                 "capital_source": capital_source,
+                "capital_components": {
+                    "available": paper_equity["available_total"] if not is_live else None,
+                    "allocated": paper_equity["allocated_total"] if not is_live else None,
+                },
             }
         
         # BACKEND TRUTH: Calculate daily ROI from ledger profit series
@@ -1867,6 +1870,10 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             },
             "trade_count_source": "closed_trades_documents",
             "capital_source": capital_source,
+            "capital_components": {
+                "available": paper_equity["available_total"] if not is_live else None,
+                "allocated": paper_equity["allocated_total"] if not is_live else None,
+            },
             "projections": {
                 "simple": simple_days,
                 "compound": compound_days,

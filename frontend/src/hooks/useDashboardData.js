@@ -256,14 +256,8 @@ export const useDashboardData = (token) => {
       });
     });
 
-    const unsubscribeBots = realtimeClient.on('bots_update', (payload) => {
-      let botsPayload = payload?.bots || payload?.data?.bots;
-      if (!botsPayload && payload?.data?.bot) {
-        botsPayload = [payload.data.bot];
-      }
-      if (Array.isArray(botsPayload)) {
-        setBots(botsPayload);
-      }
+    const unsubscribeBots = realtimeClient.on('bots_update', () => {
+      loadBots();
     });
 
     const unsubscribeTrades = realtimeClient.on('trades_update', refreshTradeTruth);
@@ -284,7 +278,7 @@ export const useDashboardData = (token) => {
       unsubscribeTradeClosed();
       unsubscribeAnalyticsUpdate();
     };
-  }, [token, loadRecentTrades, loadCountdown, loadMetrics]);
+  }, [token, loadRecentTrades, loadCountdown, loadMetrics, loadBots]);
 
   return {
     user,
