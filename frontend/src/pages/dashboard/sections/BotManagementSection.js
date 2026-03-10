@@ -1,7 +1,6 @@
 import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import { getAllExchanges } from '../../../config/exchanges';
-import ScalperBotsPanel from './ScalperBotsPanel';
 
 export default function BotManagementSection({
   axiosConfig, // kept for forward-compat
@@ -165,9 +164,8 @@ export default function BotManagementSection({
                 </div>
               </form>
             </div>
-            <ScalperBotsPanel axiosConfig={axiosConfig} />
             <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '12px' }}>
-              💡 Scalper bots appear in <strong>Bot Fleet → Scalper Bots</strong>. Exchange caps apply per platform.
+              💡 Scalper bots appear in <strong>Bot Fleet → Scalper Bots</strong> after creation.
             </p>
           </div>
         )}

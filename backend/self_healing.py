@@ -45,6 +45,20 @@ class SelfHealingSystem:
         self.last_result = "stopped"
         self.last_reason_code = "STOP_REQUESTED"
         logger.info("Self-healing system stopped")
+
+    def get_status(self):
+        """Return canonical self-healing runtime status."""
+        return {
+            "enabled": self.is_running,
+            "state": "running" if self.is_running else "disabled",
+            "last_check": self.last_check.isoformat() if self.last_check else None,
+            "last_action": self.last_action,
+            "last_result": self.last_result,
+            "last_reason_code": self.last_reason_code,
+            "last_error": self.last_error,
+            "monitored_systems": self.monitored_systems,
+            "recovery_attempts": dict(self.recovery_attempts),
+        }
     
     async def _monitor_health(self):
         """Monitor system health every 30 seconds"""
