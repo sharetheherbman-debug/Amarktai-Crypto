@@ -11,6 +11,7 @@ import { get, post, del, notifyError } from '../lib/apiClient';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
+  const PREMIUM_PROVIDER_IDS = new Set(['glassnode']);
 
   // Build providers list from canonical config (excludes legacy/deprecated)
   const PROVIDERS = getCanonicalProviders().map(id => {
@@ -103,7 +104,7 @@ const APIKeySettings = () => {
         return {
           provider: provider.id,
           status,
-          status_display: getStatusDisplay(status, statusInfo.last_test_error),
+          status_display: getStatusDisplay(status, statusInfo.last_test_error, provider.id),
           last_test_error: statusInfo.last_test_error,
           updated_at: statusInfo.updated_at,
           last_tested_at: statusInfo.last_tested_at
@@ -254,16 +255,24 @@ const APIKeySettings = () => {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  const getStatusDisplay = (status, lastTestError) => {
+  const isPremiumProvider = (providerId) => PREMIUM_PROVIDER_IDS.has(providerId);
+
+  const getStatusDisplay = (status, lastTestError, providerId) => {
+    if (isPremiumProvider(providerId)) {
+      return 'Premium/optional';
+    }
+    if (!isProviderAvailable(providerId)) {
+      return 'Disabled in this deployment';
+    }
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid') {
-      return 'Valid ✅';
+      return 'Connected';
     }
     if (normalizedStatus === 'configured_invalid') {
-      return lastTestError ? `Invalid ❌ - ${lastTestError}` : 'Invalid ❌';
+      return lastTestError ? `Configured but failing - ${lastTestError}` : 'Configured but failing';
     }
     if (normalizedStatus === 'configured_untested') {
-      return 'Configured (untested)';
+      return 'Configured but untested';
     }
     if (normalizedStatus === 'configured_rate_limited') {
       return 'Rate limited ⏱️';
@@ -281,19 +290,22 @@ const APIKeySettings = () => {
     return date.toLocaleString();
   };
 
-  const getStatusBadge = (status, available = true) => {
+  const getStatusBadge = (status, providerId, available = true) => {
+    if (isPremiumProvider(providerId)) {
+      return { label: 'Premium/optional', tone: 'warning' };
+    }
     if (!available) {
-      return { label: 'Not available', tone: 'muted' };
+      return { label: 'Disabled in deployment', tone: 'muted' };
     }
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid' || normalizedStatus === 'test_ok') {
-      return { label: 'Test OK', tone: 'success' };
+      return { label: 'Connected', tone: 'success' };
     }
     if (normalizedStatus === 'configured_invalid' || normalizedStatus === 'test_failed') {
-      return { label: 'Test failed', tone: 'error' };
+      return { label: 'Configured (failing)', tone: 'error' };
     }
     if (normalizedStatus === 'configured_untested' || normalizedStatus === 'saved_untested') {
-      return { label: 'Configured', tone: 'warning' };
+      return { label: 'Configured, untested', tone: 'warning' };
     }
     if (normalizedStatus === 'testing') {
       return { label: 'Testing', tone: 'info' };
@@ -306,10 +318,12 @@ const APIKeySettings = () => {
     const providerStatus = providers.find(p => p.provider === provider.id);
     const status = providerStatus?.status || 'not_configured';
     const isAvailable = isProviderAvailable(provider.id);
-    const statusBadge = getStatusBadge(status, isAvailable);
-    const statusDetails = isAvailable
-      ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error)
-      : 'Not available in this build';
+    const statusBadge = getStatusBadge(status, provider.id, isAvailable);
+    const statusDetails = isPremiumProvider(provider.id)
+      ? getStatusDisplay(status, providerStatus?.last_test_error, provider.id)
+      : (isAvailable
+        ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error, provider.id)
+        : getStatusDisplay(status, providerStatus?.last_test_error, provider.id));
     const isConfigured = status !== 'not_configured';
 
     return (
@@ -412,7 +426,8 @@ const APIKeySettings = () => {
   const exchangeProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.EXCHANGE);
   const aiProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.AI);
   const marketDataProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.MARKET_DATA);
-  const enricherProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER);
+  const enricherProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER && !isPremiumProvider(p.id));
+  const premiumProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER && isPremiumProvider(p.id));
 
   return (
     <div className="api-key-settings">
@@ -461,6 +476,14 @@ const APIKeySettings = () => {
       </h3>
       <div className="api-key-grid">
         {enricherProviders.map(renderProviderCard)}
+      </div>
+
+      {/* Advanced / Premium Providers */}
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
+        🧪 Advanced / Premium Providers
+      </h3>
+      <div className="api-key-grid">
+        {premiumProviders.map(renderProviderCard)}
       </div>
 
       <div className="api-key-security">

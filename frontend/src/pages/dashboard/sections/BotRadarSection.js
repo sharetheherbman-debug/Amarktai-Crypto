@@ -287,6 +287,32 @@ export default function BotRadarSection({ axiosConfig }) {
                     <span>Market Regime:</span>
                     <span>{entry.market_regime || 'unknown'}</span>
                   </div>
+                  <div className="radar-intent-row">
+                    <span>Regime Confidence:</span>
+                    <span>{entry.regime_confidence == null ? '—' : Number(entry.regime_confidence).toFixed(2)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Entry Confidence:</span>
+                    <span>{entry.entry_confidence_score == null ? '—' : Number(entry.entry_confidence_score).toFixed(2)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Expectancy Edge %:</span>
+                    <span>{entry.expectancy_net_edge_pct == null ? '—' : Number(entry.expectancy_net_edge_pct).toFixed(2)}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Decision Code:</span>
+                    <span>{entry.decision_reason_code || '—'}</span>
+                  </div>
+                  <div className="radar-intent-row">
+                    <span>Entry Code:</span>
+                    <span>{entry.entry_reason_code || '—'}</span>
+                  </div>
+                  {!entry.eligible_to_trade && (
+                    <div className="radar-intent-row">
+                      <span>Not Eligible:</span>
+                      <span>{(entry.not_eligible_reasons || []).join(', ') || 'eligibility_gate'}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

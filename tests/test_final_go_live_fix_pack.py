@@ -86,3 +86,66 @@ def test_engine_reject_paths_record_decision_trace_details():
     assert "Scalper blocked: unknown/low-confidence regime" in engine_src
     assert "Scalper signal consensus too weak" in engine_src
     assert "Normal bot quality threshold not met" in engine_src
+
+
+def test_paper_engine_collection_checks_use_explicit_none_comparisons():
+    engine_src = _read("backend/paper_trading_engine.py")
+    assert 'if getattr(db, "decisions_collection", None) is None:' in engine_src
+    assert "if db.trades_collection is None:" in engine_src
+    assert "if not db.trades_collection:" not in engine_src
+
+
+def test_unknown_regime_zero_confidence_is_not_eligible():
+    from utils.bot_state import normalize_bot_state
+
+    bot = normalize_bot_state({
+        "status": "active",
+        "trading_mode": "paper",
+        "market_regime": "unknown",
+        "canonical_regime_confidence": 0.0,
+        "entry_confidence_score": 0.0,
+    })
+    assert bot["eligible_to_trade"] is False
+    assert "regime_unknown_low_confidence" in bot["not_eligible_reasons"]
+
+
+def test_radar_entry_surfaces_canonical_decision_fields():
+    from routes.radar import _compute_radar_entry
+
+    entry = _compute_radar_entry(
+        {
+            "id": "bot-1",
+            "status": "active",
+            "trading_mode": "paper",
+            "decision_reason_code": "REGIME_UNKNOWN_BLOCK",
+            "entry_reason_code": "LOW_ENTRY_CONFIDENCE",
+            "entry_confidence_score": 0.0,
+            "expectancy_net_edge_pct": -0.25,
+            "eligible_to_trade": False,
+            "not_eligible_reasons": ["regime_unknown_low_confidence"],
+        },
+        None,
+        datetime.now(timezone.utc),
+    )
+    assert entry["decision_reason_code"] == "REGIME_UNKNOWN_BLOCK"
+    assert entry["entry_reason_code"] == "LOW_ENTRY_CONFIDENCE"
+    assert entry["entry_confidence_score"] == 0.0
+    assert entry["expectancy_net_edge_pct"] == -0.25
+    assert entry["eligible_to_trade"] is False
+    assert "regime_unknown_low_confidence" in entry["not_eligible_reasons"]
+
+
+def test_provider_setup_shows_advanced_premium_section():
+    src = _read("frontend/src/components/APIKeySettings.js")
+    assert "Advanced / Premium Providers" in src
+    assert "const PREMIUM_PROVIDER_IDS = new Set(['glassnode']);" in src
+    assert "Connected" in src
+    assert "Configured but untested" in src
+
+
+def test_bot_status_payload_includes_decision_fields():
+    src = _read("backend/routes/bot_lifecycle.py")
+    assert '"decision_reason_code": normalized_bot.get("decision_reason_code"' in src
+    assert '"entry_reason_code": normalized_bot.get("entry_reason_code"' in src
+    assert '"entry_confidence_score": normalized_bot.get("entry_confidence_score"' in src
+    assert '"expectancy_net_edge_pct": normalized_bot.get("expectancy_net_edge_pct")' in src

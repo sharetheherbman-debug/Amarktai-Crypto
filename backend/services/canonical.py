@@ -313,3 +313,39 @@ async def get_canonical_paper_wallet_equity(user_id: str) -> Dict[str, Any]:
         "allocated_total": round(allocated_total, 2),
         "source": "paper_wallet_total_equity",
     }
+
+
+async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Return latest machine-readable decision payload per bot for radar/status surfaces."""
+    collection = getattr(db, "decisions_collection", None)
+    if collection is None or not bot_ids:
+        return {}
+
+    latest: Dict[str, Dict[str, Any]] = {}
+    try:
+        rows = await collection.find(
+            {"user_id": user_id, "bot_id": {"$in": bot_ids}},
+            {"_id": 0, "bot_id": 1, "decision": 1, "reason_code": 1, "details": 1, "timestamp": 1},
+        ).sort("timestamp", -1).limit(max(len(bot_ids) * 5, 50)).to_list(length=max(len(bot_ids) * 5, 50))
+    except Exception as exc:
+        logger.warning("get_latest_bot_decisions failed for user %s: %s", user_id, exc)
+        return {}
+
+    for row in rows:
+        bot_id = str(row.get("bot_id") or "")
+        if not bot_id or bot_id in latest:
+            continue
+        details = row.get("details") or {}
+        regime_details = details.get("regime") if isinstance(details.get("regime"), dict) else {}
+        reason_code = row.get("reason_code")
+        latest[bot_id] = {
+            "decision": row.get("decision"),
+            "decision_reason_code": reason_code,
+            "entry_reason_code": details.get("entry_reason_code") or reason_code,
+            "entry_confidence_score": details.get("entry_confidence_score"),
+            "expectancy_net_edge_pct": details.get("expectancy_net_edge_pct"),
+            "market_regime": regime_details.get("regime"),
+            "canonical_regime_confidence": regime_details.get("confidence"),
+            "not_eligible_reasons": [str(reason_code).lower()] if row.get("decision") in {"reject", "stand_down"} and reason_code else [],
+        }
+    return latest

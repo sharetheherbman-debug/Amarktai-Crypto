@@ -416,7 +416,7 @@ class PaperTradingEngine:
         details: Optional[Dict] = None,
     ) -> None:
         """Persist machine-readable decision traces for accepted/rejected trades."""
-        if not getattr(db, "decisions_collection", None):
+        if getattr(db, "decisions_collection", None) is None:
             return
         try:
             payload = {
@@ -437,7 +437,7 @@ class PaperTradingEngine:
             logger.debug(f"Decision trace insert skipped: {trace_err}")
 
     async def _recent_closed_trades(self, bot_id: str, limit: int = 10) -> list[Dict]:
-        if not db.trades_collection:
+        if db.trades_collection is None:
             return []
         try:
             return await db.trades_collection.find(
