@@ -11,7 +11,7 @@ SAFETY: Using only 0.25% of exchange capacity, <1% of most exchange limits
 No risk of rate limiting or bans - tested limits are 100x higher
 
 PROFIT OPTIMIZATION: Quality Over Quantity
-✅ Position Sizing: 20-50% per trade (larger on high-confidence AI signals)
+✅ Position Sizing: Fixed-fractional risk sizing (1-2% risk-per-trade)
 ✅ Trade Quality Filter: Only trades with 2+ AI sources, 65%+ avg confidence
 ✅ AI Agreement Boost: Up to 1.5x position size when 4 AI sources agree
 ✅ Better Outcomes: 2-6% gains on high-confidence bullish trades
@@ -81,6 +81,16 @@ PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
+
+# Exit strategy defaults (fractional, configurable by bot and env)
+SCALPER_STOP_LOSS_DEFAULT = float(os.getenv("SCALPER_STOP_LOSS_DEFAULT", "0.003"))
+SCALPER_TAKE_PROFIT_DEFAULT = float(os.getenv("SCALPER_TAKE_PROFIT_DEFAULT", "0.006"))
+SCALPER_TRAILING_STOP_DEFAULT = float(os.getenv("SCALPER_TRAILING_STOP_DEFAULT", "0.004"))
+NORMAL_STOP_LOSS_DEFAULT = float(os.getenv("NORMAL_STOP_LOSS_DEFAULT", "0.01"))
+NORMAL_TAKE_PROFIT_DEFAULT = float(os.getenv("NORMAL_TAKE_PROFIT_DEFAULT", "0.02"))
+NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "0.01"))
+ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
+ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -315,6 +325,74 @@ class PaperTradingEngine:
         self.current_mode = 'paper'  # Default to paper/public mode
         self.user_id = None  # Track which user's keys we're using (if any)
         self.luno_keys_available = False
+
+    @staticmethod
+    def _resolve_exit_profile(bot_data: Dict, open_trade: Optional[Dict] = None) -> Dict[str, float]:
+        bot_type = str(bot_data.get("bot_type", "normal")).lower()
+        defaults = {
+            "scalper": {
+                "stop_loss_pct": SCALPER_STOP_LOSS_DEFAULT,
+                "take_profit_pct": SCALPER_TAKE_PROFIT_DEFAULT,
+                "trailing_stop_pct": SCALPER_TRAILING_STOP_DEFAULT,
+            },
+            "normal": {
+                "stop_loss_pct": NORMAL_STOP_LOSS_DEFAULT,
+                "take_profit_pct": NORMAL_TAKE_PROFIT_DEFAULT,
+                "trailing_stop_pct": NORMAL_TRAILING_STOP_DEFAULT,
+            },
+        }.get(bot_type, {
+            "stop_loss_pct": NORMAL_STOP_LOSS_DEFAULT,
+            "take_profit_pct": NORMAL_TAKE_PROFIT_DEFAULT,
+            "trailing_stop_pct": NORMAL_TRAILING_STOP_DEFAULT,
+        })
+
+        source = open_trade or {}
+        stop_loss_pct = float(source.get("stop_loss_pct", bot_data.get("stop_loss_pct", defaults["stop_loss_pct"])))
+        take_profit_pct = float(source.get("take_profit_pct", bot_data.get("take_profit_pct", defaults["take_profit_pct"])))
+        trailing_stop_pct = float(source.get("trailing_stop_pct", bot_data.get("trailing_stop_pct", defaults["trailing_stop_pct"])))
+        return {
+            "stop_loss_pct": max(0.001, stop_loss_pct),
+            "take_profit_pct": max(0.001, take_profit_pct),
+            "trailing_stop_pct": max(0.001, trailing_stop_pct),
+        }
+
+    async def _apply_dynamic_exit_targets(
+        self,
+        bot_id: str,
+        symbol: str,
+        entry_price: float,
+        stop_loss_pct: float,
+        take_profit_pct: float,
+    ) -> Dict[str, float]:
+        stop_loss_price = entry_price * (1 - stop_loss_pct)
+        take_profit_price = entry_price * (1 + take_profit_pct)
+        atr_value = None
+
+        if ENABLE_ATR_DYNAMIC_TARGETS:
+            try:
+                from engines.atr_stops import atr_stop_loss
+                atr_result = await atr_stop_loss.calculate_atr_stop_loss(
+                    bot_id=bot_id,
+                    pair=symbol,
+                    entry_price=entry_price,
+                    direction="long",
+                )
+                if atr_result and not atr_result.get("error"):
+                    atr_stop = atr_result.get("stop_loss")
+                    if atr_stop and 0 < atr_stop < entry_price:
+                        stop_loss_price = float(atr_stop)
+                        atr_value = abs(entry_price - stop_loss_price)
+                        take_profit_price = entry_price + (atr_value * ATR_TAKE_PROFIT_MULTIPLIER)
+            except Exception as atr_err:
+                logger.debug(f"ATR dynamic targets skipped: {atr_err}")
+
+        return {
+            "stop_loss_price": stop_loss_price,
+            "take_profit_price": take_profit_price,
+            "stop_loss_pct": max(0.001, (entry_price - stop_loss_price) / entry_price),
+            "take_profit_pct": max(0.001, (take_profit_price - entry_price) / entry_price),
+            "atr_distance": atr_value or 0.0,
+        }
         
     async def init_exchanges(self, mode='paper', user_keys=None):
         """
@@ -944,38 +1022,9 @@ class PaperTradingEngine:
                 logger.debug(f"Trade quality filter: Skipping low-confidence trade (sources: {confidence_sources}, avg: {total_confidence/max(confidence_sources,1):.2%})")
                 return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             
-            # Position sizing - OPTIMIZED for quality over quantity
-            # Larger positions on high-confidence AI signals
-            position_sizes = {
-                'safe': 0.20,       # 20% per trade (was 15%)
-                'balanced': 0.30,   # 30% (was 20%)
-                'risky': 0.40,      # 40% (was 25%)
-                'aggressive': 0.50  # 50% (was 30%)
-            }
-            
-            base_position_size = position_sizes.get(risk_mode, 0.20)
-            
-            # BOOST position size on HIGH-CONFIDENCE AI signals (up to +50% larger)
+            # Candidate notional is full available paper capital.
+            # Final size is risk-capped by fixed-fractional sizing below.
             confidence_boost = 1.0
-            
-            # If multiple AI sources agree, increase position
-            ai_agreement = 0
-            if regime.get('confidence', 0) > 0.7:
-                ai_agreement += 1
-            if prediction.get('confidence', 0) > 0.75:
-                ai_agreement += 1
-            if fetchai_data.get('confidence', 0) > 80:
-                ai_agreement += 1
-            if coinstats_data.get('strength', 0) > 75:
-                ai_agreement += 1
-            
-            # Boost: 1-2 sources = 1.0x, 3 sources = 1.25x, 4 sources = 1.5x
-            if ai_agreement >= 4:
-                confidence_boost = 1.5
-            elif ai_agreement >= 3:
-                confidence_boost = 1.25
-            elif ai_agreement >= 2:
-                confidence_boost = 1.1
             
             # PHASE 4A: Check paper wallet balance BEFORE calculating trade amount
             bot_id_val = bot_data.get('id')
@@ -1000,7 +1049,7 @@ class PaperTradingEngine:
                     "error": f"Insufficient paper funds: R{paper_capital:.2f}"
                 }
             
-            final_position_size = min(base_position_size * confidence_boost, 0.60)  # Cap at 60%
+            final_position_size = confidence_boost
             trade_amount = paper_capital * final_position_size
             
             # PHASE 4A: Verify paper wallet can afford this trade
@@ -1013,14 +1062,6 @@ class PaperTradingEngine:
                     "bot_id": bot_id,
                     "error": wallet_check_msg
                 }
-            
-            # 2. CHECK RISK ENGINE
-            risk_ok, risk_reason = await risk_engine.check_trade_risk(
-                user_id, bot_id, exchange, trade_amount, risk_mode
-            )
-            if not risk_ok:
-                logger.warning(f"Risk block: {bot_data['name'][:15]} - {risk_reason}")
-                return {"success": False, "bot_id": bot_id, "error": risk_reason}
             
             # Guard against invalid current_price before calculations
             if current_price is None or current_price <= 0:
@@ -1076,8 +1117,54 @@ class PaperTradingEngine:
             entry_fee = entry_value * fee_rate
             fees = entry_fee
 
-            stop_loss_pct = float(bot_data.get("stop_loss_pct", 0.02))
-            take_profit_pct = float(bot_data.get("take_profit_pct", 0.03))
+            exit_profile = self._resolve_exit_profile(bot_data)
+            dynamic_targets = await self._apply_dynamic_exit_targets(
+                bot_id=bot_id,
+                symbol=symbol,
+                entry_price=avg_entry_price,
+                stop_loss_pct=exit_profile["stop_loss_pct"],
+                take_profit_pct=exit_profile["take_profit_pct"],
+            )
+            stop_loss_pct = dynamic_targets["stop_loss_pct"]
+            take_profit_pct = dynamic_targets["take_profit_pct"]
+            trailing_stop_pct = exit_profile["trailing_stop_pct"]
+            stop_loss_price = dynamic_targets["stop_loss_price"]
+            take_profit_price = dynamic_targets["take_profit_price"]
+
+            # Fixed-fractional size cap from stop distance and bot capital
+            max_risk_notional = risk_engine._calculate_max_notional_for_risk(
+                bot=bot_data,
+                bot_capital=paper_capital,
+                risk_fraction=risk_engine._resolve_risk_fraction(bot_data, risk_mode),
+                entry_price=avg_entry_price,
+                stop_loss_price=stop_loss_price,
+            )
+            trade_amount = min(entry_value, max_risk_notional)
+            if trade_amount <= 0:
+                return {"success": False, "bot_id": bot_id, "error": "Trade rejected by fixed-fractional sizing"}
+            if trade_amount < entry_value and entry_value > 0:
+                scale = trade_amount / entry_value
+                for fill in entry_fills:
+                    fill["qty"] = fill["qty"] * scale
+                crypto_amount = sum(fill["qty"] for fill in entry_fills)
+                entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
+                avg_entry_price = (entry_value / crypto_amount) if crypto_amount > 0 else avg_entry_price
+            entry_fee = entry_value * fee_rate
+            fees = entry_fee
+
+            # 2. CHECK RISK ENGINE (with stop distance)
+            risk_ok, risk_reason = await risk_engine.check_trade_risk(
+                user_id,
+                bot_id,
+                exchange,
+                trade_amount,
+                risk_mode,
+                entry_price=avg_entry_price,
+                stop_loss_price=stop_loss_price,
+            )
+            if not risk_ok:
+                logger.warning(f"Risk block: {bot_data['name'][:15]} - {risk_reason}")
+                return {"success": False, "bot_id": bot_id, "error": risk_reason}
 
             fee_currency = self._resolve_quote_currency(symbol)
             market_source = market_snapshot.get("source") if isinstance(market_snapshot, dict) else data_source
@@ -1126,8 +1213,10 @@ class PaperTradingEngine:
                 "latency_ms": PAPER_LATENCY_MS,
                 "stop_loss_pct": stop_loss_pct,
                 "take_profit_pct": take_profit_pct,
-                "stop_loss_price": round(avg_entry_price * (1 - stop_loss_pct), 6),
-                "take_profit_price": round(avg_entry_price * (1 + take_profit_pct), 6),
+                "trailing_stop_pct": trailing_stop_pct,
+                "highest_price": round(avg_entry_price, 6),
+                "stop_loss_price": round(stop_loss_price, 6),
+                "take_profit_price": round(take_profit_price, 6),
                 "expected_move_pct": round(expected_move_pct, 4),
                 "estimated_cost_pct": round(estimated_cost_pct, 4),
                 "edge_buffer_pct": EDGE_BUFFER_PCT,
@@ -1231,10 +1320,16 @@ class PaperTradingEngine:
                 return None
 
             entry_price = open_trade.get("entry_price") or open_trade.get("price") or current_price
-            stop_loss_pct = float(open_trade.get("stop_loss_pct", bot_data.get("stop_loss_pct", 0.02)))
-            take_profit_pct = float(open_trade.get("take_profit_pct", bot_data.get("take_profit_pct", 0.03)))
+            exit_profile = self._resolve_exit_profile(bot_data, open_trade=open_trade)
+            stop_loss_pct = exit_profile["stop_loss_pct"]
+            take_profit_pct = exit_profile["take_profit_pct"]
+            trailing_stop_pct = exit_profile["trailing_stop_pct"]
             stop_loss_price = open_trade.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct))
             take_profit_price = open_trade.get("take_profit_price") or (entry_price * (1 + take_profit_pct))
+            highest_price = float(open_trade.get("highest_price", entry_price) or entry_price)
+            trailing_stop_price = float(
+                open_trade.get("trailing_stop_price", highest_price * (1 - trailing_stop_pct)) or (highest_price * (1 - trailing_stop_pct))
+            )
 
             entry_time_raw = open_trade.get("entry_time") or open_trade.get("opened_at") or open_trade.get("timestamp")
             try:
@@ -1257,13 +1352,30 @@ class PaperTradingEngine:
 
             close_reason = None
 
+            # Update trailing reference prices before evaluating exits.
+            if current_price > highest_price:
+                highest_price = current_price
+                trailing_stop_price = max(trailing_stop_price, highest_price * (1 - trailing_stop_pct))
+                open_trade_id = open_trade.get("id")
+                if open_trade_id:
+                    await db.trades_collection.update_one(
+                        {"id": open_trade_id},
+                        {"$set": {
+                            "highest_price": highest_price,
+                            "trailing_stop_price": trailing_stop_price,
+                        }}
+                    )
+
             # 1. Take-profit
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
             # 2. Stop-loss
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
-            # 3. Risk-mode max hold exceeded — force close regardless of PnL
+            # 3. Trailing stop
+            elif current_price <= trailing_stop_price and highest_price > entry_price:
+                close_reason = "trailing_stop"
+            # 4. Risk-mode max hold exceeded — force close regardless of PnL
             elif age_seconds >= max_hold_seconds:
                 close_reason = "max_hold_exceeded"
                 logger.warning(
@@ -1272,7 +1384,7 @@ class PaperTradingEngine:
                     f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
                 )
             else:
-                # 4. Time-decay adaptive exit (scalper/normal aware)
+                # 5. Time-decay adaptive exit (single hold-truth path with custom expected hold)
                 try:
                     from engines.time_decay_exit import time_decay_exit_engine
                     td_result = time_decay_exit_engine.evaluate(
@@ -1280,6 +1392,7 @@ class PaperTradingEngine:
                         bot_class=bot_class,
                         hold_seconds=age_seconds,
                         profit_pct=pnl_pct / 100,  # engine expects fraction, not percentage
+                        custom_expected_hold=float(bot_data.get("expected_hold_seconds", max_hold_seconds)),
                     )
                     if td_result.should_exit:
                         close_reason = td_result.exit_reason or "time_decay_exit"
@@ -1291,7 +1404,7 @@ class PaperTradingEngine:
                 except Exception as td_err:
                     logger.debug(f"Time-decay eval skipped: {td_err}")
 
-            # 5. Legacy stale-exit fallback
+            # 6. Legacy stale-exit fallback
             if not close_reason and age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
 
