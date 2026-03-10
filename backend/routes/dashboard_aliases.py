@@ -121,15 +121,24 @@ async def get_metrics_summary(user_id: str = Depends(get_current_user)):
     try:
         import database as db
         from datetime import datetime, timezone, timedelta
+        from services.canonical_metrics import get_canonical_metrics_snapshot
+        from services.canonical import get_canonical_bot_counts
         
-        # Get user's bots
-        bots_cursor = db.bots_collection.find({"user_id": user_id})
+        bots_cursor = db.bots_collection.find({
+            "user_id": user_id,
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
+        })
         bots = await bots_cursor.to_list(1000)
+        canonical = await get_canonical_metrics_snapshot(user_id, bots=bots)
+        summary = canonical.get("summary", {})
+        bot_counts = await get_canonical_bot_counts(user_id)
         
-        # Calculate metrics
-        total_bots = len(bots)
-        active_bots = len([b for b in bots if b.get("status") == "active"])
-        paused_bots = len([b for b in bots if b.get("status") == "paused"])
+        total_bots = bot_counts.get("total", 0)
+        active_bots = bot_counts.get("active", 0)
+        paused_bots = bot_counts.get("paused", 0)
         
         # Get recent trades count (last 24h)
         yesterday = datetime.now(timezone.utc) - timedelta(days=1)
@@ -137,16 +146,10 @@ async def get_metrics_summary(user_id: str = Depends(get_current_user)):
             "user_id": user_id,
             "timestamp": {"$gte": yesterday.isoformat()}
         })
-        
-        # Get profit metrics
-        trades_cursor = db.trades_collection.find({"user_id": user_id})
-        trades = await trades_cursor.to_list(10000)
-        
-        total_profit = sum(t.get("profit", 0) for t in trades)
-        winning_trades = len([t for t in trades if t.get("profit", 0) > 0])
-        losing_trades = len([t for t in trades if t.get("profit", 0) < 0])
-        
-        win_rate = (winning_trades / len(trades) * 100) if len(trades) > 0 else 0
+        winning_trades = summary.get("winning_trades", 0)
+        losing_trades = summary.get("losing_trades", 0)
+        total_profit = summary.get("profit_realized", 0)
+        win_rate = summary.get("win_rate_pct", 0)
         
         return {
             "success": True,
@@ -157,7 +160,7 @@ async def get_metrics_summary(user_id: str = Depends(get_current_user)):
                     "paused": paused_bots,
                 },
                 "trades": {
-                    "total": len(trades),
+                    "total": summary.get("trade_count", 0),
                     "recent_24h": recent_trades,
                     "winning": winning_trades,
                     "losing": losing_trades

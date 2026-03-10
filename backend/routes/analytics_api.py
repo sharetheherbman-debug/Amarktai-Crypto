@@ -10,6 +10,7 @@ import logging
 
 from auth import get_current_user
 import database as db
+from services.canonical_metrics import get_canonical_metrics_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +55,19 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
         - realized_pnl: Profit/loss from closed trades
     """
     try:
-        # Get all user bots
         bots = await db.bots_collection.find(
-            {"user_id": user_id},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0}
         ).to_list(1000)
+        canonical = await get_canonical_metrics_snapshot(user_id, bots=bots)
+        summary = canonical.get("summary", {})
+        by_bot = canonical.get("by_bot_id", {})
         
         if not bots:
             return {
@@ -71,13 +80,22 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
                 "message": "No bots created yet. Create a bot to start trading."
             }
         
-        # Calculate totals
-        funded_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
-        realized_pnl = sum(bot.get('total_profit', 0) for bot in bots)
+        funded_capital = summary.get("capital_initial", 0)
+        current_capital = summary.get("capital_current", 0)
+        realized_pnl = summary.get("profit_realized", 0)
         
         # Unrealized PnL from open positions (paper trading doesn't have open positions)
         unrealized_pnl = 0  # Will be calculated from open positions in live trading
+        breakdown_by_bot = []
+        for bot in bots:
+            bot_metrics = by_bot.get(bot.get('id'), {})
+            breakdown_by_bot.append({
+                "bot_id": bot['id'],
+                "bot_name": bot.get('name'),
+                "funded": bot_metrics.get("capital_initial", bot.get('initial_capital', 0)),
+                "current": bot_metrics.get("capital_current", bot.get('current_capital', 0)),
+                "realized_pnl": bot_metrics.get("profit_realized", 0),
+            })
         
         return {
             "funded_capital": round(funded_capital, 2),
@@ -85,16 +103,7 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
             "unrealized_pnl": round(unrealized_pnl, 2),
             "realized_pnl": round(realized_pnl, 2),
             "total_bots": len(bots),
-            "breakdown_by_bot": [
-                {
-                    "bot_id": bot['id'],
-                    "bot_name": bot.get('name'),
-                    "funded": bot.get('initial_capital', 0),
-                    "current": bot.get('current_capital', 0),
-                    "realized_pnl": bot.get('total_profit', 0)
-                }
-                for bot in bots
-            ],
+            "breakdown_by_bot": breakdown_by_bot,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
@@ -623,9 +632,11 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
             {"_id": 0}
         ).to_list(1000)
         
-        # Calculate capital totals
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        canonical = await get_canonical_metrics_snapshot(user_id, bots=bots)
+        summary = canonical.get("summary", {})
+        by_bot = canonical.get("by_bot_id", {})
+        initial_capital = summary.get("capital_initial", 0)
+        current_capital = summary.get("capital_current", 0)
         
         # Get trade statistics with gross/fees/net breakdown
         all_stats = await profit_service.get_trade_stats(user_id)
@@ -635,8 +646,7 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         # Get today's profit
         profit_today = await profit_service.calculate_profit_today(user_id)
         
-        # Calculate profit percentage
-        profit_pct = ((current_capital - initial_capital) / initial_capital * 100) if initial_capital > 0 else 0
+        roi_pct = summary.get("roi_pct", 0)
         
         # Per-exchange breakdown
         exchange_breakdown = {}
@@ -645,23 +655,32 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
             if exchange_bots:
                 exchange_breakdown[exchange] = {
                     "bot_count": len(exchange_bots),
-                    "capital": sum(b.get('current_capital', 0) for b in exchange_bots),
-                    "profit": sum(b.get('total_profit', 0) for b in exchange_bots)
+                    "capital": sum(by_bot.get(b.get('id'), {}).get("capital_current", b.get('current_capital', 0)) for b in exchange_bots),
+                    "profit": sum(by_bot.get(b.get('id'), {}).get("profit_realized", 0) for b in exchange_bots)
                 }
         
         # Per-bot summary (top 10 by profit)
         bot_summaries = []
-        for bot in sorted(bots, key=lambda b: b.get('total_profit', 0), reverse=True)[:10]:
+        ranked_bots = sorted(
+            (
+                (by_bot.get(bot.get("id"), {}).get("profit_realized", 0), bot)
+                for bot in bots
+            ),
+            key=lambda item: item[0],
+            reverse=True,
+        )[:10]
+        for _, bot in ranked_bots:
+            bot_metrics = by_bot.get(bot.get("id"), {})
             bot_summaries.append({
                 "bot_id": bot['id'],
                 "name": bot.get('name'),
                 "exchange": bot.get('exchange'),
                 "mode": bot.get('trading_mode'),
                 "status": bot.get('status'),
-                "capital": round(bot.get('current_capital', 0), 2),
-                "profit": round(bot.get('total_profit', 0), 2),
-                "win_rate": round(bot.get('win_rate', 0), 2),
-                "trades": bot.get('trades_count', 0)
+                "capital": round(bot_metrics.get("capital_current", bot.get('current_capital', 0)), 2),
+                "profit": round(bot_metrics.get("profit_realized", 0), 2),
+                "win_rate": round(bot_metrics.get("win_rate_pct", bot.get('win_rate', 0)), 2),
+                "trades": bot_metrics.get("trade_count", bot.get('trades_count', 0))
             })
         
         # Quarantine and training counts
@@ -687,7 +706,7 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
             # Capital breakdown
             "initial_capital": round(initial_capital, 2),
             "current_capital": round(current_capital, 2),
-            "profit_pct": round(profit_pct, 2),
+            "roi_pct": round(roi_pct, 2),
             
             # Trade statistics
             "total_trades": all_stats['total_trades'],

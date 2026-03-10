@@ -601,7 +601,10 @@ class AIActionRouter:
         
         # Get wallet summary from canonical overview source (avoids stale bot doc counters)
         from services.overview_service import overview_service
+        from services.canonical_metrics import get_canonical_metrics_snapshot
         overview_snapshot = await overview_service.get_snapshot(user_id)
+        canonical_metrics = await get_canonical_metrics_snapshot(user_id, bots=bots)
+        metrics_summary = canonical_metrics.get("summary", {})
         total_capital = float(overview_snapshot.get("equity", 0) or 0)
         total_profit = float(overview_snapshot.get("total_profit", 0) or 0)
         
@@ -621,7 +624,9 @@ class AIActionRouter:
             },
             "recent_performance": {
                 "recent_trades_count": len(recent_trades),
-            "recent_pnl": round(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in recent_trades), 2)
+                "recent_pnl": round(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in recent_trades), 2),
+                "total_trades": int(metrics_summary.get("trade_count", 0)),
+                "win_rate_pct": float(metrics_summary.get("win_rate_pct", 0)),
             },
             "system_modes": modes or {},
             "budget_status": budget_status,

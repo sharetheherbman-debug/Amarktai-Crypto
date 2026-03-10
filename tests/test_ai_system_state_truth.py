@@ -19,6 +19,8 @@ def test_ai_system_state_uses_overview_canonical_capital():
     trades_cursor.sort.return_value = trades_cursor
     trades_cursor.limit.return_value = trades_cursor
     trades_cursor.to_list = AsyncMock(return_value=[])
+    trades_agg_cursor = MagicMock()
+    trades_agg_cursor.to_list = AsyncMock(return_value=[])
 
     mock_bots_collection = MagicMock()
     mock_bots_collection.find.return_value = bots_cursor
@@ -26,6 +28,7 @@ def test_ai_system_state_uses_overview_canonical_capital():
     mock_modes_collection.find_one = AsyncMock(return_value={})
     mock_trades_collection = MagicMock()
     mock_trades_collection.find.return_value = trades_cursor
+    mock_trades_collection.aggregate.return_value = trades_agg_cursor
 
     with patch('routes.ai_chat.db.bots_collection', mock_bots_collection), \
          patch('routes.ai_chat.db.system_modes_collection', mock_modes_collection), \

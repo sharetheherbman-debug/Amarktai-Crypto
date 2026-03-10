@@ -140,3 +140,7 @@ def test_bots_status_exposes_trade_truth_fields_for_cards():
     assert bot["trades_count"] == 5
     assert bot["win_rate"] == 60.0
     assert bot["available_capital"] == 1100.0
+    assert bot["capital"]["current"] == 1180.0
+    assert bot["capital"]["available"] == 1100.0
+    assert bot["performance"]["profit_realized"] == 180.0
+    assert bot["performance"]["win_rate_pct"] == 60.0

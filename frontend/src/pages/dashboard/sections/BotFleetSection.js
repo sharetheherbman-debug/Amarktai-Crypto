@@ -55,14 +55,14 @@ function modeColor(bot) {
 }
 
 function botMetrics(bot = {}) {
-  const currentCapital = safeNum(bot.current_capital ?? bot.allocated_capital ?? bot.initial_capital);
-  const totalTrades = safeNum(bot.total_trades ?? bot.trades_count);
-  const winCount = safeNum(bot.win_count);
-  const lossCount = safeNum(bot.loss_count);
+  const currentCapital = safeNum(bot.capital?.current ?? bot.current_capital ?? bot.allocated_capital ?? bot.initial_capital);
+  const totalTrades = safeNum(bot.performance?.trade_count ?? bot.total_trades ?? bot.trades_count);
+  const winCount = safeNum(bot.performance?.winning_trades ?? bot.win_count);
+  const lossCount = safeNum(bot.performance?.losing_trades ?? bot.loss_count);
   const inferredTrades = totalTrades || (winCount + lossCount);
-  const resolvedProfit = bot.profit ?? bot.total_profit ?? bot.realized_pnl_today;
+  const resolvedProfit = bot.performance?.profit_realized ?? bot.profit ?? bot.total_profit ?? bot.realized_pnl_today;
   const profit = safeNum(resolvedProfit);
-  let winRate = bot.win_rate;
+  let winRate = bot.performance?.win_rate_pct ?? bot.win_rate;
   if (winRate == null && inferredTrades > 0) {
     winRate = (winCount / inferredTrades) * 100;
   } else if (safeNum(winRate) > 0 && safeNum(winRate) <= 1) {
