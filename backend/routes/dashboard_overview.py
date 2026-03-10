@@ -213,7 +213,7 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
     """
     try:
         from services.overview_service import overview_service
-        from services.canonical import get_canonical_bot_counts, get_canonical_open_position_count
+        from services.canonical import get_canonical_bot_activity, get_canonical_open_position_count
 
         # Get complete snapshot from centralized service
         snapshot = await overview_service.get_snapshot(user_id)
@@ -234,15 +234,17 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
 
         open_positions = await get_canonical_open_position_count(user_id)
 
-        # Canonical bot counts — guaranteed consistent with /api/bots/status
-        counts = await get_canonical_bot_counts(user_id)
+        # Canonical bot activity semantics — guaranteed consistent with /api/bots/status
+        activity = await get_canonical_bot_activity(user_id)
 
         normalized_snapshot = {
             "systemMode": system_mode,
             "automationMode": automation_mode,
-            "activeBots": counts["active"],
-            "runnableBots": counts["runnable"],
-            "totalBots": counts["total"],
+            "activeBots": activity["active_bot_records"],
+            "runnableBots": activity["runnable_active_bots"],
+            "totalBots": activity["total_bot_records"],
+            "pausedBots": activity["paused_bots"],
+            "blockedBots": activity["blocked_bots"],
             "openPositions": _safe_int(open_positions),
             "totalProfit": round(_safe_float(snapshot.get("total_profit", 0)), 2),
             "winRate": round(_safe_float(snapshot.get("win_rate", 0)), 2),
@@ -252,9 +254,7 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
             "nextReinvest": snapshot.get("next_reinvest") or "Not available",
         }
 
-        return {
-            **normalized_snapshot
-        }
+        return {**normalized_snapshot, "activity": activity}
 
     except Exception as e:
         logger.error(f"Overview snapshot error: {e}", exc_info=True)

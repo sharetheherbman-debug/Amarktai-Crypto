@@ -18,6 +18,7 @@ from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
 from services.risk_lock_service import risk_lock_service
 from services.canonical_metrics import get_canonical_metrics_snapshot
+from services.canonical import get_canonical_bot_activity
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
@@ -95,6 +96,7 @@ def _bots_status_payload(
     bots: Optional[list] = None,
     exchange_counts: Optional[Dict[str, int]] = None,
     all_exchanges: Optional[list] = None,
+    activity: Optional[Dict] = None,
     success: bool = True,
     error: Optional[str] = None,
 ) -> Dict:
@@ -102,18 +104,25 @@ def _bots_status_payload(
     bots = [] if bots is None else bots
     exchange_counts = {} if exchange_counts is None else exchange_counts
     all_exchanges = [] if all_exchanges is None else all_exchanges
-    active_bots = sum(
-        1
-        for bot in bots
-        if bot.get("state") == "active" or bot.get("status") == "active"
-    )
+    activity = activity or {}
+    active_from_activity = activity.get("active_bot_records", activity.get("active"))
+    if active_from_activity is None:
+        active_from_activity = sum(
+            1
+            for bot in bots
+            if bot.get("state") == "active" or bot.get("status") == "active"
+        )
+    active_bots = int(active_from_activity or 0)
+    runnable_bots = int(activity.get("runnable_active_bots", activity.get("runnable", active_bots)) or 0)
     return {
         "success": success,
         "active_bots": active_bots,
+        "runnable_bots": runnable_bots,
         "bots": bots,
         "platforms": exchange_counts,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total": len(bots),
+        "activity": activity,
         "exchange_counts": exchange_counts,
         "all_exchanges": all_exchanges,
         **({"error": error} if error else {}),
@@ -233,6 +242,7 @@ async def get_bots_status(
         return _bots_status_payload([], exchange_counts, all_exchanges)
 
     try:
+        activity = await get_canonical_bot_activity(user_id)
         bots = await collection.find(
             {
                 "user_id": user_id,
@@ -247,7 +257,7 @@ async def get_bots_status(
         if not bots:
             if meta:
                 return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
-            return _bots_status_payload([], exchange_counts, all_exchanges)
+            return _bots_status_payload([], exchange_counts, all_exchanges, activity=activity)
 
         runtime_states = {
             state.get("bot_id"): state
@@ -376,6 +386,24 @@ async def get_bots_status(
                     "available": round(available_capital, 2),
                     "open_position_value": round(base_open_position, 2),
                 },
+                "capital_summary": canonical.get("capital_summary", {
+                    "initial_capital": round(base_initial_capital, 2),
+                    "allocated_capital": round(base_current_capital, 2),
+                    "available_capital": round(available_capital, 2),
+                    "open_position_value": round(base_open_position, 2),
+                    "total_equity": round(base_current_capital, 2),
+                    "realized_profit": round(realized_pnl, 2),
+                    "unrealized_profit": 0.0,
+                    "semantics": {
+                        "initial_capital": "Starting capital assigned when the bot was created.",
+                        "allocated_capital": "Capital currently assigned to this bot for trading.",
+                        "available_capital": "Uncommitted capital available for new entries.",
+                        "open_position_value": "Current marked value of capital in open positions.",
+                        "total_equity": "Available capital + open position value + unrealized profit.",
+                        "realized_profit": "Closed-trade profit/loss already realized.",
+                        "unrealized_profit": "Profit/loss on currently open positions (estimate).",
+                    },
+                }),
                 "performance": {
                     "profit_realized": round(realized_pnl, 2),
                     "roi_pct": round(roi, 2),
@@ -407,7 +435,7 @@ async def get_bots_status(
                 exchange_counts[exchange] += 1
         if meta:
             return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
-        return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
+        return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges, activity=activity)
         
     except Exception:
         logger.exception("Get bots status error for user %s", user_id)
@@ -417,6 +445,7 @@ async def get_bots_status(
             [],
             exchange_counts,
             all_exchanges,
+            activity={"total_bot_records": 0, "active_bot_records": 0, "runnable_active_bots": 0, "paused_bots": 0, "bots_with_open_positions": 0, "blocked_bots": 0, "non_runnable_reasons": {}},
             success=False,
             error="Unable to load bot status",
         )

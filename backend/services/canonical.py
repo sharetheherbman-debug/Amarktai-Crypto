@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Dict, Any, List
 from datetime import datetime, timezone
 import logging
+import inspect
 
 import database as db
 from utils.bot_state import normalize_bot_state
@@ -31,26 +32,20 @@ logger = logging.getLogger(__name__)
 _MAX_BOTS = 500
 
 
-async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
-    """Return canonical bot counts scoped to *user_id*.
+async def get_canonical_bot_activity(user_id: str) -> Dict[str, Any]:
+    """Return canonical bot activity semantics snapshot scoped to *user_id*.
 
-    The only bots counted are those whose DB document is not in a
-    deletion state.  ``normalize_bot_state`` is applied to each bot so
-    that the ``active`` and ``eligible_to_trade`` flags are derived
-    identically regardless of which endpoint calls this function.
+    Canonical meaning:
+    - total_bot_records: all non-deleted bot documents
+    - active_bot_records: active docs (status active after normalization)
+    - runnable_active_bots: active docs with eligible_to_trade=True
+    - paused_bots: paused docs
+    - bots_with_open_positions: active bots that currently have open trades
+    - blocked_bots: active docs not runnable
+    - non_runnable_reasons: machine-readable reasons grouped with counts
 
-    Returns
-    -------
-    dict with keys:
-        total          – all non-deleted bots
-        active         – status == "active" (not paused/stopped/deleted)
-        runnable       – active AND eligible_to_trade
-        paused         – paused but not deleted
-        stopped        – stopped but not deleted
-        training       – in training / quarantined
-        scalper_count  – bots with bot_type == "scalper"
-        normal_count   – bots with bot_type != "scalper"
-        by_exchange    – {exchange: count_of_all_bots}
+    This function is the canonical source used by routes and scheduler-facing
+    summaries so "active" and "runnable" are never conflated.
     """
     if db.bots_collection is None:
         return _empty_counts()
@@ -72,17 +67,38 @@ async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
 
     normalized = [normalize_bot_state(b) for b in raw]
 
-    active = sum(1 for b in normalized if b.get("active"))
+    active_bots = [b for b in normalized if b.get("active")]
+    active = len(active_bots)
     paused = sum(1 for b in normalized if b.get("paused") and not b.get("active"))
     stopped = sum(1 for b in normalized if b.get("stopped"))
     training = sum(
         1 for b in normalized
         if b.get("status") in {"training", "quarantined", "quarantine", "training_failed"}
     )
-    runnable = sum(1 for b in normalized if b.get("eligible_to_trade"))
+    runnable = sum(1 for b in active_bots if b.get("eligible_to_trade"))
     scalper = sum(1 for b in normalized if b.get("bot_type") == "scalper")
     uagent = sum(1 for b in normalized if b.get("bot_type") == "uagent")
     normal = len(normalized) - scalper - uagent
+
+    blocked_reasons: Dict[str, int] = {}
+    for bot in active_bots:
+        if bot.get("eligible_to_trade"):
+            continue
+        for reason in bot.get("not_eligible_reasons", []):
+            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+
+    bots_with_open_positions = 0
+    active_bot_ids = [str(b.get("id")) for b in active_bots if b.get("id")]
+    if active_bot_ids and db.trades_collection is not None and hasattr(db.trades_collection, "distinct"):
+        try:
+            distinct_call = db.trades_collection.distinct(
+                "bot_id",
+                {"bot_id": {"$in": active_bot_ids}, "status": {"$in": ["open", "active", "pending"]}},
+            )
+            open_bot_ids = await distinct_call if inspect.isawaitable(distinct_call) else distinct_call
+            bots_with_open_positions = len(open_bot_ids or [])
+        except Exception as exc:
+            logger.warning("get_canonical_bot_activity open-position query failed for user %s: %s", user_id, exc)
 
     by_exchange: Dict[str, int] = {}
     for b in raw:
@@ -90,6 +106,14 @@ async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
         by_exchange[ex] = by_exchange.get(ex, 0) + 1
 
     return {
+        "total_bot_records": len(normalized),
+        "active_bot_records": active,
+        "runnable_active_bots": runnable,
+        "paused_bots": paused,
+        "bots_with_open_positions": bots_with_open_positions,
+        "blocked_bots": max(0, active - runnable),
+        "non_runnable_reasons": blocked_reasons,
+        # Backward-compatible aliases
         "total": len(normalized),
         "active": active,
         "runnable": runnable,
@@ -101,6 +125,11 @@ async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
         "normal_count": normal,
         "by_exchange": by_exchange,
     }
+
+
+async def get_canonical_bot_counts(user_id: str) -> Dict[str, Any]:
+    """Backward-compatible wrapper for canonical bot activity semantics."""
+    return await get_canonical_bot_activity(user_id)
 
 
 async def get_canonical_trade_counts(user_id: str) -> Dict[str, int]:
@@ -202,6 +231,13 @@ async def get_canonical_wallet_truth(user_id: str) -> Dict[str, Any]:
 
 def _empty_counts() -> Dict[str, Any]:
     return {
+        "total_bot_records": 0,
+        "active_bot_records": 0,
+        "runnable_active_bots": 0,
+        "paused_bots": 0,
+        "bots_with_open_positions": 0,
+        "blocked_bots": 0,
+        "non_runnable_reasons": {},
         "total": 0,
         "active": 0,
         "runnable": 0,

@@ -53,3 +53,26 @@ def test_backfill_current_capital_uses_initial_capital():
 
     assert modified == 3
     assert bots_collection.update_many.await_count == 1
+
+
+def test_canonical_capital_summary_semantics_are_explicit():
+    from services.canonical_metrics import build_canonical_capital_summary
+
+    summary = build_canonical_capital_summary(
+        capital_initial=1000,
+        capital_allocated=500,
+        capital_available=350,
+        open_position_value=120,
+        profit_realized=42,
+        unrealized_profit=8,
+    )
+
+    assert summary["initial_capital"] == 1000.0
+    assert summary["allocated_capital"] == 500.0
+    assert summary["available_capital"] == 350.0
+    assert summary["open_position_value"] == 120.0
+    assert summary["realized_profit"] == 42.0
+    assert summary["unrealized_profit"] == 8.0
+    assert summary["total_equity"] == 478.0
+    assert "semantics" in summary
+    assert "Starting capital assigned" in summary["semantics"]["initial_capital"]

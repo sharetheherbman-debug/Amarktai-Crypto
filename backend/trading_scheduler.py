@@ -59,6 +59,13 @@ class TradingScheduler:
         self.last_tick_executed = 0       # How many trades were executed on last tick
         self.last_tick_processed = 0      # How many trade requests were attempted (dequeued) on last tick
         self.last_tick_noop_reason = None # Why last tick did nothing (if it did nothing)
+        self.last_tick_activity = {
+            "total_bot_records": 0,
+            "active_bot_records": 0,
+            "runnable_active_bots": 0,
+            "paused_bots": 0,
+            "blocked_bots": 0,
+        }
         self.last_trade_at = None         # ISO timestamp of last successful trade execution
         self.last_trade_bot = None        # bot_id of last successful trade
         self.last_trade_result = None     # Summary of last trade result
@@ -95,6 +102,13 @@ class TradingScheduler:
                 self.last_tick_bots = 0
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
+                self.last_tick_activity = {
+                    "total_bot_records": 0,
+                    "active_bot_records": 0,
+                    "runnable_active_bots": 0,
+                    "paused_bots": 0,
+                    "blocked_bots": 0,
+                }
                 self.total_noop_ticks += 1
                 return
             
@@ -115,6 +129,13 @@ class TradingScheduler:
                 self.last_tick_bots = 0
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
+                self.last_tick_activity = {
+                    "total_bot_records": 0,
+                    "active_bot_records": 0,
+                    "runnable_active_bots": 0,
+                    "paused_bots": 0,
+                    "blocked_bots": 0,
+                }
                 self.total_noop_ticks += 1
                 logger.info(
                     "📊 Scheduler tick — Bots scanned: 0 active | "
@@ -122,7 +143,8 @@ class TradingScheduler:
                 )
                 return
             
-            logger.info(f"📊 Bots scanned: {len(active_bots)} active")
+            db_active_records = len(active_bots)
+            logger.info(f"📊 Scheduler scan — active_bot_records={db_active_records}")
             
             # Filter bots by supported exchanges for paper trading
             supported_bots = []
@@ -207,10 +229,17 @@ class TradingScheduler:
                 self.last_tick_bots = 0
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
+                self.last_tick_activity = {
+                    "total_bot_records": len(supported_bots) + len(unsupported_bots),
+                    "active_bot_records": len(supported_bots) + len(unsupported_bots),
+                    "runnable_active_bots": 0,
+                    "paused_bots": runtime_skipped,
+                    "blocked_bots": len(supported_bots) + len(unsupported_bots),
+                }
                 self.total_noop_ticks += 1
                 logger.info(
-                    "📊 Scheduler tick — Bots scanned: %d active | "
-                    "Runtime filtered: %d | Final runnable bots: 0 | "
+                    "📊 Scheduler tick — active_bot_records: %d | "
+                    "runtime_filtered: %d | runnable_active_bots: 0 | "
                     "Noop reason: no_supported_bots",
                     len(supported_bots) + len(unsupported_bots), runtime_skipped,
                 )
@@ -339,6 +368,13 @@ class TradingScheduler:
                 self.last_tick_bots = 0
                 self.last_tick_queued = 0
                 self.last_tick_executed = 0
+                self.last_tick_activity = {
+                    "total_bot_records": len(paused_bots),
+                    "active_bot_records": len(paused_bots),
+                    "runnable_active_bots": 0,
+                    "paused_bots": len(paused_bots),
+                    "blocked_bots": len(paused_bots),
+                }
                 self.total_noop_ticks += 1
                 # Log the first unique pause reason so dashboards / ops can see why
                 sample_reason = None
@@ -346,14 +382,21 @@ class TradingScheduler:
                     sample_uid = paused_bots[0].get("user_id")
                     sample_reason = users_pause_reasons.get(sample_uid, "unknown")
                 logger.info(
-                    "📊 Scheduler tick — Bots scanned: %d | "
-                    "Mode blocked: %d | Final runnable bots: 0 | "
+                    "📊 Scheduler tick — active_bot_records: %d | "
+                    "mode_blocked: %d | runnable_active_bots: 0 | "
                     "Noop reason: all_bots_paused (sample: %s)",
                     len(paused_bots), len(paused_bots), sample_reason,
                 )
                 return
             
             self.last_tick_bots = len(active_bots)
+            self.last_tick_activity = {
+                "total_bot_records": db_active_records,
+                "active_bot_records": db_active_records,
+                "runnable_active_bots": len(active_bots),
+                "paused_bots": len(paused_bots),
+                "blocked_bots": max(0, db_active_records - len(active_bots)),
+            }
             
             # Process ready trades from queue
             for _ in range(5):  # Process up to 5 trades per cycle
@@ -497,26 +540,34 @@ class TradingScheduler:
                     self.last_tick_noop_reason = "managing_open_positions"
                     self.total_noop_ticks += 1
                     logger.info(
-                        "📊 Scheduler tick — Bots scanned: %d active | "
-                        "Final runnable bots: %d | Processed: %d | Queued: %d | "
+                        "📊 Scheduler tick — active_bot_records: %d | "
+                        "runnable_active_bots: %d | processed: %d | queued: %d | "
                         "Noop reason: managing_open_positions",
-                        self.last_tick_bots, self.last_tick_bots, tick_processed, tick_queued,
+                        self.last_tick_activity.get("active_bot_records", 0),
+                        self.last_tick_activity.get("runnable_active_bots", 0),
+                        tick_processed,
+                        tick_queued,
                     )
                 else:
                     self.last_tick_noop_reason = "no_trades_executed"
                     self.total_noop_ticks += 1
                     logger.info(
-                        "📊 Scheduler tick — Bots scanned: %d active | "
-                        "Final runnable bots: %d | Queued: %d | "
+                        "📊 Scheduler tick — active_bot_records: %d | "
+                        "runnable_active_bots: %d | queued: %d | "
                         "Noop reason: no_trades_executed",
-                        self.last_tick_bots, self.last_tick_bots, tick_queued,
+                        self.last_tick_activity.get("active_bot_records", 0),
+                        self.last_tick_activity.get("runnable_active_bots", 0),
+                        tick_queued,
                     )
             else:
                 self.last_tick_noop_reason = None
                 logger.info(
-                    "📊 Scheduler tick — Bots scanned: %d active | "
-                    "Final runnable bots: %d | Queued: %d | Executed: %d",
-                    self.last_tick_bots, self.last_tick_bots, tick_queued, tick_executed,
+                    "📊 Scheduler tick — active_bot_records: %d | "
+                    "runnable_active_bots: %d | queued: %d | executed: %d",
+                    self.last_tick_activity.get("active_bot_records", 0),
+                    self.last_tick_activity.get("runnable_active_bots", 0),
+                    tick_queued,
+                    tick_executed,
                 )
         
         except Exception as e:
@@ -729,6 +780,7 @@ class TradingScheduler:
             "last_tick_executed": self.last_tick_executed,
             "last_tick_processed": getattr(self, 'last_tick_processed', 0),
             "last_tick_noop_reason": self.last_tick_noop_reason,
+            "last_tick_activity": self.last_tick_activity,
             "last_trade_at": self.last_trade_at,
             "last_trade_bot": self.last_trade_bot,
             "last_trade_result": self.last_trade_result,

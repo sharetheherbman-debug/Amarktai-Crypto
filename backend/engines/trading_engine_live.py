@@ -16,6 +16,7 @@ from ccxt_service import CCXTService
 from engines.risk_management import risk_management
 from utils.trading_gates import enforce_live_trading_gates, TradingGateError
 from config import *
+from services.entry_quality import evaluate_expectancy_gate
 
 logger = logging.getLogger(__name__)
 
@@ -272,16 +273,26 @@ class LiveTradingEngine:
                         fee_pct_roundtrip = get_fee_rate(exchange_name, "taker") * 2 * 100
                         slippage_pct_roundtrip = float(os.getenv("LIVE_SLIPPAGE_PCT", "0.05")) * 2
                         estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
-                        if expected_move_pct < estimated_cost_pct + EDGE_BUFFER_PCT:
+                        expectancy = evaluate_expectancy_gate(
+                            bot_type=str(bot_data.get("bot_type", "normal")).lower(),
+                            expected_move_pct=expected_move_pct,
+                            estimated_cost_pct=estimated_cost_pct,
+                            market_quality=float(bot_data.get("market_quality_score", 0.7) or 0.7),
+                            entry_confidence_score=float(bot_data.get("entry_confidence_score", 0.72) or 0.72),
+                            timeout_risk_pct=float(os.getenv("LIVE_TIMEOUT_RISK_PCT", "0.08")),
+                        )
+                        if expected_move_pct < estimated_cost_pct + EDGE_BUFFER_PCT or not expectancy.get("accepted"):
                             return {
                                 "success": False,
                                 "error": "Edge gate blocked trade",
                                 "skip_reason": "edge_gate",
+                                "reason_code": "INSUFFICIENT_NET_EXPECTANCY",
                                 "details": {
                                     "expected_move_pct": expected_move_pct,
                                     "estimated_cost_pct": round(estimated_cost_pct, 4),
                                     "edge_buffer_pct": EDGE_BUFFER_PCT,
-                                    "spread_pct": round(spread_pct, 4)
+                                    "spread_pct": round(spread_pct, 4),
+                                    "expectancy": expectancy,
                                 }
                             }
                 except Exception as e:

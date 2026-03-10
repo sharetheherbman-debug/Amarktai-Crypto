@@ -95,10 +95,11 @@ export const useDashboardData = (token) => {
       const data = await get('/overview/snapshot');
       const totalProfit = Number.isFinite(Number(data.totalProfit)) ? Number(data.totalProfit) : 0;
       const activeBots = Number.isFinite(Number(data.activeBots)) ? Number(data.activeBots) : 0;
+      const runnableBots = Number.isFinite(Number(data.runnableBots)) ? Number(data.runnableBots) : 0;
       const openPositions = Number.isFinite(Number(data.openPositions)) ? Number(data.openPositions) : 0;
       setMetrics({
         totalProfit: `R${totalProfit.toFixed(2)}`,
-        activeBots: `${activeBots}`,
+        activeBots: `${runnableBots} runnable / ${activeBots} active`,
         exposure: `${openPositions}%`,
         riskLevel: data.riskLevel || 'Unknown',
         aiSentiment: 'Neutral',
@@ -246,9 +247,15 @@ export const useDashboardData = (token) => {
       const overview = payload?.overview || payload?.data?.overview;
       if (!overview) return;
       const totalBots = (overview.bots_active || 0) + (overview.bots_paused || 0) + (overview.bots_training || 0) + (overview.bots_quarantine || 0);
+      const runnableBots = Number.isFinite(Number(overview.runnable_bots))
+        ? Number(overview.runnable_bots)
+        : Number.isFinite(Number(overview.bots_active))
+          ? Number(overview.bots_active)
+          : 0;
+      const activeBots = Number.isFinite(Number(overview.bots_active)) ? Number(overview.bots_active) : 0;
       setMetrics({
         totalProfit: `R${overview.total_profit?.toFixed(2) || '0.00'}`,
-        activeBots: `${overview.bots_active || 0} / ${totalBots}`,
+        activeBots: `${runnableBots} runnable / ${activeBots} active`,
         exposure: `${overview.exposure?.toFixed?.(2) || '0'}%`,
         riskLevel: overview.risk_level || 'Unknown',
         aiSentiment: overview.ai_sentiment || 'Neutral',

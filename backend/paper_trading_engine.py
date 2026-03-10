@@ -47,6 +47,13 @@ from utils.trading_gates import enforce_trading_gates, TradingGateError
 from services.paper_wallet_ledger import paper_wallet_ledger
 from services.trading_mode_validator import trading_mode_validator
 from services.hold_policy import resolve_hold_policy
+from services.regime_classifier import classify_regime, strategy_regime_allowed
+from services.entry_quality import (
+    compute_entry_confidence,
+    evaluate_expectancy_gate,
+    derive_adaptive_discipline,
+    evaluate_pre_timeout_exit,
+)
 from config import (
     MIN_TRADE_PROFIT_THRESHOLD_ZAR,
     EDGE_BUFFER_PCT,
@@ -91,6 +98,15 @@ NORMAL_TAKE_PROFIT_DEFAULT = float(os.getenv("NORMAL_TAKE_PROFIT_DEFAULT", "0.02
 NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "0.01"))
 ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
 ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
+SCALPER_MIN_EDGE_PCT = float(os.getenv("SCALPER_MIN_EDGE_PCT", "1.0"))
+SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.75"))
+NORMAL_MIN_AVG_CONFIDENCE = float(os.getenv("NORMAL_MIN_AVG_CONFIDENCE", "0.68"))
+SCALPER_NO_PROGRESS_HOLD_RATIO = float(os.getenv("SCALPER_NO_PROGRESS_HOLD_RATIO", "0.55"))
+NORMAL_NO_PROGRESS_HOLD_RATIO = float(os.getenv("NORMAL_NO_PROGRESS_HOLD_RATIO", "0.45"))
+MIN_PROVEN_WINNER_PCT = float(os.getenv("MIN_PROVEN_WINNER_PCT", "0.18"))
+TAKE_PROFIT_PROVEN_MULTIPLIER = float(os.getenv("TAKE_PROFIT_PROVEN_MULTIPLIER", "0.35"))
+MIN_ADAPTIVE_TRAILING_PCT = float(os.getenv("MIN_ADAPTIVE_TRAILING_PCT", "0.0015"))
+PROVEN_WINNER_TRAILING_MULTIPLIER = float(os.getenv("PROVEN_WINNER_TRAILING_MULTIPLIER", "0.6"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -355,6 +371,106 @@ class PaperTradingEngine:
             "take_profit_pct": max(0.001, take_profit_pct),
             "trailing_stop_pct": max(0.001, trailing_stop_pct),
         }
+
+    @staticmethod
+    def _signal_direction(value: Optional[str]) -> str:
+        v = str(value or "").lower().strip()
+        if v in {"bullish", "buy", "long", "up"}:
+            return "bullish"
+        if v in {"bearish", "sell", "short", "down"}:
+            return "bearish"
+        return "neutral"
+
+    @classmethod
+    def _compute_signal_consensus(cls, regime: Dict, prediction: Dict, fetchai_data: Dict) -> Dict[str, int]:
+        """Compute directional consensus across high-confidence signal sources."""
+        signals = []
+        if float(regime.get("confidence", 0) or 0) >= 0.6:
+            signals.append(cls._signal_direction(regime.get("trend")))
+        if float(prediction.get("confidence", 0) or 0) >= 0.65:
+            signals.append(cls._signal_direction(prediction.get("direction")))
+        if float(fetchai_data.get("confidence", 0) or 0) >= 70:
+            signals.append(cls._signal_direction(fetchai_data.get("signal")))
+        bullish = sum(1 for s in signals if s == "bullish")
+        bearish = sum(1 for s in signals if s == "bearish")
+        neutral = sum(1 for s in signals if s == "neutral")
+        return {
+            "sources": len(signals),
+            "bullish": bullish,
+            "bearish": bearish,
+            "neutral": neutral,
+            "consensus_strength": abs(bullish - bearish),
+        }
+
+    async def _record_decision_trace(
+        self,
+        *,
+        user_id: str,
+        bot_id: str,
+        bot_data: Dict,
+        symbol: str,
+        exchange: str,
+        decision: str,
+        reason_code: str,
+        reason_text: str,
+        details: Optional[Dict] = None,
+    ) -> None:
+        """Persist machine-readable decision traces for accepted/rejected trades."""
+        if not getattr(db, "decisions_collection", None):
+            return
+        try:
+            payload = {
+                "user_id": user_id,
+                "bot_id": bot_id,
+                "bot_name": bot_data.get("name"),
+                "symbol": symbol,
+                "exchange": exchange,
+                "decision": decision,
+                "reason_code": reason_code,
+                "reason_text": reason_text,
+                "bot_type": bot_data.get("bot_type", "normal"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "details": details or {},
+            }
+            await db.decisions_collection.insert_one(payload)
+        except Exception as trace_err:
+            logger.debug(f"Decision trace insert skipped: {trace_err}")
+
+    async def _recent_closed_trades(self, bot_id: str, limit: int = 10) -> list[Dict]:
+        if not db.trades_collection:
+            return []
+        try:
+            return await db.trades_collection.find(
+                {"bot_id": bot_id, "status": "closed"},
+                {"_id": 0, "net_pnl": 1, "profit_loss": 1, "trade_close_reason": 1, "timestamp": 1},
+            ).sort("timestamp", -1).limit(limit).to_list(limit)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _evaluate_pre_timeout_exit(
+        *,
+        bot_class: str,
+        hold_ratio: float,
+        pnl_pct: float,
+        min_progress_pct: float,
+        regime_trend: str,
+        regime_confidence: float,
+    ) -> Optional[str]:
+        """Evaluate strategic exit reasons before timeout fallback."""
+        reason = evaluate_pre_timeout_exit(
+            bot_class=bot_class,
+            hold_ratio=hold_ratio,
+            pnl_pct=pnl_pct,
+            min_progress_pct=min_progress_pct,
+            regime_trend=regime_trend,
+            regime_confidence=regime_confidence,
+        )
+        if reason == "scalper_no_progress_exit" and hold_ratio < SCALPER_NO_PROGRESS_HOLD_RATIO:
+            return None
+        if reason == "normal_no_progress_exit" and hold_ratio < NORMAL_NO_PROGRESS_HOLD_RATIO:
+            return None
+        return reason
 
     async def _apply_dynamic_exit_targets(
         self,
@@ -981,16 +1097,92 @@ class PaperTradingEngine:
             estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
             edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
             bot_type = str(bot_data.get("bot_type") or "normal").lower()
+
+            canonical_regime = classify_regime(
+                raw_regime=regime.get("regime"),
+                trend=regime.get("trend"),
+                trend_pct=float(regime.get("trend_pct", 0) or 0),
+                volatility_pct=float(regime.get("volatility_pct", 0) or 0),
+                spread_pct=spread_pct,
+                depth_notional=depth_notional,
+            )
+            regime_gate = strategy_regime_allowed(
+                bot_type=bot_type,
+                regime=str(canonical_regime.get("regime", "unknown")),
+                confidence=float(canonical_regime.get("confidence", 0) or 0),
+            )
+            if not bool(regime_gate.get("allowed")):
+                await self._record_decision_trace(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    symbol=symbol,
+                    exchange=exchange,
+                    decision="reject",
+                    reason_code=str(regime_gate.get("reason_code", "REGIME_BLOCK")),
+                    reason_text=str(regime_gate.get("reason_text", "Regime blocked trade")),
+                    details={"regime": canonical_regime},
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": str(regime_gate.get("reason_code", "REGIME_BLOCK")).lower(),
+                    "reason_code": str(regime_gate.get("reason_code", "REGIME_BLOCK")),
+                    "error": str(regime_gate.get("reason_text", "Regime blocked trade")),
+                    "details": {"regime": canonical_regime},
+                }
+
+            recent_closed = await self._recent_closed_trades(bot_id, limit=10)
+            adaptive = derive_adaptive_discipline(recent_closed)
+            if adaptive.get("stand_down"):
+                await self._record_decision_trace(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    symbol=symbol,
+                    exchange=exchange,
+                    decision="stand_down",
+                    reason_code=str(adaptive.get("reason_code", "ADAPTIVE_STAND_DOWN")),
+                    reason_text="Adaptive discipline stand-down after weak recent outcomes",
+                    details={"recent_sample": len(recent_closed)},
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "adaptive_stand_down",
+                    "reason_code": str(adaptive.get("reason_code", "ADAPTIVE_STAND_DOWN")),
+                    "error": "Adaptive discipline stand-down",
+                }
+
             if bot_type == "scalper":
                 # Scalpers have short holds and higher turnover, so require stronger edge.
                 # Gate is tightened by both an absolute uplift and a relative-cost multiplier.
-                edge_required_pct = max(edge_required_pct + 0.20, estimated_cost_pct * 1.75)
+                edge_required_pct = max(
+                    edge_required_pct + 0.35,
+                    estimated_cost_pct * 2.25,
+                    SCALPER_MIN_EDGE_PCT + float(adaptive.get("edge_uplift_pct", 0) or 0),
+                )
 
             if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:
+                await self._record_decision_trace(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    symbol=symbol,
+                    exchange=exchange,
+                    decision="reject",
+                    reason_code="INSUFFICIENT_COST_EDGE",
+                    reason_text="Expected move below strict cost-aware edge threshold",
+                    details={
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "edge_required_pct": round(edge_required_pct, 4),
+                    },
+                )
                 return {
                     "success": False,
                     "bot_id": bot_id,
                     "skip_reason": "edge_gate",
+                    "reason_code": "INSUFFICIENT_COST_EDGE",
                     "error": "Expected move below edge gate threshold",
                     "details": {
                         "expected_move_pct": round(expected_move_pct, 4),
@@ -1004,8 +1196,7 @@ class PaperTradingEngine:
                     }
                 }
             
-            # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
-            # Only trade if at least 2 AI sources have decent confidence
+            # QUALITY FILTER: Skip low-confidence or conflicting trades
             total_confidence = 0
             confidence_sources = 0
             
@@ -1021,11 +1212,104 @@ class PaperTradingEngine:
             if coinstats_data.get('strength', 0) > 60:
                 total_confidence += (coinstats_data.get('strength', 0) / 100)
                 confidence_sources += 1
-            
-            # Require at least 2 sources with average confidence > 65%
-            if confidence_sources < 2 or (total_confidence / max(confidence_sources, 1)) < 0.65:
-                logger.debug(f"Trade quality filter: Skipping low-confidence trade (sources: {confidence_sources}, avg: {total_confidence/max(confidence_sources,1):.2%})")
-                return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
+
+            avg_confidence = total_confidence / max(confidence_sources, 1)
+            consensus = self._compute_signal_consensus(regime, prediction, fetchai_data)
+            regime_name = str(regime.get("regime", "unknown")).lower()
+            trend_direction = self._signal_direction(trend)
+            dominant_direction = "neutral"
+            if consensus["bullish"] > consensus["bearish"]:
+                dominant_direction = "bullish"
+            elif consensus["bearish"] > consensus["bullish"]:
+                dominant_direction = "bearish"
+            direction_conflict = dominant_direction != "neutral" and trend_direction != "neutral" and dominant_direction != trend_direction
+
+            confidence_result = compute_entry_confidence(
+                bot_type=bot_type,
+                regime_confidence=float(canonical_regime.get("confidence", 0) or 0),
+                ml_confidence=float(prediction.get("confidence", 0) or 0),
+                fetchai_confidence=float(fetchai_data.get("confidence", 0) or 0),
+                coinstats_strength=float(coinstats_data.get("strength", 0) or 0),
+                consensus_strength=int(consensus.get("consensus_strength", 0)),
+                consensus_sources=int(consensus.get("sources", 0)),
+                direction_conflict=direction_conflict,
+            )
+            min_required_confidence = float(confidence_result.get("minimum_required", 0.68)) + float(adaptive.get("confidence_uplift", 0) or 0)
+            entry_confidence_score = float(confidence_result.get("entry_confidence_score", 0) or 0)
+
+            if entry_confidence_score < min_required_confidence:
+                await self._record_decision_trace(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    symbol=symbol,
+                    exchange=exchange,
+                    decision="reject",
+                    reason_code="LOW_ENTRY_CONFIDENCE",
+                    reason_text="Signal confidence below minimum threshold",
+                    details={
+                        "entry_confidence_score": entry_confidence_score,
+                        "required_confidence": round(min_required_confidence, 4),
+                        "consensus": consensus,
+                    },
+                )
+                return {"success": False, "bot_id": bot_id, "skip_reason": "low_entry_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Trade quality threshold not met"}
+
+            if bot_type == "scalper":
+                if regime_name in {"unknown", "choppy", "sideways"} and float(regime.get("confidence", 0) or 0) < 0.75:
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "reason_code": "REGIME_UNKNOWN_BLOCK", "error": "Scalper trade blocked in low-confidence regime"}
+                if confidence_sources < 3 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
+                    logger.debug(
+                        "Scalper quality filter: low confidence (sources=%s avg=%.2f)",
+                        confidence_sources,
+                        avg_confidence,
+                    )
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Scalper quality threshold not met"}
+                if consensus["consensus_strength"] < 2 or consensus["sources"] < 2:
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_conflicting_signals", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signal consensus too weak"}
+                if dominant_direction == "neutral" or (trend_direction != "neutral" and dominant_direction != trend_direction):
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_direction_conflict", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signals conflict with trend"}
+            else:
+                if confidence_sources < 2 or avg_confidence < NORMAL_MIN_AVG_CONFIDENCE:
+                    logger.debug(
+                        "Normal quality filter: low confidence (sources=%s avg=%.2f)",
+                        confidence_sources,
+                        avg_confidence,
+                    )
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Trade quality threshold not met"}
+                if consensus["consensus_strength"] == 0 and avg_confidence < 0.75:
+                    return {"success": False, "bot_id": bot_id, "skip_reason": "conflicting_signals", "reason_code": "SIGNAL_CONFLICT", "error": "Signal consensus threshold not met"}
+
+            timeout_risk_pct = 0.12 if bot_type == "scalper" else 0.08
+            expectancy = evaluate_expectancy_gate(
+                bot_type=bot_type,
+                expected_move_pct=expected_move_pct,
+                estimated_cost_pct=estimated_cost_pct,
+                market_quality=float(canonical_regime.get("market_quality", 0) or 0),
+                entry_confidence_score=entry_confidence_score,
+                timeout_risk_pct=timeout_risk_pct,
+                adaptive_edge_uplift_pct=float(adaptive.get("edge_uplift_pct", 0) or 0),
+            )
+            if not expectancy.get("accepted"):
+                await self._record_decision_trace(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    symbol=symbol,
+                    exchange=exchange,
+                    decision="reject",
+                    reason_code="INSUFFICIENT_NET_EXPECTANCY",
+                    reason_text="Post-cost expected edge is insufficient",
+                    details={"expectancy": expectancy},
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "insufficient_net_expectancy",
+                    "reason_code": "INSUFFICIENT_NET_EXPECTANCY",
+                    "error": "Insufficient net expectancy after costs and risk",
+                    "details": {"expectancy": expectancy},
+                }
             
             # Candidate notional is full available paper capital.
             # Final size is risk-capped by fixed-fractional sizing below.
@@ -1225,6 +1509,17 @@ class PaperTradingEngine:
                 "estimated_cost_pct": round(estimated_cost_pct, 4),
                 "edge_buffer_pct": EDGE_BUFFER_PCT,
                 "edge_required_pct": round(edge_required_pct, 4),
+                "reason_code": "ENTRY_APPROVED",
+                "entry_reason_code": "ENTRY_APPROVED",
+                "entry_confidence_score": round(entry_confidence_score, 4),
+                "entry_confidence_required": round(min_required_confidence, 4),
+                "expectancy_score": round(float(expectancy.get("quality_multiplier", 0) or 0), 4),
+                "expectancy_net_edge_pct": round(float(expectancy.get("net_edge_pct", 0) or 0), 4),
+                "expectancy_required_edge_pct": round(float(expectancy.get("required_net_edge_pct", 0) or 0), 4),
+                "canonical_market_regime": canonical_regime.get("regime", "unknown"),
+                "canonical_regime_confidence": round(float(canonical_regime.get("confidence", 0) or 0), 4),
+                "market_quality_score": round(float(canonical_regime.get("market_quality", 0) or 0), 4),
+                "adaptive_discipline_code": str(adaptive.get("reason_code", "ADAPTIVE_NEUTRAL")),
                 # AI Intelligence metadata
                 "ai_regime": regime.get('regime', 'unknown'),
                 "ai_confidence": round(regime.get('confidence', 0), 2),
@@ -1233,7 +1528,10 @@ class PaperTradingEngine:
                 "coinstats_strength": round(coinstats_data.get('strength', 0), 1),
                 "coinstats_sentiment": coinstats_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
-                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1)
+                "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1),
+                "signal_consensus_strength": consensus.get("consensus_strength", 0),
+                "signal_sources": consensus.get("sources", 0),
+                "avg_ai_confidence": round(avg_confidence, 3),
             }
 
             # RECORD TRADE FOR RATE LIMITER (entry)
@@ -1243,6 +1541,23 @@ class PaperTradingEngine:
             self.last_trade_simulation = trade_result
             self.trade_count += 1
             self.last_error = None
+
+            await self._record_decision_trace(
+                user_id=user_id,
+                bot_id=bot_id,
+                bot_data=bot_data,
+                symbol=symbol,
+                exchange=exchange,
+                decision="approve",
+                reason_code="ENTRY_APPROVED",
+                reason_text="Entry accepted by regime/consensus/expectancy gates",
+                details={
+                    "canonical_regime": canonical_regime,
+                    "expectancy": expectancy,
+                    "entry_confidence_score": entry_confidence_score,
+                    "adaptive": adaptive,
+                },
+            )
 
             logger.info(f"🟡 {bot_data['name'][:15]} | {symbol} | OPEN @ R{avg_entry_price:.2f}")
 
@@ -1359,9 +1674,16 @@ class PaperTradingEngine:
             close_reason = None
 
             # Update trailing reference prices before evaluating exits.
+            # pnl_pct is expressed in percentage points (e.g., 1.2 = 1.2%),
+            # while take_profit_pct is fractional (e.g., 0.02 = 2%), hence * 100 conversion.
+            proven_winner = pnl_pct >= max(MIN_PROVEN_WINNER_PCT, take_profit_pct * 100 * TAKE_PROFIT_PROVEN_MULTIPLIER)
+            adaptive_trailing_pct = trailing_stop_pct
+            if proven_winner:
+                adaptive_trailing_pct = max(MIN_ADAPTIVE_TRAILING_PCT, trailing_stop_pct * PROVEN_WINNER_TRAILING_MULTIPLIER)
+
             if current_price > highest_price:
                 highest_price = current_price
-                trailing_stop_price = max(trailing_stop_price, highest_price * (1 - trailing_stop_pct))
+                trailing_stop_price = max(trailing_stop_price, highest_price * (1 - adaptive_trailing_pct))
                 open_trade_id = open_trade.get("id")
                 if open_trade_id:
                     await db.trades_collection.update_one(
@@ -1369,6 +1691,7 @@ class PaperTradingEngine:
                         {"$set": {
                             "highest_price": highest_price,
                             "trailing_stop_price": trailing_stop_price,
+                            "adaptive_trailing_pct": adaptive_trailing_pct,
                         }}
                     )
 
@@ -1381,15 +1704,41 @@ class PaperTradingEngine:
             # 3. Trailing stop
             elif current_price <= trailing_stop_price and highest_price > entry_price:
                 close_reason = "trailing_stop"
-            # 4. Risk-mode max hold exceeded — force close regardless of PnL
-            elif age_seconds >= max_hold_seconds:
-                close_reason = "max_hold_exceeded"
-                logger.warning(
-                    f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
-                    f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
-                    f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
-                )
             else:
+                # 4. Strategic early invalidation before timeout dominates.
+                #    Make max-hold a rare fallback rather than the default exit path.
+                hold_ratio = (age_seconds / max_hold_seconds) if max_hold_seconds > 0 else 0
+                min_progress_pct = max(0.05, take_profit_pct * 100 * 0.12)
+
+                # Regime deterioration: exit normal trades earlier when direction quality collapses.
+                if bot_class == "normal" and hold_ratio >= 0.25:
+                    try:
+                        from market_regime import market_regime_detector
+                        live_regime = await market_regime_detector.detect_regime(symbol, exchange)
+                        regime_trend = self._signal_direction(live_regime.get("trend"))
+                        regime_confidence = float(live_regime.get("confidence", 0) or 0)
+                        close_reason = self._evaluate_pre_timeout_exit(
+                            bot_class=bot_class,
+                            hold_ratio=hold_ratio,
+                            pnl_pct=pnl_pct,
+                            min_progress_pct=min_progress_pct,
+                            regime_trend=regime_trend,
+                            regime_confidence=regime_confidence,
+                        )
+                    except Exception as regime_err:
+                        logger.debug(f"Regime deterioration check skipped: {regime_err}")
+
+                # No-progress exits to reduce time-exit churn.
+                if not close_reason:
+                    close_reason = self._evaluate_pre_timeout_exit(
+                        bot_class=bot_class,
+                        hold_ratio=hold_ratio,
+                        pnl_pct=pnl_pct,
+                        min_progress_pct=min_progress_pct,
+                        regime_trend="neutral",
+                        regime_confidence=0.0,
+                    )
+
                 # 5. Time-decay adaptive exit (single hold-truth path with custom expected hold)
                 try:
                     from engines.time_decay_exit import time_decay_exit_engine
@@ -1410,7 +1759,16 @@ class PaperTradingEngine:
                 except Exception as td_err:
                     logger.debug(f"Time-decay eval skipped: {td_err}")
 
-            # 6. Legacy stale-exit fallback
+                # 6. Risk-mode max hold exceeded — explicit fallback.
+                if not close_reason and age_seconds >= max_hold_seconds:
+                    close_reason = "max_hold_exceeded"
+                    logger.warning(
+                        f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
+                        f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
+                        f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
+                    )
+
+            # 7. Legacy stale-exit fallback
             if not close_reason and age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
 
@@ -1503,6 +1861,7 @@ class PaperTradingEngine:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trade_type": "BUY->SELL",
                 "trade_close_reason": close_reason,
+                "trade_close_reason_code": str(close_reason or "UNSPECIFIED_CLOSE").upper(),
                 "data_source": open_trade.get("data_source"),
                 "fee_rate": round(fee_rate, 6),
                 "slippage_rate": round(slippage_rate, 6),
@@ -1515,6 +1874,27 @@ class PaperTradingEngine:
                 "latency_ms": PAPER_LATENCY_MS,
                 "open_trade_id": open_trade.get("id")
             }
+            trade_result["exit_decision_trace"] = {
+                "reason_code": trade_result["trade_close_reason_code"],
+                "reason_text": str(close_reason or "").replace("_", " "),
+                "hold_seconds": round(age_seconds, 2),
+                "hold_ratio": round((age_seconds / max_hold_seconds), 4) if max_hold_seconds > 0 else 0.0,
+                "max_hold_seconds": max_hold_seconds,
+                "pnl_pct": round(pnl_pct, 4),
+                "proven_winner": proven_winner,
+                "adaptive_trailing_pct": round(adaptive_trailing_pct, 5),
+            }
+            await self._record_decision_trace(
+                user_id=str(bot_data.get("user_id", "")),
+                bot_id=bot_id,
+                bot_data=bot_data,
+                symbol=symbol,
+                exchange=exchange,
+                decision="exit",
+                reason_code=trade_result["trade_close_reason_code"],
+                reason_text=f"Exit triggered: {close_reason}",
+                details=trade_result["exit_decision_trace"],
+            )
 
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
