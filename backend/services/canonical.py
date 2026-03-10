@@ -323,10 +323,11 @@ async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str
 
     latest: Dict[str, Dict[str, Any]] = {}
     try:
+        fetch_limit = max(len(bot_ids) * 5, 50)
         rows = await collection.find(
             {"user_id": user_id, "bot_id": {"$in": bot_ids}},
             {"_id": 0, "bot_id": 1, "decision": 1, "reason_code": 1, "details": 1, "timestamp": 1},
-        ).sort("timestamp", -1).limit(max(len(bot_ids) * 5, 50)).to_list(length=max(len(bot_ids) * 5, 50))
+        ).sort("timestamp", -1).limit(fetch_limit).to_list(length=fetch_limit)
     except Exception as exc:
         logger.warning("get_latest_bot_decisions failed for user %s: %s", user_id, exc)
         return {}
@@ -338,6 +339,7 @@ async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str
         details = row.get("details") or {}
         regime_details = details.get("regime") if isinstance(details.get("regime"), dict) else {}
         reason_code = row.get("reason_code")
+        fallback_reasons = [str(reason_code).lower()] if row.get("decision") in {"reject", "stand_down"} and reason_code else []
         latest[bot_id] = {
             "decision": row.get("decision"),
             "decision_reason_code": reason_code,
@@ -346,6 +348,6 @@ async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str
             "expectancy_net_edge_pct": details.get("expectancy_net_edge_pct"),
             "market_regime": regime_details.get("regime"),
             "canonical_regime_confidence": regime_details.get("confidence"),
-            "not_eligible_reasons": [str(reason_code).lower()] if row.get("decision") in {"reject", "stand_down"} and reason_code else [],
+            "not_eligible_reasons": details.get("rejection_reasons") or fallback_reasons,
         }
     return latest

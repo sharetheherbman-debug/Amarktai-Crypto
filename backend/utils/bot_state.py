@@ -11,6 +11,8 @@ BOT_STATE_PAUSED = "paused"
 BOT_STATE_TRAINING = "training"
 BOT_STATE_QUARANTINE = "quarantine"
 BOT_STATE_STOPPED = "stopped"
+MIN_REGIME_CONFIDENCE = 0.5
+MIN_ENTRY_CONFIDENCE = 0.0
 
 
 def resolve_activity_state(bot: Dict) -> Dict:
@@ -87,7 +89,7 @@ def _compute_eligible_to_trade(
     entry_confidence = float(
         bot.get("entry_confidence_score", bot.get("last_entry_confidence_score", bot.get("confidence_score", 0))) or 0
     )
-    if regime == "unknown" and regime_confidence < 0.5 and entry_confidence <= 0:
+    if regime == "unknown" and regime_confidence < MIN_REGIME_CONFIDENCE and entry_confidence <= MIN_ENTRY_CONFIDENCE:
         reasons.append("regime_unknown_low_confidence")
 
     eligible = active and not reasons

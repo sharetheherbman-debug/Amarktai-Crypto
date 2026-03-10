@@ -102,6 +102,10 @@ export default function BotRadarSection({ axiosConfig }) {
     const m = Math.floor((seconds % 3600) / 60);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
+  const formatMaybeNumber = (value, digits = 2) => {
+    const num = Number(value);
+    return value === null || value === undefined || !Number.isFinite(num) ? '—' : num.toFixed(digits);
+  };
 
   const getActionColor = (action) => {
     switch (action) {
@@ -289,15 +293,15 @@ export default function BotRadarSection({ axiosConfig }) {
                   </div>
                   <div className="radar-intent-row">
                     <span>Regime Confidence:</span>
-                    <span>{entry.regime_confidence == null ? '—' : Number(entry.regime_confidence).toFixed(2)}</span>
+                    <span>{formatMaybeNumber(entry.regime_confidence)}</span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Entry Confidence:</span>
-                    <span>{entry.entry_confidence_score == null ? '—' : Number(entry.entry_confidence_score).toFixed(2)}</span>
+                    <span>{formatMaybeNumber(entry.entry_confidence_score)}</span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Expectancy Edge %:</span>
-                    <span>{entry.expectancy_net_edge_pct == null ? '—' : Number(entry.expectancy_net_edge_pct).toFixed(2)}</span>
+                    <span>{formatMaybeNumber(entry.expectancy_net_edge_pct)}</span>
                   </div>
                   <div className="radar-intent-row">
                     <span>Decision Code:</span>

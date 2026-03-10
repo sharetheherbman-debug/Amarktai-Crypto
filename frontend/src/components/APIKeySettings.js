@@ -11,6 +11,7 @@ import { get, post, del, notifyError } from '../lib/apiClient';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
+  const PREMIUM_OPTIONAL_LABEL = 'Premium/optional';
   const PREMIUM_PROVIDER_IDS = new Set(['glassnode']);
 
   // Build providers list from canonical config (excludes legacy/deprecated)
@@ -259,7 +260,7 @@ const APIKeySettings = () => {
 
   const getStatusDisplay = (status, lastTestError, providerId) => {
     if (isPremiumProvider(providerId)) {
-      return 'Premium/optional';
+      return PREMIUM_OPTIONAL_LABEL;
     }
     if (!isProviderAvailable(providerId)) {
       return 'Disabled in this deployment';
@@ -292,7 +293,7 @@ const APIKeySettings = () => {
 
   const getStatusBadge = (status, providerId, available = true) => {
     if (isPremiumProvider(providerId)) {
-      return { label: 'Premium/optional', tone: 'warning' };
+      return { label: PREMIUM_OPTIONAL_LABEL, tone: 'warning' };
     }
     if (!available) {
       return { label: 'Disabled in deployment', tone: 'muted' };
@@ -319,11 +320,11 @@ const APIKeySettings = () => {
     const status = providerStatus?.status || 'not_configured';
     const isAvailable = isProviderAvailable(provider.id);
     const statusBadge = getStatusBadge(status, provider.id, isAvailable);
-    const statusDetails = isPremiumProvider(provider.id)
-      ? getStatusDisplay(status, providerStatus?.last_test_error, provider.id)
-      : (isAvailable
-        ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error, provider.id)
-        : getStatusDisplay(status, providerStatus?.last_test_error, provider.id));
+    const fallbackStatusDetails = getStatusDisplay(status, providerStatus?.last_test_error, provider.id);
+    let statusDetails = fallbackStatusDetails;
+    if (!isPremiumProvider(provider.id) && isAvailable && providerStatus?.status_display) {
+      statusDetails = providerStatus.status_display;
+    }
     const isConfigured = status !== 'not_configured';
 
     return (

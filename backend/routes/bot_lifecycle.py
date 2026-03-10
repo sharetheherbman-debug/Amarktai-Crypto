@@ -276,7 +276,12 @@ async def get_bots_status(
             if runtime_state and runtime_state.get("state") in {"active", "paused", "stopped"}:
                 status = runtime_state.get("state")
             decision_overlay = decision_map.get(str(bot.get("id")), {})
-            normalized_bot = normalize_bot_state({**bot, **decision_overlay, "status": status})
+            decision_fallback = {
+                key: value
+                for key, value in decision_overlay.items()
+                if key not in bot or bot.get(key) in (None, "", [])
+            }
+            normalized_bot = normalize_bot_state({**bot, **decision_fallback, "status": status})
             
             # Map status to standard states
             if status == 'active':

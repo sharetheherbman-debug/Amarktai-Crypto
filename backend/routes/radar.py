@@ -269,7 +269,12 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
             # Use the canonical string bot ID (not MongoDB _id) — trades are stored with bot.id
             bot_id = raw_bot.get("id") or str(raw_bot.get("_id", ""))
             decision_overlay = latest_decisions.get(str(bot_id), {})
-            bot = normalize_bot_state({**raw_bot, **decision_overlay})
+            decision_fallback = {
+                key: value
+                for key, value in decision_overlay.items()
+                if key not in raw_bot or raw_bot.get(key) in (None, "", [])
+            }
+            bot = normalize_bot_state({**raw_bot, **decision_fallback})
 
             # Find open trade for this bot
             open_trade = await db.trades_collection.find_one(
