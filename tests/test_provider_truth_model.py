@@ -25,6 +25,7 @@ CANONICAL_EXCHANGES = {'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget',
 CANONICAL_AI_PROVIDERS = {'openai', 'huggingface', 'fetchai'}
 CANONICAL_MARKET_DATA = {'coindesk', 'cryptocompare', 'coingecko', 'coinranking'}
 CANONICAL_ENRICHERS = {'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic'}
+VISIBLE_DEFAULT_ENRICHERS = {'etherscan', 'whale_alert', 'cryptopanic'}
 LEGACY_PROVIDERS = {'coinstats'}
 
 
@@ -148,8 +149,10 @@ class TestFrontendProviderTruth:
         match = re.search(r"export const INTELLIGENCE_ENRICHERS\s*=\s*\[([^\]]+)\]", content)
         assert match, "INTELLIGENCE_ENRICHERS not found in platforms.js"
         enr_list = match.group(1)
-        for p in ['glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic']:
+        for p in VISIBLE_DEFAULT_ENRICHERS:
             assert p in enr_list, f"{p} missing from INTELLIGENCE_ENRICHERS"
+        for removed in ['glassnode', 'lunarcrush']:
+            assert removed not in enr_list, f"{removed} should not be in default visible enricher flow"
 
     def test_platforms_js_coinstats_marked_legacy(self):
         content = self.platforms_js.read_text()

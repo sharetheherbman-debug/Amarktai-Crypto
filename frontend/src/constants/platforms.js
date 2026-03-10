@@ -6,7 +6,7 @@
  *   Exchanges:        luno, binance, kucoin, bybit, kraken, bitget, gate
  *   AI Providers:     openai, huggingface, fetchai
  *   Market Data:      coindesk (PRIMARY), cryptocompare (SECONDARY), coingecko (TERTIARY), coinranking (FOURTH)
- *   Enrichers:        glassnode, etherscan, whale_alert, lunarcrush, cryptopanic
+ *   Enrichers:        etherscan, whale_alert, cryptopanic
  *   Legacy fallback:  coinstats (deprecated — hidden by default, fallback-only)
  */
 
@@ -24,7 +24,7 @@ export const MARKET_DATA_PROVIDERS = ['coindesk', 'cryptocompare', 'coingecko', 
 
 // ─── Intelligence Enrichers (optional, not pricing sources) ─────────────────
 
-export const INTELLIGENCE_ENRICHERS = ['glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic'];
+export const INTELLIGENCE_ENRICHERS = ['etherscan', 'whale_alert', 'cryptopanic'];
 
 // ─── Legacy Providers (deprecated, fallback-only) ───────────────────────────
 

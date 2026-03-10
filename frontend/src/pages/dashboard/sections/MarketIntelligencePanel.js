@@ -6,10 +6,9 @@ import { get } from '../../../lib/apiClient';
  * MarketIntelligencePanel — canonical market intelligence & data provider dashboard.
  *
  * Shows:
- *  - Provider health, priority, and fallback order
+ *  - Provider health and active data sources
  *  - Capabilities per provider (prices, metadata, whale flow, sentiment, news, on-chain)
- *  - Intelligence enricher status
- *  - Degraded-state warnings when enrichers are missing
+ *  - Optional intelligence enricher status
  */
 
 const CAPABILITY_LABELS = {
@@ -112,7 +111,23 @@ const MarketIntelligencePanel = () => {
         diagnostics = {};
       }
       const healthMap = diagnostics?.provider_health || {};
-      setIntelligence(diagnostics?.intelligence || {});
+      let intelligencePayload = diagnostics?.intelligence || {};
+      if (!Object.keys(intelligencePayload?.prices || {}).length) {
+        try {
+          const marketPrices = await get('/market/prices');
+          const normalizedPrices = {};
+          Object.entries(marketPrices?.prices || {}).forEach(([symbol, payload]) => {
+            normalizedPrices[symbol] = {
+              price: payload?.price,
+              provider: payload?.source || payload?.provider || 'market_api',
+            };
+          });
+          intelligencePayload = { ...intelligencePayload, prices: normalizedPrices };
+        } catch {
+          // Keep diagnostics payload if market fallback is unavailable.
+        }
+      }
+      setIntelligence(intelligencePayload);
 
       const merged = {};
       const allIds = [
@@ -145,7 +160,6 @@ const MarketIntelligencePanel = () => {
   }, [fetchHealth]);
 
   const healthyCount = Object.values(providerHealth).filter(h => h.status === 'healthy').length;
-  const totalProviders = MARKET_DATA_PROVIDERS.length + INTELLIGENCE_ENRICHERS.length;
   const healthyMarketProviders = MARKET_DATA_PROVIDERS.filter(id => providerHealth[id]?.status === 'healthy');
   const priceRows = Object.entries(intelligence?.prices || {});
   const whaleSignals = intelligence?.whale_signals || [];
@@ -160,14 +174,14 @@ const MarketIntelligencePanel = () => {
             Market Intelligence
           </h3>
           <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8' }}>
-            Multi-provider data aggregation with automatic failover
+            Live normalized output from configured practical providers
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: healthyCount > 0 ? '#10b981' : '#ef4444' }}>
-            {healthyCount}/{totalProviders}
+            {healthyMarketProviders.length}
           </div>
-          <div style={{ fontSize: 10, color: '#64748b' }}>providers active</div>
+          <div style={{ fontSize: 10, color: '#64748b' }}>healthy market sources</div>
         </div>
         {loading && <span style={{ fontSize: 12, color: '#94a3b8' }}>⟳</span>}
       </div>
@@ -189,11 +203,8 @@ const MarketIntelligencePanel = () => {
       {/* Market Data Providers */}
       <div style={cardStyle}>
         <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
-          📈 Market Data Providers (Fallback Order)
+          📈 Market Data Providers
         </h4>
-        <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b' }}>
-          Primary → Secondary → Tertiary. System auto-rotates before quota exhaustion.
-        </p>
         {MARKET_DATA_PROVIDERS.map(id => (
           <ProviderRow key={id} config={PLATFORM_CONFIG[id]} providerHealth={providerHealth} />
         ))}
@@ -218,7 +229,7 @@ const MarketIntelligencePanel = () => {
           </div>
         ) : (
           <div style={{ fontSize: 12, color: '#64748b' }}>
-            No live price intelligence yet — once a provider is connected, live snapshots appear here.
+            Waiting for the next market snapshot. Check provider key status if this remains empty.
           </div>
         )}
         {whaleSignals.length > 0 && (
@@ -231,34 +242,11 @@ const MarketIntelligencePanel = () => {
       {/* Intelligence Enrichers */}
       <div style={cardStyle}>
         <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
-          🔍 Intelligence Enrichers
+          🔍 Optional Intelligence Sources
         </h4>
-        <p style={{ margin: '0 0 8px', fontSize: 11, color: '#64748b' }}>
-          Optional data sources for whale flow, sentiment, news, and on-chain analytics.
-        </p>
         {INTELLIGENCE_ENRICHERS.map(id => (
           <ProviderRow key={id} config={PLATFORM_CONFIG[id]} providerHealth={providerHealth} />
         ))}
-      </div>
-
-      {/* Fallback architecture info */}
-      <div style={{
-        ...cardStyle,
-        background: 'rgba(99,102,241,0.06)',
-        border: '1px solid rgba(99,102,241,0.15)',
-      }}>
-        <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>
-          🔄 Fallback Architecture
-        </h4>
-          <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.8 }}>
-          <div>1️⃣ <strong>CoinDesk</strong> — Primary</div>
-          <div>2️⃣ <strong>CryptoCompare</strong> — Secondary</div>
-          <div>3️⃣ <strong>CoinGecko</strong> — Tertiary</div>
-          <div>4️⃣ <strong>Coinranking</strong> — Quaternary fallback</div>
-          <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
-            Provider rotation triggers at 70% quota threshold. All data is normalized before use.
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -149,6 +149,12 @@ def normalize_bot_state(bot: Dict) -> Dict:
         "eligible_to_trade": eligible,
         "not_eligible_reasons": not_eligible_reasons,
     })
+    activity_reason_code = activity.get("reason_code")
+    activity_runnable = bool(activity.get("runnable"))
+    if not activity_runnable and eligible:
+        eligible = False
+        if activity_reason_code and activity_reason_code not in not_eligible_reasons:
+            not_eligible_reasons = [*not_eligible_reasons, activity_reason_code]
 
     return {
         **bot,
@@ -163,8 +169,8 @@ def normalize_bot_state(bot: Dict) -> Dict:
         "eligible_to_trade": eligible,
         "not_eligible_reasons": not_eligible_reasons,
         "activity_state": activity.get("activity_state"),
-        "runnable": bool(activity.get("runnable")),
-        "activity_reason_code": activity.get("reason_code"),
+        "runnable": activity_runnable and eligible,
+        "activity_reason_code": activity_reason_code,
     }
 
 
