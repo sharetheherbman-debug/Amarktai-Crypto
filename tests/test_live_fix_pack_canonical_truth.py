@@ -8,38 +8,38 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 
-def test_radar_targets_not_fabricated_when_unconfigured():
-    from routes.radar import _compute_radar_entry
+def test_radar_targets_use_strategy_derived_when_unconfigured():
+    """Targets are now derived from strategy profile, not null."""
+    from services.target_policy import derive_targets
 
     bot = {
-        "id": "bot-a",
-        "name": "A",
         "bot_type": "normal",
         "risk_mode": "balanced",
         "current_capital": 1000,
     }
-    entry = _compute_radar_entry(bot, None, datetime.now(timezone.utc))
-    assert entry["daily_profit_target"] is None
-    assert entry["trade_profit_target"] is None
-    assert entry["target_source"] == "not_configured"
+    targets = derive_targets(bot)
+    # Strategy-derived targets should be non-null positive values
+    assert targets["daily_profit_target"] is not None
+    assert targets["daily_profit_target"] > 0
+    assert targets["trade_profit_target"] is not None
+    assert targets["trade_profit_target"] > 0
+    assert targets["target_source"] == "strategy_derived"
 
 
 def test_radar_targets_use_configured_values():
-    from routes.radar import _compute_radar_entry
+    from services.target_policy import derive_targets
 
     bot = {
-        "id": "bot-b",
-        "name": "B",
         "bot_type": "normal",
         "risk_mode": "balanced",
         "current_capital": 1000,
         "daily_profit_target_pct": 0.02,
         "trade_profit_target_pct": 0.01,
     }
-    entry = _compute_radar_entry(bot, None, datetime.now(timezone.utc))
-    assert entry["daily_profit_target"] == 20.0
-    assert entry["trade_profit_target"] == 10.0
-    assert entry["target_source"] == "configured"
+    targets = derive_targets(bot)
+    assert targets["daily_profit_target"] == 20.0
+    assert targets["trade_profit_target"] == 10.0
+    assert targets["target_source"] == "configured"
 
 
 def test_hold_policy_single_source_scalper_and_normal():

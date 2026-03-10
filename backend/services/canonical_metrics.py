@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from typing import Dict, Any, List, Optional
 
-import database as db
+# database import is deferred to individual async functions to allow
+# this module to be imported in environments without motor/pymongo.
 import inspect
 
 
@@ -76,6 +77,7 @@ def build_canonical_capital_summary(
 
 async def backfill_missing_current_capital(user_id: str) -> int:
     """Set current_capital=initial_capital where missing/null for user's active bots."""
+    import database as db  # deferred to avoid import-time motor dependency
     if db.bots_collection is None or not hasattr(db.bots_collection, "update_many"):
         return 0
     update_call = db.bots_collection.update_many(
@@ -102,6 +104,7 @@ async def get_canonical_metrics_snapshot(user_id: str, bots: Optional[List[Dict[
     - summary: aggregate portfolio metrics
     - by_bot_id: per-bot standardized metrics
     """
+    import database as db  # deferred to avoid import-time motor dependency
     if bots is None and db.bots_collection is None:
         return _empty_snapshot()
 

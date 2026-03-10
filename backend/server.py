@@ -714,17 +714,18 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     if not is_valid:
         raise HTTPException(status_code=400, detail=get_reason_message(reason_code))
     
-    # Check bot cap for this exchange
+    # Check bot cap for this exchange — only count normal bots (scalpers have separate caps)
     current_bot_count = await db.bots_collection.count_documents({
         "user_id": user_id,
         "exchange": exchange,
+        "bot_type": {"$ne": "scalper"},
         "status": {"$ne": "deleted"}  # Don't count deleted bots
     })
-    
+
     total_bots_requested = safe_count + risky_count + aggressive_count
-    
-    # Check if adding these bots would exceed the cap
-    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id)
+
+    # Check if adding these bots would exceed the cap (normal bot cap only)
+    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id, bot_type='normal')
     if not can_create:
         raise HTTPException(
             status_code=400, 
@@ -1715,7 +1716,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         # 4) Zero/unavailable fallback
         if not is_live and paper_equity["total_equity"] > 0:
             total_capital = float(paper_equity["total_equity"])
-            capital_source = "wallet_snapshot"
+            capital_source = paper_equity["source"]
         elif ledger_equity and ledger_equity > 0:
             total_capital = float(ledger_equity)
             capital_source = "ledger_equity_zar"
@@ -1724,7 +1725,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             capital_source = "bots_current_capital_sum"
         else:
             total_capital = float(paper_equity["total_equity"] if not is_live else 0.0)
-            capital_source = "wallet_snapshot" if not is_live else "unavailable"
+            capital_source = paper_equity["source"] if not is_live else "unavailable"
         
         target = 1_000_000
 
@@ -3024,6 +3025,7 @@ routers_to_mount = [
     ("routes.wallet_endpoints", "Wallet Hub"),
     ("routes.wallet_hub", "Wallet Hub Enhanced"),  # NEW - All 5 exchanges
     # REMOVED: routes.system_health_endpoints - has duplicate /health/ping
+    ("routes.self_healing_endpoints", "Self-Healing Status"),  # Dedicated /api/self-healing/status route
     ("routes.admin_endpoints", "Admin"),
     ("routes.admin_enhanced", "Admin Enhanced"),  # NEW - User dropdown, bot profit/loss
     ("routes.admin_start_fresh", "Admin Start Fresh"),  # NEW - Start Fresh wipe endpoint

@@ -12,15 +12,27 @@ logger = logging.getLogger(__name__)
 # Supported exchanges (7 only)
 SUPPORTED_EXCHANGES = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
 
-# Bot capacity rules per exchange
+# Bot capacity rules per exchange — NORMAL bots only
+# Scalper bots have their own separate caps below.
 BOT_CAPS = {
-    'luno': 5,      # Luno max 5 bots (paper+live combined)
-    'binance': 10,  # All other exchanges max 10 bots (paper+live combined)
+    'luno': 5,      # Luno normal max 5
+    'binance': 10,  # All other exchanges normal max 10
     'kucoin': 10,
     'bybit': 10,
     'kraken': 10,
     'bitget': 10,
     'gate': 10
+}
+
+# Scalper-specific caps per exchange (do NOT share slots with normal bots)
+SCALPER_CAPS = {
+    'luno': 2,      # Luno scalper max 2
+    'binance': 5,   # All other exchanges scalper max 5
+    'kucoin': 5,
+    'bybit': 5,
+    'kraken': 5,
+    'bitget': 5,
+    'gate': 5,
 }
 
 # Profit thresholds for auto-growth (per exchange, in ZAR)
@@ -88,26 +100,32 @@ REASON_CODES = {
 BOT_RULES = {
     'supported_exchanges': SUPPORTED_EXCHANGES,
     'bot_caps': BOT_CAPS,
+    'scalper_caps': SCALPER_CAPS,
     'profit_threshold_zar': PROFIT_THRESHOLD_ZAR,
     'reinvestment_rate': REINVESTMENT_RATE,
     'reason_codes': REASON_CODES
 }
 
 
-def get_max_bots_for_exchange(exchange: str) -> int:
+def get_max_bots_for_exchange(exchange: str, bot_type: str = 'normal') -> int:
     """
-    Get maximum bot count for a given exchange
-    
+    Get maximum bot count for a given exchange and bot type.
+
+    Normal bots and scalper bots have separate caps and never share slots.
+
     Args:
         exchange: Exchange identifier (lowercase)
-        
+        bot_type: 'normal' or 'scalper' (default: 'normal')
+
     Returns:
-        Maximum bot count (5 for luno, 10 for others)
+        Maximum bot count for the given type on this exchange.
     """
     exchange = exchange.lower()
     if exchange not in SUPPORTED_EXCHANGES:
         logger.warning(f"Unknown exchange '{exchange}', returning 0")
         return 0
+    if str(bot_type).lower() == 'scalper':
+        return SCALPER_CAPS.get(exchange, 5)
     return BOT_CAPS.get(exchange, 10)
 
 
@@ -124,31 +142,39 @@ def get_profit_threshold_for_exchange(exchange: str) -> float:
     return PROFIT_THRESHOLD_ZAR
 
 
-def check_bot_cap_limit(exchange: str, current_bot_count: int, 
-                        user_id: str = None) -> Tuple[bool, Optional[str]]:
+def check_bot_cap_limit(exchange: str, current_bot_count: int,
+                        user_id: str = None,
+                        bot_type: str = 'normal') -> Tuple[bool, Optional[str]]:
     """
-    Check if user can create more bots on this exchange
-    
+    Check if user can create more bots on this exchange.
+
+    Normal bots and scalper bots each have their own separate caps.
+    Scalper bots do NOT consume normal bot slots, and vice versa.
+
     Args:
         exchange: Exchange identifier
-        current_bot_count: Current number of bots user has on this exchange (paper+live)
+        current_bot_count: Current number of bots of *bot_type* user has on this exchange
         user_id: Optional user ID for logging
-        
+        bot_type: 'normal' or 'scalper' (default: 'normal')
+
     Returns:
         Tuple of (can_create: bool, reason_code: Optional[str])
     """
     exchange = exchange.lower()
-    
+
     # Validate exchange
     if exchange not in SUPPORTED_EXCHANGES:
         return False, 'INVALID_EXCHANGE'
-    
-    max_bots = get_max_bots_for_exchange(exchange)
-    
+
+    max_bots = get_max_bots_for_exchange(exchange, bot_type=bot_type)
+
     if current_bot_count >= max_bots:
-        logger.info(f"Bot cap exceeded for user {user_id or 'unknown'} on {exchange}: {current_bot_count}/{max_bots}")
+        logger.info(
+            "Bot cap exceeded for user %s on %s (%s): %d/%d",
+            user_id or 'unknown', exchange, bot_type, current_bot_count, max_bots,
+        )
         return False, 'BOT_CAP_EXCEEDED'
-    
+
     return True, None
 
 

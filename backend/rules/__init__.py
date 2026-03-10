@@ -5,6 +5,8 @@ Single source of truth for all bot-related business rules
 
 from .bot_rules import (
     BOT_RULES,
+    BOT_CAPS,
+    SCALPER_CAPS,
     PROFIT_THRESHOLD_ZAR,
     SUPPORTED_EXCHANGES,
     get_max_bots_for_exchange,
@@ -20,6 +22,8 @@ from .bot_rules import (
 
 __all__ = [
     'BOT_RULES',
+    'BOT_CAPS',
+    'SCALPER_CAPS',
     'PROFIT_THRESHOLD_ZAR',
     'SUPPORTED_EXCHANGES',
     'get_max_bots_for_exchange',

@@ -176,18 +176,28 @@ async def get_canonical_wallet_truth(user_id: str) -> Dict[str, Any]:
     """Return canonical wallet funded-state for *user_id*.
 
     Logic (deterministic, no contradictions):
-    - ``total``        = available ZAR from paper wallet service
+    - ``total``        = available + allocated ZAR (full paper equity via ledger)
     - ``required``     = sum of initial_capital across all active bots
     - ``shortfall``    = max(0, required - total)
     - ``funded_status`` = "FUNDED" iff shortfall <= 0 AND total > 0
                           "UNFUNDED" otherwise
     - ``status``       = same as funded_status (never contradicts)
+
+    Uses ``paper_wallet_ledger.get_user_balance`` (= available + allocated)
+    so the result is consistent with ``wallet_summary_service`` and
+    ``/api/system/status``.
     """
-    # --- wallet balance --------------------------------------------------
+    # --- wallet balance (available + allocated) ---------------------------
     total = 0.0
     try:
-        balances_data = await paper_wallet_service.get_balances(user_id)
-        total = float(balances_data.get("total", 0) or 0)
+        from services.paper_wallet_ledger import paper_wallet_ledger
+        ledger_total = await paper_wallet_ledger.get_user_balance(user_id)
+        if ledger_total is not None:
+            total = float(ledger_total)
+        else:
+            # Fallback: available only
+            balances_data = await paper_wallet_service.get_balances(user_id)
+            total = float(balances_data.get("total", 0) or 0)
     except Exception as exc:
         logger.warning("get_canonical_wallet_truth: wallet fetch failed: %s", exc)
 
