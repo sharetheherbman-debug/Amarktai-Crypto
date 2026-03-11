@@ -312,7 +312,7 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
         />
 
         {/* ── Three Primary Blocks ── */}
-        <div style={{
+        <div className="growth-primary-grid" style={{
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '16px', marginBottom: '24px',
         }}>

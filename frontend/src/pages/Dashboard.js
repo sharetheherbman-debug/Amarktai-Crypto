@@ -26,11 +26,8 @@ import LiveTradesSection from './dashboard/sections/LiveTradesSection';
 import CountdownSection from './dashboard/sections/CountdownSection';
 import WalletHubSection from './dashboard/sections/WalletHubSection';
 import ApiSetupSection from './dashboard/sections/ApiSetupSection';
-import BotManagementSection from './dashboard/sections/BotManagementSection';
 import PerformanceSection from './dashboard/sections/PerformanceSection';
 import AdminTruthSection from './dashboard/sections/AdminTruthSection';
-import BotFleetSection from './dashboard/sections/BotFleetSection';
-import BotRadarSection from './dashboard/sections/BotRadarSection';
 import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
 import BotOperationsCenter from './dashboard/sections/BotOperationsCenter';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
@@ -159,7 +156,6 @@ export default function Dashboard() {
     loadingBots,
     loadingUsers,
     metrics,
-    metricsTab,
     modeLabel,
     modeTone,
     newCountdownAmount,
@@ -200,7 +196,6 @@ export default function Dashboard() {
     setEditingBotName,
     setEquityRange,
     setGraphPeriod,
-    setMetricsTab,
     setNewCountdownAmount,
     setNewCountdownLabel,
     setPaperResetError,

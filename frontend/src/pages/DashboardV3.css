@@ -2685,3 +2685,15 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   font-size: 1.3rem;
   cursor: pointer;
 }
+
+/* ── Growth Engine responsive ─────────────────────────── */
+@media (max-width: 768px) {
+  .growth-primary-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+@media (min-width: 769px) and (max-width: 1024px) {
+  .growth-primary-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
