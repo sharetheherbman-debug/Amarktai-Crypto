@@ -9,7 +9,7 @@ const RADAR_REFRESH_MS = 10000;
  * Shows each bot's current state: name, exchange, type, status,
  * position info, equity, action, and human-readable decision summary.
  */
-export default function BotRadarSection({ axiosConfig }) {
+export default function BotRadarSection({ axiosConfig, embedded = false }) {
   const [radarData, setRadarData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

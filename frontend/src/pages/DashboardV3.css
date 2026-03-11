@@ -14,8 +14,9 @@
 
   /* ── Premium terminal color tokens — aligned with Landing / Auth design system ── */
   --bg:            #020409;
-  --glass:         rgba(10, 14, 26, 0.85);
-  --line:          rgba(59, 130, 246, 0.12);
+  --glass:         rgba(96, 130, 182, 0.13);
+  --glass-solid:   rgba(96, 130, 182, 0.18);
+  --line:          rgba(96, 130, 182, 0.22);
   --text:          #e4f0ff;
   --muted:         rgba(180, 210, 255, 0.55);
   --accent2:       #3B82F6;
@@ -125,7 +126,7 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 /* SIDEBAR */
 .sidebar {
   width: 250px;
-  background: rgba(10, 12, 20, 0.75);
+  background: rgba(10, 14, 28, 0.88);
   border-right: 1px solid var(--line);
   backdrop-filter: blur(var(--blur));
   position: fixed;
@@ -175,11 +176,11 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 .nav a { 
   display: block; 
   color: var(--muted); 
-  padding: 9px 12px; 
-  border-radius: 8px; 
+  padding: 10px 14px; 
+  border-radius: 10px; 
   margin: 0;
   font-weight: 500; 
-  font-size: 0.85rem; 
+  font-size: 0.9rem; 
   text-decoration: none; 
   cursor: pointer;
   white-space: nowrap;
@@ -190,9 +191,9 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .nav a:hover, .nav a.active { 
-  background: rgba(56, 189, 248, 0.15); 
+  background: rgba(96, 130, 182, 0.2); 
   color: var(--text); 
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: rgba(96, 130, 182, 0.35);
   transform: none;
 }
 
@@ -314,32 +315,32 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   background: var(--glass); 
   border: 1px solid var(--line); 
   border-radius: var(--radius); 
-  padding: 20px; 
+  padding: 24px; 
   margin-bottom: 16px;
   backdrop-filter: blur(var(--blur));
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 .card:hover {
-  border-color: rgba(59, 130, 246, 0.25);
+  border-color: rgba(96, 130, 182, 0.35);
   transform: none;
 }
 
 .card h2 {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #ffffff; /* FIXED: All section headers now white for go-live */
+  color: #ffffff;
 }
 
 .card h3 {
   font-size: 1.05rem;
   font-weight: 600;
   color: #ffffff;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .card h2 .balances {
@@ -1723,19 +1724,26 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
 }
 
 .admin-card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 18px;
+  background: rgba(96, 130, 182, 0.10);
+  border: 1px solid rgba(96, 130, 182, 0.22);
+  border-radius: 14px;
+  padding: 22px;
+}
+
+.admin-card h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 16px;
 }
 
 .admin-empty {
-  padding: 14px;
-  border-radius: 8px;
-  background: rgba(148, 163, 184, 0.12);
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.2);
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   text-align: center;
 }
 
@@ -2676,4 +2684,16 @@ button, .nav a, .system-card, .api-header, .bot-tab { transition: var(--transiti
   color: var(--text);
   font-size: 1.3rem;
   cursor: pointer;
+}
+
+/* ── Growth Engine responsive ─────────────────────────── */
+@media (max-width: 768px) {
+  .growth-primary-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+@media (min-width: 769px) and (max-width: 1024px) {
+  .growth-primary-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
 }

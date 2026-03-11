@@ -147,8 +147,8 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "confidence_score": _safe_float(_first_non_none(bot.get("confidence_score"), bot.get("confidence")), 0.0),
         "decision_reason_code": bot.get("decision_reason_code", bot.get("last_decision_reason_code")),
         "entry_reason_code": bot.get("entry_reason_code", bot.get("last_entry_reason_code")),
-        "entry_confidence_score": bot.get("entry_confidence_score", bot.get("last_entry_confidence_score")),
-        "expectancy_net_edge_pct": bot.get("expectancy_net_edge_pct"),
+        "entry_confidence_score": _safe_float(bot.get("entry_confidence_score", bot.get("last_entry_confidence_score")), 0.0),
+        "expectancy_net_edge_pct": _safe_float(bot.get("expectancy_net_edge_pct"), 0.0),
         "strategy_name": bot.get("strategy", bot.get("strategy_type", "balanced")),
         "regime_tag": bot.get("market_regime") if bot.get("market_regime") is not None else "unknown",
         "exit_forecast": None,
@@ -161,6 +161,15 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "activity_reason_code": bot.get("activity_reason_code"),
         "runnable": bot.get("runnable", False),
         "has_open_position": bool(open_trade),
+        # V2 render-safe fields (always present, never NaN/None for numerics)
+        "regime_label": str(bot.get("regime_label", bot.get("market_regime", "unknown")) or "unknown"),
+        "expected_gross_edge_bps": _safe_float(bot.get("expected_gross_edge_bps"), 0.0),
+        "all_in_cost_bps": _safe_float(bot.get("all_in_cost_bps"), 0.0),
+        "expected_net_edge_bps": _safe_float(bot.get("expected_net_edge_bps"), 0.0),
+        "projected_net_profit_quote": _safe_float(bot.get("projected_net_profit_quote"), 0.0),
+        "trade_profit_target_quote": _safe_float(bot.get("trade_profit_target_quote"), trade_target),
+        "daily_profit_target_quote": _safe_float(bot.get("daily_profit_target_quote"), daily_target),
+        "cost_floor_source": str(bot.get("cost_floor_source", "") or ""),
     }
     if not open_trade and not entry["eligible_to_trade"]:
         reasons = entry.get("not_eligible_reasons") or []

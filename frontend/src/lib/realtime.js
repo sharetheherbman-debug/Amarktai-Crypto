@@ -25,6 +25,7 @@ class RealtimeClient {
     this.pingInterval = null;
     this.pongTimeout = null;
     this.rtt = null;
+    this._reconnectTimer = null;
   }
 
   /**
@@ -177,6 +178,12 @@ class RealtimeClient {
    * Schedule reconnection with exponential backoff
    */
   scheduleReconnect() {
+    // Do not reconnect if token was cleared (logged out)
+    if (!this.token) {
+      console.log('🔌 Skipping reconnect — not authenticated');
+      return;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('❌ Max reconnect attempts reached - falling back to SSE');
       this.startSSE();
@@ -191,7 +198,10 @@ class RealtimeClient {
 
     console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
-    setTimeout(() => {
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      // Re-check auth before actually reconnecting
+      if (!this.token) return;
       this.connectWebSocket();
     }, delay);
   }
@@ -358,22 +368,31 @@ class RealtimeClient {
   }
 
   /**
-   * Disconnect
+   * Disconnect and clear all connections + timers
    */
   disconnect() {
     console.log('🔌 Disconnecting...');
     
+    // Cancel any pending reconnect
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    
+    this.token = null;
     this.stopPing();
     this.stopSSE();
     this.stopPolling();
     
     if (this.ws) {
+      this.ws.onclose = null; // prevent onclose from triggering reconnect
       this.ws.close();
       this.ws = null;
     }
     
     this.connected = false;
     this.connectionMode = 'disconnected';
+    this.reconnectAttempts = 0;
     this.listeners.clear();
     this.lastUpdate = {};
   }

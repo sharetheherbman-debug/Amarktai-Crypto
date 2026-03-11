@@ -71,24 +71,28 @@ apiClient.interceptors.response.use(
 
     // Handle 401 Unauthorized - token expired
     if (error.response?.status === 401) {
-      console.error('❌ Unauthorized - token may be expired');
-      
-      // Clear token
-      localStorage.removeItem('token');
-      
-      // Only redirect if not already on login page
-      // Note: In a real SPA with React Router, consider using a callback or event
-      if (!window.location.pathname.includes('/login')) {
-        console.log('🔀 Redirecting to login...');
-        // Emit event for React Router to handle
-        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-        
-        // Fallback: direct redirect after delay to allow event handling
-        setTimeout(() => {
-          if (!window.location.pathname.includes('/login')) {
-            window.location.href = '/login';
-          }
-        }, 100);
+      // On public routes (login, register, landing), suppress this silently
+      const isPublicRoute = ['/', '/login', '/register'].some(p =>
+        window.location.pathname === p || window.location.pathname.startsWith(p + '/')
+      );
+
+      if (isPublicRoute) {
+        // Expected on public pages — do not spam console or redirect
+        localStorage.removeItem('token');
+      } else {
+        console.error('❌ Unauthorized - token may be expired');
+        localStorage.removeItem('token');
+
+        if (!window.location.pathname.includes('/login')) {
+          console.log('🔀 Redirecting to login...');
+          window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+          
+          setTimeout(() => {
+            if (!window.location.pathname.includes('/login')) {
+              window.location.href = '/login';
+            }
+          }, 100);
+        }
       }
     }
 

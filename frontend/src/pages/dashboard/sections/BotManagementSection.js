@@ -9,14 +9,16 @@ export default function BotManagementSection({
   handleCreateScalperBot,
   handleCreateUAgent,
   setBotManagementTab,
+  embedded = false,
 }) {
-  return (
-    <section className="section active">
-      <div className="card">
+  const content = (
+    <div className="card">
+      {!embedded && (
         <SectionHeader
           title="🤖 Bot Management"
           subtitle="Create and configure trading bots. Use Bot Fleet to monitor and control them."
         />
+      )}
         <div className="bot-tabs">
           <button
             className={`bot-tab ${botManagementTab === 'creation' ? 'active' : ''}`}
@@ -210,6 +212,8 @@ export default function BotManagementSection({
           </div>
         )}
       </div>
-    </section>
   );
+
+  if (embedded) return content;
+  return <section className="section active">{content}</section>;
 }

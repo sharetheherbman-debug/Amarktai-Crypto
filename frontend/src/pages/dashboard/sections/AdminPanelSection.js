@@ -1,5 +1,5 @@
-import React from 'react';
-import apiClient from '../../../lib/apiClient';
+import React, { useState, useEffect, useCallback } from 'react';
+import apiClient, { get } from '../../../lib/apiClient';
 import { SUPPORTED_PLATFORMS, getPlatformDisplayName, getPlatformIcon } from '../../../constants/platforms';
 
 const API = '';
@@ -132,6 +132,96 @@ function KeyMonitorGrouped({ providers, formatDate }) {
   );
 }
 
+/* ── Per-User API Key Monitor ─────────────────────────────── */
+function PerUserKeyMonitor({ axiosConfig }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [expandedUser, setExpandedUser] = useState(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await get('/admin/key-monitor/per-user');
+      setData(res);
+    } catch (err) {
+      console.error('Per-user key monitor error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  if (loading) return <div style={{ color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>Loading per-user key data…</div>;
+  if (!data?.users?.length) return <div style={{ color: 'var(--muted)', padding: '16px', textAlign: 'center' }}>No user key data available.</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+        <button onClick={loadData} style={{ padding: '6px 14px', fontSize: '0.82rem', background: 'rgba(96,130,182,0.3)', color: '#fff', border: '1px solid rgba(96,130,182,0.5)', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          🔄 Refresh
+        </button>
+      </div>
+      {data.users.map(u => {
+        const isExpanded = expandedUser === u.user_id;
+        return (
+          <div key={u.user_id} style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(96,130,182,0.18)',
+            borderRadius: '12px',
+            overflow: 'hidden',
+          }}>
+            <button
+              onClick={() => setExpandedUser(isExpanded ? null : u.user_id)}
+              style={{
+                width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '14px 18px', background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'var(--text)', fontSize: '0.92rem', fontWeight: 600,
+              }}
+            >
+              <span>
+                {u.name || 'Unknown'} <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.82rem' }}>({u.email})</span>
+                {u.role === 'admin' && <span style={{ marginLeft: '8px', padding: '2px 8px', fontSize: '0.72rem', borderRadius: '4px', background: 'var(--accent2)', color: '#fff' }}>ADMIN</span>}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '0.82rem', color: u.valid_keys > 0 ? 'var(--success)' : 'var(--muted)' }}>
+                  {u.valid_keys}/{u.total_keys} valid
+                </span>
+                <span style={{ fontSize: '0.72rem', opacity: 0.5 }}>{isExpanded ? '▼' : '▶'}</span>
+              </span>
+            </button>
+            {isExpanded && (
+              <div style={{ padding: '0 18px 14px 18px' }}>
+                {u.providers.length === 0 ? (
+                  <div style={{ color: 'var(--muted)', fontSize: '0.82rem', padding: '8px 0' }}>No API keys configured for this user.</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px', gap: '6px', fontSize: '0.84rem' }}>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.72rem', fontWeight: 600 }}>Provider</span>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.72rem', fontWeight: 600 }}>Status</span>
+                    <span style={{ color: 'var(--muted)', fontSize: '0.72rem', fontWeight: 600 }}>Source</span>
+                    {u.providers.map(p => {
+                      const statusColor = p.valid ? 'var(--success)' : p.configured ? 'var(--error)' : 'var(--muted)';
+                      const statusText = p.valid ? 'Valid' : p.configured ? 'Invalid' : 'Not set';
+                      const sourceLabel = p.configured ? 'User Key' : 'System Default';
+                      return (
+                        <React.Fragment key={p.provider}>
+                          <span style={{ color: 'var(--text)', fontWeight: 500 }}>{p.provider}</span>
+                          <span style={{ color: statusColor, fontWeight: 600 }}>{statusText}</span>
+                          <span style={{ color: p.configured ? 'var(--text)' : 'var(--muted)', fontSize: '0.78rem' }}>{sourceLabel}</span>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AdminPanelSection({
   actionLoading,
   adminApiHealth,
@@ -212,12 +302,18 @@ export default function AdminPanelSection({
         
         <div className="admin-stack">
           <div className="admin-card">
-            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔐 API Key Monitor (Admin)</h3>
+            <h3 style={{ marginBottom: '14px', color: 'var(--text)' }}>🔐 Per-User API Key Monitor</h3>
+            <PerUserKeyMonitor axiosConfig={axiosConfig} />
+          </div>
+
+          {/* System-level Key Monitor (collapsed by default) */}
+          <div className="admin-card">
+            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔑 System Key Overview</h3>
             {adminKeyMonitor?.providers?.length > 0 ? (
               <KeyMonitorGrouped providers={adminKeyMonitor.providers} formatDate={formatDate} />
             ) : (
-              <div style={{ color: 'var(--muted)', fontSize: '0.82rem' }}>
-                No key telemetry available yet.
+              <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                No system key telemetry available yet.
               </div>
             )}
           </div>

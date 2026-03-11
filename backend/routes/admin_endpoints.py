@@ -375,6 +375,75 @@ async def admin_key_monitor(admin_id: str = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/key-monitor/per-user")
+async def admin_key_monitor_per_user(admin_id: str = Depends(require_admin)):
+    """Per-user API key status for admin monitoring."""
+    try:
+        users_cursor = db.users_collection.find(
+            {},
+            {"_id": 0, "id": 1, "first_name": 1, "email": 1, "role": 1},
+        )
+        users = await users_cursor.to_list(500)
+
+        all_keys = await db.api_keys_collection.find(
+            {},
+            {
+                "_id": 0,
+                "user_id": 1,
+                "provider": 1,
+                "status": 1,
+                "last_test_ok": 1,
+                "last_tested_at": 1,
+                "last_test_error": 1,
+                "api_key": 1,
+                "api_key_encrypted": 1,
+            },
+        ).to_list(5000)
+
+        # Group keys by user
+        keys_by_user: Dict[str, list] = {}
+        for k in all_keys:
+            uid = k.get("user_id", "")
+            keys_by_user.setdefault(uid, []).append(k)
+
+        result = []
+        for u in users:
+            uid = u.get("id", "")
+            user_keys = keys_by_user.get(uid, [])
+            providers = []
+            for k in user_keys:
+                configured = bool(k.get("api_key") or k.get("api_key_encrypted"))
+                status_str = str(k.get("status") or "not_configured")
+                valid = bool(k.get("last_test_ok")) or status_str in {"configured_valid", "test_ok"}
+                providers.append({
+                    "provider": k.get("provider", "unknown"),
+                    "configured": configured,
+                    "valid": valid,
+                    "status": status_str,
+                    "last_tested_at": k.get("last_tested_at"),
+                    "last_error": k.get("last_test_error"),
+                })
+
+            result.append({
+                "user_id": uid,
+                "name": u.get("first_name", ""),
+                "email": u.get("email", ""),
+                "role": u.get("role", "user"),
+                "providers": providers,
+                "total_keys": len(providers),
+                "valid_keys": sum(1 for p in providers if p["valid"]),
+            })
+
+        return {
+            "success": True,
+            "users": result,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Admin per-user key monitor error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/reset-system")
 async def reset_system_zero(
     request: SystemResetRequest,

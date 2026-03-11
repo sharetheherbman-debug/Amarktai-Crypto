@@ -311,55 +311,54 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
           subtitle="Tracks realized profit milestones and autonomously spawns new bots."
         />
 
-        {/* ── Engine Status Row ── */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '10px', marginBottom: '20px',
+        {/* ── Three Primary Blocks ── */}
+        <div className="growth-primary-grid" style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: '16px', marginBottom: '24px',
         }}>
-          {/* Growth Engine status tile */}
+          {/* Growth Engine status */}
           {(() => {
             const sd = STATUS_BADGE[growthStatus] || STATUS_BADGE.accumulating;
             return (
               <div style={{
                 background: sd.bg, border: `1px solid ${sd.border}`,
-                borderRadius: '10px', padding: '12px 14px',
-                display: 'flex', flexDirection: 'column', gap: '4px',
+                borderRadius: '12px', padding: '20px',
+                display: 'flex', flexDirection: 'column', gap: '8px',
               }}>
-                <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Growth Engine</span>
-                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: sd.color }}>● {sd.label}</span>
+                <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Growth Engine</span>
+                <span style={{ fontWeight: 700, fontSize: '1.1rem', color: sd.color }}>● {sd.label}</span>
+                <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+                  Reinvest: {reinvestEnabled ? '● Active' : '○ Disabled'}
+                </span>
               </div>
             );
           })()}
-          {/* Reinvest status tile */}
+          {/* Bots spawned */}
           <div style={{
-            background: reinvestEnabled ? 'rgba(96,165,250,0.1)' : 'rgba(100,116,139,0.08)',
-            border: `1px solid ${reinvestEnabled ? 'rgba(96,165,250,0.3)' : 'var(--line)'}`,
-            borderRadius: '10px', padding: '12px 14px',
-            display: 'flex', flexDirection: 'column', gap: '4px',
+            background: 'rgba(96,130,182,0.12)', border: '1px solid rgba(96,130,182,0.25)',
+            borderRadius: '12px', padding: '20px',
+            display: 'flex', flexDirection: 'column', gap: '8px',
           }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reinvest Engine</span>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: reinvestEnabled ? '#60a5fa' : 'var(--muted)' }}>
-              {reinvestEnabled ? '● Active' : '○ Disabled'}
+            <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Bots Spawned</span>
+            <span style={{ fontWeight: 800, fontSize: '1.6rem', color: 'var(--text)' }}>{aggregateStats.totalSpawned}</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+              {aggregateStats.eligiblePlatforms} eligible platform{aggregateStats.eligiblePlatforms !== 1 ? 's' : ''}
             </span>
           </div>
-          {/* Bots spawned tile */}
-          <div style={{ background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bots Spawned</span>
-            <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text)' }}>{aggregateStats.totalSpawned}</span>
-          </div>
-          {/* Threshold tile */}
-          <div style={{ background: 'var(--glass)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Milestone Threshold</span>
-            <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--accent2)' }}>{fmtZAR(threshold)}</span>
-          </div>
-          {/* Last updated */}
-          {lastUpdated && (
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
-              <span style={{ color: 'var(--muted)', fontSize: '0.72rem' }}>
+          {/* Milestone threshold */}
+          <div style={{
+            background: 'rgba(96,130,182,0.12)', border: '1px solid rgba(96,130,182,0.25)',
+            borderRadius: '12px', padding: '20px',
+            display: 'flex', flexDirection: 'column', gap: '8px',
+          }}>
+            <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Milestone Threshold</span>
+            <span style={{ fontWeight: 800, fontSize: '1.6rem', color: 'var(--accent2)' }}>{fmtZAR(threshold)}</span>
+            {lastUpdated && (
+              <span style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>
                 ↻ {lastUpdated.toLocaleTimeString()}
               </span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* ── Tabs ── */}

@@ -26,13 +26,10 @@ import LiveTradesSection from './dashboard/sections/LiveTradesSection';
 import CountdownSection from './dashboard/sections/CountdownSection';
 import WalletHubSection from './dashboard/sections/WalletHubSection';
 import ApiSetupSection from './dashboard/sections/ApiSetupSection';
-import BotManagementSection from './dashboard/sections/BotManagementSection';
-import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import PerformanceSection from './dashboard/sections/PerformanceSection';
 import AdminTruthSection from './dashboard/sections/AdminTruthSection';
-import BotFleetSection from './dashboard/sections/BotFleetSection';
-import BotRadarSection from './dashboard/sections/BotRadarSection';
 import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
+import BotOperationsCenter from './dashboard/sections/BotOperationsCenter';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
 import '../styles/radar-exchange.css';
 import '../styles/truth-console.css';
@@ -159,7 +156,6 @@ export default function Dashboard() {
     loadingBots,
     loadingUsers,
     metrics,
-    metricsTab,
     modeLabel,
     modeTone,
     newCountdownAmount,
@@ -200,7 +196,6 @@ export default function Dashboard() {
     setEditingBotName,
     setEquityRange,
     setGraphPeriod,
-    setMetricsTab,
     setNewCountdownAmount,
     setNewCountdownLabel,
     setPaperResetError,
@@ -262,12 +257,9 @@ export default function Dashboard() {
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === NAV.WELCOME ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WELCOME); }}>{NAV_LABELS[NAV.WELCOME]}</a>
             <a href="#" className={activeSection === NAV.API_SETUP ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.API_SETUP); }}>{NAV_LABELS[NAV.API_SETUP]}</a>
-            <a href="#" className={activeSection === NAV.BOT_MANAGEMENT ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_MANAGEMENT); }}>{NAV_LABELS[NAV.BOT_MANAGEMENT]}</a>
-            <a href="#" className={activeSection === NAV.BOT_FLEET ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_FLEET); }}>{NAV_LABELS[NAV.BOT_FLEET]}</a>
-            <a href="#" className={activeSection === NAV.BOT_RADAR ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_RADAR); }}>{NAV_LABELS[NAV.BOT_RADAR]}</a>
+            <a href="#" className={activeSection === NAV.BOT_OPS ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_OPS); }}>{NAV_LABELS[NAV.BOT_OPS]}</a>
             <a href="#" className={activeSection === NAV.GROWTH_ENGINE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.GROWTH_ENGINE); }}>{NAV_LABELS[NAV.GROWTH_ENGINE]}</a>
             <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
-            <a href="#" className={activeSection === NAV.ANALYTICS_METRICS ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.ANALYTICS_METRICS); }}>{NAV_LABELS[NAV.ANALYTICS_METRICS]}</a>
             <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
             <a href="#" className={activeSection === NAV.LIVE_TRADES ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.LIVE_TRADES); }}>{NAV_LABELS[NAV.LIVE_TRADES]}</a>
             <a href="#" className={activeSection === NAV.COUNTDOWN ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.COUNTDOWN); }}>{NAV_LABELS[NAV.COUNTDOWN]}</a>
@@ -386,22 +378,16 @@ export default function Dashboard() {
             <ApiSetupSection />
           </ErrorBoundary>
         )}
-        {activeSection === NAV.BOT_MANAGEMENT && (
-          <ErrorBoundary title="Bot Management error" message="Unable to load Bot Management section.">
-            <BotManagementSection
+        {activeSection === NAV.BOT_OPS && (
+          <ErrorBoundary title="Bot Operations error" message="Unable to load Bot Operations section.">
+            <BotOperationsCenter
               axiosConfig={axiosConfig}
+              bots={bots}
               botManagementTab={botManagementTab}
               handleCreateBot={handleCreateBot}
               handleCreateScalperBot={handleCreateScalperBot}
               handleCreateUAgent={handleCreateUAgent}
               setBotManagementTab={setBotManagementTab}
-            />
-          </ErrorBoundary>
-        )}
-        {activeSection === NAV.BOT_FLEET && (
-          <ErrorBoundary title="Bot Fleet error" message="Unable to load Bot Fleet section.">
-            <BotFleetSection
-              bots={bots}
               formatDate={formatDate}
               handleDeleteBot={handleDeleteBot}
               handleResumeBot={handleResumeBot}
@@ -423,13 +409,7 @@ export default function Dashboard() {
               editingBotName={editingBotName}
               setEditingBotName={setEditingBotName}
               handleRenameBotSubmit={handleRenameBotSubmit}
-              axiosConfig={axiosConfig}
             />
-          </ErrorBoundary>
-        )}
-        {activeSection === NAV.BOT_RADAR && (
-          <ErrorBoundary title="Bot Radar error" message="Unable to load Bot Radar section.">
-            <BotRadarSection axiosConfig={axiosConfig} />
           </ErrorBoundary>
         )}
         {activeSection === NAV.GROWTH_ENGINE && (
@@ -460,16 +440,6 @@ export default function Dashboard() {
               showPaperResetModal={showPaperResetModal}
               systemModes={systemModes}
               toggleSystemMode={toggleSystemMode}
-            />
-          </ErrorBoundary>
-        )}
-        {activeSection === NAV.ANALYTICS_METRICS && (
-          <ErrorBoundary title="Analytics & Metrics error" message="Unable to load Analytics & Metrics section.">
-            <MetricsWithTabsSection
-              metrics={metrics}
-              metricsTab={metricsTab}
-              setMetricsTab={setMetricsTab}
-              axiosConfig={axiosConfig}
             />
           </ErrorBoundary>
         )}
