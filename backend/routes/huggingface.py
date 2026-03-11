@@ -88,6 +88,12 @@ async def hf_test_connection(user_id: str = Depends(get_current_user)):
             if resp.status_code == 200:
                 result = resp.json()
                 return {"connected": True, "message": "Hugging Face API is working", "sample": result}
+            elif resp.status_code == 410:
+                return {
+                    "connected": True,
+                    "message": "API key is valid. Note: this model endpoint is deprecated (410 Gone) — update the model ID if inference fails.",
+                    "warning": "model_endpoint_deprecated",
+                }
             return {"connected": False, "message": f"HTTP {resp.status_code}: {resp.text[:200]}"}
     except Exception as exc:
         logger.error(f"HuggingFace test error: {exc}")

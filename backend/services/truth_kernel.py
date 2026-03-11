@@ -148,11 +148,15 @@ async def compute_risk_state(user_id: str, db) -> Dict[str, Any]:
     ).to_list(length=500)
 
     total_equity = sum(float(b.get("current_capital", 0)) for b in bots_raw)
-    peak_equity = max(
+    stored_peak = max(
         (float(b.get("peak_equity", b.get("current_capital", 0))) for b in bots_raw),
         default=0,
     )
+    # Peak equity must never be lower than current equity to avoid negative drawdown %
+    peak_equity = max(stored_peak, total_equity)
     drawdown_pct = ((peak_equity - total_equity) / peak_equity * 100) if peak_equity > 0 else 0
+    # Clamp to [0, 100] — negative drawdown (peak < equity) is not meaningful
+    drawdown_pct = max(0.0, min(100.0, drawdown_pct))
 
     # Daily PnL from fills
     from jobs.daily_close import sast_day_boundaries
