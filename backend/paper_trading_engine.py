@@ -1839,7 +1839,7 @@ class PaperTradingEngine:
         # In paper mode, if depth is unavailable (None or 0), use a conservative
         # fallback so the depth gate does not permanently block all paper trades.
         # Real-money paths should not reach V2 with depth=None.
-        if not depth_notional:
+        if depth_notional is None or depth_notional == 0:
             from services.trading_brain_v2.trade_feasibility_gate import DEPTH_MIN_NOTIONAL
             _strat_key = "scalper" if bot_type == "scalper" else "normal"
             depth_notional = float(DEPTH_MIN_NOTIONAL.get(_strat_key, 50000))

@@ -119,8 +119,8 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         _raw_trade_pct = bot.get("per_trade_target_pct")
     if _raw_trade_pct is None:
         _raw_trade_pct = bot.get("trade_target_pct")
-    _configured_daily_pct = _safe_float(_raw_daily_pct, None) if _raw_daily_pct is not None else None
-    _configured_trade_pct = _safe_float(_raw_trade_pct, None) if _raw_trade_pct is not None else None
+    _configured_daily_pct = _safe_float(_raw_daily_pct, None)
+    _configured_trade_pct = _safe_float(_raw_trade_pct, None)
 
     if _configured_daily_pct is not None and _configured_trade_pct is not None and capital > 0:
         # Bot-level configured targets override engine defaults

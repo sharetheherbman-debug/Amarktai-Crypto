@@ -247,7 +247,7 @@ class TestKeysRouteOrder:
         
         missing = expected_providers - provider_ids
         assert not missing, f"Missing core providers: {missing} (got {provider_ids})"
-        assert data.get("total", 0) >= 11, f"Should have at least 11 providers, got {data.get('total')}"
+        assert data.get("total", 0) >= 11, f"Should have at least 11 providers, got {data.get('total', 0)}"
     
     def test_unknown_provider_error_includes_all_providers(self):
         """Test that unknown provider error message includes kraken and gate"""
