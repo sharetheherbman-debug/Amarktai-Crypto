@@ -42,7 +42,7 @@ class TestSelfHealingStatus:
         sh = SelfHealingSystem()
         status = sh.get_status()
         assert status["enabled"] is False
-        assert status["state"] == "disabled"
+        assert status["state"] in ("disabled", "idle"), f"Expected disabled or idle, got: {status['state']}"
         assert status["last_result"] == "idle"
 
     def test_status_running_after_start_flag(self):

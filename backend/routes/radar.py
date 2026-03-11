@@ -107,7 +107,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     bot_id = str(bot.get("id") or bot.get("_id") or bot.get("bot_id", ""))
     hold_policy = resolve_hold_policy(bot, open_trade=open_trade)
     max_hold = int(hold_policy["max_hold_seconds"])
-    capital = float(bot.get("current_capital", bot.get("initial_capital", 0)))
+    capital = _safe_float(bot.get("current_capital", bot.get("initial_capital")), 0.0)
     targets = derive_targets(bot)
     daily_target = targets["daily_profit_target"]
     trade_target = targets["trade_profit_target"]
@@ -124,7 +124,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "target_price": None,
         "stop_price": None,
         "trailing_stop_price": None,
-        "realized_pnl_today": float(bot.get("realized_pnl_today", 0)),
+        "realized_pnl_today": _safe_float(bot.get("realized_pnl_today"), 0.0),
         "unrealized_pnl": 0.0,
         "capital_allocated": capital,
         "capital_summary": bot.get("capital_summary", {}),
@@ -178,8 +178,8 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
 
     if open_trade:
         side = open_trade.get("side", open_trade.get("type", "buy")).lower()
-        entry_price = float(open_trade.get("entry_price", open_trade.get("price", 0)))
-        current_price = float(open_trade.get("current_price", entry_price))
+        entry_price = _safe_float(open_trade.get("entry_price", open_trade.get("price")), 0.0)
+        current_price = _safe_float(open_trade.get("current_price"), entry_price)
         tp = open_trade.get("take_profit", open_trade.get("target_price"))
         sl = open_trade.get("stop_loss", open_trade.get("stop_price"))
         trailing = open_trade.get("trailing_stop", open_trade.get("trailing_stop_price"))
@@ -199,7 +199,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         remaining = max(0, max_hold - elapsed)
 
         # Unrealized PnL
-        qty = float(open_trade.get("quantity", open_trade.get("qty", open_trade.get("amount", 0))))
+        qty = _safe_float(open_trade.get("quantity", open_trade.get("qty", open_trade.get("amount"))), 0.0)
         if side == "buy":
             unrealized = (current_price - entry_price) * qty
         else:
@@ -358,7 +358,7 @@ async def radar_timeseries(
         buckets[key] = {"timestamp": key, "pnl": 0.0, "trade_count": 0, "equity": 0.0}
 
     cumulative_pnl = 0.0
-    base_equity = sum(float(b.get("current_capital", b.get("initial_capital", 0))) for b in bots)
+    base_equity = sum(_safe_float(b.get("current_capital", b.get("initial_capital")), 0.0) for b in bots)
 
     for trade in trades:
         ts = trade.get("timestamp", "")
@@ -368,7 +368,7 @@ async def radar_timeseries(
         except Exception:
             continue
         if key in buckets:
-            pnl = float(trade.get("pnl", trade.get("profit", 0)) or 0)
+            pnl = _safe_float(trade.get("pnl", trade.get("profit", 0)) or 0, 0.0)
             cumulative_pnl += pnl
             buckets[key]["pnl"] += pnl
             buckets[key]["trade_count"] += 1

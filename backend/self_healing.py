@@ -57,10 +57,25 @@ class SelfHealingSystem:
         logger.info("Self-healing system stopped")
 
     def get_status(self):
-        """Return canonical self-healing runtime status."""
+        """Return canonical self-healing runtime status.
+
+        State semantics:
+          - running: actively monitoring systems
+          - idle:    initialized but not yet started
+          - stopped: was running, now stopped
+          - disabled: not started / service unavailable
+        """
+        if self.is_running:
+            state = "running"
+        elif self.last_result == "stopped":
+            state = "stopped"
+        elif self.last_result == "idle":
+            state = "idle"
+        else:
+            state = "disabled"
         return {
             "enabled": self.is_running,
-            "state": "running" if self.is_running else "disabled",
+            "state": state,
             "last_check": self.last_check.isoformat() if self.last_check else None,
             "last_action": self.last_action,
             "last_result": self.last_result,

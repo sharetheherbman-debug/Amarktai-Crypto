@@ -17,6 +17,7 @@ import httpx
 
 from auth import get_current_user
 import database as db
+from routes.api_key_management import decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,27 @@ DEFAULT_MODEL = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 
 
 async def _get_hf_key(user_id: str) -> Optional[str]:
-    """Retrieve user's Hugging Face token (falls back to env)."""
+    """Retrieve user's Hugging Face token from the canonical encrypted key store.
+
+    Checks api_key_encrypted (the canonical storage field used by /api/keys/save).
+    Falls back to the plaintext api_key field for backward compatibility, then to
+    environment variables.
+    """
     doc = await db.api_keys_collection.find_one(
         {"user_id": user_id, "provider": "huggingface"},
-        {"_id": 0, "api_key": 1},
+        {"_id": 0, "api_key_encrypted": 1, "api_key": 1},
     )
-    if doc and doc.get("api_key"):
-        return doc["api_key"]
+    if doc:
+        # Primary: encrypted storage (set by /api/keys/save)
+        encrypted = doc.get("api_key_encrypted")
+        if encrypted:
+            try:
+                return decrypt_api_key(encrypted)
+            except Exception:
+                pass
+        # Fallback: plaintext field (legacy / direct inserts)
+        if doc.get("api_key"):
+            return doc["api_key"]
     return os.getenv("HUGGINGFACE_API_KEY", os.getenv("HF_TOKEN", ""))
 
 
