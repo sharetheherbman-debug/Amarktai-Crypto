@@ -8,8 +8,18 @@ Self-Healing System
 import asyncio
 from datetime import datetime, timezone
 from logger_config import logger
-import psutil
-import database as db
+try:
+    import psutil as _psutil
+    _PSUTIL_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _psutil = None  # type: ignore
+    _PSUTIL_AVAILABLE = False
+try:
+    import database as db  # type: ignore
+    _DB_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
+    db = None  # type: ignore
+    _DB_AVAILABLE = False
 
 
 class SelfHealingSystem:
@@ -95,6 +105,8 @@ class SelfHealingSystem:
     async def _check_database_connection(self):
         """Check and recover database connection"""
         try:
+            if db is None:
+                return
             # Test connection
             await db.command('ping')
             
@@ -109,6 +121,8 @@ class SelfHealingSystem:
     async def _recover_database(self):
         """Attempt to recover database connection"""
         try:
+            if db is None:
+                return False
             await db.init_db()
             logger.info("✅ Database connection recovered")
             return True
@@ -119,7 +133,9 @@ class SelfHealingSystem:
     async def _check_memory_usage(self):
         """Check memory usage and alert if high"""
         try:
-            memory = psutil.virtual_memory()
+            if not _PSUTIL_AVAILABLE:
+                return
+            memory = _psutil.virtual_memory()
             
             if memory.percent > 90:
                 logger.error(f"🚨 Critical memory usage: {memory.percent}%")
@@ -144,7 +160,9 @@ class SelfHealingSystem:
     async def _check_disk_space(self):
         """Check disk space and alert if low"""
         try:
-            disk = psutil.disk_usage('/')
+            if not _PSUTIL_AVAILABLE:
+                return
+            disk = _psutil.disk_usage('/')
             
             if disk.percent > 90:
                 logger.error(f"🚨 Critical disk usage: {disk.percent}%")

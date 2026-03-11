@@ -319,53 +319,6 @@ export default function AdminPanelSection({
             </div>
           )}
           
-          {/* Per-User Storage Usage */}
-          {storageError && (
-            <div style={{marginBottom: '24px', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--error)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)'}}>
-              ⚠️ Unable to load storage data: {storageError}
-            </div>
-          )}
-          {storageData && (
-            <div className="admin-card">
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
-                <h3 style={{margin: 0, color: '#ffffff'}}>💾 User Storage Usage</h3>
-                <div style={{fontSize: '0.9rem', color: '#cccccc'}}>
-                  Total: {storageTotals ? safeToFixed(storageTotals.totalMb, 2) : '0.00'} MB ({storageTotals ? safeToFixed(storageTotals.totalGb, 2) : '0.00'} GB)
-                </div>
-              </div>
-              <div style={{maxHeight: '200px', overflowY: 'auto'}}>
-                {storageData.users && storageData.users.length > 0 ? (
-                  storageData.users.map((userStorage) => {
-                    const storageMb = userStorage.total_storage_mb ?? userStorage.storage_mb ?? 0;
-                    return (
-                      <div key={userStorage.user_id} style={{
-                        padding: '8px 12px',
-                        marginBottom: '6px',
-                        background: 'var(--glass)',
-                        borderRadius: '4px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}>
-                        <div style={{flex: 1}}>
-                        <div style={{fontWeight: 600, fontSize: '0.9rem', color: '#ffffff'}}>{userStorage.name || 'Unknown'}</div>
-                          <div style={{fontSize: '0.75rem', color: '#cccccc'}}>{userStorage.email}</div>
-                        </div>
-                        <div style={{fontWeight: 700, fontSize: '0.95rem', color: storageMb > 100 ? 'var(--error)' : 'var(--success)'}}>
-                          {safeToFixed(storageMb, 2)} MB
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div style={{textAlign: 'center', padding: '20px', color: '#cccccc'}}>
-                    No storage data available
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          
           {/* Users Table */}
           <div className="admin-card" style={{overflowX: 'auto'}}>
             <h3 style={{margin: '0 0 12px 0', color: '#ffffff'}}>👥 User Management</h3>

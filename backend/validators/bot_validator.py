@@ -250,7 +250,7 @@ class BotValidator:
             exchange_normal = await db.bots_collection.count_documents({
                 "user_id": user_id,
                 "exchange": exchange,
-                "bot_type": {"$ne": "scalper"},
+                "bot_type": "normal",  # count only normal bots — scalpers have separate caps
                 "status": {"$ne": "deleted"},
                 "deleted": {"$ne": True},
             })

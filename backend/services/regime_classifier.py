@@ -38,7 +38,7 @@ _REGIME_ALIAS_MAP = {
 
 _STRATEGY_ALLOWED_REGIMES = {
     "scalper": {"breakout", "high_volatility", "consolidation"},
-    "normal": {"trending_up", "trending_down", "consolidation", "mean_reversion", "breakout"},
+    "normal": {"trending_up", "trending_down", "consolidation", "mean_reversion", "breakout", "low_volatility"},
 }
 
 
