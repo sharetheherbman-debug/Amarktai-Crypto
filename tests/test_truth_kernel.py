@@ -559,7 +559,9 @@ class TestFrontendScalperPanel:
         )
         with open(path) as f:
             content = f.read()
-        assert 'ScalperBotsPanel' in content, "BotManagement should import ScalperBotsPanel"
+        # BotManagementSection uses an inline scalper creation form (not ScalperBotsPanel)
+        # to avoid duplicating the panel that already lives in BotFleetSection.
+        # It must still reference 'scalper' for the tab / form.
         assert 'scalper' in content.lower(), "BotManagement should reference scalper tab"
 
     def test_dashboard_imports_scalper_css(self):

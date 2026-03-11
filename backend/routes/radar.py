@@ -11,6 +11,8 @@ Provides per-bot radar data derived from ledger/trade truth:
   market_regime, spread_estimate, slippage_estimate
 """
 
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
@@ -33,10 +35,24 @@ NO_STOP_DISTANCE = 999.0              # sentinel — distance when no stop price
 
 
 def _safe_float(value, default: float) -> float:
+    """Convert value to float safely, returning default for None/empty/NaN/Inf/invalid."""
+    if value is None or value == "":
+        return default
     try:
-        return float(value)
+        result = float(value)
+        if math.isnan(result) or math.isinf(result):
+            return default
+        return result
     except (TypeError, ValueError):
         return default
+
+
+def _first_non_none(*values):
+    """Return the first value that is not None."""
+    for v in values:
+        if v is not None:
+            return v
+    return None
 
 
 def _configured_bot_pct(bot: Dict, *keys: str) -> Optional[float]:
@@ -126,15 +142,15 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "next_action": "WAIT",
         "next_action_reason_code": "NO_POSITION",
         "next_action_reason_text": "No open position – waiting for entry signal",
-        "market_regime": bot.get("market_regime", "unknown"),
-        "regime_confidence": float(bot.get("canonical_regime_confidence", bot.get("confidence_score", bot.get("confidence", 0)))),
-        "confidence_score": float(bot.get("confidence_score", bot.get("confidence", 0))),
+        "market_regime": bot.get("market_regime") if bot.get("market_regime") is not None else "unknown",
+        "regime_confidence": _safe_float(_first_non_none(bot.get("canonical_regime_confidence"), bot.get("confidence_score"), bot.get("confidence")), 0.0),
+        "confidence_score": _safe_float(_first_non_none(bot.get("confidence_score"), bot.get("confidence")), 0.0),
         "decision_reason_code": bot.get("decision_reason_code", bot.get("last_decision_reason_code")),
         "entry_reason_code": bot.get("entry_reason_code", bot.get("last_entry_reason_code")),
         "entry_confidence_score": bot.get("entry_confidence_score", bot.get("last_entry_confidence_score")),
         "expectancy_net_edge_pct": bot.get("expectancy_net_edge_pct"),
         "strategy_name": bot.get("strategy", bot.get("strategy_type", "balanced")),
-        "regime_tag": bot.get("market_regime", "unknown"),
+        "regime_tag": bot.get("market_regime") if bot.get("market_regime") is not None else "unknown",
         "exit_forecast": None,
         "spread_estimate": bot.get("spread_estimate"),
         "slippage_estimate": bot.get("slippage_estimate"),
@@ -226,8 +242,8 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             "target_price": float(tp) if tp else None,
             "stop_price": float(sl) if sl else None,
             "trailing_stop_price": float(trailing) if trailing else None,
-            "market_regime": open_trade.get("canonical_market_regime", entry["market_regime"]),
-            "regime_confidence": float(open_trade.get("canonical_regime_confidence", entry["regime_confidence"])),
+            "market_regime": open_trade.get("canonical_market_regime") if open_trade.get("canonical_market_regime") is not None else entry["market_regime"],
+            "regime_confidence": _safe_float(open_trade.get("canonical_regime_confidence"), entry["regime_confidence"]),
             "unrealized_pnl": round(unrealized, 2),
             "exposure_pct": round(abs(unrealized) / capital * 100, 2) if capital > 0 else 0.0,
             "position_opened_at": opened_at.isoformat(),

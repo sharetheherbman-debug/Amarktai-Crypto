@@ -152,7 +152,12 @@ async def test_huggingface(api_key: str, api_secret: Optional[str] = None) -> tu
                 return True, None
             elif resp.status_code in (401, 403):
                 return False, "Invalid API token"
-            return False, f"HTTP {resp.status_code}"
+            elif resp.status_code == 410:
+                # 410 Gone — this specific model endpoint is deprecated on the Inference API.
+                # The key itself may be valid; treat as accepted with a warning.
+                logger.warning("HuggingFace model endpoint returned 410 Gone (deprecated); accepting key as valid")
+                return True, "Model endpoint deprecated (410) — key accepted but model may need updating"
+            return False, f"HTTP {resp.status_code}: {resp.text[:120]}"
     except httpx.ConnectError:
         logger.warning("HuggingFace test endpoint not available, accepting key")
         return True, None

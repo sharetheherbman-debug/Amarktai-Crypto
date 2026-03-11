@@ -11,9 +11,9 @@ from exchange_limits import SCALPER_MAX_HOLD_SECONDS
 
 
 NORMAL_MAX_HOLD_SECONDS = {
-    "safe": int(os.getenv("NORMAL_SAFE_MAX_HOLD_SECONDS", "7200")),
-    "balanced": int(os.getenv("NORMAL_BALANCED_MAX_HOLD_SECONDS", "3600")),
-    "aggressive": int(os.getenv("NORMAL_AGGRESSIVE_MAX_HOLD_SECONDS", "1800")),
+    "safe": int(os.getenv("NORMAL_SAFE_MAX_HOLD_SECONDS", "21600")),       # 6 hours
+    "balanced": int(os.getenv("NORMAL_BALANCED_MAX_HOLD_SECONDS", "10800")),  # 3 hours
+    "aggressive": int(os.getenv("NORMAL_AGGRESSIVE_MAX_HOLD_SECONDS", "5400")),  # 90 minutes
 }
 
 

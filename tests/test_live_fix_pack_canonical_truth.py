@@ -48,7 +48,8 @@ def test_hold_policy_single_source_scalper_and_normal():
     scalper = resolve_hold_policy({"bot_type": "scalper"})
     normal = resolve_hold_policy({"bot_type": "normal", "risk_mode": "balanced"})
     assert scalper["max_hold_seconds"] == 300
-    assert normal["max_hold_seconds"] == 3600
+    # Balanced normal hold is 3 hours (10800s), aligned with position_lifecycle.py
+    assert normal["max_hold_seconds"] == 10800
 
 
 def test_radar_and_engine_share_hold_policy_resolver():
