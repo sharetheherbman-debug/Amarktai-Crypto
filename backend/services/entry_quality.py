@@ -24,11 +24,13 @@ def compute_entry_confidence(
     direction_conflict: bool,
 ) -> Dict[str, float | bool | str]:
     """Compute canonical entry confidence score with conflict penalties."""
+    _rc = float(regime_confidence or 0)
+    _ml = float(ml_confidence or 0)
     score = (
-        (regime_confidence * 0.35)
-        + (ml_confidence * 0.30)
-        + ((fetchai_confidence / 100.0) * 0.20)
-        + ((coinstats_strength / 100.0) * 0.15)
+        (_rc * 0.35)
+        + (_ml * 0.30)
+        + ((float(fetchai_confidence or 0) / 100.0) * 0.20)
+        + ((float(coinstats_strength or 0) / 100.0) * 0.15)
     )
     score += min(0.08, consensus_strength * 0.04)
     score += min(0.06, consensus_sources * 0.02)

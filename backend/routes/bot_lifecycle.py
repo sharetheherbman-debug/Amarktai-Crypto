@@ -25,6 +25,7 @@ from utils.datetime_helpers import remaining_seconds
 from utils.bot_state import normalize_bot_state
 # Canonical trading-gate flags — use config module (supports all env-var aliases)
 from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
+from services.truth_normalizer import normalize_bot_trade_truth
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +268,20 @@ async def get_bots_status(
         decision_map = await get_latest_bot_decisions(user_id, [str(bot.get("id")) for bot in bots if bot.get("id")])
         canonical_snapshot = await get_canonical_metrics_snapshot(user_id, bots=bots)
         canonical_by_bot = canonical_snapshot.get("by_bot_id", {})
+
+        # Bulk-fetch open trades for all bots in one query so truth_normalizer can
+        # resolve symbol/regime/confidence from trade canonical fields without an
+        # N+1 DB round-trip per bot.
+        bot_ids_all = [str(bot.get("id")) for bot in bots if bot.get("id")]
+        _raw_open_trades = await db.trades_collection.find(
+            {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
+            {"_id": 0},
+        ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
+        open_trade_by_bot: dict = {}
+        for _t in _raw_open_trades:
+            _bid = str(_t.get("bot_id", ""))
+            if _bid and _bid not in open_trade_by_bot:
+                open_trade_by_bot[_bid] = _t
         
         # Enrich each bot with detailed state
         enriched_bots = []
@@ -282,6 +297,11 @@ async def get_bots_status(
                 if key not in bot or bot.get(key) in (None, "", [])
             }
             normalized_bot = normalize_bot_state({**bot, **decision_fallback, "status": status})
+
+            # Merge open-trade canonical truth so symbol/regime/confidence
+            # are consistent with what radar and trades endpoints show.
+            _open_trade_for_bot = open_trade_by_bot.get(str(bot.get("id")), None)
+            _truth = normalize_bot_trade_truth(normalized_bot, _open_trade_for_bot)
             
             # Map status to standard states
             if status == 'active':
@@ -435,12 +455,15 @@ async def get_bots_status(
                 "activity_state": normalized_bot.get("activity_state", "active_record"),
                 "runnable": normalized_bot.get("runnable", False),
                 "activity_reason_code": normalized_bot.get("activity_reason_code"),
-                "decision_reason_code": normalized_bot.get("decision_reason_code", normalized_bot.get("last_decision_reason_code")),
-                "entry_reason_code": normalized_bot.get("entry_reason_code", normalized_bot.get("last_entry_reason_code")),
-                "entry_confidence_score": normalized_bot.get("entry_confidence_score", normalized_bot.get("last_entry_confidence_score")),
-                "expectancy_net_edge_pct": normalized_bot.get("expectancy_net_edge_pct"),
-                "market_regime": normalized_bot.get("market_regime", normalized_bot.get("canonical_market_regime", "unknown")),
-                "regime_confidence": normalized_bot.get("canonical_regime_confidence", normalized_bot.get("regime_confidence", normalized_bot.get("confidence_score", 0))),
+                "decision_reason_code": _truth.get("decision_reason_code") or normalized_bot.get("decision_reason_code", normalized_bot.get("last_decision_reason_code")),
+                "entry_reason_code": _truth.get("entry_reason_code") or normalized_bot.get("entry_reason_code", normalized_bot.get("last_entry_reason_code")),
+                "entry_confidence_score": _truth.get("entry_confidence_score") or normalized_bot.get("entry_confidence_score", normalized_bot.get("last_entry_confidence_score")),
+                "expectancy_net_edge_pct": _truth.get("expectancy_net_edge_pct") or normalized_bot.get("expectancy_net_edge_pct"),
+                "market_regime": _truth.get("market_regime") or normalized_bot.get("market_regime", normalized_bot.get("canonical_market_regime", "unknown")),
+                "regime_confidence": _truth.get("regime_confidence") or normalized_bot.get("canonical_regime_confidence", normalized_bot.get("regime_confidence", normalized_bot.get("confidence_score", 0))),
+                # symbol from truth (resolves trade.pair first, falls back to bot.pair)
+                "symbol": _truth.get("symbol") or bot.get("pair") or bot.get("symbol"),
+                "has_open_position": _truth.get("has_open_position", False),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
                 "stopped_at": bot.get('stopped_at')

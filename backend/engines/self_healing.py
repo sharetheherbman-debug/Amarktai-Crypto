@@ -237,6 +237,8 @@ class SelfHealingSystem:
         """Start self-healing system"""
         if not self.is_running:
             self.is_running = True
+            self._was_started = True
+            self.last_started_at = datetime.now(timezone.utc)
             self.task = asyncio.create_task(self.healing_loop())
             logger.info("✅ Self-Healing system started")
     
@@ -246,6 +248,43 @@ class SelfHealingSystem:
         if self.task:
             self.task.cancel()
         logger.info("⏹️ Self-Healing system stopped")
+
+    def get_status(self) -> dict:
+        """Return canonical self-healing runtime status.
+
+        State semantics:
+          - running:  actively monitoring systems (is_running=True)
+          - stopped:  was running, now stopped
+          - idle:     initialized but not yet started
+          - disabled: not started / service unavailable
+        """
+        if self.is_running:
+            state = "running"
+        elif getattr(self, "_was_started", False):
+            state = "stopped"
+        else:
+            state = "idle"
+        last_check = getattr(self, "last_check", None)
+        last_started_at = getattr(self, "last_started_at", None)
+        # Determine last_action without a nested ternary for readability
+        if self.is_running:
+            _last_action = "healing_loop"
+        elif state == "stopped":
+            _last_action = "stop"
+        else:
+            _last_action = "initialized"
+        return {
+            "enabled": self.is_running,
+            "state": state,
+            "last_check": last_check.isoformat() if last_check else None,
+            "last_started_at": last_started_at.isoformat() if last_started_at else None,
+            "last_action": _last_action,
+            "last_result": "running" if self.is_running else state,
+            "last_reason_code": "RUNNING" if self.is_running else "IDLE",
+            "last_error": None,
+            "monitored_systems": ["bots", "capital", "trading_patterns"],
+            "recovery_attempts": {},
+        }
 
 
 self_healing = SelfHealingSystem()
