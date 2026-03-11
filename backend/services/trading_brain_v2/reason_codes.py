@@ -121,12 +121,12 @@ def make_decision_payload(
     All string fields default to empty string (never None).
     """
     def _sf(v):
-        """Safe float – coerce None/NaN to 0.0."""
+        """Safe float – coerce None/NaN/Inf to 0.0."""
         if v is None:
             return 0.0
         try:
             f = float(v)
-            if f != f:  # NaN check
+            if f != f or f == float('inf') or f == float('-inf'):  # NaN/Inf check
                 return 0.0
             return round(f, 6)
         except (TypeError, ValueError):

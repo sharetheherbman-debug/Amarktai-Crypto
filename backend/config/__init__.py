@@ -201,6 +201,9 @@ PAYMENT_AGENT_ENABLED = os.getenv('PAYMENT_AGENT_ENABLED', 'false').lower() == '
 ENABLE_REALTIME_TRANSFERS = os.getenv('ENABLE_REALTIME_TRANSFERS', 'false').lower() == 'true'  # Real-time wallet transfers
 ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'true').lower() == 'true'  # Background jobs
 
+# Trading Brain V2 – economics-first engine redesign
+NEW_TRADING_BRAIN_V2 = os.getenv('NEW_TRADING_BRAIN_V2', 'false').lower() == 'true'
+
 # Live Trading Gate Requirements
 REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 'true'
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'
@@ -235,5 +238,6 @@ __all__ = [
     'ENABLE_AUTOPILOT_GROWTH', 'ENABLE_AUTOPILOT_REINVEST',
     'AUTOPILOT_PROFIT_MILESTONE_ZAR', 'AUTOPILOT_REINVEST_MIN_ZAR',
     'AUTOPILOT_MAX_BOTS_PER_PLATFORM',
-    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'PAPER_SUPPORTED_EXCHANGES'
+    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'PAPER_SUPPORTED_EXCHANGES',
+    'NEW_TRADING_BRAIN_V2',
 ]
