@@ -236,11 +236,14 @@ class TestAdminPanelNoDuplicates:
             return f.read()
 
     def test_single_user_management_heading(self):
-        """There must be exactly one '👥 User Management' heading."""
+        """There must be exactly one '👥 User Management' heading element."""
         src = self._read()
-        count = src.count("👥 User Management")
+        # Match h3 elements with the User Management label
+        heading_pattern = re.compile(r'<h3[^>]*>.*?👥 User Management.*?</h3>', re.DOTALL)
+        matches = heading_pattern.findall(src)
+        count = len(matches)
         assert count == 1, (
-            f"Expected exactly 1 User Management heading, found {count}"
+            f"Expected exactly 1 User Management h3 heading, found {count}"
         )
 
     def test_interactive_user_management_present(self):
