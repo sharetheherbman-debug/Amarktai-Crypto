@@ -54,6 +54,7 @@ from services.entry_quality import (
     derive_adaptive_discipline,
     evaluate_pre_timeout_exit,
 )
+from services.trade_worth_filter import evaluate_minimum_worthwhile_trade
 from config import (
     MIN_TRADE_PROFIT_THRESHOLD_ZAR,
     EDGE_BUFFER_PCT,
@@ -131,7 +132,7 @@ NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "
 ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
 ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
 SCALPER_MIN_EDGE_PCT = float(os.getenv("SCALPER_MIN_EDGE_PCT", "1.0"))
-SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.75"))
+SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.70"))
 NORMAL_MIN_AVG_CONFIDENCE = float(os.getenv("NORMAL_MIN_AVG_CONFIDENCE", "0.68"))
 SCALPER_NO_PROGRESS_HOLD_RATIO = float(os.getenv("SCALPER_NO_PROGRESS_HOLD_RATIO", "0.55"))
 NORMAL_NO_PROGRESS_HOLD_RATIO = float(os.getenv("NORMAL_NO_PROGRESS_HOLD_RATIO", "0.45"))
@@ -1324,7 +1325,7 @@ class PaperTradingEngine:
                         details={"regime": canonical_regime, "consensus": consensus},
                     )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "reason_code": "REGIME_UNKNOWN_BLOCK", "error": "Scalper trade blocked in low-confidence regime"}
-                if confidence_sources < 3 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
+                if confidence_sources < 2 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
                     logger.debug(
                         "Scalper quality filter: low confidence (sources=%s avg=%.2f)",
                         confidence_sources,
@@ -1434,7 +1435,53 @@ class PaperTradingEngine:
             
             # Candidate notional is full available paper capital.
             # Final size is risk-capped by fixed-fractional sizing below.
-            
+
+            # ── WORTHWHILE TRADE GATE (V1) ───────────────────────────────────────
+            # Reject entries whose projected absolute profit is too small to justify
+            # the round-trip cost, slippage, and capital lock.  Uses current capital
+            # as an equity proxy; notional is estimated as capital × 3% (conservative
+            # floor before fixed-fractional sizing).  SCALPER_MIN_EDGE_PCT already
+            # handles edge, so this gate adds the absolute-profit and reward-rate
+            # checks that the edge-% check alone cannot enforce.
+            _worth_equity = float(bot_data.get("current_capital", 1000) or 1000)
+            _worth_notional = _worth_equity * 0.03  # conservative pre-sizing proxy
+            _worth_result = evaluate_minimum_worthwhile_trade(
+                bot_type=bot_type,
+                exchange=exchange,
+                bot_equity=_worth_equity,
+                notional=_worth_notional,
+                expected_gross_edge_bps=expected_move_pct * 100,
+                all_in_cost_bps=estimated_cost_pct * 100,
+            )
+            if not _worth_result["approved"]:
+                _wrc = _worth_result["reason_code"]
+                _wrt = _worth_result["reason_text"]
+                logger.debug(
+                    "Worth filter block [%s]: %s – %s",
+                    bot_id,
+                    _wrc,
+                    _wrt,
+                )
+                await self._record_decision_trace(
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    symbol=symbol,
+                    exchange=exchange,
+                    decision="reject",
+                    reason_code=_wrc,
+                    reason_text=_wrt,
+                    details=_worth_result.get("diagnostics", {}),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "trade_worth_filter",
+                    "reason_code": _wrc,
+                    "error": _wrt,
+                }
+            # ────────────────────────────────────────────────────────────────────
+
             # PHASE 4A: Check paper wallet balance BEFORE calculating trade amount
             bot_id_val = bot_data.get('id')
             can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
@@ -2364,8 +2411,10 @@ class PaperTradingEngine:
                 logger.error(f"P&L validation failed: net_profit={net_profit}")
                 return None
 
-            if net_profit > 0 and net_profit < MIN_TRADE_PROFIT_THRESHOLD_ZAR:
-                close_reason = "take_profit" if close_reason == "take_profit" else close_reason
+            # NOTE: MIN_TRADE_PROFIT_THRESHOLD_ZAR is no longer checked here.
+            # Tiny-profit trades are now blocked at *entry* by evaluate_minimum_worthwhile_trade
+            # in the V1 worthwhile-trade gate above.  Allowing exit close_reason relabelling was
+            # a no-op that created false impression of filtering; the dead branch is removed.
 
             fee_currency = self._resolve_quote_currency(
                 symbol,

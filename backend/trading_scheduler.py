@@ -524,8 +524,10 @@ class TradingScheduler:
                 can_execute, reason = await trade_staggerer.can_execute_now(bot_id, exchange)
                 
                 if can_execute:
-                    # Add to queue
-                    await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
+                    # Scalper bots get priority=1 so they are dequeued before normal bots
+                    # within each scheduler cycle.  Normal bots keep priority=0.
+                    bot_priority = 1 if str(bot.get("bot_type", "normal")).lower() == "scalper" else 0
+                    await trade_staggerer.add_to_queue(bot_id, exchange, priority=bot_priority)
                     tick_queued += 1
             
             # --- Pass 3: Update tick observability ---
