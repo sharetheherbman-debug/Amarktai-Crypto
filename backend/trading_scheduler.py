@@ -43,6 +43,27 @@ def _is_paper_bot(bot: dict) -> bool:
     """Return True when bot mode resolves to paper."""
     return resolve_bot_trading_mode(bot).startswith('paper')
 
+
+def _canonical_bot_id(bot: dict) -> str:
+    """Return a non-empty canonical ID for a bot document.
+
+    Mirrors the same fallback chain used in radar.py so that every part of the
+    scheduler pipeline uses the SAME single source of truth for bot identity:
+
+        bot['id']  →  str(bot['_id'])  →  ''
+
+    An empty return value means the document is malformed and the bot should be
+    skipped rather than processed with an empty ID (which would silently corrupt
+    trade records and break all API-visible truth queries).
+    """
+    bid = bot.get("id", "")
+    if bid and str(bid).strip():
+        return str(bid).strip()
+    oid = bot.get("_id")
+    if oid:
+        return str(oid)
+    return ""
+
 class TradingScheduler:
     """CONTINUOUS STAGGERED TRADING - Uses trade_staggerer for 24/7 execution"""
     
@@ -114,14 +135,16 @@ class TradingScheduler:
             
             logger.info("📊 Paper tick start")
             
-            # Get all active bots
+            # Get all active bots — include _id so _canonical_bot_id() can
+            # fall back to it when the application-level 'id' field is absent.
             active_bots = await db.bots_collection.find(
-                {"status": "active"},
-                {"_id": 0}
+                {"status": "active"}
             ).to_list(1000)
 
             # Pre-cycle queue hygiene: remove stale/deleted bot queue items.
-            active_bot_ids = {bot.get("id") for bot in active_bots if bot.get("id")}
+            active_bot_ids = {
+                bid for bid in (_canonical_bot_id(b) for b in active_bots) if bid
+            }
             await trade_staggerer.purge_orphaned_queue(active_bot_ids)
 
             if not active_bots:
@@ -406,7 +429,7 @@ class TradingScheduler:
                     break
                 
                 bot_id = trade_request['bot_id']
-                bot = next((b for b in active_bots if b['id'] == bot_id), None)
+                bot = next((b for b in active_bots if _canonical_bot_id(b) == bot_id), None)
                 
                 if not bot:
                     continue
@@ -440,7 +463,7 @@ class TradingScheduler:
                         logger.info(f"📊 Trade candidate: {bot['name']} on {bot.get('exchange')}")
                         
                         result = await paper_engine.run_trading_cycle(
-                            bot['id'],
+                            bot_id,
                             bot,
                             {'bots': db.bots_collection, 'trades': db.trades_collection}
                         )
@@ -492,7 +515,7 @@ class TradingScheduler:
                             # Broadcast trade execution event
                             try:
                                 await rt_events.trade_executed(bot['user_id'], {
-                                    "bot_id": bot['id'],
+                                    "bot_id": bot_id,
                                     "bot_name": bot['name'],
                                     "pair": trade_data.get('pair', 'unknown'),
                                     "side": trade_data.get('side', 'unknown'),
@@ -513,7 +536,14 @@ class TradingScheduler:
             # Add new trades to queue (with dedup — skip bots already queued)
             queued_bot_ids = {item['bot_id'] for item in trade_staggerer.trade_queue}
             for bot in self._fair_queue_order(active_bots):
-                bot_id = bot['id']
+                bot_id = _canonical_bot_id(bot)
+                if not bot_id:
+                    logger.warning(
+                        "⚠️ Skipping bot '%s' — missing canonical id; "
+                        "document should be repaired via bot_lifecycle API",
+                        bot.get('name', '?'),
+                    )
+                    continue
                 exchange = bot.get('exchange', 'binance')
                 
                 # Skip if bot is already in queue (prevents duplicate queue spam)
@@ -578,6 +608,7 @@ class TradingScheduler:
     async def execute_live_trade(self, bot: dict) -> dict:
         """Execute a live trade using live_trading_engine"""
         try:
+            bot_id = _canonical_bot_id(bot)
             # Get bot's trading pair
             pair = bot.get('pair', 'BTC/ZAR')
             exchange = bot.get('exchange', 'binance')
@@ -612,7 +643,7 @@ class TradingScheduler:
             if not api_key_doc:
                 logger.warning(f"No API keys for {exchange} - falling back to paper mode")
                 return await paper_engine.run_trading_cycle(
-                    bot['id'],
+                    bot_id,
                     bot,
                     {'bots': db.bots_collection, 'trades': db.trades_collection}
                 )
@@ -625,7 +656,7 @@ class TradingScheduler:
 
             can_place, violations = await live_gate_service.can_place_order(
                 bot['user_id'],
-                bot['id'],
+                bot_id,
                 exchange
             )
             if not can_place:
@@ -634,7 +665,7 @@ class TradingScheduler:
 
             # Execute trade via live engine
             trade_result = await live_trading_engine.execute_trade(
-                bot_id=bot['id'],
+                bot_id=bot_id,
                 bot_data=bot,
                 symbol=pair,
                 side=side,
@@ -654,12 +685,12 @@ class TradingScheduler:
             entry_price = trade_result.get('entry_price', trade_result.get('price', 0))
             exit_price = trade_result.get('exit_price')
             if exit_price is None:
-                logger.error("Live trade missing exit_price; defaulting to entry_price for bot %s", bot['id'])
+                logger.error("Live trade missing exit_price; defaulting to entry_price for bot %s", bot_id)
                 exit_price = entry_price
             trade_doc = build_trade_record(
                 {
                     "id": str(uuid4()),
-                    "bot_id": bot['id'],
+                    "bot_id": bot_id,
                     "user_id": bot['user_id'],
                     "pair": pair,
                     "side": side,
@@ -696,7 +727,7 @@ class TradingScheduler:
             outcome = classify_trade_outcome(net_profit)
             
             await db.bots_collection.update_one(
-                {"id": bot['id']},
+                {"id": bot_id},
                 {
                     "$set": {
                         "current_capital": new_capital,
@@ -712,7 +743,7 @@ class TradingScheduler:
             )
             
             return {
-                "bot_id": bot['id'],
+                "bot_id": bot_id,
                 "new_capital": new_capital,
                 "total_profit": bot.get('total_profit', 0) + trade_result.get('net_profit', 0),
                 "trade": trade_doc
@@ -771,6 +802,14 @@ class TradingScheduler:
         """Return a comprehensive scheduler health snapshot for diagnostics."""
         task = self.task
         task_alive = task is not None and not task.done()
+        # Expose queued bot IDs so API consumers can see which bots the engine
+        # has decided to trade — closing the gap between internal decisions and
+        # API-visible truth.
+        queued_bot_ids = [
+            item['bot_id']
+            for item in list(trade_staggerer.trade_queue)
+            if item.get('bot_id')
+        ]
         return {
             "scheduler_running": self.is_running,
             "task_alive": task_alive,
@@ -790,6 +829,7 @@ class TradingScheduler:
             "total_trades_executed": self.total_trades_executed,
             "total_noop_ticks": self.total_noop_ticks,
             "queue_size": len(trade_staggerer.trade_queue),
+            "queued_bot_ids": queued_bot_ids,
             "active_trades": len(trade_staggerer.active_trades),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
