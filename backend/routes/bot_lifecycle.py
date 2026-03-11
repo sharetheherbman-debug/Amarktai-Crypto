@@ -273,10 +273,13 @@ async def get_bots_status(
         # resolve symbol/regime/confidence from trade canonical fields without an
         # N+1 DB round-trip per bot.
         bot_ids_all = [str(bot.get("id")) for bot in bots if bot.get("id")]
-        _raw_open_trades = await db.trades_collection.find(
-            {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
-            {"_id": 0},
-        ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
+        try:
+            _raw_open_trades = await db.trades_collection.find(
+                {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
+                {"_id": 0},
+            ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
+        except Exception:
+            _raw_open_trades = []
         open_trade_by_bot: dict = {}
         for _t in _raw_open_trades:
             _bid = str(_t.get("bot_id", ""))

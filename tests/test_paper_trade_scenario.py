@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from datetime import datetime, timezone
@@ -11,7 +12,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from paper_trading_engine import PaperTradingEngine
 from services import ledger_service as ledger_module
 from services.ledger_service import LedgerService
-
 
 class MockCollection:
     def __init__(self):
@@ -77,8 +77,11 @@ class MockDatabase:
         return self.collections[name]
 
 
-@pytest.mark.asyncio
-async def test_paper_trade_scenario_deterministic():
+def test_paper_trade_scenario_deterministic():
+    asyncio.run(_test_paper_trade_scenario_deterministic_async())
+
+
+async def _test_paper_trade_scenario_deterministic_async():
     ledger_module._ledger_service_instance = None
     engine = PaperTradingEngine()
     ledger_db = MockDatabase()

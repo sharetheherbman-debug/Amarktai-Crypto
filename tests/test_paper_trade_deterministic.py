@@ -10,6 +10,7 @@ without a real MongoDB connection.
 """
 
 import pytest
+import asyncio
 import sys
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -118,9 +119,8 @@ class TestPaperTradeDeterministic:
         for field in required:
             assert field in trade_result, f"Missing field: {field}"
 
-    @pytest.mark.asyncio
     @pytest.mark.integration
-    async def test_run_trading_cycle_inserts_trade(self, db_collections):
+    def test_run_trading_cycle_inserts_trade(self, db_collections):
         """Running a trading cycle must call trades_collection.insert_one
         or update_one (i.e., persist the fill)."""
 
@@ -201,11 +201,11 @@ class TestPaperTradeDeterministic:
                     mock_db.trades_collection = db_collections['trades']
 
                     with patch("paper_trading_engine.enforce_trading_gates"):
-                        result = await engine.run_trading_cycle(
+                        result = asyncio.run(engine.run_trading_cycle(
                             NORMAL_BOT["id"],
                             NORMAL_BOT,
                             db_collections,
-                        )
+                        ))
 
         # Assert: either insert_one or update_one was called (trade persisted)
         trades_coll = db_collections['trades']

@@ -110,47 +110,66 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     max_hold = int(hold_policy["max_hold_seconds"])
     capital = _safe_float(bot.get("current_capital", bot.get("initial_capital")), 0.0)
 
-    # ── Target policy: prefer TargetPolicyV2 when V2 engine is active ────
-    _use_v2_targets = False
-    try:
-        from config import NEW_TRADING_BRAIN_V2
-        _use_v2_targets = NEW_TRADING_BRAIN_V2 and capital > 0
-    except ImportError:
-        pass
+    # ── Target policy: bot-configured pcts take priority, then V2, then legacy ────
+    _raw_daily_pct = bot.get("daily_profit_target_pct")
+    if _raw_daily_pct is None:
+        _raw_daily_pct = bot.get("daily_target_pct")
+    _raw_trade_pct = bot.get("trade_profit_target_pct")
+    if _raw_trade_pct is None:
+        _raw_trade_pct = bot.get("per_trade_target_pct")
+    if _raw_trade_pct is None:
+        _raw_trade_pct = bot.get("trade_target_pct")
+    _configured_daily_pct = _safe_float(_raw_daily_pct, None) if _raw_daily_pct is not None else None
+    _configured_trade_pct = _safe_float(_raw_trade_pct, None) if _raw_trade_pct is not None else None
 
-    if _use_v2_targets:
+    if _configured_daily_pct is not None and _configured_trade_pct is not None and capital > 0:
+        # Bot-level configured targets override engine defaults
+        daily_target = round(capital * _configured_daily_pct, 2)
+        trade_target = round(capital * _configured_trade_pct, 2)
+        target_source = "configured"
+        daily_target_pct = round(_configured_daily_pct * 100, 4)
+        trade_target_pct = round(_configured_trade_pct * 100, 4)
+    else:
+        _use_v2_targets = False
         try:
-            from services.trading_brain_v2 import TargetPolicyV2
-            _tpv2 = TargetPolicyV2()
-            bot_type_str = str(bot.get("bot_type") or "normal").lower()
-            exchange_str = str(bot.get("exchange") or "binance").lower()
-            quote_currency = "ZAR" if exchange_str == "luno" else "USDT"
-            _v2t = _tpv2.compute(
-                bot_type=bot_type_str,
-                venue=exchange_str,
-                quote_currency=quote_currency,
-                bot_equity=capital,
-                notional=capital * 0.02,
-                all_in_cost_bps=0.0,
-                entry_price=0.0,
-                side="buy",
-            )
-            daily_target = _v2t.get("daily_profit_target_quote")
-            trade_target = _v2t.get("trade_profit_target_quote")
-            target_source = "target_policy_v2"
-            daily_target_pct = round(_v2t.get("daily_target_pct", 0) or 0, 4)
-            trade_target_pct = round(_v2t.get("trade_target_pct", 0) or 0, 4)
-        except Exception as _v2_err:
-            logger.warning("TargetPolicyV2 compute failed, falling back to legacy derive_targets: %s", _v2_err)
-            _use_v2_targets = False
+            from config import NEW_TRADING_BRAIN_V2
+            _use_v2_targets = NEW_TRADING_BRAIN_V2 and capital > 0
+        except ImportError:
+            pass
 
-    if not _use_v2_targets:
-        targets = derive_targets(bot)
-        daily_target = targets["daily_profit_target"]
-        trade_target = targets["trade_profit_target"]
-        target_source = targets["target_source"]
-        daily_target_pct = targets["daily_target_pct"]
-        trade_target_pct = targets["trade_target_pct"]
+        if _use_v2_targets:
+            try:
+                from services.trading_brain_v2 import TargetPolicyV2
+                _tpv2 = TargetPolicyV2()
+                bot_type_str = str(bot.get("bot_type") or "normal").lower()
+                exchange_str = str(bot.get("exchange") or "binance").lower()
+                quote_currency = "ZAR" if exchange_str == "luno" else "USDT"
+                _v2t = _tpv2.compute(
+                    bot_type=bot_type_str,
+                    venue=exchange_str,
+                    quote_currency=quote_currency,
+                    bot_equity=capital,
+                    notional=capital * 0.02,
+                    all_in_cost_bps=0.0,
+                    entry_price=0.0,
+                    side="buy",
+                )
+                daily_target = _v2t.get("daily_profit_target_quote")
+                trade_target = _v2t.get("trade_profit_target_quote")
+                target_source = "target_policy_v2"
+                daily_target_pct = round(_v2t.get("daily_target_pct", 0) or 0, 4)
+                trade_target_pct = round(_v2t.get("trade_target_pct", 0) or 0, 4)
+            except Exception as _v2_err:
+                logger.warning("TargetPolicyV2 compute failed, falling back to legacy derive_targets: %s", _v2_err)
+                _use_v2_targets = False
+
+        if not _use_v2_targets:
+            targets = derive_targets(bot)
+            daily_target = targets["daily_profit_target"]
+            trade_target = targets["trade_profit_target"]
+            target_source = targets["target_source"]
+            daily_target_pct = targets["daily_target_pct"]
+            trade_target_pct = targets["trade_target_pct"]
 
     entry = {
         "bot_id": bot_id,

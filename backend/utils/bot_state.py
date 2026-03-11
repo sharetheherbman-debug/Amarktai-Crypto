@@ -20,11 +20,11 @@ def resolve_activity_state(bot: Dict) -> Dict:
         return {"activity_state": "training", "runnable": False, "reason_code": "training"}
     if status in {"quarantined", "quarantine"} or bot.get("quarantine_until") or bot.get("retraining_until"):
         return {"activity_state": "quarantined", "runnable": False, "reason_code": "quarantine"}
-    if bot.get("paused_by_bodyguard"):
+    if bot.get("paused_by_bodyguard") and status != "active":
         return {"activity_state": "bodyguard_locked", "runnable": False, "reason_code": "bodyguard_lock"}
-    if bot.get("paused_by_system"):
+    if bot.get("paused_by_system") and status != "active":
         return {"activity_state": "paused_by_system", "runnable": False, "reason_code": "system_pause"}
-    if bot.get("paused_by_user"):
+    if bot.get("paused_by_user") and status != "active":
         return {"activity_state": "paused_by_user", "runnable": False, "reason_code": "manual_pause"}
     if status == "active":
         if bot.get("eligible_to_trade"):

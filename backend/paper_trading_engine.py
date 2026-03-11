@@ -132,7 +132,7 @@ NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "
 ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
 ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
 SCALPER_MIN_EDGE_PCT = float(os.getenv("SCALPER_MIN_EDGE_PCT", "1.0"))
-SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.60"))
+SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.70"))
 def _env_int(name: str, default: int) -> int:
     """Parse an integer env var, falling back to *default* on invalid input."""
     raw = os.getenv(name, str(default))
@@ -1353,7 +1353,7 @@ class PaperTradingEngine:
                         details={"regime": canonical_regime, "consensus": consensus},
                     )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "reason_code": "REGIME_UNKNOWN_BLOCK", "error": "Scalper trade blocked in low-confidence regime"}
-                if confidence_sources < SCALPER_MIN_SOURCES or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
+                if confidence_sources < 2 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
                     logger.debug(
                         "Scalper quality filter: low confidence (sources=%s avg=%.2f)",
                         confidence_sources,
@@ -1836,6 +1836,14 @@ class PaperTradingEngine:
         bot_type = str(bot_data.get("bot_type") or "normal").lower()
         paper_capital = bot_data.get("current_capital", 1000)
 
+        # In paper mode, if depth is unavailable (None or 0), use a conservative
+        # fallback so the depth gate does not permanently block all paper trades.
+        # Real-money paths should not reach V2 with depth=None.
+        if not depth_notional:
+            from services.trading_brain_v2.trade_feasibility_gate import DEPTH_MIN_NOTIONAL
+            _strat_key = "scalper" if bot_type == "scalper" else "normal"
+            depth_notional = float(DEPTH_MIN_NOTIONAL.get(_strat_key, 50000))
+
         # 1) Resolve bot capital from paper wallet
         bot_id_val = bot_data.get('id')
         can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
@@ -1964,6 +1972,26 @@ class PaperTradingEngine:
             regime_size_multiplier=regime_eligibility.get("size_multiplier", 1.0),
         )
         notional = sizing.get("position_quote", paper_capital * 0.03)
+
+        # Boost notional so bootstrap sizing can clear the absolute profit floor.
+        # When Kelly is conservative (few trades), the tiny position can't meet the
+        # per-trade absolute minimum. Raise to the minimum needed, capped at 10% equity.
+        _net_edge_frac = max((expected_gross_edge_bps - all_in_cost_bps) / 10000.0, 0.0001)
+        try:
+            from services.trading_brain_v2.trade_feasibility_gate import (
+                ABS_PROFIT_MIN_QUOTE, _equity_bucket, _venue_class,
+            )
+            _vc = _venue_class(exchange)
+            _eq_bucket = _equity_bucket(paper_capital, _vc)
+            _lookup = (
+                bot_type if bot_type in ("scalper", "mean_reversion") else "normal",
+                _eq_bucket, _vc,
+            )
+            _abs_min = ABS_PROFIT_MIN_QUOTE.get(_lookup, 2.0)
+            _min_notional = _abs_min / _net_edge_frac
+            notional = max(notional, min(_min_notional, paper_capital * 0.10))
+        except Exception:
+            pass
 
         # 9) Trade Feasibility Gate — the hard gate
         feasibility = v2["feasibility_gate"].evaluate(

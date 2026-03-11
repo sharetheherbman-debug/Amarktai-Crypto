@@ -2922,6 +2922,39 @@ async def get_prometheus_metrics():
 # DIAGNOSTICS ENDPOINTS
 # ============================================================================
 
+async def diagnostics_go_live(user_id: str, db_handle=None) -> dict:
+    """Go-live readiness diagnostics helper.
+
+    Checks DB collections using the canonical db.db handle and returns
+    a structured readiness summary.  Used by the /api/diagnostics/go-live
+    route registered in routes/diagnostics.py.
+    """
+    try:
+        handle = db_handle or db.db
+        checks = {}
+        # Canonical DB access via db.db (Motor database handle)
+        bots_count = await handle["bots"].count_documents(
+            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}}
+        ) if handle is not None else 0
+        trades_count = await handle["trades"].count_documents(
+            {"user_id": user_id, "status": "closed"}
+        ) if handle is not None else 0
+        checks["bots_count"] = bots_count
+        checks["closed_trades_count"] = trades_count
+        checks["db_accessible"] = handle is not None
+        return {
+            "success": True,
+            "checks": checks,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error("diagnostics_go_live error: %s", e)
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
 @api_router.get("/diagnostics/chat")
 async def diagnostics_chat(user_id: str = Depends(get_current_user)):
     """Chat diagnostics endpoint - shows OpenAI key status and configuration

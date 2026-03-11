@@ -308,7 +308,7 @@ export default function AdminPanelSection({
 
           {/* System-level Key Monitor (collapsed by default) */}
           <div className="admin-card">
-            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔑 System Key Overview</h3>
+            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔑 API Key Monitor (Admin)</h3>
             {adminKeyMonitor?.providers?.length > 0 ? (
               <KeyMonitorGrouped providers={adminKeyMonitor.providers} formatDate={formatDate} />
             ) : (

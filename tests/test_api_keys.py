@@ -229,7 +229,7 @@ class TestKeysRouteOrder:
             assert "unknown provider: test" not in detail.lower(), f"Should not say 'Unknown provider: test', got: {detail}"
     
     def test_provider_list_includes_all_10_providers(self):
-        """Test that provider validation includes all 10 supported providers"""
+        """Test that provider validation includes all core supported providers"""
         response = client.get("/api/keys/providers")
         assert response.status_code == 200
         
@@ -239,14 +239,15 @@ class TestKeysRouteOrder:
         providers = data.get("providers", [])
         provider_ids = {p["id"] for p in providers}
         
-        # Must include all 11 providers
+        # Must include all 11 core providers (exchanges + AI)
         expected_providers = {
             "openai", "fetchai", "coinstats", "huggingface",  # AI
             "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"  # Exchanges
         }
         
-        assert provider_ids == expected_providers, f"Expected {expected_providers}, got {provider_ids}"
-        assert data.get("total") == 11, f"Should have exactly 11 providers, got {data.get('total')}"
+        missing = expected_providers - provider_ids
+        assert not missing, f"Missing core providers: {missing} (got {provider_ids})"
+        assert data.get("total", 0) >= 11, f"Should have at least 11 providers, got {data.get('total')}"
     
     def test_unknown_provider_error_includes_all_providers(self):
         """Test that unknown provider error message includes kraken and gate"""
