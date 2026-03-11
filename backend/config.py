@@ -81,7 +81,7 @@ ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'true').lower() == 'true'  # 
 
 # Trading Brain V2 – economics-first engine redesign
 # Enable to use new cost model, feasibility gate, target policy, regime scorer
-NEW_TRADING_BRAIN_V2 = os.getenv('NEW_TRADING_BRAIN_V2', 'false').lower() == 'true'
+NEW_TRADING_BRAIN_V2 = os.getenv('NEW_TRADING_BRAIN_V2', 'true').lower() == 'true'
 
 # Live Trading Gate Requirements
 # NOTE: PAPER_TRAINING_DAYS is defined below in "Paper → Live promotion criteria" section (line ~117)

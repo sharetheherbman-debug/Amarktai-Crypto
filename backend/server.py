@@ -3017,9 +3017,9 @@ routers_to_mount = [
     ("routes.health", "Health"),
     # REMOVED: routes.profits - duplicate of ledger_endpoints
     ("routes.system_status", "System Status"),
-    ("routes.phase5_endpoints", "Phase 5"),
-    ("routes.phase6_endpoints", "Phase 6"),
-    ("routes.phase8_endpoints", "Phase 8"),
+    # REMOVED: routes.phase5_endpoints — superseded by dedicated service routes, never called by frontend
+    # REMOVED: routes.phase6_endpoints — superseded by dedicated AI/learning routes, never called by frontend
+    # REMOVED: routes.phase8_endpoints — superseded by dedicated audit/email routes, never called by frontend
     ("routes.capital_tracking_endpoints", "Capital Tracking"),
     ("routes.emergency_stop_endpoints", "Emergency Stop"),
     ("routes.wallet_endpoints", "Wallet Hub"),

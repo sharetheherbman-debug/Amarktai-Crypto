@@ -132,8 +132,36 @@ NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "
 ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
 ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
 SCALPER_MIN_EDGE_PCT = float(os.getenv("SCALPER_MIN_EDGE_PCT", "1.0"))
-SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.70"))
-NORMAL_MIN_AVG_CONFIDENCE = float(os.getenv("NORMAL_MIN_AVG_CONFIDENCE", "0.68"))
+SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.60"))
+def _env_int(name: str, default: int) -> int:
+    """Parse an integer env var, falling back to *default* on invalid input."""
+    raw = os.getenv(name, str(default))
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "Invalid value for %s=%r; using default %s", name, raw, default
+        )
+        return default
+
+def _env_float(name: str, default: float) -> float:
+    """Parse a float env var, falling back to *default* on invalid input."""
+    raw = os.getenv(name, str(default))
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "Invalid value for %s=%r; using default %s", name, raw, default
+        )
+        return default
+
+SCALPER_MIN_SOURCES = _env_int("SCALPER_MIN_SOURCES", 1)
+SCALPER_MIN_CONSENSUS_STRENGTH = _env_int("SCALPER_MIN_CONSENSUS_STRENGTH", 1)
+SCALPER_REGIME_CONF_THRESHOLD = _env_float("SCALPER_REGIME_CONF_THRESHOLD", 0.55)
+NORMAL_MIN_AVG_CONFIDENCE = _env_float("NORMAL_MIN_AVG_CONFIDENCE", 0.60)
+NORMAL_MIN_SOURCES = _env_int("NORMAL_MIN_SOURCES", 1)
 SCALPER_NO_PROGRESS_HOLD_RATIO = float(os.getenv("SCALPER_NO_PROGRESS_HOLD_RATIO", "0.55"))
 NORMAL_NO_PROGRESS_HOLD_RATIO = float(os.getenv("NORMAL_NO_PROGRESS_HOLD_RATIO", "0.45"))
 MIN_PROVEN_WINNER_PCT = float(os.getenv("MIN_PROVEN_WINNER_PCT", "0.18"))
@@ -1312,7 +1340,7 @@ class PaperTradingEngine:
                 return {"success": False, "bot_id": bot_id, "skip_reason": "low_entry_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Trade quality threshold not met"}
 
             if bot_type == "scalper":
-                if regime_name in {"unknown", "choppy", "sideways"} and float(regime.get("confidence", 0) or 0) < 0.75:
+                if regime_name in {"unknown", "choppy", "sideways"} and float(regime.get("confidence", 0) or 0) < SCALPER_REGIME_CONF_THRESHOLD:
                     await self._record_decision_trace(
                         user_id=user_id,
                         bot_id=bot_id,
@@ -1325,7 +1353,7 @@ class PaperTradingEngine:
                         details={"regime": canonical_regime, "consensus": consensus},
                     )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "reason_code": "REGIME_UNKNOWN_BLOCK", "error": "Scalper trade blocked in low-confidence regime"}
-                if confidence_sources < 2 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
+                if confidence_sources < SCALPER_MIN_SOURCES or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
                     logger.debug(
                         "Scalper quality filter: low confidence (sources=%s avg=%.2f)",
                         confidence_sources,
@@ -1343,7 +1371,7 @@ class PaperTradingEngine:
                         details={"avg_confidence": avg_confidence, "confidence_sources": confidence_sources, "consensus": consensus},
                     )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Scalper quality threshold not met"}
-                if consensus["consensus_strength"] < 2 or consensus["sources"] < 2:
+                if consensus["consensus_strength"] < SCALPER_MIN_CONSENSUS_STRENGTH or consensus["sources"] < SCALPER_MIN_SOURCES:
                     await self._record_decision_trace(
                         user_id=user_id,
                         bot_id=bot_id,
@@ -1370,7 +1398,7 @@ class PaperTradingEngine:
                     )
                     return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_direction_conflict", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signals conflict with trend"}
             else:
-                if confidence_sources < 2 or avg_confidence < NORMAL_MIN_AVG_CONFIDENCE:
+                if confidence_sources < NORMAL_MIN_SOURCES or avg_confidence < NORMAL_MIN_AVG_CONFIDENCE:
                     logger.debug(
                         "Normal quality filter: low confidence (sources=%s avg=%.2f)",
                         confidence_sources,

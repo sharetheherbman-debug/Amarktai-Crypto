@@ -86,7 +86,7 @@ class LifecycleManager:
                 instance_name="autonomous_scheduler",
                 enabled_flag="enable_schedulers"
             ),
-            # Self-Healing System (SYNC methods, never await)
+            # Self-Healing System
             SubsystemDefinition(
                 name="Self-Healing System",
                 module_path="engines.self_healing",
