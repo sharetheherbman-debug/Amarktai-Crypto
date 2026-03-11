@@ -71,8 +71,8 @@ class SlippageEstimator:
                 "book_total_notional": 0.0,
             }
 
-        filled = 0.0
-        weighted_price = 0.0
+        filled_notional = 0.0
+        filled_base = 0.0
         top_price = None
         levels_consumed = 0
         book_total = 0.0
@@ -88,18 +88,18 @@ class SlippageEstimator:
             if top_price is None:
                 top_price = price
 
-            remaining = notional - filled
+            remaining = notional - filled_notional
             if remaining <= 0:
                 break
 
             take_notional = min(level_notional, remaining)
-            take_qty = take_notional / price
-            weighted_price += take_qty * price
-            filled += take_notional
+            take_base = take_notional / price
+            filled_notional += take_notional
+            filled_base += take_base
             levels_consumed += 1
 
-        depth_sufficient = filled >= notional
-        if filled <= 0 or top_price is None or top_price <= 0:
+        depth_sufficient = filled_notional >= notional
+        if filled_base <= 0 or top_price is None or top_price <= 0:
             return {
                 "slippage_bps": 15.0,
                 "method": "vwap_sweep",
@@ -108,8 +108,8 @@ class SlippageEstimator:
                 "book_total_notional": round(book_total, 2),
             }
 
-        total_qty = filled / top_price if top_price > 0 else 0
-        vwap = weighted_price / total_qty if total_qty > 0 else top_price
+        # VWAP = total cost / total base quantity
+        vwap = filled_notional / filled_base
         slip_bps = abs(vwap - top_price) / top_price * 10000.0
 
         if not depth_sufficient:

@@ -11,6 +11,12 @@ from .reason_codes import ReasonCodes
 
 logger = logging.getLogger(__name__)
 
+# ── Early-invalidation thresholds ──
+# If a trade loses more than this percentage within the first portion of
+# its time budget, the entry thesis is likely wrong — exit immediately.
+EARLY_INVALIDATION_TIME_FRACTION = 0.3   # first 30% of time budget
+EARLY_INVALIDATION_LOSS_PCT = -0.5       # -0.5% loss triggers exit
+
 
 class OpenTradeManager:
     """
@@ -116,7 +122,7 @@ class OpenTradeManager:
                 }
 
         # ── 5. Early invalidation ──
-        if time_fraction < 0.3 and pnl_pct < -0.5:
+        if time_fraction < EARLY_INVALIDATION_TIME_FRACTION and pnl_pct < EARLY_INVALIDATION_LOSS_PCT:
             # Quick large adverse move → thesis likely wrong
             return {
                 "should_exit": True,

@@ -9,6 +9,11 @@ from .reason_codes import ReasonCodes, make_decision_payload
 
 logger = logging.getLogger(__name__)
 
+# Maximum acceptable cost as percentage of gross edge.
+# If all-in cost exceeds this ratio of the gross edge, the trade is
+# uneconomical because too much of the expected move is consumed by costs.
+MAX_COST_TO_EDGE_RATIO = 0.65
+
 # ── Per-strategy minimum net edge (BPS after all costs) ──
 MIN_NET_EDGE_BPS = {
     "normal": 15.0,       # 0.15% net
@@ -195,10 +200,10 @@ class TradeFeasibilityGate:
         if expected_net_edge_bps < required_edge:
             return make_decision_payload(ReasonCodes.EDGE_TOO_SMALL, False, **common)
 
-        # ── 7. Cost cap: if all-in cost > 50% of gross edge, block ──
+        # ── 7. Cost cap: if all-in cost > MAX_COST_TO_EDGE_RATIO of gross edge, block ──
         if all_in_cost_bps > 0 and expected_gross_edge_bps > 0:
             cost_ratio = all_in_cost_bps / expected_gross_edge_bps
-            if cost_ratio > 0.65:
+            if cost_ratio > MAX_COST_TO_EDGE_RATIO:
                 return make_decision_payload(ReasonCodes.COST_TOO_HIGH, False, **common)
 
         # ── 8. Absolute profit rule ──

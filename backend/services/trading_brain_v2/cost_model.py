@@ -170,8 +170,8 @@ class AllInCostModel:
         if not levels or notional <= 0:
             return MIN_SLIPPAGE_BPS
 
-        filled = 0.0
-        cost = 0.0
+        filled_notional = 0.0
+        filled_base = 0.0
         top_price = None
 
         for lvl in levels:
@@ -190,24 +190,23 @@ class AllInCostModel:
                 top_price = price
 
             level_notional = price * qty
-            remaining = notional - filled
-            take = min(level_notional, remaining)
-            cost += take
-            filled += take
+            remaining = notional - filled_notional
+            take_notional = min(level_notional, remaining)
+            take_base = take_notional / price
+            filled_notional += take_notional
+            filled_base += take_base
 
-            if filled >= notional:
+            if filled_notional >= notional:
                 break
 
-        if filled <= 0 or top_price <= 0:
+        if filled_base <= 0 or top_price <= 0:
             return 8.0  # conservative if book is empty
 
-        vwap = cost / filled * (top_price / cost * filled) if filled > 0 else top_price
-        # Simplified: slippage = how far we moved from top
-        if filled < notional:
+        if filled_notional < notional:
             # Book too thin – high slippage
             return 15.0
-        # The actual VWAP price is cost/filled-as-base-qty, but since we swept
-        # notional amounts, slippage is approximated by how many levels we needed
-        depth_ratio = filled / max(notional, 1.0)
-        slip_bps = max(MIN_SLIPPAGE_BPS, (1.0 / max(depth_ratio, 0.1) - 1.0) * 100)
-        return min(slip_bps, 30.0)  # cap at 30 bps
+
+        # VWAP = total cost / total base quantity
+        vwap = filled_notional / filled_base
+        slip_bps = abs(vwap - top_price) / top_price * 10000.0
+        return max(min(slip_bps, 30.0), MIN_SLIPPAGE_BPS)
