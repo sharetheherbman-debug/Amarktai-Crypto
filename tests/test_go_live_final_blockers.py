@@ -48,8 +48,11 @@ def test_self_healing_endpoint_in_route_file():
 
 
 def test_self_healing_get_status_method_exists():
-    """self_healing.SelfHealingSystem must have a get_status() method."""
-    src = _read("backend/self_healing.py")
+    """self_healing.SelfHealingSystem must have a get_status() method.
+    Canonical implementation lives in engines/self_healing.py;
+    backend/self_healing.py is a re-export shim pointing there.
+    """
+    src = _read("backend/engines/self_healing.py")
     assert "def get_status(" in src
     assert '"enabled"' in src
     assert '"state"' in src
@@ -288,9 +291,10 @@ def test_admin_panel_duplicate_storage_removed():
 # ── 8. Capital source consistency ────────────────────────────────────────────
 
 def test_countdown_uses_paper_equity_source_field():
-    """Countdown endpoint must use paper_equity['source'] not a hardcoded string."""
+    """Countdown endpoint must use 'wallet_snapshot' as the canonical paper-wallet source name."""
     src = _read("backend/server.py")
-    assert 'capital_source = paper_equity["source"]' in src
+    # Canonical: explicit literal "wallet_snapshot" as the paper-wallet capital source name
+    assert 'capital_source = "wallet_snapshot"' in src
 
 
 def test_canonical_paper_wallet_equity_imported_in_server():

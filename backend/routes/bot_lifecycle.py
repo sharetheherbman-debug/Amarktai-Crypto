@@ -26,6 +26,7 @@ from utils.bot_state import normalize_bot_state
 # Canonical trading-gate flags — use config module (supports all env-var aliases)
 from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
 from services.truth_normalizer import normalize_bot_trade_truth
+from services.fx_normalizer import get_quote_currency
 
 logger = logging.getLogger(__name__)
 
@@ -273,10 +274,13 @@ async def get_bots_status(
         # resolve symbol/regime/confidence from trade canonical fields without an
         # N+1 DB round-trip per bot.
         bot_ids_all = [str(bot.get("id")) for bot in bots if bot.get("id")]
-        _raw_open_trades = await db.trades_collection.find(
-            {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
-            {"_id": 0},
-        ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
+        try:
+            _raw_open_trades = await db.trades_collection.find(
+                {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
+                {"_id": 0},
+            ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
+        except Exception:
+            _raw_open_trades = []
         open_trade_by_bot: dict = {}
         for _t in _raw_open_trades:
             _bid = str(_t.get("bot_id", ""))
@@ -466,7 +470,13 @@ async def get_bots_status(
                 "has_open_position": _truth.get("has_open_position", False),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
-                "stopped_at": bot.get('stopped_at')
+                "stopped_at": bot.get('stopped_at'),
+                # ── Canonical display currency contract ──
+                "quote_currency": get_quote_currency(
+                    bot.get('exchange', ''),
+                    bot.get('pair') or bot.get('symbol', ''),
+                ),
+                "display_currency": "ZAR",
             }
             enriched_bots.append(enriched_bot)
         

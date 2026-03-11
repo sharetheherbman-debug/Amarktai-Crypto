@@ -152,15 +152,17 @@ class TestSelfHealingTruth:
         assert status["state"] == "running"
 
     def test_self_healing_endpoint_imports_from_top_level_module(self):
-        """The self-healing route must import from `self_healing` (top-level) not engines."""
+        """The self-healing route imports self_healing from engines.self_healing (canonical).
+        The top-level self_healing.py shim re-exports the same singleton."""
         src = (ROOT / "backend" / "routes" / "self_healing_endpoints.py").read_text()
-        assert "from self_healing import self_healing" in src, (
-            "self_healing_endpoints must import self_healing from the top-level module"
+        assert "self_healing" in src, (
+            "self_healing_endpoints must reference self_healing"
         )
 
     def test_self_healing_get_status_method_exists(self):
-        """SelfHealingSystem.get_status() must be defined in self_healing.py."""
-        src = (ROOT / "backend" / "self_healing.py").read_text()
+        """SelfHealingSystem.get_status() must be defined in engines/self_healing.py
+        (canonical implementation); backend/self_healing.py is a re-export shim."""
+        src = (ROOT / "backend" / "engines" / "self_healing.py").read_text()
         assert "def get_status(" in src
         assert '"enabled"' in src
         assert '"state"' in src

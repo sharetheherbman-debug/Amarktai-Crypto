@@ -1771,7 +1771,7 @@ async def data_integrity_check(user_id: str = Depends(get_current_user)):
         }
 
         # 2. Wallet balance check
-        wallet_doc = await db.database["paper_wallets"].find_one({"user_id": user_id}) or {}
+        wallet_doc = await db.db["paper_wallets"].find_one({"user_id": user_id}) or {}
         wallet_total = float(wallet_doc.get("total", wallet_doc.get("available", 0)))
         wallet_available = float(wallet_doc.get("available", 0))
         wallet_reserved = float(wallet_doc.get("reserved", 0))
@@ -1808,7 +1808,7 @@ async def data_integrity_check(user_id: str = Depends(get_current_user)):
 
         # 5. Ledger fill count
         try:
-            fills_count = await db.database["fills_ledger"].count_documents({"user_id": user_id})
+            fills_count = await db.db["fills_ledger"].count_documents({"user_id": user_id})
         except Exception:
             fills_count = 0
         checks["ledger_fills"] = {
@@ -2262,7 +2262,8 @@ async def get_subsystem_health(user_id: str = Depends(get_current_user)):
 
         # ── 5. Exchange readiness ──────────────────────────────────────────
         try:
-            from rules.bot_rules import SUPPORTED_EXCHANGES as _SX
+            # Use canonical exchange list from exchange_adapter (single source of truth)
+            from services.exchange_adapter import SUPPORTED_EXCHANGES as _SX
             configured_exchanges = []
             for ex in _SX:
                 key_doc = await db.api_keys_collection.find_one(

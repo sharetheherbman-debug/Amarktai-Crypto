@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import apiClient, { get } from '../../../lib/apiClient';
 import { SUPPORTED_PLATFORMS, getPlatformDisplayName, getPlatformIcon } from '../../../constants/platforms';
+import { formatZAR } from '../../../lib/moneyFormat';
 
 const API = '';
 const axios = apiClient;
@@ -17,12 +18,7 @@ const safeToFixed = (value, digits = 2, fallback = '0.00') => {
   return Number.isFinite(num) ? num.toFixed(digits) : fallback;
 };
 
-const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return fallback;
-  const formatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return `${num < 0 ? '-R' : 'R'}${formatted}`;
-};
+// formatZAR imported from canonical moneyFormat.js — do not redefine here
 
 /* ── Collapsible API Key Monitor grouped by category ───────────────── */
 const KEY_GROUPS = [
@@ -308,7 +304,7 @@ export default function AdminPanelSection({
 
           {/* System-level Key Monitor (collapsed by default) */}
           <div className="admin-card">
-            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔑 System Key Overview</h3>
+            <h3 style={{ marginBottom: '12px', color: 'var(--text)' }}>🔑 API Key Monitor (Admin)</h3>
             {adminKeyMonitor?.providers?.length > 0 ? (
               <KeyMonitorGrouped providers={adminKeyMonitor.providers} formatDate={formatDate} />
             ) : (

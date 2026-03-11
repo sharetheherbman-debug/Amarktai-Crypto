@@ -1,5 +1,6 @@
 import SectionHeader from '@/ui/components/SectionHeader';
 import GlassCard from '@/ui/components/GlassCard';
+import { formatZAR } from '../../../lib/moneyFormat';
 
 const NOT_AVAILABLE = 'Not available';
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -10,15 +11,7 @@ const safeNumber = (value, fallback = 0) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 };
-const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return fallback;
-  const formatted = Math.abs(num).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits
-  });
-  return `${num < 0 ? '-R' : 'R'}${formatted}`;
-};
+// formatZAR imported from canonical moneyFormat.js — do not redefine here
 const humanizeReason = (reason) => {
   if (!reason) return NOT_AVAILABLE;
   const raw = String(reason).trim();

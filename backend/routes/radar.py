@@ -9,6 +9,14 @@ Provides per-bot radar data derived from ledger/trade truth:
   position_opened_at, max_hold_seconds, remaining_hold_seconds,
   next_action, next_action_reason_code, next_action_reason_text,
   market_regime, spread_estimate, slippage_estimate
+
+Display currency contract:
+  Every monetary amount field is accompanied by:
+    quote_currency     — native trading quote currency ("ZAR" or "USDT")
+    display_currency   — always "ZAR" (canonical user-facing currency)
+    fx_rate_used       — rate used to convert quote→ZAR
+    fx_source          — source of that rate
+  Use <field>_display fields for user-facing rendering, not raw fields.
 """
 
 import math
@@ -25,6 +33,7 @@ from services.hold_policy import resolve_hold_policy
 from services.canonical import get_canonical_open_position_count, get_latest_bot_decisions
 from services.target_policy import derive_targets
 from services.truth_normalizer import normalize_bot_trade_truth
+from services.fx_normalizer import get_quote_currency, to_display_zar, get_fx_rate
 
 logger = logging.getLogger(__name__)
 
@@ -110,47 +119,81 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     max_hold = int(hold_policy["max_hold_seconds"])
     capital = _safe_float(bot.get("current_capital", bot.get("initial_capital")), 0.0)
 
-    # ── Target policy: prefer TargetPolicyV2 when V2 engine is active ────
-    _use_v2_targets = False
-    try:
-        from config import NEW_TRADING_BRAIN_V2
-        _use_v2_targets = NEW_TRADING_BRAIN_V2 and capital > 0
-    except ImportError:
-        pass
+    # ── Target policy: bot-configured pcts take priority, then V2, then legacy ────
+    _raw_daily_pct = bot.get("daily_profit_target_pct")
+    if _raw_daily_pct is None:
+        _raw_daily_pct = bot.get("daily_target_pct")
+    _raw_trade_pct = bot.get("trade_profit_target_pct")
+    if _raw_trade_pct is None:
+        _raw_trade_pct = bot.get("per_trade_target_pct")
+    if _raw_trade_pct is None:
+        _raw_trade_pct = bot.get("trade_target_pct")
+    _configured_daily_pct = _safe_float(_raw_daily_pct, None)
+    _configured_trade_pct = _safe_float(_raw_trade_pct, None)
 
-    if _use_v2_targets:
+    if _configured_daily_pct is not None and _configured_trade_pct is not None and capital > 0:
+        # Bot-level configured targets override engine defaults
+        daily_target = round(capital * _configured_daily_pct, 2)
+        trade_target = round(capital * _configured_trade_pct, 2)
+        target_source = "configured"
+        daily_target_pct = round(_configured_daily_pct * 100, 4)
+        trade_target_pct = round(_configured_trade_pct * 100, 4)
+    else:
+        _use_v2_targets = False
         try:
-            from services.trading_brain_v2 import TargetPolicyV2
-            _tpv2 = TargetPolicyV2()
-            bot_type_str = str(bot.get("bot_type") or "normal").lower()
-            exchange_str = str(bot.get("exchange") or "binance").lower()
-            quote_currency = "ZAR" if exchange_str == "luno" else "USDT"
-            _v2t = _tpv2.compute(
-                bot_type=bot_type_str,
-                venue=exchange_str,
-                quote_currency=quote_currency,
-                bot_equity=capital,
-                notional=capital * 0.02,
-                all_in_cost_bps=0.0,
-                entry_price=0.0,
-                side="buy",
-            )
-            daily_target = _v2t.get("daily_profit_target_quote")
-            trade_target = _v2t.get("trade_profit_target_quote")
-            target_source = "target_policy_v2"
-            daily_target_pct = round(_v2t.get("daily_target_pct", 0) or 0, 4)
-            trade_target_pct = round(_v2t.get("trade_target_pct", 0) or 0, 4)
-        except Exception as _v2_err:
-            logger.warning("TargetPolicyV2 compute failed, falling back to legacy derive_targets: %s", _v2_err)
-            _use_v2_targets = False
+            from config import NEW_TRADING_BRAIN_V2
+            _use_v2_targets = NEW_TRADING_BRAIN_V2 and capital > 0
+        except ImportError:
+            pass
 
-    if not _use_v2_targets:
-        targets = derive_targets(bot)
-        daily_target = targets["daily_profit_target"]
-        trade_target = targets["trade_profit_target"]
-        target_source = targets["target_source"]
-        daily_target_pct = targets["daily_target_pct"]
-        trade_target_pct = targets["trade_target_pct"]
+        if _use_v2_targets:
+            try:
+                from services.trading_brain_v2 import TargetPolicyV2
+                _tpv2 = TargetPolicyV2()
+                bot_type_str = str(bot.get("bot_type") or "normal").lower()
+                exchange_str = str(bot.get("exchange") or "binance").lower()
+                quote_currency = "ZAR" if exchange_str == "luno" else "USDT"
+                _v2t = _tpv2.compute(
+                    bot_type=bot_type_str,
+                    venue=exchange_str,
+                    quote_currency=quote_currency,
+                    bot_equity=capital,
+                    notional=capital * 0.02,
+                    all_in_cost_bps=0.0,
+                    entry_price=0.0,
+                    side="buy",
+                )
+                daily_target = _v2t.get("daily_profit_target_quote")
+                trade_target = _v2t.get("trade_profit_target_quote")
+                target_source = "target_policy_v2"
+                daily_target_pct = round(_v2t.get("daily_target_pct", 0) or 0, 4)
+                trade_target_pct = round(_v2t.get("trade_target_pct", 0) or 0, 4)
+            except Exception as _v2_err:
+                logger.warning("TargetPolicyV2 compute failed, falling back to legacy derive_targets: %s", _v2_err)
+                _use_v2_targets = False
+
+        if not _use_v2_targets:
+            targets = derive_targets(bot)
+            daily_target = targets["daily_profit_target"]
+            trade_target = targets["trade_profit_target"]
+            target_source = targets["target_source"]
+            daily_target_pct = targets["daily_target_pct"]
+            trade_target_pct = targets["trade_target_pct"]
+
+    # ── Canonical display currency contract ──────────────────────────────────
+    # quote_currency = native trading currency for this bot
+    # display_currency = always "ZAR" (user-facing canonical)
+    # *_display fields = ZAR-converted values for UI rendering
+    _exchange_str = str(bot.get("exchange") or "").lower()
+    _symbol_str = str(bot.get("pair") or bot.get("symbol") or "")
+    _quote_currency = get_quote_currency(_exchange_str, _symbol_str)
+    _fx_rate, _fx_source = get_fx_rate(_quote_currency, "ZAR")
+
+    def _to_zar(raw: Optional[float]) -> Optional[float]:
+        """Convert a raw quote-currency value to ZAR for display."""
+        if raw is None:
+            return None
+        return round(float(raw) * _fx_rate, 2)
 
     entry = {
         "bot_id": bot_id,
@@ -158,6 +201,11 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "name": bot.get("name", f"Bot-{bot_id[:6]}"),
         "exchange": bot.get("exchange", "unknown"),
         "symbol": bot.get("pair", bot.get("symbol", "unknown")),
+        # ── Canonical display currency metadata ──
+        "quote_currency": _quote_currency,
+        "display_currency": "ZAR",
+        "fx_rate_used": _fx_rate,
+        "fx_source": _fx_source,
         "side": None,
         "entry_price": None,
         "current_price": None,
@@ -165,12 +213,17 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "stop_price": None,
         "trailing_stop_price": None,
         "realized_pnl_today": _safe_float(bot.get("realized_pnl_today"), 0.0),
+        "realized_pnl_today_display": _to_zar(_safe_float(bot.get("realized_pnl_today"), 0.0)),
         "unrealized_pnl": 0.0,
+        "unrealized_pnl_display": 0.0,
         "capital_allocated": capital,
+        "capital_allocated_display": _to_zar(capital),
         "capital_summary": bot.get("capital_summary", {}),
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
+        "daily_profit_target_display": _to_zar(daily_target),
         "trade_profit_target": trade_target,
+        "trade_profit_target_display": _to_zar(trade_target),
         "daily_target_pct": daily_target_pct,
         "trade_target_pct": trade_target_pct,
         "target_source": target_source,
@@ -207,6 +260,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "all_in_cost_bps": _safe_float(bot.get("all_in_cost_bps"), 0.0),
         "expected_net_edge_bps": _safe_float(bot.get("expected_net_edge_bps"), 0.0),
         "projected_net_profit_quote": _safe_float(bot.get("projected_net_profit_quote"), 0.0),
+        "projected_net_profit_display": _to_zar(_safe_float(bot.get("projected_net_profit_quote"), 0.0)),
         "trade_profit_target_quote": _safe_float(bot.get("trade_profit_target_quote"), trade_target),
         "daily_profit_target_quote": _safe_float(bot.get("daily_profit_target_quote"), daily_target),
         "cost_floor_source": str(bot.get("cost_floor_source", "") or ""),
@@ -320,6 +374,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             "regime_confidence": resolved_regime_confidence,
             "regime_label": str(resolved_regime or "unknown"),
             "unrealized_pnl": round(unrealized, 2),
+            "unrealized_pnl_display": _to_zar(round(unrealized, 2)),
             "exposure_pct": round(abs(unrealized) / capital * 100, 2) if capital > 0 else 0.0,
             "position_opened_at": opened_at.isoformat(),
             "remaining_hold_seconds": round(remaining),

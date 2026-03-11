@@ -317,6 +317,7 @@ class TestSelfHealingTruth:
         os.path.dirname(__file__),
         "..",
         "backend",
+        "engines",
         "self_healing.py",
     )
 

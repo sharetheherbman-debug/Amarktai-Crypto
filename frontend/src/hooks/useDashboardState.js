@@ -9,6 +9,7 @@ import { useRealtimeEvent } from './useRealtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 import { NAV } from '../constants/dashboardNav';
+import { formatZAR } from '../lib/moneyFormat';
 
 const API = '';
 const axios = apiClient;
@@ -46,15 +47,7 @@ const formatCurrencyValue = (value, digits = 2) => {
   });
 };
 
-const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return fallback;
-  const formatted = Math.abs(num).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits
-  });
-  return `${num < 0 ? '-R' : 'R'}${formatted}`;
-};
+// formatZAR imported from canonical moneyFormat.js — do not redefine here
 
 const toTitleCase = (value) => value.replace(/\w\S*/g, (word) =>
   word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()

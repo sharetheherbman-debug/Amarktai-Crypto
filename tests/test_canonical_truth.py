@@ -54,21 +54,19 @@ def _mock_collection(bots: list):
 
 class TestGetCanonicalBotCounts:
 
-    @pytest.mark.asyncio
-    async def test_all_active(self):
+    def test_all_active(self):
         from services.canonical import get_canonical_bot_counts
 
         bots = [_make_bot("active"), _make_bot("active")]
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection(bots)
-            counts = await get_canonical_bot_counts("u1")
+            counts = asyncio.run(get_canonical_bot_counts("u1"))
 
         assert counts["total"] == 2
         assert counts["active"] == 2
         assert counts["paused"] == 0
 
-    @pytest.mark.asyncio
-    async def test_mixed_states(self):
+    def test_mixed_states(self):
         from services.canonical import get_canonical_bot_counts
 
         bots = [
@@ -78,37 +76,34 @@ class TestGetCanonicalBotCounts:
         ]
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection(bots)
-            counts = await get_canonical_bot_counts("u1")
+            counts = asyncio.run(get_canonical_bot_counts("u1"))
 
         assert counts["total"] == 3
         assert counts["active"] == 1
         assert counts["paused"] == 1
         assert counts["training"] == 1
 
-    @pytest.mark.asyncio
-    async def test_empty_db_returns_zeros(self):
+    def test_empty_db_returns_zeros(self):
         from services.canonical import get_canonical_bot_counts
 
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection([])
-            counts = await get_canonical_bot_counts("u1")
+            counts = asyncio.run(get_canonical_bot_counts("u1"))
 
         assert counts["total"] == 0
         assert counts["active"] == 0
 
-    @pytest.mark.asyncio
-    async def test_none_collection_returns_zeros(self):
+    def test_none_collection_returns_zeros(self):
         from services.canonical import get_canonical_bot_counts
 
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = None
-            counts = await get_canonical_bot_counts("u1")
+            counts = asyncio.run(get_canonical_bot_counts("u1"))
 
         assert counts["total"] == 0
         assert counts["active"] == 0
 
-    @pytest.mark.asyncio
-    async def test_scalper_counted_separately(self):
+    def test_scalper_counted_separately(self):
         from services.canonical import get_canonical_bot_counts
 
         bots = [
@@ -117,14 +112,13 @@ class TestGetCanonicalBotCounts:
         ]
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection(bots)
-            counts = await get_canonical_bot_counts("u1")
+            counts = asyncio.run(get_canonical_bot_counts("u1"))
 
         assert counts["scalper_count"] == 1
         assert counts["normal_count"] == 1
         assert counts["total"] == 2
 
-    @pytest.mark.asyncio
-    async def test_activity_semantics_expose_active_vs_runnable_and_reasons(self):
+    def test_activity_semantics_expose_active_vs_runnable_and_reasons(self):
         from services.canonical import get_canonical_bot_counts
 
         bots = [
@@ -139,7 +133,7 @@ class TestGetCanonicalBotCounts:
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection(bots)
             mock_db.trades_collection = None
-            counts = await get_canonical_bot_counts("u1")
+            counts = asyncio.run(get_canonical_bot_counts("u1"))
 
         assert counts["total_bot_records"] == 3
         assert counts["active_bot_records"] == 2
@@ -154,23 +148,21 @@ class TestGetCanonicalBotCounts:
 
 class TestGetCanonicalWalletTruth:
 
-    @pytest.mark.asyncio
-    async def test_zero_total_is_unfunded(self):
+    def test_zero_total_is_unfunded(self):
         from services.canonical import get_canonical_wallet_truth
 
         with patch("services.canonical.db") as mock_db, \
              patch("services.canonical.paper_wallet_service") as mock_pw:
             mock_db.bots_collection = _mock_collection([])
             mock_pw.get_balances = AsyncMock(return_value={"total": 0.0})
-            truth = await get_canonical_wallet_truth("u1")
+            truth = asyncio.run(get_canonical_wallet_truth("u1"))
 
         assert truth["funded_status"] == "UNFUNDED"
         assert truth["status"] == truth["funded_status"], \
             "status and funded_status must always agree"
         assert truth["total"] == 0.0
 
-    @pytest.mark.asyncio
-    async def test_funded_when_balance_covers_bots(self):
+    def test_funded_when_balance_covers_bots(self):
         from services.canonical import get_canonical_wallet_truth
 
         active_bot = _make_bot("active")
@@ -180,14 +172,13 @@ class TestGetCanonicalWalletTruth:
              patch("services.canonical.paper_wallet_service") as mock_pw:
             mock_db.bots_collection = _mock_collection([active_bot])
             mock_pw.get_balances = AsyncMock(return_value={"total": 1000.0})
-            truth = await get_canonical_wallet_truth("u1")
+            truth = asyncio.run(get_canonical_wallet_truth("u1"))
 
         assert truth["funded_status"] == "FUNDED"
         assert truth["status"] == "FUNDED"
         assert truth["shortfall"] == 0.0
 
-    @pytest.mark.asyncio
-    async def test_unfunded_when_balance_below_required(self):
+    def test_unfunded_when_balance_below_required(self):
         from services.canonical import get_canonical_wallet_truth
 
         active_bot = _make_bot("active")
@@ -197,7 +188,7 @@ class TestGetCanonicalWalletTruth:
              patch("services.canonical.paper_wallet_service") as mock_pw:
             mock_db.bots_collection = _mock_collection([active_bot])
             mock_pw.get_balances = AsyncMock(return_value={"total": 100.0})
-            truth = await get_canonical_wallet_truth("u1")
+            truth = asyncio.run(get_canonical_wallet_truth("u1"))
 
         assert truth["funded_status"] == "UNFUNDED"
         assert truth["status"] == "UNFUNDED"
@@ -210,8 +201,7 @@ class TestGetCanonicalTradeCounts:
         reason="canonical service dependencies (motor/database) not installed",
     )
 
-    @pytest.mark.asyncio
-    async def test_trade_counts_scoped_to_closed_trades_for_user_bots(self):
+    def test_trade_counts_scoped_to_closed_trades_for_user_bots(self):
         from services.canonical import get_canonical_trade_counts
 
         bots_cursor = MagicMock()
@@ -228,7 +218,7 @@ class TestGetCanonicalTradeCounts:
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = bots_collection
             mock_db.trades_collection = trades_collection
-            counts = await get_canonical_trade_counts("u1")
+            counts = asyncio.run(get_canonical_trade_counts("u1"))
 
         assert counts == {"total": 12, "today": 4}
         first_query = trades_collection.count_documents.await_args_list[0].args[0]
@@ -238,8 +228,7 @@ class TestGetCanonicalTradeCounts:
         assert first_query["bot_id"]["$in"] == ["bot-1", "bot-2"]
         assert second_query["bot_id"]["$in"] == ["bot-1", "bot-2"]
 
-    @pytest.mark.asyncio
-    async def test_trade_counts_zero_when_user_has_no_bots(self):
+    def test_trade_counts_zero_when_user_has_no_bots(self):
         from services.canonical import get_canonical_trade_counts
 
         bots_cursor = MagicMock()
@@ -253,13 +242,12 @@ class TestGetCanonicalTradeCounts:
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = bots_collection
             mock_db.trades_collection = trades_collection
-            counts = await get_canonical_trade_counts("u1")
+            counts = asyncio.run(get_canonical_trade_counts("u1"))
 
         assert counts == {"total": 0, "today": 0}
         trades_collection.count_documents.assert_not_awaited()
 
-    @pytest.mark.asyncio
-    async def test_status_funded_status_never_contradict(self):
+    def test_status_funded_status_never_contradict(self):
         """The hallmark test: status and funded_status must always be equal."""
         from services.canonical import get_canonical_wallet_truth
 
@@ -274,7 +262,7 @@ class TestGetCanonicalTradeCounts:
                  patch("services.canonical.paper_wallet_service") as mock_pw:
                 mock_db.bots_collection = _mock_collection(bots)
                 mock_pw.get_balances = AsyncMock(return_value={"total": balance})
-                truth = await get_canonical_wallet_truth("u1")
+                truth = asyncio.run(get_canonical_wallet_truth("u1"))
 
             assert truth["status"] == truth["funded_status"], (
                 f"Contradiction for balance={balance}, bots={len(bots)}: "
@@ -294,8 +282,7 @@ class TestEndpointConsistency:
     Both endpoints must return the same active count for the same user.
     """
 
-    @pytest.mark.asyncio
-    async def test_bots_status_active_matches_canonical(self):
+    def test_bots_status_active_matches_canonical(self):
         """_bots_status_payload active_bots must equal canonical active count."""
         from services.canonical import get_canonical_bot_counts
         from routes.bot_lifecycle import _bots_status_payload
@@ -305,7 +292,7 @@ class TestEndpointConsistency:
         # canonical path
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection(bots_db)
-            canonical = await get_canonical_bot_counts("u1")
+            canonical = asyncio.run(get_canonical_bot_counts("u1"))
 
         # bot_lifecycle path — enriched_bots already computed by bot_lifecycle
         enriched = [
@@ -325,8 +312,7 @@ class TestEndpointConsistency:
             f"bot_lifecycle active_bots={bot_lifecycle_active}"
         )
 
-    @pytest.mark.asyncio
-    async def test_overview_snapshot_active_bots_uses_canonical(self):
+    def test_overview_snapshot_active_bots_uses_canonical(self):
         """overview/snapshot activeBots must equal get_canonical_bot_counts active."""
         from services.canonical import get_canonical_bot_counts
 
@@ -334,7 +320,7 @@ class TestEndpointConsistency:
 
         with patch("services.canonical.db") as mock_db:
             mock_db.bots_collection = _mock_collection(bots_db)
-            canonical = await get_canonical_bot_counts("u1")
+            canonical = asyncio.run(get_canonical_bot_counts("u1"))
 
         # The snapshot endpoint calls get_canonical_bot_counts("u1") and returns
         # counts["active"] as activeBots.  We verify the canonical service itself.

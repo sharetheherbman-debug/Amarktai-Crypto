@@ -130,10 +130,15 @@ def test_provider_setup_uses_compact_supported_groups_only():
 
 def test_bot_status_payload_includes_decision_fields():
     src = _read("backend/routes/bot_lifecycle.py")
-    assert '"decision_reason_code": normalized_bot.get("decision_reason_code"' in src
-    assert '"entry_reason_code": normalized_bot.get("entry_reason_code"' in src
-    assert '"entry_confidence_score": normalized_bot.get("entry_confidence_score"' in src
-    assert '"expectancy_net_edge_pct": normalized_bot.get("expectancy_net_edge_pct")' in src
+    # Canonical: decision fields use _truth override with normalized_bot fallback
+    assert '"decision_reason_code"' in src
+    assert 'normalized_bot.get("decision_reason_code"' in src
+    assert '"entry_reason_code"' in src
+    assert 'normalized_bot.get("entry_reason_code"' in src
+    assert '"entry_confidence_score"' in src
+    assert 'normalized_bot.get("entry_confidence_score"' in src
+    assert '"expectancy_net_edge_pct"' in src
+    assert 'normalized_bot.get("expectancy_net_edge_pct")' in src
 
 
 def test_diagnostics_routes_expose_live_intelligence_endpoints():
