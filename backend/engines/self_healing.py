@@ -12,6 +12,7 @@ from config import MAX_HOURLY_LOSS_PERCENT, MAX_DRAWDOWN_PERCENT
 class SelfHealingSystem:
     def __init__(self):
         self.is_running = False
+        self.last_result = "idle"
         self.task = None
         self.detection_rules = [
             self.detect_excessive_loss,
@@ -245,6 +246,7 @@ class SelfHealingSystem:
     async def stop(self):
         """Stop self-healing system (async-compatible)."""
         self.is_running = False
+        self.last_result = "stopped"
         if self.task:
             self.task.cancel()
         logger.info("⏹️ Self-Healing system stopped")
@@ -254,13 +256,13 @@ class SelfHealingSystem:
 
         State semantics:
           - running:  actively monitoring systems (is_running=True)
-          - stopped:  was running, now stopped
+          - stopped:  was running, now stopped (_was_started=True or last_result="stopped")
           - idle:     initialized but not yet started
           - disabled: not started / service unavailable
         """
         if self.is_running:
             state = "running"
-        elif getattr(self, "_was_started", False):
+        elif getattr(self, "_was_started", False) or getattr(self, "last_result", None) == "stopped":
             state = "stopped"
         else:
             state = "idle"
@@ -279,7 +281,7 @@ class SelfHealingSystem:
             "last_check": last_check.isoformat() if last_check else None,
             "last_started_at": last_started_at.isoformat() if last_started_at else None,
             "last_action": _last_action,
-            "last_result": "running" if self.is_running else state,
+            "last_result": self.last_result,
             "last_reason_code": "RUNNING" if self.is_running else "IDLE",
             "last_error": None,
             "monitored_systems": ["bots", "capital", "trading_patterns"],

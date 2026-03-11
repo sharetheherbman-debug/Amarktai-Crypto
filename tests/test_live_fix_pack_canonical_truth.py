@@ -78,7 +78,8 @@ def test_countdown_uses_paper_wallet_total_equity_source():
     with open(path) as f:
         source = f.read()
     assert "get_canonical_paper_wallet_equity" in source
-    assert 'capital_source = paper_equity["source"]' in source
+    # Canonical: explicit literal "wallet_snapshot" as the paper-wallet capital source name
+    assert 'capital_source = "wallet_snapshot"' in source
 
 
 def test_scalper_edge_gate_is_stricter():

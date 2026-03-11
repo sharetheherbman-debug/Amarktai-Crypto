@@ -5,10 +5,9 @@ Exposes the canonical self-healing runtime status at /api/self-healing/status.
 This is a dedicated top-level route so the frontend and admin consoles can
 reach the self-healing service without going through /api/autonomy/.
 
-IMPORTANT: This endpoint imports from *engines.self_healing* — the same
-singleton that services/lifecycle.py starts.  The root-level self_healing.py
-module is a separate, older class that is never started; do NOT import from it
-here or the status will always report idle/disabled.
+Imports self_healing from engines.self_healing — the canonical singleton
+started by services/lifecycle.py. The root-level self_healing.py is a
+re-export shim for legacy compatibility; both give the same singleton.
 """
 
 from fastapi import APIRouter, Depends
