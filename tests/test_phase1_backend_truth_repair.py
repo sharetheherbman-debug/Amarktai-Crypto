@@ -755,4 +755,4 @@ class TestReasonCodeCatalog:
             result = evaluate_minimum_worthwhile_trade(**test_case)
             code = result["reason_code"]
             assert isinstance(code, str) and len(code) > 0, "reason_code must be non-empty string"
-            assert code == code.upper().replace(" ", "_"), f"reason_code '{code}' not snake-case-upper"
+            assert code == code.upper().replace(" ", "_"), f"reason_code '{code}' not UPPER_SNAKE_CASE"
