@@ -84,7 +84,7 @@ test('Realtime client guards reconnect when logged out', () => {
     require('path').resolve(__dirname, '../lib/realtime.js'), 'utf8'
   );
   // Must check for token before reconnecting
-  expect(rtSource).toContain("localStorage.getItem('token')");
+  expect(rtSource).toContain('if (!this.token)');
   // Must set onclose to null on disconnect to prevent reconnect storms
   expect(rtSource).toContain('this.ws.onclose = null');
 });

@@ -202,7 +202,7 @@ function PerUserKeyMonitor({ axiosConfig }) {
                     {u.providers.map(p => {
                       const statusColor = p.valid ? 'var(--success)' : p.configured ? 'var(--error)' : 'var(--muted)';
                       const statusText = p.valid ? 'Valid' : p.configured ? 'Invalid' : 'Not set';
-                      const sourceLabel = p.configured ? 'User Key' : 'System/Fallback';
+                      const sourceLabel = p.configured ? 'User Key' : 'System Default';
                       return (
                         <React.Fragment key={p.provider}>
                           <span style={{ color: 'var(--text)', fontWeight: 500 }}>{p.provider}</span>

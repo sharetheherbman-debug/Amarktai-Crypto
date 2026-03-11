@@ -179,7 +179,7 @@ class RealtimeClient {
    */
   scheduleReconnect() {
     // Do not reconnect if token was cleared (logged out)
-    if (!this.token || !localStorage.getItem('token')) {
+    if (!this.token) {
       console.log('🔌 Skipping reconnect — not authenticated');
       return;
     }
@@ -201,7 +201,7 @@ class RealtimeClient {
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
       // Re-check auth before actually reconnecting
-      if (!this.token || !localStorage.getItem('token')) return;
+      if (!this.token) return;
       this.connectWebSocket();
     }, delay);
   }

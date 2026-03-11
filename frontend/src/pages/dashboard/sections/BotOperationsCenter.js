@@ -57,11 +57,16 @@ export default function BotOperationsCenter({
 }) {
   const [opsTab, setOpsTab] = useState(OPS_TAB.FLEET);
 
-  const activeBots = (bots || []).filter(b => ['active', 'running', 'trading'].includes((b.status || b.state || '').toLowerCase()));
-  const inPosition = (bots || []).filter(b => b.has_open_position || b.open_position);
-  const totalBots = (bots || []).length;
-  const normalBots = (bots || []).filter(b => (b.bot_type || 'normal').toLowerCase() === 'normal');
-  const scalperBots = (bots || []).filter(b => (b.bot_type || '').toLowerCase() === 'scalper');
+  const botStats = (bots || []).reduce((acc, b) => {
+    const st = (b.status || b.state || '').toLowerCase();
+    const bt = (b.bot_type || 'normal').toLowerCase();
+    acc.total++;
+    if (['active', 'running', 'trading'].includes(st)) acc.active++;
+    if (b.has_open_position || b.open_position) acc.inPosition++;
+    if (bt === 'normal') acc.normal++;
+    if (bt === 'scalper') acc.scalper++;
+    return acc;
+  }, { total: 0, active: 0, inPosition: 0, normal: 0, scalper: 0 });
 
   return (
     <section className="section active">
@@ -79,11 +84,11 @@ export default function BotOperationsCenter({
           marginBottom: '20px',
         }}>
           {[
-            { label: 'Total', value: totalBots, color: 'var(--text)' },
-            { label: 'Active', value: activeBots.length, color: 'var(--success)' },
-            { label: 'In Position', value: inPosition.length, color: 'var(--accent2)' },
-            { label: 'Normal', value: normalBots.length, color: 'var(--text)' },
-            { label: 'Scalper', value: scalperBots.length, color: '#f59e0b' },
+            { label: 'Total', value: botStats.total, color: 'var(--text)' },
+            { label: 'Active', value: botStats.active, color: 'var(--success)' },
+            { label: 'In Position', value: botStats.inPosition, color: 'var(--accent2)' },
+            { label: 'Normal', value: botStats.normal, color: 'var(--text)' },
+            { label: 'Scalper', value: botStats.scalper, color: '#f59e0b' },
           ].map(s => (
             <div key={s.label} style={{
               background: 'rgba(255,255,255,0.04)',
