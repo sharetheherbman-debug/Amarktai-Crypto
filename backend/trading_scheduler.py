@@ -79,6 +79,7 @@ class TradingScheduler:
         self.last_tick_queued = 0         # How many new trades were queued on last tick
         self.last_tick_executed = 0       # How many trades were executed on last tick
         self.last_tick_processed = 0      # How many trade requests were attempted (dequeued) on last tick
+        self.last_tick_blocked = 0        # How many dequeued trades were blocked before execution
         self.last_tick_noop_reason = None # Why last tick did nothing (if it did nothing)
         self.last_tick_activity = {
             "total_bot_records": 0,
@@ -113,7 +114,8 @@ class TradingScheduler:
         self.total_ticks += 1
         tick_executed = 0
         tick_queued = 0
-        tick_processed = 0  # Trade requests dequeued and attempted (even if result=None)
+        tick_processed = 0  # Trade requests dequeued and execution reached (even if result=None)
+        tick_blocked = 0   # Trade requests dequeued but blocked before execution
         try:
             # Check system gate first
             should_run, gate_reason = system_gate.validate_scheduler_tick()
@@ -434,26 +436,37 @@ class TradingScheduler:
                 if not bot:
                     continue
                 
-                # PHASE 4B/4C: Validate trading mode gates BEFORE execution
-                try:
-                    can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(bot_id, bot)
-                    
-                    if not can_trade:
-                        logger.warning(f"⛔ {bot['name']} - Trading blocked: {reason}")
-                        # Don't execute - mark reason
+                # Resolve canonical bot mode using the shared normalizer so that
+                # mode values such as 'paper_trading' or 'PAPER' map correctly.
+                is_paper_mode = _is_paper_bot(bot)
+
+                if not is_paper_mode:
+                    # LIVE TRADING: apply live-specific gates (API keys, balance).
+                    # Paper bots are pre-approved by the system-mode check above
+                    # (lines 271-336) and must not be blocked by a second,
+                    # conflicting env-var gate — that is the canonical execution gap.
+                    try:
+                        can_trade, _mode, reason = await trading_mode_validator.validate_bot_trading_mode(bot_id, bot)
+                        if not can_trade:
+                            logger.warning(
+                                "⛔ %s — live trading blocked: %s",
+                                bot['name'], reason,
+                            )
+                            tick_blocked += 1
+                            continue
+                        logger.debug("✅ Live trading gates passed for %s in %s mode", bot['name'], _mode)
+                    except TradingGateError as e:
+                        logger.error("⛔ Trading gate error for %s: %s", bot['name'], e)
+                        tick_blocked += 1
                         continue
-                    
-                    logger.debug(f"✅ Trading gates passed for {bot['name']} in {mode} mode")
-                    
-                except TradingGateError as e:
-                    logger.error(f"⛔ Trading gate error for {bot['name']}: {e}")
-                    continue
-                
+                else:
+                    logger.debug(
+                        "✅ Paper bot %s pre-approved by system gate — skipping redundant env-var gate",
+                        bot['name'],
+                    )
+
                 # Execute trade based on mode
                 try:
-                    # Check both 'mode' and 'trading_mode' for backwards compatibility
-                    mode = bot.get('mode') or bot.get('trading_mode', 'paper')
-                    is_paper_mode = str(mode).strip().lower().startswith('paper')
                     
                     # Register trade start
                     await trade_staggerer.register_trade_start(bot_id, bot.get('exchange'))
@@ -564,6 +577,7 @@ class TradingScheduler:
             self.last_tick_queued = tick_queued
             self.last_tick_executed = tick_executed
             self.last_tick_processed = tick_processed
+            self.last_tick_blocked = tick_blocked
             self.total_trades_executed += tick_executed
             if tick_executed == 0:
                 # Differentiate: were trade requests processed (open positions managed) or nothing happened?
@@ -578,6 +592,19 @@ class TradingScheduler:
                         self.last_tick_activity.get("active_bot_records", 0),
                         self.last_tick_activity.get("runnable_active_bots", 0),
                         tick_processed,
+                        tick_queued,
+                    )
+                elif tick_blocked > 0:
+                    # Trades were dequeued but all blocked before execution
+                    self.last_tick_noop_reason = "all_blocked_by_gate"
+                    self.total_noop_ticks += 1
+                    logger.info(
+                        "📊 Scheduler tick — active_bot_records: %d | "
+                        "runnable_active_bots: %d | blocked: %d | queued: %d | "
+                        "Noop reason: all_blocked_by_gate",
+                        self.last_tick_activity.get("active_bot_records", 0),
+                        self.last_tick_activity.get("runnable_active_bots", 0),
+                        tick_blocked,
                         tick_queued,
                     )
                 else:
@@ -820,6 +847,7 @@ class TradingScheduler:
             "last_tick_queued": self.last_tick_queued,
             "last_tick_executed": self.last_tick_executed,
             "last_tick_processed": getattr(self, 'last_tick_processed', 0),
+            "last_tick_blocked": getattr(self, 'last_tick_blocked', 0),
             "last_tick_noop_reason": self.last_tick_noop_reason,
             "last_tick_activity": self.last_tick_activity,
             "last_trade_at": self.last_trade_at,

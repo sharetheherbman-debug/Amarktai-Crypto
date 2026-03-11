@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import database as db
 from logger_config import logger
 from utils.env_utils import env_bool
+from utils.trading_mode import normalize_trading_mode
 
 
 class TradingModeValidator:
@@ -47,8 +48,13 @@ class TradingModeValidator:
                 if not bot_data:
                     return False, "unknown", f"Bot {bot_id[:8]} not found"
             
-            # Determine bot's trading mode
-            mode = bot_data.get('trading_mode') or bot_data.get('mode', 'paper')
+            # Determine bot's trading mode — normalize so that 'paper_trading',
+            # 'PAPER', etc. all resolve to the canonical 'paper' value, preventing
+            # strict-equality checks from silently blocking valid paper bots.
+            mode = normalize_trading_mode(
+                bot_data.get('trading_mode') or bot_data.get('mode'),
+                default='paper',
+            )
             user_id = bot_data.get('user_id')
             system_mode = None
             if user_id:

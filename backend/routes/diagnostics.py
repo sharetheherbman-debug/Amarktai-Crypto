@@ -688,6 +688,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         total_bots: Total non-deleted bot count
         trades_today: Count of trades executed today
         scheduler_running: Whether scheduler is active
+        scheduler_state: Full scheduler lifecycle truth (queue size, noop reason, blocked count)
     """
     try:
         from paper_trading_engine import paper_trading_engine
@@ -745,6 +746,10 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                     "timestamp": error_doc.get('timestamp')
                 }
 
+        # Expose canonical scheduler lifecycle truth so the API reflects runtime state.
+        # This closes the gap between VPS logs and API-visible diagnostics.
+        scheduler_state = trading_scheduler.get_health_snapshot()
+
         return {
             "success": True,
             "last_tick": engine_status.get('last_tick'),
@@ -763,6 +768,23 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
             "total_bots": counts["total"],
             "trades_today": trades_today,
             "scheduler_running": scheduler_running,
+            # Canonical scheduler lifecycle truth — queue → execution → persistence
+            "scheduler_state": {
+                "queue_size": scheduler_state.get("queue_size", 0),
+                "queued_bot_ids": scheduler_state.get("queued_bot_ids", []),
+                "active_trades": scheduler_state.get("active_trades", 0),
+                "last_tick_at": scheduler_state.get("last_tick_at"),
+                "last_tick_queued": scheduler_state.get("last_tick_queued", 0),
+                "last_tick_processed": scheduler_state.get("last_tick_processed", 0),
+                "last_tick_blocked": scheduler_state.get("last_tick_blocked", 0),
+                "last_tick_executed": scheduler_state.get("last_tick_executed", 0),
+                "last_tick_noop_reason": scheduler_state.get("last_tick_noop_reason"),
+                "last_trade_at": scheduler_state.get("last_trade_at"),
+                "last_trade_result": scheduler_state.get("last_trade_result"),
+                "total_ticks": scheduler_state.get("total_ticks", 0),
+                "total_trades_executed": scheduler_state.get("total_trades_executed", 0),
+                "total_noop_ticks": scheduler_state.get("total_noop_ticks", 0),
+            },
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
