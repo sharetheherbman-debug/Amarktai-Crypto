@@ -2080,6 +2080,9 @@ export default function useDashboardState(navigate) {
   };
 
   const handleLogout = () => {
+    // Tear down realtime connections first (before clearing token)
+    realtimeClient.disconnect();
+    
     // Clear all storage including admin state and chat history
     localStorage.clear();
     sessionStorage.clear();

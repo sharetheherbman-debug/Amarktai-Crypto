@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import ErrorBoundary from './components/ErrorBoundary';
+import realtimeClient from './lib/realtime';
 import '@/App.css';
 import '@/styles/particles.css';
 
@@ -16,12 +17,13 @@ function PrivateRoute({ children }) {
 
 /**
  * Global auth:unauthorized listener — redirects to /login on 401.
- * Prevents silent 401 polling loops by catching the event from apiClient.
+ * Tears down realtime connections and clears stale auth state.
  */
 function AuthListener() {
   const navigate = useNavigate();
   useEffect(() => {
     const handler = () => {
+      realtimeClient.disconnect();
       localStorage.removeItem('token');
       navigate('/login', { replace: true });
     };
