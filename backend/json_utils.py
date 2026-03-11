@@ -1,6 +1,7 @@
 """
 JSON Serialization Utilities
-Handles MongoDB ObjectId and other non-JSON-serializable types
+Handles MongoDB ObjectId and other non-JSON-serializable types,
+plus safe numeric coercion and decision-payload sanitization.
 """
 
 from bson import ObjectId
@@ -88,3 +89,8 @@ def serialize_list(docs: List[Dict[str, Any]], exclude_fields: List[str] = None)
         return []
     
     return [serialize_mongo_doc(doc, exclude_fields) for doc in docs]
+
+
+# Re-export numeric utilities for backwards compatibility.
+# These live in utils/numeric_utils.py to avoid a circular import with bson.
+from utils.numeric_utils import safe_numeric, sanitize_numeric_dict  # noqa: E402,F401

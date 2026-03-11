@@ -244,15 +244,41 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             code = "POSITION_OPEN"
             text = f"Holding position – {int(remaining)}s remaining"
 
+        # Symbol: use trade's pair/symbol when available (fixes "unknown" when
+        # bot.pair is missing but trade has the canonical trading pair).
+        trade_symbol = _first_non_none(
+            open_trade.get("pair"),
+            open_trade.get("symbol"),
+            open_trade.get("trading_pair"),
+        )
+        resolved_symbol = trade_symbol if trade_symbol else entry["symbol"]
+
+        # Regime: prefer trade canonical fields; fall back to bot fields.
+        resolved_regime = (
+            open_trade.get("canonical_market_regime")
+            or open_trade.get("market_regime")
+            or open_trade.get("regime")
+            or entry["market_regime"]
+        )
+        resolved_regime_confidence = _safe_float(
+            _first_non_none(
+                open_trade.get("canonical_regime_confidence"),
+                open_trade.get("regime_confidence"),
+            ),
+            entry["regime_confidence"],
+        )
+
         entry.update({
+            "symbol": resolved_symbol,
             "side": side,
             "entry_price": entry_price,
             "current_price": current_price,
             "target_price": float(tp) if tp else None,
             "stop_price": float(sl) if sl else None,
             "trailing_stop_price": float(trailing) if trailing else None,
-            "market_regime": open_trade.get("canonical_market_regime") if open_trade.get("canonical_market_regime") is not None else entry["market_regime"],
-            "regime_confidence": _safe_float(open_trade.get("canonical_regime_confidence"), entry["regime_confidence"]),
+            "market_regime": resolved_regime,
+            "regime_confidence": resolved_regime_confidence,
+            "regime_label": str(resolved_regime or "unknown"),
             "unrealized_pnl": round(unrealized, 2),
             "exposure_pct": round(abs(unrealized) / capital * 100, 2) if capital > 0 else 0.0,
             "position_opened_at": opened_at.isoformat(),
@@ -263,8 +289,8 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             "next_action_reason_text": text,
             "decision_reason_code": open_trade.get("trade_close_reason_code") or open_trade.get("reason_code") or code,
             "entry_reason_code": open_trade.get("entry_reason_code") or open_trade.get("reason_code"),
-            "entry_confidence_score": open_trade.get("entry_confidence_score"),
-            "expectancy_net_edge_pct": open_trade.get("expectancy_net_edge_pct"),
+            "entry_confidence_score": _safe_float(open_trade.get("entry_confidence_score"), entry["entry_confidence_score"]),
+            "expectancy_net_edge_pct": _safe_float(open_trade.get("expectancy_net_edge_pct"), entry["expectancy_net_edge_pct"]),
             "exit_forecast": _compute_exit_forecast(
                 entry_price, current_price, float(tp) if tp else None,
                 float(sl) if sl else None, remaining, unrealized
