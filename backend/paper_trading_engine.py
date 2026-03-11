@@ -1444,7 +1444,12 @@ class PaperTradingEngine:
             # handles edge, so this gate adds the absolute-profit and reward-rate
             # checks that the edge-% check alone cannot enforce.
             _worth_equity = float(bot_data.get("current_capital", 1000) or 1000)
-            _worth_notional = _worth_equity * 0.03  # conservative pre-sizing proxy
+            # Use 3% of equity as a conservative notional proxy.  The real trade
+            # size is determined later by fixed-fractional sizing (typically 1-2%
+            # risk), so 3% is a safe upper-bound pre-filter: if the trade cannot
+            # pass minimum worthwhile checks at 3% notional it will never pass at
+            # the actual (smaller) risk-capped size either.
+            _worth_notional = _worth_equity * 0.03
             _worth_result = evaluate_minimum_worthwhile_trade(
                 bot_type=bot_type,
                 exchange=exchange,

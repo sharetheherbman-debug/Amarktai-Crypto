@@ -18,6 +18,7 @@ Covers:
 import math
 import sys
 import os
+import re
 
 import pytest
 
@@ -156,11 +157,15 @@ class TestScalperGateConstants:
     def test_scalper_min_avg_confidence_is_0_70(self):
         """SCALPER_MIN_AVG_CONFIDENCE default must be '0.70' (relaxed from '0.75')."""
         source = self._engine_source()
-        assert '"0.70"' in source or "'0.70'" in source, (
-            "SCALPER_MIN_AVG_CONFIDENCE default must be 0.70, found 0.75 or other value"
+        # Use regex to find the specific assignment line
+        pattern = r'SCALPER_MIN_AVG_CONFIDENCE\s*=\s*float\(os\.getenv\([^,]+,\s*["\']0\.70["\']'
+        assert re.search(pattern, source), (
+            "SCALPER_MIN_AVG_CONFIDENCE default must be '0.70' – "
+            "the regex looking for the assignment did not match"
         )
-        assert '"0.75"' not in source or "SCALPER_MIN_AVG_CONFIDENCE" not in source.split('"0.75"')[0].split('\n')[-1], (
-            "SCALPER_MIN_AVG_CONFIDENCE default must not be 0.75"
+        old_pattern = r'SCALPER_MIN_AVG_CONFIDENCE\s*=\s*float\(os\.getenv\([^,]+,\s*["\']0\.75["\']'
+        assert not re.search(old_pattern, source), (
+            "SCALPER_MIN_AVG_CONFIDENCE default must not be '0.75'"
         )
 
     def test_scalper_gate_requires_only_2_sources(self):

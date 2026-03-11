@@ -276,7 +276,7 @@ async def get_bots_status(
         _raw_open_trades = await db.trades_collection.find(
             {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
             {"_id": 0},
-        ).sort("timestamp", -1).to_list(1000)
+        ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
         open_trade_by_bot: dict = {}
         for _t in _raw_open_trades:
             _bid = str(_t.get("bot_id", ""))

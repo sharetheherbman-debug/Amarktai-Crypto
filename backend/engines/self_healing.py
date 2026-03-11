@@ -266,12 +266,19 @@ class SelfHealingSystem:
             state = "idle"
         last_check = getattr(self, "last_check", None)
         last_started_at = getattr(self, "last_started_at", None)
+        # Determine last_action without a nested ternary for readability
+        if self.is_running:
+            _last_action = "healing_loop"
+        elif state == "stopped":
+            _last_action = "stop"
+        else:
+            _last_action = "initialized"
         return {
             "enabled": self.is_running,
             "state": state,
             "last_check": last_check.isoformat() if last_check else None,
             "last_started_at": last_started_at.isoformat() if last_started_at else None,
-            "last_action": "healing_loop" if self.is_running else ("stop" if state == "stopped" else "initialized"),
+            "last_action": _last_action,
             "last_result": "running" if self.is_running else state,
             "last_reason_code": "RUNNING" if self.is_running else "IDLE",
             "last_error": None,
