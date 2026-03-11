@@ -26,6 +26,7 @@ from utils.bot_state import normalize_bot_state
 # Canonical trading-gate flags — use config module (supports all env-var aliases)
 from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
 from services.truth_normalizer import normalize_bot_trade_truth
+from services.fx_normalizer import get_quote_currency
 
 logger = logging.getLogger(__name__)
 
@@ -469,7 +470,13 @@ async def get_bots_status(
                 "has_open_position": _truth.get("has_open_position", False),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
-                "stopped_at": bot.get('stopped_at')
+                "stopped_at": bot.get('stopped_at'),
+                # ── Canonical display currency contract ──
+                "quote_currency": get_quote_currency(
+                    bot.get('exchange', ''),
+                    bot.get('pair') or bot.get('symbol', ''),
+                ),
+                "display_currency": "ZAR",
             }
             enriched_bots.append(enriched_bot)
         

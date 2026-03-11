@@ -1,14 +1,10 @@
 import { useState, useMemo } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import { getPlatformDisplayName } from '../../../constants/platforms';
+import { formatZAR } from '../../../lib/moneyFormat';
 
 const NA = '—';
-const formatZAR = (value, digits = 2) => {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return NA;
-  const formatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-  return `${num < 0 ? '-R' : 'R'}${formatted}`;
-};
+// formatZAR imported from canonical moneyFormat.js — do not redefine here
 
 const pill = (active) => ({
   padding: '6px 14px',

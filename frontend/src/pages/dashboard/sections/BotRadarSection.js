@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import realtimeClient from '../../../lib/realtime';
+import { formatEntryAmount, formatZAR } from '../../../lib/moneyFormat';
 
 const RADAR_REFRESH_MS = 10000;
 
@@ -101,12 +102,7 @@ export default function BotRadarSection({ axiosConfig, embedded = false }) {
     const m = Math.floor((seconds % 3600) / 60);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
-  const formatZAR = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return '—';
-    const prefix = num >= 0 ? 'R' : '-R';
-    return `${prefix}${Math.abs(num).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+  // formatZAR imported from canonical moneyFormat.js — do not redefine here
 
   const getActionColor = (action) => {
     switch (action) {
@@ -232,7 +228,7 @@ export default function BotRadarSection({ axiosConfig, embedded = false }) {
                       <div className="radar-metric">
                         <span className="radar-metric-label">Unrealized P/L</span>
                         <span className={`radar-metric-value ${entry.unrealized_pnl >= 0 ? 'radar-profit' : 'radar-loss'}`}>
-                          {formatZAR(entry.unrealized_pnl)}
+                          {formatEntryAmount(entry, 'unrealized_pnl')}
                         </span>
                       </div>
                       <div className="radar-metric">
@@ -241,7 +237,7 @@ export default function BotRadarSection({ axiosConfig, embedded = false }) {
                       </div>
                       <div className="radar-metric">
                         <span className="radar-metric-label">Total Equity</span>
-                        <span className="radar-metric-value">{formatZAR(equity)}</span>
+                        <span className="radar-metric-value">{formatEntryAmount(entry, 'capital_allocated')}</span>
                       </div>
                     </div>
                   </>
@@ -251,7 +247,7 @@ export default function BotRadarSection({ axiosConfig, embedded = false }) {
                       {entry.next_action_reason_text || 'No open position — waiting for signal'}
                     </div>
                     <div style={{ opacity: 0.6, fontSize: '0.82rem' }}>
-                      Equity: {formatZAR(equity)}
+                      Equity: {formatEntryAmount(entry, 'capital_allocated')}
                       {entry.market_regime && entry.market_regime !== 'unknown' &&
                         ` · Regime: ${entry.market_regime}`
                       }
@@ -270,13 +266,13 @@ export default function BotRadarSection({ axiosConfig, embedded = false }) {
                     {entry.daily_profit_target != null && (
                       <div className="radar-intent-row">
                         <span>Daily Target ({entry.daily_target_pct ?? '—'}%):</span>
-                        <span>{formatZAR(entry.daily_profit_target)}</span>
+                        <span>{formatEntryAmount(entry, 'daily_profit_target')}</span>
                       </div>
                     )}
                     {entry.trade_profit_target != null && (
                       <div className="radar-intent-row">
                         <span>Trade Target ({entry.trade_target_pct ?? '—'}%):</span>
-                        <span>{formatZAR(entry.trade_profit_target)}</span>
+                        <span>{formatEntryAmount(entry, 'trade_profit_target')}</span>
                       </div>
                     )}
                     {entry.target_source && (
@@ -287,7 +283,7 @@ export default function BotRadarSection({ axiosConfig, embedded = false }) {
                     )}
                     <div className="radar-intent-row">
                       <span>Total Equity:</span>
-                      <span>{formatZAR(equity)}</span>
+                      <span>{formatEntryAmount(entry, 'capital_allocated')}</span>
                     </div>
                     {entry.has_open_position && (
                       <>
