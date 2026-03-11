@@ -34,24 +34,30 @@ K_COST = {
 
 # ── Absolute profit minimums by (strategy, equity_bucket, venue_class) ──
 # venue_class: "zar" for Luno, "usdt" for others
+#
+# Calibrated for realistic Luno small-account economics:
+#   - Small ZAR (< 5000 ZAR): 10% notional cap ≈ 100-500 ZAR trade
+#   - At 50-100 bps net edge on 200 ZAR: 0.10-0.20 ZAR after costs
+#   - Previous floors of R5-R8 were unreachable → permanently blocked small bots
+#   - New floors are achievable with 100-500 ZAR notional at realistic edge.
 ABS_PROFIT_MIN_QUOTE = {
-    ("normal", "small", "zar"): 5.0,      # R5 minimum
+    ("normal", "small", "zar"): 1.50,     # R1.50 minimum — achievable at 300 ZAR notional × 50 bps
     ("normal", "small", "usdt"): 0.50,     # $0.50
-    ("normal", "medium", "zar"): 15.0,     # R15
+    ("normal", "medium", "zar"): 6.00,     # R6
     ("normal", "medium", "usdt"): 1.50,    # $1.50
-    ("normal", "large", "zar"): 50.0,      # R50
+    ("normal", "large", "zar"): 20.00,     # R20
     ("normal", "large", "usdt"): 5.00,     # $5
-    ("scalper", "small", "zar"): 2.0,      # R2
+    ("scalper", "small", "zar"): 0.50,     # R0.50 — scalpers do many small trades
     ("scalper", "small", "usdt"): 0.20,    # $0.20
-    ("scalper", "medium", "zar"): 5.0,     # R5
+    ("scalper", "medium", "zar"): 2.00,    # R2
     ("scalper", "medium", "usdt"): 0.50,
-    ("scalper", "large", "zar"): 15.0,     # R15
+    ("scalper", "large", "zar"): 8.00,     # R8
     ("scalper", "large", "usdt"): 1.50,
-    ("mean_reversion", "small", "zar"): 4.0,
+    ("mean_reversion", "small", "zar"): 1.50,
     ("mean_reversion", "small", "usdt"): 0.40,
-    ("mean_reversion", "medium", "zar"): 12.0,
+    ("mean_reversion", "medium", "zar"): 5.00,
     ("mean_reversion", "medium", "usdt"): 1.20,
-    ("mean_reversion", "large", "zar"): 40.0,
+    ("mean_reversion", "large", "zar"): 16.00,
     ("mean_reversion", "large", "usdt"): 4.00,
 }
 
