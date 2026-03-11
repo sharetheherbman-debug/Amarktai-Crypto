@@ -79,6 +79,10 @@ PAYMENT_AGENT_ENABLED = os.getenv('PAYMENT_AGENT_ENABLED', 'false').lower() == '
 ENABLE_REALTIME_TRANSFERS = os.getenv('ENABLE_REALTIME_TRANSFERS', 'false').lower() == 'true'  # Real-time wallet transfers
 ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'true').lower() == 'true'  # Background jobs
 
+# Trading Brain V2 – economics-first engine redesign
+# Enable to use new cost model, feasibility gate, target policy, regime scorer
+NEW_TRADING_BRAIN_V2 = os.getenv('NEW_TRADING_BRAIN_V2', 'false').lower() == 'true'
+
 # Live Trading Gate Requirements
 # NOTE: PAPER_TRAINING_DAYS is defined below in "Paper → Live promotion criteria" section (line ~117)
 REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 'true'  # Must have funded wallet

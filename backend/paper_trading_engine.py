@@ -63,11 +63,43 @@ from config import (
     PAPER_PAIR_WHITELIST,
     PAPER_PAIR_WHITELIST_ENABLED,
     PAPER_STALE_EXIT_MINUTES,
+    NEW_TRADING_BRAIN_V2,
 )
 from realtime_events import rt_events
 
 logger = logging.getLogger(__name__)
 SUPPORTED_QUOTE_CURRENCIES = {"ZAR", "USDT"}
+
+# ── Trading Brain V2 services (lazy-init, gated by feature flag) ──
+_brain_v2 = None
+
+def _get_brain_v2():
+    """Lazy-initialize V2 services only when feature flag is on."""
+    global _brain_v2
+    if _brain_v2 is None:
+        from services.trading_brain_v2 import (
+            AllInCostModel, SlippageEstimator, RegimeScorerV2,
+            TradeFeasibilityGate, TargetPolicyV2, BotBehavioralContracts,
+            ExecutionRouterV2, PortfolioConcentration, OpenTradeManager,
+            TradeTelemetry, KellySizingV2,
+        )
+        from services.trading_brain_v2.reason_codes import make_decision_payload, ReasonCodes
+        _brain_v2 = {
+            "cost_model": AllInCostModel(),
+            "slippage_estimator": SlippageEstimator(),
+            "regime_scorer": RegimeScorerV2(),
+            "feasibility_gate": TradeFeasibilityGate(),
+            "target_policy": TargetPolicyV2(),
+            "bot_contracts": BotBehavioralContracts(),
+            "execution_router": ExecutionRouterV2(),
+            "portfolio_concentration": PortfolioConcentration(),
+            "open_trade_manager": OpenTradeManager(),
+            "telemetry": TradeTelemetry(),
+            "kelly_sizing": KellySizingV2(),
+            "make_decision_payload": make_decision_payload,
+            "ReasonCodes": ReasonCodes,
+        }
+    return _brain_v2
 
 # EXCHANGE FEE STRUCTURES (realistic simulation)
 # Updated to match actual exchange fee schedules (as of 2024)
@@ -1086,6 +1118,29 @@ class PaperTradingEngine:
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
 
+            # ═══════════════════════════════════════════════════════════════
+            # TRADING BRAIN V2 — economics-first decision path
+            # ═══════════════════════════════════════════════════════════════
+            if NEW_TRADING_BRAIN_V2:
+                return await self._execute_v2_decision(
+                    bot_id=bot_id,
+                    bot_data=bot_data,
+                    user_id=user_id,
+                    symbol=symbol,
+                    exchange=exchange,
+                    risk_mode=risk_mode,
+                    current_price=current_price,
+                    market_snapshot=market_snapshot,
+                    spread_pct=spread_pct,
+                    depth_notional=depth_notional,
+                    data_source=data_source,
+                    regime=regime,
+                    prediction=prediction,
+                    coinstats_data=coinstats_data,
+                    fetchai_data=fetchai_data,
+                    trend=trend,
+                )
+
             # EDGE GATE: Require expected move to clear costs + buffer
             slippage_rate = PAPER_SLIPPAGE_BPS / 10000
             latency_rate = PAPER_LATENCY_BPS / 10000
@@ -1673,6 +1728,414 @@ class PaperTradingEngine:
         "aggressive": 90 * 60,   # 90 minutes
     }
 
+    # ═══════════════════════════════════════════════════════════════════
+    # TRADING BRAIN V2 — economics-first decision + execution
+    # ═══════════════════════════════════════════════════════════════════
+    async def _execute_v2_decision(
+        self,
+        bot_id: str,
+        bot_data: Dict,
+        user_id: str,
+        symbol: str,
+        exchange: str,
+        risk_mode: str,
+        current_price: float,
+        market_snapshot: Dict,
+        spread_pct: float,
+        depth_notional: float,
+        data_source: str,
+        regime: Dict,
+        prediction: Dict,
+        coinstats_data: Dict,
+        fetchai_data: Dict,
+        trend: str,
+    ) -> Dict:
+        """V2 economics-first decision path (feature-flagged)."""
+        v2 = _get_brain_v2()
+        RC = v2["ReasonCodes"]
+        bot_type = str(bot_data.get("bot_type") or "normal").lower()
+        paper_capital = bot_data.get("current_capital", 1000)
+
+        # 1) Resolve bot capital from paper wallet
+        bot_id_val = bot_data.get('id')
+        can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
+        if can_afford and balance > 0:
+            paper_capital = balance
+
+        if paper_capital <= 0:
+            return self._v2_reject(bot_id, RC.INSUFFICIENT_BALANCE, "No paper funds available")
+
+        # 2) All-in cost model
+        bid = market_snapshot.get("bid") or current_price * 0.999
+        ask = market_snapshot.get("ask") or current_price * 1.001
+        mid = current_price
+        depth_snap = market_snapshot.get("order_book") or market_snapshot.get("depth")
+        vol_est = abs(float(regime.get("volatility_pct", 0) or 0)) / 100.0
+
+        # Determine order mode from bot contract
+        contract = v2["bot_contracts"].get_contract(bot_type)
+        order_mode = contract.order_mode_preference
+
+        cost = v2["cost_model"].compute(
+            venue=exchange,
+            symbol=symbol,
+            quote_currency=self._resolve_quote_currency(symbol),
+            side="buy",
+            order_mode=order_mode,
+            notional_size=paper_capital,
+            best_bid=bid,
+            best_ask=ask,
+            mid=mid,
+            depth_snapshot=depth_snap,
+            spread=spread_pct / 100.0,
+            volatility_estimate=vol_est,
+        )
+
+        # 3) Regime scoring V2
+        regime_result = v2["regime_scorer"].score(
+            symbol=symbol,
+            trend_pct=float(regime.get("trend_pct", 0) or 0),
+            volatility_pct=float(regime.get("volatility_pct", 0) or 0),
+            spread_pct=spread_pct,
+            depth_notional=depth_notional or 0,
+        )
+        regime_eligibility = v2["regime_scorer"].is_eligible(bot_type, regime_result)
+
+        # 4) Adaptive discipline (reuse existing)
+        recent_closed = await self._recent_closed_trades(bot_id, limit=10)
+        adaptive = derive_adaptive_discipline(recent_closed)
+        if adaptive.get("stand_down"):
+            await self._record_decision_trace(
+                user_id=user_id, bot_id=bot_id, bot_data=bot_data,
+                symbol=symbol, exchange=exchange,
+                decision="stand_down",
+                reason_code=RC.ADAPTIVE_STAND_DOWN,
+                reason_text="Adaptive discipline stand-down",
+                details={"recent_sample": len(recent_closed)},
+            )
+            return self._v2_reject(bot_id, RC.ADAPTIVE_STAND_DOWN, "Adaptive discipline stand-down")
+
+        # 5) Scalper-specific readiness check
+        if bot_type == "scalper":
+            spread_bps = spread_pct * 100  # spread_pct is already %, convert to bps
+            scalper_ready = v2["bot_contracts"].check_scalper_readiness(
+                bot_id=bot_id,
+                spread_bps=spread_bps,
+                liquidity_score=regime_result.get("liquidity_score", 0.5),
+                regime_label=regime_result.get("regime_label", "unknown"),
+                regime_confidence=regime_result.get("regime_confidence", 0.5),
+            )
+            if not scalper_ready["ready"]:
+                return self._v2_reject(bot_id, scalper_ready["reason_code"], scalper_ready["reason_text"])
+
+        # 6) Entry confidence (reuse existing)
+        consensus = self._compute_signal_consensus(regime, prediction, fetchai_data)
+        direction_conflict = False
+        trend_dir = self._signal_direction(trend)
+        dom_dir = "neutral"
+        if consensus["bullish"] > consensus["bearish"]:
+            dom_dir = "bullish"
+        elif consensus["bearish"] > consensus["bullish"]:
+            dom_dir = "bearish"
+        if dom_dir != "neutral" and trend_dir != "neutral" and dom_dir != trend_dir:
+            direction_conflict = True
+
+        confidence_result = compute_entry_confidence(
+            bot_type=bot_type,
+            regime_confidence=float(regime_result.get("regime_confidence", 0) or 0),
+            ml_confidence=float(prediction.get("confidence", 0) or 0),
+            fetchai_confidence=float(fetchai_data.get("confidence", 0) or 0),
+            coinstats_strength=float(coinstats_data.get("strength", 0) or 0),
+            consensus_strength=int(consensus.get("consensus_strength", 0)),
+            consensus_sources=int(consensus.get("sources", 0)),
+            direction_conflict=direction_conflict,
+        )
+        entry_confidence = float(confidence_result.get("entry_confidence_score", 0) or 0)
+
+        # 7) Expected gross edge
+        expected_move_pct = abs(float(prediction.get("predicted_change", 0) or 0))
+        expected_gross_edge_bps = expected_move_pct * 100  # % → bps
+        all_in_cost_bps = cost.get("all_in_cost_bps", 0)
+
+        # 8) Kelly sizing V2
+        win_rate = 0.5
+        avg_win = 0.0
+        avg_loss = 0.0
+        if recent_closed:
+            wins = [t for t in recent_closed if float(t.get("net_pnl", t.get("profit_loss", 0)) or 0) > 0]
+            losses = [t for t in recent_closed if float(t.get("net_pnl", t.get("profit_loss", 0)) or 0) <= 0]
+            if recent_closed:
+                win_rate = len(wins) / len(recent_closed)
+            if wins:
+                avg_win = sum(abs(float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)) for t in wins) / len(wins)
+            if losses:
+                avg_loss = sum(abs(float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)) for t in losses) / len(losses)
+
+        sizing = v2["kelly_sizing"].compute(
+            bot_type=bot_type,
+            bot_equity=paper_capital,
+            win_rate=win_rate,
+            avg_win=avg_win,
+            avg_loss=avg_loss,
+            num_trades=len(recent_closed),
+            defense_mode=adaptive.get("tightened", False),
+            liquidity_score=regime_result.get("liquidity_score", 0.5),
+            confidence_calibration=entry_confidence,
+            regime_size_multiplier=regime_eligibility.get("size_multiplier", 1.0),
+        )
+        notional = sizing.get("position_quote", paper_capital * 0.03)
+
+        # 9) Trade Feasibility Gate — the hard gate
+        feasibility = v2["feasibility_gate"].evaluate(
+            strategy=bot_type,
+            venue=exchange,
+            symbol=symbol,
+            bot_equity=paper_capital,
+            notional=notional,
+            expected_gross_edge_bps=expected_gross_edge_bps,
+            all_in_cost_bps=all_in_cost_bps,
+            spread_pct=spread_pct,
+            depth_notional=depth_notional or 0,
+            regime_result=regime_result,
+            regime_eligibility=regime_eligibility,
+            entry_confidence=entry_confidence,
+            mid_price=mid,
+        )
+
+        if not feasibility.get("approved"):
+            reason_code = feasibility.get("decision_reason_code", "EDGE_TOO_SMALL")
+            reason_text = feasibility.get("decision_reason_text", "Trade rejected by feasibility gate")
+            await self._record_decision_trace(
+                user_id=user_id, bot_id=bot_id, bot_data=bot_data,
+                symbol=symbol, exchange=exchange,
+                decision="reject",
+                reason_code=reason_code,
+                reason_text=reason_text,
+                details=feasibility,
+            )
+            return self._v2_reject(bot_id, reason_code, reason_text, details=feasibility)
+
+        # 10) Target policy V2
+        target = v2["target_policy"].compute(
+            bot_type=bot_type,
+            venue=exchange,
+            quote_currency=self._resolve_quote_currency(symbol),
+            bot_equity=paper_capital,
+            notional=notional,
+            all_in_cost_bps=all_in_cost_bps,
+            horizon_volatility=vol_est,
+            regime_label=regime_result.get("regime_label", "unknown"),
+            liquidity_score=regime_result.get("liquidity_score", 0.5),
+            signal_confidence=entry_confidence,
+            entry_price=current_price,
+            side="buy",
+        )
+
+        # 11) Verify paper wallet can trade
+        can_execute, wallet_check_msg = await paper_wallet_ledger.can_trade(bot_id_val, notional)
+        if not can_execute:
+            return self._v2_reject(bot_id, RC.INSUFFICIENT_BALANCE, wallet_check_msg)
+
+        # 12) Build trade using existing execution logic
+        slippage_rate = PAPER_SLIPPAGE_BPS / 10000
+        latency_rate = PAPER_LATENCY_BPS / 10000
+        exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
+        fee_rate = exchange_fee_struct.get(order_mode, exchange_fee_struct.get('taker', 0.001))
+
+        entry_base = market_snapshot.get("ask") or current_price
+        entry_price = entry_base * (1 + slippage_rate + latency_rate)
+        crypto_amount = notional / entry_price
+
+        # Validate order
+        is_valid, validation_msg, adjusted_params = validate_order(exchange, symbol, crypto_amount, entry_price)
+        if not is_valid:
+            return self._v2_reject(bot_id, RC.POSITION_SIZE_BELOW_MIN, f"Order validation: {validation_msg}")
+
+        if adjusted_params:
+            crypto_amount = adjusted_params.get("quantity", crypto_amount)
+            entry_price = adjusted_params.get("price", entry_price)
+            notional = crypto_amount * entry_price
+
+        entry_time = datetime.now(timezone.utc)
+        entry_fills = [{"qty": crypto_amount, "price": entry_price, "timestamp": entry_time}]
+        entry_value = crypto_amount * entry_price
+        avg_entry_price = entry_price
+        entry_fee = entry_value * fee_rate
+
+        # Risk engine check
+        stop_loss_price = target.get("stop_loss_price", entry_price * 0.99)
+        take_profit_price = target.get("take_profit_price", entry_price * 1.01)
+
+        risk_ok, risk_reason = await risk_engine.check_trade_risk(
+            user_id, bot_id, exchange, entry_value, risk_mode,
+            entry_price=avg_entry_price, stop_loss_price=stop_loss_price,
+        )
+        if not risk_ok:
+            return self._v2_reject(bot_id, RC.RISK_MODE_BLOCK, risk_reason)
+
+        # Record rate limiter
+        rate_limiter.record_trade(bot_id, exchange)
+        v2["bot_contracts"].record_trade_entry(bot_id)
+
+        fee_currency = self._resolve_quote_currency(symbol)
+        market_source = market_snapshot.get("source", data_source)
+        spread_bps_val = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if isinstance(market_snapshot, dict) else PAPER_SPREAD_BPS
+        exit_profile = self._resolve_exit_profile(bot_data)
+
+        # Build V2-enriched trade result
+        net_edge_bps = feasibility.get("expected_net_edge_bps", 0)
+        proj_profit = feasibility.get("projected_net_profit_quote", 0)
+
+        trade_result = {
+            "success": True,
+            "status": "open",
+            "bot_id": bot_id,
+            "symbol": symbol,
+            "exchange": exchange,
+            "trend": trend,
+            "entry_price": round(avg_entry_price, 6),
+            "amount": round(crypto_amount, 8),
+            "trade_amount": round(entry_value, 2),
+            "entry_value": round(entry_value, 2),
+            "gross_pnl": 0.0,
+            "gross_profit": 0.0,
+            "fees_total": round(entry_fee, 2),
+            "fees": round(entry_fee, 2),
+            "fee_paid": round(entry_fee, 2),
+            "entry_fee": round(entry_fee, 2),
+            "fee_currency": fee_currency,
+            "slippage_cost": 0.0,
+            "slippage": 0.0,
+            "profit_loss": 0.0,
+            "net_profit": 0.0,
+            "net_profit_zar": 0.0,
+            "realized_pnl": 0.0,
+            "is_paper": True,
+            "profit_pct": 0.0,
+            "is_profitable": False,
+            "risk_mode": risk_mode,
+            "quality_score": 0,
+            "timestamp": entry_time.isoformat(),
+            "trade_type": "BUY",
+            "trade_close_reason": None,
+            "data_source": data_source,
+            "fee_rate": round(fee_rate, 6),
+            "slippage_rate": round(slippage_rate, 6),
+            "price_source": market_source,
+            "spread": round(spread_bps_val, 4),
+            "slippage_bps": round(slippage_rate * 10000, 2),
+            "entry_fills": entry_fills,
+            "partial_fill": False,
+            "latency_ms": PAPER_LATENCY_MS,
+            "stop_loss_pct": exit_profile["stop_loss_pct"],
+            "take_profit_pct": exit_profile["take_profit_pct"],
+            "trailing_stop_pct": exit_profile["trailing_stop_pct"],
+            "highest_price": round(avg_entry_price, 6),
+            "stop_loss_price": round(stop_loss_price, 6),
+            "take_profit_price": round(take_profit_price, 6),
+            # V2-enriched fields (render-safe)
+            "reason_code": RC.ENTRY_APPROVED,
+            "entry_reason_code": RC.ENTRY_APPROVED,
+            "decision_reason_code": RC.ENTRY_APPROVED,
+            "decision_reason_text": "Trade approved – all V2 economics gates passed.",
+            "entry_confidence_score": round(entry_confidence, 4),
+            "regime_label": regime_result.get("regime_label", "unknown"),
+            "regime_confidence": round(regime_result.get("regime_confidence", 0), 4),
+            "expected_gross_edge_bps": round(expected_gross_edge_bps, 2),
+            "all_in_cost_bps": round(all_in_cost_bps, 2),
+            "expected_net_edge_bps": round(net_edge_bps, 2),
+            "projected_net_profit_quote": round(proj_profit, 4),
+            "trade_profit_target_quote": round(target.get("trade_profit_target_quote", 0), 4),
+            "daily_profit_target_quote": round(target.get("daily_profit_target_quote", 0), 4),
+            "max_hold_seconds": target.get("max_hold_seconds", 21600),
+            "hold_policy_source": "target_policy_v2",
+            "target_source": "target_policy_v2",
+            "cost_floor_source": "all_in_cost_model",
+            "v2_brain": True,
+            # Legacy AI fields for backward compatibility
+            "ai_regime": regime.get("regime", "unknown"),
+            "ai_confidence": round(regime.get("confidence", 0), 2),
+            "ml_prediction": prediction.get("direction", "neutral"),
+            "ml_confidence": round(prediction.get("confidence", 0), 2),
+            "coinstats_strength": round(coinstats_data.get("strength", 0), 1),
+            "coinstats_sentiment": coinstats_data.get("sentiment", "neutral"),
+            "fetchai_signal": fetchai_data.get("signal", "HOLD"),
+            "fetchai_confidence": round(fetchai_data.get("confidence", 0), 1),
+            "signal_consensus_strength": consensus.get("consensus_strength", 0),
+            "signal_sources": consensus.get("sources", 0),
+            "avg_ai_confidence": round(entry_confidence, 3),
+            "expected_move_pct": round(expected_move_pct, 4),
+            "estimated_cost_pct": round(all_in_cost_bps / 100, 4),
+            "edge_buffer_pct": 0,
+            "edge_required_pct": round(feasibility.get("all_in_cost_bps", 0) / 100, 4),
+            "canonical_market_regime": regime_result.get("regime_label", "unknown"),
+            "canonical_regime_confidence": round(regime_result.get("regime_confidence", 0), 4),
+            "market_quality_score": round(regime_result.get("liquidity_score", 0), 4),
+        }
+
+        # Telemetry
+        try:
+            entry_telemetry = v2["telemetry"].build_entry_record(
+                bot_id=bot_id, symbol=symbol, venue=exchange,
+                side="buy", bot_type=bot_type,
+                entry_price=avg_entry_price, notional=entry_value,
+                predicted_edge_bps=expected_gross_edge_bps,
+                confidence=entry_confidence,
+                regime_snapshot=regime_result,
+                cost_estimate=cost,
+                target_policy=target,
+                feasibility_result=feasibility,
+                order_mode=order_mode,
+            )
+            if db.db is not None:
+                col = db.db.get_collection("trade_telemetry_v2")
+                await col.insert_one(entry_telemetry)
+        except Exception as e:
+            logger.debug(f"V2 telemetry write failed (non-fatal): {e}")
+
+        await self._record_decision_trace(
+            user_id=user_id, bot_id=bot_id, bot_data=bot_data,
+            symbol=symbol, exchange=exchange,
+            decision="approve",
+            reason_code=RC.ENTRY_APPROVED,
+            reason_text="V2 entry accepted: all economics gates passed",
+            details={
+                "regime": regime_result,
+                "cost": cost,
+                "feasibility": feasibility,
+                "target": target,
+                "sizing": sizing,
+            },
+        )
+
+        self.last_trade_simulation = trade_result
+        self.trade_count += 1
+        self.last_error = None
+        logger.info(f"🟢 V2 {bot_data['name'][:15]} | {symbol} | OPEN @ {avg_entry_price:.2f} | edge={net_edge_bps:.1f}bps")
+        return trade_result
+
+    @staticmethod
+    def _v2_reject(bot_id: str, reason_code: str, reason_text: str, details: dict = None) -> Dict:
+        """Build a V2 rejection result with render-safe fields."""
+        return {
+            "success": False,
+            "bot_id": bot_id,
+            "skip_reason": reason_code.lower() if reason_code else "unknown",
+            "reason_code": reason_code or "UNKNOWN",
+            "decision_reason_code": reason_code or "UNKNOWN",
+            "decision_reason_text": reason_text or "Trade rejected",
+            "error": reason_text or "Trade rejected",
+            "entry_confidence_score": 0.0,
+            "regime_label": (details or {}).get("regime_label", "unknown"),
+            "regime_confidence": 0.0,
+            "expected_gross_edge_bps": 0.0,
+            "all_in_cost_bps": 0.0,
+            "expected_net_edge_bps": 0.0,
+            "projected_net_profit_quote": 0.0,
+            "v2_brain": True,
+            "details": details or {},
+        }
+
     @staticmethod
     def _resolve_quote_currency(symbol: str, preferred: Optional[str] = None) -> str:
         """Resolve trade quote currency.
@@ -1771,6 +2234,24 @@ class PaperTradingEngine:
             elif current_price <= trailing_stop_price and highest_price > entry_price:
                 close_reason = "trailing_stop"
             else:
+                # V2 open-trade management (if feature flag enabled)
+                if NEW_TRADING_BRAIN_V2:
+                    try:
+                        v2 = _get_brain_v2()
+                        otm_result = v2["open_trade_manager"].evaluate(
+                            trade=open_trade,
+                            bot_type=bot_class,
+                            max_hold_seconds=max_hold_seconds,
+                            current_price=current_price,
+                            entry_price=entry_price,
+                            current_spread_pct=float(market_snapshot.get("spread", 0)) / current_price * 100 if current_price else 0,
+                            current_depth_notional=market_snapshot.get("depth_notional", 0) or 0,
+                        )
+                        if otm_result.get("should_exit"):
+                            close_reason = otm_result.get("reason_code", "v2_exit")
+                    except Exception as v2_err:
+                        logger.debug(f"V2 open-trade manager check skipped: {v2_err}")
+
                 # 4. Strategic early invalidation before timeout dominates.
                 #    Make max-hold a rare fallback rather than the default exit path.
                 hold_ratio = (age_seconds / max_hold_seconds) if max_hold_seconds > 0 else 0
