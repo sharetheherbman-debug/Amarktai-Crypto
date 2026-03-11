@@ -115,7 +115,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     try:
         from config import NEW_TRADING_BRAIN_V2
         _use_v2_targets = NEW_TRADING_BRAIN_V2 and capital > 0
-    except Exception:
+    except ImportError:
         pass
 
     if _use_v2_targets:
@@ -140,7 +140,8 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
             target_source = "target_policy_v2"
             daily_target_pct = round(_v2t.get("daily_target_pct", 0) or 0, 4)
             trade_target_pct = round(_v2t.get("trade_target_pct", 0) or 0, 4)
-        except Exception:
+        except Exception as _v2_err:
+            logger.warning("TargetPolicyV2 compute failed, falling back to legacy derive_targets: %s", _v2_err)
             _use_v2_targets = False
 
     if not _use_v2_targets:

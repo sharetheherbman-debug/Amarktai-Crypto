@@ -30,9 +30,8 @@ def test_all_routers_can_import():
         "routes.trades",
         "routes.health",
         "routes.system_status",
-        "routes.phase5_endpoints",
-        "routes.phase6_endpoints",
-        "routes.phase8_endpoints",
+        # REMOVED: routes.phase5_endpoints, phase6_endpoints, phase8_endpoints
+        # — superseded by dedicated service routes, never called by frontend
         "routes.capital_tracking_endpoints",
         "routes.emergency_stop_endpoints",
         "routes.wallet_endpoints",
@@ -43,7 +42,7 @@ def test_all_routers_can_import():
         "routes.risk_management",
         "routes.dashboard_overview",
         "routes.bot_lifecycle",
-        "routes.bot_control",
+        # REMOVED: routes.bot_control — duplicate of bot_lifecycle, missing /api prefix
         "routes.autopilot_control",
         "routes.training",
         "routes.training_quarantine",
