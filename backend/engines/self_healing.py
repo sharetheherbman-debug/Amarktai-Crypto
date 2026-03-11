@@ -233,8 +233,8 @@ class SelfHealingSystem:
                 logger.error(f"Healing loop error: {e}", exc_info=True)
                 await asyncio.sleep(300)  # Wait 5 minutes on error, then retry
     
-    def start(self):
-        """Start self-healing system"""
+    async def start(self):
+        """Start self-healing system (async-compatible)."""
         if not self.is_running:
             self.is_running = True
             self._was_started = True
@@ -242,8 +242,8 @@ class SelfHealingSystem:
             self.task = asyncio.create_task(self.healing_loop())
             logger.info("✅ Self-Healing system started")
     
-    def stop(self):
-        """Stop self-healing system"""
+    async def stop(self):
+        """Stop self-healing system (async-compatible)."""
         self.is_running = False
         if self.task:
             self.task.cancel()

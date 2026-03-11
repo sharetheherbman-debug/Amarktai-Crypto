@@ -24,6 +24,7 @@ from utils.bot_state import normalize_bot_state
 from services.hold_policy import resolve_hold_policy
 from services.canonical import get_canonical_open_position_count, get_latest_bot_decisions
 from services.target_policy import derive_targets
+from services.truth_normalizer import normalize_bot_trade_truth
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +109,47 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     hold_policy = resolve_hold_policy(bot, open_trade=open_trade)
     max_hold = int(hold_policy["max_hold_seconds"])
     capital = _safe_float(bot.get("current_capital", bot.get("initial_capital")), 0.0)
-    targets = derive_targets(bot)
-    daily_target = targets["daily_profit_target"]
-    trade_target = targets["trade_profit_target"]
+
+    # ── Target policy: prefer TargetPolicyV2 when V2 engine is active ────
+    _use_v2_targets = False
+    try:
+        from config import NEW_TRADING_BRAIN_V2
+        _use_v2_targets = NEW_TRADING_BRAIN_V2 and capital > 0
+    except Exception:
+        pass
+
+    if _use_v2_targets:
+        try:
+            from services.trading_brain_v2 import TargetPolicyV2
+            _tpv2 = TargetPolicyV2()
+            bot_type_str = str(bot.get("bot_type") or "normal").lower()
+            exchange_str = str(bot.get("exchange") or "binance").lower()
+            quote_currency = "ZAR" if exchange_str == "luno" else "USDT"
+            _v2t = _tpv2.compute(
+                bot_type=bot_type_str,
+                venue=exchange_str,
+                quote_currency=quote_currency,
+                bot_equity=capital,
+                notional=capital * 0.02,
+                all_in_cost_bps=0.0,
+                entry_price=0.0,
+                side="buy",
+            )
+            daily_target = _v2t.get("daily_profit_target_quote")
+            trade_target = _v2t.get("trade_profit_target_quote")
+            target_source = "target_policy_v2"
+            daily_target_pct = round(_v2t.get("daily_target_pct", 0) or 0, 4)
+            trade_target_pct = round(_v2t.get("trade_target_pct", 0) or 0, 4)
+        except Exception:
+            _use_v2_targets = False
+
+    if not _use_v2_targets:
+        targets = derive_targets(bot)
+        daily_target = targets["daily_profit_target"]
+        trade_target = targets["trade_profit_target"]
+        target_source = targets["target_source"]
+        daily_target_pct = targets["daily_target_pct"]
+        trade_target_pct = targets["trade_target_pct"]
 
     entry = {
         "bot_id": bot_id,
@@ -131,9 +170,9 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
         "trade_profit_target": trade_target,
-        "daily_target_pct": targets["daily_target_pct"],
-        "trade_target_pct": targets["trade_target_pct"],
-        "target_source": targets["target_source"],
+        "daily_target_pct": daily_target_pct,
+        "trade_target_pct": trade_target_pct,
+        "target_source": target_source,
         "position_opened_at": None,
         "max_hold_seconds": max_hold,
         "hold_policy_source": hold_policy["source"],
@@ -296,6 +335,15 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
                 float(sl) if sl else None, remaining, unrealized
             ),
         })
+        # Apply canonical truth normalizer overlay for consistent cross-endpoint values.
+        # normalize_bot_trade_truth guarantees safe (non-NaN, non-None) values so we
+        # can safely overwrite the fields to ensure radar/status/trades consistency.
+        _truth = normalize_bot_trade_truth(bot, open_trade)
+        for _key in ("symbol", "market_regime", "regime_confidence", "entry_confidence_score",
+                     "expectancy_net_edge_pct", "decision_reason_code", "entry_reason_code",
+                     "expected_gross_edge_bps", "all_in_cost_bps", "expected_net_edge_bps",
+                     "projected_net_profit_quote"):
+            entry[_key] = _truth[_key]
 
     return entry
 
