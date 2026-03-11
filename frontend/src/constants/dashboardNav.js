@@ -2,29 +2,28 @@ export const NAV = {
   OVERVIEW: 'overview',            // logo click only — not in nav
   WELCOME: 'welcome',              // AI chat page
   API_SETUP: 'api-setup',
-  BOT_MANAGEMENT: 'bot-management',
-  BOT_FLEET: 'bot-fleet',          // monitor + control only
-  BOT_RADAR: 'bot-radar',          // standalone visual target-tracking section
+  BOT_OPS: 'bot-ops',             // unified Bot Operations (management + fleet + radar)
   GROWTH_ENGINE: 'growth-engine',  // autopilot growth + reinvest engine
   SYSTEM_MODE: 'system-mode',
-  ANALYTICS_METRICS: 'analytics-metrics', // intelligence terminal: decision trace, whale flow, market intelligence, AI analysis
   PROFITS_PERFORMANCE: 'profits-performance',
   LIVE_TRADES: 'live-trades',
   COUNTDOWN: 'countdown',
   WALLET_HUB: 'wallet-hub',
   PROFILE: 'profile',
   HIDDEN_ADMIN: 'hidden-admin',
+  // Legacy aliases (for backward-compat if any component references old keys)
+  BOT_MANAGEMENT: 'bot-ops',
+  BOT_FLEET: 'bot-ops',
+  BOT_RADAR: 'bot-ops',
+  ANALYTICS_METRICS: 'profits-performance',
 };
 
 export const NAV_LABELS = {
   [NAV.WELCOME]: '🤖 Welcome',
   [NAV.API_SETUP]: '🔑 API Setup',
-  [NAV.BOT_MANAGEMENT]: '⚙️ Bot Management',
-  [NAV.BOT_FLEET]: '🚀 Bot Fleet',
-  [NAV.BOT_RADAR]: '📡 Bot Radar',
+  [NAV.BOT_OPS]: '🚀 Bot Operations',
   [NAV.GROWTH_ENGINE]: '🌱 Growth Engine',
   [NAV.SYSTEM_MODE]: '🎛️ System Mode',
-  [NAV.ANALYTICS_METRICS]: '📊 Analytics & Metrics',
   [NAV.PROFITS_PERFORMANCE]: '💹 Profits & Performance',
   [NAV.LIVE_TRADES]: '📡 Live Trades',
   [NAV.COUNTDOWN]: '⏱️ Countdown',

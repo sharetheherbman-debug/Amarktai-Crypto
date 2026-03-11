@@ -223,6 +223,7 @@ export default function BotFleetSection({
   setEditingBotName,
   handleRenameBotSubmit,
   axiosConfig,
+  embedded = false,
 }) {
   const [fleetTab, setFleetTab] = useState('normal');
   const [confirmDelete, setConfirmDelete] = useState(null);
