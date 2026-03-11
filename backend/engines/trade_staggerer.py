@@ -101,6 +101,14 @@ class TradeStaggerer:
     async def add_to_queue(self, bot_id: str, exchange: str, priority: int = 0):
         """Add a trade request to the queue"""
         try:
+            if not bot_id:
+                logger.warning(
+                    "⚠️ add_to_queue called with empty bot_id for exchange=%s — skipping; "
+                    "caller must resolve canonical bot id before queuing",
+                    exchange,
+                )
+                return
+
             trade_request = {
                 "bot_id": bot_id,
                 "exchange": exchange,
