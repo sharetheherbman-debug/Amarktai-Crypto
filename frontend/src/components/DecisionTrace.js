@@ -302,7 +302,7 @@ export default function DecisionTrace() {
                     </span>
                   </h3>
                   <Badge className={getConfidenceColor(selectedDecision.confidence)}>
-                    Confidence: {(selectedDecision.confidence * 100).toFixed(1)}%
+                    Confidence: {selectedDecision.confidence != null && !Number.isNaN(Number(selectedDecision.confidence)) ? `${(Number(selectedDecision.confidence) * 100).toFixed(1)}%` : 'Not available'}
                   </Badge>
                 </div>
                 <p className="text-sm text-gray-500">
@@ -332,7 +332,7 @@ export default function DecisionTrace() {
                       {selectedDecision.regime_state.regime?.toUpperCase().replace('_', ' ')}
                     </Badge>
                     <span className="ml-2">
-                      Confidence: {(selectedDecision.regime_state.confidence * 100).toFixed(1)}%
+                      Confidence: {selectedDecision.regime_state.confidence != null && !Number.isNaN(Number(selectedDecision.regime_state.confidence)) ? `${(Number(selectedDecision.regime_state.confidence) * 100).toFixed(1)}%` : 'Not available'}
                     </span>
                   </div>
                 </div>
@@ -349,12 +349,12 @@ export default function DecisionTrace() {
                         <div className="flex items-center gap-2">
                           <div className="w-32 h-2 bg-gray-200 rounded">
                             <div
-                              className={`h-full rounded ${value > 0 ? 'bg-green-500' : 'bg-red-500'}`}
-                              style={{ width: `${Math.abs(value) * 100}%` }}
+                              className={`h-full rounded ${(value ?? 0) > 0 ? 'bg-green-500' : 'bg-red-500'}`}
+                              style={{ width: `${Math.min(100, Math.abs((value ?? 0)) * 100)}%` }}
                             />
                           </div>
-                          <span className={value > 0 ? 'text-green-600' : 'text-red-600'}>
-                            {(value * 100).toFixed(1)}%
+                          <span className={(value ?? 0) > 0 ? 'text-green-600' : 'text-red-600'}>
+                            {value != null && !Number.isNaN(Number(value)) ? `${(Number(value) * 100).toFixed(1)}%` : '—'}
                           </span>
                         </div>
                       </div>
@@ -383,7 +383,7 @@ export default function DecisionTrace() {
                 <div className="mb-4">
                   <h4 className="font-semibold mb-2">Position Sizing</h4>
                   <div className="text-sm">
-                    Multiplier: <strong>{selectedDecision.position_size_multiplier.toFixed(2)}x</strong>
+                    Multiplier: <strong>{selectedDecision.position_size_multiplier != null ? `${Number(selectedDecision.position_size_multiplier).toFixed(2)}x` : '—'}</strong>
                     {selectedDecision.stop_loss && (
                       <span className="ml-4">Stop Loss: ${selectedDecision.stop_loss.toLocaleString()}</span>
                     )}

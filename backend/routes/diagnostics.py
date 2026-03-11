@@ -43,16 +43,26 @@ async def provider_health_snapshot(user_id: str = Depends(get_current_user)):
             pid = provider.get("id")
             key_doc = key_map.get(pid, {})
             status = str(key_doc.get("status", "not_configured")).lower()
+            configured_by_user = bool(key_doc)
             if status in {"configured_valid", "test_ok"}:
                 normalized = "healthy"
+                valid_key = True
             elif status in {"configured_untested", "saved_untested", "configured_rate_limited"}:
                 normalized = "degraded"
+                valid_key = "unknown"
             elif status in {"configured_invalid", "test_failed"}:
                 normalized = "down"
+                valid_key = False
             else:
                 normalized = "unconfigured"
+                valid_key = False
             health_map[pid] = {
                 "status": normalized,
+                # Canonical truth fields
+                "configured_by_user": configured_by_user,
+                "valid_key": valid_key,
+                "using_public_fallback": False,
+                "ownership_scope": "user" if configured_by_user else "public",
                 "last_tested": key_doc.get("last_tested_at"),
                 "last_error": key_doc.get("last_test_error"),
                 "type": provider.get("type"),
@@ -66,12 +76,17 @@ async def provider_health_snapshot(user_id: str = Depends(get_current_user)):
             usage = {}
 
         for pid, ok in (live_health or {}).items():
-            existing = health_map.get(pid, {"status": "unconfigured"})
+            existing = health_map.get(pid, {"status": "unconfigured", "configured_by_user": False, "valid_key": False, "using_public_fallback": False})
             if existing.get("status") == "unconfigured":
-                existing["status"] = "healthy" if ok else "down"
+                # Provider is reachable via public/system endpoint but user has NOT configured a key.
+                # Mark as public_fallback — do NOT upgrade to "healthy".
+                existing["status"] = "public_fallback" if ok else "unconfigured"
+                existing["using_public_fallback"] = bool(ok)
+                existing["ownership_scope"] = "public"
             elif existing.get("status") in {"healthy", "degraded"} and ok is False:
                 existing["status"] = "degraded"
-            existing["healthy"] = bool(ok)
+            existing["healthy"] = bool(ok) and existing.get("configured_by_user", False)
+            existing["reachable"] = bool(ok)
             existing["usage"] = usage.get(pid, {})
             health_map[pid] = existing
 

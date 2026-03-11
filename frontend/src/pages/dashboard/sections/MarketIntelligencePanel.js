@@ -15,6 +15,8 @@ const STATUS_STYLES = {
   degraded: { label: '⚠ Degraded', dot: '#f59e0b', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
   down: { label: '✗ Down', dot: '#ef4444', bg: 'rgba(239,68,68,0.15)', color: '#ef4444', border: 'rgba(239,68,68,0.3)' },
   unconfigured: { label: '○ Not configured', dot: '#475569', bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
+  // Public fallback reachable but no user key configured — never show as "Healthy"
+  public_fallback: { label: '○ Public fallback', dot: '#6366f1', bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', border: 'rgba(99,102,241,0.25)' },
 };
 
 const glass = (extra = {}) => ({
@@ -60,6 +62,11 @@ const ProviderDetailRow = ({ config, providerHealth }) => {
           )}
           <StatusChip status={status} />
         </div>
+        {status === 'public_fallback' && (
+          <div style={{ fontSize: 11, color: '#a5b4fc', marginTop: 3 }}>
+            Reachable via public endpoint — no user key configured
+          </div>
+        )}
         {health.last_tested && (
           <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
             Checked: {new Date(health.last_tested).toLocaleString()}
@@ -109,11 +116,11 @@ const MarketIntelligencePanel = () => {
       if (!Object.keys(intelligencePayload?.prices || {}).length) {
         try {
           const marketPrices = await get('/market/prices');
-          const norm = {};
+          const normalizedPrices = {};
           Object.entries(marketPrices?.prices || {}).forEach(([sym, p]) => {
-            norm[sym] = { price: p?.price, provider: p?.source || p?.provider || 'market_api' };
+            normalizedPrices[sym] = { price: p?.price, provider: p?.source || p?.provider || 'market_api' };
           });
-          intelligencePayload = { ...intelligencePayload, prices: norm };
+          intelligencePayload = { ...intelligencePayload, prices: normalizedPrices };
         } catch { /* fallback unavailable */ }
       }
       setIntelligence(intelligencePayload);
@@ -123,13 +130,26 @@ const MarketIntelligencePanel = () => {
       for (const id of allIds) {
         const keyStatus = statusMap[id]?.status;
         const mi = healthMap?.[id];
+        // Determine whether the user has configured a key for this provider
+        const userHasKey = keyStatus && keyStatus !== 'not_configured';
         let status = 'unconfigured';
-        if (keyStatus === 'configured_valid' || keyStatus === 'test_ok') status = 'healthy';
-        else if (keyStatus === 'configured_invalid' || keyStatus === 'test_failed') status = 'down';
-        else if (keyStatus === 'configured_untested' || keyStatus === 'saved_untested') status = 'degraded';
-        else if (mi?.healthy || mi?.status === 'healthy') status = 'healthy';
-        else if (mi?.status === 'degraded') status = 'degraded';
-        merged[id] = { status, last_tested: statusMap[id]?.last_tested_at || mi?.last_tested };
+        if (keyStatus === 'configured_valid' || keyStatus === 'test_ok') {
+          // User configured a valid, tested key — the only case for "Healthy"
+          status = 'healthy';
+        } else if (keyStatus === 'configured_invalid' || keyStatus === 'test_failed') {
+          status = 'down';
+        } else if (keyStatus === 'configured_untested' || keyStatus === 'saved_untested') {
+          status = 'degraded';
+        } else if (!userHasKey && (mi?.healthy || mi?.status === 'healthy' || mi?.status === 'degraded')) {
+          // MI can reach it via public endpoint but user has NOT configured a key.
+          // Never show "Healthy" — show "Public fallback" instead.
+          status = 'public_fallback';
+        }
+        merged[id] = {
+          status,
+          last_tested: statusMap[id]?.last_tested_at || mi?.last_tested,
+          using_public_fallback: !userHasKey && (mi?.healthy || mi?.status === 'healthy'),
+        };
       }
       setProviderHealth(merged);
     } catch (err) {
@@ -147,7 +167,9 @@ const MarketIntelligencePanel = () => {
 
   const healthyMarketCount = MARKET_DATA_PROVIDERS.filter(id => providerHealth[id]?.status === 'healthy').length;
   const healthyEnricherCount = INTELLIGENCE_ENRICHERS.filter(id => providerHealth[id]?.status === 'healthy').length;
-  const overallStatus = healthyMarketCount > 0 ? 'healthy' : 'degraded';
+  const publicFallbackCount = [...MARKET_DATA_PROVIDERS, ...INTELLIGENCE_ENRICHERS].filter(id => providerHealth[id]?.status === 'public_fallback').length;
+  // Overall status: healthy only when at least one user-configured source is healthy
+  const overallStatus = healthyMarketCount > 0 ? 'healthy' : publicFallbackCount > 0 ? 'public_fallback' : 'degraded';
   const priceRows = Object.entries(intelligence?.prices || {});
   const whaleSignals = intelligence?.whale_signals || [];
   const dominantRegime = intelligence?.regime || intelligence?.market_regime;
@@ -197,8 +219,11 @@ const MarketIntelligencePanel = () => {
           {lastRefresh && (
             <span>🕐 Last refresh: <strong style={{ color: '#e2e8f0' }}>{new Date(lastRefresh).toLocaleTimeString()}</strong></span>
           )}
-          {healthyMarketCount === 0 && (
-            <span style={{ color: '#f59e0b' }}>⚠ No market sources healthy — configure CoinDesk / CryptoCompare</span>
+          {healthyMarketCount === 0 && publicFallbackCount === 0 && (
+            <span style={{ color: '#f59e0b' }}>⚠ No market sources configured — add a CoinDesk / CryptoCompare key in API Setup</span>
+          )}
+          {healthyMarketCount === 0 && publicFallbackCount > 0 && (
+            <span style={{ color: '#a5b4fc' }}>ℹ Public fallback active — no user key configured</span>
           )}
         </div>
       </div>
