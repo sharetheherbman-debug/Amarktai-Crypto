@@ -184,9 +184,7 @@ class TestDecisionNormalization:
         normalized = normalize_bot_state(raw_bot)
         # normalized should not crash and output should be a dict
         assert isinstance(normalized, dict)
-        # Key decision fields should have safe fallbacks
-        regime = normalized.get("market_regime")
-        assert regime is not None or True  # OK if None, just must not raise
+        # Must not raise; result dict is the important thing
 
     def test_safe_float_in_radar_handles_none_string_nan(self):
         """_safe_float utility must return default for None, '', 'nan', 'NaN', and inf."""
