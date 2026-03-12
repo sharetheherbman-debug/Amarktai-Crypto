@@ -587,3 +587,131 @@ async def get_pending_approvals(
     except Exception as e:
         logger.error(f"Get pending approvals error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Currency / Crypto Converter ───────────────────────────────────────────────
+# Reuses the canonical fx_normalizer as single source of truth.
+# Supports ZAR, USD, GBP, EUR, USDT, BTC, ETH.
+# This is intentionally a lightweight synchronous-style endpoint; for live
+# crypto quotes the caller may refresh on demand.
+
+_SUPPORTED_CONVERTER_CURRENCIES = {"ZAR", "USD", "GBP", "EUR", "USDT", "BUSD", "USDC", "BTC", "ETH"}
+
+# Static fallback cross-rates vs ZAR (operator-overridable via env vars).
+import os as _os
+_USD_ZAR: float = float(_os.getenv("USD_ZAR_RATE", "18.5"))
+_GBP_ZAR: float = float(_os.getenv("GBP_ZAR_RATE", "23.5"))
+_EUR_ZAR: float = float(_os.getenv("EUR_ZAR_RATE", "20.0"))
+_BTC_ZAR: float = float(_os.getenv("BTC_ZAR_RATE", "1400000.0"))
+_ETH_ZAR: float = float(_os.getenv("ETH_ZAR_RATE", "60000.0"))
+
+
+def _get_to_zar_rate(currency: str) -> tuple:
+    """Return (rate, source) to convert *currency* → ZAR.
+
+    This helper extends fx_normalizer.get_fx_rate() to cover more fiat
+    currencies (USD, GBP, EUR) and crypto (BTC, ETH) beyond USDT.
+    For USDT-family and ZAR the canonical fx_normalizer is always used.
+    """
+    from services.fx_normalizer import get_fx_rate as _fx_get
+    cur = currency.upper()
+    if cur == "ZAR":
+        return 1.0, "identity"
+    # USDT-family → delegate to canonical normalizer
+    if cur in {"USDT", "BUSD", "USDC"}:
+        return _fx_get("USDT", "ZAR")
+    # Other fiat / crypto — static fallback with env-var override
+    _fallbacks = {
+        "USD": (_USD_ZAR, "env_fallback_usd"),
+        "GBP": (_GBP_ZAR, "env_fallback_gbp"),
+        "EUR": (_EUR_ZAR, "env_fallback_eur"),
+        "BTC": (_BTC_ZAR, "env_fallback_btc"),
+        "ETH": (_ETH_ZAR, "env_fallback_eth"),
+    }
+    if cur in _fallbacks:
+        return _fallbacks[cur]
+    logger.warning("Converter: unknown currency %s; using 1.0 identity", cur)
+    return 1.0, "unknown"
+
+
+class ConvertRequest(BaseModel):
+    amount: float
+    from_currency: str
+    to_currency: str = "ZAR"
+
+
+@router.post("/converter")
+async def convert_currency(
+    req: ConvertRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Convert an amount between supported currencies.
+
+    Single source of truth: uses fx_normalizer for USDT/BUSD/USDC→ZAR; static
+    fallback rates (env-overridable) for USD, GBP, EUR, BTC, ETH.
+
+    Supported currencies: ZAR, USD, GBP, EUR, USDT, BUSD, USDC, BTC, ETH.
+
+    Returns full labeled response — no naked numbers.
+    """
+    from_cur = req.from_currency.upper().strip()
+    to_cur = req.to_currency.upper().strip()
+
+    if from_cur not in _SUPPORTED_CONVERTER_CURRENCIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported from_currency '{from_cur}'. Supported: {sorted(_SUPPORTED_CONVERTER_CURRENCIES)}",
+        )
+    if to_cur not in _SUPPORTED_CONVERTER_CURRENCIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported to_currency '{to_cur}'. Supported: {sorted(_SUPPORTED_CONVERTER_CURRENCIES)}",
+        )
+    if req.amount < 0:
+        raise HTTPException(status_code=400, detail="amount must be >= 0")
+
+    # Convert: from_currency → ZAR → to_currency
+    from_rate_to_zar, from_source = _get_to_zar_rate(from_cur)
+    to_rate_to_zar, to_source = _get_to_zar_rate(to_cur)
+
+    # Guard against zero rates (should not happen for supported currencies)
+    if to_rate_to_zar <= 0:
+        to_rate_to_zar = 1.0
+
+    amount_in_zar = req.amount * from_rate_to_zar
+    converted_amount = round(amount_in_zar / to_rate_to_zar, 8) if to_cur != "ZAR" else round(amount_in_zar, 2)
+
+    return {
+        "input_amount": req.amount,
+        "input_currency": from_cur,
+        "output_amount": converted_amount,
+        "output_currency": to_cur,
+        "via_zar_amount": round(amount_in_zar, 2),
+        "from_rate_to_zar": round(from_rate_to_zar, 6),
+        "to_rate_to_zar": round(to_rate_to_zar, 6),
+        "effective_rate": round(from_rate_to_zar / to_rate_to_zar, 8) if to_rate_to_zar > 0 else None,
+        "rate_source": f"{from_source}/{to_source}",
+        "supported_currencies": sorted(_SUPPORTED_CONVERTER_CURRENCIES),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/converter/rates")
+async def get_converter_rates(user_id: str = Depends(get_current_user)):
+    """Return all current converter rates relative to ZAR.
+
+    Useful for the frontend to pre-populate the converter widget.
+    """
+    rates = {}
+    for cur in sorted(_SUPPORTED_CONVERTER_CURRENCIES):
+        rate, source = _get_to_zar_rate(cur)
+        rates[cur] = {
+            "rate_to_zar": round(rate, 6),
+            "source": source,
+        }
+    return {
+        "rates": rates,
+        "base_currency": "ZAR",
+        "supported_currencies": sorted(_SUPPORTED_CONVERTER_CURRENCIES),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

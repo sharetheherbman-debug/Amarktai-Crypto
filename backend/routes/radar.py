@@ -188,6 +188,12 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     _symbol_str = str(bot.get("pair") or bot.get("symbol") or "")
     _quote_currency = get_quote_currency(_exchange_str, _symbol_str)
     _fx_rate, _fx_source = get_fx_rate(_quote_currency, "ZAR")
+    # Canonical funding truth fields — read from stored bot record when available.
+    # These are written at bot-creation time by the validator (bot_validator.py).
+    _canonical_base_zar = _safe_float(bot.get("canonical_base_capital_zar"), capital * _fx_rate)
+    _fx_rate_at_creation = _safe_float(bot.get("fx_rate_at_creation"), _fx_rate)
+    _funding_input_amount = _safe_float(bot.get("funding_input_amount"), _canonical_base_zar)
+    _funding_input_currency = str(bot.get("funding_input_currency") or "ZAR").upper()
 
     def _to_zar(raw: Optional[float]) -> Optional[float]:
         """Convert a raw quote-currency value to ZAR for display."""
@@ -203,24 +209,32 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "symbol": bot.get("pair", bot.get("symbol", "unknown")),
         # ── Canonical display currency metadata ──────────────────────────
         # Semantics:
+        #   funding_input_amount   — exact amount the user entered (always in funding_input_currency)
+        #   funding_input_currency — currency the user entered (always "ZAR" for now)
+        #   canonical_base_capital_zar — frozen ZAR economic base at creation (never mutated)
+        #   fx_rate_at_creation    — FX rate frozen when bot was created
         #   funding_currency       — the currency the user funded this bot in
-        #   funding_amount         — the amount the user entered when funding
+        #   funding_amount         — the amount in native quote currency
         #   quote_currency         — the native trading quote currency (may differ from
         #                            funding currency if FX conversion occurred)
         #   display_currency       — always "ZAR" (canonical user-facing currency)
         #   capital_allocated      — capital in quote_currency (native trading units)
         #   capital_allocated_display — capital converted to ZAR for display
         #
-        # Example — Binance bot funded with 1000 USDT:
-        #   funding_currency       = "USDT"
-        #   funding_amount         = 1000.0
+        # Example — Binance bot funded with R1000 ZAR:
+        #   funding_input_amount   = 1000.0  (what the user typed)
+        #   funding_input_currency = "ZAR"
+        #   canonical_base_capital_zar = 1000.0  (frozen at creation)
+        #   fx_rate_at_creation    = 19.0
         #   quote_currency         = "USDT"
-        #   capital_allocated      = 1000.0 (USDT)
-        #   capital_allocated_display = 19000.0 (ZAR at ~19 USDT/ZAR)
+        #   capital_allocated      = 52.63 (USDT — execution amount)
+        #   capital_allocated_display = 1000.0 (ZAR — display amount)
         #
-        # Example — Luno bot funded with 1000 ZAR:
-        #   funding_currency       = "ZAR"
-        #   funding_amount         = 1000.0
+        # Example — Luno bot funded with R1000 ZAR:
+        #   funding_input_amount   = 1000.0
+        #   funding_input_currency = "ZAR"
+        #   canonical_base_capital_zar = 1000.0
+        #   fx_rate_at_creation    = 1.0
         #   quote_currency         = "ZAR"
         #   capital_allocated      = 1000.0 (ZAR)
         #   capital_allocated_display = 1000.0 (ZAR, no conversion)
@@ -228,6 +242,10 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "display_currency": "ZAR",
         "fx_rate_used": _fx_rate,
         "fx_source": _fx_source,
+        "fx_rate_at_creation": _fx_rate_at_creation,
+        "canonical_base_capital_zar": _canonical_base_zar,
+        "funding_input_amount": _funding_input_amount,
+        "funding_input_currency": _funding_input_currency,
         # Funding semantics — explicit fields to prevent UI confusion.
         # funding_currency = the currency capital is stored/traded in.
         # funding_amount   = the raw capital in that currency.

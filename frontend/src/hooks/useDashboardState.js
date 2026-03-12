@@ -2307,8 +2307,8 @@ export default function useDashboardState(navigate) {
       showNotification('Please enter a bot name', 'error');
       return;
     }
-    if (budget < 500) {
-      showNotification('Minimum budget for scalper bots is R500', 'error');
+    if (budget < 1000) {
+      showNotification('Minimum budget for scalper bots is R1000', 'error');
       return;
     }
 
