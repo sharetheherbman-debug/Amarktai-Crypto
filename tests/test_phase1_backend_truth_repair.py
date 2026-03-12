@@ -37,8 +37,8 @@ class TestTargetPolicy:
         from services.target_policy import derive_targets
         bot = {"bot_type": "normal", "risk_mode": "balanced", "current_capital": 10000}
         result = derive_targets(bot)
-        assert result["daily_profit_target"] == 100.0   # 1% of 10000
-        assert result["trade_profit_target"] == 50.0    # 0.5% of 10000
+        assert result["daily_profit_target"] == 200.0   # 2% of 10000 (canonical USDT profile)
+        assert result["trade_profit_target"] == 80.0    # 0.8% of 10000 (canonical USDT profile)
         assert result["target_source"] == "strategy_derived"
 
     def test_normal_safe_has_lower_targets_than_aggressive(self):

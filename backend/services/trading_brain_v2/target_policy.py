@@ -8,22 +8,41 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ── Daily profit target percentages by bot type ──
+# ── Daily profit target percentages by (bot_type, venue_class) ──
+# venue_class: "zar" for Luno (ZAR, higher cost floor ~1.5% round-trip),
+#              "usdt" for all USDT exchanges (lower cost floor ~0.3% round-trip).
+# These percentages are calibrated to match the canonical target_policy.py
+# balanced-risk profiles so the V2 engine is economically aligned.
+# Luno percentages are higher because the exchange cost floor is ~5× wider.
 DAILY_TARGET_PCT = {
-    "normal": 0.8,         # 0.8% daily target
-    "trend": 1.0,
-    "adaptive": 0.8,
-    "mean_reversion": 0.6,
-    "scalper": 0.5,        # scalpers: many small wins
+    ("normal",       "usdt"): 2.0,   # canonical USDT normal/balanced
+    ("normal",       "zar"):  3.5,   # canonical Luno normal/balanced
+    ("trend",        "usdt"): 2.0,
+    ("trend",        "zar"):  3.5,
+    ("adaptive",     "usdt"): 2.0,
+    ("adaptive",     "zar"):  3.5,
+    ("mean_reversion","usdt"): 1.5,
+    ("mean_reversion","zar"):  3.0,
+    ("scalper",      "usdt"): 2.5,   # canonical USDT scalper/balanced
+    ("scalper",      "zar"):  4.0,   # canonical Luno scalper/balanced
 }
 
-# ── Per-trade profit target as % of equity ──
+# ── Per-trade profit target as % of notional by (bot_type, venue_class) ──
+# Uses the same venue-aware keying as DAILY_TARGET_PCT for consistency.
+# ZAR values are higher because Luno's round-trip cost floor (~1.5%) is
+# ~5× wider than USDT exchanges (~0.3%), so per-trade targets must clear
+# that floor by a meaningful margin.
 TRADE_TARGET_PCT = {
-    "normal": 0.4,
-    "trend": 0.5,
-    "adaptive": 0.4,
-    "mean_reversion": 0.3,
-    "scalper": 0.08,
+    ("normal",        "usdt"): 0.8,    # canonical USDT normal/balanced trade_pct
+    ("normal",        "zar"):  1.5,    # canonical Luno normal/balanced trade_pct
+    ("trend",         "usdt"): 0.8,
+    ("trend",         "zar"):  1.5,
+    ("adaptive",      "usdt"): 0.8,
+    ("adaptive",      "zar"):  1.5,
+    ("mean_reversion","usdt"): 0.6,
+    ("mean_reversion","zar"):  1.2,
+    ("scalper",       "usdt"): 0.7,    # canonical USDT scalper/balanced trade_pct
+    ("scalper",       "zar"):  1.2,    # canonical Luno scalper/balanced trade_pct
 }
 
 # ── Maximum hold seconds by bot type (default, can be overridden) ──
@@ -81,20 +100,21 @@ class TargetPolicyV2:
         Returns render-safe dict with all target fields.
         """
         bt = (bot_type or "normal").lower()
-        if bt not in DAILY_TARGET_PCT:
+        # Fall back to "normal" only if both the exact and any variant are missing
+        if (bt, "usdt") not in DAILY_TARGET_PCT:
             bt = "normal"
 
         vc = "zar" if venue and venue.lower() == "luno" else "usdt"
         safe_equity = max(bot_equity, 1.0)
         safe_notional = max(notional, 1.0)
 
-        # ── Daily target ──
-        base_daily_pct = DAILY_TARGET_PCT.get(bt, 0.8)
+        # ── Daily target ── (venue-aware)
+        base_daily_pct = DAILY_TARGET_PCT.get((bt, vc), DAILY_TARGET_PCT.get(("normal", vc), 2.0))
         daily_pct = self._adjust_for_conditions(base_daily_pct, regime_label, liquidity_score, signal_confidence)
         daily_target_quote = safe_equity * (daily_pct / 100.0)
 
-        # ── Trade target ──
-        base_trade_pct = TRADE_TARGET_PCT.get(bt, 0.4)
+        # ── Trade target ── (venue-aware, consistent with DAILY_TARGET_PCT structure)
+        base_trade_pct = TRADE_TARGET_PCT.get((bt, vc), TRADE_TARGET_PCT.get(("normal", vc), 0.8))
         trade_pct = self._adjust_for_conditions(base_trade_pct, regime_label, liquidity_score, signal_confidence)
 
         # Ensure trade target covers at least 2x all-in cost

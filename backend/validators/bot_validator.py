@@ -13,6 +13,7 @@ import database as db
 from error_codes import ErrorCode, insufficient_funds_error
 from engines.wallet_manager import wallet_manager
 from services.paper_wallet_service import paper_wallet_service
+from services.fx_normalizer import resolve_capital_for_exchange
 from config.platforms import (
     is_valid_platform,
     get_max_bots,
@@ -32,7 +33,7 @@ def _safe_int_cap(value, fallback: int) -> int:
     except (TypeError, ValueError):
         return int(fallback)
 
-class BotValidator:
+
     """Validates bot creation parameters"""
     
     def __init__(self):
@@ -190,12 +191,19 @@ class BotValidator:
                     
                     return False, error
         else:
-            currency = "ZAR" if exchange == "luno" else "USDT"
-            available = await paper_wallet_service.get_available_balance(user_id, currency)
-            if available < capital:
+            # Paper mode: capital input is always in ZAR (user economic base).
+            # For USDT exchanges, convert to the quote currency before wallet check.
+            quote_capital, quote_currency, fx_rate_used = resolve_capital_for_exchange(capital, exchange)
+            available = await paper_wallet_service.get_available_balance(user_id, quote_currency)
+            if available < quote_capital:
                 return False, {
                     "code": "PAPER_WALLET_INSUFFICIENT",
-                    "message": f"Insufficient paper wallet funds ({currency}). Available: {available:.2f}, Required: {capital:.2f}",
+                    "message": (
+                        f"Insufficient paper wallet funds ({quote_currency}). "
+                        f"Available: {available:.2f} {quote_currency}, "
+                        f"Required: {quote_capital:.2f} {quote_currency} "
+                        f"(= R{capital:.2f} ZAR at {fx_rate_used:.4f} {quote_currency}/ZAR)"
+                    ),
                     "action": "Add fake funds to your paper wallet before spawning bots.",
                     "severity": "error"
                 }
@@ -268,13 +276,32 @@ class BotValidator:
         raw_routing = (bot_data.get("profit_routing") or "RETURN_TO_MAIN").upper()
         profit_routing = raw_routing if raw_routing in valid_profit_routings else "RETURN_TO_MAIN"
 
+        # Compute canonical capital fields — capital input is always ZAR.
+        # For USDT exchanges the quote_capital is the USDT equivalent.
+        # quote_capital / fx_rate_used == canonical_base_capital_zar (within rounding).
+        # Note: for paper mode, resolve_capital_for_exchange was already called in the
+        # wallet-check block above and quote_capital/quote_currency/fx_rate_used are set.
+        # For live mode, compute them here.
+        if trading_mode == 'live':
+            quote_capital, quote_currency, fx_rate_used = resolve_capital_for_exchange(capital, exchange)
+
         # All validations passed - return validated data with lifecycle fields
         validated_data = {
             "name": name,
             "exchange": exchange,
             "risk_mode": risk_mode,
-            "initial_capital": capital,
-            "current_capital": capital,
+            # Canonical capital truth fields.
+            # canonical_base_capital_zar — the user's economic base in ZAR terms;
+            #   always the original R-amount the user entered.
+            # initial_capital / current_capital — in quote currency (ZAR for Luno,
+            #   USDT for Binance/KuCoin/etc.).  These are used for live trade sizing.
+            # fx_rate_at_creation — USDT→ZAR rate used for the conversion.
+            # quote_currency — native trading currency for this bot.
+            "canonical_base_capital_zar": round(float(capital), 2),
+            "initial_capital": quote_capital,
+            "current_capital": quote_capital,
+            "fx_rate_at_creation": fx_rate_used,
+            "quote_currency": quote_currency,
             "total_profit": 0,
             "total_injections": 0,
             "trades_count": 0,

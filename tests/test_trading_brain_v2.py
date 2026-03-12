@@ -374,13 +374,18 @@ class TestTargetPolicyV2:
         )
         assert result["max_hold_seconds"] == 300  # 5m for scalper
         assert result["trade_profit_target_quote"] > 0
-        # Scalper daily target pct is smaller than normal
+        # Scalper daily target pct >= normal daily target pct — scalpers target
+        # higher total daily P&L through volume (canonical policy aligns with
+        # services/target_policy.py: scalper/balanced USDT = 2.5% > normal 2.0%).
         normal = self.policy.compute(
             bot_type="normal", venue="binance", quote_currency="USDT",
             bot_equity=5000, notional=200, all_in_cost_bps=20,
             entry_price=50000, side="buy",
         )
-        assert result["daily_target_pct"] < normal["daily_target_pct"]
+        assert result["daily_target_pct"] >= normal["daily_target_pct"], (
+            f"Scalper daily % ({result['daily_target_pct']}) should be >= "
+            f"normal daily % ({normal['daily_target_pct']}) per canonical policy"
+        )
 
     def test_target_covers_costs(self):
         """Trade target must be at least 2x all-in cost."""
