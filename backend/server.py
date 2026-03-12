@@ -508,7 +508,12 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     from uuid import uuid4
     
     bot_dict = bot.model_dump()
-    bot_dict['capital'] = bot_dict.get('initial_capital', 1000)
+    # Canonical capital resolution: 'initial_capital' is the canonical field.
+    # 'capital' is accepted as a backward-compat alias (resolved in BotCreate validator).
+    # After model_dump(), initial_capital holds the merged value.
+    initial_capital_value = float(bot_dict.get('initial_capital') or 0)
+    capital_alias_value = float(bot_dict.get('capital') or 0)
+    bot_dict['capital'] = initial_capital_value if initial_capital_value > 0 else capital_alias_value
     
     # Validate bot creation BEFORE database insertion
     is_valid, result = await bot_validator.validate_bot_creation(user_id, bot_dict)
