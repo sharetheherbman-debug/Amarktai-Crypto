@@ -26,7 +26,7 @@ from utils.bot_state import normalize_bot_state
 # Canonical trading-gate flags — use config module (supports all env-var aliases)
 from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
 from services.truth_normalizer import normalize_bot_trade_truth
-from services.fx_normalizer import get_quote_currency
+from services.fx_normalizer import get_quote_currency, get_fx_rate
 
 logger = logging.getLogger(__name__)
 
@@ -373,6 +373,34 @@ async def get_bots_status(
             win_rate = float(canonical.get("win_rate_pct", bot.get("win_rate", 0)) or 0)
             roi = float(canonical.get("roi_pct", 0) or 0)
 
+            # ── Canonical capital truth model ──
+            # Derive canonical_base_capital_zar for display so the user can always see
+            # their original R-denominated economic base regardless of exchange.
+            # Rules:
+            #   1. If the bot stored canonical_base_capital_zar at creation → use it directly.
+            #   2. For ZAR bots (Luno) with no stored canonical field → current_capital IS the ZAR base.
+            #   3. For USDT bots without the canonical field (old bots) → derive from stored capital×fx_rate.
+            _bot_quote_currency = get_quote_currency(
+                bot.get('exchange', ''),
+                bot.get('pair') or bot.get('symbol', ''),
+            )
+            _fx_rate_canonical, _ = get_fx_rate(_bot_quote_currency, "ZAR")
+            # Prefer the explicitly stored canonical field (set at creation for new bots)
+            _stored_base_zar = bot.get("canonical_base_capital_zar")
+            if _stored_base_zar and float(_stored_base_zar or 0) > 0:
+                _canonical_base_zar = round(float(_stored_base_zar), 2)
+            else:
+                # Compute on-the-fly: for ZAR bots rate is 1.0, for USDT bots multiply
+                _canonical_base_zar = round(base_initial_capital * _fx_rate_canonical, 2)
+            # total_equity_quote: current equity in native quote currency
+            _total_equity_quote = round(base_current_capital + base_open_position, 2)
+            # total_equity_display: ZAR equivalent of current equity (for display only)
+            _total_equity_display = round(_total_equity_quote * _fx_rate_canonical, 2)
+            # profit_display: realized P&L in ZAR
+            _profit_display = round(realized_pnl * _fx_rate_canonical, 2)
+            # fx_rate_at_creation stored on bot (may differ from current rate)
+            _fx_rate_at_creation = float(bot.get("fx_rate_at_creation") or _fx_rate_canonical)
+
             enriched_bot = {
                 "id": bot.get('id'),
                 "name": bot.get('name'),
@@ -404,6 +432,24 @@ async def get_bots_status(
                 "allocated_capital": round(base_current_capital, 2),
                 "available_capital": round(available_capital, 2),
                 "open_position_value": round(base_open_position, 2),
+                # ── Canonical capital truth fields (problem statement §PHASE1) ──
+                # canonical_base_capital_zar: the original ZAR economic base the user
+                #   chose when creating this bot. Always R-denominated regardless of exchange.
+                # quote_capital / quote_currency: trading capital in native quote currency.
+                # total_equity_quote: current equity in quote currency.
+                # total_equity_display: ZAR-equivalent of current equity (display only).
+                # profit_display: realized P&L in ZAR (display only).
+                # fx_rate_used: rate applied for ZAR↔quote conversions.
+                "canonical_base_capital_zar": _canonical_base_zar,
+                "quote_capital": round(base_initial_capital, 2),
+                "quote_currency": _bot_quote_currency,
+                "display_currency": "ZAR",
+                "fx_rate_used": round(_fx_rate_canonical, 4),
+                "fx_rate_at_creation": round(_fx_rate_at_creation, 4),
+                "total_equity_quote": _total_equity_quote,
+                "total_equity_display": _total_equity_display,
+                "profit_quote": round(realized_pnl, 2),
+                "profit_display": _profit_display,
                 "total_profit": round(realized_pnl, 2),
                 "profit": round(realized_pnl, 2),
                 "trades_count": total_trades,
@@ -420,21 +466,30 @@ async def get_bots_status(
                     "open_position_value": round(base_open_position, 2),
                 },
                 "capital_summary": canonical.get("capital_summary", {
+                    "canonical_base_capital_zar": _canonical_base_zar,
                     "initial_capital": round(base_initial_capital, 2),
+                    "quote_currency": _bot_quote_currency,
                     "allocated_capital": round(base_current_capital, 2),
                     "available_capital": round(available_capital, 2),
                     "open_position_value": round(base_open_position, 2),
-                    "total_equity": round(base_current_capital, 2),
+                    "total_equity_quote": _total_equity_quote,
+                    "total_equity_display": _total_equity_display,
                     "realized_profit": round(realized_pnl, 2),
+                    "profit_display": _profit_display,
                     "unrealized_profit": 0.0,
+                    "fx_rate_used": round(_fx_rate_canonical, 4),
                     "semantics": {
-                        "initial_capital": "Starting capital assigned when the bot was created.",
-                        "allocated_capital": "Capital currently assigned to this bot for trading.",
-                        "available_capital": "Uncommitted capital available for new entries.",
-                        "open_position_value": "Current marked value of capital in open positions.",
-                        "total_equity": "Available capital + open position value + unrealized profit.",
-                        "realized_profit": "Closed-trade profit/loss already realized.",
-                        "unrealized_profit": "Profit/loss on currently open positions (estimate).",
+                        "canonical_base_capital_zar": "Original ZAR economic base the user entered at creation.",
+                        "initial_capital": "Starting capital in native quote currency (ZAR for Luno, USDT for USDT exchanges).",
+                        "quote_currency": "Native trading currency for this bot.",
+                        "allocated_capital": "Capital currently assigned to this bot for trading (in quote currency).",
+                        "available_capital": "Uncommitted capital available for new entries (in quote currency).",
+                        "open_position_value": "Current value of capital in open positions (in quote currency).",
+                        "total_equity_quote": "Total equity in quote currency (available + open).",
+                        "total_equity_display": "Total equity converted to ZAR for display (never inflated by currency confusion).",
+                        "realized_profit": "Closed-trade profit/loss in quote currency.",
+                        "profit_display": "Closed-trade profit/loss in ZAR (display).",
+                        "fx_rate_used": "Exchange rate used to convert quote currency to ZAR display.",
                     },
                 }),
                 "performance": {

@@ -160,6 +160,34 @@ def get_current_usdt_zar_rate() -> Tuple[float, str]:
     return _get_cached_rate(), _cached_rate_source
 
 
+def resolve_capital_for_exchange(
+    capital_zar: float,
+    exchange: str,
+) -> Tuple[float, str, float]:
+    """Convert a ZAR economic base into the correct quote currency for an exchange.
+
+    This is the canonical capital-truth function for bot creation:
+    - ALL bots start from an economic base expressed in ZAR.
+    - Luno bots trade natively in ZAR → quote_capital == capital_zar.
+    - USDT exchanges (Binance, KuCoin, etc.) → quote_capital = capital_zar / fx_rate.
+
+    Returns (quote_capital, quote_currency, fx_rate_used).
+
+    Example:
+        resolve_capital_for_exchange(1000.0, "binance")
+        # → (52.63, "USDT", 19.0) at a 19 ZAR/USDT rate
+        # → display back to ZAR: 52.63 × 19 = 1000 ZAR  ✓ (not inflated to R19000)
+    """
+    if (exchange or "").lower() == "luno":
+        return round(float(capital_zar), 2), "ZAR", 1.0
+    # USDT exchange — convert ZAR base to USDT
+    fx_rate, _ = get_fx_rate("USDT", "ZAR")  # ZAR per 1 USDT
+    if fx_rate <= 0:
+        fx_rate = USDT_ZAR_FALLBACK
+    quote_capital = round(float(capital_zar) / fx_rate, 6)
+    return quote_capital, "USDT", round(fx_rate, 4)
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _get_cached_rate() -> float:
