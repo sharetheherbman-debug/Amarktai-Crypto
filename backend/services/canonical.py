@@ -157,13 +157,19 @@ async def get_canonical_trade_counts(user_id: str) -> Dict[str, int]:
             return {"total": 0, "today": 0}
 
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        # total = all historically completed (closed) trades
         total = await db.trades_collection.count_documents({
             "bot_id": {"$in": bot_ids},
             "status": "closed",
         })
+        # today = all trades EXECUTED today regardless of open/closed status.
+        # Paper trades land with status="open" while the position is held, so
+        # counting only "closed" would show 0 while a position is live — that
+        # contradicts scheduler's total_trades_executed counter.
+        # We intentionally exclude cancelled/rejected statuses.
         today = await db.trades_collection.count_documents({
             "bot_id": {"$in": bot_ids},
-            "status": "closed",
+            "status": {"$in": ["open", "active", "closed", "filled"]},
             "timestamp": {"$gte": today_start},
         })
         return {"total": int(total or 0), "today": int(today or 0)}

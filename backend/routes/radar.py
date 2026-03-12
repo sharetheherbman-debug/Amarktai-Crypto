@@ -201,11 +201,38 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "name": bot.get("name", f"Bot-{bot_id[:6]}"),
         "exchange": bot.get("exchange", "unknown"),
         "symbol": bot.get("pair", bot.get("symbol", "unknown")),
-        # ── Canonical display currency metadata ──
+        # ── Canonical display currency metadata ──────────────────────────
+        # Semantics:
+        #   funding_currency       — the currency the user funded this bot in
+        #   funding_amount         — the amount the user entered when funding
+        #   quote_currency         — the native trading quote currency (may differ from
+        #                            funding currency if FX conversion occurred)
+        #   display_currency       — always "ZAR" (canonical user-facing currency)
+        #   capital_allocated      — capital in quote_currency (native trading units)
+        #   capital_allocated_display — capital converted to ZAR for display
+        #
+        # Example — Binance bot funded with 1000 USDT:
+        #   funding_currency       = "USDT"
+        #   funding_amount         = 1000.0
+        #   quote_currency         = "USDT"
+        #   capital_allocated      = 1000.0 (USDT)
+        #   capital_allocated_display = 19000.0 (ZAR at ~19 USDT/ZAR)
+        #
+        # Example — Luno bot funded with 1000 ZAR:
+        #   funding_currency       = "ZAR"
+        #   funding_amount         = 1000.0
+        #   quote_currency         = "ZAR"
+        #   capital_allocated      = 1000.0 (ZAR)
+        #   capital_allocated_display = 1000.0 (ZAR, no conversion)
         "quote_currency": _quote_currency,
         "display_currency": "ZAR",
         "fx_rate_used": _fx_rate,
         "fx_source": _fx_source,
+        # Funding semantics — explicit fields to prevent UI confusion.
+        # funding_currency = the currency capital is stored/traded in.
+        # funding_amount   = the raw capital in that currency.
+        "funding_currency": _quote_currency,
+        "funding_amount": capital,
         "side": None,
         "entry_price": None,
         "current_price": None,
