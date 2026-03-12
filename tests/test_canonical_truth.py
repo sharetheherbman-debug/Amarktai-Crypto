@@ -223,8 +223,10 @@ class TestGetCanonicalTradeCounts:
         assert counts == {"total": 12, "today": 4}
         first_query = trades_collection.count_documents.await_args_list[0].args[0]
         second_query = trades_collection.count_documents.await_args_list[1].args[0]
+        # total query: only historically completed (closed) trades
         assert first_query["status"] == "closed"
-        assert second_query["status"] == "closed"
+        # today query: includes open/active paper positions executed today, not just closed
+        assert second_query["status"] == {"$in": ["open", "active", "closed", "filled"]}
         assert first_query["bot_id"]["$in"] == ["bot-1", "bot-2"]
         assert second_query["bot_id"]["$in"] == ["bot-1", "bot-2"]
 

@@ -606,8 +606,13 @@ class TestScalperBehavior:
 
     def test_scalper_trade_target_pct_smaller_per_trade(self):
         from services.trading_brain_v2.target_policy import TRADE_TARGET_PCT
-        assert TRADE_TARGET_PCT["scalper"] < TRADE_TARGET_PCT["normal"], (
-            "Scalper per-trade target % must be smaller (compensated by volume)"
+        # TRADE_TARGET_PCT uses (bot_type, venue_class) tuple keys.
+        # Scalper per-trade target must be smaller than normal (compensated by volume).
+        assert TRADE_TARGET_PCT[("scalper", "zar")] < TRADE_TARGET_PCT[("normal", "zar")], (
+            "Scalper ZAR per-trade target % must be smaller than normal (compensated by volume)"
+        )
+        assert TRADE_TARGET_PCT[("scalper", "usdt")] < TRADE_TARGET_PCT[("normal", "usdt")], (
+            "Scalper USDT per-trade target % must be smaller than normal (compensated by volume)"
         )
 
 
