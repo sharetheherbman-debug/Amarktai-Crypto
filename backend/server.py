@@ -2450,6 +2450,19 @@ async def manual_capital_reallocation(user_id: str = Depends(get_current_user)):
         logger.error(f"Capital reallocation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/autonomous/repair-capital")
+async def repair_capital_artefacts(user_id: str = Depends(get_current_user)):
+    """Repair current_capital values incorrectly reduced below initial_capital by a
+    previous buggy allocator run.  Safe to call at any time — only zero-trade bots
+    with capital below their initial allocation are touched."""
+    try:
+        from engines.capital_allocator import capital_allocator
+        result = await capital_allocator.repair_capital_artefacts(user_id)
+        return result
+    except Exception as e:
+        logger.error(f"Capital artefact repair error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.post("/autonomous/reinvest-profits")
 async def manual_profit_reinvestment(user_id: str = Depends(get_current_user)):
     """
