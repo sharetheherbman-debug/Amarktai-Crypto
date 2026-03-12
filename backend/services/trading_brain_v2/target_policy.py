@@ -27,19 +27,23 @@ DAILY_TARGET_PCT = {
     ("scalper",      "zar"):  4.0,   # canonical Luno scalper/balanced
 }
 
-# ── Per-trade profit target as % of notional ──
-# Kept as flat dict for trade-sizing; venue multiplier applied in compute().
+# ── Per-trade profit target as % of notional by (bot_type, venue_class) ──
+# Uses the same venue-aware keying as DAILY_TARGET_PCT for consistency.
+# ZAR values are higher because Luno's round-trip cost floor (~1.5%) is
+# ~5× wider than USDT exchanges (~0.3%), so per-trade targets must clear
+# that floor by a meaningful margin.
 TRADE_TARGET_PCT = {
-    "normal":        0.8,    # canonical USDT normal/balanced trade_pct
-    "trend":         0.8,
-    "adaptive":      0.8,
-    "mean_reversion": 0.6,
-    "scalper":       0.7,    # canonical USDT scalper/balanced trade_pct
+    ("normal",        "usdt"): 0.8,    # canonical USDT normal/balanced trade_pct
+    ("normal",        "zar"):  1.5,    # canonical Luno normal/balanced trade_pct
+    ("trend",         "usdt"): 0.8,
+    ("trend",         "zar"):  1.5,
+    ("adaptive",      "usdt"): 0.8,
+    ("adaptive",      "zar"):  1.5,
+    ("mean_reversion","usdt"): 0.6,
+    ("mean_reversion","zar"):  1.2,
+    ("scalper",       "usdt"): 0.7,    # canonical USDT scalper/balanced trade_pct
+    ("scalper",       "zar"):  1.2,    # canonical Luno scalper/balanced trade_pct
 }
-
-# Venue multiplier for ZAR (Luno) per-trade targets — Luno's cost floor
-# is ~5× higher so trade targets must be proportionally wider.
-_TRADE_TARGET_ZAR_MULTIPLIER = 1.6
 
 # ── Maximum hold seconds by bot type (default, can be overridden) ──
 MAX_HOLD_SECONDS = {
@@ -109,10 +113,8 @@ class TargetPolicyV2:
         daily_pct = self._adjust_for_conditions(base_daily_pct, regime_label, liquidity_score, signal_confidence)
         daily_target_quote = safe_equity * (daily_pct / 100.0)
 
-        # ── Trade target ── (venue-aware multiplier)
-        base_trade_pct = TRADE_TARGET_PCT.get(bt, 0.8)
-        if vc == "zar":
-            base_trade_pct = base_trade_pct * _TRADE_TARGET_ZAR_MULTIPLIER
+        # ── Trade target ── (venue-aware, consistent with DAILY_TARGET_PCT structure)
+        base_trade_pct = TRADE_TARGET_PCT.get((bt, vc), TRADE_TARGET_PCT.get(("normal", vc), 0.8))
         trade_pct = self._adjust_for_conditions(base_trade_pct, regime_label, liquidity_score, signal_confidence)
 
         # Ensure trade target covers at least 2x all-in cost

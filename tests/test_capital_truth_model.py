@@ -3,10 +3,10 @@ Capital Truth Model Tests — Phase 1
 
 Validates the canonical capital semantics required by the problem statement:
 
-  1. Every bot starts with a R1000 ZAR economic base.
-  2. Luno bot: quote is ZAR, initial_capital = 1000.
-  3. Binance/USDT bot: quote is USDT, initial_capital = 1000 / fx_rate.
-  4. canonical_base_capital_zar is always stored at creation for new bots.
+  1. Test bots use R1000 ZAR as an example economic base (configurable minimum).
+  2. Luno bot: quote is ZAR, initial_capital = zar_base.
+  3. Binance/USDT bot: quote is USDT, initial_capital = zar_base / fx_rate.
+  4. canonical_base_capital_zar is stored at creation for new bots.
   5. total_equity_display never inflates because of currency conversion.
   6. target policy produces meaningful (non-tiny) daily targets for both exchanges.
 """
