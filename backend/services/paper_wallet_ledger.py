@@ -70,16 +70,23 @@ class PaperWalletLedger:
         user_id: str,
         bot_id: str,
         amount: float,
-        currency: str = "ZAR"
+        currency: str = "ZAR",
+        wallet_amount: float = None,
+        wallet_currency: str = None,
     ) -> Tuple[bool, str]:
         """
         Reserve paper funds for a new bot.
-        
+
         Args:
             user_id: User ID
             bot_id: Bot ID
-            amount: Amount to reserve
-        
+            amount: Amount to store in the per-bot ledger (in *currency*).
+            currency: Native quote currency of the bot (ZAR for Luno, USDT for Binance).
+            wallet_amount: If provided, deduct *this* amount from the user-level paper
+                wallet instead of *amount*. Used when the user's wallet is ZAR-denominated
+                but the bot ledger is tracked in USDT (Binance paper bots).
+            wallet_currency: Currency for the user-wallet deduction. Defaults to *currency*.
+
         Returns:
             (success, message)
         """
@@ -87,21 +94,23 @@ class PaperWalletLedger:
             await self.init_db()
             
             if amount <= 0:
-                return False, f"Invalid amount: R{amount}"
+                return False, f"Invalid amount: {amount}"
             
             currency = (currency or "ZAR").upper()
+            _wallet_currency = (wallet_currency or currency).upper()
+            _wallet_amount = wallet_amount if (wallet_amount is not None and wallet_amount > 0) else amount
 
             # Check if bot already has reserved funds
             existing = await self.collection.find_one({"bot_id": bot_id, "user_id": user_id})
             if existing:
                 return False, f"Bot {bot_id[:8]} already has reserved funds"
 
-            # Reserve from user-level paper wallet
-            reserved, reserve_msg = await paper_wallet_service.reserve_funds(user_id, amount, currency)
+            # Reserve from user-level paper wallet (may be in a different currency)
+            reserved, reserve_msg = await paper_wallet_service.reserve_funds(user_id, _wallet_amount, _wallet_currency)
             if not reserved:
                 return False, reserve_msg
             
-            # Create ledger entry
+            # Create per-bot ledger entry in the bot's native quote currency
             ledger_entry = {
                 "user_id": user_id,
                 "bot_id": bot_id,
@@ -119,12 +128,12 @@ class PaperWalletLedger:
             try:
                 await self.collection.insert_one(ledger_entry)
             except Exception as insert_error:
-                await paper_wallet_service.release_funds(user_id, amount, currency)
+                await paper_wallet_service.release_funds(user_id, _wallet_amount, _wallet_currency)
                 raise insert_error
-            logger.info(f"✅ Reserved R{amount:,.2f} paper funds for bot {bot_id[:8]}")
+            logger.info(f"✅ Reserved {amount:,.6f} {currency} paper funds for bot {bot_id[:8]}")
             await self.get_user_balance(user_id)
             
-            return True, f"Reserved R{amount:,.2f} paper funds"
+            return True, f"Reserved {amount:,.6f} {currency} paper funds"
         
         except Exception as e:
             logger.error(f"Error reserving paper funds: {e}")

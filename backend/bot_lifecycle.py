@@ -182,8 +182,35 @@ class BotLifecycleManager:
             if initial_capital > 0:
                 exchange = (bot.get("exchange") or "").lower()
                 pair = bot.get("pair", "")
-                currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
-                success, msg = await paper_wallet_ledger.reserve_funds(user_id, bot_id, initial_capital, currency)
+                is_zar_exchange = (exchange == "luno" or "/ZAR" in pair)
+                currency = "ZAR" if is_zar_exchange else "USDT"
+
+                if is_zar_exchange:
+                    # ZAR exchange: direct ZAR reservation from user wallet + ZAR ledger entry
+                    success, msg = await paper_wallet_ledger.reserve_funds(
+                        user_id, bot_id, initial_capital, "ZAR"
+                    )
+                else:
+                    # USDT exchange (Binance, KuCoin, etc.) in paper mode:
+                    # The user's paper wallet is ZAR-denominated.  Deduct the ZAR economic
+                    # base from the user wallet but create the per-bot ledger entry in USDT
+                    # so that trade sizing (which uses quote currency) remains correct.
+                    # fx_rate_at_creation is ZAR per 1 USDT (e.g. 19.0 → 1 USDT = R19).
+                    # Therefore: zar_base = usdt_amount × (ZAR/USDT rate).
+                    canonical_zar = float(bot.get("canonical_base_capital_zar") or 0)
+                    fx_rate = float(bot.get("fx_rate_at_creation") or 1.0)
+                    if canonical_zar <= 0 and fx_rate > 0:
+                        # Derive ZAR base from USDT amount: e.g. 52.63 USDT × 19 = R1000
+                        canonical_zar = initial_capital * fx_rate
+                    if canonical_zar <= 0:
+                        canonical_zar = initial_capital  # last-resort fallback
+
+                    success, msg = await paper_wallet_ledger.reserve_funds(
+                        user_id, bot_id, initial_capital, "USDT",
+                        wallet_amount=canonical_zar,
+                        wallet_currency="ZAR",
+                    )
+
                 if not success:
                     logger.warning(f"Failed to reserve paper funds for bot {bot_id}: {msg}")
                     return False, msg

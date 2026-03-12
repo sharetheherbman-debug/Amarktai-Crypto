@@ -197,17 +197,36 @@ class BotValidator:
             quote_capital, quote_currency, fx_rate_used = resolve_capital_for_exchange(capital, exchange)
             available = await paper_wallet_service.get_available_balance(user_id, quote_currency)
             if available < quote_capital:
-                return False, {
-                    "code": "PAPER_WALLET_INSUFFICIENT",
-                    "message": (
-                        f"Insufficient paper wallet funds ({quote_currency}). "
-                        f"Available: {available:.2f} {quote_currency}, "
-                        f"Required: {quote_capital:.2f} {quote_currency} "
-                        f"(= R{capital:.2f} ZAR at {fx_rate_used:.4f} {quote_currency}/ZAR)"
-                    ),
-                    "action": "Add fake funds to your paper wallet before spawning bots.",
-                    "severity": "error"
-                }
+                # For USDT exchanges: the user's paper wallet is typically funded in ZAR.
+                # If USDT balance is insufficient, check whether the ZAR balance covers
+                # the ZAR economic base of the requested capital.  Reservation will deduct
+                # ZAR from the user wallet while keeping the per-bot ledger in USDT.
+                if quote_currency != "ZAR":
+                    available_zar = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+                    if available_zar < capital:
+                        return False, {
+                            "code": "PAPER_WALLET_INSUFFICIENT",
+                            "message": (
+                                f"Insufficient paper wallet funds. "
+                                f"Available ZAR: {available_zar:.2f}, Required ZAR: {capital:.2f} "
+                                f"(≈ {quote_capital:.6f} {quote_currency} at {fx_rate_used:.4f} ZAR/{quote_currency})"
+                            ),
+                            "action": "Add fake funds to your paper wallet before spawning bots.",
+                            "severity": "error"
+                        }
+                    # ZAR balance is sufficient — reservation will convert at creation time.
+                else:
+                    return False, {
+                        "code": "PAPER_WALLET_INSUFFICIENT",
+                        "message": (
+                            f"Insufficient paper wallet funds ({quote_currency}). "
+                            f"Available: {available:.2f} {quote_currency}, "
+                            f"Required: {quote_capital:.2f} {quote_currency} "
+                            f"(= R{capital:.2f} ZAR at {fx_rate_used:.4f} {quote_currency}/ZAR)"
+                        ),
+                        "action": "Add fake funds to your paper wallet before spawning bots.",
+                        "severity": "error"
+                    }
         
         # 8. Validate risk mode
         valid_risk_modes = ['safe', 'balanced', 'risky', 'aggressive']
