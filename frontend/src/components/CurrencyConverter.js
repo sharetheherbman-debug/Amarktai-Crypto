@@ -3,7 +3,7 @@
  * =================================================================
  * Uses the backend /api/wallet/converter endpoint (which delegates to
  * fx_normalizer as single source of truth) to convert between:
- *   ZAR, USD, GBP, EUR, USDT, BTC, ETH
+ *   ZAR, USD, GBP, EUR, USDT, BUSD, USDC, BTC, ETH
  *
  * This component must NOT implement its own FX logic. All conversion
  * is delegated to the backend to guarantee consistency with bot-funding
@@ -13,7 +13,7 @@
 import React, { useState, useCallback } from 'react';
 import { post } from '../lib/apiClient';
 
-const SUPPORTED_CURRENCIES = ['ZAR', 'USD', 'GBP', 'EUR', 'USDT', 'BTC', 'ETH'];
+const SUPPORTED_CURRENCIES = ['ZAR', 'USD', 'GBP', 'EUR', 'USDT', 'BUSD', 'USDC', 'BTC', 'ETH'];
 
 const CURRENCY_LABELS = {
   ZAR: 'ZAR – South African Rand',
@@ -21,6 +21,8 @@ const CURRENCY_LABELS = {
   GBP: 'GBP – British Pound',
   EUR: 'EUR – Euro',
   USDT: 'USDT – Tether (USD)',
+  BUSD: 'BUSD – Binance USD',
+  USDC: 'USDC – USD Coin',
   BTC: 'BTC – Bitcoin',
   ETH: 'ETH – Ethereum',
 };
@@ -31,6 +33,8 @@ const CURRENCY_SYMBOLS = {
   GBP: '£',
   EUR: '€',
   USDT: '$',
+  BUSD: '$',
+  USDC: '$',
   BTC: '₿',
   ETH: 'Ξ',
 };

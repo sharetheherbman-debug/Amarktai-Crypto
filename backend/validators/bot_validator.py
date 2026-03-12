@@ -40,7 +40,7 @@ class BotValidator:
     def __init__(self):
         # Use canonical platform configuration
         self.supported_exchanges = SUPPORTED_PLATFORMS
-        self.min_capital = 100  # R100 minimum
+        self.min_capital = 1000  # R1000 minimum (or USDT-equivalent for non-ZAR exchanges)
         self.max_capital = 100000  # R100,000 maximum
         self.max_bots_total = TOTAL_BOT_CAPACITY
     

@@ -63,8 +63,8 @@ class TestBotValidatorImport:
             "supported_exchanges must be a list"
         assert len(bot_validator.supported_exchanges) > 0, \
             "supported_exchanges must not be empty"
-        assert bot_validator.min_capital == 100, \
-            "min_capital must be 100 (R100 minimum)"
+        assert bot_validator.min_capital == 1000, \
+            "min_capital must be 1000 (R1000 minimum)"
         assert bot_validator.max_capital == 100000, \
             "max_capital must be 100000 (R100,000 maximum)"
         assert bot_validator.max_bots_total > 0, \
@@ -101,7 +101,7 @@ class TestBotValidatorImport:
         bot_data = {
             'name': 'Test Bot',
             'exchange': 'not_a_real_exchange',
-            'capital': 500,
+            'capital': 1000,
             'trading_mode': 'paper',
             'risk_mode': 'safe',
         }
@@ -115,7 +115,7 @@ class TestBotValidatorImport:
 
     @pytest.mark.asyncio
     async def test_validate_bot_creation_returns_error_for_below_minimum_capital(self):
-        """validate_bot_creation must reject capital below R100 minimum."""
+        """validate_bot_creation must reject capital below R1000 minimum."""
         from validators.bot_validator import BotValidator
 
         validator = BotValidator()
@@ -123,7 +123,7 @@ class TestBotValidatorImport:
         bot_data = {
             'name': 'Test Bot',
             'exchange': 'luno',
-            'capital': 50,  # below R100 minimum
+            'capital': 500,  # below R1000 minimum
             'trading_mode': 'paper',
             'risk_mode': 'safe',
         }
@@ -131,6 +131,6 @@ class TestBotValidatorImport:
         is_valid, result = await validator.validate_bot_creation('user123', bot_data)
 
         assert is_valid is False, \
-            "validate_bot_creation must return False when capital < R100"
+            "validate_bot_creation must return False when capital < R1000"
         assert isinstance(result, dict), \
             "Error result must be a dict"

@@ -273,7 +273,7 @@ class TestConverterLogic:
 
     def test_supported_currencies_complete(self):
         from routes.wallet_hub import _SUPPORTED_CONVERTER_CURRENCIES
-        for cur in ["ZAR", "USD", "GBP", "EUR", "USDT", "BTC", "ETH"]:
+        for cur in ["ZAR", "USD", "GBP", "EUR", "USDT", "BUSD", "USDC", "BTC", "ETH"]:
             assert cur in _SUPPORTED_CONVERTER_CURRENCIES
 
 
@@ -387,7 +387,7 @@ class TestConverterEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["base_currency"] == "ZAR"
-        for cur in ["ZAR", "USDT", "USD", "GBP", "EUR", "BTC", "ETH"]:
+        for cur in ["ZAR", "USDT", "BUSD", "USDC", "USD", "GBP", "EUR", "BTC", "ETH"]:
             assert cur in data["rates"]
             assert data["rates"][cur]["rate_to_zar"] > 0
 
