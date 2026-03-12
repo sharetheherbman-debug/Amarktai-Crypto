@@ -313,11 +313,15 @@ class BotValidator:
             # Canonical capital truth fields.
             # canonical_base_capital_zar — the user's economic base in ZAR terms;
             #   always the original R-amount the user entered.
+            # funding_input_amount     — same as canonical_base_capital_zar (user input amount).
+            # funding_input_currency   — currency the user entered the amount in (always "ZAR").
             # initial_capital / current_capital — in quote currency (ZAR for Luno,
             #   USDT for Binance/KuCoin/etc.).  These are used for live trade sizing.
             # fx_rate_at_creation — USDT→ZAR rate used for the conversion.
             # quote_currency — native trading currency for this bot.
             "canonical_base_capital_zar": round(float(capital), 2),
+            "funding_input_amount": round(float(capital), 2),
+            "funding_input_currency": "ZAR",
             "initial_capital": quote_capital,
             "current_capital": quote_capital,
             "fx_rate_at_creation": fx_rate_used,
