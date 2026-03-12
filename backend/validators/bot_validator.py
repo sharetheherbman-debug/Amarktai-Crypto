@@ -34,8 +34,9 @@ def _safe_int_cap(value, fallback: int) -> int:
         return int(fallback)
 
 
+class BotValidator:
     """Validates bot creation parameters"""
-    
+
     def __init__(self):
         # Use canonical platform configuration
         self.supported_exchanges = SUPPORTED_PLATFORMS
