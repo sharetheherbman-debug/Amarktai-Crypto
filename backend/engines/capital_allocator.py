@@ -75,39 +75,57 @@ class CapitalAllocator:
             return 'average'
     
     async def calculate_optimal_allocation(self, user_id: str, bot: Dict) -> float:
-        """Calculate optimal capital allocation for a bot"""
+        """Calculate optimal capital allocation for a bot.
+
+        The returned value is an *upward* suggestion only: rebalance_all_bots will
+        never reduce a bot below its initial_capital, so new bots with no trading
+        history are never penalised by the allocator maths.
+        """
         try:
             # Get master wallet balance
             master_balance = await wallet_manager.get_master_balance(user_id)
-            
+
             if "error" in master_balance:
-                # Fallback to default allocation
-                return 1000.0
-            
+                # Fallback: keep the bot's current capital unchanged
+                return float(bot.get('current_capital') or bot.get('initial_capital') or 1000.0)
+
             total_capital = master_balance.get('total_zar', 0)
-            
-            # Base allocation per bot (80% of capital / 65 bots)
-            base_allocation = (total_capital * 0.8) / 65
-            
+
+            # Use the actual active bot count for this user instead of a hardcoded
+            # max-fleet size (65).  Dividing by 65 when only 1-2 bots exist produces
+            # an absurdly small base_allocation (≈12 ZAR), which always hits the old
+            # R500 minimum floor and triggers a false 50 % drawdown in self-healing.
+            try:
+                active_bot_count = await db.bots_collection.count_documents(
+                    {"user_id": user_id, "status": "active"}
+                )
+            except Exception:
+                active_bot_count = 1
+
+            active_bot_count = max(active_bot_count, 1)
+            base_allocation = (total_capital * 0.8) / active_bot_count
+
             # Apply risk mode multiplier
             risk_mode = bot.get('risk_mode', 'safe')
             risk_multiplier = self.risk_weights.get(risk_mode, 1.0)
-            
+
             # Apply performance multiplier
             performance_tier = await self.get_bot_performance_tier(bot)
             performance_multiplier = self.performance_tiers.get(performance_tier, 1.0)
-            
+
             # Calculate final allocation
             optimal_allocation = base_allocation * risk_multiplier * performance_multiplier
-            
-            # Apply limits (min R500, max R10,000)
-            optimal_allocation = max(500, min(optimal_allocation, 10000))
-            
+
+            # Cap at R10,000 per bot; no artificial minimum floor that could force a
+            # downward rebalance.  rebalance_all_bots() enforces the real floor
+            # (initial_capital) when it decides whether to apply the change.
+            optimal_allocation = min(optimal_allocation, 10000)
+
             return optimal_allocation
-            
+
         except Exception as e:
             logger.error(f"Optimal allocation calculation error: {e}")
-            return 1000.0
+            return float(bot.get('current_capital') or bot.get('initial_capital') or 1000.0)
     
     async def rebalance_all_bots(self, user_id: str) -> Dict:
         """Rebalance capital across all bots based on performance"""
@@ -125,22 +143,37 @@ class CapitalAllocator:
                 }
             
             rebalanced = []
-            
+
             for bot in bots:
                 # Calculate optimal allocation
                 optimal = await self.calculate_optimal_allocation(user_id, bot)
                 current = bot.get('current_capital', 1000)
-                
-                # Only rebalance if difference is significant (>20%)
-                diff_pct = abs(optimal - current) / current if current > 0 else 1
-                
+                initial = float(bot.get('initial_capital') or current or 1000)
+
+                # Never reduce below initial_capital.  Reducing a bot that has had
+                # no real losses would register as a false drawdown in self-healing
+                # (which compares current_capital vs initial_capital) and would
+                # incorrectly pause healthy bots.
+                if optimal < initial:
+                    optimal = initial
+
+                # Only rebalance if the change is a meaningful upward adjustment
+                # (>20 % improvement in allocation).  Skip downward adjustments
+                # entirely — actual trading losses are already reflected via
+                # trade records, not by the allocator forcibly writing a lower
+                # current_capital.
+                if optimal <= current:
+                    continue
+
+                diff_pct = (optimal - current) / current if current > 0 else 1
+
                 if diff_pct > 0.20:
                     # Update bot capital
                     await db.bots_collection.update_one(
                         {"id": bot['id']},
                         {"$set": {"current_capital": optimal}}
                     )
-                    
+
                     rebalanced.append({
                         "bot_id": bot['id'],
                         "bot_name": bot['name'],
@@ -149,7 +182,7 @@ class CapitalAllocator:
                         "change": optimal - current,
                         "change_pct": ((optimal - current) / current) * 100
                     })
-                    
+
                     logger.info(f"💰 Rebalanced {bot['name']}: R{current:.2f} → R{optimal:.2f}")
             
             # Log rebalancing action
@@ -168,12 +201,54 @@ class CapitalAllocator:
                 "total_bots": len(bots),
                 "changes": rebalanced
             }
-            
+
         except Exception as e:
             logger.error(f"Rebalance all bots error: {e}")
             return {"success": False, "error": str(e)}
-    
-    async def fund_new_bot(self, user_id: str, bot_id: str, exchange: str, risk_mode: str) -> Dict:
+
+    async def repair_capital_artefacts(self, user_id: str) -> Dict:
+        """Repair bots whose current_capital was incorrectly reduced below initial_capital
+        by a previous buggy allocator run.
+
+        Safe to call at startup or any time: only bots with NO trade history and
+        current_capital < initial_capital are repaired (i.e. reset to initial_capital).
+        Bots with real trading losses are left untouched.
+        """
+        try:
+            bots = await db.bots_collection.find(
+                {"user_id": user_id},
+                {"_id": 0}
+            ).to_list(1000)
+
+            repaired = []
+            for bot in bots:
+                initial = float(bot.get('initial_capital') or 1000)
+                current = float(bot.get('current_capital') or initial)
+                trades_count = int(bot.get('trades_count') or 0)
+
+                if current < initial and trades_count == 0:
+                    await db.bots_collection.update_one(
+                        {"id": bot['id']},
+                        {"$set": {"current_capital": initial}}
+                    )
+                    repaired.append({
+                        "bot_id": bot.get('id'),
+                        "bot_name": bot.get('name'),
+                        "restored_capital": initial,
+                        "was": current
+                    })
+                    logger.info(
+                        f"🔧 Repaired capital artefact for {bot.get('name')}: "
+                        f"R{current:.2f} → R{initial:.2f} (no trades, artefact)"
+                    )
+
+            return {"success": True, "repaired": repaired, "count": len(repaired)}
+
+        except Exception as e:
+            logger.error(f"Capital artefact repair error: {e}")
+            return {"success": False, "error": str(e)}
+
+
         """Fund a newly created bot from master wallet"""
         try:
             # Create temp bot object for calculation

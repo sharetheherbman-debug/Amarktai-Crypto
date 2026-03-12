@@ -77,6 +77,15 @@ def test_all_routers_can_import():
         "routes.notifications",
         "routes.realtime",
         "routes.auth",
+        # Routes added after initial test list — kept in sync with routers_to_mount in server.py
+        "routes.radar",
+        "routes.exchange_status",
+        "routes.admin_truth",
+        "routes.scalper",
+        "routes.coinstats",
+        "routes.huggingface",
+        "routes.metrics_api",
+        "routes.compat",
     ]
     
     failed_imports = []

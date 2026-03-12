@@ -133,18 +133,33 @@ class SelfHealingSystem:
             return False, "Error"
     
     async def detect_capital_anomaly(self, bot: dict) -> tuple[bool, str]:
-        """Detect if capital dropped below critical threshold"""
+        """Detect if capital dropped below critical threshold.
+
+        Only fires when the bot has at least one completed trade — a brand-new
+        bot (trades_count == 0) cannot have suffered a real trading loss, so any
+        current_capital < initial_capital on such a bot is a data artefact (e.g.
+        from a previous buggy allocator run) and must not trigger a pause.
+        """
         try:
             initial_capital = bot.get('initial_capital', 1000)
             current_capital = bot.get('current_capital', 1000)
-            
+
             loss_percent = 1 - (current_capital / initial_capital) if initial_capital > 0 else 0
-            
+
             if loss_percent > MAX_DRAWDOWN_PERCENT:
+                # Guard: a bot with zero trades cannot have a real drawdown.
+                trades_count = bot.get('trades_count', 0) or 0
+                if trades_count == 0:
+                    logger.debug(
+                        f"Suppressed false capital anomaly for {bot.get('name')} — "
+                        f"no trades yet, current_capital={current_capital} vs "
+                        f"initial_capital={initial_capital} (data artefact)"
+                    )
+                    return False, "OK"
                 return True, f"🚨 Capital anomaly: {loss_percent*100:.1f}% drawdown"
-            
+
             return False, "OK"
-        
+
         except Exception as e:
             logger.error(f"Detect capital anomaly error: {e}", exc_info=True)
             return False, "Error"

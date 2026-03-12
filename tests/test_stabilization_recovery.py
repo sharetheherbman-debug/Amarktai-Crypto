@@ -607,3 +607,162 @@ class TestFrontendStructure:
         )
         # The fix: uses _ic and _cap variables
         assert "_ic" in src or "initial_capital" in src
+
+
+# =============================================================================
+# Capital Allocator + Self-Healing False Positive Fix
+# =============================================================================
+
+class TestCapitalAllocatorFix:
+    """Verify the capital allocator never reduces a bot below initial_capital.
+
+    Root cause: the old implementation divided wallet capital by a hardcoded 65
+    (max-fleet size) regardless of how many bots the user actually has.  For a
+    user with 1 bot and R1000 paper wallet this produced:
+      (1000 * 0.8) / 65 = ≈R12 → clamped to min(R500) → 50 % drawdown
+    which then triggered self-healing to pause the healthy bot.
+    """
+
+    def test_capital_allocator_uses_actual_bot_count_logic(self):
+        """calculate_optimal_allocation must use DB bot count, not a hardcoded divisor."""
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "backend", "engines",
+            "capital_allocator.py"
+        )
+        with open(path) as f:
+            src = f.read()
+        # Real bot count lookup must be present
+        assert "count_documents" in src, (
+            "capital_allocator must query actual active bot count from DB "
+            "instead of using a hardcoded divisor"
+        )
+        # The active_bot_count variable (result of count_documents) must be used
+        # as the divisor, not a literal 65.
+        assert "active_bot_count" in src, (
+            "capital_allocator must divide by active_bot_count, not a literal constant"
+        )
+
+    def test_rebalance_never_reduces_capital_below_initial(self):
+        """rebalance_all_bots must guard against downward capital adjustments."""
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "backend", "engines",
+            "capital_allocator.py"
+        )
+        with open(path) as f:
+            src = f.read()
+        # Both guards must be present:
+        #  1. optimal < initial → clamp to initial (never reduce below starting capital)
+        #  2. optimal <= current → skip (only apply meaningful upward changes)
+        assert "optimal < initial" in src, (
+            "rebalance_all_bots must clamp optimal to initial_capital when optimal < initial"
+        )
+        assert "optimal <= current" in src, (
+            "rebalance_all_bots must skip rebalance when optimal would not increase capital"
+        )
+
+    def test_repair_capital_artefacts_method_exists(self):
+        """A repair method must exist to fix incorrectly-reduced current_capital."""
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "backend", "engines",
+            "capital_allocator.py"
+        )
+        with open(path) as f:
+            src = f.read()
+        assert "repair_capital_artefacts" in src, (
+            "capital_allocator must expose repair_capital_artefacts() to heal "
+            "bots that were incorrectly reduced by the old buggy allocator"
+        )
+
+    def test_repair_endpoint_in_server(self):
+        """POST /autonomous/repair-capital must be registered in server.py."""
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "backend", "server.py"
+        )
+        with open(path) as f:
+            src = f.read()
+        assert "autonomous/repair-capital" in src, (
+            "server.py must expose /autonomous/repair-capital endpoint so "
+            "operators can heal bots harmed by the old allocator bug"
+        )
+
+
+class TestSelfHealingFalsePositiveFix:
+    """Verify self-healing does not pause bots with zero trades.
+
+    A bot with no trade history cannot have a real capital loss from trading.
+    If current_capital < initial_capital on a zero-trade bot it must be a data
+    artefact, NOT a real drawdown.
+    """
+
+    def test_detect_capital_anomaly_guards_zero_trade_bots(self):
+        """detect_capital_anomaly must skip bots that have no trades."""
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "backend", "engines",
+            "self_healing.py"
+        )
+        with open(path) as f:
+            src = f.read()
+        # The guard must check trades_count before firing the anomaly
+        assert "trades_count" in src, (
+            "detect_capital_anomaly must check trades_count — a bot with no "
+            "trades cannot have a real drawdown"
+        )
+        assert "== 0" in src, (
+            "detect_capital_anomaly must have an explicit zero-trade guard"
+        )
+
+    def test_detect_capital_anomaly_logic(self):
+        """Unit-test the zero-trade guard logic directly."""
+        import asyncio
+
+        # Lazy import — skip if motor/pymongo not available
+        try:
+            import sys
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+            from unittest.mock import AsyncMock, patch, MagicMock
+
+            # Mock DB so SelfHealingSystem can be instantiated
+            mock_db = MagicMock()
+            with patch.dict("sys.modules", {"database": mock_db}):
+                # Re-import to pick up patched DB
+                import importlib
+                import config as cfg
+                # Import self_healing engine directly (not the shim)
+                import engines.self_healing as sh_module
+                importlib.reload(sh_module)
+                SelfHealingSystem = sh_module.SelfHealingSystem
+                MAX_DRAWDOWN_PERCENT = sh_module.MAX_DRAWDOWN_PERCENT
+
+            async def run():
+                healing = SelfHealingSystem()
+                # Bot with no trades but capital below initial — must NOT trigger
+                bot_no_trades = {
+                    "id": "bot1",
+                    "name": "PaperBot",
+                    "initial_capital": 1000,
+                    "current_capital": 500,   # would be 50% drawdown if real
+                    "trades_count": 0,
+                }
+                is_rogue, reason = await healing.detect_capital_anomaly(bot_no_trades)
+                assert not is_rogue, (
+                    f"detect_capital_anomaly must not fire for zero-trade bot "
+                    f"(trades_count=0) — got: {reason}"
+                )
+
+                # Bot with actual trades AND real drawdown — MUST trigger
+                bot_with_losses = {
+                    "id": "bot2",
+                    "name": "LoseyBot",
+                    "initial_capital": 1000,
+                    "current_capital": 100,   # 90% loss from real trading
+                    "trades_count": 20,
+                }
+                is_rogue2, reason2 = await healing.detect_capital_anomaly(bot_with_losses)
+                assert is_rogue2, (
+                    f"detect_capital_anomaly must fire for real 90% drawdown — got: {reason2}"
+                )
+
+            asyncio.run(run())
+
+        except (ImportError, ModuleNotFoundError) as e:
+            pytest.skip(f"DB/motor dependencies not available: {e}")
