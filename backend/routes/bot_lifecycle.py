@@ -520,6 +520,15 @@ async def get_bots_status(
                 "expectancy_net_edge_pct": _truth.get("expectancy_net_edge_pct") or normalized_bot.get("expectancy_net_edge_pct"),
                 "market_regime": _truth.get("market_regime") or normalized_bot.get("market_regime", normalized_bot.get("canonical_market_regime", "unknown")),
                 "regime_confidence": _truth.get("regime_confidence") or normalized_bot.get("canonical_regime_confidence", normalized_bot.get("regime_confidence", normalized_bot.get("confidence_score", 0))),
+                # ── Decision telemetry — explicit edge fields ──
+                # These come from the last trade evaluation via truth_normalizer.
+                # Useful for all bots; especially important for scalper detail views.
+                "expected_gross_edge_bps": round(_truth.get("expected_gross_edge_bps", 0.0) or 0.0, 4),
+                "all_in_cost_bps": round(_truth.get("all_in_cost_bps", 0.0) or 0.0, 4),
+                "expected_net_edge_bps": round(_truth.get("expected_net_edge_bps", 0.0) or 0.0, 4),
+                # ── Funding input truth (as entered by user at creation) ──
+                "funding_input_amount": bot.get("funding_input_amount"),
+                "funding_input_currency": str(bot.get("funding_input_currency") or "ZAR").upper(),
                 # symbol from truth (resolves trade.pair first, falls back to bot.pair)
                 "symbol": _truth.get("symbol") or bot.get("pair") or bot.get("symbol"),
                 "has_open_position": _truth.get("has_open_position", False),

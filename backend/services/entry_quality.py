@@ -8,7 +8,7 @@ from typing import Dict, List
 
 SCALPER_CONFIDENCE_THRESHOLD = 0.78
 NORMAL_CONFIDENCE_THRESHOLD = 0.68
-SCALPER_BASE_EDGE_PCT = 0.45
+SCALPER_BASE_EDGE_PCT = 0.60   # raised from 0.45 — scalpers require stronger projected edge
 NORMAL_BASE_EDGE_PCT = 0.2
 
 
@@ -138,13 +138,19 @@ def evaluate_pre_timeout_exit(
     regime_trend: str,
     regime_confidence: float,
 ) -> str | None:
-    """Strategic pre-timeout exit evaluator."""
+    """Strategic pre-timeout exit evaluator.
+
+    Scalper no-progress exit fires at 70% of hold window (raised from 55%)
+    to give trades a reasonable grace period before forcing an early exit.
+    Early-invalidation threshold is -0.40% (raised from -0.25%) to avoid
+    exiting slightly-red trades that are still inside normal price noise.
+    """
     if bot_class == "normal" and hold_ratio >= 0.25 and regime_trend == "bearish" and regime_confidence >= 0.6 and pnl_pct <= 0.15:
         return "regime_deterioration_exit"
-    if bot_class == "scalper" and hold_ratio >= 0.55 and pnl_pct <= min_progress_pct:
+    if bot_class == "scalper" and hold_ratio >= 0.70 and pnl_pct <= min_progress_pct:
         return "scalper_no_progress_exit"
     if bot_class == "normal" and hold_ratio >= 0.45 and pnl_pct <= min_progress_pct:
         return "normal_no_progress_exit"
-    if hold_ratio >= 0.35 and pnl_pct < -0.25:
+    if hold_ratio >= 0.35 and pnl_pct < -0.40:
         return "early_invalidation_exit"
     return None

@@ -66,7 +66,7 @@ class MeanReversionContract(_BotContract):
 class ScalperContract(_BotContract):
     bot_type = "scalper"
     order_mode_preference = "taker"  # momentum burst default
-    min_net_edge_bps = 8.0
+    min_net_edge_bps = 20.0           # raised from 8.0 — require real microstructure edge
     min_abs_profit_zar = 2.0
     min_abs_profit_usdt = 0.20
     max_hold_seconds = 300
@@ -76,7 +76,7 @@ class ScalperContract(_BotContract):
     loss_streak_cooldown_seconds = 600
     daily_trade_budget = 100
     coverage_throttle_seconds = 30
-    time_budget_exit_pct = 0.6
+    time_budget_exit_pct = 0.70       # raised from 0.6 — give trades more room before time-exit
     # Scalper-specific
     stagnation_exit_seconds = 120
     spread_max_bps = 50

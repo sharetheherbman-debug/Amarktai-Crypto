@@ -35,6 +35,18 @@ USDT_ZAR_FALLBACK: float = float(os.getenv("USDT_ZAR_RATE", "19.0"))
 _ZAR_QUOTE_CURRENCIES = {"ZAR"}
 _USDT_QUOTE_CURRENCIES = {"USDT", "BUSD", "USDC", "TUSD", "USD"}
 
+# ── Canonical exchange → quote currency map (single authoritative definition) ─
+# All 7 supported venues. Update here only — no duplicate mappings elsewhere.
+EXCHANGE_QUOTE_MAP: dict[str, str] = {
+    "luno": "ZAR",     # ZAR-native South African venue
+    "binance": "USDT",
+    "kucoin": "USDT",
+    "bybit": "USDT",
+    "kraken": "USDT",
+    "bitget": "USDT",
+    "gate": "USDT",
+}
+
 # ── Runtime rate cache (set by market intelligence or live price feeds) ───────
 _lock = threading.Lock()
 _cached_rate: Optional[float] = None
@@ -48,7 +60,7 @@ def get_quote_currency(exchange: str, symbol: Optional[str] = None) -> str:
 
     Priority:
     1) Symbol-based inference ('/ZAR' in symbol → ZAR)
-    2) Exchange-level default (luno → ZAR, others → USDT)
+    2) Authoritative EXCHANGE_QUOTE_MAP lookup
     3) USDT default fallback
     """
     if symbol:
@@ -59,7 +71,7 @@ def get_quote_currency(exchange: str, symbol: Optional[str] = None) -> str:
             if sym.endswith(f"/{usdt_like}"):
                 return usdt_like
     exch = str(exchange or "").lower()
-    return "ZAR" if exch == "luno" else "USDT"
+    return EXCHANGE_QUOTE_MAP.get(exch, "USDT")
 
 
 def get_fx_rate(from_currency: str, to_currency: str = "ZAR") -> Tuple[float, str]:

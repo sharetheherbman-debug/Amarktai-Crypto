@@ -353,10 +353,28 @@ export default function BotFleetSection({
     const zarProfitEquiv = !isZar && selectedBot.profit_display != null
       ? { label: '≈ P/L in ZAR', value: fmtZAR(selectedBot.profit_display), color: 'var(--muted)' }
       : null;
+
+    // FX / funding truth rows — show for all bots, especially non-ZAR
+    const fxRows = [
+      { label: 'Trading Currency', value: quoteCurrency },
+      { label: 'Display Currency', value: 'ZAR' },
+      ...(selectedBot.fx_rate_used ? [{ label: 'FX Rate Used', value: `1 ${quoteCurrency} = R${safeNum(selectedBot.fx_rate_used).toFixed(4)}`, color: 'var(--muted)' }] : []),
+      ...(selectedBot.funding_input_amount != null ? [{ label: 'Funding Input Amount', value: `${safeNum(selectedBot.funding_input_amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${selectedBot.funding_input_currency || 'ZAR'}`, color: 'var(--muted)' }] : []),
+      ...(selectedBot.canonical_base_capital_zar != null ? [{ label: 'Capital Base (ZAR)', value: fmtZAR(selectedBot.canonical_base_capital_zar), color: 'var(--muted)' }] : []),
+    ];
+
+    // Scalper-specific telemetry
     const scalperExtra = (selectedBot.bot_type || '').toLowerCase() === 'scalper'
       ? [
           { label: 'Bot Type', value: '⚡ Scalper' },
           { label: 'Profit Routing', value: selectedBot.profit_routing || 'RETURN_TO_MAIN' },
+          ...(selectedBot.decision_reason_code ? [{ label: 'Last Decision', value: selectedBot.decision_reason_code, color: selectedBot.decision_reason_code === 'ENTRY_APPROVED' ? 'var(--success)' : 'var(--muted)' }] : []),
+          ...(selectedBot.market_regime ? [{ label: 'Market Regime', value: selectedBot.market_regime }] : []),
+          ...(selectedBot.regime_confidence != null ? [{ label: 'Regime Confidence', value: fmtPct(safeNum(selectedBot.regime_confidence) * 100) }] : []),
+          ...(selectedBot.expected_gross_edge_bps != null ? [{ label: 'Gross Edge', value: `${safeNum(selectedBot.expected_gross_edge_bps).toFixed(1)} bps` }] : []),
+          ...(selectedBot.all_in_cost_bps != null ? [{ label: 'All-In Cost', value: `${safeNum(selectedBot.all_in_cost_bps).toFixed(1)} bps` }] : []),
+          ...(selectedBot.expected_net_edge_bps != null ? [{ label: 'Net Edge', value: `${safeNum(selectedBot.expected_net_edge_bps).toFixed(1)} bps`, color: safeNum(selectedBot.expected_net_edge_bps) >= 20 ? 'var(--success)' : 'var(--error)' }] : []),
+          ...(selectedBot.entry_confidence_score != null ? [{ label: 'Entry Confidence', value: fmtPct(safeNum(selectedBot.entry_confidence_score) * 100) }] : []),
         ]
       : [];
     return {
@@ -364,7 +382,7 @@ export default function BotFleetSection({
         { label: 'Bot ID', value: selectedBot.id || '—' },
         { label: 'Name', value: selectedBot.name || '—' },
         { label: 'Exchange', value: getPlatformDisplayName(selectedBot.exchange) },
-        { label: 'Currency', value: quoteCurrency },
+        ...fxRows,
         { label: 'Status', value: statusLabel(st), color: statusColor(st) },
         { label: 'Mode', value: modeLabel(selectedBot), color: modeColor(selectedBot) },
         { label: 'Created', value: formatDate && selectedBot.created_at ? formatDate(selectedBot.created_at) : '—' },

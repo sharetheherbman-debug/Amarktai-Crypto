@@ -418,7 +418,9 @@ class TestBotBehavioralContracts:
         normal = self.contracts.get_contract("normal")
         scalper = self.contracts.get_contract("scalper")
         assert normal.max_hold_seconds > scalper.max_hold_seconds
-        assert normal.min_net_edge_bps > scalper.min_net_edge_bps
+        # Scalpers now require HIGHER minimum net edge than normal bots because
+        # their tiny hold window must justify the round-trip cost more aggressively.
+        assert scalper.min_net_edge_bps >= normal.min_net_edge_bps
         assert normal.max_trades_per_day < scalper.max_trades_per_day
 
     def test_scalper_readiness_spread_too_wide(self):

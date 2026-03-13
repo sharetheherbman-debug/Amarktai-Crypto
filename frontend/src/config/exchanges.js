@@ -16,7 +16,9 @@ export const EXCHANGES = {
     icon: '🇿🇦',
     requiresSecret: true,
     requiresPassphrase: false,
-    supported: true
+    supported: true,
+    quoteCurrency: 'ZAR',   // ZAR-native venue
+    fundingCurrency: 'ZAR',
   },
   BINANCE: {
     id: 'binance',
@@ -27,7 +29,9 @@ export const EXCHANGES = {
     icon: '🟡',
     requiresSecret: true,
     requiresPassphrase: false,
-    supported: true
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
   },
   KUCOIN: {
     id: 'kucoin',
@@ -38,7 +42,9 @@ export const EXCHANGES = {
     icon: '🟢',
     requiresSecret: true,
     requiresPassphrase: true, // KuCoin requires passphrase
-    supported: true
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
   },
   BYBIT: {
     id: 'bybit',
@@ -49,7 +55,9 @@ export const EXCHANGES = {
     icon: '🟠',
     requiresSecret: true,
     requiresPassphrase: false,
-    supported: true
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
   },
   KRAKEN: {
     id: 'kraken',
@@ -60,7 +68,9 @@ export const EXCHANGES = {
     icon: '🟣',
     requiresSecret: true,
     requiresPassphrase: false,
-    supported: true
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
   },
   BITGET: {
     id: 'bitget',
@@ -71,7 +81,9 @@ export const EXCHANGES = {
     icon: '🔵',
     requiresSecret: true,
     requiresPassphrase: true, // Bitget requires passphrase
-    supported: true
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
   },
   GATE: {
     id: 'gate',
@@ -82,7 +94,9 @@ export const EXCHANGES = {
     icon: '⚪',
     requiresSecret: true,
     requiresPassphrase: false,
-    supported: true
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
   }
 };
 
@@ -116,6 +130,12 @@ export const getTotalBotCap = () => {
 export const isExchangeSupported = (exchangeId) => {
   const exchange = getExchangeById(exchangeId);
   return exchange ? exchange.supported : false;
+};
+
+// Get canonical quote currency for an exchange ID (matches backend EXCHANGE_QUOTE_MAP)
+export const getExchangeQuoteCurrency = (exchangeId) => {
+  const exchange = getExchangeById(exchangeId);
+  return exchange?.quoteCurrency || 'USDT';
 };
 
 // Exchange list for dropdowns

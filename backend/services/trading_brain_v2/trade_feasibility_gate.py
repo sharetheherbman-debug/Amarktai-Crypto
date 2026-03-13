@@ -20,7 +20,7 @@ MIN_NET_EDGE_BPS = {
     "trend": 15.0,
     "adaptive": 15.0,
     "mean_reversion": 12.0,
-    "scalper": 8.0,       # tighter but still meaningful
+    "scalper": 20.0,      # 0.20% net — scalpers need meaningful edge to beat tight hold windows
 }
 
 # ── Cost multiplier: edge must be >= k * all_in_cost ──
@@ -29,7 +29,7 @@ K_COST = {
     "trend": 1.5,
     "adaptive": 1.5,
     "mean_reversion": 1.3,
-    "scalper": 1.2,
+    "scalper": 1.5,       # tightened to 1.5× all-in cost (was 1.2×)
 }
 
 # ── Absolute profit minimums by (strategy, equity_bucket, venue_class) ──

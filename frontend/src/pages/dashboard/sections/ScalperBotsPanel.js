@@ -67,13 +67,13 @@ export default function ScalperBotsPanel({ axiosConfig }) {
           <span className="scalper-tile-value">{summary?.scalper_paused || 0}</span>
         </div>
         <div className="scalper-tile">
-          <span className="scalper-tile-label">PnL</span>
+          <span className="scalper-tile-label">Realized PnL (trading cur.)</span>
           <span className={`scalper-tile-value ${(summary?.scalper_realized_pnl || 0) >= 0 ? 'scalper-profit' : 'scalper-loss'}`}>
             {(summary?.scalper_realized_pnl || 0).toFixed(2)}
           </span>
         </div>
         <div className="scalper-tile">
-          <span className="scalper-tile-label">Capital</span>
+          <span className="scalper-tile-label">Capital (trading cur.)</span>
           <span className="scalper-tile-value">{(summary?.scalper_total_capital || 0).toFixed(2)}</span>
         </div>
       </div>
