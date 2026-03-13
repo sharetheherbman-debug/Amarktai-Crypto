@@ -34,6 +34,7 @@ from services.canonical import get_canonical_open_position_count, get_latest_bot
 from services.target_policy import derive_targets
 from services.truth_normalizer import normalize_bot_trade_truth
 from services.fx_normalizer import get_quote_currency, to_display_zar, get_fx_rate
+from services.reconciliation import compute_equity_zar
 
 logger = logging.getLogger(__name__)
 
@@ -542,7 +543,9 @@ async def radar_timeseries(
         buckets[key] = {"timestamp": key, "pnl": 0.0, "trade_count": 0, "equity": 0.0}
 
     cumulative_pnl = 0.0
-    base_equity = sum(_safe_float(b.get("current_capital", b.get("initial_capital")), 0.0) for b in bots)
+    # compute_equity_zar converts each bot's capital to ZAR using the stored
+    # canonical_base_capital_zar / fx_rate so USDT bots are not raw-summed with ZAR bots.
+    base_equity, _equity_breakdown = compute_equity_zar(bots)
 
     for trade in trades:
         ts = trade.get("timestamp", "")
