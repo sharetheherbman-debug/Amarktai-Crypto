@@ -1,6 +1,7 @@
 import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import { getAllExchanges } from '../../../config/exchanges';
+import CurrencyConverter from '../../../components/CurrencyConverter';
 
 export default function BotManagementSection({
   axiosConfig, // kept for forward-compat
@@ -211,6 +212,14 @@ export default function BotManagementSection({
             </p>
           </div>
         )}
+      </div>
+      {/* Currency converter — informational only; helps users enter funding amounts correctly */}
+      <div className="card" style={{ marginTop: '16px' }}>
+        <SectionHeader
+          title="💱 Currency Converter"
+          subtitle="Convert ZAR ↔ USDT and other currencies before funding a bot."
+        />
+        <CurrencyConverter />
       </div>
   );
 
