@@ -88,7 +88,9 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
     fees_total = _first_non_empty_value(record, ["fees_total", "fees", "fee_paid", "fee_amount"], 0)
     slippage_cost = _first_non_empty_value(record, ["slippage_cost", "slippage"], 0)
     net_pnl = _first_non_empty_value(record, ["net_pnl", "net_profit", "profit_loss", "realized_pnl"], 0)
-    net_pnl_quote = _first_non_empty_value(record, ["net_pnl_quote", "net_profit_zar", "net_pnl"], net_pnl)
+    # net_pnl_quote must be the raw quote-currency value — NOT an alias to net_profit_zar
+    # (which previously caused USDT P&L to be displayed as if it were ZAR).
+    net_pnl_quote = _first_non_empty_value(record, ["net_pnl_quote", "net_pnl"], net_pnl)
 
     record.update({
         "gross_pnl": gross_pnl,
@@ -98,6 +100,10 @@ def build_trade_record(trade: Dict, user_id: Optional[str] = None, bot: Optional
         "net_pnl_quote": net_pnl_quote,
         "profit_loss": record.get("profit_loss", net_pnl),
     })
+
+    # Enrich with canonical display-currency P&L fields through the reconciliation layer
+    from services.reconciliation import enrich_trade_pnl_fields
+    enrich_trade_pnl_fields(record)
 
     normalize_trade_timestamps(record)
     return record
