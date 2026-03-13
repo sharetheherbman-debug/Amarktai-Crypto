@@ -6,13 +6,15 @@ Validates:
  2. Paper-mode edge floor prevents EDGE_TOO_SMALL dead-lock.
  3. Notional cap allows small accounts to meet abs-profit floor.
  4. Symbol is resolved (never 'unknown') for Luno and Binance bots.
- 5. Luno paper bot: candidate → simulated trade persisted.
- 6. Binance paper bot: candidate → simulated trade persisted.
- 7. Binance scalper: candidate → simulated trade persisted or explicit skip.
+ 5. Luno paper bot: candidate -> simulated trade persisted.
+ 6. Binance paper bot: candidate -> simulated trade persisted.
+ 7. Binance scalper: candidate -> simulated trade persisted or explicit skip.
  8. Trades endpoint reflects successful entries (recent_trades visibility).
  9. Radar reflects open position after entry.
 10. Binance/USDT bot data does not carry ZAR-only representation.
 11. Scalper detail panels return complete expected sections.
+12. Trades route enrichment includes correct quote_currency per exchange.
+13. formatEntryAmount (JS contract mirror) uses native currency for non-ZAR bots.
 """
 
 import asyncio
@@ -705,3 +707,144 @@ def test_scalper_detail_sections_contain_all_tabs():
     # No missing fields — all expected keys are present in the contract
     for key in ("initial_capital", "total_equity", "realized_profit"):
         assert key in cap, f"capital_summary must contain '{key}'"
+
+
+# ── Trades route: quote_currency propagation ─────────────────────────────────
+
+def test_trades_route_binance_trade_has_usdt_quote_currency():
+    """
+    The trades route enrichment must set quote_currency='USDT' for Binance trades
+    and NOT default to ZAR for the _display fields.
+    """
+    from services.fx_normalizer import get_quote_currency
+
+    # Simulate the logic in routes/trades.py
+    trade = {
+        "exchange": "binance",
+        "symbol": "BTC/USDT",
+        "net_pnl": 5.0,
+        "gross_pnl": 5.5,
+        "fees": 0.05,
+    }
+    _trade_exchange = trade.get("exchange", "unknown")
+    _trade_symbol = trade.get("symbol") or trade.get("pair", "")
+    _trade_quote_currency = (
+        trade.get("quote_currency")
+        or trade.get("fee_currency")
+        or get_quote_currency(_trade_exchange, _trade_symbol)
+    )
+    assert _trade_quote_currency == "USDT", (
+        f"Binance trade must have quote_currency='USDT', got '{_trade_quote_currency}'"
+    )
+    # Display fields must NOT use "R" ZAR symbol
+    _cur_sym = "R" if _trade_quote_currency.upper() == "ZAR" else _trade_quote_currency.upper() + " "
+    net_pnl_display = f"{_cur_sym}{trade['net_pnl']:.2f}"
+    assert not net_pnl_display.startswith("R"), (
+        f"Binance trade net_pnl_display must not start with 'R'. Got: '{net_pnl_display}'"
+    )
+    assert "USDT" in net_pnl_display, (
+        f"Binance trade net_pnl_display must contain 'USDT'. Got: '{net_pnl_display}'"
+    )
+
+
+def test_trades_route_luno_trade_has_zar_quote_currency():
+    """The trades route enrichment must set quote_currency='ZAR' for Luno trades."""
+    from services.fx_normalizer import get_quote_currency
+
+    trade = {
+        "exchange": "luno",
+        "symbol": "BTC/ZAR",
+        "net_pnl": 50.0,
+    }
+    _trade_exchange = trade.get("exchange", "unknown")
+    _trade_symbol = trade.get("symbol") or trade.get("pair", "")
+    _trade_quote_currency = (
+        trade.get("quote_currency")
+        or trade.get("fee_currency")
+        or get_quote_currency(_trade_exchange, _trade_symbol)
+    )
+    assert _trade_quote_currency == "ZAR", (
+        f"Luno trade must have quote_currency='ZAR', got '{_trade_quote_currency}'"
+    )
+    _cur_sym = "R" if _trade_quote_currency.upper() == "ZAR" else _trade_quote_currency.upper() + " "
+    net_pnl_display = f"{_cur_sym}{trade['net_pnl']:.2f}"
+    assert net_pnl_display.startswith("R"), (
+        f"Luno trade net_pnl_display must start with 'R'. Got: '{net_pnl_display}'"
+    )
+
+
+def test_trades_route_all_usdt_exchanges_get_usdt_currency():
+    """KuCoin, Bybit, Kraken, Bitget, Gate trades must all get USDT quote currency."""
+    from services.fx_normalizer import get_quote_currency
+
+    usdt_exchanges = ["binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+    for exchange in usdt_exchanges:
+        qc = get_quote_currency(exchange, "BTC/USDT")
+        assert qc == "USDT", (
+            f"Exchange '{exchange}' must resolve to USDT, got '{qc}'"
+        )
+
+
+# ── moneyFormat.js formatEntryAmount contract (Python mirror) ─────────────────
+
+def test_format_entry_amount_non_zar_bot_uses_native_currency():
+    """
+    Mirror the JS formatEntryAmount logic in Python to verify the contract.
+    For non-ZAR bots, the raw value + quote_currency should be preferred
+    over _display + display_currency.
+    """
+    NOT_AVAILABLE = '—'
+
+    def format_amount(v, currency):
+        if v is None:
+            return NOT_AVAILABLE
+        symbols = {"ZAR": "R", "USDT": "$", "USD": "$", "USDC": "$"}
+        sym = symbols.get(currency.upper())
+        if sym:
+            return f"{sym}{float(v):.2f}"
+        return f"{float(v):.2f} {currency.upper()}"
+
+    def format_entry_amount(entry, field):
+        if not entry or not field:
+            return NOT_AVAILABLE
+        quote_currency = str(entry.get("quote_currency") or "").upper()
+        display_currency = str(entry.get("display_currency") or "ZAR").upper()
+        # Non-ZAR: prefer raw + quote_currency
+        if quote_currency and quote_currency != "ZAR":
+            raw_value = entry.get(field)
+            if raw_value is not None:
+                return format_amount(raw_value, quote_currency)
+        # ZAR: prefer _display + display_currency
+        display_field = f"{field}_display"
+        if entry.get(display_field) is not None:
+            return format_amount(entry[display_field], display_currency)
+        raw_value = entry.get(field)
+        raw_currency = quote_currency or display_currency
+        return format_amount(raw_value, raw_currency)
+
+    # Binance bot entry: capital_allocated=52.63 USDT, _display=1000.0 ZAR
+    binance_entry = {
+        "quote_currency": "USDT",
+        "display_currency": "ZAR",
+        "capital_allocated": 52.63,
+        "capital_allocated_display": 1000.0,
+    }
+    result = format_entry_amount(binance_entry, "capital_allocated")
+    assert result == "$52.63", (
+        f"Binance entry must format capital as '$52.63', got '{result}'"
+    )
+    assert not result.startswith("R"), (
+        f"Binance entry must NOT format capital as ZAR, got '{result}'"
+    )
+
+    # Luno bot entry: capital_allocated=1000.0 ZAR, _display=1000.0 ZAR
+    luno_entry = {
+        "quote_currency": "ZAR",
+        "display_currency": "ZAR",
+        "capital_allocated": 1000.0,
+        "capital_allocated_display": 1000.0,
+    }
+    result_luno = format_entry_amount(luno_entry, "capital_allocated")
+    assert result_luno.startswith("R"), (
+        f"Luno entry must format capital as ZAR (R prefix), got '{result_luno}'"
+    )

@@ -77,11 +77,16 @@ export function formatZAR(value, digits = 2, fallback = NOT_AVAILABLE) {
 /**
  * Render a canonical display-currency money object from a backend payload.
  *
- * Prefers backend-provided display fields:
- *   entry.daily_profit_target_display  (ZAR-normalized value)
- *   entry.display_currency             ("ZAR")
+ * For non-ZAR bots (e.g. Binance/USDT), the native quote currency is
+ * preferred as the primary display unit.  The ZAR *_display fields are
+ * intentionally skipped so we never render "$52.63" as "R 52.63".
  *
- * Falls back to raw value + quote_currency if display fields are absent.
+ * Priority order:
+ *  1. Raw value + quote_currency when quote_currency is non-ZAR
+ *     (e.g. Binance: 52.63 USDT → "$52.63")
+ *  2. Backend *_display field + display_currency when quote is ZAR or absent
+ *     (e.g. Luno: daily_profit_target_display in ZAR → "R 25.00")
+ *  3. Raw value + quote_currency as final fallback
  *
  * @param {object} entry      - Radar/bot entry from API
  * @param {string} field      - Base field name (e.g. "daily_profit_target")
@@ -93,16 +98,27 @@ export function formatZAR(value, digits = 2, fallback = NOT_AVAILABLE) {
 export function formatEntryAmount(entry, field, opts = {}) {
   if (!entry || !field) return opts.fallback || NOT_AVAILABLE;
 
-  // Prefer backend-normalized display value
+  const quoteCurrency = String(entry.quote_currency || '').toUpperCase();
+  const displayCurrency = String(entry.display_currency || 'ZAR').toUpperCase();
+
+  // For non-ZAR bots (e.g. Binance/USDT): prefer native quote amount.
+  // This prevents "$52.63 USDT" from being displayed as "R 1000.00 ZAR".
+  if (quoteCurrency && quoteCurrency !== 'ZAR') {
+    const rawValue = entry[field];
+    if (rawValue != null) {
+      return formatAmount(rawValue, quoteCurrency, opts);
+    }
+  }
+
+  // ZAR bots (Luno) or missing quote_currency: prefer backend *_display field.
   const displayField = `${field}_display`;
-  const displayCurrency = entry.display_currency || 'ZAR';
   if (entry[displayField] != null) {
     return formatAmount(entry[displayField], displayCurrency, opts);
   }
 
-  // Fall back to raw value + quote_currency
+  // Final fallback: raw value + whatever currency is available.
   const rawValue = entry[field];
-  const rawCurrency = entry.quote_currency || displayCurrency;
+  const rawCurrency = quoteCurrency || displayCurrency;
   return formatAmount(rawValue, rawCurrency, opts);
 }
 

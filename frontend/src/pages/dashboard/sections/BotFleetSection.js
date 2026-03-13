@@ -31,8 +31,8 @@ function fmtAmount(v, currency = 'ZAR', digits = 2, fallback = '—') {
     maximumFractionDigits: digits,
   });
   if (sym) return `${n < 0 ? '-' : ''}${sym}${formatted}`;
-  // Unknown currency (e.g. BTC): show code after value
-  return `${n < 0 ? '-' : ''}${formatted} ${cur}`;
+  // Unknown currency (e.g. BTC): show code after value with non-breaking space
+  return `${n < 0 ? '-' : ''}${formatted}\u00A0${cur}`;
 }
 
 /** Shorthand for ZAR amounts (legacy callers that know currency is ZAR). */

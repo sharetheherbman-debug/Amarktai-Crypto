@@ -2071,6 +2071,11 @@ class PaperTradingEngine:
             )
             _abs_min = ABS_PROFIT_MIN_QUOTE.get(_lookup, 2.0)
             _min_notional = _abs_min / _net_edge_frac
+            # Cap at 100% of paper_capital (NOT 10% as in live mode).
+            # Paper bots have no real capital at risk: there is no financial harm
+            # in using the full paper balance as notional.  The 10% live-mode guard
+            # would permanently block small paper accounts from meeting the
+            # abs_profit_min floor.
             notional = max(notional, min(_min_notional, paper_capital))
         except Exception:
             pass
