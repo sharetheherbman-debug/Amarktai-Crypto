@@ -2668,13 +2668,11 @@ class PaperTradingEngine:
             # Record scalper exit for re-entry discipline.
             # Only applies to scalper bots; the bot_contracts module stores state
             # for weak exits so subsequent re-entries can be blocked or gated.
+            # Regime/entry confidence at exit time is not re-fetched (avoids extra
+            # market call); the re-entry discipline check uses current values instead.
             if bot_class == "scalper" and NEW_TRADING_BRAIN_V2:
                 try:
                     v2 = _get_brain_v2()
-                    _exit_regime_conf = float(
-                        (await self.get_market_snapshot(symbol, exchange) or {}).get("regime_confidence", 0)
-                        if False else 0  # avoid extra market call; use entry_confidence proxy
-                    )
                     v2["bot_contracts"].record_scalper_exit(
                         bot_id=bot_id,
                         exit_reason=close_reason or "",

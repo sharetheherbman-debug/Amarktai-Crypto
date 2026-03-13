@@ -390,6 +390,11 @@ class TestScalperReentryDiscipline:
             regime_confidence=0.50,
             entry_confidence=0.55,
         )
+        # Verify exit state was stored correctly
+        stored = c._scalper_exit_state.get("bot1", {})
+        assert stored["regime_confidence"] == 0.50
+        assert stored["entry_confidence"] == 0.55
+
         result = c.check_scalper_reentry_discipline(
             "bot1",
             current_regime_confidence=0.52,  # barely changed
@@ -438,7 +443,7 @@ class TestScalperReentryDiscipline:
         result = c.check_scalper_reentry_discipline(
             "bot1",
             current_regime_confidence=improved_rc,
-            current_entry_confidence=0.51,
+            current_entry_confidence=0.51,  # minimal entry confidence change
         )
         assert result["allowed"] is True
         assert result["reason_code"] == "SCALPER_REENTRY_EARLY_IMPROVEMENT"
@@ -456,7 +461,7 @@ class TestScalperReentryDiscipline:
         improved_ec = 0.55 + _ENTRY_CONF_IMPROVEMENT_MIN + 0.01
         result = c.check_scalper_reentry_discipline(
             "bot1",
-            current_regime_confidence=0.51,
+            current_regime_confidence=0.51,  # minimal regime change
             current_entry_confidence=improved_ec,
         )
         assert result["allowed"] is True

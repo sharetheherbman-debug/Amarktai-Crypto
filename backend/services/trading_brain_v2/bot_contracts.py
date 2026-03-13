@@ -34,7 +34,7 @@ SCALPER_WEAK_EXIT_REASONS = frozenset({
 })
 
 # Cooldown period after a weak exit (seconds).  Configurable via env.
-SCALPER_REENTRY_COOLDOWN_SECONDS = int(os.getenv("SCALPER_REENTRY_COOLDOWN_SECONDS", "300"))  # 5 min
+SCALPER_REENTRY_COOLDOWN_SECONDS = int(os.getenv("SCALPER_REENTRY_COOLDOWN_SECONDS", "300"))  # 5 min default
 
 # Minimum improvement required for early re-entry (bypass cooldown).
 _REGIME_CONF_IMPROVEMENT_MIN = 0.15   # regime confidence must improve by at least this

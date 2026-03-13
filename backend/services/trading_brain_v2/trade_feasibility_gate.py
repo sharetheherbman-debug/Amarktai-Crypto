@@ -5,6 +5,7 @@ Every candidate trade must pass ALL checks before any order is sent.
 Every rejection produces a structured reason code + diagnostics payload.
 """
 import logging
+import os
 from .reason_codes import ReasonCodes, make_decision_payload
 
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ MAX_COST_TO_EDGE_RATIO = 0.55
 
 # Minimum entry confidence score for any trade to be approved.
 # Below this floor the signal agreement is too weak to justify entry.
-MIN_ENTRY_CONFIDENCE = float(__import__("os").getenv("MIN_ENTRY_CONFIDENCE", "0.40"))
+MIN_ENTRY_CONFIDENCE = float(os.getenv("MIN_ENTRY_CONFIDENCE", "0.40"))
 
 # ── Per-strategy minimum net edge (BPS after all costs) ──
 MIN_NET_EDGE_BPS = {
