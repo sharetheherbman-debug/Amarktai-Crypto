@@ -46,6 +46,7 @@ class ReasonCodes:
     SCALPER_LOSS_STREAK_COOLDOWN = "SCALPER_LOSS_STREAK_COOLDOWN"
     SCALPER_DAILY_BUDGET_EXHAUSTED = "SCALPER_DAILY_BUDGET_EXHAUSTED"
     SCALPER_COVERAGE_THROTTLE = "SCALPER_COVERAGE_THROTTLE"
+    SCALPER_REENTRY_COOLDOWN = "SCALPER_REENTRY_COOLDOWN"
 
     # ── System / infra ──
     INSUFFICIENT_BALANCE = "INSUFFICIENT_BALANCE"
@@ -56,6 +57,15 @@ class ReasonCodes:
     # ── Capital ──
     CAPITAL_TOO_SMALL = "CAPITAL_TOO_SMALL"
     POSITION_SIZE_BELOW_MIN = "POSITION_SIZE_BELOW_MIN"
+
+    # ── Paper-mode exit discipline ──
+    PAPER_HOLD_CAP_EXCEEDED = "PAPER_HOLD_CAP_EXCEEDED"
+    STAGNATION_EXIT = "STAGNATION_EXIT"
+    REGIME_DECAY_EXIT = "REGIME_DECAY_EXIT"
+    PROFIT_PROTECTION_EXIT = "PROFIT_PROTECTION_EXIT"
+
+    # ── Entry quality ──
+    LOW_CONFIDENCE_ENTRY = "LOW_CONFIDENCE_ENTRY"
 
 
 # Human-readable descriptions for UI/diagnostics
@@ -82,12 +92,18 @@ REASON_CATALOG = {
     ReasonCodes.SCALPER_LOSS_STREAK_COOLDOWN: "Scalper loss-streak cooldown active.",
     ReasonCodes.SCALPER_DAILY_BUDGET_EXHAUSTED: "Scalper daily trade budget exhausted.",
     ReasonCodes.SCALPER_COVERAGE_THROTTLE: "Scalper coverage throttle – too many recent entries.",
+    ReasonCodes.SCALPER_REENTRY_COOLDOWN: "Scalper re-entry blocked – insufficient improvement since last weak exit.",
     ReasonCodes.INSUFFICIENT_BALANCE: "Insufficient wallet balance for trade.",
     ReasonCodes.VENUE_UNAVAILABLE: "Venue API unavailable or degraded.",
     ReasonCodes.MARKET_DATA_STALE: "Market data is stale or unavailable.",
     ReasonCodes.ADAPTIVE_STAND_DOWN: "Adaptive discipline triggered stand-down.",
     ReasonCodes.CAPITAL_TOO_SMALL: "Bot capital too small for meaningful trading.",
     ReasonCodes.POSITION_SIZE_BELOW_MIN: "Calculated position size below exchange minimum.",
+    ReasonCodes.PAPER_HOLD_CAP_EXCEEDED: "Paper validation hold cap exceeded – normal bot exited for fast validation.",
+    ReasonCodes.STAGNATION_EXIT: "Price stagnated near entry – no meaningful progress within time window.",
+    ReasonCodes.REGIME_DECAY_EXIT: "Regime confidence or direction deteriorated after entry – exiting.",
+    ReasonCodes.PROFIT_PROTECTION_EXIT: "Small gain appeared then stalled – exiting to protect profit.",
+    ReasonCodes.LOW_CONFIDENCE_ENTRY: "Entry confidence below minimum threshold.",
 }
 
 

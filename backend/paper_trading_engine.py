@@ -1955,6 +1955,23 @@ class PaperTradingEngine:
         # 5) Scalper-specific readiness check
         if bot_type == "scalper":
             spread_bps = spread_pct * 100  # spread_pct is already %, convert to bps
+
+            # 5a. Re-entry discipline: block if bot exited weakly and conditions haven't improved
+            # Compute provisional entry confidence from regime for the discipline check.
+            _prov_rc = float(regime_result.get("regime_confidence", 0.0) or 0.0)
+            _prov_ec = float(prediction.get("confidence", 0) or 0) * 0.30 + _prov_rc * 0.35
+            reentry_check = v2["bot_contracts"].check_scalper_reentry_discipline(
+                bot_id=bot_id,
+                current_regime_confidence=_prov_rc,
+                current_entry_confidence=_prov_ec,
+            )
+            if not reentry_check["allowed"]:
+                return self._v2_reject(
+                    bot_id,
+                    reentry_check["reason_code"],
+                    reentry_check["reason_text"],
+                )
+
             scalper_ready = v2["bot_contracts"].check_scalper_readiness(
                 bot_id=bot_id,
                 spread_bps=spread_bps,
@@ -2387,7 +2404,7 @@ class PaperTradingEngine:
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
             # Canonical hold policy (shared with radar/API)
-            hold_policy = resolve_hold_policy(bot_data, open_trade=open_trade)
+            hold_policy = resolve_hold_policy(bot_data, open_trade=open_trade, is_paper_mode=True)
             risk_mode = hold_policy["risk_mode"]
             max_hold_seconds = int(hold_policy["max_hold_seconds"])
 
@@ -2647,6 +2664,24 @@ class PaperTradingEngine:
                 reason_text=f"Exit triggered: {close_reason}",
                 details=trade_result["exit_decision_trace"],
             )
+
+            # Record scalper exit for re-entry discipline.
+            # Only applies to scalper bots; the bot_contracts module stores state
+            # for weak exits so subsequent re-entries can be blocked or gated.
+            # Regime/entry confidence at exit time is not re-fetched (avoids extra
+            # market call); the re-entry discipline check uses current values instead.
+            if bot_class == "scalper" and NEW_TRADING_BRAIN_V2:
+                try:
+                    v2 = _get_brain_v2()
+                    v2["bot_contracts"].record_scalper_exit(
+                        bot_id=bot_id,
+                        exit_reason=close_reason or "",
+                        regime_confidence=0.0,
+                        entry_confidence=0.0,
+                        pnl_pct=pnl_pct,
+                    )
+                except Exception as _rec_err:
+                    logger.debug(f"Scalper exit record skipped: {_rec_err}")
 
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "

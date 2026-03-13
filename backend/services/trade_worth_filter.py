@@ -34,24 +34,23 @@ MIN_NET_EDGE_BPS: Dict[str, float] = {
 # ── Minimum absolute reward (quote currency) ──────────────────────────────
 # Bucket: small / medium / large equity in ZAR and USDT.
 #
-# Calibrated for realistic minimum Luno trade economics:
-#   - Small ZAR account (< 5000 ZAR): 3% notional proxy ≈ 150 ZAR max
-#   - At 50 bps net edge on 150 ZAR: 0.75 ZAR profit
-#   - Floor set to be achievable with ~100-300 ZAR notional at good edge.
+# Calibrated for meaningful Luno trade economics.  Previous floors
+# (R1.50 small ZAR) were trivially small.  New floors require a
+# materially useful gain so only genuinely worthwhile trades pass.
 #
 # USDT accounts retain their existing floors (Binance fees are lower and
 # USDT liquidity is higher, so these are still meaningful).
 _ABS_MIN_QUOTE: Dict[tuple, float] = {
     # (bot_type, equity_bucket, venue_class) -> min profit in quote
-    ("normal",  "small",  "zar"):  1.50,
-    ("normal",  "medium", "zar"):  6.00,
-    ("normal",  "large",  "zar"): 20.00,
+    ("normal",  "small",  "zar"):  3.00,
+    ("normal",  "medium", "zar"): 12.00,
+    ("normal",  "large",  "zar"): 40.00,
     ("normal",  "small",  "usdt"): 0.80,
     ("normal",  "medium", "usdt"): 2.00,
     ("normal",  "large",  "usdt"): 6.00,
-    ("scalper", "small",  "zar"):  0.50,
-    ("scalper", "medium", "zar"):  2.00,
-    ("scalper", "large",  "zar"):  8.00,
+    ("scalper", "small",  "zar"):  1.50,
+    ("scalper", "medium", "zar"):  5.00,
+    ("scalper", "large",  "zar"): 15.00,
     ("scalper", "small",  "usdt"): 0.20,
     ("scalper", "medium", "usdt"): 0.50,
     ("scalper", "large",  "usdt"): 1.50,

@@ -5,6 +5,7 @@ Every candidate trade must pass ALL checks before any order is sent.
 Every rejection produces a structured reason code + diagnostics payload.
 """
 import logging
+import os
 from .reason_codes import ReasonCodes, make_decision_payload
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,11 @@ logger = logging.getLogger(__name__)
 # Maximum acceptable cost as percentage of gross edge.
 # If all-in cost exceeds this ratio of the gross edge, the trade is
 # uneconomical because too much of the expected move is consumed by costs.
-MAX_COST_TO_EDGE_RATIO = 0.65
+MAX_COST_TO_EDGE_RATIO = 0.55
+
+# Minimum entry confidence score for any trade to be approved.
+# Below this floor the signal agreement is too weak to justify entry.
+MIN_ENTRY_CONFIDENCE = float(os.getenv("MIN_ENTRY_CONFIDENCE", "0.40"))
 
 # ── Per-strategy minimum net edge (BPS after all costs) ──
 MIN_NET_EDGE_BPS = {
@@ -35,29 +40,28 @@ K_COST = {
 # ── Absolute profit minimums by (strategy, equity_bucket, venue_class) ──
 # venue_class: "zar" for Luno, "usdt" for others
 #
-# Calibrated for realistic Luno small-account economics:
-#   - Small ZAR (< 5000 ZAR): 10% notional cap ≈ 100-500 ZAR trade
-#   - At 50-100 bps net edge on 200 ZAR: 0.10-0.20 ZAR after costs
-#   - Previous floors of R5-R8 were unreachable → permanently blocked small bots
-#   - New floors are achievable with 100-500 ZAR notional at realistic edge.
+# Calibrated for meaningful Luno economics.  Previous floors (R1.50 for small
+# ZAR) were too trivial to distinguish a real trade from noise.  New floors
+# require a materially useful minimum gain so only genuinely worthwhile paper
+# trades are approved.
 ABS_PROFIT_MIN_QUOTE = {
-    ("normal", "small", "zar"): 1.50,     # R1.50 minimum — achievable at 300 ZAR notional × 50 bps
+    ("normal", "small", "zar"): 3.00,     # R3.00 — achievable at 500 ZAR notional × 60 bps
     ("normal", "small", "usdt"): 0.50,     # $0.50
-    ("normal", "medium", "zar"): 6.00,     # R6
+    ("normal", "medium", "zar"): 12.00,    # R12
     ("normal", "medium", "usdt"): 1.50,    # $1.50
-    ("normal", "large", "zar"): 20.00,     # R20
+    ("normal", "large", "zar"): 40.00,     # R40
     ("normal", "large", "usdt"): 5.00,     # $5
-    ("scalper", "small", "zar"): 0.50,     # R0.50 — scalpers do many small trades
+    ("scalper", "small", "zar"): 1.50,     # R1.50 — scalpers do many small trades
     ("scalper", "small", "usdt"): 0.20,    # $0.20
-    ("scalper", "medium", "zar"): 2.00,    # R2
+    ("scalper", "medium", "zar"): 5.00,    # R5
     ("scalper", "medium", "usdt"): 0.50,
-    ("scalper", "large", "zar"): 8.00,     # R8
+    ("scalper", "large", "zar"): 15.00,    # R15
     ("scalper", "large", "usdt"): 1.50,
-    ("mean_reversion", "small", "zar"): 1.50,
+    ("mean_reversion", "small", "zar"): 3.00,
     ("mean_reversion", "small", "usdt"): 0.40,
-    ("mean_reversion", "medium", "zar"): 5.00,
+    ("mean_reversion", "medium", "zar"): 10.00,
     ("mean_reversion", "medium", "usdt"): 1.20,
-    ("mean_reversion", "large", "zar"): 16.00,
+    ("mean_reversion", "large", "zar"): 30.00,
     ("mean_reversion", "large", "usdt"): 4.00,
 }
 
@@ -183,12 +187,17 @@ class TradeFeasibilityGate:
             if action == "standby":
                 return make_decision_payload(ReasonCodes.REGIME_AMBIGUOUS_STANDBY, False, **common)
 
-        # ── 4. Spread cap ──
+        # ── 4. Entry confidence floor ──
+        # Reject trades where signal agreement is below the minimum threshold.
+        if entry_confidence < MIN_ENTRY_CONFIDENCE:
+            return make_decision_payload(ReasonCodes.LOW_CONFIDENCE_ENTRY, False, **common)
+
+        # ── 5. Spread cap ──
         spread_cap = SPREAD_CAP_PCT.get(strat_key, 0.35)
         if spread_pct > spread_cap:
             return make_decision_payload(ReasonCodes.SPREAD_TOO_WIDE, False, **common)
 
-        # ── 5. Depth ──
+        # ── 6. Depth ──
         depth_min = DEPTH_MIN_NOTIONAL.get(strat_key, 50000)
         if depth_notional < depth_min:
             return make_decision_payload(ReasonCodes.DEPTH_TOO_THIN, False, **common)
