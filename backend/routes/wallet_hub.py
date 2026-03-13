@@ -47,6 +47,11 @@ class PaperResetRequest(BaseModel):
     confirm: bool = False
 
 
+class PaperSetBalanceRequest(BaseModel):
+    balance_zar: float
+    confirmed: bool = False
+
+
 @router.get("/health")
 async def get_wallet_health(user_id: str = Depends(get_current_user)):
     """
@@ -210,6 +215,59 @@ async def reset_paper_wallet(
         "success": True,
         "balances": result.get("balances", {}),
         "total": result.get("total", 0)
+    }
+
+
+@router.post("/paper/set-balance")
+async def set_paper_wallet_balance(
+    request: PaperSetBalanceRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Set (overwrite) the paper wallet ZAR balance to an exact amount.
+
+    This is the canonical endpoint for the dashboard reset/fund flow.
+    Unlike ``/paper/deposit`` (which increments), this endpoint
+    unconditionally sets ``balance_zar`` as the new available ZAR balance.
+
+    Args:
+        balance_zar: Target ZAR balance (must be >= 0)
+        confirmed: Must be ``true`` to execute; if ``false`` a dry-run
+                   preview is returned with no DB change.
+
+    Returns:
+        success, balances, total, currency, action
+    """
+    if request.balance_zar < 0:
+        raise HTTPException(status_code=400, detail="balance_zar must be non-negative")
+
+    if not request.confirmed:
+        return {
+            "success": False,
+            "preview": True,
+            "balance_zar": request.balance_zar,
+            "message": "Send confirmed=true to apply this balance.",
+        }
+
+    result = await paper_wallet_service.set_balance(user_id, request.balance_zar, "ZAR")
+
+    try:
+        await db.audit_logs_collection.insert_one({
+            "user_id": user_id,
+            "action": "paper_wallet_set_balance",
+            "details": {
+                "balance_zar": request.balance_zar,
+                "currency": "ZAR",
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:
+        logger.warning(f"Paper wallet set-balance audit failed: {e}")
+
+    return {
+        "success": True,
+        "balances": result.get("balances", {}),
+        "total": result.get("total", 0),
+        "currency": "ZAR",
     }
 
 

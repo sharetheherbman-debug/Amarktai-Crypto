@@ -123,6 +123,45 @@ class PaperWalletService:
             "total": total
         }
 
+    async def set_balance(self, user_id: str, amount: float, currency: str) -> Dict:
+        """Set (overwrite) the paper wallet balance for a single currency.
+
+        Unlike ``deposit`` (which increments) this method unconditionally
+        writes the supplied ``amount`` as the new available balance for
+        ``currency``.  All other currencies are left untouched.
+
+        This is the canonical implementation that backs the
+        ``POST /api/wallet/paper/set-balance`` endpoint so that the
+        dashboard reset/fund flow can set an exact opening balance in one
+        call without first resetting and then depositing.
+        """
+        await self.init_db()
+        currency = currency.upper()
+        if amount < 0:
+            raise ValueError("Balance amount must be non-negative")
+        result = await self.collection.find_one_and_update(
+            {"user_id": user_id, "type": "paper"},
+            {
+                "$set": {
+                    f"balances.{currency}": amount,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "type": "paper",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        balances = result.get("balances") or {}
+        total = sum(float(v or 0) for v in balances.values())
+        return {
+            "balances": balances,
+            "total": round(total, 2),  # sum across ALL currencies in the wallet
+        }
+
     async def reserve_funds(self, user_id: str, amount: float, currency: str) -> Tuple[bool, str]:
         await self._ensure_wallet(user_id)
         currency = currency.upper()
