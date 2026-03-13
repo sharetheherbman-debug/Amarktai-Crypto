@@ -7,9 +7,38 @@ Each bot type has a distinct trading contract:
 - Scalper: short holds, tight targets, microstructure-dependent
 """
 import logging
+import os
 import time
 
 logger = logging.getLogger(__name__)
+
+# ── Scalper re-entry discipline ──────────────────────────────────────────────
+# After a weak/failed exit the same bot is blocked from re-entering until
+# either the cooldown expires OR conditions improve materially.
+#
+# Exit reasons that trigger the re-entry cooldown.
+SCALPER_WEAK_EXIT_REASONS = frozenset({
+    "scalper_no_progress_exit",
+    "normal_no_progress_exit",
+    "no_progress_exit",
+    "stale_exit",
+    "max_hold_exceeded",
+    "time_decay_exit",
+    "time_budget_exit",
+    "NO_PROGRESS_EXIT",
+    "TIME_BUDGET_EXIT",
+    "EDGE_DECAY_EXIT",
+    "PAPER_HOLD_CAP_EXCEEDED",
+    "stagnation_exit",
+    "STAGNATION_EXIT",
+})
+
+# Cooldown period after a weak exit (seconds).  Configurable via env.
+SCALPER_REENTRY_COOLDOWN_SECONDS = int(os.getenv("SCALPER_REENTRY_COOLDOWN_SECONDS", "300"))  # 5 min
+
+# Minimum improvement required for early re-entry (bypass cooldown).
+_REGIME_CONF_IMPROVEMENT_MIN = 0.15   # regime confidence must improve by at least this
+_ENTRY_CONF_IMPROVEMENT_MIN  = 0.12   # entry confidence must improve by at least this
 
 
 class _BotContract:
@@ -102,6 +131,9 @@ class BotBehavioralContracts:
     def __init__(self):
         # Per-bot loss tracking: {bot_id: {"losses": int, "last_loss_ts": float, "trades_today": int, "day": str}}
         self._bot_state: dict = {}
+        # Per-bot scalper exit state for re-entry discipline:
+        # {bot_id: {"exit_reason": str, "exit_ts": float, "regime_confidence": float, "entry_confidence": float}}
+        self._scalper_exit_state: dict = {}
 
     def get_contract(self, bot_type: str):
         """Return the contract class for a bot type."""
@@ -218,3 +250,119 @@ class BotBehavioralContracts:
         """Record that a trade was entered (for throttle tracking)."""
         state = self._bot_state.setdefault(bot_id, {})
         state["last_trade_ts"] = time.time()
+
+    def record_scalper_exit(
+        self,
+        bot_id: str,
+        exit_reason: str,
+        *,
+        regime_confidence: float = 0.0,
+        entry_confidence: float = 0.0,
+        pnl_pct: float = 0.0,
+    ) -> None:
+        """Record the outcome of a closed scalper trade for re-entry discipline.
+
+        Stores the exit reason, confidence levels, and timestamp so that
+        ``check_scalper_reentry_discipline`` can decide whether the bot is
+        ready to re-enter.
+        """
+        if exit_reason in SCALPER_WEAK_EXIT_REASONS:
+            self._scalper_exit_state[bot_id] = {
+                "exit_reason": str(exit_reason),
+                "exit_ts": time.time(),
+                "regime_confidence": float(regime_confidence or 0.0),
+                "entry_confidence": float(entry_confidence or 0.0),
+                "pnl_pct": float(pnl_pct or 0.0),
+            }
+            logger.info(
+                "📛 SCALPER EXIT RECORDED | bot=%s | reason=%s | "
+                "regime_conf=%.2f entry_conf=%.2f pnl=%.3f%% → re-entry cooldown %ds",
+                bot_id, exit_reason, regime_confidence, entry_confidence, pnl_pct,
+                SCALPER_REENTRY_COOLDOWN_SECONDS,
+            )
+        else:
+            # Clean exit (take-profit, trailing-stop) — clear any lingering cooldown
+            self._scalper_exit_state.pop(bot_id, None)
+
+    def check_scalper_reentry_discipline(
+        self,
+        bot_id: str,
+        *,
+        current_regime_confidence: float,
+        current_entry_confidence: float,
+        current_edge_bps: float = 0.0,
+    ) -> dict:
+        """Check whether a scalper is allowed to re-enter after a weak exit.
+
+        Re-entry is BLOCKED when:
+          - The bot had a weak exit recently (within the cooldown window), AND
+          - None of the improvement criteria are satisfied.
+
+        Re-entry is ALLOWED early (before cooldown expires) when at least one
+        of these is true:
+          - regime_confidence improved by >= _REGIME_CONF_IMPROVEMENT_MIN
+          - entry_confidence improved by >= _ENTRY_CONF_IMPROVEMENT_MIN
+
+        Returns
+        -------
+        dict with {allowed: bool, reason_code, reason_text, details}
+        """
+        last = self._scalper_exit_state.get(bot_id)
+        if not last:
+            return {"allowed": True, "reason_code": None, "reason_text": "", "details": {}}
+
+        elapsed = time.time() - last["exit_ts"]
+        if elapsed >= SCALPER_REENTRY_COOLDOWN_SECONDS:
+            # Cooldown expired — clear state and allow
+            self._scalper_exit_state.pop(bot_id, None)
+            return {"allowed": True, "reason_code": None, "reason_text": "", "details": {}}
+
+        remaining = int(SCALPER_REENTRY_COOLDOWN_SECONDS - elapsed)
+        prev_rc = last["regime_confidence"]
+        prev_ec = last["entry_confidence"]
+
+        regime_improved = (current_regime_confidence - prev_rc) >= _REGIME_CONF_IMPROVEMENT_MIN
+        confidence_improved = (current_entry_confidence - prev_ec) >= _ENTRY_CONF_IMPROVEMENT_MIN
+
+        if regime_improved or confidence_improved:
+            logger.info(
+                "✅ SCALPER REENTRY ALLOWED EARLY | bot=%s | "
+                "regime_conf Δ=%.2f entry_conf Δ=%.2f | cooldown_remaining=%ds",
+                bot_id,
+                current_regime_confidence - prev_rc,
+                current_entry_confidence - prev_ec,
+                remaining,
+            )
+            self._scalper_exit_state.pop(bot_id, None)
+            return {
+                "allowed": True,
+                "reason_code": "SCALPER_REENTRY_EARLY_IMPROVEMENT",
+                "reason_text": "Conditions improved sufficiently since last weak exit.",
+                "details": {
+                    "regime_conf_delta": round(current_regime_confidence - prev_rc, 3),
+                    "entry_conf_delta": round(current_entry_confidence - prev_ec, 3),
+                },
+            }
+
+        logger.info(
+            "🚫 SCALPER REENTRY BLOCKED | bot=%s | last_exit=%s | "
+            "cooldown_remaining=%ds | regime_conf_delta=%.2f entry_conf_delta=%.2f",
+            bot_id, last["exit_reason"], remaining,
+            current_regime_confidence - prev_rc,
+            current_entry_confidence - prev_ec,
+        )
+        return {
+            "allowed": False,
+            "reason_code": "SCALPER_REENTRY_COOLDOWN",
+            "reason_text": (
+                f"Re-entry blocked after {last['exit_reason']} – "
+                f"cooldown {remaining}s remaining. "
+                f"Need regime or confidence improvement to enter early."
+            ),
+            "details": {
+                "exit_reason": last["exit_reason"],
+                "cooldown_remaining_s": remaining,
+                "regime_conf_delta": round(current_regime_confidence - prev_rc, 3),
+                "entry_conf_delta": round(current_entry_confidence - prev_ec, 3),
+            },
+        }

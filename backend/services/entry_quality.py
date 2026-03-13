@@ -140,17 +140,46 @@ def evaluate_pre_timeout_exit(
 ) -> str | None:
     """Strategic pre-timeout exit evaluator.
 
-    Scalper no-progress exit fires at 70% of hold window (raised from 55%)
-    to give trades a reasonable grace period before forcing an early exit.
-    Early-invalidation threshold is -0.40% (raised from -0.25%) to avoid
-    exiting slightly-red trades that are still inside normal price noise.
+    Exit priority (first match wins):
+      1. regime_decay_exit     — regime confidence deteriorated significantly
+      2. profit_protection_exit — small gain appeared then stalled
+      3. stagnation_exit        — price flat near zero for extended period
+      4. scalper_no_progress_exit
+      5. normal_no_progress_exit
+      6. early_invalidation_exit
+
+    Scalper no-progress exit fires at 70% of hold window.
+    Normal no-progress exit fires at 45% of hold window.
+    Early-invalidation threshold is -0.40% to avoid exiting slightly-red
+    trades still inside normal price noise.
     """
-    if bot_class == "normal" and hold_ratio >= 0.25 and regime_trend == "bearish" and regime_confidence >= 0.6 and pnl_pct <= 0.15:
-        return "regime_deterioration_exit"
+    # 1. Regime decay: bearish AND low confidence OR any strong bearish signal
+    if bot_class == "normal" and hold_ratio >= 0.20:
+        bearish_with_confidence = (regime_trend == "bearish" and regime_confidence >= 0.55)
+        regime_collapsed = (regime_trend == "bearish" and regime_confidence >= 0.80)
+        if regime_collapsed and pnl_pct <= 0.25:
+            return "regime_decay_exit"
+        if bearish_with_confidence and hold_ratio >= 0.25 and pnl_pct <= 0.15:
+            return "regime_decay_exit"
+
+    # 2. Profit protection: trade made small progress but gain is stalling at hold midpoint
+    if bot_class == "normal" and hold_ratio >= 0.55 and 0.0 < pnl_pct < min_progress_pct * 2.0:
+        return "profit_protection_exit"
+
+    # 3. Stagnation: price has gone nowhere for extended period (worse than no-progress floor)
+    if bot_class == "normal" and hold_ratio >= 0.40 and -0.05 <= pnl_pct <= 0.02:
+        return "stagnation_exit"
+
+    # 4. Scalper: no progress at 70% of hold window
     if bot_class == "scalper" and hold_ratio >= 0.70 and pnl_pct <= min_progress_pct:
         return "scalper_no_progress_exit"
+
+    # 5. Normal: no progress at 45% of hold window
     if bot_class == "normal" and hold_ratio >= 0.45 and pnl_pct <= min_progress_pct:
         return "normal_no_progress_exit"
+
+    # 6. Early invalidation: sharp adverse move in first 35% of hold window
     if hold_ratio >= 0.35 and pnl_pct < -0.40:
         return "early_invalidation_exit"
+
     return None
