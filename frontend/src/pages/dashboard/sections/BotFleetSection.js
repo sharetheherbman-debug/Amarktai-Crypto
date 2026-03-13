@@ -11,10 +11,42 @@ function safeNum(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function fmtZAR(v, digits = 2, fallback = 'R 0.00') {
+/** Currency symbol lookup – only prepend 'R' for ZAR, '$' for USDT/USD. */
+const CURRENCY_SYMBOLS = { ZAR: 'R', USD: '$', USDT: '$', USDC: '$' };
+
+/**
+ * Format a monetary amount with the correct currency symbol.
+ * @param {number|null|undefined} v
+ * @param {string} [currency='ZAR']  – ISO currency code from bot.quote_currency
+ * @param {number} [digits=2]
+ * @param {string} [fallback]
+ */
+function fmtAmount(v, currency = 'ZAR', digits = 2, fallback = '—') {
   if (v == null) return fallback;
   const n = safeNum(v);
-  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  const cur = String(currency || 'ZAR').toUpperCase();
+  const sym = CURRENCY_SYMBOLS[cur];
+  const formatted = Math.abs(n).toLocaleString('en-ZA', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  if (sym) return `${n < 0 ? '-' : ''}${sym}${formatted}`;
+  // Unknown currency (e.g. BTC): show code after value with non-breaking space
+  return `${n < 0 ? '-' : ''}${formatted}\u00A0${cur}`;
+}
+
+/** Shorthand for ZAR amounts (legacy callers that know currency is ZAR). */
+function fmtZAR(v, digits = 2, fallback = 'R 0.00') {
+  return fmtAmount(v, 'ZAR', digits, fallback);
+}
+
+/**
+ * Format a bot capital/profit field using the bot's own quote_currency.
+ * Falls back to ZAR when quote_currency is absent (old bots / Luno).
+ */
+function fmtBotAmount(v, bot, digits = 2, fallback = '—') {
+  const cur = String(bot?.quote_currency || bot?.capital_summary?.quote_currency || 'ZAR').toUpperCase();
+  return fmtAmount(v, cur, digits, fallback);
 }
 
 function fmtPct(v, fallback = '—') {
@@ -302,26 +334,55 @@ export default function BotFleetSection({
     if (!selectedBot) return null;
     const st = getBotStatus(selectedBot);
     const perf = botMetrics(selectedBot);
+    // Use native quote currency for capital/profit fields.
+    // For Luno (ZAR) bots this is "R xx.xx"; for Binance/USDT bots "$xx.xx".
+    const quoteCurrency = String(
+      selectedBot.quote_currency
+      || selectedBot.capital_summary?.quote_currency
+      || 'ZAR'
+    ).toUpperCase();
+    const isZar = quoteCurrency === 'ZAR';
+    const fmt = (v, digits = 2) => fmtBotAmount(v, selectedBot, digits);
+    const equityLabel = isZar
+      ? 'Total Equity'
+      : `Total Equity (${quoteCurrency})`;
+    // Secondary ZAR display for non-ZAR bots
+    const zarEquiv = !isZar && selectedBot.total_equity_display != null
+      ? { label: '≈ ZAR Equiv.', value: fmtZAR(selectedBot.total_equity_display), color: 'var(--muted)' }
+      : null;
+    const zarProfitEquiv = !isZar && selectedBot.profit_display != null
+      ? { label: '≈ P/L in ZAR', value: fmtZAR(selectedBot.profit_display), color: 'var(--muted)' }
+      : null;
+    const scalperExtra = (selectedBot.bot_type || '').toLowerCase() === 'scalper'
+      ? [
+          { label: 'Bot Type', value: '⚡ Scalper' },
+          { label: 'Profit Routing', value: selectedBot.profit_routing || 'RETURN_TO_MAIN' },
+        ]
+      : [];
     return {
       overview: [
         { label: 'Bot ID', value: selectedBot.id || '—' },
         { label: 'Name', value: selectedBot.name || '—' },
         { label: 'Exchange', value: getPlatformDisplayName(selectedBot.exchange) },
+        { label: 'Currency', value: quoteCurrency },
         { label: 'Status', value: statusLabel(st), color: statusColor(st) },
         { label: 'Mode', value: modeLabel(selectedBot), color: modeColor(selectedBot) },
         { label: 'Created', value: formatDate && selectedBot.created_at ? formatDate(selectedBot.created_at) : '—' },
         { label: 'Training', value: selectedBot.training_complete ? '✅ Complete' : '🔄 In Progress' },
         { label: 'Quarantine', value: selectedBot.quarantine_active || selectedBot.in_quarantine ? '⚠️ Active' : '✅ Clear' },
+        ...scalperExtra,
         ...(selectedBot.paused_reason_message ? [{ label: 'Paused Reason', value: selectedBot.paused_reason_message }] : []),
       ],
       performance: [
-        { label: 'Total Equity', value: fmtZAR(perf.capitalSummary.totalEquity) },
-        { label: 'Realized Profit', value: fmtZAR(perf.capitalSummary.realizedProfit), color: perf.capitalSummary.realizedProfit >= 0 ? 'var(--success)' : 'var(--error)' },
-        { label: 'Initial Capital', value: fmtZAR(perf.capitalSummary.initialCapital) },
-        { label: 'Allocated Capital', value: fmtZAR(perf.capitalSummary.allocatedCapital) },
-        { label: 'Available Capital', value: fmtZAR(perf.capitalSummary.availableCapital) },
-        { label: 'Open Position Value', value: fmtZAR(perf.capitalSummary.openPositionValue) },
-        { label: 'Unrealized P/L', value: fmtZAR(perf.capitalSummary.unrealizedProfit), color: perf.capitalSummary.unrealizedProfit >= 0 ? 'var(--success)' : 'var(--error)' },
+        { label: equityLabel, value: fmt(perf.capitalSummary.totalEquity) },
+        ...(zarEquiv ? [zarEquiv] : []),
+        { label: `Realized Profit (${quoteCurrency})`, value: fmt(perf.capitalSummary.realizedProfit), color: perf.capitalSummary.realizedProfit >= 0 ? 'var(--success)' : 'var(--error)' },
+        ...(zarProfitEquiv ? [zarProfitEquiv] : []),
+        { label: `Initial Capital (${quoteCurrency})`, value: fmt(perf.capitalSummary.initialCapital) },
+        { label: `Allocated Capital (${quoteCurrency})`, value: fmt(perf.capitalSummary.allocatedCapital) },
+        { label: `Available Capital (${quoteCurrency})`, value: fmt(perf.capitalSummary.availableCapital) },
+        { label: `Open Position Value (${quoteCurrency})`, value: fmt(perf.capitalSummary.openPositionValue) },
+        { label: `Unrealized P/L (${quoteCurrency})`, value: fmt(perf.capitalSummary.unrealizedProfit), color: perf.capitalSummary.unrealizedProfit >= 0 ? 'var(--success)' : 'var(--error)' },
         { label: 'Win Rate', value: fmtPct(perf.winRate) },
         { label: 'Total Trades', value: safeNum(perf.totalTrades).toString() },
         { label: 'ROI', value: perf.capitalSummary.initialCapital ? fmtPct((safeNum(perf.profit) / safeNum(perf.capitalSummary.initialCapital, 1)) * 100) : '—' },
@@ -392,14 +453,14 @@ export default function BotFleetSection({
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 12 }}>
                           <span style={{ color: 'var(--muted)' }}>{getPlatformDisplayName(bot.exchange)}</span>
                           <span style={{ color: modeColor(bot), fontWeight: 600 }}>{modeLabel(bot)}</span>
-                          <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(perf.profit)}</span>
-                          <span style={{ color: 'var(--muted)' }}>Cap: {fmtZAR(perf.currentCapital)}</span>
+                          <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtBotAmount(perf.profit, bot)}</span>
+                          <span style={{ color: 'var(--muted)' }}>Cap: {fmtBotAmount(perf.currentCapital, bot)}</span>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-                {/* Detail panel re-used for scalper bots */}
+                {/* Full detail panel for scalper bots — same tabs as normal bots */}
                 {selectedBot && (selectedBot.bot_type || '').toLowerCase() === 'scalper' && detailSections && (
                   <div style={{
                     flex: '1 1 360px', minWidth: 300, maxWidth: 480,
@@ -419,46 +480,87 @@ export default function BotFleetSection({
                         ✕
                       </button>
                     </div>
-                    {/* Controls tab inline for scalper */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {(() => {
-                        const st = getBotStatus(selectedBot);
-                        const loading = botControlLoading?.[selectedBot.id] ?? false;
-                        return (
-                          <>
-                            {st === 'paused' && handleResumeBot && (
-                              <button style={S.btn('success')} disabled={loading} onClick={() => handleResumeBot(selectedBot.id)}>
-                                {loading ? '⏳ ...' : '▶ Resume'}
-                              </button>
-                            )}
-                            {(st === 'active' || st === 'running') && handlePauseBot && (
-                              <button style={S.btn('warning')} disabled={loading} onClick={() => handlePauseBot(selectedBot.id)}>
-                                {loading ? '⏳ ...' : '⏸ Pause'}
-                              </button>
-                            )}
-                            {handleRestartBot && (
-                              <button style={S.btn('default')} disabled={loading} onClick={() => handleRestartBot(selectedBot.id)}>
-                                {loading ? '⏳ ...' : '🔄 Restart'}
-                              </button>
-                            )}
-                            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 4 }}>
-                              {confirmDelete === selectedBot.id ? (
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                  <span style={{ color: 'var(--error)', fontSize: 13 }}>Confirm delete?</span>
-                                  <button style={S.btn('danger')} disabled={loading}
-                                    onClick={() => { handleDeleteBot(selectedBot.id); setConfirmDelete(null); setSelectedBotDetailId(null); }}>
-                                    Yes, Delete
-                                  </button>
-                                  <button style={S.btn()} onClick={() => setConfirmDelete(null)}>Cancel</button>
-                                </div>
-                              ) : (
-                                <button style={S.btn('danger')} onClick={() => setConfirmDelete(selectedBot.id)}>🗑 Delete Bot</button>
-                              )}
-                            </div>
-                          </>
-                        );
-                      })()}
+                    {/* Scalper detail tabs — same structure as normal bots */}
+                    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--line)', marginBottom: 14 }}>
+                      {DETAIL_TABS.map((t) => (
+                        <button
+                          key={t.key}
+                          style={S.tab((botDetailTab || 'overview') === t.key)}
+                          onClick={() => setBotDetailTab(t.key)}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
                     </div>
+                    {/* Overview tab */}
+                    {(botDetailTab || 'overview') === 'overview' && (
+                      <div>
+                        {detailSections.overview.map((row) => (
+                          <div key={row.label} style={S.detailRow}>
+                            <span style={S.detailLabel}>{row.label}</span>
+                            <span style={{ ...S.detailValue, ...(row.color ? { color: row.color } : {}) }}>{row.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Performance tab */}
+                    {(botDetailTab || 'overview') === 'performance' && (
+                      <div>
+                        {detailSections.performance.map((row) => (
+                          <div key={row.label} style={S.detailRow}>
+                            <span style={S.detailLabel}>{row.label}</span>
+                            <span style={{ ...S.detailValue, ...(row.color ? { color: row.color } : {}) }}>{row.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Controls tab */}
+                    {(botDetailTab || 'overview') === 'controls' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {(() => {
+                          const st = getBotStatus(selectedBot);
+                          const loading = botControlLoading?.[selectedBot.id] ?? false;
+                          return (
+                            <>
+                              {st === 'paused' && handleResumeBot && (
+                                <button style={S.btn('success')} disabled={loading} onClick={() => handleResumeBot(selectedBot.id)}>
+                                  {loading ? '⏳ ...' : '▶ Resume Bot'}
+                                </button>
+                              )}
+                              {(st === 'stopped' || st === 'inactive') && handleStartBot && (
+                                <button style={S.btn('success')} disabled={loading} onClick={() => handleStartBot(selectedBot.id)}>
+                                  {loading ? '⏳ ...' : '▶ Start Bot'}
+                                </button>
+                              )}
+                              {(st === 'active' || st === 'running') && handlePauseBot && (
+                                <button style={S.btn('warning')} disabled={loading} onClick={() => handlePauseBot(selectedBot.id)}>
+                                  {loading ? '⏳ ...' : '⏸ Pause Bot'}
+                                </button>
+                              )}
+                              {handleRestartBot && (
+                                <button style={S.btn('default')} disabled={loading} onClick={() => handleRestartBot(selectedBot.id)}>
+                                  {loading ? '⏳ ...' : '🔄 Restart Bot'}
+                                </button>
+                              )}
+                              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 4 }}>
+                                {confirmDelete === selectedBot.id ? (
+                                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    <span style={{ color: 'var(--error)', fontSize: 13 }}>Confirm delete?</span>
+                                    <button style={S.btn('danger')} disabled={loading}
+                                      onClick={() => { handleDeleteBot(selectedBot.id); setConfirmDelete(null); setSelectedBotDetailId(null); }}>
+                                      Yes, Delete
+                                    </button>
+                                    <button style={S.btn()} onClick={() => setConfirmDelete(null)}>Cancel</button>
+                                  </div>
+                                ) : (
+                                  <button style={S.btn('danger')} onClick={() => setConfirmDelete(selectedBot.id)}>🗑 Delete Bot</button>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -494,7 +596,7 @@ export default function BotFleetSection({
                       Exchange: {getPlatformDisplayName(bot.exchange)} • Mode: <span style={{ color: modeColor(bot) }}>{modeLabel(bot)}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                      Capital: {fmtZAR(perf.currentCapital)} • P&L: <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtZAR(perf.profit)}</span>
+                      Capital: {fmtBotAmount(perf.currentCapital, bot)} • P&L: <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmtBotAmount(perf.profit, bot)}</span>
                     </div>
                   </div>
                 );
@@ -588,10 +690,10 @@ export default function BotFleetSection({
                           {modeLabel(bot)}
                         </span>
                         <span style={{ color: perf.profit >= 0 ? 'var(--success)' : 'var(--error)' }}>
-                          {fmtZAR(perf.profit)}
+                          {fmtBotAmount(perf.profit, bot)}
                         </span>
                         <span style={{ color: 'var(--muted)' }}>
-                          Cap: {fmtZAR(perf.currentCapital)}
+                          Cap: {fmtBotAmount(perf.currentCapital, bot)}
                         </span>
                         <span style={{ color: 'var(--muted)' }}>
                           WR: {fmtPct(perf.winRate)}

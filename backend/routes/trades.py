@@ -13,6 +13,7 @@ from auth import get_current_user
 from services.accounting import accounting_service
 import database as db
 from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp, build_trade_record
+from services.fx_normalizer import get_quote_currency
 
 logger = logging.getLogger(__name__)
 
@@ -261,26 +262,40 @@ async def get_live_trades(
             except:
                 timestamp = datetime.now(timezone.utc).isoformat()
             
+            # Determine native quote currency for this trade so the frontend
+            # can display prices/P&L with the correct symbol ($ for USDT, R for ZAR).
+            _trade_exchange = trade.get('exchange', 'unknown')
+            _trade_symbol = trade.get('symbol') or trade.get('pair', '')
+            _trade_quote_currency = (
+                trade.get('quote_currency')
+                or trade.get('fee_currency')
+                or get_quote_currency(_trade_exchange, _trade_symbol)
+            )
+            # Choose currency symbol for default _display fields.
+            # Mirror the frontend CURRENCY_SYMBOLS mapping so both sides use the same symbols.
+            _CURRENCY_SYMBOL_MAP = {"ZAR": "R", "USD": "$", "USDT": "$", "USDC": "$", "BUSD": "$", "TUSD": "$"}
+            _cur_sym = _CURRENCY_SYMBOL_MAP.get(_trade_quote_currency.upper(), _trade_quote_currency.upper() + "\u00A0")
+
             # Build enriched trade object
             enriched_trade = {
                 # Bot info
                 "bot_id": trade.get('bot_id'),
                 "bot_name": bot_names.get(trade.get('bot_id'), 'Unknown'),
-                "exchange": trade.get('exchange', 'unknown'),
-                
+                "exchange": _trade_exchange,
+
                 # Trade details
-                "symbol": trade.get('symbol') or trade.get('pair', 'UNKNOWN'),
+                "symbol": _trade_symbol or 'UNKNOWN',
                 "side": trade.get('side', 'buy'),
                 # Size field — multiple aliases for frontend compatibility
                 "quantity": trade.get('amount', 0),
                 "qty": trade.get('qty', trade.get('amount', 0)),
                 "size": trade.get('qty', trade.get('amount', 0)),
-                
+
                 # Prices
                 "entry_price": trade.get('entry_price') or trade.get('price', 0),
                 "exit_price": trade.get('exit_price') or trade.get('price', 0),
                 "price": trade.get('entry_price') or trade.get('price', 0),
-                
+
                 # P&L breakdown (from accounting service - consistent!)
                 "gross_profit_loss": trade.get('gross_pnl', 0),
                 "gross_pnl": trade.get('gross_pnl', 0),
@@ -293,16 +308,21 @@ async def get_live_trades(
                 # Slippage
                 "slippage": trade.get('slippage_cost', trade.get('slippage', 0)),
                 "slippage_cost": trade.get('slippage_cost', trade.get('slippage', 0)),
-                
-                # Display labels
-                "net_pnl_display": trade.get('net_pnl_display', f"R{trade.get('net_pnl', 0):.2f}"),
-                "gross_pnl_display": trade.get('gross_pnl_display', f"R{trade.get('gross_pnl', 0):.2f}"),
-                "fee_display": trade.get('fee_display', f"R{trade.get('fee_amount', trade.get('fees', 0)):.2f}"),
-                
+
+                # Currency — canonical quote currency for this trade.
+                # Frontend uses this field (not the exchange name) to pick the
+                # correct symbol: "ZAR" → "R", "USDT" → "$"/"USDT".
+                "quote_currency": _trade_quote_currency,
+
+                # Display labels use the correct currency symbol
+                "net_pnl_display": trade.get('net_pnl_display', f"{_cur_sym}{trade.get('net_pnl', 0):.2f}"),
+                "gross_pnl_display": trade.get('gross_pnl_display', f"{_cur_sym}{trade.get('gross_pnl', 0):.2f}"),
+                "fee_display": trade.get('fee_display', f"{_cur_sym}{trade.get('fee_amount', trade.get('fees', 0)):.2f}"),
+
                 # Strategy/signal
                 "strategy_tag": trade.get('strategy_tag') or trade.get('trend', 'unknown'),
                 "signal_reason": trade.get('signal_reason') or trade.get('ai_regime', 'unknown'),
-                
+
                 # Metadata
                 "id": trade.get('id') or trade.get('trade_id'),
                 "timestamp": timestamp,
@@ -313,13 +333,13 @@ async def get_live_trades(
                 "is_profitable": (
                     (trade.get('net_pnl') if trade.get('net_pnl') is not None else trade.get('profit_loss', 0)) > 0
                 ),
-                
+
                 # Additional context
                 "data_source": "accounting_service",
                 "quality_score": trade.get('quality_score', 0),
                 "ai_confidence": trade.get('ai_confidence', 0)
             }
-            
+
             enriched_trades.append(enriched_trade)
         
         return {
