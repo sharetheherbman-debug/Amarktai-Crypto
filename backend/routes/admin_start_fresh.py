@@ -287,3 +287,72 @@ async def user_self_reset_bots(
         logger.error("Error during user self-reset for %s: %s", user_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+class PaperStartFreshRequest(BaseModel):
+    confirmed: bool = False
+
+
+@router.post("/api/user/paper-start-fresh")
+async def user_paper_start_fresh(
+    request: PaperStartFreshRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    User paper start-fresh (non-admin, paper-only scope).
+
+    Fully resets the caller's paper trading session via the same canonical
+    ``perform_paper_reset`` path used by the admin endpoint.  This restores
+    backward-compatible dashboard behaviour where the user can trigger a
+    clean start without requiring admin privileges.
+
+    Args:
+        confirmed: Must be ``true`` to execute the reset.
+
+    Returns:
+        success, message, summary, timestamp
+
+    Raises:
+        400: If confirmed is false
+        403: If called while live trading is enabled
+        500: On database errors
+    """
+    if not request.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Send confirmed=true to execute the paper start-fresh reset."
+        )
+
+    try:
+        from utils.env_utils import env_bool
+        live_trading = env_bool('LIVE_TRADING', False)
+
+        if live_trading:
+            raise HTTPException(
+                status_code=403,
+                detail="Paper start-fresh not allowed in live trading mode. Contact admin."
+            )
+
+        from routes.system_mode import perform_paper_reset
+        result = await perform_paper_reset(user_id)
+        summary = result.get("summary", {})
+
+        logger.info(
+            "User paper-start-fresh completed for %s: %d bots, %d trades",
+            user_id,
+            summary.get("bots_deleted", 0),
+            summary.get("trades_deleted", 0),
+        )
+
+        return {
+            "success": True,
+            "message": "Paper start-fresh completed. Wallet and bots reset to zero.",
+            "summary": summary,
+            "timestamp": result.get("timestamp"),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error during user paper-start-fresh for %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
