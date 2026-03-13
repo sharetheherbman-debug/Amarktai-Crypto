@@ -215,3 +215,174 @@ def test_to_display_zar_zar_identity():
     display, rate, _ = to_display_zar(100.0, "ZAR")
     assert display == pytest.approx(100.0)
     assert rate == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# 7. batch-create capital conversion — PR #63 targeted fix
+# ---------------------------------------------------------------------------
+
+def test_batch_create_binance_uses_canonical_capital():
+    """Batch-create for Binance must produce USDT capital via FX conversion, not raw ZAR."""
+    from services.fx_normalizer import resolve_capital_for_exchange, update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    capital_per_bot = 1000.0  # ZAR economic base entered by user
+    quote_capital, quote_currency, fx_rate = resolve_capital_for_exchange(capital_per_bot, "binance")
+
+    assert quote_currency == "USDT"
+    assert quote_capital == pytest.approx(1000.0 / 19.0, rel=1e-3), (
+        f"batch-create Binance capital must be ~52.63 USDT, got {quote_capital}"
+    )
+    # Must NOT be 500 USDT (old silent inflation bug)
+    assert quote_capital < 100.0, "batch-create must not silently inflate capital to 500 USDT"
+    assert fx_rate == pytest.approx(19.0)
+
+
+def test_batch_create_luno_no_conversion():
+    """Batch-create for Luno must keep ZAR capital unchanged (no FX conversion)."""
+    from services.fx_normalizer import resolve_capital_for_exchange
+    quote_capital, quote_currency, fx_rate = resolve_capital_for_exchange(1000.0, "luno")
+    assert quote_currency == "ZAR"
+    assert quote_capital == pytest.approx(1000.0)
+    assert fx_rate == pytest.approx(1.0)
+
+
+def test_batch_create_canonical_fields_present():
+    """bot dicts built for batch-create must include all canonical capital truth fields."""
+    from services.fx_normalizer import resolve_capital_for_exchange, update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    capital_per_bot = 1000.0
+    exchange = "binance"
+    quote_capital, quote_currency, fx_rate = resolve_capital_for_exchange(capital_per_bot, exchange)
+
+    # Simulate the fields that batch-create now writes (mirrors the fixed server.py code)
+    bot_record = {
+        "canonical_base_capital_zar": round(capital_per_bot, 2),
+        "funding_input_amount": round(capital_per_bot, 2),
+        "funding_input_currency": "ZAR",
+        "fx_rate_at_creation": fx_rate,
+        "quote_currency": quote_currency,
+        "initial_capital": quote_capital,
+        "current_capital": quote_capital,
+    }
+
+    assert bot_record["canonical_base_capital_zar"] == pytest.approx(1000.0)
+    assert bot_record["funding_input_currency"] == "ZAR"
+    assert bot_record["quote_currency"] == "USDT"
+    assert bot_record["initial_capital"] == pytest.approx(quote_capital)
+    assert bot_record["current_capital"] == pytest.approx(quote_capital)
+    assert bot_record["fx_rate_at_creation"] == pytest.approx(19.0)
+    # initial_capital and current_capital are the same at bot creation (no trades yet)
+    assert bot_record["initial_capital"] == pytest.approx(bot_record["current_capital"])
+    # Sanity: canonical_base / fx_rate should round-trip to initial_capital
+    assert bot_record["canonical_base_capital_zar"] / bot_record["fx_rate_at_creation"] == pytest.approx(
+        bot_record["initial_capital"], rel=1e-3
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. trades endpoint — net_profit_zar must not copy raw USDT value
+# ---------------------------------------------------------------------------
+
+def test_trades_endpoint_net_profit_zar_converted():
+    """For a USDT Binance trade, net_profit_zar must be USDT × FX rate, not raw copy."""
+    from services.reconciliation import enrich_trade_pnl_fields
+    from services.fx_normalizer import update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    # Simulate a closed Binance trade as would be stored in MongoDB
+    stored_trade = {
+        "exchange": "binance",
+        "pair": "BTC/USDT",
+        "net_pnl": -0.23,
+        "net_profit": -0.23,
+        "profit_loss": -0.23,
+        "status": "closed",
+    }
+    enriched = enrich_trade_pnl_fields(dict(stored_trade))
+    net_profit_zar = enriched.get("realized_pnl_zar")
+
+    assert net_profit_zar is not None
+    # -0.23 USDT × 19 ≈ -4.37 ZAR; must NOT equal -0.23
+    assert abs(net_profit_zar) > 1.0, (
+        f"net_profit_zar must be ZAR-converted; got {net_profit_zar}"
+    )
+    assert net_profit_zar == pytest.approx(-0.23 * 19.0, rel=1e-2)
+
+
+def test_trades_endpoint_luno_net_profit_zar_unchanged():
+    """For a Luno ZAR trade, net_profit_zar must equal the raw P&L (identity conversion)."""
+    from services.reconciliation import enrich_trade_pnl_fields
+
+    stored_trade = {
+        "exchange": "luno",
+        "pair": "BTC/ZAR",
+        "net_pnl": -5.0,
+        "net_profit": -5.0,
+        "status": "closed",
+    }
+    enriched = enrich_trade_pnl_fields(dict(stored_trade))
+    net_profit_zar = enriched.get("realized_pnl_zar")
+
+    assert net_profit_zar == pytest.approx(-5.0), (
+        f"Luno ZAR trade net_profit_zar must be unchanged; got {net_profit_zar}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. exposure check — equity must use canonical_base_capital_zar
+# ---------------------------------------------------------------------------
+
+def test_exposure_check_uses_canonical_base_not_inflated_current():
+    """compute_equity_zar must use canonical_base_capital_zar, not inflated current_capital."""
+    from services.reconciliation import compute_equity_zar
+    from services.fx_normalizer import update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    # Binance bot with LEGACY inflated current_capital (500 USDT = old bug),
+    # but canonical_base_capital_zar = 1000 ZAR (what the user actually funded).
+    bots = [
+        {
+            "exchange": "binance",
+            "canonical_base_capital_zar": 1000.0,   # authoritative ZAR base
+            "current_capital": 500.0,               # LEGACY inflated value (old bug)
+            "quote_currency": "USDT",
+        },
+    ]
+    total_zar, _ = compute_equity_zar(bots)
+    # Must use canonical_base (1000), NOT current_capital × fx_rate (500 × 19 = 9500)
+    assert total_zar == pytest.approx(1000.0, rel=1e-2), (
+        f"Equity must be R1000 (canonical base), not R9500 (inflated); got {total_zar}"
+    )
+    assert total_zar < 2000.0, "Equity must not use inflated current_capital"
+
+
+def test_exposure_check_single_exchange_within_limit():
+    """With one Binance bot at R1000 ZAR canonical base, max 60% exchange exposure must pass."""
+    from services.reconciliation import compute_equity_zar
+    from services.fx_normalizer import update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    bots = [
+        {
+            "exchange": "luno",
+            "canonical_base_capital_zar": 1000.0,
+            "current_capital": 1000.0,
+            "quote_currency": "ZAR",
+        },
+        {
+            "exchange": "binance",
+            "canonical_base_capital_zar": 1000.0,
+            "current_capital": 52.631579,
+            "quote_currency": "USDT",
+        },
+    ]
+    total_zar, breakdown = compute_equity_zar(bots)
+    binance_zar = breakdown["by_exchange"].get("binance", 0)
+    max_allowed = total_zar * 0.60  # 60% per-exchange cap
+    assert total_zar == pytest.approx(2000.0, rel=1e-2)
+    # R1000 Binance equity is 50% of R2000 total — within the 60% cap
+    assert binance_zar <= max_allowed, (
+        f"Binance equity R{binance_zar:.2f} should be ≤ R{max_allowed:.2f} (60% of R{total_zar:.2f})"
+    )

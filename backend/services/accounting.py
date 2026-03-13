@@ -204,21 +204,36 @@ class AccountingService:
             
             # Enrich trades with standardized fields
             enriched_trades = []
+            _CURRENCY_SYMBOL_MAP = {"ZAR": "R", "USD": "$", "USDT": "$", "USDC": "$", "BUSD": "$", "TUSD": "$"}
             for trade in trades:
                 # Standardize PnL fields
                 net_pnl = trade.get("net_pnl", trade.get("profit_loss", 0))
                 gross_pnl = trade.get("gross_pnl", net_pnl)
                 fee = trade.get("fee_amount", 0)
-                
+                # Resolve the correct currency symbol so USDT trades show "$" not "R"
+                _exchange = (trade.get("exchange") or "").lower()
+                _symbol = trade.get("pair") or trade.get("symbol") or ""
+                _quote_currency = (
+                    trade.get("quote_currency")
+                    or trade.get("fee_currency")
+                )
+                if not _quote_currency:
+                    from services.fx_normalizer import get_quote_currency as _gqc
+                    _quote_currency = _gqc(_exchange, _symbol)
+                _cur_sym = _CURRENCY_SYMBOL_MAP.get(
+                    _quote_currency_upper := (_quote_currency or "ZAR").upper(),
+                    _quote_currency_upper + "\u00A0"
+                )
                 enriched_trade = {
                     **trade,
                     "net_pnl": net_pnl,
                     "gross_pnl": gross_pnl,
                     "fee_amount": fee,
-                    # Display labels
-                    "net_pnl_display": f"R{net_pnl:.2f}",
-                    "gross_pnl_display": f"R{gross_pnl:.2f}",
-                    "fee_display": f"R{fee:.2f}",
+                    "quote_currency": _quote_currency,
+                    # Display labels — use the trade's native currency symbol, not "R" always.
+                    "net_pnl_display": f"{_cur_sym}{net_pnl:.2f}",
+                    "gross_pnl_display": f"{_cur_sym}{gross_pnl:.2f}",
+                    "fee_display": f"{_cur_sym}{fee:.2f}",
                 }
                 enriched_trades.append(enriched_trade)
             
