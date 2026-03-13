@@ -20,7 +20,7 @@ NORMAL_MAX_HOLD_SECONDS = {
 # In paper mode, normal bots should not hold for hours — fast turnover is
 # required for validation.  This cap overrides the risk-mode default when
 # paper mode is active and the bot has no explicit max_hold_seconds set.
-PAPER_NORMAL_MAX_HOLD_SECONDS = int(os.getenv("PAPER_NORMAL_MAX_HOLD_SECONDS", "1800"))  # 30 min
+PAPER_NORMAL_MAX_HOLD_SECONDS = int(os.getenv("PAPER_NORMAL_MAX_HOLD_SECONDS", "1200"))  # 20 min (spec: 8–20 min range)
 
 
 def resolve_hold_policy(

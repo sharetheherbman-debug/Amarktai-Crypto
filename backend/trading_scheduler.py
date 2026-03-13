@@ -23,6 +23,10 @@ from utils.trading_gates import TradingGateError, enforce_live_trading_gates
 from utils.trading_mode import resolve_bot_trading_mode
 from services.bot_runtime_state import bot_runtime_state
 from services.risk_lock_service import risk_lock_service
+from services.scheduler_diagnostics import (
+    classify_skip_reason as _classify_skip_reason,
+    dominant_skip_category as _dominant_skip_category,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +85,7 @@ class TradingScheduler:
         self.last_tick_processed = 0      # How many trade requests were attempted (dequeued) on last tick
         self.last_tick_blocked = 0        # How many dequeued trades were blocked before execution
         self.last_tick_noop_reason = None # Why last tick did nothing (if it did nothing)
+        self.last_tick_skip_reasons: dict = {}  # bot_id → skip_reason from last tick (diagnostics)
         self.last_tick_activity = {
             "total_bot_records": 0,
             "active_bot_records": 0,
@@ -112,10 +117,12 @@ class TradingScheduler:
         tick_time = datetime.now(timezone.utc)
         self.last_tick_at = tick_time.isoformat()
         self.total_ticks += 1
+        self.last_tick_skip_reasons = {}   # Reset per-bot skip reasons each cycle
         tick_executed = 0
         tick_queued = 0
         tick_processed = 0  # Trade requests dequeued and execution reached (even if result=None)
         tick_blocked = 0   # Trade requests dequeued but blocked before execution
+        tick_skip_counts: dict = {}  # reason category → count for this tick
         try:
             # Check system gate first
             should_run, gate_reason = system_gate.validate_scheduler_tick()
@@ -499,6 +506,16 @@ class TradingScheduler:
                                 "side": trade.get('side', 'unknown'),
                                 "is_paper": True,
                             }
+                        elif result and not result.get('trade'):
+                            # Log why no trade was opened (helps diagnose "no_trades_executed")
+                            skip = result.get('skip_reason') or result.get('reason_code') or result.get('error') or 'unknown'
+                            _classify_skip_reason(skip, tick_skip_counts)
+                            self.last_tick_skip_reasons[bot_id] = skip
+                            logger.debug(
+                                "📊 Paper bot %s skip_reason=%s",
+                                bot.get('name', bot_id),
+                                skip,
+                            )
                     else:
                         # LIVE TRADING - Use live_trading_engine
                         logger.info(f"🔴 LIVE TRADING: {bot['name']} on {bot.get('exchange')}")
@@ -583,16 +600,19 @@ class TradingScheduler:
                 # Differentiate: were trade requests processed (open positions managed) or nothing happened?
                 if tick_processed > 0:
                     # Trades were attempted but no new open/close happened — open positions are being managed
-                    self.last_tick_noop_reason = "managing_open_positions"
+                    dominant = _dominant_skip_category(tick_skip_counts) or "managing_open_positions"
+                    self.last_tick_noop_reason = dominant
                     self.total_noop_ticks += 1
                     logger.info(
                         "📊 Scheduler tick — active_bot_records: %d | "
                         "runnable_active_bots: %d | processed: %d | queued: %d | "
-                        "Noop reason: managing_open_positions",
+                        "Noop reason: %s | skip_counts: %s",
                         self.last_tick_activity.get("active_bot_records", 0),
                         self.last_tick_activity.get("runnable_active_bots", 0),
                         tick_processed,
                         tick_queued,
+                        dominant,
+                        tick_skip_counts,
                     )
                 elif tick_blocked > 0:
                     # Trades were dequeued but all blocked before execution
@@ -608,15 +628,18 @@ class TradingScheduler:
                         tick_queued,
                     )
                 else:
-                    self.last_tick_noop_reason = "no_trades_executed"
+                    dominant = _dominant_skip_category(tick_skip_counts) or "no_trades_executed"
+                    self.last_tick_noop_reason = dominant
                     self.total_noop_ticks += 1
                     logger.info(
                         "📊 Scheduler tick — active_bot_records: %d | "
                         "runnable_active_bots: %d | queued: %d | "
-                        "Noop reason: no_trades_executed",
+                        "Noop reason: %s | skip_counts: %s",
                         self.last_tick_activity.get("active_bot_records", 0),
                         self.last_tick_activity.get("runnable_active_bots", 0),
                         tick_queued,
+                        dominant,
+                        tick_skip_counts,
                     )
             else:
                 self.last_tick_noop_reason = None
@@ -849,6 +872,7 @@ class TradingScheduler:
             "last_tick_processed": getattr(self, 'last_tick_processed', 0),
             "last_tick_blocked": getattr(self, 'last_tick_blocked', 0),
             "last_tick_noop_reason": self.last_tick_noop_reason,
+            "last_tick_skip_reasons": getattr(self, 'last_tick_skip_reasons', {}),
             "last_tick_activity": self.last_tick_activity,
             "last_trade_at": self.last_trade_at,
             "last_trade_bot": self.last_trade_bot,
