@@ -37,9 +37,10 @@ class RiskEngine:
         if not bot:
             return False, "Bot not found"
         
-        # Get user's total equity
+        # Get user's total equity — use canonical ZAR conversion (not raw sum of mixed currencies)
         user_bots = await db.bots_collection.find({"user_id": user_id}, {"_id": 0}).to_list(100)
-        total_equity = sum(b.get("current_capital", 0) for b in user_bots)
+        from services.reconciliation import compute_equity_zar
+        total_equity, equity_breakdown = compute_equity_zar(user_bots)
         
         if total_equity <= 0:
             return False, "No capital available"
@@ -80,10 +81,6 @@ class RiskEngine:
             )
         
         # 4. Check per-asset exposure
-        # Extract asset from proposed trade (e.g., BTC from BTC/ZAR)
-        # For now, assume we can extract asset from context
-        # In production, would need asset parameter passed in
-        
         # Get all user's trades to calculate current exposure
         recent_open_trades = await db.trades_collection.find({
             "user_id": user_id,
@@ -91,29 +88,38 @@ class RiskEngine:
             "timestamp": {"$gte": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()}
         }, {"_id": 0}).to_list(1000)
         
-        # Calculate per-asset exposure
-        asset_exposure = {}
+        # Calculate per-asset exposure (convert to ZAR for comparison)
+        from services.fx_normalizer import get_quote_currency, get_fx_rate
+        usdt_zar_rate, _ = get_fx_rate("USDT", "ZAR")
+        asset_exposure: dict = {}
         for trade in recent_open_trades:
             pair = trade.get('pair', '')
+            trade_exchange = (trade.get('exchange') or '').lower()
             if '/' in pair:
                 asset = pair.split('/')[0]  # e.g., BTC from BTC/ZAR
-                trade_value = trade.get('entry_price', 0) * trade.get('amount', 0)
-                asset_exposure[asset] = asset_exposure.get(asset, 0) + trade_value
+                raw_value = trade.get('entry_price', 0) * trade.get('amount', 0)
+                # Convert trade value to ZAR if quote is USDT
+                trade_quote = get_quote_currency(trade_exchange, pair)
+                if trade_quote != "ZAR":
+                    raw_value = raw_value * usdt_zar_rate
+                asset_exposure[asset] = asset_exposure.get(asset, 0) + raw_value
         
-        # Check if any single asset exceeds 35% of total equity
+        # Check if any single asset exceeds 35% of total equity (both in ZAR)
         for asset, exposure in asset_exposure.items():
             exposure_pct = (exposure / total_equity) if total_equity > 0 else 0
             if exposure_pct > 0.35:
                 return False, f"Too much exposure to {asset} ({exposure_pct*100:.1f}% > 35% limit)"
         
         # 5. Check per-exchange exposure (only if user has multiple exchanges)
+        # Use canonical ZAR equity per exchange (not raw mixed-currency sum)
         exchanges_used = set(b.get("exchange") for b in user_bots)
         
         if len(exchanges_used) > 1:  # Only enforce if using multiple exchanges
-            exchange_capital = sum(b.get("current_capital", 0) for b in user_bots if b.get("exchange") == exchange)
+            exchange_bots = [b for b in user_bots if b.get("exchange") == exchange]
+            exchange_equity_zar, _ = compute_equity_zar(exchange_bots)
             max_exchange_exposure = total_equity * 0.60  # 60% max per exchange
             
-            if exchange_capital > max_exchange_exposure:
+            if exchange_equity_zar > max_exchange_exposure:
                 return False, f"Too much exposure on {exchange.upper()} (max 60% of equity)"
         
         # 6. Minimum trade notional (avoid tiny wins)
