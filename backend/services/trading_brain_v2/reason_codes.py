@@ -53,6 +53,14 @@ class ReasonCodes:
     VENUE_UNAVAILABLE = "VENUE_UNAVAILABLE"
     MARKET_DATA_STALE = "MARKET_DATA_STALE"
     ADAPTIVE_STAND_DOWN = "ADAPTIVE_STAND_DOWN"
+    RATE_LIMITED_CACHE_FALLBACK = "RATE_LIMITED_CACHE_FALLBACK"
+
+    # ── Scheduler noop sub-reasons (E: queue truth) ──
+    SCHEDULER_BLOCKED_OPEN_POSITION = "SCHEDULER_BLOCKED_OPEN_POSITION"
+    SCHEDULER_BLOCKED_COOLDOWN = "SCHEDULER_BLOCKED_COOLDOWN"
+    SCHEDULER_BLOCKED_ECONOMICS = "SCHEDULER_BLOCKED_ECONOMICS"
+    SCHEDULER_BLOCKED_EXPOSURE = "SCHEDULER_BLOCKED_EXPOSURE"
+    SCHEDULER_DEFERRED_STAGGERER = "SCHEDULER_DEFERRED_STAGGERER"
 
     # ── Capital ──
     CAPITAL_TOO_SMALL = "CAPITAL_TOO_SMALL"
@@ -97,6 +105,12 @@ REASON_CATALOG = {
     ReasonCodes.VENUE_UNAVAILABLE: "Venue API unavailable or degraded.",
     ReasonCodes.MARKET_DATA_STALE: "Market data is stale or unavailable.",
     ReasonCodes.ADAPTIVE_STAND_DOWN: "Adaptive discipline triggered stand-down.",
+    ReasonCodes.RATE_LIMITED_CACHE_FALLBACK: "Luno API rate-limited (429) — serving cached ticker value.",
+    ReasonCodes.SCHEDULER_BLOCKED_OPEN_POSITION: "Scheduler: bot blocked because it already has an open position.",
+    ReasonCodes.SCHEDULER_BLOCKED_COOLDOWN: "Scheduler: bot blocked by re-entry cooldown or rate limit.",
+    ReasonCodes.SCHEDULER_BLOCKED_ECONOMICS: "Scheduler: bot skipped — trade economics did not meet entry criteria.",
+    ReasonCodes.SCHEDULER_BLOCKED_EXPOSURE: "Scheduler: bot skipped — exposure, drawdown, or risk limit reached.",
+    ReasonCodes.SCHEDULER_DEFERRED_STAGGERER: "Scheduler: trade deferred by staggerer queue — not yet ready to execute.",
     ReasonCodes.CAPITAL_TOO_SMALL: "Bot capital too small for meaningful trading.",
     ReasonCodes.POSITION_SIZE_BELOW_MIN: "Calculated position size below exchange minimum.",
     ReasonCodes.PAPER_HOLD_CAP_EXCEEDED: "Paper validation hold cap exceeded – normal bot exited for fast validation.",

@@ -399,42 +399,39 @@ class OverviewService:
         }
     
     async def _fetch_luno_prices(self) -> Optional[Dict]:
-        """Fetch live prices from Luno API
-        
+        """Fetch live prices from Luno via shared TTL cache.
+
         Returns proper price data structure or None.
+        Uses luno_ticker_cache to avoid repeated HTTP calls from multiple
+        subsystems that all call this method in the same polling window.
         """
         try:
-            import httpx
-            
+            from services import luno_ticker_cache as _ticker_cache
+            from services.price_snapshot_service import record_snapshot
+
             prices = {}
             pairs = [("XBTZAR", "BTC/ZAR"), ("ETHZAR", "ETH/ZAR"), ("XRPZAR", "XRP/ZAR")]
-            
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                for luno_pair, display_pair in pairs:
-                    try:
-                        url = f"https://api.luno.com/api/1/ticker?pair={luno_pair}"
-                        response = await client.get(url)
-                        response.raise_for_status()
-                        
-                        data = response.json()
-                        last_trade = float(data.get("last_trade", 0))
-                        
-                        from services.price_snapshot_service import record_snapshot
 
-                        change_pct, _window = await record_snapshot(display_pair, last_trade)
-                        prices[display_pair] = {
-                            "price": round(last_trade, 2),
-                            "change_pct": round(change_pct, 2),
-                            "change_24h": round(change_pct, 2),
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "source": "luno_public"
-                        }
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch {display_pair}: {e}")
+            for luno_pair, display_pair in pairs:
+                try:
+                    ticker = await _ticker_cache.get_ticker(luno_pair)
+                    if ticker is None:
                         continue
-            
+                    last_trade = ticker.get("last_trade", 0.0)
+                    change_pct, _window = await record_snapshot(display_pair, last_trade)
+                    prices[display_pair] = {
+                        "price": round(last_trade, 2),
+                        "change_pct": round(change_pct, 2),
+                        "change_24h": round(change_pct, 2),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "source": ticker.get("source", "luno_public"),
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to fetch {display_pair}: {e}")
+                    continue
+
             return prices if prices else None
-            
+
         except Exception as e:
             logger.error(f"Luno price fetch error: {e}")
             return None
