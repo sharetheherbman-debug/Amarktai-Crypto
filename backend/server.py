@@ -706,9 +706,13 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     from uuid import uuid4
     from rules import check_bot_cap_limit, validate_exchange, get_reason_message
     from json_utils import serialize_list
-    
+    from services.fx_normalizer import resolve_capital_for_exchange
+
     count = data.get('count', 10)
-    capital_per_bot = data.get('capital_per_bot', 1000)
+    # capital_per_bot is ALWAYS interpreted as a ZAR economic base — identical to the
+    # single-bot creation flow.  For USDT exchanges the quote capital is derived via
+    # resolve_capital_for_exchange so that 1000 ZAR → ~52.63 USDT (not raw 1000 USDT).
+    capital_per_bot = float(data.get('capital_per_bot', 1000) or 1000)
     safe_count = data.get('safe_count', 6)
     risky_count = data.get('risky_count', 2)
     aggressive_count = data.get('aggressive_count', 2)
@@ -718,7 +722,15 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     is_valid, reason_code = validate_exchange(exchange)
     if not is_valid:
         raise HTTPException(status_code=400, detail=get_reason_message(reason_code))
-    
+
+    # Canonical capital conversion — mirrors bot_validator.validate_bot_creation logic.
+    # quote_capital = capital in the exchange's native quote currency.
+    # For Luno: quote_capital == capital_per_bot (ZAR, no conversion).
+    # For Binance/KuCoin/etc: quote_capital = capital_per_bot / fx_rate (USDT).
+    quote_capital, quote_currency, fx_rate_at_creation = resolve_capital_for_exchange(
+        capital_per_bot, exchange
+    )
+
     # Check bot cap for this exchange — only count normal bots (scalpers have separate caps)
     current_bot_count = await db.bots_collection.count_documents({
         "user_id": user_id,
@@ -736,75 +748,64 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
             status_code=400, 
             detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}"
         )
-    
+
+    def _make_bot_record(name: str, risk_mode) -> dict:
+        """Return a single bot dict with authoritative canonical capital fields."""
+        return {
+            'id': str(uuid4()),
+            'user_id': user_id,
+            'name': name,
+            # ── Canonical capital truth fields (mirrors bot_validator.py) ──────────
+            # canonical_base_capital_zar: original ZAR economic base — never mutated.
+            'canonical_base_capital_zar': round(capital_per_bot, 2),
+            'funding_input_amount': round(capital_per_bot, 2),
+            'funding_input_currency': 'ZAR',
+            'fx_rate_at_creation': fx_rate_at_creation,
+            'quote_currency': quote_currency,
+            # initial_capital / current_capital: trading capital in quote currency.
+            # For Luno: ZAR. For Binance/KuCoin/etc: USDT (= capital_per_bot / fx_rate).
+            'initial_capital': quote_capital,
+            'current_capital': quote_capital,
+            # ─────────────────────────────────────────────────────────────────────
+            'total_profit': 0.0,
+            'risk_mode': risk_mode,
+            'trading_mode': 'paper',
+            'exchange': exchange,
+            'status': 'active',
+            'trades_count': 0,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'last_trade': None,
+            'bot_type': 'normal',
+        }
+
     bots_to_create = []
     bot_number = await db.bots_collection.count_documents({"user_id": user_id}) + 1
-    
+
     for i in range(safe_count):
-        bots_to_create.append({
-            'id': str(uuid4()),
-            'user_id': user_id,
-            'name': f'Safe-Bot-{bot_number + i}',
-            'initial_capital': capital_per_bot,
-            'current_capital': capital_per_bot,
-            'total_profit': 0.0,
-            'risk_mode': BotRiskMode.SAFE,
-            'trading_mode': 'paper',
-            'exchange': exchange,
-            'status': 'active',
-            'trades_count': 0,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_trade': None
-        })
-    
+        bots_to_create.append(_make_bot_record(f'Safe-Bot-{bot_number + i}', BotRiskMode.SAFE))
     bot_number += safe_count
-    
+
     for i in range(risky_count):
-        bots_to_create.append({
-            'id': str(uuid4()),
-            'user_id': user_id,
-            'name': f'Balanced-Bot-{bot_number + i}',
-            'initial_capital': capital_per_bot,
-            'current_capital': capital_per_bot,
-            'total_profit': 0.0,
-            'risk_mode': BotRiskMode.BALANCED,
-            'trading_mode': 'paper',
-            'exchange': exchange,
-            'status': 'active',
-            'trades_count': 0,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_trade': None
-        })
-    
+        bots_to_create.append(_make_bot_record(f'Balanced-Bot-{bot_number + i}', BotRiskMode.BALANCED))
     bot_number += risky_count
-    
+
     for i in range(aggressive_count):
-        bots_to_create.append({
-            'id': str(uuid4()),
-            'user_id': user_id,
-            'name': f'Aggressive-Bot-{bot_number + i}',
-            'initial_capital': capital_per_bot,
-            'current_capital': capital_per_bot,
-            'total_profit': 0.0,
-            'risk_mode': BotRiskMode.AGGRESSIVE,
-            'trading_mode': 'paper',
-            'exchange': exchange,
-            'status': 'active',
-            'trades_count': 0,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_trade': None
-        })
-    
+        bots_to_create.append(_make_bot_record(f'Aggressive-Bot-{bot_number + i}', BotRiskMode.AGGRESSIVE))
+
     if bots_to_create:
         try:
             from services.paper_wallet_service import paper_wallet_service
-            currency = "ZAR" if exchange == "luno" else "USDT"
-            total_required = len(bots_to_create) * capital_per_bot
-            available = await paper_wallet_service.get_available_balance(user_id, currency)
-            if available < total_required:
+            # Wallet check uses ZAR base (always) regardless of exchange.
+            # The ZAR economic base per bot is capital_per_bot; total is the sum.
+            total_required_zar = len(bots_to_create) * capital_per_bot
+            available_zar = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+            if available_zar < total_required_zar:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Insufficient paper wallet funds ({currency}). Available: {available:.2f}, Required: {total_required:.2f}"
+                    detail=(
+                        f"Insufficient paper wallet funds (ZAR). "
+                        f"Available: R{available_zar:.2f}, Required: R{total_required_zar:.2f}"
+                    )
                 )
         except HTTPException:
             raise

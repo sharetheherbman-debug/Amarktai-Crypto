@@ -14,6 +14,7 @@ from services.accounting import accounting_service
 import database as db
 from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp, build_trade_record
 from services.fx_normalizer import get_quote_currency
+from services.reconciliation import enrich_trade_pnl_fields
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +277,16 @@ async def get_live_trades(
             _CURRENCY_SYMBOL_MAP = {"ZAR": "R", "USD": "$", "USDT": "$", "USDC": "$", "BUSD": "$", "TUSD": "$"}
             _cur_sym = _CURRENCY_SYMBOL_MAP.get(_trade_quote_currency.upper(), _trade_quote_currency.upper() + "\u00A0")
 
+            # Enrich the stored trade with canonical P&L display fields.
+            # enrich_trade_pnl_fields adds realized_pnl_zar (genuine ZAR-converted P&L)
+            # so that net_profit_zar is never a raw copy of the USDT quote value.
+            _enriched = enrich_trade_pnl_fields(dict(trade))
+            _net_profit_raw = trade.get('net_pnl', trade.get('net_profit', trade.get('profit_loss', 0)))
+            # realized_pnl_zar is always a float (set by enrich_trade_pnl_fields via to_display_zar).
+            # Fall back to the raw profit value only when the enrichment returns None.
+            _net_profit_zar_raw = _enriched.get('realized_pnl_zar')
+            _net_profit_zar = _net_profit_zar_raw if _net_profit_zar_raw is not None else float(_net_profit_raw or 0)
+
             # Build enriched trade object
             enriched_trade = {
                 # Bot info
@@ -302,9 +313,19 @@ async def get_live_trades(
                 "fee_total": trade.get('fee_amount', trade.get('fees_total', trade.get('fees', 0))),
                 "fees": trade.get('fees_total', trade.get('fee_amount', trade.get('fees', 0))),
                 "fee": trade.get('fees_total', trade.get('fee_amount', trade.get('fees', 0))),
-                "net_profit_loss": trade.get('net_pnl', 0),
-                "net_pnl": trade.get('net_pnl', 0),
-                "profit_loss": trade.get('net_pnl', trade.get('profit_loss', 0)),
+                "net_profit_loss": _net_profit_raw,
+                "net_pnl": _net_profit_raw,
+                "net_profit": _net_profit_raw,
+                "profit_loss": _net_profit_raw,
+                # net_profit_zar — ZAR-converted P&L for display.
+                # For ZAR trades (Luno): equals net_profit (rate 1.0).
+                # For USDT trades (Binance etc.): net_profit × fx_rate (e.g. ×19).
+                # Must NEVER be a raw copy of the USDT quote value.
+                "net_profit_zar": _net_profit_zar,
+                "realized_pnl_quote": _enriched.get('realized_pnl_quote', _net_profit_raw),
+                "realized_pnl_zar": _net_profit_zar,
+                "fx_rate_used": _enriched.get('fx_rate_used'),
+                "fx_source": _enriched.get('fx_source'),
                 # Slippage
                 "slippage": trade.get('slippage_cost', trade.get('slippage', 0)),
                 "slippage_cost": trade.get('slippage_cost', trade.get('slippage', 0)),
@@ -315,7 +336,7 @@ async def get_live_trades(
                 "quote_currency": _trade_quote_currency,
 
                 # Display labels use the correct currency symbol
-                "net_pnl_display": trade.get('net_pnl_display', f"{_cur_sym}{trade.get('net_pnl', 0):.2f}"),
+                "net_pnl_display": trade.get('net_pnl_display', f"{_cur_sym}{_net_profit_raw:.2f}"),
                 "gross_pnl_display": trade.get('gross_pnl_display', f"{_cur_sym}{trade.get('gross_pnl', 0):.2f}"),
                 "fee_display": trade.get('fee_display', f"{_cur_sym}{trade.get('fee_amount', trade.get('fees', 0)):.2f}"),
 
@@ -331,7 +352,7 @@ async def get_live_trades(
                 "status": trade.get('status', 'closed'),
                 # Classify as profitable: check if PnL > 0 (treat exactly-zero as not profitable)
                 "is_profitable": (
-                    (trade.get('net_pnl') if trade.get('net_pnl') is not None else trade.get('profit_loss', 0)) > 0
+                    (_net_profit_raw if _net_profit_raw is not None else 0) > 0
                 ),
 
                 # Additional context
