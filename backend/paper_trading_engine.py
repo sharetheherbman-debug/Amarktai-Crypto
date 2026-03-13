@@ -55,6 +55,7 @@ from services.entry_quality import (
     evaluate_pre_timeout_exit,
 )
 from services.trade_worth_filter import evaluate_minimum_worthwhile_trade
+from services.fx_normalizer import to_display_zar as _fx_to_display_zar
 from config import (
     MIN_TRADE_PROFIT_THRESHOLD_ZAR,
     EDGE_BUFFER_PCT,
@@ -2572,6 +2573,10 @@ class PaperTradingEngine:
 
             quality_score = self._calculate_trade_quality(net_profit, fees, entry_value, profit_pct)
 
+            # Compute ZAR display value once; used for net_profit_zar below.
+            _net_profit_zar_raw, _, _ = _fx_to_display_zar(net_profit, fee_currency)
+            _net_profit_zar = round(_net_profit_zar_raw if _net_profit_zar_raw is not None else 0.0, 2)
+
             trade_result = {
                 "success": True,
                 "status": "closed",
@@ -2595,7 +2600,10 @@ class PaperTradingEngine:
                 "slippage": round(slippage_cost, 2),
                 "profit_loss": round(net_profit, 2),
                 "net_profit": round(net_profit, 2),
-                "net_profit_zar": round(net_profit, 2),
+                # net_profit_zar must always be in ZAR display units, never raw quote.
+                # For ZAR bots (Luno) fee_currency=="ZAR" so rate==1.0; no change.
+                # For USDT bots (Binance etc.) fee_currency=="USDT" → proper conversion.
+                "net_profit_zar": _net_profit_zar,
                 "realized_pnl": round(net_profit, 2),
                 "is_paper": True,
                 "profit_pct": round(profit_pct, 3),
@@ -2707,7 +2715,11 @@ class PaperTradingEngine:
                             "net_pnl": trade_result.get("net_profit", 0),
                             "fees_total": trade_result.get("fees_total", trade_result.get("fees", 0)),
                             "slippage_cost": trade_result.get("slippage_cost", 0),
-                            "net_pnl_quote": trade_result.get("net_profit_zar", 0),
+                            # net_pnl_quote must hold the raw quote-currency P&L, not net_profit_zar.
+                            # For open trades net_profit is 0; quoting 0 in the correct currency
+                            # ensures enrich_trade_pnl_fields (called by build_trade_record) can
+                            # convert it properly to ZAR display units.
+                            "net_pnl_quote": trade_result.get("net_profit", 0),
                         },
                         user_id=bot_data['user_id'],
                         bot=bot_data
@@ -2987,8 +2999,10 @@ class PaperTradingEngine:
                     "gross_pnl": round(gross_profit, 2),  # PnL before fees
                     "fees_total": round(trade_result.get("fees_total", fees), 2),
                     "slippage_cost": round(trade_result.get("slippage_cost", 0), 2),
-                    "net_pnl": round(net_profit, 2),  # PnL after fees
-                    "net_pnl_quote": round(trade_result.get("net_profit_zar", net_profit), 2),
+                    "net_pnl": round(net_profit, 2),  # PnL after fees in quote currency
+                    # net_pnl_quote = raw quote-currency P&L.  Must NOT alias net_profit_zar
+                    # (which is the ZAR display value and is different for USDT bots).
+                    "net_pnl_quote": round(net_profit, 2),
                     "trade_close_reason": trade_result.get("trade_close_reason", "paper_cycle"),
                     "realized_pnl": round(net_profit, 2),
                     "fee_paid": round(fees, 2),
