@@ -575,9 +575,9 @@ class TestTradeWorthFilterRaisedFloors:
         assert floor == 1.50, f"Expected R1.50 scalper small ZAR floor, got {floor}"
 
     def test_usdt_floors_unchanged(self):
-        """USDT floors must remain unchanged."""
+        """USDT floors must match canonical entry_thresholds values."""
         from services.trade_worth_filter import _ABS_MIN_QUOTE
-        assert _ABS_MIN_QUOTE[("normal", "small", "usdt")] == 0.80
+        assert _ABS_MIN_QUOTE[("normal", "small", "usdt")] == 0.50
         assert _ABS_MIN_QUOTE[("scalper", "small", "usdt")] == 0.20
 
 

@@ -251,6 +251,7 @@ class TestTradeFeasibilityGate:
             bot_equity=10000, notional=500,
             expected_gross_edge_bps=10, all_in_cost_bps=30,
             spread_pct=0.1, depth_notional=100000,
+            entry_confidence=0.50,
         )
         assert result["approved"] is False
         assert result["decision_reason_code"] == "EDGE_TOO_SMALL"
@@ -262,6 +263,7 @@ class TestTradeFeasibilityGate:
             bot_equity=200, notional=50,
             expected_gross_edge_bps=80, all_in_cost_bps=20,
             spread_pct=0.1, depth_notional=100000,
+            entry_confidence=0.50,
         )
         assert result["approved"] is False
         assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
@@ -272,6 +274,7 @@ class TestTradeFeasibilityGate:
             bot_equity=5000, notional=500,
             expected_gross_edge_bps=100, all_in_cost_bps=20,
             spread_pct=0.25, depth_notional=100000,
+            entry_confidence=0.50,
         )
         assert result["approved"] is False
         assert result["decision_reason_code"] == "SPREAD_TOO_WIDE"
@@ -282,6 +285,7 @@ class TestTradeFeasibilityGate:
             bot_equity=10000, notional=1000,
             expected_gross_edge_bps=100, all_in_cost_bps=20,
             spread_pct=0.1, depth_notional=10000,  # below 50K minimum
+            entry_confidence=0.50,
         )
         assert result["approved"] is False
         assert result["decision_reason_code"] == "DEPTH_TOO_THIN"
@@ -314,7 +318,7 @@ class TestTradeFeasibilityGate:
         assert result["projected_net_profit_quote"] > 0
 
     def test_cost_too_high_rejected(self):
-        """When cost > 65% of gross edge, reject."""
+        """When cost > 55% of gross edge, reject."""
         result = self.gate.evaluate(
             strategy="normal", venue="binance", symbol="BTC/USDT",
             bot_equity=10000, notional=5000,
@@ -322,6 +326,7 @@ class TestTradeFeasibilityGate:
             spread_pct=0.1, depth_notional=200000,
             regime_result={"regime_label": "trending_up", "regime_confidence": 0.8},
             regime_eligibility={"eligible": True, "action": "full", "edge_multiplier": 1.0, "size_multiplier": 1.0},
+            entry_confidence=0.50,
         )
         assert result["approved"] is False
         assert result["decision_reason_code"] in ("COST_TOO_HIGH", "EDGE_TOO_SMALL")

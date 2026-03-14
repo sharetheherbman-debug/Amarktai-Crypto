@@ -6,8 +6,7 @@ absolute profit is too small relative to round-trip costs, slippage, and hold
 time. This is the single source of truth for the "is this trade worth doing?"
 check used outside Trading Brain V2.
 
-All public functions return structured results with machine-readable reason
-codes. No NaN, no None on numeric fields.
+All thresholds are imported from the canonical entry_thresholds module.
 
 Reason codes:
   INSUFFICIENT_COST_EDGE         — net edge after fees/slippage is below floor
@@ -20,60 +19,16 @@ from __future__ import annotations
 import math
 from typing import Dict, Optional
 
-
-# ── Minimum net edge (BPS) after round-trip costs ─────────────────────────
-# Scalpers accept a tighter floor because they trade more frequently.
-MIN_NET_EDGE_BPS: Dict[str, float] = {
-    "normal": 15.0,
-    "trend": 15.0,
-    "adaptive": 15.0,
-    "mean_reversion": 12.0,
-    "scalper": 8.0,
-}
-
-# ── Minimum absolute reward (quote currency) ──────────────────────────────
-# Bucket: small / medium / large equity in ZAR and USDT.
-#
-# Calibrated for meaningful Luno trade economics.  Previous floors
-# (R1.50 small ZAR) were trivially small.  New floors require a
-# materially useful gain so only genuinely worthwhile trades pass.
-#
-# USDT accounts retain their existing floors (Binance fees are lower and
-# USDT liquidity is higher, so these are still meaningful).
-_ABS_MIN_QUOTE: Dict[tuple, float] = {
-    # (bot_type, equity_bucket, venue_class) -> min profit in quote
-    ("normal",  "small",  "zar"):  3.00,
-    ("normal",  "medium", "zar"): 12.00,
-    ("normal",  "large",  "zar"): 40.00,
-    ("normal",  "small",  "usdt"): 0.80,
-    ("normal",  "medium", "usdt"): 2.00,
-    ("normal",  "large",  "usdt"): 6.00,
-    ("scalper", "small",  "zar"):  1.50,
-    ("scalper", "medium", "zar"):  5.00,
-    ("scalper", "large",  "zar"): 15.00,
-    ("scalper", "small",  "usdt"): 0.20,
-    ("scalper", "medium", "usdt"): 0.50,
-    ("scalper", "large",  "usdt"): 1.50,
-}
-
-# ── Minimum reward-per-second floor ───────────────────────────────────────
-# Guards against trades that lock capital too long for negligible reward.
-# Units: quote currency per second
-_MIN_REWARD_PER_SECOND: Dict[str, Dict[str, float]] = {
-    "zar": {
-        "normal":  0.005,   # R0.005/s → R18/h minimum acceptable
-        "scalper": 0.010,   # R0.01/s  → scalpers must earn faster
-    },
-    "usdt": {
-        "normal":  0.0005,
-        "scalper": 0.0010,
-    },
-}
-
-# ── Equity bucket thresholds ───────────────────────────────────────────────
-_EQUITY_THRESHOLDS_ZAR = (5_000, 50_000)   # small < 5k, medium 5k-50k, large >50k
-_EQUITY_THRESHOLDS_USDT = (500, 5_000)
-
+from services.trading_brain_v2.entry_thresholds import (
+    MIN_NET_EDGE_BPS,
+    ABS_PROFIT_MIN_QUOTE as _ABS_MIN_QUOTE,
+    MIN_REWARD_PER_SECOND as _MIN_REWARD_PER_SECOND,
+    EQUITY_THRESHOLDS_ZAR as _EQUITY_THRESHOLDS_ZAR,
+    EQUITY_THRESHOLDS_USDT as _EQUITY_THRESHOLDS_USDT,
+    equity_bucket as _equity_bucket,
+    venue_class as _venue_class,
+    bot_type_key as _bot_type_key,
+)
 
 def _safe_float(v, default: float = 0.0) -> float:
     """Coerce value to float; return default for None/NaN/Inf."""
@@ -87,27 +42,6 @@ def _safe_float(v, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
 
-
-def _equity_bucket(equity: float, venue_class: str) -> str:
-    thresholds = (
-        _EQUITY_THRESHOLDS_ZAR if venue_class == "zar" else _EQUITY_THRESHOLDS_USDT
-    )
-    if equity >= thresholds[1]:
-        return "large"
-    if equity >= thresholds[0]:
-        return "medium"
-    return "small"
-
-
-def _venue_class(exchange: str) -> str:
-    return "zar" if (exchange or "").lower() == "luno" else "usdt"
-
-
-def _bot_type_key(bot_type: str) -> str:
-    bt = (bot_type or "normal").lower()
-    if bt in ("scalper",):
-        return "scalper"
-    return "normal"
 
 
 def evaluate_minimum_worthwhile_trade(
@@ -177,6 +111,7 @@ def evaluate_minimum_worthwhile_trade(
         "projected_net_profit": round(projected_net_profit, 4),
         "min_edge_required_bps": min_edge,
         "min_abs_profit_required": abs_min,
+        "threshold_source": "entry_thresholds",
     }
 
     # ── Check 1: net edge floor ───────────────────────────────────────────
