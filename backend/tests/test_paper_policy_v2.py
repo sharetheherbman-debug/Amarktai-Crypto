@@ -225,9 +225,10 @@ class TestFeasibilityGateStricterZAR:
 
     def test_trade_passes_when_profit_meets_new_floor(self):
         """
-        notional=500, net_edge=110 bps → profit = 500 × 0.011 = R5.50 >= R3.00 → PASS
+        notional=3000, net_edge=110 bps → profit = 3000 × 0.011 = R33.00 >= R25.00 → PASS
+        (Updated from R5.50 to meet the new R25 MIN_PROJECTED_NET_PROFIT floor.)
         """
-        result = self._gate(notional=500.0, expected_gross_edge_bps=150.0, all_in_cost_bps=40.0)
+        result = self._gate(notional=3000.0, expected_gross_edge_bps=150.0, all_in_cost_bps=40.0)
         assert result["approved"], f"Expected approval, got: {result}"
 
     def test_old_floor_no_longer_passes(self):

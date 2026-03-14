@@ -75,6 +75,10 @@ class ReasonCodes:
     # ── Entry quality ──
     LOW_CONFIDENCE_ENTRY = "LOW_CONFIDENCE_ENTRY"
 
+    # ── Minimum profit / cooldown gates ──
+    ENTRY_REJECTED_MIN_PROFIT = "ENTRY_REJECTED_MIN_PROFIT"
+    ENTRY_REJECTED_COOLDOWN = "ENTRY_REJECTED_COOLDOWN"
+
 
 # Human-readable descriptions for UI/diagnostics
 REASON_CATALOG = {
@@ -118,6 +122,8 @@ REASON_CATALOG = {
     ReasonCodes.REGIME_DECAY_EXIT: "Regime confidence or direction deteriorated after entry – exiting.",
     ReasonCodes.PROFIT_PROTECTION_EXIT: "Small gain appeared then stalled – exiting to protect profit.",
     ReasonCodes.LOW_CONFIDENCE_ENTRY: "Entry confidence below minimum threshold.",
+    ReasonCodes.ENTRY_REJECTED_MIN_PROFIT: "Projected net profit is below the minimum required threshold for this venue.",
+    ReasonCodes.ENTRY_REJECTED_COOLDOWN: "Trade rejected – scalper re-entry cooldown active after unprofitable close.",
 }
 
 

@@ -33,8 +33,8 @@ SCALPER_WEAK_EXIT_REASONS = frozenset({
     "STAGNATION_EXIT",
 })
 
-# Cooldown period after a weak exit (seconds).  Configurable via env.
-SCALPER_REENTRY_COOLDOWN_SECONDS = int(os.getenv("SCALPER_REENTRY_COOLDOWN_SECONDS", "300"))  # 5 min default
+# Cooldown period after a weak exit OR an unprofitable close (seconds).  Configurable via env.
+SCALPER_REENTRY_COOLDOWN_SECONDS = int(os.getenv("SCALPER_REENTRY_COOLDOWN_SECONDS", "120"))  # 2 min default
 
 # Minimum improvement required for early re-entry (bypass cooldown).
 _REGIME_CONF_IMPROVEMENT_MIN = 0.15   # regime confidence must improve by at least this
@@ -259,29 +259,43 @@ class BotBehavioralContracts:
         regime_confidence: float = 0.0,
         entry_confidence: float = 0.0,
         pnl_pct: float = 0.0,
+        net_profit: float = None,
     ) -> None:
         """Record the outcome of a closed scalper trade for re-entry discipline.
 
         Stores the exit reason, confidence levels, and timestamp so that
         ``check_scalper_reentry_discipline`` can decide whether the bot is
         ready to re-enter.
+
+        A cooldown is triggered when:
+        - ``exit_reason`` is in SCALPER_WEAK_EXIT_REASONS, OR
+        - ``net_profit`` is explicitly provided and is <= 0 (loss or breakeven).
         """
-        if exit_reason in SCALPER_WEAK_EXIT_REASONS:
+        is_weak_exit = exit_reason in SCALPER_WEAK_EXIT_REASONS
+        is_loss = net_profit is not None and net_profit <= 0
+
+        if is_weak_exit or is_loss:
+            # When both conditions are true, "weak_exit" takes precedence to preserve
+            # backward compatibility with existing cooldown tracking logic.  Loss-only
+            # triggers (is_loss=True, is_weak_exit=False) use "loss" so callers can
+            # distinguish and return the correct reason code (ENTRY_REJECTED_COOLDOWN).
+            trigger = "loss" if is_loss and not is_weak_exit else "weak_exit"
             self._scalper_exit_state[bot_id] = {
                 "exit_reason": str(exit_reason),
                 "exit_ts": time.time(),
                 "regime_confidence": float(regime_confidence or 0.0),
                 "entry_confidence": float(entry_confidence or 0.0),
                 "pnl_pct": float(pnl_pct or 0.0),
+                "trigger": trigger,
             }
             logger.info(
-                "📛 SCALPER EXIT RECORDED | bot=%s | reason=%s | "
+                "📛 SCALPER EXIT RECORDED | bot=%s | reason=%s | trigger=%s | "
                 "regime_conf=%.2f entry_conf=%.2f pnl=%.3f%% → re-entry cooldown %ds",
-                bot_id, exit_reason, regime_confidence, entry_confidence, pnl_pct,
+                bot_id, exit_reason, trigger, regime_confidence, entry_confidence, pnl_pct,
                 SCALPER_REENTRY_COOLDOWN_SECONDS,
             )
         else:
-            # Clean exit (take-profit, trailing-stop) — clear any lingering cooldown
+            # Clean exit (take-profit with positive P&L) — clear any lingering cooldown
             self._scalper_exit_state.pop(bot_id, None)
 
     def check_scalper_reentry_discipline(
@@ -351,9 +365,16 @@ class BotBehavioralContracts:
             current_regime_confidence - prev_rc,
             current_entry_confidence - prev_ec,
         )
+        # Use ENTRY_REJECTED_COOLDOWN for loss-triggered cooldowns (net_profit <= 0),
+        # SCALPER_REENTRY_COOLDOWN for weak-exit-reason-triggered cooldowns.
+        reason_code = (
+            "ENTRY_REJECTED_COOLDOWN"
+            if last.get("trigger") == "loss"
+            else "SCALPER_REENTRY_COOLDOWN"
+        )
         return {
             "allowed": False,
-            "reason_code": "SCALPER_REENTRY_COOLDOWN",
+            "reason_code": reason_code,
             "reason_text": (
                 f"Re-entry blocked after {last['exit_reason']} – "
                 f"cooldown {remaining}s remaining. "

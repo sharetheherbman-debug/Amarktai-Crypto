@@ -14,6 +14,7 @@ from .entry_thresholds import (
     MIN_NET_EDGE_BPS,
     K_COST,
     ABS_PROFIT_MIN_QUOTE,
+    MIN_PROJECTED_NET_PROFIT,
     SPREAD_CAP_PCT,
     DEPTH_MIN_NOTIONAL,
     STRATEGY_TIME_CAP,
@@ -172,6 +173,14 @@ class TradeFeasibilityGate:
         abs_min = ABS_PROFIT_MIN_QUOTE.get(lookup, 2.0)
         if projected_net_profit_quote < abs_min:
             return make_decision_payload(ReasonCodes.ABS_PROFIT_TOO_SMALL, False, **common)
+
+        # ── 8b. Flat minimum projected net profit ──
+        # A final flat floor applied after the per-strategy abs-profit check (step 8
+        # above).  Ensures every approved trade produces at least $1.50 USDT or
+        # R25.00 ZAR in net profit, regardless of strategy type or equity bucket.
+        min_profit_floor = MIN_PROJECTED_NET_PROFIT.get(vc, 0.0)
+        if min_profit_floor > 0 and projected_net_profit_quote < min_profit_floor:
+            return make_decision_payload(ReasonCodes.ENTRY_REJECTED_MIN_PROFIT, False, **common)
 
         # ── 9. Time feasibility ──
         time_cap = STRATEGY_TIME_CAP.get(strat_key, 21600)

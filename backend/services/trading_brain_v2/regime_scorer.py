@@ -21,8 +21,11 @@ REGIME_LOW_VOL = "low_volatility"
 REGIME_AMBIGUOUS = "ambiguous"
 
 # ── Strategy eligibility by regime ──
+# Scalpers thrive in quiet/sideways markets (tight spreads, range-bound price).
+# They are blocked during strong trends and high-volatility breakouts where
+# momentum overwhelms microstructure edge.
 STRATEGY_REGIME_MAP = {
-    "scalper": {REGIME_BREAKOUT, REGIME_HIGH_VOL, REGIME_CONSOLIDATION, REGIME_TRENDING_UP, REGIME_TRENDING_DOWN},
+    "scalper": {REGIME_CONSOLIDATION, REGIME_LOW_VOL, REGIME_MEAN_REVERSION},
     "normal": {REGIME_TRENDING_UP, REGIME_TRENDING_DOWN, REGIME_CONSOLIDATION, REGIME_MEAN_REVERSION,
                REGIME_BREAKOUT, REGIME_LOW_VOL, REGIME_HIGH_VOL},
     "mean_reversion": {REGIME_MEAN_REVERSION, REGIME_CONSOLIDATION, REGIME_LOW_VOL},
