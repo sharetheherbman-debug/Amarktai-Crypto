@@ -12,6 +12,10 @@ This service provides ONE canonical snapshot of all system metrics:
 - Risk metrics (daily loss lock state)
 
 ALL dashboard tiles MUST use this service. No duplicated calculations.
+
+Currency rule: ALL aggregated monetary values returned by this service are in ZAR.
+Mixed-currency portfolios (Luno ZAR + Binance USDT) are normalised via
+services.fx_normalizer before any summing occurs.
 """
 
 import logging
@@ -21,6 +25,8 @@ import database as db
 from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
 from utils.trade_utils import parse_trade_timestamp
 from utils.bot_state import normalize_bot_state, is_active_bot
+from services.fx_normalizer import get_quote_currency as _gqc, get_fx_rate as _gfr
+from services.reconciliation import compute_equity_zar
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +188,12 @@ class OverviewService:
             return self._empty_snapshot(datetime.now(timezone.utc))
     
     async def _compute_profit_metrics(self, bot_ids: List[str], today_start: datetime) -> Dict:
-        """Compute profit metrics using canonical field normalization
-        
+        """Compute profit metrics, normalised to ZAR display currency.
+
         Uses:
-        - net_pnl (primary) → fallback profit_loss
-        - gross_pnl if available
+        - realized_pnl_zar (primary, set by enrich_trade_pnl_fields — always ZAR)
+        - Falls back to net_pnl × fx_rate(quote_currency) for older trades
+        - gross_pnl is also converted via the trade's quote_currency
         """
         if not bot_ids:
             return {
@@ -196,7 +203,7 @@ class OverviewService:
                 "net_pnl": 0.0
             }
         
-        # Get all closed trades
+        # Get all closed trades — include exchange/quote_currency for FX conversion
         all_trades = await db.trades_collection.find({
             "bot_id": {"$in": bot_ids},
             "status": "closed"
@@ -205,39 +212,54 @@ class OverviewService:
             "net_pnl": 1,
             "profit_loss": 1,
             "gross_pnl": 1,
+            "realized_pnl_zar": 1,      # Preferred: pre-converted ZAR value
+            "exchange": 1,
+            "quote_currency": 1,
             "timestamp": 1
         }).to_list(100000)
         
-        # Calculate totals using canonical field normalization
         total_net_pnl = 0.0
         total_gross_pnl = 0.0
         today_net_pnl = 0.0
         
         for trade in all_trades:
-            # Use net_pnl if available, fallback to profit_loss
-            net_pnl = trade.get("net_pnl", trade.get("profit_loss", 0))
-            gross_pnl = trade.get("gross_pnl", net_pnl)  # Fallback to net if gross not available
+            exchange = trade.get("exchange", "")
+            qc = trade.get("quote_currency") or _gqc(exchange, "")
+            rate, _ = _gfr(qc, "ZAR")
+
+            # ── Net PnL: prefer pre-converted ZAR value; fall back to on-the-fly conversion ──
+            net_pnl_zar = trade.get("realized_pnl_zar")
+            if net_pnl_zar is None:
+                raw_pnl = float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
+                net_pnl_zar = raw_pnl * rate
+
+            # ── Gross PnL: prefer gross_pnl, fall back to net_pnl, then profit_loss ──
+            raw_gross_pnl = trade.get("gross_pnl")
+            if raw_gross_pnl is None:
+                raw_gross_pnl = trade.get("net_pnl", trade.get("profit_loss", 0))
+            gross_pnl_zar = float(raw_gross_pnl or 0) * rate
             
-            total_net_pnl += net_pnl
-            total_gross_pnl += gross_pnl
+            total_net_pnl += net_pnl_zar
+            total_gross_pnl += gross_pnl_zar
             
             # Check if trade is from today
             trade_time = trade.get("timestamp", "")
             if trade_time and trade_time >= today_start.isoformat():
-                today_net_pnl += net_pnl
+                today_net_pnl += net_pnl_zar
         
         return {
             "total_net_pnl": round(total_net_pnl, 2),
             "today_net_pnl": round(today_net_pnl, 2),
             "gross_pnl": round(total_gross_pnl, 2),
-            "net_pnl": round(total_net_pnl, 2)  # Same as total_net_pnl
+            "net_pnl": round(total_net_pnl, 2)
         }
     
     async def _compute_fee_metrics(self, bot_ids: List[str], today_start: datetime) -> Dict:
-        """Compute fee metrics using canonical field normalization
-        
+        """Compute fee metrics normalised to ZAR display currency.
+
         Uses:
-        - fee_amount (primary) → fallback fees → fallback fee
+        - fee_display_zar (primary, set by enrich_trade_pnl_fields — always ZAR)
+        - Falls back to fee_amount × fx_rate(quote_currency) for older trades
         """
         if not bot_ids:
             return {
@@ -245,7 +267,7 @@ class OverviewService:
                 "today_fees": 0.0
             }
         
-        # Get all closed trades
+        # Get all closed trades — include exchange/quote_currency for FX conversion
         all_trades = await db.trades_collection.find({
             "bot_id": {"$in": bot_ids},
             "status": "closed"
@@ -254,23 +276,33 @@ class OverviewService:
             "fee_amount": 1,
             "fees": 1,
             "fee": 1,
+            "fee_display_zar": 1,   # Preferred: pre-converted ZAR value
+            "exchange": 1,
+            "quote_currency": 1,
             "timestamp": 1
         }).to_list(100000)
         
-        # Calculate totals using canonical field normalization
+        # Calculate totals using ZAR normalisation
         total_fees = 0.0
         today_fees = 0.0
         
         for trade in all_trades:
-            # Use fee_amount if available, fallback to fees, then fee
-            fee = trade.get("fee_amount", trade.get("fees", trade.get("fee", 0)))
+            exchange = trade.get("exchange", "")
+            qc = trade.get("quote_currency") or _gqc(exchange, "")
+            rate, _ = _gfr(qc, "ZAR")
+
+            # Prefer pre-converted ZAR fee value; fall back to on-the-fly conversion
+            fee_zar = trade.get("fee_display_zar")
+            if fee_zar is None:
+                raw_fee = float(trade.get("fee_amount", trade.get("fees", trade.get("fee", 0))) or 0)
+                fee_zar = raw_fee * rate
             
-            total_fees += fee
+            total_fees += fee_zar
             
             # Check if trade is from today
             trade_time = parse_trade_timestamp(trade)
             if trade_time >= today_start:
-                today_fees += fee
+                today_fees += fee_zar
         
         return {
             "total_fees": round(total_fees, 2),
@@ -338,23 +370,49 @@ class OverviewService:
         }
     
     def _compute_capital_metrics(self, bots: List[Dict]) -> Dict:
-        """Compute equity and required capital metrics"""
-        # Equity = sum of current capital across all active bots
-        equity = sum(b.get("current_capital", 0) for b in bots if is_active_bot(b))
+        """Compute equity and required capital metrics, all values in ZAR.
+
+        Uses:
+        - compute_equity_zar() from reconciliation for equity (prefers
+          canonical_base_capital_zar then falls back to current_capital × fx_rate)
+        - canonical_base_capital_zar for required capital (stored at bot creation)
+          with fallback to initial_capital × fx_rate(quote_currency)
+        """
+        # Equity = sum of current capital across all active bots, in ZAR
+        active_bots = [b for b in bots if is_active_bot(b)]
+        equity_zar, _equity_breakdown = compute_equity_zar(active_bots)
         
-        # Required capital = sum of initial capital across all bots (not just active)
-        # This is what the system expects to have allocated
-        required_capital_total = sum(b.get("initial_capital", 0) for b in bots)
+        # Required capital = sum of original ZAR economic base across all bots
+        required_capital_total = 0.0
+        for b in bots:
+            base_zar = b.get("canonical_base_capital_zar")
+            if base_zar is not None:
+                required_capital_total += float(base_zar)
+            else:
+                # Fallback: convert initial_capital using quote_currency
+                initial = float(b.get("initial_capital", 0) or 0)
+                qc = b.get("quote_currency") or _gqc(b.get("exchange", ""), "")
+                rate, _ = _gfr(qc, "ZAR")
+                required_capital_total += initial * rate
         
-        # Required capital by platform
+        # Required capital by platform (ZAR)
         required_capital_by_platform = {}
         for platform in SUPPORTED_PLATFORMS:
             platform_bots = [b for b in bots if b.get("platform") == platform]
-            platform_capital = sum(b.get("initial_capital", 0) for b in platform_bots)
+            platform_capital = 0.0
+            for b in platform_bots:
+                base_zar = b.get("canonical_base_capital_zar")
+                if base_zar is not None:
+                    platform_capital += float(base_zar)
+                else:
+                    initial = float(b.get("initial_capital", 0) or 0)
+                    qc = b.get("quote_currency") or _gqc(b.get("exchange", ""), "")
+                    rate, _ = _gfr(qc, "ZAR")
+                    platform_capital += initial * rate
             required_capital_by_platform[platform] = round(platform_capital, 2)
         
         return {
-            "equity": round(equity, 2),
+            "equity": equity_zar,
             "required_capital_total": round(required_capital_total, 2),
             "required_capital_by_platform": required_capital_by_platform
         }
