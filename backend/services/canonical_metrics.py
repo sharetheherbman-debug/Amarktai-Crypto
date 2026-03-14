@@ -7,26 +7,27 @@ Single source of truth for per-bot and portfolio trading metrics.
 This module aggregates closed-trade data and bot capital fields to provide
 consistent metrics consumed by routes/UI.
 
-Currency rule: ALL aggregated monetary values are in ZAR display currency.
-Per-bot records also expose quote_currency and display_currency so the UI
-can show native values (e.g. "52.63 USDT") alongside the ZAR equivalent.
+Currency rule:
+- ALL internal aggregation is in ZAR (the canonical internal currency).
+- Per-bot records expose quote_currency and display_currency so the UI
+  can show native values (e.g. "52.63 USDT") alongside the ZAR equivalent.
+- When display_currency != "ZAR", all aggregated ZAR totals are converted
+  to the requested display currency (USD/GBP/EUR) via fx_normalizer before
+  being returned to the caller.
 """
 
 from __future__ import annotations
 
 from typing import Dict, Any, List, Optional
 
-# database is imported at module level so tests can patch
-# `services.canonical_metrics.db.*` attributes.  The database module
-# uses lazy initialisation — all collections are None until
-# setup_collections() is called — so this import is safe in test
-# environments that never connect to MongoDB.
 import database as db
 import inspect
 
 from services.fx_normalizer import (
     get_quote_currency as _gqc,
     get_fx_rate as _gfr,
+    to_display_currency as _to_display,
+    SUPPORTED_DISPLAY_CURRENCIES,
 )
 
 
@@ -117,17 +118,40 @@ async def backfill_missing_current_capital(user_id: str) -> int:
     return int(result.modified_count or 0)
 
 
-async def get_canonical_metrics_snapshot(user_id: str, bots: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+async def get_canonical_metrics_snapshot(
+    user_id: str,
+    bots: Optional[List[Dict[str, Any]]] = None,
+    display_currency: str = "ZAR",
+) -> Dict[str, Any]:
     """
     Return canonical metrics snapshot for user's non-deleted bots.
 
     Shape:
-    - summary: aggregate portfolio metrics (all values in ZAR)
-    - by_bot_id: per-bot standardized metrics (capital/profit in ZAR display values)
+    - summary: aggregate portfolio metrics (all monetary values in *display_currency*)
+    - by_bot_id: per-bot standardized metrics (display values in *display_currency*)
 
-    All monetary fields are normalised to ZAR before aggregation.
-    Each per-bot record also exposes quote_currency and display_currency.
+    Internal aggregation is always in ZAR.  The final totals are converted to
+    *display_currency* (ZAR/USD/GBP/EUR) before being returned.
+
+    Per-bot entries always expose:
+    - quote_currency: native trade currency (e.g. "USDT" for Binance)
+    - display_currency: requested presentation currency
+    - capital_initial_quote: native amount (e.g. 52.63 USDT)
+    - capital_initial: display amount (e.g. 1000.0 ZAR, or 54.05 USD)
     """
+    dc = str(display_currency or "ZAR").upper()
+    if dc not in SUPPORTED_DISPLAY_CURRENCIES:
+        dc = "ZAR"
+
+    # Pre-compute ZAR→display rate once before the per-bot loop to avoid
+    # a redundant FX lookup on every monetary field for every bot.
+    _dc_rate, _dc_source = _gfr("ZAR", dc)
+
+    def _cvt(zar_val: float) -> float:
+        if zar_val is None:
+            return 0.0
+        return round(float(zar_val) * _dc_rate, 2)
+
     if bots is None and db.bots_collection is None:
         return _empty_snapshot()
 
@@ -238,29 +262,33 @@ async def get_canonical_metrics_snapshot(user_id: str, bots: Optional[List[Dict[
         roi_pct = (profit_realized_zar / capital_initial_zar * 100.0) if capital_initial_zar > 0 else 0.0
 
         by_bot_id[bot_id] = {
-            # ZAR display values (all aggregates in ZAR)
-            "capital_initial": round(capital_initial_zar, 2),
-            "capital_current": round(capital_current_zar, 2),
-            "capital_allocated": round(capital_allocated_zar, 2),
-            "capital_available": round(capital_available_zar, 2),
-            "open_position_value": round(open_position_value_zar, 2),
-            "profit_realized": round(profit_realized_zar, 2),
+            # Display-currency values (presented to the user in their chosen currency)
+            "capital_initial": round(_cvt(capital_initial_zar), 2),
+            "capital_current": round(_cvt(capital_current_zar), 2),
+            "capital_allocated": round(_cvt(capital_allocated_zar), 2),
+            "capital_available": round(_cvt(capital_available_zar), 2),
+            "open_position_value": round(_cvt(open_position_value_zar), 2),
+            "profit_realized": round(_cvt(profit_realized_zar), 2),
+            # ZAR internal values (always present for downstream logic)
+            "capital_initial_zar": round(capital_initial_zar, 2),
+            "capital_current_zar": round(capital_current_zar, 2),
+            "profit_realized_zar": round(profit_realized_zar, 2),
             # Native quote values for per-bot display
             "capital_initial_quote": round(_num(bot.get("initial_capital", bot.get("starting_capital", 0))), 2),
             "capital_current_quote": round(capital_current_raw, 2),
             "quote_currency": quote_currency,
-            "display_currency": "ZAR",
+            "display_currency": dc,
             "fx_rate_used": round(fx_rate, 4),
             "fx_source": fx_source,
             "capital_summary": build_canonical_capital_summary(
-                capital_initial=capital_initial_zar,
-                capital_allocated=capital_allocated_zar,
-                capital_available=capital_available_zar,
-                open_position_value=open_position_value_zar,
-                profit_realized=profit_realized_zar,
-                unrealized_profit=_num(bot.get("unrealized_profit", 0)) * fx_rate,
+                capital_initial=_cvt(capital_initial_zar),
+                capital_allocated=_cvt(capital_allocated_zar),
+                capital_available=_cvt(capital_available_zar),
+                open_position_value=_cvt(open_position_value_zar),
+                profit_realized=_cvt(profit_realized_zar),
+                unrealized_profit=_cvt(_num(bot.get("unrealized_profit", 0)) * fx_rate),
                 quote_currency=quote_currency,
-                display_currency="ZAR",
+                display_currency=dc,
             ),
             "roi_pct": round(roi_pct, 2),
             "trade_count": trade_count,
@@ -282,10 +310,19 @@ async def get_canonical_metrics_snapshot(user_id: str, bots: Optional[List[Dict[
 
     if summary["trade_count"] > 0:
         summary["win_rate_pct"] = round((summary["winning_trades"] / summary["trade_count"]) * 100.0, 2)
+    # ROI uses ZAR internal values (currency-invariant ratio)
     if summary["capital_initial"] > 0:
         summary["roi_pct"] = round((summary["profit_realized"] / summary["capital_initial"]) * 100.0, 2)
 
+    # Convert summary monetary fields to display_currency using pre-computed rate
     for key in ("capital_initial", "capital_current", "capital_allocated", "capital_available", "open_position_value", "profit_realized"):
-        summary[key] = round(summary[key], 2)
+        summary[key] = round(_cvt(summary[key]), 2)
+
+    summary["display_currency"] = dc
+    summary["fx_metadata"] = {
+        "zar_to_display_rate": round(_dc_rate, 6),
+        "zar_to_display_source": _dc_source,
+        "internal_currency": "ZAR",
+    }
 
     return {"summary": summary, "by_bot_id": by_bot_id}

@@ -9,7 +9,8 @@ import { useRealtimeEvent } from './useRealtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
 import { NAV } from '../constants/dashboardNav';
-import { formatZAR } from '../lib/moneyFormat';
+import { formatZAR, formatAmount, getCurrencySymbol } from '../lib/moneyFormat';
+import useDisplayCurrency from './useDisplayCurrency';
 
 const API = '';
 const axios = apiClient;
@@ -264,12 +265,21 @@ export default function useDashboardState(navigate) {
   const wsRef = useRef(null);
   const sseRef = useRef(null);
   const botStatusErrorRef = useRef({ lastShown: 0 });
-  
+
   const token = localStorage.getItem('token');
   const axiosConfig = useMemo(() => ({
     headers: { Authorization: `Bearer ${token}` }
   }), [token]);
   const { livePrices, loadLivePrices, setLivePrices } = useDashboardData(token);
+
+  // ── Display currency preference ───────────────────────────────────────────
+  const {
+    displayCurrency,
+    setDisplayCurrency,
+    currencySymbol: displayCurrencySymbol,
+    loading: displayCurrencyLoading,
+    error: displayCurrencyError,
+  } = useDisplayCurrency();
   const storageTotals = useMemo(() => {
     if (!storageData) {
       return null;
@@ -889,9 +899,10 @@ export default function useDashboardState(navigate) {
           const activeBots = safeNumber(overview.bots_active, 0);
           const runnableBots = safeNumber(overview.runnable_bots, activeBots);
           setOverviewData(prev => ({ ...prev, ...overview }));
+          const sym = displayCurrencySymbol || 'R';
           setMetrics(prev => ({
             ...prev,
-            totalProfit: `R${safeNumber(overview.total_profit, 0).toFixed(2)}`,
+            totalProfit: `${sym}${safeNumber(overview.total_profit, 0).toFixed(2)}`,
             activeBots: `${runnableBots} runnable / ${activeBots} active`,
             lastUpdate: formatTimestamp(new Date(), { includeDate: false })
           }));
@@ -951,21 +962,22 @@ export default function useDashboardState(navigate) {
         // Real-time profit update in overview
         setMetrics(prev => ({
           ...prev,
-          totalProfit: `R${safeToFixed(data.total_profit, 2)}`
+          totalProfit: `${displayCurrencySymbol || 'R'}${safeToFixed(data.total_profit, 2)}`
         }));
         // Update countdown when profit changes
         loadCountdown();
         break;
-      
+
       case 'overview_updated':
         // Update overview data from WebSocket
         if (data.overview) {
           const activeBots = safeNumber(data.overview.active_bots, 0);
           const runnableBots = safeNumber(data.overview.runnable_bots, activeBots);
+          const sym = displayCurrencySymbol || 'R';
           setMetrics(prev => ({
             ...prev,
             totalProfit: Number.isFinite(Number(data.overview.portfolio_value))
-              ? `R${safeToFixed(data.overview.portfolio_value, 2)}`
+              ? `${sym}${safeToFixed(data.overview.portfolio_value, 2)}`
               : prev.totalProfit,
             activeBots: data.overview.active_bots !== undefined
               ? `${runnableBots} runnable / ${activeBots} active`
@@ -1267,8 +1279,13 @@ export default function useDashboardState(navigate) {
 
   const loadOverviewData = async () => {
     try {
+      // Pass display_currency so the snapshot values come back in the user's currency
+      const snapshotUrl = displayCurrency && displayCurrency !== 'ZAR'
+        ? `/overview/snapshot?display_currency=${encodeURIComponent(displayCurrency)}`
+        : '/overview/snapshot';
+
       const [snapshotResult, paperWalletResult, modeResult, tradesResult, autonomyResult] = await Promise.allSettled([
-        get('/overview/snapshot'),
+        get(snapshotUrl),
         get('/wallet/paper'),
         get('/system/mode'),
         get('/trades/recent?limit=1'),
@@ -1307,7 +1324,10 @@ export default function useDashboardState(navigate) {
         lastTradeTime,
         systemMode,
         lastRebalance: snapshotRes?.lastRebalance || 'Not available',
-        nextReinvest: snapshotRes?.nextReinvest || 'Not available'
+        nextReinvest: snapshotRes?.nextReinvest || 'Not available',
+        // Pass through display currency metadata so components can format correctly
+        display_currency: snapshotRes?.display_currency || displayCurrency || 'ZAR',
+        fx_metadata: snapshotRes?.fx_metadata || null,
       });
       setAutonomyStatus(autonomyRes);
     } catch (err) {
@@ -1476,8 +1496,9 @@ export default function useDashboardState(navigate) {
   const loadMetrics = async () => {
     try {
       const res = await axios.get(`${API}/portfolio/summary`, axiosConfig);
+      const sym = displayCurrencySymbol || 'R';
       setMetrics({
-        totalProfit: `R${safeToFixed(res.data.net_pnl, 2)}`,
+        totalProfit: `${sym}${safeToFixed(res.data.net_pnl, 2)}`,
         activeBots: `${safeNumber(res.data.active_bots, 0)} / ${safeNumber(res.data.total_bots, 0)}`,
         exposure: `${safeToFixed(res.data.exposure, 1, '0.0')}%`,
         riskLevel: res.data.risk_level || 'Unknown',
@@ -3484,6 +3505,12 @@ export default function useDashboardState(navigate) {
     user,
     userInitial,
     winRateData,
-    winRatePeriod
+    winRatePeriod,
+    // ── Display currency preference ─────────────────────────────────────────
+    displayCurrency,
+    setDisplayCurrency,
+    displayCurrencySymbol,
+    displayCurrencyLoading,
+    displayCurrencyError,
   };
 }

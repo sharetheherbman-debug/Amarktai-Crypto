@@ -13,9 +13,12 @@ This service provides ONE canonical snapshot of all system metrics:
 
 ALL dashboard tiles MUST use this service. No duplicated calculations.
 
-Currency rule: ALL aggregated monetary values returned by this service are in ZAR.
-Mixed-currency portfolios (Luno ZAR + Binance USDT) are normalised via
-services.fx_normalizer before any summing occurs.
+Currency rule:
+- ALL internal aggregation is performed in ZAR (the canonical internal currency).
+- Mixed-currency portfolios (Luno ZAR + Binance USDT) are normalised via
+  services.fx_normalizer before any summing occurs.
+- The final snapshot is then optionally re-expressed in the user's chosen
+  display_currency (ZAR, USD, GBP, EUR) via to_display_currency().
 """
 
 import logging
@@ -25,7 +28,12 @@ import database as db
 from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
 from utils.trade_utils import parse_trade_timestamp
 from utils.bot_state import normalize_bot_state, is_active_bot
-from services.fx_normalizer import get_quote_currency as _gqc, get_fx_rate as _gfr
+from services.fx_normalizer import (
+    get_quote_currency as _gqc,
+    get_fx_rate as _gfr,
+    to_display_currency as _to_display,
+    SUPPORTED_DISPLAY_CURRENCIES,
+)
 from services.reconciliation import compute_equity_zar
 
 logger = logging.getLogger(__name__)
@@ -34,82 +42,72 @@ logger = logging.getLogger(__name__)
 class OverviewService:
     """Centralized overview metrics computation service"""
     
-    async def get_snapshot(self, user_id: str) -> Dict:
-        """Get comprehensive overview snapshot for dashboard
-        
+    async def get_snapshot(self, user_id: str, display_currency: str = "ZAR") -> Dict:
+        """Get comprehensive overview snapshot for dashboard.
+
         This is the SINGLE SOURCE OF TRUTH for all dashboard metrics.
         Returns ONE complete snapshot with all data needed by frontend.
-        
+
         Args:
             user_id: User ID to compute metrics for
-            
+            display_currency: ISO currency code for presentation (ZAR/USD/GBP/EUR).
+                              Defaults to "ZAR".  All values are first aggregated
+                              internally in ZAR, then converted to display_currency
+                              before being returned.
+
         Returns:
-            Dict containing:
-            - total_profit: Total net PnL across all trades
-            - today_profit: Net PnL from today's trades
-            - gross_pnl: Total gross profit before fees
-            - net_pnl: Total net profit after fees
-            - total_fees: Total fees paid across all trades
-            - today_fees: Fees paid today
-            - trades_today: Number of trades today
-            - trades_total: Total number of trades
-            - win_rate: Percentage of winning trades
-            - equity: Current total capital across all bots
-            - required_capital_total: Total capital required for all bots
-            - required_capital_by_platform: Capital required per platform
-            - bots_active: Count of active bots
-            - bots_paused: Count of paused bots
-            - bots_training: Count of training bots
-            - bots_quarantine: Count of quarantined bots
-            - daily_loss_lock: Daily loss lock state
-            - market_prices: BTC/ZAR, ETH/ZAR, XRP/ZAR with % change, source, timestamp
-            - trading_mode_flags: System mode flags
-            - timestamp: When snapshot was generated
+            Dict containing profit, fee, trade, capital, bot, and market metrics.
+            All monetary values are in *display_currency*.
+            The response includes "display_currency" and "fx_metadata" fields.
         """
         try:
             now = datetime.now(timezone.utc)
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            
+            dc = str(display_currency or "ZAR").upper()
+            if dc not in SUPPORTED_DISPLAY_CURRENCIES:
+                logger.warning("Unsupported display_currency %s; defaulting to ZAR", dc)
+                dc = "ZAR"
+
             # Get user info for system modes and lock status
             user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
             if not user:
                 # Return empty snapshot for non-existent user
                 return self._empty_snapshot(now)
-            
+
             # Get all user's bots (exclude deleted)
             bots = await db.bots_collection.find({
                 "user_id": user_id,
                 "status": {"$ne": "deleted"},
                 "deleted_at": {"$exists": False}
             }, {"_id": 0}).to_list(1000)
-            
+
             bot_ids = [b["id"] for b in bots] if bots else []
-            
+
             # ==================================================================
-            # PROFIT METRICS (using canonical field normalization)
+            # PROFIT METRICS — all values in ZAR internally
             # ==================================================================
             profit_metrics = await self._compute_profit_metrics(bot_ids, today_start)
-            
+
             # ==================================================================
-            # FEE METRICS (using canonical field normalization)
+            # FEE METRICS — all values in ZAR internally
             # ==================================================================
             fee_metrics = await self._compute_fee_metrics(bot_ids, today_start)
-            
+
             # ==================================================================
             # TRADE METRICS
             # ==================================================================
             trade_metrics = await self._compute_trade_metrics(bot_ids, today_start)
-            
+
             # ==================================================================
             # BOT METRICS
             # ==================================================================
             bot_metrics = self._compute_bot_metrics(bots)
-            
+
             # ==================================================================
-            # CAPITAL METRICS
+            # CAPITAL METRICS — all values in ZAR internally
             # ==================================================================
             capital_metrics = self._compute_capital_metrics(bots)
-            
+
             # ==================================================================
             # DAILY LOSS LOCK STATE
             # ==================================================================
@@ -118,14 +116,14 @@ class OverviewService:
                 "reason": user.get("daily_loss_locked_reason"),
                 "locked_at": user.get("daily_loss_locked_at"),
                 "loss_pct": user.get("daily_loss_pct", 0),
-                "can_reset": user.get("daily_loss_lock_active", False)  # Only if locked
+                "can_reset": user.get("daily_loss_lock_active", False)
             }
-            
+
             # ==================================================================
             # MARKET PRICES (BTC/ZAR, ETH/ZAR, XRP/ZAR)
             # ==================================================================
             market_prices = await self._get_market_prices()
-            
+
             # ==================================================================
             # TRADING MODE FLAGS
             # ==================================================================
@@ -137,54 +135,75 @@ class OverviewService:
                 "learning": user.get("learning_enabled", True),
                 "emergency_stop": user.get("emergency_stop", False)
             }
-            
+
+            # ==================================================================
+            # CONVERT ZAR TOTALS → display_currency
+            # ==================================================================
+            zar_rate, zar_source = _gfr("ZAR", dc)
+
+            def _cvt(zar_val):
+                if zar_val is None:
+                    return None
+                # Re-use the already-fetched rate to avoid a redundant FX lookup
+                return round(float(zar_val) * zar_rate, 2)
+
             # ==================================================================
             # ASSEMBLE COMPLETE SNAPSHOT
             # ==================================================================
             return {
-                # Profit metrics
-                "total_profit": profit_metrics["total_net_pnl"],
-                "today_profit": profit_metrics["today_net_pnl"],
-                "gross_pnl": profit_metrics["gross_pnl"],
-                "net_pnl": profit_metrics["net_pnl"],
-                
-                # Fee metrics
-                "total_fees": fee_metrics["total_fees"],
-                "today_fees": fee_metrics["today_fees"],
-                
-                # Trade metrics
+                # Profit metrics (in display_currency)
+                "total_profit": _cvt(profit_metrics["total_net_pnl"]),
+                "today_profit": _cvt(profit_metrics["today_net_pnl"]),
+                "gross_pnl": _cvt(profit_metrics["gross_pnl"]),
+                "net_pnl": _cvt(profit_metrics["net_pnl"]),
+
+                # Fee metrics (in display_currency)
+                "total_fees": _cvt(fee_metrics["total_fees"]),
+                "today_fees": _cvt(fee_metrics["today_fees"]),
+
+                # Trade metrics (counts — no currency conversion needed)
                 "trades_today": trade_metrics["trades_today"],
                 "trades_total": trade_metrics["trades_total"],
                 "win_rate": trade_metrics["win_rate"],
-                
-                # Capital metrics
-                "equity": capital_metrics["equity"],
-                "required_capital_total": capital_metrics["required_capital_total"],
-                "required_capital_by_platform": capital_metrics["required_capital_by_platform"],
-                
+
+                # Capital metrics (in display_currency)
+                "equity": _cvt(capital_metrics["equity"]),
+                "required_capital_total": _cvt(capital_metrics["required_capital_total"]),
+                "required_capital_by_platform": {
+                    k: _cvt(v)
+                    for k, v in capital_metrics["required_capital_by_platform"].items()
+                },
+
                 # Bot metrics
                 "bots_active": bot_metrics["active"],
                 "bots_paused": bot_metrics["paused"],
                 "bots_training": bot_metrics["training"],
                 "bots_quarantine": bot_metrics["quarantine"],
-                
+
                 # Risk metrics
                 "daily_loss_lock": daily_loss_lock,
-                
+
                 # Market data
                 "market_prices": market_prices,
-                
+
                 # System flags
                 "trading_mode_flags": trading_mode_flags,
-                
+
+                # Display currency metadata
+                "display_currency": dc,
+                "fx_metadata": {
+                    "zar_to_display_rate": round(zar_rate, 6),
+                    "zar_to_display_source": zar_source,
+                    "internal_currency": "ZAR",
+                },
+
                 # Metadata
                 "timestamp": now.isoformat(),
                 "data_source": "overview_service"
             }
-            
+
         except Exception as e:
             logger.error(f"Overview snapshot error for user {user_id}: {e}", exc_info=True)
-            # Return empty snapshot on error
             return self._empty_snapshot(datetime.now(timezone.utc))
     
     async def _compute_profit_metrics(self, bot_ids: List[str], today_start: datetime) -> Dict:

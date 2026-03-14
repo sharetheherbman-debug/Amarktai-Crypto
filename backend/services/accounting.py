@@ -6,20 +6,23 @@ It ensures consistency between Overview, Profits page, and Live Trades page.
 
 Key Metrics (DEFINED):
 - executed_trades_count: Count of executed trades in trades_collection
-- net_realised_pnl_zar: Realised PnL after fees, converted to ZAR display currency
+- net_realised_pnl_zar: Realised PnL after fees — always ZAR (internal truth)
 - unrealised_pnl_zar: Informational only (open positions), in ZAR
 - gross_pnl_zar: PnL before fees, in ZAR
 - total_fees_zar: Total fees paid, in ZAR
 
-Currency rule: ALL monetary aggregates in this service are in ZAR.
-Trades denominated in USDT (Binance, KuCoin, etc.) are converted via
-fx_normalizer before being included in any sum.
+Currency rule:
+- ALL internal monetary aggregates are in ZAR.
+- Trades denominated in USDT (Binance, KuCoin, etc.) are converted via
+  fx_normalizer before being included in any sum.
+- When display_currency != "ZAR", all aggregated ZAR values are converted
+  to the requested display currency before being returned.
 
 Usage:
     from services.accounting import accounting_service
-    
-    metrics = await accounting_service.get_unified_metrics(user_id)
-    print(f"Net Profit: R{metrics['net_realised_pnl_zar']}")
+
+    metrics = await accounting_service.get_unified_metrics(user_id, display_currency="USD")
+    print(f"Net Profit: ${metrics['net_realised_pnl_display']}")
 """
 
 from typing import Dict, List, Optional
@@ -27,7 +30,12 @@ from datetime import datetime, timezone
 import logging
 
 import database as db
-from services.fx_normalizer import get_quote_currency as _gqc, get_fx_rate as _gfr
+from services.fx_normalizer import (
+    get_quote_currency as _gqc,
+    get_fx_rate as _gfr,
+    to_display_currency as _to_display,
+    SUPPORTED_DISPLAY_CURRENCIES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,38 +47,47 @@ class AccountingService:
         self,
         user_id: str,
         trading_mode: Optional[str] = None,
-        include_unrealised: bool = True
+        include_unrealised: bool = True,
+        display_currency: str = "ZAR",
     ) -> Dict:
         """
         Get unified profit/trade metrics - USE THIS FOR ALL VIEWS
-        
+
         Returns consistent metrics for Overview, Profits, and Live Trades pages.
-        ALL monetary values are in ZAR display currency.
-        
+        All monetary values are in the requested *display_currency* (ZAR by default).
+
         Args:
             user_id: User ID
             trading_mode: Filter by 'paper' or 'live' (None = both)
             include_unrealised: Whether to calculate unrealised PnL
-            
+            display_currency: ISO code for final presentation (ZAR/USD/GBP/EUR).
+                              Aggregation always happens internally in ZAR.
+
         Returns:
-            Dict with all key metrics:
-            {
-                "executed_trades_count": int,
-                "net_realised_pnl_zar": float,  # ← always ZAR (converted if needed)
-                "gross_realised_pnl_zar": float,
-                "total_fees_zar": float,
-                "unrealised_pnl_zar": float,
-                "total_pnl_zar": float,  # realised + unrealised
-                "trading_mode": str,
-                "last_calculated_at": str (ISO)
-            }
+            Dict with all key metrics.
+            "_zar" fields always carry the raw ZAR internal values.
+            "_display" fields carry the value in the requested display_currency.
+            "display_currency" indicates which currency the _display fields use.
         """
+        dc = str(display_currency or "ZAR").upper()
+        if dc not in SUPPORTED_DISPLAY_CURRENCIES:
+            dc = "ZAR"
+
+        # Pre-compute the ZAR→display rate once; reuse in _cvt to avoid
+        # repeated lookups across every monetary field.
+        _dc_rate, _dc_source = _gfr("ZAR", dc)
+
+        def _cvt(zar_val):
+            if zar_val is None:
+                return None
+            return round(float(zar_val) * _dc_rate, 2)
+
         try:
             # Build base query
             query = {"user_id": user_id, "status": "closed"}
             if trading_mode:
                 query["trading_mode"] = trading_mode
-            
+
             # Fetch closed trades — include currency fields for ZAR normalisation
             trades = await db.trades_collection.find(
                 query,
@@ -89,8 +106,8 @@ class AccountingService:
                     "quote_currency": 1,
                 }
             ).to_list(10000)
-            
-            # Calculate realised metrics — all in ZAR
+
+            # ── Aggregate in ZAR ──────────────────────────────────────────────
             executed_trades_count = len(trades)
             net_realised_pnl_zar = 0.0
             gross_realised_pnl_zar = 0.0
@@ -128,18 +145,30 @@ class AccountingService:
             
             # Total PnL = realised + unrealised
             total_pnl_zar = net_realised_pnl_zar + unrealised_pnl_zar
-            
+
             return {
                 "executed_trades_count": executed_trades_count,
+                # Internal ZAR values (always present)
                 "net_realised_pnl_zar": round(net_realised_pnl_zar, 2),
                 "gross_realised_pnl_zar": round(gross_realised_pnl_zar, 2),
                 "total_fees_zar": round(total_fees_zar, 2),
                 "unrealised_pnl_zar": round(unrealised_pnl_zar, 2),
                 "total_pnl_zar": round(total_pnl_zar, 2),
+                # Display-currency values (use pre-computed _dc_rate/_dc_source)
+                "net_realised_pnl_display": _cvt(round(net_realised_pnl_zar, 2)),
+                "gross_realised_pnl_display": _cvt(round(gross_realised_pnl_zar, 2)),
+                "total_fees_display": _cvt(round(total_fees_zar, 2)),
+                "unrealised_pnl_display": _cvt(round(unrealised_pnl_zar, 2)),
+                "total_pnl_display": _cvt(round(total_pnl_zar, 2)),
+                "display_currency": dc,
+                "fx_metadata": {
+                    "zar_to_display_rate": round(_dc_rate, 6),
+                    "zar_to_display_source": _dc_source,
+                },
                 "trading_mode": trading_mode or "all",
                 "last_calculated_at": datetime.now(timezone.utc).isoformat()
             }
-            
+
         except Exception as e:
             logger.error(f"Get unified metrics error: {e}", exc_info=True)
             return {
@@ -149,6 +178,12 @@ class AccountingService:
                 "total_fees_zar": 0.0,
                 "unrealised_pnl_zar": 0.0,
                 "total_pnl_zar": 0.0,
+                "net_realised_pnl_display": 0.0,
+                "gross_realised_pnl_display": 0.0,
+                "total_fees_display": 0.0,
+                "unrealised_pnl_display": 0.0,
+                "total_pnl_display": 0.0,
+                "display_currency": dc,
                 "trading_mode": trading_mode or "all",
                 "last_calculated_at": datetime.now(timezone.utc).isoformat(),
                 "error": str(e)
