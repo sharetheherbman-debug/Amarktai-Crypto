@@ -13,13 +13,13 @@ from .entry_thresholds import (
     MIN_ENTRY_CONFIDENCE,
     MIN_NET_EDGE_BPS,
     K_COST,
-    ABS_PROFIT_MIN_QUOTE,
-    MIN_PROJECTED_NET_PROFIT,
     SPREAD_CAP_PCT,
     DEPTH_MIN_NOTIONAL,
     STRATEGY_TIME_CAP,
+    POLICY_VERSION,
     equity_bucket as _equity_bucket,
     venue_class as _venue_class,
+    compute_min_net_profit_required as _compute_min_profit,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,16 @@ class TradeFeasibilityGate:
         # ── Confidence truth (Repair 4) ──
         _conf_sources = confidence_sources or {}
 
+        # ── Canonical profit policy ──
+        _policy = _compute_min_profit(
+            strategy=strategy,
+            venue=venue,
+            notional=safe_notional,
+            bot_equity=bot_equity,
+            all_in_cost_bps=all_in_cost_bps,
+            exchange=venue,
+        )
+
         # Common payload kwargs
         common = dict(
             confidence=entry_confidence,
@@ -112,6 +122,16 @@ class TradeFeasibilityGate:
                 "min_entry_confidence_used": MIN_ENTRY_CONFIDENCE,
                 # Repair 4: Confidence truth
                 "confidence_sources": _conf_sources,
+                # Policy v2: canonical profitability diagnostics
+                "min_net_profit_quote_required": _policy["min_net_profit_quote"],
+                "cost_floor_quote":             _policy["cost_floor_quote"],
+                "safety_buffer_quote":          _policy["safety_buffer_quote"],
+                "strategy_floor_quote":         _policy["strategy_floor_quote"],
+                "capital_tier":                 _policy["capital_tier"],
+                "strategy_class":               _policy["strategy_class"],
+                "venue_class":                  _policy["venue_class"],
+                "policy_version":               POLICY_VERSION,
+                "policy_source":                _policy["policy_source"],
             },
         )
 
@@ -148,7 +168,7 @@ class TradeFeasibilityGate:
         if depth_notional < depth_min:
             return make_decision_payload(ReasonCodes.DEPTH_TOO_THIN, False, **common)
 
-        # ── 6. Edge rule ──
+        # ── 7. Edge rule ──
         min_edge = MIN_NET_EDGE_BPS.get(strat_key, 15.0)
         k = K_COST.get(strat_key, 1.5)
         required_edge = max(min_edge, k * all_in_cost_bps)
@@ -161,28 +181,29 @@ class TradeFeasibilityGate:
         if expected_net_edge_bps < required_edge:
             return make_decision_payload(ReasonCodes.EDGE_TOO_SMALL, False, **common)
 
-        # ── 7. Cost cap: if all-in cost > MAX_COST_TO_EDGE_RATIO of gross edge, block ──
+        # ── 8. Cost cap: if all-in cost > MAX_COST_TO_EDGE_RATIO of gross edge, block ──
         if all_in_cost_bps > 0 and expected_gross_edge_bps > 0:
             cost_ratio = all_in_cost_bps / expected_gross_edge_bps
             if cost_ratio > MAX_COST_TO_EDGE_RATIO:
                 return make_decision_payload(ReasonCodes.COST_TOO_HIGH, False, **common)
 
-        # ── 8. Absolute profit rule ──
-        lookup = (strat_key if strat_key in ("scalper", "mean_reversion") else "normal",
-                  eq_bucket, vc)
-        abs_min = ABS_PROFIT_MIN_QUOTE.get(lookup, 2.0)
-        if projected_net_profit_quote < abs_min:
-            return make_decision_payload(ReasonCodes.ABS_PROFIT_TOO_SMALL, False, **common)
-
-        # ── 8b. Flat minimum projected net profit ──
-        # A final flat floor applied after the per-strategy abs-profit check (step 8
-        # above).  Ensures every approved trade produces at least $1.50 USDT or
-        # R25.00 ZAR in net profit, regardless of strategy type or equity bucket.
-        min_profit_floor = MIN_PROJECTED_NET_PROFIT.get(vc, 0.0)
-        if min_profit_floor > 0 and projected_net_profit_quote < min_profit_floor:
+        # ── 9. Canonical profitability policy (unified step 8 + 8b) ─────────
+        # Uses compute_min_net_profit_required() from entry_thresholds, which
+        # applies per-tier, per-strategy, venue-aware minimums scaled by capital.
+        # Eliminates the old flat $1.50/$R25 floor that blocked valid small trades.
+        # Paper and live modes share the same formula — no fake paper relaxation.
+        min_profit_required = _policy["min_net_profit_quote"]
+        if projected_net_profit_quote < min_profit_required:
+            logger.debug(
+                "ENTRY_REJECTED_MIN_PROFIT: venue=%s strategy=%s tier=%s "
+                "projected=%.4f required=%.4f (cost_floor=%.4f strategy_floor=%.4f)",
+                venue, strategy, _policy["capital_tier"],
+                projected_net_profit_quote, min_profit_required,
+                _policy["cost_floor_quote"], _policy["strategy_floor_quote"],
+            )
             return make_decision_payload(ReasonCodes.ENTRY_REJECTED_MIN_PROFIT, False, **common)
 
-        # ── 9. Time feasibility ──
+        # ── 10. Time feasibility ──
         time_cap = STRATEGY_TIME_CAP.get(strat_key, 21600)
         if predicted_time_to_target is not None and predicted_time_to_target > time_cap:
             return make_decision_payload(ReasonCodes.TIME_FEASIBILITY_FAIL, False, **common)

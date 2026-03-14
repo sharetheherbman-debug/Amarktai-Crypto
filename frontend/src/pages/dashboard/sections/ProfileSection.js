@@ -1,6 +1,19 @@
 import SectionHeader from '@/ui/components/SectionHeader';
+import DisplayCurrencySelector from '../../../components/DisplayCurrencySelector';
 
-export default function ProfileSection({ user, bots, formatDate, profileData, handleProfileChange, handleProfileSave, handleEmergencyStop }) {
+export default function ProfileSection({
+  user,
+  bots,
+  formatDate,
+  profileData,
+  handleProfileChange,
+  handleProfileSave,
+  handleEmergencyStop,
+  // Display currency preference (from useDisplayCurrency via useDashboardState)
+  displayCurrency,
+  setDisplayCurrency,
+  displayCurrencyError,
+}) {
   return (
     <section className="section active">
       <div className="card">
@@ -27,15 +40,25 @@ export default function ProfileSection({ user, bots, formatDate, profileData, ha
           </div>
           <div className="field-group">
             <label>Display Currency</label>
-            <select 
-              value={profileData.currency || 'ZAR'} 
-              onChange={(e) => handleProfileChange('currency', e.target.value)}
-            >
-              <option value="ZAR">ZAR (South African Rand)</option>
-              <option value="USD">USD (US Dollar)</option>
-              <option value="EUR">EUR (Euro)</option>
-              <option value="GBP">GBP (British Pound)</option>
-            </select>
+            {setDisplayCurrency ? (
+              /* Instant-save via useDisplayCurrency hook */
+              <DisplayCurrencySelector
+                displayCurrency={displayCurrency || 'ZAR'}
+                setDisplayCurrency={setDisplayCurrency}
+                error={displayCurrencyError}
+              />
+            ) : (
+              /* Fallback: legacy form field (handled by handleProfileSave) */
+              <select
+                value={profileData.display_currency || profileData.currency || 'ZAR'}
+                onChange={(e) => handleProfileChange('display_currency', e.target.value)}
+              >
+                <option value="ZAR">ZAR – South African Rand</option>
+                <option value="USD">USD – US Dollar</option>
+                <option value="EUR">EUR – Euro</option>
+                <option value="GBP">GBP – British Pound</option>
+              </select>
+            )}
           </div>
           <div className="field-group">
             <label>New Password (optional)</label>

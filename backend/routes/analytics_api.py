@@ -760,20 +760,24 @@ async def get_countdown_to_target(
     user_id: str = Depends(get_current_user)
 ):
     """Countdown to target - forecasts days left based on actual net performance (C1)
-    
+
+    All equity/PnL values are normalised to ZAR before arithmetic so that
+    bots trading in USDT (Binance, KuCoin …) are not raw-mixed with ZAR bots.
+    Uses canonical_base_capital_zar when available; falls back to live FX.
+
     Countdown starts from FIRST TRADE (not midnight) and updates after every trade.
     Uses avg_daily_net_pnl computed from trade #1 to now.
-    
+
     Args:
-        target_amount: Target profit amount (default: 10000)
+        target_amount: Target profit amount in ZAR (default: 10000)
         user_id: Current user ID
-        
+
     Returns:
         Countdown metrics including:
         - target_amount
-        - equity_current
-        - net_pnl_total
-        - avg_daily_net_pnl (from first trade to now)
+        - equity_current  (ZAR)
+        - net_pnl_total   (ZAR)
+        - avg_daily_net_pnl (from first trade to now, ZAR)
         - days_elapsed (since first trade)
         - days_to_target_estimate
         - confidence metric
@@ -781,17 +785,41 @@ async def get_countdown_to_target(
     """
     try:
         from services.profit_service import profit_service
-        
+        from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _gqc
+
         # Get all user bots (exclude deleted)
         bots = await db.bots_collection.find(
             {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
             {"_id": 0}
         ).to_list(1000)
-        
-        # Calculate current equity
-        equity_current = sum(bot.get('current_capital', 0) for bot in bots)
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        net_pnl_total = equity_current - initial_capital
+
+        # ── ZAR-normalised equity ──────────────────────────────────────────────
+        # Prefer canonical_base_capital_zar (set at bot creation time) so we
+        # never raw-sum mixed USDT + ZAR values.
+        equity_current_zar = 0.0
+        initial_capital_zar = 0.0
+        for bot in bots:
+            # current capital ZAR
+            cc_zar = bot.get("canonical_base_capital_zar")
+            if cc_zar is not None:
+                # Use growth from current_capital (in quote) vs initial (in quote)
+                initial = float(bot.get("initial_capital", 0) or 0)
+                current = float(bot.get("current_capital", 0) or 0)
+                base_zar = float(cc_zar)
+                if initial > 0:
+                    growth_ratio = current / initial
+                else:
+                    growth_ratio = 1.0
+                equity_current_zar += round(base_zar * growth_ratio, 2)
+                initial_capital_zar += base_zar
+            else:
+                # Fallback: convert via FX
+                qc = bot.get("quote_currency") or _gqc(bot.get("exchange", ""), "")
+                rate, _ = _gfr(qc, "ZAR")
+                equity_current_zar += float(bot.get("current_capital", 0) or 0) * rate
+                initial_capital_zar += float(bot.get("initial_capital", 0) or 0) * rate
+
+        net_pnl_total = equity_current_zar - initial_capital_zar
         
         # Get first trade timestamp
         first_trade = await db.trades_collection.find_one(
@@ -804,7 +832,8 @@ async def get_countdown_to_target(
             # No trades yet
             return {
                 "target_amount": target_amount,
-                "equity_current": round(equity_current, 2),
+                "equity_current": round(equity_current_zar, 2),
+                "equity_currency": "ZAR",
                 "net_pnl_total": round(net_pnl_total, 2),
                 "avg_daily_net_pnl": 0,
                 "days_elapsed": 0,
@@ -845,7 +874,8 @@ async def get_countdown_to_target(
         if total_trades < 10:
             return {
                 "target_amount": target_amount,
-                "equity_current": round(equity_current, 2),
+                "equity_current": round(equity_current_zar, 2),
+                "equity_currency": "ZAR",
                 "net_pnl_total": round(net_pnl_total, 2),
                 "avg_daily_net_pnl": 0,
                 "days_elapsed": round(days_elapsed, 2),
@@ -882,7 +912,8 @@ async def get_countdown_to_target(
         
         return {
             "target_amount": target_amount,
-            "equity_current": round(equity_current, 2),
+            "equity_current": round(equity_current_zar, 2),
+            "equity_currency": "ZAR",
             "net_pnl_total": round(net_pnl_total, 2),
             "avg_daily_net_pnl": round(avg_daily_net_pnl, 2),
             "days_elapsed": round(days_elapsed, 2),

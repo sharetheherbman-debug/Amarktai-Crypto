@@ -673,11 +673,8 @@ async def get_pending_approvals(
 
 _SUPPORTED_CONVERTER_CURRENCIES = {"ZAR", "USD", "GBP", "EUR", "USDT", "BUSD", "USDC", "BTC", "ETH"}
 
-# Static fallback cross-rates vs ZAR (operator-overridable via env vars).
+# Static fallback cross-rates vs ZAR for BTC/ETH (no canonical source yet).
 import os as _os
-_USD_ZAR: float = float(_os.getenv("USD_ZAR_RATE", "18.5"))
-_GBP_ZAR: float = float(_os.getenv("GBP_ZAR_RATE", "23.5"))
-_EUR_ZAR: float = float(_os.getenv("EUR_ZAR_RATE", "20.0"))
 _BTC_ZAR: float = float(_os.getenv("BTC_ZAR_RATE", "1400000.0"))
 _ETH_ZAR: float = float(_os.getenv("ETH_ZAR_RATE", "60000.0"))
 
@@ -685,29 +682,22 @@ _ETH_ZAR: float = float(_os.getenv("ETH_ZAR_RATE", "60000.0"))
 def _get_to_zar_rate(currency: str) -> tuple:
     """Return (rate, source) to convert *currency* → ZAR.
 
-    This helper extends fx_normalizer.get_fx_rate() to cover more fiat
-    currencies (USD, GBP, EUR) and crypto (BTC, ETH) beyond USDT.
-    For USDT-family and ZAR the canonical fx_normalizer is always used.
+    Delegates to canonical fx_normalizer for all currencies it handles
+    (ZAR, USDT-family, USD, GBP, EUR).  BTC and ETH use their own static
+    env-overridable fallbacks since they are not display currencies.
     """
     from services.fx_normalizer import get_fx_rate as _fx_get
     cur = currency.upper()
-    if cur == "ZAR":
-        return 1.0, "identity"
-    # USDT-family → delegate to canonical normalizer
-    if cur in {"USDT", "BUSD", "USDC"}:
-        return _fx_get("USDT", "ZAR")
-    # Other fiat / crypto — static fallback with env-var override
-    _fallbacks = {
-        "USD": (_USD_ZAR, "env_fallback_usd"),
-        "GBP": (_GBP_ZAR, "env_fallback_gbp"),
-        "EUR": (_EUR_ZAR, "env_fallback_eur"),
+    # BTC / ETH — static fallback (no canonical path yet)
+    _crypto_fallbacks = {
         "BTC": (_BTC_ZAR, "env_fallback_btc"),
         "ETH": (_ETH_ZAR, "env_fallback_eth"),
     }
-    if cur in _fallbacks:
-        return _fallbacks[cur]
-    logger.warning("Converter: unknown currency %s; using 1.0 identity", cur)
-    return 1.0, "unknown"
+    if cur in _crypto_fallbacks:
+        return _crypto_fallbacks[cur]
+    # All other currencies: delegate to the canonical normalizer which handles
+    # ZAR (identity), USDT-family (live/cached), USD/GBP/EUR (fiat provider)
+    return _fx_get(cur, "ZAR")
 
 
 class ConvertRequest(BaseModel):

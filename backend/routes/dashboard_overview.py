@@ -195,7 +195,10 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
 
 
 @router.get("/api/overview/snapshot")
-async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
+async def get_overview_snapshot(
+    user_id: str = Depends(get_current_user),
+    display_currency: Optional[str] = None,
+):
     """
     Enhanced overview snapshot - SINGLE SOURCE OF TRUTH for all dashboard metrics
 
@@ -209,19 +212,36 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
     - Daily loss lock state
     - Trading mode flags
 
+    ALL monetary values are in the user's *display_currency* preference
+    (default: ZAR).  The preference is read from the user document; the
+    optional ``?display_currency=`` query parameter overrides it for that
+    request only.
+
     ALL dashboard tiles must use this endpoint. No duplicated calculations.
     """
     try:
         from services.overview_service import overview_service
         from services.canonical import get_canonical_bot_activity, get_canonical_open_position_count
 
-        # Get complete snapshot from centralized service
-        snapshot = await overview_service.get_snapshot(user_id)
-        user_doc = await db.users_collection.find_one(
-            {"id": user_id},
-            {"_id": 0, "risk_profile": 1}
-        )
-        risk_level = (user_doc or {}).get("risk_profile") or "balanced"
+        # Resolve display_currency: query param > user profile > ZAR
+        if display_currency is None:
+            user_doc_prefs = await db.users_collection.find_one(
+                {"id": user_id},
+                {"_id": 0, "display_currency": 1, "risk_profile": 1}
+            )
+            display_currency = (user_doc_prefs or {}).get("display_currency", "ZAR")
+            risk_level = (user_doc_prefs or {}).get("risk_profile") or "balanced"
+        else:
+            user_doc_prefs = await db.users_collection.find_one(
+                {"id": user_id},
+                {"_id": 0, "risk_profile": 1}
+            )
+            risk_level = (user_doc_prefs or {}).get("risk_profile") or "balanced"
+
+        dc = str(display_currency or "ZAR").upper()
+
+        # Get complete snapshot from centralized service (converted to dc)
+        snapshot = await overview_service.get_snapshot(user_id, display_currency=dc)
 
         mode_flags = snapshot.get("trading_mode_flags") or {}
         if mode_flags.get("live_trading"):
@@ -252,6 +272,9 @@ async def get_overview_snapshot(user_id: str = Depends(get_current_user)):
             "riskLevel": risk_level.replace("_", " ").title(),
             "lastRebalance": snapshot.get("last_rebalance") or "Not available",
             "nextReinvest": snapshot.get("next_reinvest") or "Not available",
+            # Display currency metadata — frontend uses this to format symbols
+            "display_currency": dc,
+            "fx_metadata": snapshot.get("fx_metadata", {}),
         }
 
         return {**normalized_snapshot, "activity": activity}
