@@ -5,6 +5,14 @@
 **Auditor:** Deep code-path inspection of all trading runtime logic
 **Method:** Direct source code analysis of every gate, threshold, formula, and decision path
 
+> **UPDATE 2026-03-14:** The top 5 highest-impact repairs from Section 13 have been
+> implemented in this same PR. See `entry_thresholds.py` (canonical thresholds),
+> updated `trade_feasibility_gate.py`, `trade_worth_filter.py`, `open_trade_manager.py`,
+> and `paper_trading_engine.py`. The system now exposes edge floor transparency,
+> paper vs live notional truth, unified thresholds, confidence source breakdown,
+> and cost-aware no-progress exits. Paper mode remains bootstrap-assisted but
+> no longer hides that fact.
+
 ---
 
 ## 1. Executive Runtime Verdict
