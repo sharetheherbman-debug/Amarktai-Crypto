@@ -2114,8 +2114,17 @@ class PaperTradingEngine:
         # permanently block small paper accounts from clearing the abs_profit floor.
         _net_edge_frac = max((expected_gross_edge_bps - all_in_cost_bps) / 10000.0, 0.0001)
         try:
-            from services.trading_brain_v2.trade_feasibility_gate import (
-                ABS_PROFIT_MIN_QUOTE, _equity_bucket, _venue_class,
+            # BLOCKER 2 FIX: import from entry_thresholds (the canonical source).
+            # The previous import from trade_feasibility_gate silently failed because
+            # ABS_PROFIT_MIN_QUOTE / equity_bucket / venue_class are NOT re-exported
+            # from that module, causing the entire boost block to be skipped via
+            # `except Exception: pass`.  With no boost, bootstrap Kelly sizing
+            # produces ~1% notional which never clears the abs_profit minimum, so
+            # every paper trade is rejected with ENTRY_REJECTED_MIN_PROFIT.
+            from services.trading_brain_v2.entry_thresholds import (
+                ABS_PROFIT_MIN_QUOTE,
+                equity_bucket as _equity_bucket,
+                venue_class as _venue_class,
             )
             _vc = _venue_class(exchange)
             _eq_bucket = _equity_bucket(paper_capital, _vc)

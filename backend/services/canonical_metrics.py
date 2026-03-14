@@ -274,8 +274,15 @@ async def get_canonical_metrics_snapshot(
             "capital_current_zar": round(capital_current_zar, 2),
             "profit_realized_zar": round(profit_realized_zar, 2),
             # Native quote values for per-bot display
+            # These are the AUTHORITATIVE native amounts (e.g. 52.63 USDT for a
+            # Binance bot funded with R1000).  bot_lifecycle.py must use these
+            # fields for initial_capital / current_capital so that
+            # total_equity_display = quote * fx_rate stays in the ~R1000 range
+            # instead of being inflated 19× to ~R19 000.
             "capital_initial_quote": round(_num(bot.get("initial_capital", bot.get("starting_capital", 0))), 2),
             "capital_current_quote": round(capital_current_raw, 2),
+            "capital_available_quote": round(max(0.0, capital_current_raw - open_position_value_raw), 2),
+            "open_position_value_quote": round(open_position_value_raw, 2),
             "quote_currency": quote_currency,
             "display_currency": dc,
             "fx_rate_used": round(fx_rate, 4),

@@ -362,14 +362,26 @@ async def get_bots_status(
                 pause_next_action = 'Resume bot'
             
             canonical = canonical_by_bot.get(str(bot.get("id")), {})
-            base_initial_capital = float(canonical.get("capital_initial", bot.get("initial_capital", bot.get("starting_capital", 0))) or 0)
-            base_current_capital = float(canonical.get("capital_current", bot.get("current_capital", bot.get("allocated_capital", base_initial_capital))) or 0)
-            base_open_position = float(canonical.get("open_position_value", bot.get("open_position_value", 0)) or 0)
-            available_capital = float(canonical.get("capital_available", max(0.0, base_current_capital - base_open_position)))
+            # ── CRITICAL FIX (BLOCKER 1): use native-quote fields from canonical snapshot ──
+            # canonical["capital_initial"] is in ZAR/display currency (e.g. 1000 ZAR).
+            # canonical["capital_initial_quote"] is in native quote currency (e.g. 52.63 USDT).
+            # We must use the native quote field here so downstream calculations
+            # (total_equity_display = quote * fx_rate) produce correct ZAR-equivalent
+            # amounts instead of a 19× inflated R19 000 value.
+            base_initial_capital = float(
+                canonical.get("capital_initial_quote",
+                    bot.get("initial_capital", bot.get("starting_capital", 0))) or 0)
+            base_current_capital = float(
+                canonical.get("capital_current_quote",
+                    bot.get("current_capital", bot.get("allocated_capital", base_initial_capital))) or 0)
+            base_open_position = float(canonical.get("open_position_value_quote",
+                canonical.get("open_position_value", bot.get("open_position_value", 0))) or 0)
+            available_capital = float(canonical.get("capital_available_quote",
+                canonical.get("capital_available", max(0.0, base_current_capital - base_open_position))))
             total_trades = int(canonical.get("trade_count", bot.get("trades_count", 0)) or 0)
             win_count = int(canonical.get("winning_trades", bot.get("win_count", 0)) or 0)
             loss_count = int(canonical.get("losing_trades", bot.get("loss_count", 0)) or 0)
-            realized_pnl = float(canonical.get("profit_realized", bot.get("total_profit", 0)) or 0)
+            realized_pnl = float(bot.get("total_profit", 0) or 0)
             win_rate = float(canonical.get("win_rate_pct", bot.get("win_rate", 0)) or 0)
             roi = float(canonical.get("roi_pct", 0) or 0)
 
