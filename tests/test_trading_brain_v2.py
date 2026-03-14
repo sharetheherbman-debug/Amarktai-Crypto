@@ -266,7 +266,8 @@ class TestTradeFeasibilityGate:
             entry_confidence=0.50,
         )
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
+        # Steps 8 and 8b are now unified: ENTRY_REJECTED_MIN_PROFIT covers both
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
 
     def test_spread_too_wide_rejected(self):
         result = self.gate.evaluate(
@@ -853,10 +854,13 @@ class TestScalperRegimePolicy:
 
 class TestMinimumProfitFilter:
     """
-    Validates ENTRY_REJECTED_MIN_PROFIT: trades must clear the flat profit floor.
-    - USDT venues: >= $1.50
-    - ZAR venues:  >= R25.00
-    Applied after all existing BPS and abs-profit checks.
+    Validates ENTRY_REJECTED_MIN_PROFIT: trades must clear the canonical
+    profitability policy (compute_min_net_profit_required).
+
+    Policy v2 is tier-aware: micro/small/medium/large capital tiers have
+    different minimum profit floors.  The old flat $1.50/$R25 floor is
+    replaced by per-tier floors that allow small-cap bots to trade while
+    still rejecting genuinely garbage trades.
     """
 
     def _gate(self, **kwargs):
@@ -882,50 +886,80 @@ class TestMinimumProfitFilter:
         defaults.update(kwargs)
         return gate.evaluate(**defaults)
 
-    def test_usdt_trade_below_floor_rejected(self):
-        """Projected profit of $1.125 (> $0.50 abs floor but < $1.50 flat floor) must be ENTRY_REJECTED_MIN_PROFIT.
+    def test_small_usdt_valid_trade_now_approved(self):
+        """$200 USDT small-cap bot with $1.125 net profit MUST now be approved.
 
-        Uses a small equity account (bot_equity=200) so ABS_PROFIT_MIN=$0.50.
+        Under policy v1 this was rejected by the flat $1.50 floor.
+        Under policy v2 the small-tier floor is $0.50 → $1.125 PASSES.
         notional=150, net_edge=75 bps → profit = 150 × 0.0075 = $1.125
-        $1.125 > $0.50 (abs profit passes) but $1.125 < $1.50 (flat floor fails).
         """
         result = self._gate(
             venue="binance", bot_equity=200.0, notional=150.0,
             expected_gross_edge_bps=100.0, all_in_cost_bps=25.0,
         )
-        assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT", (
-            f"Expected ENTRY_REJECTED_MIN_PROFIT, got: {result['decision_reason_code']}"
+        assert result["approved"] is True, (
+            f"$200 USDT bot with $1.125 profit should be approved under policy v2; "
+            f"got {result['decision_reason_code']}"
         )
+        assert result["decision_reason_code"] == "ENTRY_APPROVED"
+
+    def test_usdt_near_breakeven_rejected(self):
+        """Near-breakeven USDT trade must still be rejected by policy v2.
+
+        notional=50, net_edge=60 bps → profit = 50 × 0.006 = $0.30
+        small-tier floor = $0.50 → $0.30 < $0.50 → REJECTED.
+        """
+        result = self._gate(
+            venue="binance", bot_equity=200.0, notional=50.0,
+            expected_gross_edge_bps=80.0, all_in_cost_bps=20.0,
+        )
+        assert result["approved"] is False
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
 
     def test_usdt_trade_above_floor_approved(self):
-        """Projected profit of $37.50 (>= $1.50 floor) must pass the filter."""
-        # notional=5000, net_edge=75 bps → profit = 5000 × 0.0075 = $37.50 >= $1.50
+        """Projected profit of $37.50 must pass the filter."""
+        # notional=5000, net_edge=75 bps → profit = 5000 × 0.0075 = $37.50
         result = self._gate(venue="binance", notional=5000.0,
                             expected_gross_edge_bps=100.0, all_in_cost_bps=25.0)
         assert result["approved"] is True
         assert result["decision_reason_code"] == "ENTRY_APPROVED"
 
-    def test_zar_trade_below_floor_rejected(self):
-        """ZAR trade with profit R15 (> R3 abs floor but < R25 flat floor) must be ENTRY_REJECTED_MIN_PROFIT.
+    def test_small_zar_valid_trade_now_approved(self):
+        """R2000 ZAR small-cap bot with R15 net profit MUST now be approved.
 
-        Uses small ZAR account (bot_equity=2000 < 5000 ZAR threshold) so ABS_PROFIT_MIN=R3.
+        Under policy v1 this was rejected by the flat R25 floor.
+        Under policy v2: equity=2000 → 'small' tier, cost_floor=R4.50, strategy_floor=R3.
+        min_required = max(R4.50, R3) = R4.50 → R15 PASSES.
         notional=1500, net_edge=100 bps → profit = 1500 × 0.01 = R15.
-        R15 > R3 (abs profit passes) but R15 < R25 (flat floor fails).
         """
         result = self._gate(
             venue="luno", symbol="BTC/ZAR",
             bot_equity=2000.0, notional=1500.0,
             expected_gross_edge_bps=120.0, all_in_cost_bps=20.0,
         )
-        assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT", (
-            f"Expected ENTRY_REJECTED_MIN_PROFIT, got: {result['decision_reason_code']}"
+        assert result["approved"] is True, (
+            f"R2000 ZAR bot with R15 profit should be approved under policy v2; "
+            f"got {result['decision_reason_code']}"
         )
+        assert result["decision_reason_code"] == "ENTRY_APPROVED"
+
+    def test_zar_near_breakeven_rejected(self):
+        """Near-breakeven ZAR trade must still be rejected.
+
+        notional=100, net_edge=100 bps → profit = R1.0
+        small-tier strategy_floor = R3.00 → R1.0 < R3.00 → REJECTED.
+        """
+        result = self._gate(
+            venue="luno", symbol="BTC/ZAR",
+            bot_equity=2000.0, notional=100.0,
+            expected_gross_edge_bps=120.0, all_in_cost_bps=20.0,
+        )
+        assert result["approved"] is False
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
 
     def test_zar_trade_above_floor_approved(self):
-        """ZAR trade with profit R30 (>= R25 floor) must pass."""
-        # notional=3000, net_edge=100 bps → profit = 3000 × 0.01 = R30 >= R25
+        """ZAR trade with large profit must pass."""
+        # notional=3000, net_edge=100 bps → profit = R30
         result = self._gate(
             venue="luno", symbol="BTC/ZAR",
             bot_equity=30000.0, notional=3000.0,
@@ -934,22 +968,20 @@ class TestMinimumProfitFilter:
         assert result["approved"] is True
         assert result["decision_reason_code"] == "ENTRY_APPROVED"
 
-    def test_min_profit_floor_constant_values(self):
-        """MIN_PROJECTED_NET_PROFIT must have the correct floor values."""
+    def test_min_profit_floor_constant_exists(self):
+        """MIN_PROJECTED_NET_PROFIT must still be importable for legacy reference."""
         from services.trading_brain_v2.entry_thresholds import MIN_PROJECTED_NET_PROFIT
-        assert MIN_PROJECTED_NET_PROFIT["usdt"] == 1.5, (
-            f"USDT floor must be $1.50, got {MIN_PROJECTED_NET_PROFIT['usdt']}"
-        )
-        assert MIN_PROJECTED_NET_PROFIT["zar"] == 25.0, (
-            f"ZAR floor must be R25.00, got {MIN_PROJECTED_NET_PROFIT['zar']}"
-        )
+        assert "usdt" in MIN_PROJECTED_NET_PROFIT
+        assert "zar" in MIN_PROJECTED_NET_PROFIT
+        assert MIN_PROJECTED_NET_PROFIT["usdt"] == 1.5
+        assert MIN_PROJECTED_NET_PROFIT["zar"] == 25.0
 
     def test_rejection_payload_is_transparent(self):
         """ENTRY_REJECTED_MIN_PROFIT rejection must include all transparency fields."""
-        # Use small USDT account: profit $1.13 passes abs floor ($0.50) but fails flat floor ($1.50)
+        # Use near-breakeven trade: notional=50, profit=$0.30 < $0.50 small floor
         result = self._gate(
-            venue="binance", bot_equity=200.0, notional=150.0,
-            expected_gross_edge_bps=100.0, all_in_cost_bps=25.0,
+            venue="binance", bot_equity=200.0, notional=50.0,
+            expected_gross_edge_bps=80.0, all_in_cost_bps=20.0,
         )
         assert "decision_reason_code" in result
         assert "expected_net_edge_bps" in result
@@ -957,6 +989,18 @@ class TestMinimumProfitFilter:
         assert "regime_label" in result
         assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
         assert result["projected_net_profit_quote"] > 0
+
+    def test_policy_v2_fields_in_payload(self):
+        """Approved trades must expose policy v2 diagnostic fields."""
+        result = self._gate(venue="binance", notional=5000.0,
+                            expected_gross_edge_bps=100.0, all_in_cost_bps=25.0)
+        assert result["approved"] is True
+        # Policy v2 fields should be present
+        assert result.get("policy_version") == "v2"
+        assert result.get("capital_tier") in ("micro", "small", "medium", "large")
+        assert result.get("strategy_class") is not None
+        assert result.get("venue_class") in ("usdt", "zar")
+        assert "min_net_profit_quote_required" in result
 
 
 # ── Scalper Re-Entry Cooldown (net_profit <= 0 trigger) ──────────────────
@@ -1067,3 +1111,431 @@ class TestScalperLossCooldown:
         assert "details" in result
         assert result["details"]["cooldown_remaining_s"] > 0
         assert result["details"]["cooldown_remaining_s"] <= 120
+
+
+# ── Canonical Multi-Exchange Profitability Policy (v2) ───────────────────────
+
+class TestCanonicalProfitabilityPolicy:
+    """
+    Validates the canonical multi-exchange profitability policy (v2).
+
+    Covers all 7 supported exchanges, all capital tiers, scalper vs normal,
+    compounding/growth behavior, and diagnostic field completeness.
+
+    Test items from problem statement requirement L:
+      1.  Luno micro normal bot valid trade passes
+      2.  Luno scalper valid trade passes
+      3.  Binance micro normal bot valid trade passes
+      4.  Binance micro invalid near-breakeven trade fails
+      5.  KuCoin valid small-cap trade passes
+      6.  Bybit valid small-cap trade passes
+      7.  Kraken valid small-cap trade passes
+      8.  Bitget valid small-cap trade passes
+      9.  Gate valid small-cap trade passes
+      10. Larger capital tier requires larger absolute profit
+      11. Scalper requires less absolute profit than normal bot
+      12. Diagnostics include new policy fields
+      13. Rejection logs include actual vs required values
+      14. Existing transparency tests still pass (covered in runtime repairs)
+      15. Existing scalper regime fix tests still pass (covered above)
+      16. Position-sizing / compounding scales upward as capital grows
+    """
+
+    def _gate(self, **kwargs):
+        from services.trading_brain_v2.trade_feasibility_gate import TradeFeasibilityGate
+        gate = TradeFeasibilityGate()
+        defaults = dict(
+            strategy="normal",
+            venue="binance",
+            symbol="BTC/USDT",
+            bot_equity=10000.0,
+            notional=1000.0,
+            expected_gross_edge_bps=100.0,
+            all_in_cost_bps=25.0,
+            spread_pct=0.10,
+            depth_notional=200000.0,
+            entry_confidence=0.65,
+            regime_result={"regime_label": "trending_up", "regime_confidence": 0.8},
+            regime_eligibility={
+                "eligible": True, "action": "full",
+                "edge_multiplier": 1.0, "size_multiplier": 1.0,
+            },
+        )
+        defaults.update(kwargs)
+        return gate.evaluate(**defaults)
+
+    def _worth(self, **kwargs):
+        from services.trade_worth_filter import evaluate_minimum_worthwhile_trade
+        return evaluate_minimum_worthwhile_trade(**kwargs)
+
+    def _policy(self, **kwargs):
+        from services.trading_brain_v2.entry_thresholds import compute_min_net_profit_required
+        return compute_min_net_profit_required(**kwargs)
+
+    # ── Test 1: Luno micro normal bot valid trade passes ──────────────────
+
+    def test_luno_micro_normal_bot_valid_trade_passes(self):
+        """Luno micro normal bot with meaningful ZAR profit must be approved.
+
+        equity=R500 (micro), notional=R100, net_edge=100 BPS → profit=R1.00
+        micro-tier floor for (normal, micro, zar) = R0.75
+        cost_floor = 100 × (20+10)/10000 = R0.30
+        max(R0.30, R0.75) = R0.75 → R1.00 > R0.75 → PASSES
+        """
+        result = self._gate(
+            venue="luno", symbol="BTC/ZAR",
+            strategy="normal",
+            bot_equity=500.0,        # micro ZAR (<R1000)
+            notional=100.0,          # R100 notional
+            expected_gross_edge_bps=120.0,
+            all_in_cost_bps=20.0,    # net_edge=100bps → R1.00 profit
+            spread_pct=0.10,
+            depth_notional=100000.0,
+        )
+        assert result["approved"] is True, (
+            f"Luno micro normal bot with R1.00 profit should pass; "
+            f"got {result['decision_reason_code']}"
+        )
+        assert result["capital_tier"] == "micro"
+        assert result["venue_class"] == "zar"
+        assert result["strategy_class"] == "normal"
+
+    # ── Test 2: Luno scalper valid trade passes ───────────────────────────
+
+    def test_luno_scalper_valid_trade_passes(self):
+        """Luno scalper with sufficient ZAR profit must be approved.
+
+        scalper micro ZAR floor = R0.30. With notional=R50, net_edge=100bps → R0.50 > R0.30.
+        """
+        result = self._gate(
+            venue="luno", symbol="BTC/ZAR",
+            strategy="scalper",
+            bot_equity=500.0,        # micro ZAR
+            notional=50.0,
+            expected_gross_edge_bps=130.0,
+            all_in_cost_bps=30.0,    # net_edge=100bps → R0.50 profit
+            spread_pct=0.10,
+            depth_notional=100000.0,
+            regime_result={"regime_label": "consolidation", "regime_confidence": 0.8},
+            regime_eligibility={"eligible": True, "action": "full",
+                                "edge_multiplier": 1.0, "size_multiplier": 1.0},
+        )
+        assert result["approved"] is True, (
+            f"Luno micro scalper with R0.50 profit should pass; "
+            f"got {result['decision_reason_code']}"
+        )
+        assert result["capital_tier"] == "micro"
+        assert result["strategy_class"] == "scalper"
+
+    # ── Test 3: Binance micro normal bot valid trade passes ───────────────
+
+    def test_binance_micro_normal_bot_valid_trade_passes(self):
+        """Binance micro bot with $0.15 net profit must be approved.
+
+        micro USDT normal floor = $0.10. $0.15 > $0.10 → PASS.
+        equity=$50 (micro), notional=$30, net_edge=50 bps → $0.15 profit.
+        """
+        result = self._gate(
+            venue="binance", symbol="BTC/USDT",
+            strategy="normal",
+            bot_equity=50.0,         # micro USDT (<$100)
+            notional=30.0,
+            expected_gross_edge_bps=75.0,
+            all_in_cost_bps=25.0,    # net_edge=50bps → $0.15 profit
+            spread_pct=0.10,
+            depth_notional=100000.0,
+        )
+        assert result["approved"] is True, (
+            f"Binance micro normal bot with $0.15 profit should pass; "
+            f"got {result['decision_reason_code']}"
+        )
+        assert result["capital_tier"] == "micro"
+
+    # ── Test 4: Binance micro invalid near-breakeven trade fails ──────────
+
+    def test_binance_micro_near_breakeven_fails(self):
+        """Binance micro bot with near-breakeven profit must be rejected.
+
+        micro USDT normal floor = $0.10.
+        equity=$50, notional=$10, gross=70bps, cost=25bps → net=45bps → $0.045 profit.
+        cost_floor = 10*(25+8)/10000 = $0.033; strategy_floor = $0.10
+        min_required = max($0.033, $0.10) = $0.10 → $0.045 < $0.10 → FAIL.
+        (gross must be >= max(15, 1.5 * 25) = 37.5 BPS to pass the edge check)
+        """
+        result = self._gate(
+            venue="binance", symbol="BTC/USDT",
+            strategy="normal",
+            bot_equity=50.0,
+            notional=10.0,
+            expected_gross_edge_bps=70.0,
+            all_in_cost_bps=25.0,    # net_edge=45bps > 37.5 required; profit=$0.045 < $0.10
+            spread_pct=0.10,
+            depth_notional=100000.0,
+        )
+        assert result["approved"] is False
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+
+    # ── Tests 5-9: All supported USDT exchanges, small-cap ───────────────
+
+    @pytest.mark.parametrize("exchange,symbol", [
+        ("kucoin",  "BTC/USDT"),
+        ("bybit",   "BTC/USDT"),
+        ("kraken",  "BTC/USDT"),
+        ("bitget",  "BTC/USDT"),
+        ("gate",    "BTC/USDT"),
+    ])
+    def test_usdt_exchange_small_cap_valid_trade_passes(self, exchange, symbol):
+        """All USDT exchanges: small-cap bot with meaningful profit must pass.
+
+        equity=$200 (small), notional=$200, net_edge=75bps → $1.50 profit.
+        small USDT normal floor = $0.50. $1.50 > $0.50 → PASS.
+        """
+        result = self._gate(
+            venue=exchange, symbol=symbol,
+            strategy="normal",
+            bot_equity=200.0,        # small USDT
+            notional=200.0,
+            expected_gross_edge_bps=100.0,
+            all_in_cost_bps=25.0,    # net_edge=75bps → $1.50 profit
+            spread_pct=0.10,
+            depth_notional=100000.0,
+        )
+        assert result["approved"] is True, (
+            f"{exchange}: small-cap bot with $1.50 profit should pass; "
+            f"got {result['decision_reason_code']}"
+        )
+        assert result["venue_class"] == "usdt"
+
+    # ── Test 10: Larger capital tier requires larger absolute profit ───────
+
+    def test_larger_tier_requires_larger_absolute_profit(self):
+        """Larger capital tier has higher absolute profit floor, but not irrationally so.
+
+        micro floor < small floor < medium floor < large floor.
+        All are proportional — large floor is NOT 100× micro floor.
+        """
+        from services.trading_brain_v2.entry_thresholds import compute_min_net_profit_required
+
+        tiers = ["micro", "small", "medium", "large"]
+        equities = [50.0, 200.0, 1000.0, 6000.0]  # USDT
+        floors = []
+        for eq in equities:
+            p = compute_min_net_profit_required(
+                strategy="normal", venue="binance",
+                notional=eq * 0.05,  # 5% of capital
+                bot_equity=eq,
+                all_in_cost_bps=25.0,
+            )
+            floors.append(p["min_net_profit_quote"])
+
+        # Floors should increase with tier
+        for i in range(len(floors) - 1):
+            assert floors[i] <= floors[i + 1], (
+                f"Floor for tier {tiers[i]} ({floors[i]}) must be <= {tiers[i+1]} ({floors[i+1]})"
+            )
+
+        # Large/micro ratio must be reasonable. The large floor is 50× the micro floor
+        # (e.g. $5.00 vs $0.10), so a ratio of 200 gives ample headroom while
+        # preventing absurd values that would dead-lock large-cap bots.
+        ratio = floors[-1] / floors[0]
+        MAX_RATIONAL_TIER_RATIO = 200
+        assert ratio < MAX_RATIONAL_TIER_RATIO, (
+            f"Large/micro floor ratio {ratio:.1f} is irrationally high (max {MAX_RATIONAL_TIER_RATIO})"
+        )
+
+    # ── Test 11: Scalper requires less absolute profit than normal bot ─────
+
+    def test_scalper_requires_less_absolute_profit_than_normal(self):
+        """Scalper floor < normal floor on same venue/tier, but both clear cost+safety."""
+        from services.trading_brain_v2.entry_thresholds import compute_min_net_profit_required
+
+        params = dict(venue="binance", notional=200.0, bot_equity=200.0, all_in_cost_bps=25.0)
+
+        scalper = compute_min_net_profit_required(strategy="scalper", **params)
+        normal = compute_min_net_profit_required(strategy="normal", **params)
+
+        assert scalper["min_net_profit_quote"] <= normal["min_net_profit_quote"], (
+            f"Scalper floor {scalper['min_net_profit_quote']:.4f} must be <= "
+            f"normal floor {normal['min_net_profit_quote']:.4f}"
+        )
+        # But scalper must still clear round-trip costs
+        assert scalper["min_net_profit_quote"] >= scalper["cost_floor_quote"]
+
+    # ── Test 12: Diagnostics include new policy fields ────────────────────
+
+    def test_policy_v2_diagnostic_fields_in_approved_trade(self):
+        """Approved trades must expose all required policy v2 diagnostic fields."""
+        result = self._gate(
+            venue="binance", notional=5000.0, bot_equity=10000.0,
+            expected_gross_edge_bps=100.0, all_in_cost_bps=25.0,
+        )
+        assert result["approved"] is True
+        # Required v2 fields
+        assert result.get("policy_version") == "v2"
+        assert result.get("capital_tier") in ("micro", "small", "medium", "large")
+        assert result.get("strategy_class") is not None
+        assert result.get("venue_class") in ("usdt", "zar")
+        assert "min_net_profit_quote_required" in result
+        assert "cost_floor_quote" in result
+        assert "safety_buffer_quote" in result
+        assert "strategy_floor_quote" in result
+        assert "policy_source" in result
+
+    def test_policy_v2_fields_exposed_on_rejection(self):
+        """Rejected trades must also expose policy v2 diagnostic fields."""
+        result = self._gate(
+            venue="binance", notional=10.0, bot_equity=50.0,
+            expected_gross_edge_bps=40.0, all_in_cost_bps=25.0,
+        )
+        assert result["approved"] is False
+        assert result.get("policy_version") == "v2"
+        assert result.get("capital_tier") is not None
+        assert "min_net_profit_quote_required" in result
+
+    # ── Test 13: Rejection reason includes actual vs required values ───────
+
+    def test_rejection_includes_actual_vs_required_values(self):
+        """ENTRY_REJECTED_MIN_PROFIT must expose projected vs required profit."""
+        # micro USDT: notional=$10, gross=70, cost=25 → net=45bps → profit=$0.045 < $0.10 floor
+        result = self._gate(
+            venue="binance", notional=10.0, bot_equity=50.0,
+            expected_gross_edge_bps=70.0, all_in_cost_bps=25.0,
+        )
+        assert result["approved"] is False
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        # Must expose both actual and required values
+        assert "projected_net_profit_quote" in result
+        assert "min_net_profit_quote_required" in result
+        projected = result["projected_net_profit_quote"]
+        required = result["min_net_profit_quote_required"]
+        assert projected < required, (
+            f"Projected {projected:.4f} must be < required {required:.4f}"
+        )
+
+    # ── Test 15: Existing scalper regime fix tests still pass ─────────────
+
+    def test_scalper_regime_policy_unchanged(self):
+        """Scalper regime eligibility rules must remain unchanged."""
+        from services.trading_brain_v2.regime_scorer import RegimeScorerV2
+        scorer = RegimeScorerV2()
+
+        assert scorer.is_eligible("scalper", {"regime_label": "consolidation",    "regime_confidence": 0.7})["eligible"] is True
+        assert scorer.is_eligible("scalper", {"regime_label": "low_volatility",   "regime_confidence": 0.7})["eligible"] is True
+        assert scorer.is_eligible("scalper", {"regime_label": "mean_reversion",   "regime_confidence": 0.7})["eligible"] is True
+        assert scorer.is_eligible("scalper", {"regime_label": "trending_up",      "regime_confidence": 0.8})["eligible"] is False
+        assert scorer.is_eligible("scalper", {"regime_label": "high_volatility",  "regime_confidence": 0.8})["eligible"] is False
+        assert scorer.is_eligible("scalper", {"regime_label": "breakout",         "regime_confidence": 0.8})["eligible"] is False
+
+    # ── Test 16: Capital growth increases earning power (compounding) ──────
+
+    def test_capital_growth_increases_earning_power(self):
+        """As capital grows, a same-quality signal produces larger absolute earnings."""
+        from services.trading_brain_v2.entry_thresholds import compute_min_net_profit_required
+
+        # Use proportional position sizing: 5% of capital
+        equities = [100.0, 500.0, 2000.0]  # small → medium USDT
+        profits = []
+        for eq in equities:
+            notional = eq * 0.05  # 5% position
+            net_edge_bps = 50.0
+            profit = notional * net_edge_bps / 10_000.0
+            profits.append(profit)
+
+        # Absolute profit should grow with capital
+        for i in range(len(profits) - 1):
+            assert profits[i] < profits[i + 1], (
+                f"Profit at equity {equities[i]} ({profits[i]:.4f}) must be < "
+                f"equity {equities[i+1]} ({profits[i+1]:.4f})"
+            )
+
+        # min_required should also grow with capital but stay proportional
+        mins = []
+        for eq in equities:
+            p = compute_min_net_profit_required(
+                strategy="normal", venue="binance",
+                notional=eq * 0.05,
+                bot_equity=eq,
+                all_in_cost_bps=25.0,
+            )
+            mins.append(p["min_net_profit_quote"])
+
+        # min_required grows with capital (not frozen)
+        assert mins[0] < mins[-1], "Min required profit must grow with capital"
+
+    # ── Policy function unit tests ─────────────────────────────────────────
+
+    def test_compute_min_profit_micro_usdt(self):
+        """Micro USDT normal bot: floor is small and meaningful."""
+        p = self._policy(
+            strategy="normal", venue="binance",
+            notional=30.0, bot_equity=50.0, all_in_cost_bps=25.0,
+        )
+        assert p["capital_tier"] == "micro"
+        assert p["strategy_class"] == "normal"
+        assert p["venue_class"] == "usdt"
+        assert p["policy_version"] == "v2"
+        assert p["min_net_profit_quote"] > 0
+        # Must cover cost floor
+        assert p["min_net_profit_quote"] >= p["cost_floor_quote"]
+        # Must not be irrationally large for a micro account
+        assert p["min_net_profit_quote"] <= 1.0
+
+    def test_compute_min_profit_luno_micro_scalper(self):
+        """Luno micro scalper: ZAR floor is small and meaningful."""
+        p = self._policy(
+            strategy="scalper", venue="luno",
+            notional=50.0, bot_equity=500.0, all_in_cost_bps=35.0,
+        )
+        assert p["capital_tier"] == "micro"
+        assert p["strategy_class"] == "scalper"
+        assert p["venue_class"] == "zar"
+        assert p["min_net_profit_quote"] <= 1.0  # should be small for micro ZAR
+
+    def test_compute_min_profit_all_exchanges_return_valid(self):
+        """compute_min_net_profit_required must work for all supported exchanges."""
+        exchanges = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+        for exch in exchanges:
+            vc = "zar" if exch == "luno" else "usdt"
+            p = self._policy(
+                strategy="normal", venue=exch,
+                notional=200.0, bot_equity=300.0, all_in_cost_bps=25.0,
+            )
+            assert p["min_net_profit_quote"] > 0, f"{exch}: floor must be positive"
+            assert p["cost_floor_quote"] >= 0
+            assert p["strategy_floor_quote"] > 0
+            assert p["policy_version"] == "v2"
+            assert p["venue_class"] == vc
+
+    def test_worth_filter_uses_canonical_policy(self):
+        """trade_worth_filter must use the canonical policy function."""
+        result = self._worth(
+            bot_type="normal", exchange="binance",
+            bot_equity=200.0, notional=200.0,
+            expected_gross_edge_bps=100.0, all_in_cost_bps=25.0,
+        )
+        assert result["diagnostics"]["policy_version"] == "v2"
+        assert "capital_tier" in result["diagnostics"]
+        assert "cost_floor_quote" in result["diagnostics"]
+        assert "strategy_floor_quote" in result["diagnostics"]
+
+    def test_micro_tier_equity_bucket(self):
+        """equity_bucket must return 'micro' for very small accounts."""
+        from services.trading_brain_v2.entry_thresholds import equity_bucket
+        assert equity_bucket(50.0,   "usdt") == "micro"   # < $100
+        assert equity_bucket(500.0,  "zar")  == "micro"   # < R1000
+        assert equity_bucket(100.0,  "usdt") == "small"   # >= $100, < $500
+        assert equity_bucket(1000.0, "zar")  == "small"   # >= R1000, < R5000
+        assert equity_bucket(300.0,  "usdt") == "small"   # $100-$499
+        assert equity_bucket(500.0,  "usdt") == "medium"  # $500 (inclusive lower bound of medium)
+        assert equity_bucket(5000.0, "usdt") == "large"   # >= $5000
+        assert equity_bucket(6000.0, "usdt") == "large"   # > $5000
+
+    def test_bitget_and_gate_in_venue_costs(self):
+        """bitget and gate must have venue cost entries."""
+        from services.trading_brain_v2.entry_thresholds import (
+            VENUE_ROUND_TRIP_COST_BPS, VENUE_SAFETY_BUFFER_BPS,
+        )
+        assert "bitget" in VENUE_ROUND_TRIP_COST_BPS
+        assert "gate" in VENUE_ROUND_TRIP_COST_BPS
+        assert "bitget" in VENUE_SAFETY_BUFFER_BPS
+        assert "gate" in VENUE_SAFETY_BUFFER_BPS

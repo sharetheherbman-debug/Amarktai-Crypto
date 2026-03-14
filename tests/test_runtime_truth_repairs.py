@@ -118,12 +118,12 @@ class TestUnifiedThresholdTruth:
         assert filt["scalper"] == 20.0
 
     def test_usdt_normal_small_profit_unified(self):
-        """USDT normal/small profit min must be identical in both."""
+        """USDT normal/small profit min must be defined in the canonical module."""
         from services.trading_brain_v2.entry_thresholds import ABS_PROFIT_MIN_QUOTE as canonical
-        from services.trading_brain_v2.trade_feasibility_gate import ABS_PROFIT_MIN_QUOTE as gate
-        from services.trade_worth_filter import _ABS_MIN_QUOTE as filt
         key = ("normal", "small", "usdt")
-        assert canonical[key] == gate[key] == filt[key] == 0.50
+        # Both gate and filter now use the canonical module directly via
+        # compute_min_net_profit_required() — no local copy to compare.
+        assert canonical[key] == 0.50
 
     def test_threshold_source_in_feasibility_output(self):
         """Feasibility gate must report threshold_source in output."""

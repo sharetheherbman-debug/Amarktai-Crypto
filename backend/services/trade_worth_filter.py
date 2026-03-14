@@ -21,13 +21,12 @@ from typing import Dict, Optional
 
 from services.trading_brain_v2.entry_thresholds import (
     MIN_NET_EDGE_BPS,
-    ABS_PROFIT_MIN_QUOTE as _ABS_MIN_QUOTE,
     MIN_REWARD_PER_SECOND as _MIN_REWARD_PER_SECOND,
-    EQUITY_THRESHOLDS_ZAR as _EQUITY_THRESHOLDS_ZAR,
-    EQUITY_THRESHOLDS_USDT as _EQUITY_THRESHOLDS_USDT,
     equity_bucket as _equity_bucket,
     venue_class as _venue_class,
     bot_type_key as _bot_type_key,
+    compute_min_net_profit_required as _compute_min_profit,
+    POLICY_VERSION,
 )
 
 def _safe_float(v, default: float = 0.0) -> float:
@@ -99,19 +98,36 @@ def evaluate_minimum_worthwhile_trade(
 
     min_edge = MIN_NET_EDGE_BPS.get(bt, MIN_NET_EDGE_BPS["normal"])
     eq_bucket = _equity_bucket(safe_equity, vc)
-    abs_min = _ABS_MIN_QUOTE.get((bt, eq_bucket, vc), _ABS_MIN_QUOTE.get(("normal", eq_bucket, vc), 5.0))
+
+    # Use canonical policy function (same as TradeFeasibilityGate)
+    policy = _compute_min_profit(
+        strategy=bot_type,
+        venue=exchange,
+        notional=safe_notional,
+        bot_equity=safe_equity,
+        all_in_cost_bps=cost_bps,
+        exchange=exchange,
+    )
+    abs_min = policy["min_net_profit_quote"]
 
     diagnostics = {
         "bot_type": bt,
         "venue_class": vc,
         "equity_bucket": eq_bucket,
+        "capital_tier": policy["capital_tier"],
+        "strategy_class": policy["strategy_class"],
         "net_edge_bps": round(net_edge_bps, 4),
         "gross_edge_bps": round(gross_bps, 4),
         "cost_bps": round(cost_bps, 4),
         "projected_net_profit": round(projected_net_profit, 4),
         "min_edge_required_bps": min_edge,
         "min_abs_profit_required": abs_min,
+        "cost_floor_quote": policy["cost_floor_quote"],
+        "safety_buffer_quote": policy["safety_buffer_quote"],
+        "strategy_floor_quote": policy["strategy_floor_quote"],
         "threshold_source": "entry_thresholds",
+        "policy_version": POLICY_VERSION,
+        "policy_source": policy["policy_source"],
     }
 
     # ── Check 1: net edge floor ───────────────────────────────────────────
@@ -130,14 +146,16 @@ def evaluate_minimum_worthwhile_trade(
             "diagnostics": diagnostics,
         }
 
-    # ── Check 2: absolute profit floor ────────────────────────────────────
+    # ── Check 2: canonical profitability floor ────────────────────────────
     if projected_net_profit < abs_min:
         return {
             "approved": False,
             "reason_code": "INSUFFICIENT_ABSOLUTE_EDGE",
             "reason_text": (
-                f"Projected net profit {projected_net_profit:.2f} is below the "
-                f"{abs_min:.2f} minimum for {bt}/{eq_bucket}/{vc}."
+                f"Projected net profit {projected_net_profit:.4f} is below the "
+                f"{abs_min:.4f} minimum for {bt}/{eq_bucket}/{vc} "
+                f"(cost_floor={policy['cost_floor_quote']:.4f}, "
+                f"strategy_floor={policy['strategy_floor_quote']:.4f})."
             ),
             "expected_net_edge_bps": round(net_edge_bps, 4),
             "projected_net_profit_quote": round(projected_net_profit, 4),
