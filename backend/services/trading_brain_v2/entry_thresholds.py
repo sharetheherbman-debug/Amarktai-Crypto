@@ -105,6 +105,17 @@ STRATEGY_TIME_CAP: Dict[str, int] = {
     "scalper": 300,
 }
 
+# ── Minimum projected net profit (flat floor, all strategies) ────────────
+# Applied as the final economic gate, AFTER position sizing, edge, and cost
+# checks.  Ensures that only trades with meaningful dollar/rand profit are
+# approved regardless of BPS edge or notional size.
+#   usdt: Binance and all non-Luno USDT-denominated venues
+#   zar:  Luno and all ZAR-denominated venues
+MIN_PROJECTED_NET_PROFIT: Dict[str, float] = {
+    "usdt": 1.5,    # minimum $1.50 net profit per trade
+    "zar": 25.0,    # minimum R25.00 net profit per trade
+}
+
 # ── Venue-specific round-trip cost estimates (BPS) for exit logic ─────────
 # Used by cost-aware no-progress exit to determine whether PnL covers costs.
 VENUE_ROUND_TRIP_COST_BPS: Dict[str, float] = {
