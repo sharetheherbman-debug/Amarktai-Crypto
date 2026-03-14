@@ -2,12 +2,13 @@
 OpenTradeManager – dead-capital exit rules for open positions.
 
 Implements time-budget exits, edge-decay exits, microstructure breaks,
-and no-progress exits. Prevents dead-capital holding.
+and cost-aware no-progress exits. Prevents dead-capital holding.
 """
 import logging
 import time
 
 from .reason_codes import ReasonCodes
+from .entry_thresholds import venue_round_trip_cost_bps, venue_class
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class OpenTradeManager:
         all_in_cost_bps: float = 0.0,
         regime_label: str = "unknown",
         regime_confidence: float = 0.5,
+        exchange: str = "",
     ) -> dict:
         """
         Evaluate whether an open trade should exit early.
@@ -74,14 +76,37 @@ class OpenTradeManager:
         else:
             pnl_pct = 0.0
 
-        # ── 1. Time budget exit ──
+        # ── Repair 5: Cost-Aware No-Progress Exit ──
+        # Determine venue-specific round-trip cost to use as the no-progress
+        # threshold.  A trade that hasn't covered its round-trip costs by the
+        # time-budget point is effectively "no progress" because closing it
+        # would not cover the fees already incurred.
+        _venue = (exchange or trade.get("exchange", "")).lower()
+        _rt_cost_bps = venue_round_trip_cost_bps(_venue)
+        # Convert BPS to pct for comparison with pnl_pct
+        _no_progress_pct = _rt_cost_bps / 100.0  # e.g. 35 bps → 0.35%
+        _vc = venue_class(_venue)
+
+        # ── 1. Cost-aware time budget exit ──
         time_budget_pct = 0.6 if bt == "scalper" else 0.75
-        if time_fraction >= time_budget_pct and pnl_pct <= 0.05:
+        if time_fraction >= time_budget_pct and pnl_pct <= _no_progress_pct:
             return {
                 "should_exit": True,
                 "reason_code": ReasonCodes.NO_PROGRESS_EXIT,
-                "reason_text": f"No progress at {time_fraction:.0%} of time budget ({elapsed:.0f}s/{safe_max_hold}s). PnL: {pnl_pct:.2f}%.",
-                "details": {"elapsed": elapsed, "max_hold": safe_max_hold, "pnl_pct": pnl_pct},
+                "reason_text": (
+                    f"No progress at {time_fraction:.0%} of time budget "
+                    f"({elapsed:.0f}s/{safe_max_hold}s). PnL: {pnl_pct:.2f}% "
+                    f"below venue cost threshold {_no_progress_pct:.2f}% "
+                    f"({_venue or 'default'}: {_rt_cost_bps:.0f} bps round-trip)."
+                ),
+                "details": {
+                    "elapsed": elapsed,
+                    "max_hold": safe_max_hold,
+                    "pnl_pct": pnl_pct,
+                    "no_progress_threshold_pct": _no_progress_pct,
+                    "venue_round_trip_cost_bps": _rt_cost_bps,
+                    "venue_class": _vc,
+                },
             }
 
         # ── 2. Full time budget exit ──

@@ -3,109 +3,25 @@ TradeFeasibilityGate – hard pre-trade gate for Trading Brain V2.
 
 Every candidate trade must pass ALL checks before any order is sent.
 Every rejection produces a structured reason code + diagnostics payload.
+
+All thresholds are imported from the canonical entry_thresholds module.
 """
 import logging
-import os
 from .reason_codes import ReasonCodes, make_decision_payload
+from .entry_thresholds import (
+    MAX_COST_TO_EDGE_RATIO,
+    MIN_ENTRY_CONFIDENCE,
+    MIN_NET_EDGE_BPS,
+    K_COST,
+    ABS_PROFIT_MIN_QUOTE,
+    SPREAD_CAP_PCT,
+    DEPTH_MIN_NOTIONAL,
+    STRATEGY_TIME_CAP,
+    equity_bucket as _equity_bucket,
+    venue_class as _venue_class,
+)
 
 logger = logging.getLogger(__name__)
-
-# Maximum acceptable cost as percentage of gross edge.
-# If all-in cost exceeds this ratio of the gross edge, the trade is
-# uneconomical because too much of the expected move is consumed by costs.
-MAX_COST_TO_EDGE_RATIO = 0.55
-
-# Minimum entry confidence score for any trade to be approved.
-# Below this floor the signal agreement is too weak to justify entry.
-MIN_ENTRY_CONFIDENCE = float(os.getenv("MIN_ENTRY_CONFIDENCE", "0.40"))
-
-# ── Per-strategy minimum net edge (BPS after all costs) ──
-MIN_NET_EDGE_BPS = {
-    "normal": 15.0,       # 0.15% net
-    "trend": 15.0,
-    "adaptive": 15.0,
-    "mean_reversion": 12.0,
-    "scalper": 20.0,      # 0.20% net — scalpers need meaningful edge to beat tight hold windows
-}
-
-# ── Cost multiplier: edge must be >= k * all_in_cost ──
-K_COST = {
-    "normal": 1.5,
-    "trend": 1.5,
-    "adaptive": 1.5,
-    "mean_reversion": 1.3,
-    "scalper": 1.5,       # tightened to 1.5× all-in cost (was 1.2×)
-}
-
-# ── Absolute profit minimums by (strategy, equity_bucket, venue_class) ──
-# venue_class: "zar" for Luno, "usdt" for others
-#
-# Calibrated for meaningful Luno economics.  Previous floors (R1.50 for small
-# ZAR) were too trivial to distinguish a real trade from noise.  New floors
-# require a materially useful minimum gain so only genuinely worthwhile paper
-# trades are approved.
-ABS_PROFIT_MIN_QUOTE = {
-    ("normal", "small", "zar"): 3.00,     # R3.00 — achievable at 500 ZAR notional × 60 bps
-    ("normal", "small", "usdt"): 0.50,     # $0.50
-    ("normal", "medium", "zar"): 12.00,    # R12
-    ("normal", "medium", "usdt"): 1.50,    # $1.50
-    ("normal", "large", "zar"): 40.00,     # R40
-    ("normal", "large", "usdt"): 5.00,     # $5
-    ("scalper", "small", "zar"): 1.50,     # R1.50 — scalpers do many small trades
-    ("scalper", "small", "usdt"): 0.20,    # $0.20
-    ("scalper", "medium", "zar"): 5.00,    # R5
-    ("scalper", "medium", "usdt"): 0.50,
-    ("scalper", "large", "zar"): 15.00,    # R15
-    ("scalper", "large", "usdt"): 1.50,
-    ("mean_reversion", "small", "zar"): 3.00,
-    ("mean_reversion", "small", "usdt"): 0.40,
-    ("mean_reversion", "medium", "zar"): 10.00,
-    ("mean_reversion", "medium", "usdt"): 1.20,
-    ("mean_reversion", "large", "zar"): 30.00,
-    ("mean_reversion", "large", "usdt"): 4.00,
-}
-
-# ── Spread caps (% of mid) ──
-SPREAD_CAP_PCT = {
-    "normal": 0.35,
-    "scalper": 0.20,
-    "mean_reversion": 0.30,
-}
-
-# ── Depth minimum (quote notional) ──
-DEPTH_MIN_NOTIONAL = {
-    "normal": 50000,
-    "scalper": 30000,
-    "mean_reversion": 40000,
-}
-
-# ── Strategy time caps (seconds) ──
-STRATEGY_TIME_CAP = {
-    "normal": 21600,       # 6 hours
-    "trend": 21600,
-    "adaptive": 21600,
-    "mean_reversion": 10800,  # 3 hours
-    "scalper": 300,           # 5 minutes
-}
-
-
-def _equity_bucket(equity_quote: float, venue_class: str) -> str:
-    if venue_class == "zar":
-        if equity_quote >= 50000:
-            return "large"
-        if equity_quote >= 5000:
-            return "medium"
-        return "small"
-    else:
-        if equity_quote >= 5000:
-            return "large"
-        if equity_quote >= 500:
-            return "medium"
-        return "small"
-
-
-def _venue_class(venue: str) -> str:
-    return "zar" if venue and venue.lower() == "luno" else "usdt"
 
 
 class TradeFeasibilityGate:
@@ -133,9 +49,19 @@ class TradeFeasibilityGate:
         drawdown_ok: bool = True,
         entry_confidence: float = 0.0,
         mid_price: float = 0.0,
+        # Repair 1: Edge floor transparency
+        raw_gross_edge_bps: float = None,
+        paper_edge_floor_applied: bool = False,
+        # Repair 4: Confidence gate truth
+        confidence_sources: dict = None,
     ) -> dict:
         """
         Run all feasibility checks. Returns decision payload.
+
+        Additional transparency parameters (Repairs 1 & 4):
+        - raw_gross_edge_bps: the original edge BEFORE paper floor was applied
+        - paper_edge_floor_applied: True if paper edge floor inflated the edge
+        - confidence_sources: breakdown of individual signal contributions
         """
         vc = _venue_class(venue)
         strat = (strategy or "normal").lower()
@@ -157,6 +83,13 @@ class TradeFeasibilityGate:
         safe_notional = max(notional, 0.0)
         projected_net_profit_quote = safe_notional * (max(expected_net_edge_bps, 0.0) / 10000.0)
 
+        # ── Edge floor truth (Repair 1) ──
+        _raw_edge = raw_gross_edge_bps if raw_gross_edge_bps is not None else expected_gross_edge_bps
+        _floor_applied = paper_edge_floor_applied
+
+        # ── Confidence truth (Repair 4) ──
+        _conf_sources = confidence_sources or {}
+
         # Common payload kwargs
         common = dict(
             confidence=entry_confidence,
@@ -167,6 +100,18 @@ class TradeFeasibilityGate:
             regime_label=(regime_result or {}).get("regime_label", "unknown"),
             regime_confidence=(regime_result or {}).get("regime_confidence", 0.0),
             cost_floor_source="all_in_cost_model",
+            extra={
+                # Repair 1: Edge floor transparency
+                "raw_gross_edge_bps": round(_raw_edge, 2),
+                "paper_edge_floor_applied": _floor_applied,
+                # Repair 3: Threshold truth
+                "threshold_source": "entry_thresholds",
+                "min_net_edge_bps_used": MIN_NET_EDGE_BPS.get(strat_key, 15.0),
+                "k_cost_used": K_COST.get(strat_key, 1.5),
+                "min_entry_confidence_used": MIN_ENTRY_CONFIDENCE,
+                # Repair 4: Confidence truth
+                "confidence_sources": _conf_sources,
+            },
         )
 
         # ── 1. Risk / drawdown blocks ──

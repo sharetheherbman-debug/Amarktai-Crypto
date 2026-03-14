@@ -2011,6 +2011,11 @@ class PaperTradingEngine:
         expected_gross_edge_bps = expected_move_pct * 100  # % → bps
         all_in_cost_bps = cost.get("all_in_cost_bps", 0)
 
+        # ── Repair 1: Edge Floor Transparency ──
+        # Track raw edge BEFORE any floor is applied.
+        raw_gross_edge_bps = expected_gross_edge_bps
+        paper_edge_floor_applied = False
+
         # Paper-mode minimum viable edge floor:
         # When the ML predictor returns a zero or near-zero predicted_change (common
         # with the simplified paper-mode predictor that has no live model), the
@@ -2030,17 +2035,42 @@ class PaperTradingEngine:
         if expected_gross_edge_bps < _paper_edge_floor:
             logger.info(
                 "📊 PAPER EDGE FLOOR | bot=%s symbol=%s exchange=%s | "
-                "gross_edge=%.1f bps < floor=%.1f bps (all_in_cost=%.1f) → applying floor",
+                "raw_edge=%.1f bps < floor=%.1f bps (all_in_cost=%.1f) → applying floor",
                 bot_id, symbol, exchange,
-                expected_gross_edge_bps, _paper_edge_floor, all_in_cost_bps,
+                raw_gross_edge_bps, _paper_edge_floor, all_in_cost_bps,
             )
             expected_gross_edge_bps = _paper_edge_floor
+            paper_edge_floor_applied = True
         logger.info(
             "📊 EXPECTANCY | bot=%s symbol=%s exchange=%s | "
-            "gross_edge=%.1f bps all_in_cost=%.1f bps net_edge=%.1f bps",
+            "raw_edge=%.1f bps gross_edge=%.1f bps all_in_cost=%.1f bps "
+            "net_edge=%.1f bps floor_applied=%s",
             bot_id, symbol, exchange,
-            expected_gross_edge_bps, all_in_cost_bps, expected_gross_edge_bps - all_in_cost_bps,
+            raw_gross_edge_bps, expected_gross_edge_bps, all_in_cost_bps,
+            expected_gross_edge_bps - all_in_cost_bps, paper_edge_floor_applied,
         )
+
+        # ── Repair 4: Confidence Gate Truth ──
+        # Build confidence source breakdown for diagnostics.
+        confidence_sources = {
+            "regime_confidence": round(float(regime_result.get("regime_confidence", 0) or 0), 4),
+            "regime_weight": 0.35,
+            "ml_confidence": round(float(prediction.get("confidence", 0) or 0), 4),
+            "ml_weight": 0.30,
+            "fetchai_confidence": round(float(fetchai_data.get("confidence", 0) or 0), 4),
+            "fetchai_weight": 0.20,
+            "fetchai_is_fallback": float(fetchai_data.get("confidence", 0) or 0) == 0,
+            "coinstats_strength": round(float(coinstats_data.get("strength", 0) or 0), 4),
+            "coinstats_weight": 0.15,
+            "coinstats_is_fallback": float(coinstats_data.get("strength", 0) or 0) == 0,
+            "consensus_strength": int(consensus.get("consensus_strength", 0)),
+            "consensus_sources_count": int(consensus.get("sources", 0)),
+            "direction_conflict": direction_conflict,
+            "effective_confidence_threshold": float(os.getenv("MIN_ENTRY_CONFIDENCE", "0.40")),
+            "entry_quality_threshold": (
+                0.78 if str(bot_type).lower() == "scalper" else 0.68
+            ),
+        }
 
         # 8) Kelly sizing V2
         win_rate = 0.5
@@ -2070,6 +2100,12 @@ class PaperTradingEngine:
         )
         notional = sizing.get("position_quote", paper_capital * 0.03)
 
+        # ── Repair 2: Paper vs Live Notional Truth ──
+        # Track Kelly-suggested notional before any boost.
+        kelly_notional = notional
+        paper_notional_cap_pct = 100.0  # Paper mode allows 100% of capital
+        live_notional_cap_pct = 10.0    # Live mode caps at 10% of capital
+
         # Boost notional so bootstrap sizing can clear the absolute profit floor.
         # When Kelly is conservative (few trades), the tiny position can't meet the
         # per-trade absolute minimum. Raise to the minimum needed.
@@ -2098,6 +2134,10 @@ class PaperTradingEngine:
         except Exception:
             pass
 
+        # Compute notional truth metrics
+        effective_notional_pct = round((notional / paper_capital * 100) if paper_capital > 0 else 0, 2)
+        paper_sizing_amplified = effective_notional_pct > live_notional_cap_pct
+
         # 9) Trade Feasibility Gate — the hard gate
         feasibility = v2["feasibility_gate"].evaluate(
             strategy=bot_type,
@@ -2113,6 +2153,11 @@ class PaperTradingEngine:
             regime_eligibility=regime_eligibility,
             entry_confidence=entry_confidence,
             mid_price=mid,
+            # Repair 1: Edge floor transparency
+            raw_gross_edge_bps=raw_gross_edge_bps,
+            paper_edge_floor_applied=paper_edge_floor_applied,
+            # Repair 4: Confidence gate truth
+            confidence_sources=confidence_sources,
         )
 
         if not feasibility.get("approved"):
@@ -2265,6 +2310,17 @@ class PaperTradingEngine:
             "target_source": "target_policy_v2",
             "cost_floor_source": "all_in_cost_model",
             "v2_brain": True,
+            # Repair 1: Edge floor transparency
+            "raw_gross_edge_bps": round(raw_gross_edge_bps, 2),
+            "paper_edge_floor_applied": paper_edge_floor_applied,
+            # Repair 2: Paper vs live notional truth
+            "paper_notional_cap_pct": paper_notional_cap_pct,
+            "live_notional_cap_pct": live_notional_cap_pct,
+            "effective_notional_pct": effective_notional_pct,
+            "kelly_notional": round(kelly_notional, 2),
+            "paper_sizing_amplified": paper_sizing_amplified,
+            # Repair 4: Confidence gate truth
+            "confidence_sources": confidence_sources,
             # Legacy AI fields for backward compatibility
             "ai_regime": regime.get("regime", "unknown"),
             "ai_confidence": round(regime.get("confidence", 0), 2),
