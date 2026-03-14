@@ -122,16 +122,25 @@ class TradeFeasibilityGate:
                 "min_entry_confidence_used": MIN_ENTRY_CONFIDENCE,
                 # Repair 4: Confidence truth
                 "confidence_sources": _conf_sources,
-                # Policy v2: canonical profitability diagnostics
+                # Policy v2: canonical profitability diagnostics (PART C)
+                # All comparisons are in the native QUOTE currency of the venue.
+                # For Luno (ZAR venue): quote = ZAR, so quote == ZAR amounts.
+                # For Binance/USDT venues: quote = USDT (multiply by fx_rate for ZAR).
+                "projected_net_profit_quote": round(projected_net_profit_quote, 6),
+                "min_profit_required_quote": _policy["min_net_profit_quote"],
                 "min_net_profit_quote_required": _policy["min_net_profit_quote"],
                 "cost_floor_quote":             _policy["cost_floor_quote"],
                 "safety_buffer_quote":          _policy["safety_buffer_quote"],
                 "strategy_floor_quote":         _policy["strategy_floor_quote"],
                 "capital_tier":                 _policy["capital_tier"],
                 "strategy_class":               _policy["strategy_class"],
-                "venue_class":                  _policy["venue_class"],
+                "venue_class":                  vc,
                 "policy_version":               POLICY_VERSION,
                 "policy_source":                _policy["policy_source"],
+                # Unit-consistency diagnostic: which currency side the min-profit
+                # comparison is evaluated in (always native quote currency).
+                "rejection_currency_side":      "quote_native",
+                "notional_quote":               round(safe_notional, 6),
             },
         )
 
