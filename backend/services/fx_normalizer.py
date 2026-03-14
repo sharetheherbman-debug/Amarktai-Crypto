@@ -300,15 +300,31 @@ def _get_cached_rate() -> float:
 def _fiat_to_zar_rate(currency: str) -> Tuple[float, str]:
     """Return (zar_rate, source) for supported fiat currencies.
 
-    Called by get_fx_rate() when *currency* is not ZAR or USDT-family.
+    Priority order:
+      1. Live / cached rate from fiat_fx_provider (live_fiat_primary / live_fiat_fallback / cache_stale)
+      2. Environment-variable override (*_ZAR_RATE env vars)  — handled inside fiat_fx_provider
+      3. Module-level static fallback constants
+
+    Called by get_fx_rate() when *currency* is a known fiat (USD/GBP/EUR).
     Falls back to 1.0 with a warning for unrecognised currencies.
     """
-    _FIAT_RATES: dict[str, Tuple[float, str]] = {
+    _STATIC: dict[str, Tuple[float, str]] = {
         "USD": (_USD_ZAR_FALLBACK, "env_fallback_usd"),
         "GBP": (_GBP_ZAR_FALLBACK, "env_fallback_gbp"),
         "EUR": (_EUR_ZAR_FALLBACK, "env_fallback_eur"),
     }
-    if currency in _FIAT_RATES:
-        return _FIAT_RATES[currency]
-    logger.warning("FX rate unknown for %s→ZAR; using 1.0 identity", currency)
-    return 1.0, "unknown"
+    if currency not in _STATIC:
+        logger.warning("FX rate unknown for %s→ZAR; using 1.0 identity", currency)
+        return 1.0, "unknown"
+
+    # Try the fiat provider (may return live/cache/env/static depending on availability)
+    try:
+        from services.fiat_fx_provider import get_zar_per_unit as _gzpu
+        rate, source = _gzpu(currency)
+        if rate and rate > 0:
+            return rate, source
+    except Exception as exc:
+        logger.debug("fiat_fx_provider unavailable for %s: %s — using static fallback", currency, exc)
+
+    # Final static fallback
+    return _STATIC[currency]

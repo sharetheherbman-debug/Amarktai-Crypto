@@ -100,39 +100,63 @@ async def get_user_countdowns(user_id: str = Depends(get_current_user)):
 
 
 async def calculate_daily_roi(user_id: str) -> float:
-    """Calculate average daily ROI from recent trades"""
+    """Calculate average daily ROI from recent trades.
+
+    All profit values are normalised to ZAR before summing so that bots
+    trading in USDT (Binance, KuCoin, etc.) are not mixed raw with ZAR
+    (Luno) values.  Uses realized_pnl_zar when available (pre-converted by
+    enrich_trade_pnl_fields), otherwise falls back to live FX conversion.
+    """
     try:
-        # Get trades from last 7 days
         from datetime import timedelta
+        from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _gqc
+
         seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-        
-        trades = await db.trades_collection.find({
-            "user_id": user_id,
-            "created_at": {"$gte": seven_days_ago}
-        }).to_list(1000)
-        
+
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "created_at": {"$gte": seven_days_ago}},
+            {
+                "_id": 0,
+                "net_pnl": 1,
+                "profit_loss": 1,
+                "fees": 1,
+                "realized_pnl_zar": 1,
+                "fee_display_zar": 1,
+                "quote_currency": 1,
+                "exchange": 1,
+            }
+        ).to_list(1000)
+
         if not trades:
             return 0.0
-        
-        # Calculate total profit from canonical realized fields (single pass).
-        total_profit = 0.0
+
+        # Sum all profits in ZAR — use realized_pnl_zar when available,
+        # otherwise convert via canonical FX rate for the trade's currency.
+        total_profit_zar = 0.0
         for trade in trades:
-            net_pnl = trade.get("net_pnl")
-            pnl = net_pnl if net_pnl is not None else trade.get("profit_loss", 0)
-            total_profit += float(pnl or 0) - float(trade.get("fees", 0) or 0)
-        
-        # Get starting capital (7 days ago)
+            if trade.get("realized_pnl_zar") is not None:
+                # Pre-converted canonical field — most accurate
+                total_profit_zar += float(trade["realized_pnl_zar"])
+            else:
+                # Legacy: convert raw pnl using trade's quote currency
+                net_pnl = trade.get("net_pnl")
+                pnl_raw = net_pnl if net_pnl is not None else trade.get("profit_loss", 0)
+                fees_raw = float(trade.get("fees", 0) or 0)
+                qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
+                rate, _ = _gfr(qc, "ZAR")
+                total_profit_zar += (float(pnl_raw or 0) - fees_raw) * rate
+
+        # user.total_capital is always in ZAR (platform-level aggregate)
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-        current_capital = user.get("total_capital", 0.0)
-        starting_capital = current_capital - total_profit
-        
+        current_capital = float((user or {}).get("total_capital", 0.0) or 0.0)
+        starting_capital = current_capital - total_profit_zar
+
         if starting_capital <= 0:
             return 0.0
-        
-        # Calculate daily ROI
-        total_roi = (total_profit / starting_capital) * 100
+
+        total_roi = (total_profit_zar / starting_capital) * 100
         daily_roi = total_roi / 7
-        
+
         return max(0, daily_roi)
     except Exception as e:
         logger.warning(f"Error calculating daily ROI: {e}")

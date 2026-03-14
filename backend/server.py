@@ -3135,6 +3135,7 @@ routers_to_mount = [
     ("routes.scalper", "Scalper Bots"),  # NEW - Scalper bot management + EV gating
     ("routes.coinstats", "CoinStats"),  # Market intelligence / news / tickers
     ("routes.huggingface", "HuggingFace"),  # AI sentiment analysis
+    ("routes.fx_rates", "FX Rates"),  # Canonical fiat FX rates + diagnostics
 ]
 
 # Mount realtime router only if enabled via feature flag
