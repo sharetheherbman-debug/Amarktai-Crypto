@@ -221,7 +221,7 @@ class TestFeasibilityGateStricterZAR:
         result = self._gate(notional=200.0, expected_gross_edge_bps=150.0, all_in_cost_bps=40.0)
         # net_edge = 150 - 40 = 110 bps = 1.10%; profit = 200 × 0.011 = 2.20 < 3.0
         assert not result["approved"], f"Expected rejection, got: {result}"
-        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
 
     def test_trade_passes_when_profit_meets_new_floor(self):
         """
@@ -238,7 +238,7 @@ class TestFeasibilityGateStricterZAR:
         """
         result = self._gate(notional=150.0, expected_gross_edge_bps=150.0, all_in_cost_bps=40.0)
         assert not result["approved"]
-        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
+        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
 
 
 # ── 8. Entry confidence gate ──────────────────────────────────────────────────
@@ -571,15 +571,15 @@ class TestTradeWorthFilterRaisedFloors:
 
     def test_scalper_zar_floor_raised(self):
         """Scalper small ZAR floor is now R1.50 (was R0.50)."""
-        from services.trade_worth_filter import _ABS_MIN_QUOTE
-        floor = _ABS_MIN_QUOTE.get(("scalper", "small", "zar"))
+        from services.trading_brain_v2.entry_thresholds import ABS_PROFIT_MIN_QUOTE
+        floor = ABS_PROFIT_MIN_QUOTE.get(("scalper", "small", "zar"))
         assert floor == 1.50, f"Expected R1.50 scalper small ZAR floor, got {floor}"
 
     def test_usdt_floors_unchanged(self):
         """USDT floors must match canonical entry_thresholds values."""
-        from services.trade_worth_filter import _ABS_MIN_QUOTE
-        assert _ABS_MIN_QUOTE[("normal", "small", "usdt")] == 0.50
-        assert _ABS_MIN_QUOTE[("scalper", "small", "usdt")] == 0.20
+        from services.trading_brain_v2.entry_thresholds import ABS_PROFIT_MIN_QUOTE
+        assert ABS_PROFIT_MIN_QUOTE[("normal", "small", "usdt")] == 0.50
+        assert ABS_PROFIT_MIN_QUOTE[("scalper", "small", "usdt")] == 0.20
 
 
 # ── 14. Ledger semantics not broken by new scalper tracking ──────────────────

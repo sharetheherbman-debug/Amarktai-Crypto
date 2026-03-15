@@ -11,6 +11,9 @@ NORMAL_CONFIDENCE_THRESHOLD = 0.68
 SCALPER_BASE_EDGE_PCT = 0.60   # raised from 0.45 — scalpers require stronger projected edge
 NORMAL_BASE_EDGE_PCT = 0.2
 
+# Minimum non-zero value to treat a signal as "available"
+_SIGNAL_AVAILABLE_THRESHOLD = 0.01
+
 
 def compute_entry_confidence(
     *,
@@ -23,30 +26,110 @@ def compute_entry_confidence(
     consensus_sources: int,
     direction_conflict: bool,
 ) -> Dict[str, float | bool | str]:
-    """Compute canonical entry confidence score with conflict penalties."""
+    """Compute canonical entry confidence score with conflict penalties.
+
+    Uses adaptive weight normalization: when FetchAI or CoinStats signals are
+    unavailable (zero), their weight is redistributed proportionally to the
+    available primary signals (regime + ML).  This prevents strong 2-signal
+    alignment from being artificially blocked purely because a third-party
+    data source is unavailable.
+
+    The score structure is:
+      - regime_confidence    base weight 0.35 (primary)
+      - ml_confidence        base weight 0.30 (primary)
+      - fetchai_confidence   base weight 0.20 (secondary, redistributed if absent)
+      - coinstats_strength   base weight 0.15 (secondary, redistributed if absent)
+      - consensus bonus      up to +0.14
+      - direction_conflict   penalty -0.28
+      - no_consensus         penalty -0.05 (reduced from 0.08 – still meaningful)
+    """
     _rc = float(regime_confidence or 0)
     _ml = float(ml_confidence or 0)
+    _fa = float(fetchai_confidence or 0)
+    _cs = float(coinstats_strength or 0)
+
+    # ── Adaptive weight normalization ────────────────────────────────────
+    # If secondary signals are unavailable, their weight flows to primary signals
+    # in proportion so that strong regime+ML can reach the threshold on their own.
+    fa_available = _fa >= _SIGNAL_AVAILABLE_THRESHOLD
+    cs_available = _cs >= _SIGNAL_AVAILABLE_THRESHOLD
+
+    w_regime = 0.35
+    w_ml = 0.30
+    w_fa = 0.20
+    w_cs = 0.15
+
+    if not fa_available and not cs_available:
+        # Both secondary signals absent: full redistribution to primary
+        # weights proportional to base regime/ml ratio
+        _extra = w_fa + w_cs
+        _sum_primary = w_regime + w_ml
+        w_regime += _extra * (w_regime / _sum_primary)
+        w_ml += _extra * (w_ml / _sum_primary)
+        w_fa = 0.0
+        w_cs = 0.0
+    elif not fa_available:
+        # FetchAI absent: distribute its weight proportionally to regime/ml
+        _sum_primary = w_regime + w_ml
+        w_regime += w_fa * (w_regime / _sum_primary)
+        w_ml += w_fa * (w_ml / _sum_primary)
+        w_fa = 0.0
+    elif not cs_available:
+        # CoinStats absent: distribute its weight proportionally to regime/ml
+        _sum_primary = w_regime + w_ml
+        w_regime += w_cs * (w_regime / _sum_primary)
+        w_ml += w_cs * (w_ml / _sum_primary)
+        w_cs = 0.0
+
     score = (
-        (_rc * 0.35)
-        + (_ml * 0.30)
-        + ((float(fetchai_confidence or 0) / 100.0) * 0.20)
-        + ((float(coinstats_strength or 0) / 100.0) * 0.15)
+        (_rc * w_regime)
+        + (_ml * w_ml)
+        + ((_fa / 100.0) * w_fa)
+        + ((_cs / 100.0) * w_cs)
     )
-    score += min(0.08, consensus_strength * 0.04)
-    score += min(0.06, consensus_sources * 0.02)
+
+    # ── Consensus bonus ──────────────────────────────────────────────────
+    score += min(0.08, int(consensus_strength) * 0.04)
+    score += min(0.06, int(consensus_sources) * 0.02)
+
+    # ── Penalties ────────────────────────────────────────────────────────
     if direction_conflict:
         score -= 0.28
-    if consensus_strength <= 0:
-        score -= 0.08
+    if int(consensus_strength) <= 0:
+        score -= 0.05   # reduced from 0.08 — still a meaningful deterrent
 
     score = max(0.0, min(1.0, score))
-    threshold = SCALPER_CONFIDENCE_THRESHOLD if str(bot_type).lower() == "scalper" else NORMAL_CONFIDENCE_THRESHOLD
+
+    # ── Threshold ────────────────────────────────────────────────────────
+    threshold = (
+        SCALPER_CONFIDENCE_THRESHOLD
+        if str(bot_type).lower() == "scalper"
+        else NORMAL_CONFIDENCE_THRESHOLD
+    )
     accepted = score >= threshold
+
     return {
         "entry_confidence_score": round(score, 4),
         "minimum_required": threshold,
         "accepted": accepted,
         "reason_code": "ENTRY_CONFIDENCE_OK" if accepted else "LOW_ENTRY_CONFIDENCE",
+        # Transparency: per-signal contributions
+        "confidence_sources": {
+            "regime_confidence":  round(_rc, 4),
+            "ml_confidence":      round(_ml, 4),
+            "fetchai_confidence": round(_fa / 100.0, 4),
+            "coinstats_strength": round(_cs / 100.0, 4),
+            "fetchai_available":  fa_available,
+            "coinstats_available": cs_available,
+            "weights_normalized": not (fa_available and cs_available),
+            "w_regime": round(w_regime, 4),
+            "w_ml":     round(w_ml, 4),
+            "w_fa":     round(w_fa, 4),
+            "w_cs":     round(w_cs, 4),
+            "consensus_strength": int(consensus_strength),
+            "consensus_sources":  int(consensus_sources),
+            "direction_conflict": direction_conflict,
+        },
     }
 
 

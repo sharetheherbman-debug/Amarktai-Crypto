@@ -126,13 +126,74 @@ def calculate_trade_pnl(
     }
 
 
-def classify_trade_outcome(net_profit: float) -> Dict[str, Union[int, str]]:
+def classify_trade_outcome(
+    net_profit: float,
+    *,
+    gross_profit: float = 0.0,
+    notional: float = 0.0,
+    venue: str = "",
+    strategy: str = "normal",
+    bot_equity: float = 0.0,
+    fees: float = 0.0,
+    slippage: float = 0.0,
+) -> Dict[str, Union[int, str]]:
     """Classify a trade outcome for win/loss counters.
 
-    Returns dict with win_count, loss_count, and result keys.
+    Returns dict with:
+      win_count           – 1 for QUALIFIED_WIN only (not micro-gains)
+      loss_count          – 1 for LOSS
+      gross_green_count   – 1 if gross_profit > 0
+      net_green_count     – 1 if net_profit > 0
+      qualified_win_count – 1 for QUALIFIED_WIN
+      result              – "qualified_win" / "micro_win" / "loss" / "flat"
+      outcome_class       – canonical outcome class string
     """
-    if net_profit > 0:
-        return {"win_count": 1, "loss_count": 0, "result": "win"}
-    if net_profit < 0:
-        return {"win_count": 0, "loss_count": 1, "result": "loss"}
-    return {"win_count": 0, "loss_count": 0, "result": "flat"}
+    try:
+        from services.trading_brain_v2.trade_outcome_classifier import (
+            classify_trade_outcome as _classify,
+            build_outcome_counts,
+        )
+        outcome = _classify(
+            gross_pnl=gross_profit,
+            net_pnl=net_profit,
+            notional=notional,
+            venue=venue,
+            strategy=strategy,
+            bot_equity=bot_equity,
+            fees=fees,
+            slippage=slippage,
+        )
+        counts = build_outcome_counts(outcome)
+        # Map outcome_class to a simple result string
+        oc = outcome["outcome_class"]
+        if oc == "QUALIFIED_WIN":
+            result_str = "qualified_win"
+        elif oc == "MICRO_WIN":
+            result_str = "micro_win"
+        elif oc == "LOSS":
+            result_str = "loss"
+        else:
+            result_str = "flat"
+        return {**counts, "result": result_str, "outcome_class": oc}
+    except Exception:
+        # Fallback to simple logic if classifier unavailable
+        if net_profit > 0:
+            return {
+                "win_count": 1, "loss_count": 0,
+                "gross_green_count": 1, "net_green_count": 1,
+                "qualified_win_count": 1,
+                "result": "win", "outcome_class": "QUALIFIED_WIN",
+            }
+        if net_profit < 0:
+            return {
+                "win_count": 0, "loss_count": 1,
+                "gross_green_count": int(gross_profit > 0), "net_green_count": 0,
+                "qualified_win_count": 0,
+                "result": "loss", "outcome_class": "LOSS",
+            }
+        return {
+            "win_count": 0, "loss_count": 0,
+            "gross_green_count": int(gross_profit > 0), "net_green_count": 0,
+            "qualified_win_count": 0,
+            "result": "flat", "outcome_class": "LOSS",
+        }

@@ -774,7 +774,16 @@ class TradingScheduler:
             from utils.trade_utils import classify_trade_outcome
             net_profit = trade_result.get('net_profit', 0)
             new_capital = capital + net_profit
-            outcome = classify_trade_outcome(net_profit)
+            outcome = classify_trade_outcome(
+                net_profit,
+                gross_profit=float(trade_result.get("gross_pnl") or trade_result.get("gross_profit") or net_profit),
+                notional=float(trade_result.get("notional") or trade_result.get("amount") or 0.0),
+                venue=str(trade_result.get("exchange") or bot.get("exchange") or ""),
+                strategy=str(bot.get("bot_type") or "normal"),
+                bot_equity=float(capital or 0.0),
+                fees=float(trade_result.get("fees") or 0.0),
+                slippage=float(trade_result.get("slippage") or 0.0),
+            )
             
             await db.bots_collection.update_one(
                 {"id": bot_id},
@@ -787,7 +796,10 @@ class TradingScheduler:
                         "total_profit": net_profit,
                         "trades_count": 1,
                         "win_count": outcome["win_count"],
-                        "loss_count": outcome["loss_count"]
+                        "loss_count": outcome["loss_count"],
+                        "gross_green_count": outcome.get("gross_green_count", 0),
+                        "net_green_count": outcome.get("net_green_count", 0),
+                        "qualified_win_count": outcome.get("qualified_win_count", 0),
                     }
                 }
             )

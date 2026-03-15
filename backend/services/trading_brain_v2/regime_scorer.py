@@ -37,6 +37,15 @@ HYSTERESIS_ENTER = 0.55
 HYSTERESIS_EXIT = 0.35
 REGIME_COOLDOWN_SEC = 30  # min time between regime transitions
 
+# ── Scalper-specific microstructure thresholds ────────────────────────────────
+# These are separate from normal-bot regime logic so that scalper admission
+# can be tuned independently.
+SCALPER_MAX_SPREAD_PCT = 0.20          # block if spread >= 0.20%
+SCALPER_MIN_DEPTH_NOTIONAL = 20_000   # block if depth < $20k / R20k equivalent
+SCALPER_MIN_LIQUIDITY_SCORE = 0.40    # block below this liquidity score
+SCALPER_MAX_VOL_SCORE = 0.65          # block in chaotic high-volatility
+SCALPER_MAX_TREND_SCORE = 0.55        # block if momentum too strong (trend-dominant)
+
 
 class RegimeScorerV2:
     """
@@ -288,3 +297,177 @@ class RegimeScorerV2:
         if label == REGIME_AMBIGUOUS:
             return "REGIME_AMBIGUOUS_STANDBY", f"Regime ambiguous (confidence {confidence:.0%}) – reduced activity."
         return f"REGIME_{label.upper()}", f"Regime: {label} (confidence {confidence:.0%})"
+
+
+class ScalperAdmissionPolicy:
+    """
+    Dedicated scalper admission policy.
+
+    This is intentionally separate from the normal-bot regime logic.
+    Scalper requires valid microstructure conditions in addition to a
+    compatible regime — passing the regime check alone is NOT sufficient.
+
+    Allowed regimes: consolidation, low_volatility, mean_reversion.
+    Required conditions on top of regime check:
+      - spread is acceptable (< SCALPER_MAX_SPREAD_PCT)
+      - depth is sufficient (>= SCALPER_MIN_DEPTH_NOTIONAL)
+      - liquidity score is adequate (>= SCALPER_MIN_LIQUIDITY_SCORE)
+      - volatility is not chaotic (vol_score < SCALPER_MAX_VOL_SCORE)
+      - momentum not dominant (trend_score < SCALPER_MAX_TREND_SCORE)
+
+    Blocked conditions:
+      - dead liquidity: depth too thin OR spread too wide
+      - chaotic whipsaw: vol_score >= SCALPER_MAX_VOL_SCORE
+      - cost-dominant: net_edge_bps is too small after costs
+      - insufficient short-horizon range: price range too tight to hit target
+    """
+
+    ALLOWED_REGIMES = STRATEGY_REGIME_MAP["scalper"]
+
+    @classmethod
+    def evaluate(
+        cls,
+        *,
+        regime_label: str,
+        regime_confidence: float,
+        spread_pct: float,
+        depth_notional: float,
+        liquidity_score: float,
+        vol_score: float,
+        trend_score: float,
+        net_edge_bps: float = 0.0,
+        projected_net_profit_quote: float = 0.0,
+        min_profit_quote: float = 0.0,
+    ) -> dict:
+        """
+        Evaluate whether microstructure is good enough for a scalper entry.
+
+        Returns dict with:
+          eligible           – True / False
+          action             – 'approved' / 'blocked'
+          block_reason_code  – structured reason if blocked
+          block_reason_text  – human-readable reason
+          details            – dict of scores used in the decision
+        """
+        details = {
+            "regime_label":      regime_label,
+            "regime_confidence": round(regime_confidence, 4),
+            "spread_pct":        round(float(spread_pct or 0), 4),
+            "depth_notional":    float(depth_notional or 0),
+            "liquidity_score":   round(float(liquidity_score or 0), 4),
+            "vol_score":         round(float(vol_score or 0), 4),
+            "trend_score":       round(float(trend_score or 0), 4),
+            "net_edge_bps":      round(float(net_edge_bps or 0), 4),
+        }
+
+        # ── 1. Regime must be in allowed set ─────────────────────────────
+        if regime_label not in cls.ALLOWED_REGIMES and regime_label != REGIME_AMBIGUOUS:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_REGIME_INCOMPATIBLE",
+                "block_reason_text": (
+                    f"Scalper blocked: regime '{regime_label}' is not consolidation / "
+                    f"low_volatility / mean_reversion."
+                ),
+                "details": details,
+            }
+
+        # ── 2. Dead liquidity check ───────────────────────────────────────
+        if float(spread_pct or 0) >= SCALPER_MAX_SPREAD_PCT:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_SPREAD_TOO_WIDE",
+                "block_reason_text": (
+                    f"Scalper blocked: spread {spread_pct:.3f}% >= "
+                    f"{SCALPER_MAX_SPREAD_PCT:.2f}% threshold (dead/costly liquidity)."
+                ),
+                "details": details,
+            }
+        if float(depth_notional or 0) < SCALPER_MIN_DEPTH_NOTIONAL:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_DEPTH_TOO_THIN",
+                "block_reason_text": (
+                    f"Scalper blocked: depth {depth_notional:.0f} < "
+                    f"{SCALPER_MIN_DEPTH_NOTIONAL:.0f} (insufficient order book depth)."
+                ),
+                "details": details,
+            }
+        if float(liquidity_score or 0) < SCALPER_MIN_LIQUIDITY_SCORE:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_LIQUIDITY_LOW",
+                "block_reason_text": (
+                    f"Scalper blocked: liquidity score {liquidity_score:.2f} < "
+                    f"{SCALPER_MIN_LIQUIDITY_SCORE:.2f} (market quality too low)."
+                ),
+                "details": details,
+            }
+
+        # ── 3. Chaotic whipsaw check ─────────────────────────────────────
+        if float(vol_score or 0) >= SCALPER_MAX_VOL_SCORE:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_VOLATILITY_TOO_HIGH",
+                "block_reason_text": (
+                    f"Scalper blocked: vol_score {vol_score:.2f} >= "
+                    f"{SCALPER_MAX_VOL_SCORE:.2f} (chaotic / whipsaw conditions)."
+                ),
+                "details": details,
+            }
+
+        # ── 4. Trend-dominant check (momentum overwhelms microstructure) ─
+        if float(trend_score or 0) >= SCALPER_MAX_TREND_SCORE:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_TREND_DOMINANT",
+                "block_reason_text": (
+                    f"Scalper blocked: trend_score {trend_score:.2f} >= "
+                    f"{SCALPER_MAX_TREND_SCORE:.2f} (directional momentum too strong)."
+                ),
+                "details": details,
+            }
+
+        # ── 5. Cost-dominant check ────────────────────────────────────────
+        # Net edge must be positive; projection must clear profit floor
+        if float(net_edge_bps or 0) <= 0:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_COST_DOMINANT",
+                "block_reason_text": (
+                    f"Scalper blocked: net_edge_bps {net_edge_bps:.1f} <= 0 "
+                    f"(costs dominate projected edge)."
+                ),
+                "details": details,
+            }
+        if min_profit_quote > 0 and float(projected_net_profit_quote or 0) < min_profit_quote:
+            return {
+                "eligible": False,
+                "action": "blocked",
+                "block_reason_code": "SCALPER_PROFIT_BELOW_FLOOR",
+                "block_reason_text": (
+                    f"Scalper blocked: projected net profit "
+                    f"{projected_net_profit_quote:.4f} < floor {min_profit_quote:.4f}."
+                ),
+                "details": details,
+            }
+
+        # ── All checks passed ─────────────────────────────────────────────
+        return {
+            "eligible": True,
+            "action": "approved",
+            "block_reason_code": "",
+            "block_reason_text": (
+                f"Scalper approved: regime={regime_label}, "
+                f"spread={spread_pct:.3f}%, depth={depth_notional:.0f}, "
+                f"vol={vol_score:.2f}, trend={trend_score:.2f}."
+            ),
+            "details": details,
+        }
