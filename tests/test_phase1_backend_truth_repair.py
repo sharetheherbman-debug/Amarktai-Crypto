@@ -188,7 +188,7 @@ class TestTradeWorthFilter:
             exchange="binance",
             bot_equity=5000,
             notional=3000,
-            expected_gross_edge_bps=35.0,   # 35 bps gross, 10 bps cost → 25 bps net > 20 floor
+            expected_gross_edge_bps=35.0,   # 35 bps gross, 10 bps cost → 25 bps net > 20 bps scalper edge floor
             all_in_cost_bps=10.0,
             predicted_hold_seconds=120,   # 2 minutes
         )

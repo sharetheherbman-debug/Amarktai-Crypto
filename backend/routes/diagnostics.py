@@ -2404,3 +2404,422 @@ async def get_subsystem_health(user_id: str = Depends(get_current_user)):
     except Exception as exc:
         logger.error(f"Subsystem health error: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Trade quality + meaningful win diagnostics
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/trade-quality")
+async def trade_quality_diagnostics(
+    user_id: str = Depends(get_current_user),
+    days: int = 7,
+):
+    """
+    Canonical trade-quality diagnostics.
+
+    Returns:
+        meaningful_win_stats  — qualified_win_count, micro_win_count, loss_count,
+                                meaningful_win_rate_pct, gross_win_rate_pct, net_win_rate_pct
+        paper_floor_stats     — how many trades had paper_edge_floor_applied=True
+        reject_reasons        — top reject reason codes with counts and percentages
+        bot_reject_summary    — reject reason breakdown per bot_id
+        exchange_reject_summary — reject reason breakdown per exchange
+        policy_version        — active policy version
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        from services.trading_brain_v2.trade_outcome_classifier import (
+            classify_trade_outcome,
+            build_outcome_counts,
+            OUTCOME_LOSS,
+            OUTCOME_MICRO_WIN,
+            OUTCOME_QUALIFIED_WIN,
+        )
+        from services.trading_brain_v2.entry_thresholds import POLICY_VERSION
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        # ── Closed trades for win stats ──
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "closed", "timestamp": {"$gte": cutoff}},
+            {"_id": 0, "gross_pnl": 1, "net_pnl": 1, "bot_type": 1, "exchange": 1,
+             "current_capital": 1, "notional": 1, "all_in_cost_bps": 1,
+             "outcome_class": 1, "paper_edge_floor_applied": 1,
+             "decision_reason_code": 1, "bot_id": 1},
+        ).to_list(2000)
+
+        # Classify any unclassified trades
+        classified = []
+        paper_floor_count = 0
+        for t in trades:
+            if not t.get("outcome_class"):
+                result = classify_trade_outcome(
+                    gross_pnl=float(t.get("gross_pnl") or 0),
+                    net_pnl=float(t.get("net_pnl") or 0),
+                    bot_type=t.get("bot_type", "normal"),
+                    exchange=t.get("exchange", "luno"),
+                    bot_equity=float(t.get("current_capital") or 0),
+                    notional=float(t.get("notional") or 0),
+                    all_in_cost_bps=float(t.get("all_in_cost_bps") or 25),
+                )
+                t["outcome_class"] = result["outcome_class"]
+            classified.append(t)
+            if t.get("paper_edge_floor_applied"):
+                paper_floor_count += 1
+
+        outcome_counts = build_outcome_counts(classified)
+
+        # ── Reject reason aggregation ──
+        rejected_trades = await db.trades_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$in": ["rejected", "skipped", "blocked"]},
+                "timestamp": {"$gte": cutoff},
+            },
+            {"_id": 0, "decision_reason_code": 1, "bot_id": 1, "exchange": 1},
+        ).to_list(5000)
+
+        reason_counts: dict = {}
+        bot_reject: dict = {}
+        exchange_reject: dict = {}
+        for r in rejected_trades:
+            code = str(r.get("decision_reason_code") or "UNKNOWN")
+            bot_id = str(r.get("bot_id") or "unknown")
+            exchange = str(r.get("exchange") or "unknown")
+            reason_counts[code] = reason_counts.get(code, 0) + 1
+            bot_reject.setdefault(bot_id, {})
+            bot_reject[bot_id][code] = bot_reject[bot_id].get(code, 0) + 1
+            exchange_reject.setdefault(exchange, {})
+            exchange_reject[exchange][code] = exchange_reject[exchange].get(code, 0) + 1
+
+        total_rejected = len(rejected_trades)
+        reject_reasons = [
+            {
+                "reason_code": code,
+                "count": count,
+                "pct": round(count / total_rejected * 100, 1) if total_rejected else 0.0,
+            }
+            for code, count in sorted(reason_counts.items(), key=lambda x: -x[1])
+        ]
+
+        return {
+            "meaningful_win_stats": outcome_counts,
+            "paper_floor_stats": {
+                "trades_with_floor": paper_floor_count,
+                "total_closed_trades": len(trades),
+                "paper_floor_usage_pct": round(paper_floor_count / len(trades) * 100, 1) if trades else 0.0,
+            },
+            "reject_reasons": reject_reasons,
+            "reject_total": total_rejected,
+            "bot_reject_summary": bot_reject,
+            "exchange_reject_summary": exchange_reject,
+            "policy_version": POLICY_VERSION,
+            "days_window": days,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("trade_quality_diagnostics failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/scalper-regime")
+async def scalper_regime_diagnostics(
+    user_id: str = Depends(get_current_user),
+    days: int = 7,
+):
+    """
+    Scalper vs normal-bot regime block diagnostics.
+
+    Returns a breakdown of how many times scalper bots were allowed vs blocked
+    per regime, with explicit compatibility reason codes.
+
+    Returns:
+        scalper_regime_summary   — regime → {allowed_count, blocked_count, reason_codes}
+        normal_regime_summary    — regime → {allowed_count, blocked_count}
+        top_scalper_block_reasons — ranked list of scalper block reasons
+        active_scalper_regimes   — regimes where scalpers are currently allowed
+    """
+    try:
+        from services.trading_brain_v2.regime_scorer import STRATEGY_REGIME_MAP
+        from services.regime_classifier import _STRATEGY_ALLOWED_REGIMES
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        # Fetch bot activity snapshots with regime data
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            },
+            {"_id": 0, "id": 1, "bot_type": 1, "market_regime": 1,
+             "canonical_market_regime": 1, "regime_confidence": 1,
+             "last_decision_reason": 1, "last_entry_reason_code": 1},
+        ).to_list(_MAX_BOTS_QUERY)
+
+        scalper_bots = [b for b in bots if str(b.get("bot_type", "")).lower() == "scalper"]
+        normal_bots = [b for b in bots if str(b.get("bot_type", "")).lower() != "scalper"]
+
+        def _summarize_bots(bot_list, strategy):
+            from services.trading_brain_v2.regime_scorer import RegimeScorerV2
+            scorer = RegimeScorerV2()
+            regime_summary: dict = {}
+            for b in bot_list:
+                regime = str(b.get("canonical_market_regime") or b.get("market_regime") or "unknown").lower()
+                confidence = float(b.get("regime_confidence") or 0.0)
+                elig = scorer.is_eligible(strategy, {"regime_label": regime, "regime_confidence": confidence})
+                bucket = regime_summary.setdefault(regime, {
+                    "allowed_count": 0, "blocked_count": 0, "reason_codes": {}
+                })
+                if elig.get("eligible"):
+                    bucket["allowed_count"] += 1
+                else:
+                    bucket["blocked_count"] += 1
+                rc = elig.get("compatibility_reason_code", "UNKNOWN")
+                bucket["reason_codes"][rc] = bucket["reason_codes"].get(rc, 0) + 1
+            return regime_summary
+
+        scalper_summary = _summarize_bots(scalper_bots, "scalper")
+        normal_summary = _summarize_bots(normal_bots, "normal")
+
+        # Top scalper block reasons
+        all_scalper_reasons: dict = {}
+        for data in scalper_summary.values():
+            for rc, cnt in data["reason_codes"].items():
+                all_scalper_reasons[rc] = all_scalper_reasons.get(rc, 0) + cnt
+        top_block_reasons = sorted(
+            [{"reason_code": rc, "count": cnt} for rc, cnt in all_scalper_reasons.items()],
+            key=lambda x: -x["count"],
+        )
+
+        return {
+            "scalper_regime_summary": scalper_summary,
+            "normal_regime_summary": normal_summary,
+            "top_scalper_block_reasons": top_block_reasons,
+            "active_scalper_regimes": sorted(STRATEGY_REGIME_MAP.get("scalper", set())),
+            "scalper_bot_count": len(scalper_bots),
+            "normal_bot_count": len(normal_bots),
+            "days_window": days,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("scalper_regime_diagnostics failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/exit-distribution")
+async def exit_distribution_diagnostics(
+    user_id: str = Depends(get_current_user),
+    days: int = 7,
+):
+    """
+    Hold time and exit reason distribution for closed trades.
+
+    Returns:
+        exit_reason_counts      — count per exit reason code
+        bot_type_avg_hold_s     — avg hold time in seconds per bot type
+        exit_reason_pct         — percentage breakdown of exit reasons
+        hold_percentiles        — p25/p50/p75/p90/p99 hold durations
+        scalper_exit_breakdown  — exit reasons for scalper bots only
+        normal_exit_breakdown   — exit reasons for normal bots only
+    """
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "closed", "timestamp": {"$gte": cutoff}},
+            {"_id": 0, "exit_reason": 1, "trade_close_reason": 1, "hold_seconds": 1,
+             "hold_time_seconds": 1, "bot_type": 1, "created_at": 1, "closed_at": 1},
+        ).to_list(5000)
+
+        if not trades:
+            return {
+                "exit_reason_counts": {},
+                "bot_type_avg_hold_s": {},
+                "exit_reason_pct": {},
+                "hold_percentiles": {},
+                "scalper_exit_breakdown": {},
+                "normal_exit_breakdown": {},
+                "total_trades": 0,
+                "days_window": days,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        reason_counts: dict = {}
+        bot_type_holds: dict = {}
+        scalper_exits: dict = {}
+        normal_exits: dict = {}
+        hold_durations: list = []
+
+        for t in trades:
+            reason = str(
+                t.get("exit_reason") or t.get("trade_close_reason") or "unknown"
+            )
+            bot_type = str(t.get("bot_type") or "normal").lower()
+            hold_s = float(
+                t.get("hold_seconds") or t.get("hold_time_seconds") or 0
+            )
+
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            bot_type_holds.setdefault(bot_type, []).append(hold_s)
+            if hold_s > 0:
+                hold_durations.append(hold_s)
+
+            if bot_type == "scalper":
+                scalper_exits[reason] = scalper_exits.get(reason, 0) + 1
+            else:
+                normal_exits[reason] = normal_exits.get(reason, 0) + 1
+
+        total = len(trades)
+        exit_reason_pct = {
+            r: round(c / total * 100, 1)
+            for r, c in reason_counts.items()
+        }
+
+        avg_hold = {
+            bt: round(sum(hs) / len(hs), 1)
+            for bt, hs in bot_type_holds.items()
+            if hs
+        }
+
+        # Compute percentiles
+        percentiles = {}
+        if hold_durations:
+            sorted_h = sorted(hold_durations)
+            n = len(sorted_h)
+            for pct, label in [(25, "p25"), (50, "p50"), (75, "p75"), (90, "p90"), (99, "p99")]:
+                idx = min(int(n * pct / 100), n - 1)
+                percentiles[label] = round(sorted_h[idx], 1)
+
+        return {
+            "exit_reason_counts": reason_counts,
+            "bot_type_avg_hold_s": avg_hold,
+            "exit_reason_pct": exit_reason_pct,
+            "hold_percentiles": percentiles,
+            "scalper_exit_breakdown": scalper_exits,
+            "normal_exit_breakdown": normal_exits,
+            "total_trades": total,
+            "days_window": days,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("exit_distribution_diagnostics failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/edge-realization")
+async def edge_realization_diagnostics(
+    user_id: str = Depends(get_current_user),
+    days: int = 7,
+):
+    """
+    Projected vs realized net profit diagnostics.
+
+    Shows how well projected edge (at entry) translates to realized edge (at close).
+    This surfaces systematic over-confidence in projected profit, especially when
+    paper_edge_floor_applied=True inflated entry projections.
+
+    Returns:
+        avg_projected_net_profit     — average projected_net_profit at entry
+        avg_realized_net_profit      — average actual net_pnl at close
+        avg_implementation_shortfall — projected minus realized (per trade)
+        paper_floor_inflation        — avg projected profit for floor-applied vs non-floor trades
+        bot_type_shortfall           — shortfall breakdown per bot type
+        exchange_shortfall           — shortfall breakdown per exchange
+    """
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "closed", "timestamp": {"$gte": cutoff}},
+            {"_id": 0, "projected_net_profit_quote": 1, "net_pnl": 1,
+             "paper_edge_floor_applied": 1, "bot_type": 1, "exchange": 1},
+        ).to_list(5000)
+
+        if not trades:
+            return {
+                "avg_projected_net_profit": 0.0,
+                "avg_realized_net_profit": 0.0,
+                "avg_implementation_shortfall": 0.0,
+                "paper_floor_inflation": {},
+                "bot_type_shortfall": {},
+                "exchange_shortfall": {},
+                "total_trades": 0,
+                "days_window": days,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        projected_list: list = []
+        realized_list: list = []
+        floor_projected: list = []
+        no_floor_projected: list = []
+        bt_data: dict = {}
+        ex_data: dict = {}
+
+        for t in trades:
+            proj = float(t.get("projected_net_profit_quote") or 0)
+            real = float(t.get("net_pnl") or 0)
+            floor_applied = bool(t.get("paper_edge_floor_applied"))
+            bot_type = str(t.get("bot_type") or "normal")
+            exchange = str(t.get("exchange") or "unknown")
+
+            shortfall = proj - real
+            projected_list.append(proj)
+            realized_list.append(real)
+
+            if floor_applied:
+                floor_projected.append(proj)
+            else:
+                no_floor_projected.append(proj)
+
+            bt_data.setdefault(bot_type, {"shortfalls": [], "projected": [], "realized": []})
+            bt_data[bot_type]["shortfalls"].append(shortfall)
+            bt_data[bot_type]["projected"].append(proj)
+            bt_data[bot_type]["realized"].append(real)
+
+            ex_data.setdefault(exchange, {"shortfalls": [], "projected": [], "realized": []})
+            ex_data[exchange]["shortfalls"].append(shortfall)
+            ex_data[exchange]["projected"].append(proj)
+            ex_data[exchange]["realized"].append(real)
+
+        def _avg(lst):
+            return round(sum(lst) / len(lst), 6) if lst else 0.0
+
+        bot_type_shortfall = {
+            bt: {
+                "avg_shortfall": _avg(d["shortfalls"]),
+                "avg_projected": _avg(d["projected"]),
+                "avg_realized": _avg(d["realized"]),
+                "count": len(d["shortfalls"]),
+            }
+            for bt, d in bt_data.items()
+        }
+        exchange_shortfall = {
+            ex: {
+                "avg_shortfall": _avg(d["shortfalls"]),
+                "avg_projected": _avg(d["projected"]),
+                "avg_realized": _avg(d["realized"]),
+                "count": len(d["shortfalls"]),
+            }
+            for ex, d in ex_data.items()
+        }
+
+        return {
+            "avg_projected_net_profit": _avg(projected_list),
+            "avg_realized_net_profit": _avg(realized_list),
+            "avg_implementation_shortfall": _avg([p - r for p, r in zip(projected_list, realized_list)]),
+            "paper_floor_inflation": {
+                "avg_projected_with_floor": _avg(floor_projected),
+                "avg_projected_without_floor": _avg(no_floor_projected),
+                "floor_trade_count": len(floor_projected),
+                "non_floor_trade_count": len(no_floor_projected),
+            },
+            "bot_type_shortfall": bot_type_shortfall,
+            "exchange_shortfall": exchange_shortfall,
+            "total_trades": len(trades),
+            "days_window": days,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("edge_realization_diagnostics failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))

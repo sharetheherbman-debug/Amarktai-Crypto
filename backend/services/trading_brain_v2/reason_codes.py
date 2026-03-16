@@ -79,6 +79,12 @@ class ReasonCodes:
     ENTRY_REJECTED_MIN_PROFIT = "ENTRY_REJECTED_MIN_PROFIT"
     ENTRY_REJECTED_COOLDOWN = "ENTRY_REJECTED_COOLDOWN"
 
+    # ── Regime allowance (explicit approval codes) ──
+    REGIME_ALLOWED = "REGIME_ALLOWED"
+    REGIME_ALLOWED_LOW_CONF = "REGIME_ALLOWED_LOW_CONF"
+    REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE = "REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE"
+    REGIME_AMBIGUOUS_REDUCED = "REGIME_AMBIGUOUS_REDUCED"
+
 
 # Human-readable descriptions for UI/diagnostics
 REASON_CATALOG = {
@@ -124,6 +130,10 @@ REASON_CATALOG = {
     ReasonCodes.LOW_CONFIDENCE_ENTRY: "Entry confidence below minimum threshold.",
     ReasonCodes.ENTRY_REJECTED_MIN_PROFIT: "Projected net profit is below the minimum required threshold for this venue.",
     ReasonCodes.ENTRY_REJECTED_COOLDOWN: "Trade rejected – scalper re-entry cooldown active after unprofitable close.",
+    ReasonCodes.REGIME_ALLOWED: "Regime is compatible with this strategy.",
+    ReasonCodes.REGIME_ALLOWED_LOW_CONF: "Regime compatible but low confidence – reduced size applied.",
+    ReasonCodes.REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE: "Ambiguous regime – scalper operating in microstructure-only mode.",
+    ReasonCodes.REGIME_AMBIGUOUS_REDUCED: "Ambiguous regime – reduced size, stricter edge applied.",
 }
 
 
@@ -149,12 +159,27 @@ def make_decision_payload(
     hold_policy_source: str = "",
     target_source: str = "",
     cost_floor_source: str = "",
+    # Canonical API truth extensions (backward-compatible new fields)
+    paper_edge_floor_applied: bool = False,
+    raw_gross_edge_bps: float = 0.0,
+    regime_compatibility_reason: str = "",
+    policy_version: str = "",
+    win_classification: str = "",
+    projected_net_profit_display: float = 0.0,
     extra: dict = None,
 ) -> dict:
     """
     Build a render-safe decision payload for UI consumption.
     All numeric fields default to 0.0 (never NaN/None).
     All string fields default to empty string (never None).
+
+    New canonical API truth fields (backward-compatible):
+        paper_edge_floor_applied   — True if paper floor inflated gross edge
+        raw_gross_edge_bps         — original edge before paper floor
+        regime_compatibility_reason — human-readable scalper/normal regime decision
+        policy_version             — active threshold policy version
+        win_classification         — LOSS / MICRO_WIN / QUALIFIED_WIN when available
+        projected_net_profit_display — projected profit in display currency
     """
     def _sf(v):
         """Safe float – coerce None/NaN/Inf to 0.0."""
@@ -184,12 +209,19 @@ def make_decision_payload(
         "all_in_cost_bps": _sf(all_in_cost_bps),
         "expected_net_edge_bps": _sf(expected_net_edge_bps),
         "projected_net_profit_quote": _sf(projected_net_profit_quote),
+        "projected_net_profit_display": _sf(projected_net_profit_display),
         "trade_profit_target_quote": _sf(trade_profit_target_quote),
         "daily_profit_target_quote": _sf(daily_profit_target_quote),
         "max_hold_seconds": max(0, int(max_hold_seconds or 0)),
         "hold_policy_source": _ss(hold_policy_source),
         "target_source": _ss(target_source),
         "cost_floor_source": _ss(cost_floor_source),
+        # Canonical API truth: new backward-compatible fields
+        "paper_edge_floor_applied": bool(paper_edge_floor_applied),
+        "raw_gross_edge_bps": _sf(raw_gross_edge_bps),
+        "regime_compatibility_reason": _ss(regime_compatibility_reason),
+        "policy_version": _ss(policy_version),
+        "win_classification": _ss(win_classification),
     }
     if extra:
         payload.update(extra)
