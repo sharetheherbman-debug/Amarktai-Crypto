@@ -17,6 +17,7 @@ from .entry_thresholds import (
     DEPTH_MIN_NOTIONAL,
     STRATEGY_TIME_CAP,
     POLICY_VERSION,
+    ABS_PROFIT_MIN_QUOTE,
     equity_bucket as _equity_bucket,
     venue_class as _venue_class,
     compute_min_net_profit_required as _compute_min_profit,

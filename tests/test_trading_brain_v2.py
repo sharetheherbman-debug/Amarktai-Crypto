@@ -928,8 +928,8 @@ class TestMinimumProfitFilter:
         """R2000 ZAR small-cap bot with R15 net profit MUST now be approved.
 
         Under policy v1 this was rejected by the flat R25 floor.
-        Under policy v2: equity=2000 → 'small' tier, cost_floor=R4.50, strategy_floor=R3.
-        min_required = max(R4.50, R3) = R4.50 → R15 PASSES.
+        Under policy v2: equity=2000 → 'small' tier, cost_floor=R4.50, strategy_floor=R1.50.
+        min_required = max(R4.50, R1.50) = R4.50 → R15 PASSES.
         notional=1500, net_edge=100 bps → profit = 1500 × 0.01 = R15.
         """
         result = self._gate(
@@ -947,7 +947,7 @@ class TestMinimumProfitFilter:
         """Near-breakeven ZAR trade must still be rejected.
 
         notional=100, net_edge=100 bps → profit = R1.0
-        small-tier strategy_floor = R3.00 → R1.0 < R3.00 → REJECTED.
+        small-tier strategy_floor = R1.50 → R1.0 < R1.50 → REJECTED.
         """
         result = self._gate(
             venue="luno", symbol="BTC/ZAR",

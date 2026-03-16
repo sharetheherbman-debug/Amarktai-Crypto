@@ -707,7 +707,7 @@ class TestUnitConsistency:
         luno_bucket = equity_bucket(2000.0, luno_vc)
         assert luno_bucket == "small"
         luno_min = ABS_PROFIT_MIN_QUOTE[("normal", "small", "zar")]
-        assert luno_min == 3.0  # R3.00 ZAR
+        assert luno_min == 1.5  # R1.50 ZAR (achievable at small-capital Luno accounts)
 
         # Binance: USDT venue
         binance_vc = venue_class("binance")

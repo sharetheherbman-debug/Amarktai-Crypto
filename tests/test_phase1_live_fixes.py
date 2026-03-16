@@ -375,7 +375,12 @@ class TestTradeWorthFilterBehavior:
         assert r4["approved"] is True
 
     def test_scalper_has_lower_edge_floor(self):
-        """Scalper min net edge is 8 BPS vs 15 for normal."""
+        """Scalper min net edge is 20 BPS (unified canonical value).
+
+        Scalpers require a HIGHER minimum net edge than normal bots (20 BPS vs 15 BPS)
+        because their tight hold windows must justify round-trip costs more aggressively.
+        Both trade_worth_filter and trade_feasibility_gate use the canonical 20 BPS value.
+        """
         from services.trade_worth_filter import MIN_NET_EDGE_BPS
-        assert MIN_NET_EDGE_BPS["scalper"] < MIN_NET_EDGE_BPS["normal"]
-        assert MIN_NET_EDGE_BPS["scalper"] == 8.0
+        assert MIN_NET_EDGE_BPS["scalper"] >= MIN_NET_EDGE_BPS["normal"]
+        assert MIN_NET_EDGE_BPS["scalper"] == 20.0

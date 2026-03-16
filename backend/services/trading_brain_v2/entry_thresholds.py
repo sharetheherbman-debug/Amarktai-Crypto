@@ -22,6 +22,14 @@ from typing import Dict, Tuple
 # ── Policy version ────────────────────────────────────────────────────────
 POLICY_VERSION: str = "v2"
 
+# ── Meaningful-win threshold multiplier ───────────────────────────────────
+# A trade is only a "meaningful win" if net_pnl >= min_profit_required × this multiplier.
+# This ensures small positive net profits that barely exceed costs are classified
+# as MICRO_WIN rather than QUALIFIED_WIN, preventing fake-win inflation in reports.
+MEANINGFUL_WIN_THRESHOLD_MULTIPLE: float = float(
+    os.getenv("MEANINGFUL_WIN_THRESHOLD_MULTIPLE", "1.5")
+)
+
 # ── Minimum net edge (BPS) after round-trip costs ─────────────────────────
 # Per-strategy: the minimum post-cost edge required for any entry.
 # Scalpers use a meaningful 20 BPS floor (not the old 8 BPS) because
@@ -64,7 +72,7 @@ ABS_PROFIT_MIN_QUOTE: Dict[Tuple[str, str, str], float] = {
     ("mean_reversion","micro", "zar"):  0.60,
     ("mean_reversion","micro", "usdt"): 0.08,
     # ── small tier ────────────────────────────────────────────────────────
-    ("normal",        "small", "zar"):  3.00,
+    ("normal",        "small", "zar"):  1.50,
     ("normal",        "small", "usdt"): 0.50,
     ("scalper",       "small", "zar"):  1.50,
     ("scalper",       "small", "usdt"): 0.20,

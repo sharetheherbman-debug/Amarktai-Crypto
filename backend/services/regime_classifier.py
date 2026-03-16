@@ -37,7 +37,10 @@ _REGIME_ALIAS_MAP = {
 }
 
 _STRATEGY_ALLOWED_REGIMES = {
-    "scalper": {"breakout", "high_volatility", "consolidation"},
+    # Scalpers thrive in quiet/sideways markets where price is range-bound.
+    # They are blocked in trending, breakout, and high-volatility regimes
+    # where momentum would overwhelm the tight microstructure edge scalpers rely on.
+    "scalper": {"consolidation", "low_volatility", "mean_reversion"},
     "normal": {"trending_up", "trending_down", "consolidation", "mean_reversion", "breakout", "low_volatility"},
 }
 
@@ -96,25 +99,49 @@ def classify_regime(
 
 
 def strategy_regime_allowed(bot_type: str, regime: str, confidence: float) -> Dict[str, str | bool]:
-    """Determine whether a bot strategy is allowed to trade this regime."""
+    """Determine whether a bot strategy is allowed to trade this regime.
+
+    Returns a dict with:
+        allowed             — bool
+        reason_code         — machine-readable reason code
+        reason_text         — human-readable reason
+        bot_type_specific   — True (always — decisions are bot-type specific)
+        allowed_regimes     — list of regimes allowed for this bot type
+    """
     normalized_bot_type = "scalper" if str(bot_type or "").lower() == "scalper" else "normal"
     allowed = _STRATEGY_ALLOWED_REGIMES[normalized_bot_type]
     normalized_regime = regime if regime in CANONICAL_REGIMES else "unknown"
+    allowed_list = sorted(allowed)
 
     if normalized_regime == "unknown" or confidence < 0.5:
         return {
             "allowed": False,
             "reason_code": "REGIME_UNKNOWN_BLOCK",
-            "reason_text": "Regime is unknown or low-confidence; standing down",
+            "reason_text": (
+                f"{normalized_bot_type} blocked: regime unknown or low-confidence "
+                f"({confidence:.0%}); allowed regimes: {allowed_list}"
+            ),
+            "bot_type_specific": True,
+            "allowed_regimes": allowed_list,
         }
     if normalized_regime not in allowed:
         return {
             "allowed": False,
             "reason_code": "REGIME_BLOCK",
-            "reason_text": f"Strategy {normalized_bot_type} blocked for regime {normalized_regime}",
+            "reason_text": (
+                f"{normalized_bot_type} blocked for regime '{normalized_regime}'; "
+                f"allowed regimes: {allowed_list}"
+            ),
+            "bot_type_specific": True,
+            "allowed_regimes": allowed_list,
         }
     return {
         "allowed": True,
         "reason_code": "REGIME_ALLOWED",
-        "reason_text": f"Strategy {normalized_bot_type} allowed for regime {normalized_regime}",
+        "reason_text": (
+            f"{normalized_bot_type} allowed for regime '{normalized_regime}' "
+            f"(confidence {confidence:.0%})"
+        ),
+        "bot_type_specific": True,
+        "allowed_regimes": allowed_list,
     }

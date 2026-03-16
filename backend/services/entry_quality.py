@@ -141,26 +141,33 @@ def evaluate_pre_timeout_exit(
     """Strategic pre-timeout exit evaluator.
 
     Exit priority (first match wins):
-      1. regime_decay_exit     — regime confidence deteriorated significantly
-      2. profit_protection_exit — small gain appeared then stalled
-      3. stagnation_exit        — price flat near zero for extended period
-      4. scalper_no_progress_exit
-      5. normal_no_progress_exit
-      6. early_invalidation_exit
+      1.  regime_decay_exit          — bearish regime with significant confidence
+      1a. regime_deterioration_exit — regime confidence collapsed to zero AND adverse trend
+      2.  profit_protection_exit — small gain appeared then stalled
+      3.  stagnation_exit        — price flat near zero for extended period
+      4.  scalper_no_progress_exit
+      5.  normal_no_progress_exit
+      6.  early_invalidation_exit
 
-    Scalper no-progress exit fires at 70% of hold window.
+    Scalper no-progress exit fires at 60% of hold window (fast recycle).
     Normal no-progress exit fires at 45% of hold window.
     Early-invalidation threshold is -0.40% to avoid exiting slightly-red
     trades still inside normal price noise.
     """
-    # 1. Regime decay: bearish AND low confidence OR any strong bearish signal
-    if bot_class == "normal" and hold_ratio >= 0.20:
+    # 1. Regime decay: strong bearish with high confidence.
+    # 1a. Regime deterioration: confidence has collapsed AND trend is clearly adverse.
+    if hold_ratio >= 0.20:
         bearish_with_confidence = (regime_trend == "bearish" and regime_confidence >= 0.55)
-        regime_collapsed = (regime_trend == "bearish" and regime_confidence >= 0.80)
-        if regime_collapsed and pnl_pct <= 0.25:
-            return "regime_decay_exit"
-        if bearish_with_confidence and hold_ratio >= 0.25 and pnl_pct <= 0.15:
-            return "regime_decay_exit"
+        strong_bearish = (regime_trend == "bearish" and regime_confidence >= 0.80)
+        if bot_class == "normal":
+            if strong_bearish and pnl_pct <= 0.25:
+                return "regime_decay_exit"
+            if bearish_with_confidence and hold_ratio >= 0.25 and pnl_pct <= 0.15:
+                return "regime_decay_exit"
+        # Regime deterioration: confidence has collapsed AND trend is clearly adverse
+        is_adverse_trend = regime_trend in ("bearish", "trending_down", "high_volatility", "breakout")
+        if regime_confidence <= 0.0 and hold_ratio >= 0.30 and is_adverse_trend:
+            return "regime_deterioration_exit"
 
     # 2. Profit protection: trade made small progress but gain is stalling at hold midpoint
     if bot_class == "normal" and hold_ratio >= 0.55 and 0.0 < pnl_pct < min_progress_pct * 2.0:
@@ -170,8 +177,8 @@ def evaluate_pre_timeout_exit(
     if bot_class == "normal" and hold_ratio >= 0.40 and -0.05 <= pnl_pct <= 0.02:
         return "stagnation_exit"
 
-    # 4. Scalper: no progress at 70% of hold window
-    if bot_class == "scalper" and hold_ratio >= 0.70 and pnl_pct <= min_progress_pct:
+    # 4. Scalper: no progress at 60% of hold window (fast recycle, no dead waiting)
+    if bot_class == "scalper" and hold_ratio >= 0.60 and pnl_pct <= min_progress_pct:
         return "scalper_no_progress_exit"
 
     # 5. Normal: no progress at 45% of hold window

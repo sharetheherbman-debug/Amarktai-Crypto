@@ -120,10 +120,17 @@ class RegimeScorerV2:
 
         Instead of hard-blocking on ambiguous regimes, returns graduated
         response: approved / reduced_size / standby / blocked.
+
+        All returns now include:
+            compatibility_reason_code  — machine-readable code for diagnostics
+            compatibility_reason_text  — human-readable explanation
+            bot_type_specific          — always True (decisions are bot-type specific)
+            allowed_regimes            — the regime set valid for this strategy
         """
         label = regime_result.get("regime_label", REGIME_AMBIGUOUS)
         confidence = regime_result.get("regime_confidence", 0.0)
         allowed = STRATEGY_REGIME_MAP.get(strategy_type, STRATEGY_REGIME_MAP["normal"])
+        allowed_list = sorted(allowed)
 
         if label == REGIME_AMBIGUOUS:
             if strategy_type == "scalper" and confidence >= 0.3:
@@ -133,6 +140,13 @@ class RegimeScorerV2:
                     "size_multiplier": 0.5,
                     "edge_multiplier": 1.5,
                     "reason": "Regime ambiguous – scalper microstructure-only mode.",
+                    "compatibility_reason_code": "REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE",
+                    "compatibility_reason_text": (
+                        f"Scalper allowed in ambiguous regime (confidence {confidence:.0%}) "
+                        "at microstructure-only size (50%)."
+                    ),
+                    "bot_type_specific": True,
+                    "allowed_regimes": allowed_list,
                 }
             elif confidence >= 0.4:
                 return {
@@ -141,6 +155,13 @@ class RegimeScorerV2:
                     "size_multiplier": 0.6,
                     "edge_multiplier": 1.3,
                     "reason": "Regime ambiguous – reduced size, stricter edge.",
+                    "compatibility_reason_code": "REGIME_AMBIGUOUS_REDUCED",
+                    "compatibility_reason_text": (
+                        f"{strategy_type} allowed in ambiguous regime "
+                        f"(confidence {confidence:.0%}) at reduced size (60%), stricter edge."
+                    ),
+                    "bot_type_specific": True,
+                    "allowed_regimes": allowed_list,
                 }
             else:
                 return {
@@ -149,6 +170,13 @@ class RegimeScorerV2:
                     "size_multiplier": 0.0,
                     "edge_multiplier": 0.0,
                     "reason": "Regime ambiguous with low confidence – standby.",
+                    "compatibility_reason_code": "REGIME_AMBIGUOUS_STANDBY",
+                    "compatibility_reason_text": (
+                        f"{strategy_type} blocked: regime ambiguous and low confidence "
+                        f"({confidence:.0%}) — standing by for clearer conditions."
+                    ),
+                    "bot_type_specific": True,
+                    "allowed_regimes": allowed_list,
                 }
 
         if label not in allowed:
@@ -158,6 +186,13 @@ class RegimeScorerV2:
                 "size_multiplier": 0.0,
                 "edge_multiplier": 0.0,
                 "reason": f"Regime '{label}' not allowed for {strategy_type}.",
+                "compatibility_reason_code": "REGIME_BLOCK",
+                "compatibility_reason_text": (
+                    f"{strategy_type} blocked for regime '{label}'. "
+                    f"Allowed regimes: {allowed_list}"
+                ),
+                "bot_type_specific": True,
+                "allowed_regimes": allowed_list,
             }
 
         if confidence < 0.4:
@@ -167,6 +202,13 @@ class RegimeScorerV2:
                 "size_multiplier": 0.7,
                 "edge_multiplier": 1.2,
                 "reason": f"Regime '{label}' allowed but low confidence ({confidence:.0%}).",
+                "compatibility_reason_code": "REGIME_ALLOWED_LOW_CONF",
+                "compatibility_reason_text": (
+                    f"{strategy_type} allowed in '{label}' regime "
+                    f"but low confidence ({confidence:.0%}) — reduced size (70%)."
+                ),
+                "bot_type_specific": True,
+                "allowed_regimes": allowed_list,
             }
 
         return {
@@ -175,6 +217,13 @@ class RegimeScorerV2:
             "size_multiplier": 1.0,
             "edge_multiplier": 1.0,
             "reason": f"Regime '{label}' approved for {strategy_type}.",
+            "compatibility_reason_code": "REGIME_ALLOWED",
+            "compatibility_reason_text": (
+                f"{strategy_type} fully approved for '{label}' regime "
+                f"(confidence {confidence:.0%})."
+            ),
+            "bot_type_specific": True,
+            "allowed_regimes": allowed_list,
         }
 
     # ── Internal scoring ──

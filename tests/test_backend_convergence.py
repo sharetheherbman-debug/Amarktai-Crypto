@@ -321,9 +321,19 @@ class TestScalperPriority:
         assert SCALPER_MAX_HOLD_SECONDS <= 300
 
     def test_v2_regime_allows_scalper_in_high_vol(self):
-        """Scalpers must be eligible in high_volatility regime."""
+        """Scalpers must be blocked in high_volatility regime (too risky for short holds).
+
+        Scalpers trade in consolidation/low_volatility/mean_reversion where price
+        movement is bounded and predictable. High volatility creates unpredictable
+        moves that expose scalper positions to outsized adverse moves during their
+        short hold windows.
+        """
         from services.trading_brain_v2.regime_scorer import STRATEGY_REGIME_MAP, REGIME_HIGH_VOL
-        assert REGIME_HIGH_VOL in STRATEGY_REGIME_MAP["scalper"]
+        # Scalpers are specifically NOT allowed in high volatility
+        assert REGIME_HIGH_VOL not in STRATEGY_REGIME_MAP["scalper"], (
+            "Scalpers must be blocked in high_volatility — "
+            "short hold windows are vulnerable to unpredictable moves"
+        )
 
 
 # ── 7. Single target policy source in radar ───────────────────────────────
