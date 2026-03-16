@@ -27,7 +27,7 @@ POLICY_VERSION: str = "v2"
 # This ensures small positive net profits that barely exceed costs are classified
 # as MICRO_WIN rather than QUALIFIED_WIN, preventing fake-win inflation in reports.
 MEANINGFUL_WIN_THRESHOLD_MULTIPLE: float = float(
-    __import__("os").getenv("MEANINGFUL_WIN_THRESHOLD_MULTIPLE", "1.5")
+    os.getenv("MEANINGFUL_WIN_THRESHOLD_MULTIPLE", "1.5")
 )
 
 # ── Minimum net edge (BPS) after round-trip costs ─────────────────────────

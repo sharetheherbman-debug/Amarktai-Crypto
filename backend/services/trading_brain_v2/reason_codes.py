@@ -85,6 +85,20 @@ class ReasonCodes:
     REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE = "REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE"
     REGIME_AMBIGUOUS_REDUCED = "REGIME_AMBIGUOUS_REDUCED"
 
+    # ── Policy pack execution quality gate ──
+    SPREAD_EXCEEDS_PACK_LIMIT = "SPREAD_EXCEEDS_PACK_LIMIT"
+    SLIPPAGE_EXCEEDS_PACK_LIMIT = "SLIPPAGE_EXCEEDS_PACK_LIMIT"
+    PROFIT_BELOW_PACK_FLOOR = "PROFIT_BELOW_PACK_FLOOR"
+    CONSENSUS_TOO_WEAK = "CONSENSUS_TOO_WEAK"
+    REGIME_CONF_TOO_LOW_FOR_PACK = "REGIME_CONF_TOO_LOW_FOR_PACK"
+    MARKET_QUALITY_TOO_LOW = "MARKET_QUALITY_TOO_LOW"
+
+    # ── Exit reason classification ──
+    STOP_LOSS_EXIT = "STOP_LOSS_EXIT"
+    TAKE_PROFIT_EXIT = "TAKE_PROFIT_EXIT"
+    TRAILING_STOP_EXIT = "TRAILING_STOP_EXIT"
+    REGIME_DETERIORATION_EXIT = "REGIME_DETERIORATION_EXIT"
+
 
 # Human-readable descriptions for UI/diagnostics
 REASON_CATALOG = {
@@ -134,6 +148,18 @@ REASON_CATALOG = {
     ReasonCodes.REGIME_ALLOWED_LOW_CONF: "Regime compatible but low confidence – reduced size applied.",
     ReasonCodes.REGIME_AMBIGUOUS_SCALPER_MICROSTRUCTURE: "Ambiguous regime – scalper operating in microstructure-only mode.",
     ReasonCodes.REGIME_AMBIGUOUS_REDUCED: "Ambiguous regime – reduced size, stricter edge applied.",
+    # Policy pack execution quality
+    ReasonCodes.SPREAD_EXCEEDS_PACK_LIMIT: "Spread exceeds policy pack maximum – execution quality too poor for this pack.",
+    ReasonCodes.SLIPPAGE_EXCEEDS_PACK_LIMIT: "Slippage estimate exceeds policy pack maximum – fill quality too poor.",
+    ReasonCodes.PROFIT_BELOW_PACK_FLOOR: "Projected profit below policy pack floor (pack multiplier × canonical min).",
+    ReasonCodes.CONSENSUS_TOO_WEAK: "Signal consensus count below policy pack minimum required sources.",
+    ReasonCodes.REGIME_CONF_TOO_LOW_FOR_PACK: "Regime confidence below policy pack minimum – insufficient conviction.",
+    ReasonCodes.MARKET_QUALITY_TOO_LOW: "Market quality score below policy pack threshold.",
+    # Exit reason classification
+    ReasonCodes.STOP_LOSS_EXIT: "Trade closed at stop-loss level.",
+    ReasonCodes.TAKE_PROFIT_EXIT: "Trade closed at take-profit target.",
+    ReasonCodes.TRAILING_STOP_EXIT: "Trade closed by trailing stop.",
+    ReasonCodes.REGIME_DETERIORATION_EXIT: "Regime confidence deteriorated after entry – exiting to preserve capital.",
 }
 
 

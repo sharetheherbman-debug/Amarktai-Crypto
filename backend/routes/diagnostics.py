@@ -2823,3 +2823,110 @@ async def edge_realization_diagnostics(
     except Exception as exc:
         logger.error("edge_realization_diagnostics failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Policy pack diagnostics
+# ══════════════════════════════════════════════════════════════════════════
+
+@router.get("/policy-packs")
+async def policy_pack_diagnostics(
+    user_id: str = Depends(get_current_user),
+    days: int = 7,
+):
+    """
+    Policy pack diagnostics endpoint.
+
+    Returns:
+        available_packs          — all named packs with their parameters
+        pack_summary             — lightweight summary of all packs
+        bot_pack_assignments     — {bot_id: pack_name} for all active bots
+        pack_scorecard           — per-pack scorecard aggregated from calibration records
+        recommended_packs        — daily_evaluator recommendations per bot_type
+        policy_pack_version      — POLICY_PACK_VERSION string
+    """
+    try:
+        from services.trading_brain_v2.policy_packs import (
+            ALL_PACKS, pack_summary, select_pack_for_bot, POLICY_PACK_VERSION,
+        )
+        from services.trading_brain_v2.trade_calibration import (
+            compute_pack_scorecard, daily_evaluator,
+        )
+        from utils.bot_state import normalize_bot_state
+
+        # ── Bot pack assignments ──
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+            },
+            {"_id": 0, "id": 1, "bot_type": 1, "policy_pack_name": 1, "policy_pack": 1},
+        ).to_list(_MAX_BOTS_QUERY)
+
+        bot_pack_assignments = {}
+        for b in bots:
+            bot_id = str(b.get("id") or "unknown")
+            pack = select_pack_for_bot(b)
+            bot_pack_assignments[bot_id] = {
+                "pack_name":    pack["pack_name"],
+                "pack_version": pack["pack_version"],
+                "bot_type":     str(b.get("bot_type") or "normal"),
+                "explicit":     bool(b.get("policy_pack_name") or b.get("policy_pack")),
+            }
+
+        # ── Calibration records for scorecard ──
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        cal_records = await db.trades_collection.find(
+            {
+                "user_id": user_id,
+                "status": "closed",
+                "calibration_complete": True,
+                "timestamp": {"$gte": cutoff},
+            },
+            {
+                "_id": 0,
+                "outcome_class": 1, "policy_pack_name": 1,
+                "realized_projection_ratio": 1, "hold_seconds": 1,
+                "realized_net_profit_quote": 1, "paper_edge_floor_applied": 1,
+                "exit_reason_code": 1, "bot_type": 1,
+            },
+        ).to_list(5000)
+
+        # Group by pack_name for scorecards
+        by_pack: dict = {}
+        for r in cal_records:
+            pn = str(r.get("policy_pack_name") or "unknown")
+            by_pack.setdefault(pn, []).append(r)
+
+        pack_scorecards = {
+            pn: compute_pack_scorecard(records, pack_name=pn, window_days=days)
+            for pn, records in by_pack.items()
+        }
+
+        # ── Recommendations per bot type ──
+        recommendations: dict = {}
+        for bt in ["normal", "scalper", "mean_reversion"]:
+            rec = daily_evaluator(pack_scorecards, bot_type=bt, exchange="all")
+            recommendations[bt] = {
+                "recommended_pack": rec.get("recommended_pack_name"),
+                "score":            rec.get("recommended_score"),
+                "reasoning":        rec.get("reasoning"),
+                "pack_scores":      rec.get("pack_scores", {}),
+                "insufficient_packs": rec.get("insufficient_data_packs", []),
+            }
+
+        return {
+            "available_packs":       list(ALL_PACKS.values()),
+            "pack_summary":          pack_summary(),
+            "bot_pack_assignments":  bot_pack_assignments,
+            "pack_scorecards":       pack_scorecards,
+            "recommended_packs":     recommendations,
+            "policy_pack_version":   POLICY_PACK_VERSION,
+            "calibration_days":      days,
+            "timestamp":             datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("policy_pack_diagnostics failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
