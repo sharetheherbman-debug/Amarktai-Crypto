@@ -21,6 +21,7 @@ from typing import Dict, Optional
 
 from services.trading_brain_v2.entry_thresholds import (
     MIN_NET_EDGE_BPS,
+    ABS_PROFIT_MIN_QUOTE as _ABS_MIN_QUOTE,
     MIN_REWARD_PER_SECOND as _MIN_REWARD_PER_SECOND,
     equity_bucket as _equity_bucket,
     venue_class as _venue_class,
