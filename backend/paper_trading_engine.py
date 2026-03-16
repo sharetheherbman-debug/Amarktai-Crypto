@@ -86,11 +86,15 @@ def _get_brain_v2():
             TradeTelemetry, KellySizingV2,
         )
         from services.trading_brain_v2.reason_codes import make_decision_payload, ReasonCodes
+        from services.trading_brain_v2.quality_gates import ExecutionQualityGate
+        from services.trading_brain_v2.pack_runtime import resolve_runtime_pack, pack_fields_for_trade_record
+        from services.trading_brain_v2.trade_calibration import build_entry_calibration, enrich_exit_calibration
         _brain_v2 = {
             "cost_model": AllInCostModel(),
             "slippage_estimator": SlippageEstimator(),
             "regime_scorer": RegimeScorerV2(),
             "feasibility_gate": TradeFeasibilityGate(),
+            "quality_gate": ExecutionQualityGate(),
             "target_policy": TargetPolicyV2(),
             "bot_contracts": BotBehavioralContracts(),
             "execution_router": ExecutionRouterV2(),
@@ -100,6 +104,10 @@ def _get_brain_v2():
             "kelly_sizing": KellySizingV2(),
             "make_decision_payload": make_decision_payload,
             "ReasonCodes": ReasonCodes,
+            "resolve_runtime_pack": resolve_runtime_pack,
+            "pack_fields_for_trade_record": pack_fields_for_trade_record,
+            "build_entry_calibration": build_entry_calibration,
+            "enrich_exit_calibration": enrich_exit_calibration,
         }
     return _brain_v2
 
@@ -2182,6 +2190,45 @@ class PaperTradingEngine:
             )
             return self._v2_reject(bot_id, reason_code, reason_text, details=feasibility)
 
+        # 9b) Execution Quality Gate — policy-pack-aware execution realism check
+        # Runs after feasibility so it can use projected_net_profit already computed.
+        _active_pack = v2["resolve_runtime_pack"](bot_data)
+        _proj_profit = feasibility.get("projected_net_profit_quote", 0)
+        _min_profit_req = feasibility.get("min_net_profit_required", 0)
+        _consensus_count = int(consensus.get("sources", 0)) if isinstance(consensus, dict) else 0
+        _regime_conf = float(regime_result.get("regime_confidence", 0))
+        _mkt_quality = float(regime_result.get("liquidity_score", 0))
+        _slippage_pct = float(PAPER_SLIPPAGE_BPS / 100)  # bps → percent (e.g. 5 bps → 0.05%)
+
+        quality_gate_result = v2["quality_gate"].evaluate(
+            policy_pack=_active_pack,
+            spread_pct=spread_pct,
+            estimated_slippage_pct=_slippage_pct,
+            projected_net_profit_quote=_proj_profit,
+            min_profit_required_quote=_min_profit_req,
+            consensus_sources=_consensus_count,
+            regime_confidence=_regime_conf,
+            market_quality=_mkt_quality,
+            bot_type=bot_type,
+            exchange=exchange,
+        )
+
+        if not quality_gate_result.get("approved"):
+            qg_code = quality_gate_result.get("reason_code", "QUALITY_GATE_REJECTED")
+            qg_text = quality_gate_result.get("reason_text", "Rejected by execution quality gate")
+            await self._record_decision_trace(
+                user_id=user_id, bot_id=bot_id, bot_data=bot_data,
+                symbol=symbol, exchange=exchange,
+                decision="reject",
+                reason_code=qg_code,
+                reason_text=qg_text,
+                details={**quality_gate_result, "policy_pack_name": _active_pack["pack_name"]},
+            )
+            return self._v2_reject(
+                bot_id, qg_code, qg_text,
+                details={**quality_gate_result, "policy_pack_name": _active_pack["pack_name"]},
+            )
+
         # 10) Target policy V2
         target = v2["target_policy"].compute(
             bot_type=bot_type,
@@ -2349,6 +2396,19 @@ class PaperTradingEngine:
             "canonical_market_regime": regime_result.get("regime_label", "unknown"),
             "canonical_regime_confidence": round(regime_result.get("regime_confidence", 0), 4),
             "market_quality_score": round(regime_result.get("liquidity_score", 0), 4),
+            # ── Policy pack fields ──
+            "policy_pack_id":        _active_pack["pack_name"],
+            "policy_pack_name":      _active_pack["pack_name"],
+            "policy_pack_version":   _active_pack["pack_version"],
+            # ── Quality gate result ──
+            "quality_gate_passed":       True,
+            "quality_gate_reason_code":  quality_gate_result.get("reason_code", "ENTRY_APPROVED"),
+            "quality_gate_reason_text":  quality_gate_result.get("reason_text", ""),
+            "spread_bps":                round(spread_pct * 100, 2),
+            "slippage_bps":              round(_slippage_pct * 100, 2),
+            "projected_net_profit_quote": round(_proj_profit, 4),
+            "min_projected_profit_required_quote": round(_min_profit_req, 4),
+            "consensus_sources_count":   _consensus_count,
         }
 
         # Telemetry
@@ -2370,6 +2430,34 @@ class PaperTradingEngine:
                 await col.insert_one(entry_telemetry)
         except Exception as e:
             logger.debug(f"V2 telemetry write failed (non-fatal): {e}")
+
+        # ── Calibration entry record (non-fatal) ──────────────────────────
+        try:
+            if db.db is not None:
+                _quote_currency = self._resolve_quote_currency(symbol)
+                _cal_record = v2["build_entry_calibration"](
+                    bot_id=bot_id,
+                    bot_type=bot_type,
+                    exchange=exchange,
+                    symbol=symbol,
+                    policy_pack_name=_active_pack["pack_name"],
+                    regime_label=regime_result.get("regime_label", "unknown"),
+                    projected_net_profit_quote=_proj_profit,
+                    projected_gross_edge_bps=expected_gross_edge_bps,
+                    all_in_cost_bps=all_in_cost_bps,
+                    paper_edge_floor_applied=paper_edge_floor_applied,
+                    raw_gross_edge_bps=raw_gross_edge_bps,
+                    entry_confidence=entry_confidence,
+                    spread_pct=spread_pct,
+                    estimated_slippage_pct=_slippage_pct,
+                )
+                # store the calibration record in the trade document for retrieval at close
+                trade_result["_calibration"] = _cal_record
+                # Also persist to dedicated calibration collection
+                col_cal = db.db.get_collection("trade_calibration_v2")
+                await col_cal.insert_one({**_cal_record, "trade_id": trade_result.get("id"), "user_id": user_id})
+        except Exception as _cal_err:
+            logger.debug(f"Calibration entry write failed (non-fatal): {_cal_err}")
 
         await self._record_decision_trace(
             user_id=user_id, bot_id=bot_id, bot_data=bot_data,
@@ -2410,6 +2498,13 @@ class PaperTradingEngine:
             "all_in_cost_bps": 0.0,
             "expected_net_edge_bps": 0.0,
             "projected_net_profit_quote": 0.0,
+            # Policy pack context on rejection (available when details come from quality gate)
+            "policy_pack_id":      (details or {}).get("policy_pack_name", "unknown"),
+            "policy_pack_name":    (details or {}).get("policy_pack_name", "unknown"),
+            "policy_pack_version": (details or {}).get("pack_version", "unknown"),
+            "quality_gate_passed":      False,
+            "quality_gate_reason_code": reason_code or "UNKNOWN",
+            "quality_gate_reason_text": reason_text or "Trade rejected",
             "v2_brain": True,
             "details": details or {},
         }
@@ -2516,6 +2611,10 @@ class PaperTradingEngine:
                 if NEW_TRADING_BRAIN_V2:
                     try:
                         v2 = _get_brain_v2()
+                        # Resolve active pack to get exit parameters
+                        _ot_pack = v2["resolve_runtime_pack"](bot_data)
+                        _regime_conf_at_entry = float(open_trade.get("regime_confidence", 0) or 0)
+                        _pack_allowed_regimes = _ot_pack.get("regime_allowlist", [])
                         otm_result = v2["open_trade_manager"].evaluate(
                             trade=open_trade,
                             bot_type=bot_class,
@@ -2524,6 +2623,13 @@ class PaperTradingEngine:
                             entry_price=entry_price,
                             current_spread_pct=float(market_snapshot.get("spread", 0)) / current_price * 100 if current_price else 0,
                             current_depth_notional=market_snapshot.get("depth_notional", 0) or 0,
+                            exchange=exchange,
+                            # Pack-driven exit parameters
+                            stop_loss_pct=_ot_pack.get("stop_loss_pct", stop_loss_pct),
+                            take_profit_pct=_ot_pack.get("take_profit_pct", take_profit_pct),
+                            trailing_stop_pct=_ot_pack.get("trailing_stop_pct", trailing_stop_pct),
+                            regime_confidence_at_entry=_regime_conf_at_entry,
+                            allowed_regimes=_pack_allowed_regimes,
                         )
                         if otm_result.get("should_exit"):
                             close_reason = otm_result.get("reason_code", "v2_exit")
@@ -2747,6 +2853,48 @@ class PaperTradingEngine:
                     )
                 except Exception as _rec_err:
                     logger.debug(f"Scalper exit record skipped: {_rec_err}")
+
+            # ── Calibration exit record (non-fatal) ──────────────────────
+            try:
+                if db.db is not None and NEW_TRADING_BRAIN_V2:
+                    v2 = _get_brain_v2()
+                    from services.trading_brain_v2.trade_outcome_classifier import classify_trade_outcome
+                    _open_notional = float(open_trade.get("entry_value") or open_trade.get("trade_amount") or 0)
+                    _open_equity = float(bot_data.get("current_capital") or bot_data.get("paper_capital") or 0)
+                    _open_cost_bps = float(open_trade.get("all_in_cost_bps") or 25.0)
+                    _oc_result = classify_trade_outcome(
+                        gross_pnl=gross_profit,
+                        net_pnl=net_profit,
+                        bot_type=bot_class,
+                        exchange=exchange,
+                        bot_equity=_open_equity,
+                        notional=_open_notional,
+                        all_in_cost_bps=_open_cost_bps,
+                    )
+                    # Resolve active pack for this bot
+                    _exit_pack = v2["resolve_runtime_pack"](bot_data)
+                    col_cal = db.db.get_collection("trade_calibration_v2")
+                    _proj_at_entry = float(open_trade.get("projected_net_profit_quote") or open_trade.get("_calibration", {}).get("projected_net_profit_quote") or 0)
+                    # Use find_one_and_update to reliably target the most recent
+                    # open calibration record for this bot (avoids race conditions
+                    # from update_one sort which is not reliably ordered in MongoDB).
+                    await col_cal.find_one_and_update(
+                        {"bot_id": bot_id, "calibration_complete": False},
+                        {"$set": {
+                            "realized_net_profit_quote":  round(net_profit, 6),
+                            "realized_gross_pnl_quote":   round(gross_profit, 6),
+                            "realized_projection_ratio":  round(net_profit / _proj_at_entry, 4) if _proj_at_entry > 0 else None,
+                            "exit_reason_code":           str(close_reason or "unknown"),
+                            "outcome_class":              _oc_result.get("outcome_class", "LOSS"),
+                            "hold_seconds":               round(age_seconds, 1),
+                            "calibration_complete":       True,
+                            "policy_pack_name":           _exit_pack["pack_name"],
+                            "policy_pack_version":        _exit_pack["pack_version"],
+                        }},
+                        sort=[("entry_ts", -1)],   # most recent open record for this bot
+                    )
+            except Exception as _cal_exit_err:
+                logger.debug(f"Calibration exit write failed (non-fatal): {_cal_exit_err}")
 
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
