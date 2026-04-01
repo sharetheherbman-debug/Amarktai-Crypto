@@ -45,6 +45,7 @@ from risk_engine import risk_engine
 from services.order_validation import order_validator
 from utils.trading_gates import enforce_trading_gates, TradingGateError
 from services.paper_wallet_ledger import paper_wallet_ledger
+from services.paper_wallet_service import paper_wallet_service
 from services.trading_mode_validator import trading_mode_validator
 from services.hold_policy import resolve_hold_policy
 from services.regime_classifier import classify_regime, strategy_regime_allowed
@@ -1140,12 +1141,34 @@ class PaperTradingEngine:
             from market_regime import market_regime_detector
             regime = await market_regime_detector.detect_regime(symbol, exchange)
             
-            # 3. AI INTELLIGENCE: Get ML prediction
+            # 3. AI INTELLIGENCE: Get ML prediction + aggregated signals
             from ml_predictor import ml_predictor
             prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
+
+            # 3b. SIGNAL AGGREGATION: Combine ML, alpha fusion, sentiment, order flow
+            try:
+                from services.signal_aggregator import aggregate_signals
+                _agg = await aggregate_signals(symbol, exchange, bot_type=str(bot_data.get("bot_type") or "normal").lower(), regime_result=regime)
+                # Enrich prediction with aggregated confidence (higher quality)
+                if _agg.get("confidence", 0) > 0:
+                    prediction["confidence"] = max(prediction.get("confidence", 0), _agg["confidence"])
+                    prediction["predicted_change"] = _agg.get("predicted_change", prediction.get("predicted_change", 0))
+                    if _agg.get("direction") in ("up", "down"):
+                        prediction["direction"] = _agg["direction"]
+                    prediction["signal_aggregator"] = _agg
+            except Exception as _agg_err:
+                logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
             
-            # 4. AI INTELLIGENCE: (CoinStats/HuggingFace — placeholder until live)
-            coinstats_data = {"strength": 0, "sentiment": "neutral"}
+            # 4. AI INTELLIGENCE: CoinStats derived from aggregated signals
+            _cs_strength = 0
+            _cs_sentiment = "neutral"
+            if prediction.get("signal_aggregator"):
+                _sb = prediction["signal_aggregator"].get("signal_breakdown", {})
+                _sent = _sb.get("sentiment", {})
+                if _sent.get("available"):
+                    _cs_strength = int(min(100, max(0, abs(_sent.get("score", 0)) * 100)))
+                    _cs_sentiment = _sent.get("direction", "neutral")
+            coinstats_data = {"strength": _cs_strength, "sentiment": _cs_sentiment}
             
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
             from fetchai_integration import fetchai
@@ -1546,12 +1569,28 @@ class PaperTradingEngine:
             can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
             
             if not can_afford:
-                logger.warning(f"❌ {bot_data['name'][:15]} - No paper wallet: {wallet_msg}")
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "error": f"Paper wallet not found: {wallet_msg}"
-                }
+                # get_balance() already attempts auto-initialization from bot data.
+                # If it still fails, ensure the user-level paper wallet exists with
+                # the initial capital so the per-bot reservation can succeed.
+                _init_capital = float(bot_data.get("initial_capital") or bot_data.get("current_capital") or 0)
+                if _init_capital > 0:
+                    _wallet_currency = "ZAR" if exchange.lower() == "luno" else "USDT"
+                    logger.warning(
+                        "⚠️ %s - Wallet missing, ensuring user wallet funded with %.2f %s",
+                        bot_data['name'][:15], _init_capital, _wallet_currency,
+                    )
+                    try:
+                        await paper_wallet_service.deposit(user_id, _init_capital, _wallet_currency)
+                        can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
+                    except Exception as _wallet_err:
+                        logger.error("Wallet auto-fund failed: %s", _wallet_err)
+                if not can_afford:
+                    logger.warning(f"❌ {bot_data['name'][:15]} - No paper wallet: {wallet_msg}")
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "error": f"Paper wallet not found: {wallet_msg}"
+                    }
             
             # Use paper wallet balance instead of bot capital
             paper_capital = balance
@@ -2043,11 +2082,13 @@ class PaperTradingEngine:
         if expected_gross_edge_bps < _paper_edge_floor:
             logger.info(
                 "📊 PAPER EDGE FLOOR | bot=%s symbol=%s exchange=%s | "
-                "raw_edge=%.1f bps < floor=%.1f bps (all_in_cost=%.1f) → applying floor",
+                "raw_edge=%.1f bps < floor=%.1f bps (all_in_cost=%.1f) → diagnostic flag only (no override)",
                 bot_id, symbol, exchange,
                 raw_gross_edge_bps, _paper_edge_floor, all_in_cost_bps,
             )
-            expected_gross_edge_bps = _paper_edge_floor
+            # Phase-1 fix: paper edge floor is diagnostic-only.
+            # Do NOT inflate expected_gross_edge_bps — let real signal quality
+            # determine whether the trade passes the feasibility gate.
             paper_edge_floor_applied = True
         logger.info(
             "📊 EXPECTANCY | bot=%s symbol=%s exchange=%s | "
