@@ -72,7 +72,7 @@ ABS_PROFIT_MIN_QUOTE: Dict[Tuple[str, str, str], float] = {
     ("mean_reversion","micro", "zar"):  0.60,
     ("mean_reversion","micro", "usdt"): 0.08,
     # ── small tier ────────────────────────────────────────────────────────
-    ("normal",        "small", "zar"):  1.50,
+    ("normal",        "small", "zar"):  3.00,   # raised: covers typical Luno round-trip costs
     ("normal",        "small", "usdt"): 0.50,
     ("scalper",       "small", "zar"):  1.50,
     ("scalper",       "small", "usdt"): 0.20,

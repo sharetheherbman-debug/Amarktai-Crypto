@@ -580,8 +580,9 @@ class TestUneconomicTradesStillRejected:
             **_feasibility_gate_approve_setup(),
         )
         # With notional=5 ZAR, projected = 5 × 0.01348 = 0.067 ZAR < 3.0 ZAR minimum
+        # Strategy floor (3.0) > cost_floor (~0.02) → ABS_PROFIT_TOO_SMALL
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -636,14 +637,15 @@ class TestGateTransparencyFields:
         assert result["capital_tier"] in ("micro", "small", "medium", "large")
 
     def test_transparency_on_min_profit_rejection(self):
-        """Transparency fields must also appear in ENTRY_REJECTED_MIN_PROFIT rejections."""
+        """Transparency fields must also appear in ABS_PROFIT_TOO_SMALL rejections."""
         result = self.gate.evaluate(
             strategy="normal", venue="luno", symbol="XBTZAR",
             bot_equity=2000.0, notional=5.0,   # too small to clear minimum
             expected_gross_edge_bps=164.0, all_in_cost_bps=29.2,
             **_feasibility_gate_approve_setup(),
         )
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        # Strategy floor (3.0) > cost_floor (~0.02) → ABS_PROFIT_TOO_SMALL
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
         assert "projected_net_profit_quote" in result
         assert "rejection_currency_side" in result
 
@@ -707,7 +709,7 @@ class TestUnitConsistency:
         luno_bucket = equity_bucket(2000.0, luno_vc)
         assert luno_bucket == "small"
         luno_min = ABS_PROFIT_MIN_QUOTE[("normal", "small", "zar")]
-        assert luno_min == 1.5  # R1.50 ZAR (achievable at small-capital Luno accounts)
+        assert luno_min == 3.0  # R3.00 ZAR (raised to cover typical Luno round-trip costs)
 
         # Binance: USDT venue
         binance_vc = venue_class("binance")

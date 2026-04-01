@@ -197,21 +197,29 @@ class TradeFeasibilityGate:
             if cost_ratio > MAX_COST_TO_EDGE_RATIO:
                 return make_decision_payload(ReasonCodes.COST_TOO_HIGH, False, **common)
 
-        # ── 9. Canonical profitability policy (unified step 8 + 8b) ─────────
+        # ── 9. Canonical profitability policy (step 8 + 8b unified) ──────────
         # Uses compute_min_net_profit_required() from entry_thresholds, which
         # applies per-tier, per-strategy, venue-aware minimums scaled by capital.
-        # Eliminates the old flat $1.50/$R25 floor that blocked valid small trades.
-        # Paper and live modes share the same formula — no fake paper relaxation.
+        # Two reason codes are used to distinguish which component is binding:
+        #   ABS_PROFIT_TOO_SMALL    – strategy/tier floor is the binding constraint
+        #   ENTRY_REJECTED_MIN_PROFIT – cost-coverage floor is the binding constraint
         min_profit_required = _policy["min_net_profit_quote"]
         if projected_net_profit_quote < min_profit_required:
+            strategy_floor_q = _policy["strategy_floor_quote"]
+            cost_floor_q = _policy["cost_floor_quote"]
             logger.debug(
-                "ENTRY_REJECTED_MIN_PROFIT: venue=%s strategy=%s tier=%s "
-                "projected=%.4f required=%.4f (cost_floor=%.4f strategy_floor=%.4f)",
+                "PROFIT_FLOOR_REJECTION: venue=%s strategy=%s tier=%s "
+                "projected=%.4f required=%.4f (strategy_floor=%.4f cost_floor=%.4f)",
                 venue, strategy, _policy["capital_tier"],
                 projected_net_profit_quote, min_profit_required,
-                _policy["cost_floor_quote"], _policy["strategy_floor_quote"],
+                strategy_floor_q, cost_floor_q,
             )
-            return make_decision_payload(ReasonCodes.ENTRY_REJECTED_MIN_PROFIT, False, **common)
+            if strategy_floor_q >= cost_floor_q:
+                # Strategy / tier floor is the binding constraint → ABS_PROFIT_TOO_SMALL
+                return make_decision_payload(ReasonCodes.ABS_PROFIT_TOO_SMALL, False, **common)
+            else:
+                # Cost-coverage floor is the binding constraint → ENTRY_REJECTED_MIN_PROFIT
+                return make_decision_payload(ReasonCodes.ENTRY_REJECTED_MIN_PROFIT, False, **common)
 
         # ── 10. Time feasibility ──
         time_cap = STRATEGY_TIME_CAP.get(strat_key, 21600)

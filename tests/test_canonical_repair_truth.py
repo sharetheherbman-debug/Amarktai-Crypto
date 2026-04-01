@@ -378,17 +378,16 @@ class TestLunoSmallAccountProfitMinimums:
     Before fix: ABS_PROFIT_MIN_QUOTE[("normal", "small", "zar")] = 5.0 ZAR
     This was unreachable with 1000 ZAR capital at 3% notional proxy = 30 ZAR,
     even at 200 bps net edge: 30 × 0.02 = 0.60 ZAR << 5 ZAR.
-    After fix: 1.50 ZAR minimum — achievable with 300 ZAR notional at 50 bps.
+    After raise: 3.00 ZAR minimum — achievable with 600 ZAR notional at 50 bps.
     """
 
     def test_trade_worth_filter_small_zar_floor_is_achievable(self):
         """Small ZAR absolute minimum must be achievable at reasonable notional."""
         from services.trade_worth_filter import _ABS_MIN_QUOTE
         floor = _ABS_MIN_QUOTE.get(("normal", "small", "zar"), 999)
-        # With 100 ZAR notional at 50 bps net edge: projected = 100 × 0.005 = 0.5 ZAR
-        # With 300 ZAR notional at 50 bps net edge: projected = 300 × 0.005 = 1.5 ZAR
-        # Floor must be achievable with 300 ZAR notional at 50 bps
-        min_notional = 300.0
+        # With 600 ZAR notional at 50 bps net edge: projected = 600 × 0.005 = 3.0 ZAR
+        # Floor must be achievable with 600 ZAR notional at 50 bps (60% of a 1000 ZAR account)
+        min_notional = 600.0
         min_edge_bps = 50.0
         achievable = min_notional * (min_edge_bps / 10_000.0)
         assert floor <= achievable, (
@@ -400,7 +399,8 @@ class TestLunoSmallAccountProfitMinimums:
         """TradeFeasibilityGate small ZAR minimum must also be achievable."""
         from services.trading_brain_v2.trade_feasibility_gate import ABS_PROFIT_MIN_QUOTE
         floor = ABS_PROFIT_MIN_QUOTE.get(("normal", "small", "zar"), 999)
-        min_notional = 300.0
+        # With 600 ZAR notional at 50 bps net edge: projected = 600 × 0.005 = 3.0 ZAR
+        min_notional = 600.0
         min_edge_bps = 50.0
         achievable = min_notional * (min_edge_bps / 10_000.0)
         assert floor <= achievable, (
@@ -432,14 +432,14 @@ class TestLunoSmallAccountProfitMinimums:
             bot_type="normal",
             exchange="luno",
             bot_equity=1000.0,
-            notional=300.0,          # 30% of equity (higher than typical but for test)
+            notional=600.0,          # 60% of equity — achieves 3.0 ZAR at 50 bps
             expected_gross_edge_bps=80.0,   # 80 bps gross edge
-            all_in_cost_bps=20.0,           # 20 bps cost
+            all_in_cost_bps=20.0,           # 20 bps cost → 60 bps net edge
             # No hold duration — skip the reward-rate check (hold time is unknown at entry)
         )
-        # At 300 ZAR × 60 bps = 1.8 ZAR projected — must be >= 1.5 ZAR floor
+        # At 600 ZAR × 60 bps = 3.6 ZAR projected — must be >= 3.0 ZAR floor
         assert result["approved"], (
-            f"Small Luno normal bot with 300 ZAR notional and 60 bps net edge "
+            f"Small Luno normal bot with 600 ZAR notional and 60 bps net edge "
             f"must pass worth filter; got: {result['reason_code']} — {result['reason_text']}"
         )
 

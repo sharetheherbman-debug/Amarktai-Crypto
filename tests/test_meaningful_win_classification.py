@@ -388,14 +388,16 @@ class TestNormalBotLowValueRejection:
         )
 
     def test_normal_bot_rejects_near_breakeven_zar_trade(self):
-        """notional=100, net_edge=50bps → profit=R0.50 < R1.50 floor → REJECTED."""
+        """notional=100, net_edge=50bps → profit=R0.50 < R3.00 floor → REJECTED.
+        Strategy floor (3.00) > cost_floor (~0.40) → ABS_PROFIT_TOO_SMALL.
+        """
         result = self._gate(
             venue="luno", bot_equity=2000.0,
             notional=100.0,
             expected_gross_edge_bps=80.0, all_in_cost_bps=30.0,
         )
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT", (
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL", (
             f"Near-breakeven trade should be rejected; got {result['decision_reason_code']}"
         )
 

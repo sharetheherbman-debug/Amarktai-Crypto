@@ -89,7 +89,8 @@ async def run_backtest(
         )
         
         if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
+            logger.error(f"Backtest failed: {result['error']}")
+            raise HTTPException(status_code=500, detail="Backtest failed – see server logs for details.")
         
         # Add metadata
         result["user_id"] = user_id
@@ -105,7 +106,7 @@ async def run_backtest(
         raise
     except Exception as e:
         logger.error(f"Backtest error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Backtest failed – see server logs for details.")
 
 
 @router.post("/optimize")
@@ -172,7 +173,7 @@ async def optimize_strategy(
         raise
     except Exception as e:
         logger.error(f"Optimization error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Strategy optimization failed – see server logs for details.")
 
 
 @router.get("/history")

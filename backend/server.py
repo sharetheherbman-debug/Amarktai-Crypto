@@ -2704,10 +2704,15 @@ async def backtest_strategy(data: dict, user_id: str = Depends(get_current_user)
             data['end_date'],
             data.get('initial_capital', 1000)
         )
+        if "error" in result:
+            logger.error(f"Backtesting returned error: {result['error']}")
+            raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Backtesting error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
 
 @api_router.post("/bots/evolve")
 async def evolve_bots(user_id: str = Depends(get_current_user)):

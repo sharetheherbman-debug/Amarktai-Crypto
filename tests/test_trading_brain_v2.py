@@ -266,8 +266,8 @@ class TestTradeFeasibilityGate:
             entry_confidence=0.50,
         )
         assert result["approved"] is False
-        # Steps 8 and 8b are now unified: ENTRY_REJECTED_MIN_PROFIT covers both
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        # Strategy-floor is binding (0.50 > cost_floor ~0.14) → ABS_PROFIT_TOO_SMALL
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
 
     def test_spread_too_wide_rejected(self):
         result = self.gate.evaluate(
@@ -908,13 +908,14 @@ class TestMinimumProfitFilter:
 
         notional=50, net_edge=60 bps → profit = 50 × 0.006 = $0.30
         small-tier floor = $0.50 → $0.30 < $0.50 → REJECTED.
+        Strategy floor (0.50) > cost_floor (~0.14) → ABS_PROFIT_TOO_SMALL.
         """
         result = self._gate(
             venue="binance", bot_equity=200.0, notional=50.0,
             expected_gross_edge_bps=80.0, all_in_cost_bps=20.0,
         )
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
 
     def test_usdt_trade_above_floor_approved(self):
         """Projected profit of $37.50 must pass the filter."""
@@ -928,8 +929,8 @@ class TestMinimumProfitFilter:
         """R2000 ZAR small-cap bot with R15 net profit MUST now be approved.
 
         Under policy v1 this was rejected by the flat R25 floor.
-        Under policy v2: equity=2000 → 'small' tier, cost_floor=R4.50, strategy_floor=R1.50.
-        min_required = max(R4.50, R1.50) = R4.50 → R15 PASSES.
+        Under policy v2: equity=2000 → 'small' tier, cost_floor=R4.50, strategy_floor=R3.00.
+        min_required = max(R4.50, R3.00) = R4.50 → R15 PASSES.
         notional=1500, net_edge=100 bps → profit = 1500 × 0.01 = R15.
         """
         result = self._gate(
@@ -947,7 +948,8 @@ class TestMinimumProfitFilter:
         """Near-breakeven ZAR trade must still be rejected.
 
         notional=100, net_edge=100 bps → profit = R1.0
-        small-tier strategy_floor = R1.50 → R1.0 < R1.50 → REJECTED.
+        small-tier strategy_floor = R3.00 → R1.0 < R3.00 → REJECTED.
+        Strategy floor (3.00) > cost_floor (~0.30) → ABS_PROFIT_TOO_SMALL.
         """
         result = self._gate(
             venue="luno", symbol="BTC/ZAR",
@@ -955,7 +957,7 @@ class TestMinimumProfitFilter:
             expected_gross_edge_bps=120.0, all_in_cost_bps=20.0,
         )
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
 
     def test_zar_trade_above_floor_approved(self):
         """ZAR trade with large profit must pass."""
@@ -977,7 +979,7 @@ class TestMinimumProfitFilter:
         assert MIN_PROJECTED_NET_PROFIT["zar"] == 25.0
 
     def test_rejection_payload_is_transparent(self):
-        """ENTRY_REJECTED_MIN_PROFIT rejection must include all transparency fields."""
+        """ABS_PROFIT_TOO_SMALL rejection must include all transparency fields."""
         # Use near-breakeven trade: notional=50, profit=$0.30 < $0.50 small floor
         result = self._gate(
             venue="binance", bot_equity=200.0, notional=50.0,
@@ -987,7 +989,7 @@ class TestMinimumProfitFilter:
         assert "expected_net_edge_bps" in result
         assert "projected_net_profit_quote" in result
         assert "regime_label" in result
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
         assert result["projected_net_profit_quote"] > 0
 
     def test_policy_v2_fields_in_payload(self):
@@ -1259,7 +1261,7 @@ class TestCanonicalProfitabilityPolicy:
         micro USDT normal floor = $0.10.
         equity=$50, notional=$10, gross=70bps, cost=25bps → net=45bps → $0.045 profit.
         cost_floor = 10*(25+8)/10000 = $0.033; strategy_floor = $0.10
-        min_required = max($0.033, $0.10) = $0.10 → $0.045 < $0.10 → FAIL.
+        Strategy floor (0.10) > cost_floor (0.033) → ABS_PROFIT_TOO_SMALL.
         (gross must be >= max(15, 1.5 * 25) = 37.5 BPS to pass the edge check)
         """
         result = self._gate(
@@ -1273,7 +1275,7 @@ class TestCanonicalProfitabilityPolicy:
             depth_notional=100000.0,
         )
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
 
     # ── Tests 5-9: All supported USDT exchanges, small-cap ───────────────
 
@@ -1395,14 +1397,14 @@ class TestCanonicalProfitabilityPolicy:
     # ── Test 13: Rejection reason includes actual vs required values ───────
 
     def test_rejection_includes_actual_vs_required_values(self):
-        """ENTRY_REJECTED_MIN_PROFIT must expose projected vs required profit."""
+        """ABS_PROFIT_TOO_SMALL must expose projected vs required profit."""
         # micro USDT: notional=$10, gross=70, cost=25 → net=45bps → profit=$0.045 < $0.10 floor
         result = self._gate(
             venue="binance", notional=10.0, bot_equity=50.0,
             expected_gross_edge_bps=70.0, all_in_cost_bps=25.0,
         )
         assert result["approved"] is False
-        assert result["decision_reason_code"] == "ENTRY_REJECTED_MIN_PROFIT"
+        assert result["decision_reason_code"] == "ABS_PROFIT_TOO_SMALL"
         # Must expose both actual and required values
         assert "projected_net_profit_quote" in result
         assert "min_net_profit_quote_required" in result
