@@ -3122,8 +3122,8 @@ async def get_dashboard_truth(request: Request):
         return {
             "qualified_win_rate": trade_quality_metrics.get("meaningful_win_rate_pct", 0.0),
             "micro_win_rate": round(
-                trade_quality_metrics["micro_win_count"] / max(trade_quality_metrics["total_trades"], 1) * 100, 2
-            ),
+                trade_quality_metrics["micro_win_count"] / trade_quality_metrics["total_trades"] * 100, 2
+            ) if trade_quality_metrics["total_trades"] > 0 else 0.0,
             "total_win_rate": trade_quality_metrics.get("net_win_rate_pct", 0.0),
             "policy_pack_in_use": policy_pack_in_use,
             "trade_quality_metrics": trade_quality_metrics,

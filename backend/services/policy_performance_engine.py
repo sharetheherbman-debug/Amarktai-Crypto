@@ -93,7 +93,8 @@ async def get_pack_performance(user_id: str = None) -> dict:
             for t in classified
             if t.get("hold_seconds")
         ]
-        avg_hold = round(sum(hold_times) / len(hold_times), 1) if hold_times else None
+        n_holds = len(hold_times)
+        avg_hold = round(sum(hold_times) / n_holds, 1) if n_holds > 0 else None
 
         # Max drawdown from sequential PnL
         max_drawdown = _compute_max_drawdown(classified)

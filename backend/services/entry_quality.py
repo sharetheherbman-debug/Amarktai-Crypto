@@ -11,6 +11,14 @@ NORMAL_CONFIDENCE_THRESHOLD = 0.68
 SCALPER_BASE_EDGE_PCT = 0.60   # raised from 0.45 — scalpers require stronger projected edge
 NORMAL_BASE_EDGE_PCT = 0.2
 
+# Entry quality classification thresholds
+HIGH_QUALITY_MIN_CONFIDENCE = 0.75
+HIGH_QUALITY_MIN_EDGE_PCT = 0.5
+HIGH_QUALITY_MIN_SOURCES = 2
+MEDIUM_QUALITY_MIN_CONFIDENCE = 0.60
+MEDIUM_QUALITY_MIN_EDGE_PCT = 0.2
+MEDIUM_QUALITY_MIN_SOURCES = 1
+
 
 def compute_entry_confidence(
     *,
@@ -152,7 +160,9 @@ def classify_entry_quality(
     edge = float(net_edge_pct or 0)
     sources = int(consensus_sources or 0)
 
-    if conf >= 0.75 and edge >= 0.5 and sources >= 2:
+    if (conf >= HIGH_QUALITY_MIN_CONFIDENCE
+            and edge >= HIGH_QUALITY_MIN_EDGE_PCT
+            and sources >= HIGH_QUALITY_MIN_SOURCES):
         return {
             "quality": "high",
             "priority": 1,
@@ -163,7 +173,9 @@ def classify_entry_quality(
             ),
         }
 
-    if conf >= 0.60 and edge >= 0.2 and sources >= 1:
+    if (conf >= MEDIUM_QUALITY_MIN_CONFIDENCE
+            and edge >= MEDIUM_QUALITY_MIN_EDGE_PCT
+            and sources >= MEDIUM_QUALITY_MIN_SOURCES):
         return {
             "quality": "medium",
             "priority": 2,

@@ -268,7 +268,7 @@ def _build_metrics(
 
     returns = [t["net_pnl"] / initial_capital for t in trades]
     avg_return = sum(returns) / len(returns)
-    std_dev = math.sqrt(sum((r - avg_return) ** 2 for r in returns) / len(returns)) if len(returns) > 1 else 0.0
+    std_dev = math.sqrt(sum((r - avg_return) ** 2 for r in returns) / (len(returns) - 1)) if len(returns) > 1 else 0.0
     sharpe = (avg_return / std_dev) * math.sqrt(252) if std_dev > 0 else 0.0
 
     return {
