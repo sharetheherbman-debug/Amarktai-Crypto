@@ -90,17 +90,30 @@ class BotSpawner:
             if not target_exchange:
                 return {"error": "No available exchange slots"}
             
-            # Determine risk mode based on distribution
-            import random
-            rand = random.random()
-            if rand < self.risk_distribution['safe']:
-                risk_mode = 'safe'
-            elif rand < self.risk_distribution['safe'] + self.risk_distribution['balanced']:
-                risk_mode = 'balanced'
-            elif rand < 0.9:  # 90% cumulative
-                risk_mode = 'risky'
-            else:
-                risk_mode = 'aggressive'
+            # Determine risk mode deterministically based on the current distribution
+            # of existing bots so that the portfolio always trends toward the target
+            # risk distribution without relying on random selection.
+            existing_bots = await db.bots_collection.find(
+                {"user_id": user_id, "exchange": target_exchange},
+                {"_id": 0, "risk_mode": 1}
+            ).to_list(1000)
+            existing_by_mode: dict = {}
+            for b in existing_bots:
+                m = b.get("risk_mode", "balanced")
+                existing_by_mode[m] = existing_by_mode.get(m, 0) + 1
+            # Use actual count; when zero bots exist every mode has deficit = target_fraction
+            total_existing = len(existing_bots) if existing_bots else 0
+
+            # Choose the mode most under-represented relative to target distribution
+            deficit = {}
+            for mode, target_fraction in self.risk_distribution.items():
+                actual_fraction = (
+                    existing_by_mode.get(mode, 0) / total_existing
+                    if total_existing > 0
+                    else 0.0
+                )
+                deficit[mode] = target_fraction - actual_fraction
+            risk_mode = max(deficit, key=lambda m: (deficit[m], m))  # tie-break alphabetically
             
             # Calculate capital allocation
             capital = await wallet_manager.calculate_allocation_per_bot(user_id, self.max_bots)

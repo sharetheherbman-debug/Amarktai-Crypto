@@ -147,3 +147,21 @@ chromadb==0.5.23
 langchain==0.3.13
 langchain-chroma==0.1.4
 langchain-openai==0.2.14
+
+# ============================================================================
+# AI Trading Intelligence — ML + Technical Analysis + Optimisation
+# ============================================================================
+# Technical indicators (RSI, MACD, ATR, Bollinger, VWAP, ADX, etc.)
+pandas-ta>=0.3.14b0
+
+# Gradient-boosted tree model for price-direction prediction
+xgboost>=2.0.0
+
+# Online/streaming learning — model updates without full retraining
+river>=0.21.0
+
+# Hyperparameter optimisation for strategy tuning
+optuna>=3.6.0
+
+# Redis pub/sub for realtime events in multi-worker deployments
+aioredis>=2.0.1

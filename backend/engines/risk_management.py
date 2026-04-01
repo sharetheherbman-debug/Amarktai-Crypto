@@ -429,11 +429,24 @@ class RiskManagement:
                         await self.close_position(bot_id)
                         continue
                     
-                    # Get current price (simulated for now)
-                    import random
+                    # Get current real price from the market snapshot service
                     position = self.active_positions[bot_id]
-                    # Simulate price movement around entry
-                    current_price = position['entry_price'] * random.uniform(0.95, 1.08)
+                    symbol = position.get('symbol', '')
+                    exchange_id = position.get('exchange', 'luno')
+                    current_price: Optional[float] = None
+                    try:
+                        from paper_trading_engine import paper_engine
+                        snapshot = await paper_engine.get_market_snapshot(symbol, exchange_id)
+                        current_price = snapshot.get("mid")
+                    except Exception as _price_err:
+                        logger.warning(f"Could not fetch live price for {symbol} on {exchange_id}: {_price_err}")
+
+                    if current_price is None or current_price <= 0:
+                        logger.warning(
+                            f"Skipping position check for bot {bot_id}: "
+                            f"price unavailable for {symbol}"
+                        )
+                        continue
                     
                     # Check if exit triggered
                     exit_signal = await self.check_position(bot_id, current_price)

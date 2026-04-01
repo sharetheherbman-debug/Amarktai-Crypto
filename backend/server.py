@@ -264,6 +264,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Daily Loss Lock Auto-Reset Job: {e}")
 
+    # Start Live Position Monitor — continuously checks stop-loss / take-profit
+    # for all active live trading positions so no position sits unmonitored.
+    try:
+        from engines.risk_management import risk_management
+        if not risk_management.is_running:
+            risk_management.start()
+            logger.info("📊 Live Position Monitor started (stop-loss / take-profit monitoring)")
+    except Exception as e:
+        logger.warning(f"Could not start Live Position Monitor: {e}")
+
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint
@@ -2694,10 +2704,16 @@ async def backtest_strategy(data: dict, user_id: str = Depends(get_current_user)
             data['end_date'],
             data.get('initial_capital', 1000)
         )
-        return result
+        if "error" in result:
+            logger.error(f"Backtesting returned error: {result['error']}")
+            raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
+        # Return only safe (non-error) fields to the client
+        return {k: v for k, v in result.items() if k not in ("error", "traceback")}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Backtesting error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
 
 @api_router.post("/bots/evolve")
 async def evolve_bots(user_id: str = Depends(get_current_user)):

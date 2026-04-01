@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import time
+from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
@@ -179,19 +180,22 @@ class ProviderScheduler:
 # ║  Price Providers                                                        ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-class PriceProvider:
-    """Base class for price data providers."""
+class PriceProvider(ABC):
+    """Abstract base class for price data providers."""
 
     name: str = "base"
 
+    @abstractmethod
     async def get_price(self, symbol: str, vs_currency: str = "usd") -> Optional[Dict]:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     async def get_prices_batch(self, symbols: List[str], vs_currency: str = "usd") -> Dict[str, Dict]:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     async def ping(self) -> bool:
-        raise NotImplementedError
+        ...
 
 
 class CoinDeskProvider(PriceProvider):

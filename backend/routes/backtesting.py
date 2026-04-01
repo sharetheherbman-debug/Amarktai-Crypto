@@ -89,23 +89,25 @@ async def run_backtest(
         )
         
         if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-        
-        # Add metadata
-        result["user_id"] = user_id
-        result["pair"] = request.pair
-        result["exchange"] = request.exchange
-        
+            logger.error(f"Backtest failed: {result['error']}")
+            raise HTTPException(status_code=500, detail="Backtest failed – see server logs for details.")
+
+        # Build a safe response dict, explicitly excluding any internal error fields
+        safe_result = {k: v for k, v in result.items() if k not in ("error", "traceback")}
+        safe_result["user_id"] = user_id
+        safe_result["pair"] = request.pair
+        safe_result["exchange"] = request.exchange
+
         return {
             "success": True,
-            "backtest": result
+            "backtest": safe_result,
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Backtest error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Backtest failed – see server logs for details.")
 
 
 @router.post("/optimize")
@@ -159,12 +161,19 @@ async def optimize_strategy(
             end_date=request.end_date,
             initial_capital=request.initial_capital
         )
-        
+
+        if "error" in result:
+            logger.error(f"Optimization backtest failed: {result['error']}")
+            raise HTTPException(status_code=500, detail="Strategy optimization failed – see server logs for details.")
+
+        # Build a safe response, explicitly excluding any internal error fields
+        safe_result = {k: v for k, v in result.items() if k not in ("error", "traceback")}
+
         return {
             "success": True,
             "best_parameters": best_params,
             "optimization_metric": request.optimization_metric,
-            "backtest_result": result,
+            "backtest_result": safe_result,
             "tested_combinations": 1  # Would be more in real grid search
         }
         
@@ -172,7 +181,7 @@ async def optimize_strategy(
         raise
     except Exception as e:
         logger.error(f"Optimization error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Strategy optimization failed – see server logs for details.")
 
 
 @router.get("/history")
