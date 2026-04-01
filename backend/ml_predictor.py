@@ -98,18 +98,18 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         if "timestamp" in out.columns:
             out = out.set_index("timestamp")
 
-        out.ta.rsi(length=14, append=True, col_names=("rsi",))
+        out.ta.rsi(length=14, append=True, col_names=["rsi"])
         macd = out.ta.macd(fast=12, slow=26, signal=9, append=False)
         out["macd"] = macd.iloc[:, 0]
         out["macd_signal"] = macd.iloc[:, 1]
         out["macd_hist"] = macd.iloc[:, 2]
-        out.ta.atr(length=14, append=True, col_names=("atr",))
+        out.ta.atr(length=14, append=True, col_names=["atr"])
         bbands = out.ta.bbands(length=20, std=2, append=False)
         out["bb_lower"] = bbands.iloc[:, 0]
         out["bb_mid"] = bbands.iloc[:, 1]
         out["bb_upper"] = bbands.iloc[:, 2]
-        out.ta.vwap(append=True, col_names=("vwap",))
-        out.ta.sma(length=20, append=True, col_names=("sma20",))
+        out.ta.vwap(append=True, col_names=["vwap"])
+        out.ta.sma(length=20, append=True, col_names=["sma20"])
 
         out = out.reset_index()
     else:
@@ -272,11 +272,15 @@ class MLPredictor:
                 None, fetch_ohlcv, pair, timeframe, 100, "binance"
             )
             df = compute_indicators(df)
-            latest = df.dropna(subset=["rsi", "macd"]).iloc[-1]
+            valid = df.dropna(subset=["rsi", "macd"])
+            if valid.empty:
+                raise ValueError("Not enough data to compute indicators")
+            latest = valid.iloc[-1]
 
             if self.model_loaded and self.model is not None:
                 feature_values = np.array(
-                    [[float(latest.get(c, 0.0) or 0.0) for c in FEATURE_COLUMNS]]
+                    [[float(v) if pd.notna(v := latest.get(c)) else 0.0
+                      for c in FEATURE_COLUMNS]]
                 )
                 direction, confidence, predicted_change = self._predict_with_model(
                     feature_values
