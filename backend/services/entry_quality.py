@@ -129,6 +129,63 @@ def derive_adaptive_discipline(recent_closed_trades: List[Dict]) -> Dict[str, fl
     }
 
 
+def classify_entry_quality(
+    *,
+    entry_confidence_score: float,
+    net_edge_pct: float,
+    consensus_sources: int,
+    bot_type: str = "normal",
+) -> Dict:
+    """Classify an entry setup into high / medium / low quality.
+
+    Rules
+    -----
+    High:   confidence >= 0.75 AND net_edge >= 0.5% AND sources >= 2
+    Medium: confidence >= 0.60 AND net_edge >= 0.2% AND sources >= 1
+    Low:    everything else → should_trade = False
+
+    Returns
+    -------
+    dict with quality, priority, should_trade, reason.
+    """
+    conf = float(entry_confidence_score or 0)
+    edge = float(net_edge_pct or 0)
+    sources = int(consensus_sources or 0)
+
+    if conf >= 0.75 and edge >= 0.5 and sources >= 2:
+        return {
+            "quality": "high",
+            "priority": 1,
+            "should_trade": True,
+            "reason": (
+                f"High quality entry: confidence={conf:.2f}, "
+                f"net_edge={edge:.2f}%, sources={sources}"
+            ),
+        }
+
+    if conf >= 0.60 and edge >= 0.2 and sources >= 1:
+        return {
+            "quality": "medium",
+            "priority": 2,
+            "should_trade": True,
+            "reason": (
+                f"Medium quality entry: confidence={conf:.2f}, "
+                f"net_edge={edge:.2f}%, sources={sources}"
+            ),
+        }
+
+    return {
+        "quality": "low",
+        "priority": 3,
+        "should_trade": False,
+        "reason": (
+            f"Low quality entry rejected: confidence={conf:.2f}, "
+            f"net_edge={edge:.2f}%, sources={sources} — "
+            "does not meet minimum thresholds"
+        ),
+    }
+
+
 def evaluate_pre_timeout_exit(
     *,
     bot_class: str,
