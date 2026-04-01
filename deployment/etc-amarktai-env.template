@@ -82,6 +82,18 @@ ENABLE_CCXT=true
 ENABLE_SCHEDULERS=true
 
 # ============================================================================
+# CRITICAL TRADING ENGINE FLAGS — MUST BE SET TO TRADE
+# ============================================================================
+# ENABLE_TRADING=1 is REQUIRED for the TradingScheduler to start at boot.
+# Without it, all bots will show as active but NEVER execute any trade cycles.
+# Set both to 1 to start paper or live trading:
+ENABLE_TRADING=1
+
+# Live-trading economics overrides (review before enabling LIVE_TRADING=1)
+LIVE_SLIPPAGE_PCT=0.05
+LIVE_TIMEOUT_RISK_PCT=0.08
+
+# ============================================================================
 # DEPLOYMENT INSTRUCTIONS
 # ============================================================================
 

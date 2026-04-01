@@ -53,6 +53,20 @@ class LifecycleManager:
             'enable_daily_reports': env_bool('ENABLE_DAILY_REPORTS', False),
         }
         logger.info(f"🎚️ Feature flags: {self.feature_flags}")
+
+        # Warn loudly if the trading scheduler will NOT start — this is the most
+        # common silent failure: bots appear active but no trades execute.
+        if not self.feature_flags['enable_trading']:
+            logger.critical(
+                "⚠️  ENABLE_TRADING is NOT set (or is 0/false). "
+                "The TradingScheduler will NOT start — bots will NEVER cycle. "
+                "Set ENABLE_TRADING=1 in your environment to enable trading."
+            )
+        if not self.feature_flags['enable_schedulers']:
+            logger.warning(
+                "⚠️  ENABLE_SCHEDULERS is NOT set. "
+                "Autonomous subsystems (self-healing, AI scheduler, etc.) are disabled."
+            )
         
     def _register_subsystems(self):
         """Register all subsystems in startup order"""

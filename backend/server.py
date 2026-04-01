@@ -264,6 +264,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Daily Loss Lock Auto-Reset Job: {e}")
 
+    # Start Live Position Monitor — continuously checks stop-loss / take-profit
+    # for all active live trading positions so no position sits unmonitored.
+    try:
+        from engines.risk_management import risk_management
+        if not risk_management.is_running:
+            risk_management.start()
+            logger.info("📊 Live Position Monitor started (stop-loss / take-profit monitoring)")
+    except Exception as e:
+        logger.warning(f"Could not start Live Position Monitor: {e}")
+
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint

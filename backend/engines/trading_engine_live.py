@@ -86,7 +86,21 @@ class LiveTradingEngine:
         except Exception as e:
             logger.error(f"Failed to fetch price for {symbol}: {e}")
             return None
-    
+
+    async def _rate_limit_backoff(self, attempt: int) -> None:
+        """Exponential backoff with jitter for rate-limit errors.
+
+        Waits 2^attempt seconds (capped at 60) plus up to 1 second of jitter
+        to avoid synchronised retries across concurrent bots.
+        """
+        import math
+        delay = min(2 ** attempt, 60)
+        # Deterministic jitter: use the full microsecond range (0–999999) → 0..0.999999 s
+        jitter = datetime.now(timezone.utc).microsecond / 1_000_000.0
+        total = delay + jitter
+        logger.warning(f"⏳ Rate-limit backoff: sleeping {total:.2f}s (attempt {attempt})")
+        await asyncio.sleep(total)
+
     async def place_limit_order(self, exchange: ccxt.Exchange, symbol: str, 
                                side: str, amount: float, price: float) -> Optional[Dict]:
         """Place real limit order"""
@@ -106,8 +120,8 @@ class LiveTradingEngine:
             logger.error(f"❌ Invalid order: {e}")
             return None
         except ccxt.RateLimitExceeded as e:
-            logger.error(f"⏳ Rate limit exceeded: {e}")
-            await asyncio.sleep(2)
+            logger.error(f"⏳ Rate limit exceeded on limit order: {e}")
+            await self._rate_limit_backoff(attempt=1)
             return None
         except Exception as e:
             logger.error(f"❌ Order placement failed: {e}")
@@ -132,8 +146,8 @@ class LiveTradingEngine:
             logger.error(f"❌ Invalid order: {e}")
             return None
         except ccxt.RateLimitExceeded as e:
-            logger.error(f"⏳ Rate limit exceeded: {e}")
-            await asyncio.sleep(2)
+            logger.error(f"⏳ Rate limit exceeded on market order: {e}")
+            await self._rate_limit_backoff(attempt=1)
             return None
         except Exception as e:
             logger.error(f"❌ Order placement failed: {e}")
@@ -334,7 +348,7 @@ class LiveTradingEngine:
         """Wait for order to fill"""
         start_time = datetime.now(timezone.utc)
         
-        while (datetime.now(timezone.utc) - start_time).seconds < timeout:
+        while (datetime.now(timezone.utc) - start_time).total_seconds() < timeout:
             order = await self.check_order_status(exchange, order_id, symbol)
             
             if order and order['status'] in ['closed', 'filled']:

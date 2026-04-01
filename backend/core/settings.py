@@ -356,6 +356,22 @@ def startup_self_check() -> None:
     for key, value in required_keys.items():
         if not value or value == 'your-secret-key-change-in-production':
             errors.append(f"❌ Missing or invalid required env key: {key}")
+
+    # Check 1b: Admin password must not be the placeholder value
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    _admin_placeholders = {
+        "change-me-secure-password",
+        "changeme",
+        "admin",
+        "password",
+        "",
+    }
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+    if environment == "production" and admin_password.lower() in _admin_placeholders:
+        errors.append(
+            "❌ ADMIN_PASSWORD is a placeholder value. "
+            "Set a strong password before running in production."
+        )
     
     # Check 2: Exchange limits consistency
     for exchange in SUPPORTED_EXCHANGES:

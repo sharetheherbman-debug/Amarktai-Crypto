@@ -201,18 +201,21 @@ class LiveGateService:
             timestamp = datetime.now(timezone.utc).isoformat()
             
             # Set emergency stop flag
-            await db.emergency_stop_collection.update_one(
-                {},
-                {
-                    "$set": {
-                        "enabled": True,
-                        "reason": reason,
-                        "activated_at": timestamp,
-                        "activated_by": activated_by
-                    }
-                },
-                upsert=True
-            )
+            if db.emergency_stop_collection is not None:
+                await db.emergency_stop_collection.update_one(
+                    {},
+                    {
+                        "$set": {
+                            "enabled": True,
+                            "reason": reason,
+                            "activated_at": timestamp,
+                            "activated_by": activated_by
+                        }
+                    },
+                    upsert=True
+                )
+            else:
+                logger.error("emergency_stop_collection is None – emergency stop flag NOT persisted to DB")
             
             # Pause all active live bots
             result = await db.bots_collection.update_many(
@@ -277,16 +280,19 @@ class LiveGateService:
         try:
             timestamp = datetime.now(timezone.utc).isoformat()
             
-            await db.emergency_stop_collection.update_one(
-                {},
-                {
-                    "$set": {
-                        "enabled": False,
-                        "deactivated_at": timestamp,
-                        "deactivated_by": deactivated_by
+            if db.emergency_stop_collection is not None:
+                await db.emergency_stop_collection.update_one(
+                    {},
+                    {
+                        "$set": {
+                            "enabled": False,
+                            "deactivated_at": timestamp,
+                            "deactivated_by": deactivated_by
+                        }
                     }
-                }
-            )
+                )
+            else:
+                logger.error("emergency_stop_collection is None – deactivation flag NOT persisted to DB")
             
             logger.warning(f"Emergency stop deactivated by {deactivated_by[:8]}")
             
