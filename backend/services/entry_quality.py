@@ -11,6 +11,14 @@ NORMAL_CONFIDENCE_THRESHOLD = 0.68
 SCALPER_BASE_EDGE_PCT = 0.60   # raised from 0.45 — scalpers require stronger projected edge
 NORMAL_BASE_EDGE_PCT = 0.2
 
+# Entry quality classification thresholds
+HIGH_QUALITY_MIN_CONFIDENCE = 0.75
+HIGH_QUALITY_MIN_EDGE_PCT = 0.5
+HIGH_QUALITY_MIN_SOURCES = 2
+MEDIUM_QUALITY_MIN_CONFIDENCE = 0.60
+MEDIUM_QUALITY_MIN_EDGE_PCT = 0.2
+MEDIUM_QUALITY_MIN_SOURCES = 1
+
 
 def compute_entry_confidence(
     *,
@@ -126,6 +134,67 @@ def derive_adaptive_discipline(recent_closed_trades: List[Dict]) -> Dict[str, fl
         "confidence_uplift": 0.0,
         "edge_uplift_pct": 0.0,
         "reason_code": "ADAPTIVE_NEUTRAL",
+    }
+
+
+def classify_entry_quality(
+    *,
+    entry_confidence_score: float,
+    net_edge_pct: float,
+    consensus_sources: int,
+    bot_type: str = "normal",
+) -> Dict:
+    """Classify an entry setup into high / medium / low quality.
+
+    Rules
+    -----
+    High:   confidence >= 0.75 AND net_edge >= 0.5% AND sources >= 2
+    Medium: confidence >= 0.60 AND net_edge >= 0.2% AND sources >= 1
+    Low:    everything else → should_trade = False
+
+    Returns
+    -------
+    dict with quality, priority, should_trade, reason.
+    """
+    conf = float(entry_confidence_score or 0)
+    edge = float(net_edge_pct or 0)
+    sources = int(consensus_sources or 0)
+
+    if (conf >= HIGH_QUALITY_MIN_CONFIDENCE
+            and edge >= HIGH_QUALITY_MIN_EDGE_PCT
+            and sources >= HIGH_QUALITY_MIN_SOURCES):
+        return {
+            "quality": "high",
+            "priority": 1,
+            "should_trade": True,
+            "reason": (
+                f"High quality entry: confidence={conf:.2f}, "
+                f"net_edge={edge:.2f}%, sources={sources}"
+            ),
+        }
+
+    if (conf >= MEDIUM_QUALITY_MIN_CONFIDENCE
+            and edge >= MEDIUM_QUALITY_MIN_EDGE_PCT
+            and sources >= MEDIUM_QUALITY_MIN_SOURCES):
+        return {
+            "quality": "medium",
+            "priority": 2,
+            "should_trade": True,
+            "reason": (
+                f"Medium quality entry: confidence={conf:.2f}, "
+                f"net_edge={edge:.2f}%, sources={sources}"
+            ),
+        }
+
+    return {
+        "quality": "low",
+        "priority": 3,
+        "should_trade": False,
+        "reason": (
+            f"Low quality entry rejected: confidence={conf:.2f}, "
+            f"net_edge={edge:.2f}%, sources={sources} — "
+            "does not meet minimum thresholds"
+        ),
     }
 
 

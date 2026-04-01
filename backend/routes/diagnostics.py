@@ -3,7 +3,7 @@ Diagnostics Endpoints - Pre-Merge Verification
 Includes realtime smoke tests and system health checks
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List
 import logging
@@ -2929,4 +2929,275 @@ async def policy_pack_diagnostics(
         }
     except Exception as exc:
         logger.error("policy_pack_diagnostics failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/blockers")
+async def get_trade_blockers(request: Request):
+    """Return every gate that can block trade execution and its current status."""
+    from utils.env_utils import env_bool
+    from utils.trading_gates import check_trading_mode_enabled, check_autopilot_gates
+
+    blockers: list[dict] = []
+
+    # 1. Trading gates (any mode enabled)
+    trading_ok, trading_reason = check_trading_mode_enabled()
+    blockers.append({
+        "gate_name": "trading_gates",
+        "blocked": not trading_ok,
+        "reason_code": "NO_TRADING_MODE" if not trading_ok else "OK",
+        "human_readable": trading_reason,
+        "required_fix": "Set PAPER_TRADING=1 or LIVE_TRADING=1" if not trading_ok else None,
+    })
+
+    # 2. Autopilot
+    ap_ok, ap_reason = check_autopilot_gates()
+    blockers.append({
+        "gate_name": "autopilot",
+        "blocked": not ap_ok,
+        "reason_code": "AUTOPILOT_DISABLED" if not ap_ok else "OK",
+        "human_readable": ap_reason,
+        "required_fix": "Set AUTOPILOT_ENABLED=1 and enable a trading mode" if not ap_ok else None,
+    })
+
+    # 3. Emergency stop
+    emergency = env_bool("EMERGENCY_STOP", False)
+    blockers.append({
+        "gate_name": "emergency_stop",
+        "blocked": emergency,
+        "reason_code": "EMERGENCY_STOP_ACTIVE" if emergency else "OK",
+        "human_readable": "Emergency stop is ACTIVE — all trading halted" if emergency else "Emergency stop not active",
+        "required_fix": "Set EMERGENCY_STOP=0 to resume trading" if emergency else None,
+    })
+
+    # 4. Paper trading
+    paper_on = env_bool("PAPER_TRADING", False)
+    blockers.append({
+        "gate_name": "paper_trading",
+        "blocked": not paper_on,
+        "reason_code": "PAPER_TRADING_OFF" if not paper_on else "OK",
+        "human_readable": "Paper trading is disabled" if not paper_on else "Paper trading enabled",
+        "required_fix": "Set PAPER_TRADING=1 to enable paper trading" if not paper_on else None,
+    })
+
+    # 5. Live trading
+    live_on = env_bool("LIVE_TRADING", False)
+    blockers.append({
+        "gate_name": "live_trading",
+        "blocked": not live_on,
+        "reason_code": "LIVE_TRADING_OFF" if not live_on else "OK",
+        "human_readable": "Live trading is disabled" if not live_on else "Live trading enabled",
+        "required_fix": "Set LIVE_TRADING=1 to enable live trading" if not live_on else None,
+    })
+
+    # 6. Wallet check (paper wallet service available)
+    wallet_ok = True
+    wallet_reason = "Paper wallet service available"
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.init_db()
+    except Exception as exc:
+        wallet_ok = False
+        wallet_reason = f"Paper wallet unavailable: {exc}"
+    blockers.append({
+        "gate_name": "wallet",
+        "blocked": not wallet_ok,
+        "reason_code": "WALLET_UNAVAILABLE" if not wallet_ok else "OK",
+        "human_readable": wallet_reason,
+        "required_fix": "Check database connectivity and wallet collection" if not wallet_ok else None,
+    })
+
+    # 7. Edge gate
+    try:
+        from config import EDGE_GATE_PAPER, EDGE_GATE_LIVE
+    except ImportError:
+        EDGE_GATE_PAPER, EDGE_GATE_LIVE = False, False
+    edge_active = EDGE_GATE_PAPER or EDGE_GATE_LIVE
+    blockers.append({
+        "gate_name": "edge_gate",
+        "blocked": edge_active,
+        "reason_code": "EDGE_GATE_ACTIVE" if edge_active else "OK",
+        "human_readable": (
+            f"Edge gate active (paper={EDGE_GATE_PAPER}, live={EDGE_GATE_LIVE}) — "
+            "low-edge trades will be rejected"
+        ) if edge_active else "Edge gate inactive",
+        "required_fix": "Set EDGE_GATE_PAPER=false / EDGE_GATE_LIVE=false to relax" if edge_active else None,
+    })
+
+    # 8. Confidence gate
+    confidence_on = env_bool("CONFIDENCE_GATE", False)
+    blockers.append({
+        "gate_name": "confidence_gate",
+        "blocked": confidence_on,
+        "reason_code": "CONFIDENCE_GATE_ACTIVE" if confidence_on else "OK",
+        "human_readable": "Confidence gate active — low-confidence signals rejected" if confidence_on else "Confidence gate inactive",
+        "required_fix": "Set CONFIDENCE_GATE=0 to disable" if confidence_on else None,
+    })
+
+    active_blockers = [b for b in blockers if b["blocked"]]
+    return {
+        "blockers": blockers,
+        "total_gates": len(blockers),
+        "active_blockers": len(active_blockers),
+        "trading_possible": not any(
+            b["blocked"] for b in blockers
+            if b["gate_name"] in ("trading_gates", "emergency_stop")
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── Policy Performance ────────────────────────────────────────────────────
+
+
+@router.get("/policy-performance")
+async def get_policy_performance(request: Request):
+    """Per-pack performance scorecards with outcome classification."""
+    try:
+        from services.policy_performance_engine import get_pack_performance
+
+        # Extract user_id from query params if present (optional filter)
+        user_id = request.query_params.get("user_id")
+        result = await get_pack_performance(user_id=user_id)
+        return result
+    except Exception as exc:
+        logger.error("policy-performance error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Dashboard Truth ───────────────────────────────────────────────────────
+
+
+@router.get("/dashboard-truth")
+async def get_dashboard_truth(request: Request):
+    """Canonical dashboard truth: win rates, quality metrics, calibration stats."""
+    try:
+        from services.trading_brain_v2.trade_outcome_classifier import build_outcome_counts
+        from services.trading_brain_v2.trade_calibration import compute_pack_scorecard
+        from services.trading_brain_v2.policy_packs import get_default_pack_for_bot_type
+
+        user_id = request.query_params.get("user_id")
+        query: dict = {"status": "closed"}
+        if user_id:
+            query["user_id"] = user_id
+
+        trades = await db.trades_collection.find(
+            query, {"_id": 0},
+        ).sort("closed_at", -1).to_list(5000)
+
+        # Outcome counts
+        trade_quality_metrics = build_outcome_counts(trades)
+
+        # Calibration stats — build lightweight calibration records
+        calibration_records = []
+        for t in trades:
+            projected = float(t.get("projected_net_profit_quote", 0) or 0)
+            realized = float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
+            ratio = max(-3.0, min(3.0, realized / projected)) if projected > 0 else None
+            calibration_records.append({
+                "calibration_complete": True,
+                "outcome_class": t.get("outcome_class", "LOSS" if realized <= 0 else "QUALIFIED_WIN"),
+                "realized_projection_ratio": ratio,
+                "hold_seconds": t.get("hold_seconds"),
+                "realized_net_profit_quote": realized,
+                "paper_edge_floor_applied": t.get("paper_edge_floor_applied", False),
+                "exit_reason_code": t.get("trade_close_reason", "unknown"),
+            })
+
+        # Active policy pack (from first active bot, or default)
+        active_bot = await db.bots_collection.find_one(
+            {"status": {"$in": ["active", "running"]}},
+            {"_id": 0, "policy_pack_name": 1, "bot_type": 1},
+        )
+        if active_bot and active_bot.get("policy_pack_name"):
+            policy_pack_in_use = active_bot["policy_pack_name"]
+        else:
+            bt = (active_bot or {}).get("bot_type", "normal")
+            policy_pack_in_use = get_default_pack_for_bot_type(bt)["pack_name"]
+
+        scorecard = compute_pack_scorecard(
+            calibration_records, pack_name=policy_pack_in_use,
+        )
+
+        return {
+            "qualified_win_rate": trade_quality_metrics.get("meaningful_win_rate_pct", 0.0),
+            "micro_win_rate": round(
+                trade_quality_metrics["micro_win_count"] / trade_quality_metrics["total_trades"] * 100, 2
+            ) if trade_quality_metrics["total_trades"] > 0 else 0.0,
+            "total_win_rate": trade_quality_metrics.get("net_win_rate_pct", 0.0),
+            "policy_pack_in_use": policy_pack_in_use,
+            "trade_quality_metrics": trade_quality_metrics,
+            "calibration_stats": scorecard,
+            "total_closed_trades": len(trades),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("dashboard-truth error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Self-Learning Recommendations ─────────────────────────────────────────
+
+
+@router.get("/self-learning")
+async def get_self_learning_recommendations(request: Request):
+    """Self-learning pack recommendations using daily_evaluator."""
+    try:
+        from services.trading_brain_v2.trade_calibration import (
+            compute_pack_scorecard,
+            daily_evaluator,
+        )
+        from services.trading_brain_v2.policy_packs import ALL_PACKS
+
+        user_id = request.query_params.get("user_id")
+        bot_type = request.query_params.get("bot_type", "normal")
+        exchange = request.query_params.get("exchange", "")
+
+        query: dict = {"status": "closed"}
+        if user_id:
+            query["user_id"] = user_id
+
+        trades = await db.trades_collection.find(
+            query, {"_id": 0},
+        ).sort("closed_at", -1).to_list(5000)
+
+        # Group by pack and build scorecards
+        pack_trades: Dict[str, list] = {}
+        for t in trades:
+            pack_name = t.get("policy_pack_name") or t.get("policy_pack") or "balanced"
+            pack_trades.setdefault(pack_name, []).append(t)
+
+        scorecards: Dict[str, dict] = {}
+        for pack_name, pack_list in pack_trades.items():
+            records = []
+            for t in pack_list:
+                projected = float(t.get("projected_net_profit_quote", 0) or 0)
+                realized = float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
+                ratio = max(-3.0, min(3.0, realized / projected)) if projected > 0 else None
+                records.append({
+                    "calibration_complete": True,
+                    "outcome_class": t.get("outcome_class", "LOSS" if realized <= 0 else "QUALIFIED_WIN"),
+                    "realized_projection_ratio": ratio,
+                    "hold_seconds": t.get("hold_seconds"),
+                    "realized_net_profit_quote": realized,
+                    "paper_edge_floor_applied": t.get("paper_edge_floor_applied", False),
+                    "exit_reason_code": t.get("trade_close_reason", "unknown"),
+                })
+            scorecards[pack_name] = compute_pack_scorecard(records, pack_name=pack_name)
+
+        recommendation = daily_evaluator(
+            scorecards,
+            bot_type=bot_type,
+            exchange=exchange,
+        )
+
+        return {
+            "recommendation": recommendation,
+            "scorecards": scorecards,
+            "bot_type": bot_type,
+            "exchange": exchange,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("self-learning error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))

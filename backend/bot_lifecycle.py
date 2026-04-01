@@ -109,6 +109,9 @@ class BotLifecycleManager:
                 logger.info(f"Bot {bot['name']}: Profit factor too low ({profit_factor:.2f} < 1.2)")
                 return False
             
+            # Compute trade quality: combination of win_rate, profit_factor, and drawdown
+            avg_quality = round(min(10.0, (win_rate * 5) + (min(profit_factor, 2) * 2.5) + ((1 - drawdown) * 2.5)), 1)
+
             logger.info(f"Bot {bot['name']}: ✅ Eligible for promotion (win_rate={win_rate:.1%}, quality={avg_quality:.1f}/10, pf={profit_factor:.2f})")
             return True
             

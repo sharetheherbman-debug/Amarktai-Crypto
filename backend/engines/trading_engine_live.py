@@ -200,47 +200,16 @@ class LiveTradingEngine:
             
             # Paper trading (realistic simulation with real prices)
             if paper_mode:
-                current_price = await self.get_real_price(exchange, normalized_symbol) if exchange else None
-                if not current_price:
-                    # Fallback to default prices if exchange unavailable
-                    current_price = 1000000 if 'BTC' in symbol else 50000
-                
-                # Calculate realistic outcome
-                entry_price = current_price
-                
-                # Simulate a realistic exit (small price movement)
-                import random
-                if side == 'buy':
-                    # Simulate 0.5-2% price movement
-                    exit_price = entry_price * random.uniform(1.005, 1.02)
-                else:
-                    exit_price = entry_price * random.uniform(0.98, 0.995)
-                
-                # Calculate fees (exchange-specific)
-                fee_rates = {
-                    'luno': 0.0025,  # 0.25%
-                    'binance': 0.001,  # 0.1%
-                    'kucoin': 0.001   # 0.1%
-                }
-                fee_rate = fee_rates.get(exchange_name, 0.001)
-                
-                gross_profit = (exit_price - entry_price) * amount
-                fees = (entry_price * amount * fee_rate) + (exit_price * amount * fee_rate)
-                net_profit = gross_profit - fees
-                
+                # Paper trades should NOT be processed by the live engine.
+                # The paper_trading_engine handles these.
+                logger.warning(
+                    f"Paper trade for bot {bot_id} routed to live engine — "
+                    "rejecting. Use paper_trading_engine instead."
+                )
                 return {
-                    "success": True,
-                    "order_id": f"paper_{datetime.now(timezone.utc).timestamp()}",
-                    "symbol": symbol,
-                    "side": side,
-                    "amount": amount,
-                    "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "gross_profit": gross_profit,
-                    "fees": fees,
-                    "net_profit": net_profit,
+                    "success": False,
+                    "error": "Paper trades must be executed via paper_trading_engine, not the live engine",
                     "paper": True,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             
             # LIVE TRADING - Real orders
