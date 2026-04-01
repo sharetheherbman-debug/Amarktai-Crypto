@@ -385,16 +385,23 @@ class LedgerService:
             if symbol not in positions_by_symbol:
                 positions_by_symbol[symbol] = []
             
+            # Standardise fee field: fee_amount → fee_paid → fees → 0
+            fill_fee = float(
+                fill.get("fee_amount", fill.get("fee_paid", fill.get("fees", fill.get("fee", 0)))) or 0
+            )
+
             if side == "buy":
-                # Add to position
+                # Add to position (store per-unit fee so partial closes are proportional)
                 positions_by_symbol[symbol].append({
                     "qty": qty,
-                    "price": price
+                    "price": price,
+                    "total_fee": fill_fee,
                 })
             elif side == "sell":
                 # Close position using FIFO
                 remaining_qty = qty
                 sell_price = price
+                sell_fee = fill_fee
                 
                 while remaining_qty > 0 and positions_by_symbol[symbol]:
                     buy = positions_by_symbol[symbol][0]
@@ -403,6 +410,10 @@ class LedgerService:
                         # Close entire buy
                         closed_qty = buy["qty"]
                         pnl = closed_qty * (sell_price - buy["price"])
+                        # Deduct proportional buy fee + proportional sell fee
+                        buy_fee_share = buy["total_fee"]
+                        sell_fee_share = sell_fee * (closed_qty / qty) if qty > 0 else 0
+                        pnl -= (buy_fee_share + sell_fee_share)
                         realized_pnl += pnl
                         remaining_qty -= closed_qty
                         positions_by_symbol[symbol].pop(0)
@@ -410,7 +421,12 @@ class LedgerService:
                         # Partially close buy
                         closed_qty = remaining_qty
                         pnl = closed_qty * (sell_price - buy["price"])
+                        # Deduct proportional fees from both sides
+                        buy_fee_share = buy["total_fee"] * (closed_qty / buy["qty"]) if buy["qty"] > 0 else 0
+                        sell_fee_share = sell_fee * (closed_qty / qty) if qty > 0 else 0
+                        pnl -= (buy_fee_share + sell_fee_share)
                         realized_pnl += pnl
+                        buy["total_fee"] -= buy_fee_share
                         buy["qty"] -= closed_qty
                         remaining_qty = 0
         
@@ -1105,6 +1121,39 @@ class LedgerService:
                 issues.append(f"Fill count mismatch: {ledger_fills_count} fills vs {trades_count} trades")
                 recommendations.append("Ensure all trades are being recorded to fills_ledger")
             
+            # ── Auto-repair: create correction entries for detected mismatches ──
+            corrections_applied = 0
+            if discrepancy_pct > 5 and discrepancy > 0.01:
+                correction_amount = trades_equity - ledger_equity
+                correction_doc = {
+                    "user_id": user_id,
+                    "event_type": "reconciliation_correction",
+                    "amount": correction_amount,
+                    "currency": "ZAR",
+                    "timestamp": datetime.utcnow(),
+                    "description": (
+                        f"Auto-repair: ledger equity {ledger_equity:.2f} → "
+                        f"trades equity {trades_equity:.2f} "
+                        f"(correction {correction_amount:+.2f}, discrepancy {discrepancy_pct:.2f}%)"
+                    ),
+                    "metadata": {
+                        "ledger_equity_before": round(ledger_equity, 2),
+                        "trades_equity": round(trades_equity, 2),
+                        "discrepancy_pct": round(discrepancy_pct, 2),
+                        "auto_repair": True,
+                    },
+                }
+                await self.ledger_events.insert_one(correction_doc)
+                corrections_applied += 1
+                logger.warning(
+                    "Reconciliation auto-repair: correction entry %.2f created for user %s "
+                    "(ledger=%.2f, trades=%.2f, gap=%.2f%%)",
+                    correction_amount, user_id, ledger_equity, trades_equity, discrepancy_pct,
+                )
+                recommendations.append(
+                    f"Correction entry of {correction_amount:+.2f} applied automatically"
+                )
+            
             # Determine status
             if discrepancy_pct > 10:
                 status = "error"
@@ -1122,6 +1171,7 @@ class LedgerService:
                 "ledger_fills_count": ledger_fills_count,
                 "trades_count": trades_count,
                 "issues": issues,
+                "corrections_applied": corrections_applied,
                 "recommendations": recommendations if issues else ["Ledger and trades are in sync"],
                 "timestamp": datetime.utcnow().isoformat()
             }

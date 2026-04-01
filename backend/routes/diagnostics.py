@@ -3,7 +3,7 @@ Diagnostics Endpoints - Pre-Merge Verification
 Includes realtime smoke tests and system health checks
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List
 import logging
@@ -2930,3 +2930,118 @@ async def policy_pack_diagnostics(
     except Exception as exc:
         logger.error("policy_pack_diagnostics failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/blockers")
+async def get_trade_blockers(request: Request):
+    """Return every gate that can block trade execution and its current status."""
+    from utils.env_utils import env_bool
+    from utils.trading_gates import check_trading_mode_enabled, check_autopilot_gates
+
+    blockers: list[dict] = []
+
+    # 1. Trading gates (any mode enabled)
+    trading_ok, trading_reason = check_trading_mode_enabled()
+    blockers.append({
+        "gate_name": "trading_gates",
+        "blocked": not trading_ok,
+        "reason_code": "NO_TRADING_MODE" if not trading_ok else "OK",
+        "human_readable": trading_reason,
+        "required_fix": "Set PAPER_TRADING=1 or LIVE_TRADING=1" if not trading_ok else None,
+    })
+
+    # 2. Autopilot
+    ap_ok, ap_reason = check_autopilot_gates()
+    blockers.append({
+        "gate_name": "autopilot",
+        "blocked": not ap_ok,
+        "reason_code": "AUTOPILOT_DISABLED" if not ap_ok else "OK",
+        "human_readable": ap_reason,
+        "required_fix": "Set AUTOPILOT_ENABLED=1 and enable a trading mode" if not ap_ok else None,
+    })
+
+    # 3. Emergency stop
+    emergency = env_bool("EMERGENCY_STOP", False)
+    blockers.append({
+        "gate_name": "emergency_stop",
+        "blocked": emergency,
+        "reason_code": "EMERGENCY_STOP_ACTIVE" if emergency else "OK",
+        "human_readable": "Emergency stop is ACTIVE — all trading halted" if emergency else "Emergency stop not active",
+        "required_fix": "Set EMERGENCY_STOP=0 to resume trading" if emergency else None,
+    })
+
+    # 4. Paper trading
+    paper_on = env_bool("PAPER_TRADING", False)
+    blockers.append({
+        "gate_name": "paper_trading",
+        "blocked": not paper_on,
+        "reason_code": "PAPER_TRADING_OFF" if not paper_on else "OK",
+        "human_readable": "Paper trading is disabled" if not paper_on else "Paper trading enabled",
+        "required_fix": "Set PAPER_TRADING=1 to enable paper trading" if not paper_on else None,
+    })
+
+    # 5. Live trading
+    live_on = env_bool("LIVE_TRADING", False)
+    blockers.append({
+        "gate_name": "live_trading",
+        "blocked": not live_on,
+        "reason_code": "LIVE_TRADING_OFF" if not live_on else "OK",
+        "human_readable": "Live trading is disabled" if not live_on else "Live trading enabled",
+        "required_fix": "Set LIVE_TRADING=1 to enable live trading" if not live_on else None,
+    })
+
+    # 6. Wallet check (paper wallet service available)
+    wallet_ok = True
+    wallet_reason = "Paper wallet service available"
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.init_db()
+    except Exception as exc:
+        wallet_ok = False
+        wallet_reason = f"Paper wallet unavailable: {exc}"
+    blockers.append({
+        "gate_name": "wallet",
+        "blocked": not wallet_ok,
+        "reason_code": "WALLET_UNAVAILABLE" if not wallet_ok else "OK",
+        "human_readable": wallet_reason,
+        "required_fix": "Check database connectivity and wallet collection" if not wallet_ok else None,
+    })
+
+    # 7. Edge gate
+    try:
+        from config import EDGE_GATE_PAPER, EDGE_GATE_LIVE
+    except ImportError:
+        EDGE_GATE_PAPER, EDGE_GATE_LIVE = False, False
+    edge_active = EDGE_GATE_PAPER or EDGE_GATE_LIVE
+    blockers.append({
+        "gate_name": "edge_gate",
+        "blocked": edge_active,
+        "reason_code": "EDGE_GATE_ACTIVE" if edge_active else "OK",
+        "human_readable": (
+            f"Edge gate active (paper={EDGE_GATE_PAPER}, live={EDGE_GATE_LIVE}) — "
+            "low-edge trades will be rejected"
+        ) if edge_active else "Edge gate inactive",
+        "required_fix": "Set EDGE_GATE_PAPER=false / EDGE_GATE_LIVE=false to relax" if edge_active else None,
+    })
+
+    # 8. Confidence gate
+    confidence_on = env_bool("CONFIDENCE_GATE", False)
+    blockers.append({
+        "gate_name": "confidence_gate",
+        "blocked": confidence_on,
+        "reason_code": "CONFIDENCE_GATE_ACTIVE" if confidence_on else "OK",
+        "human_readable": "Confidence gate active — low-confidence signals rejected" if confidence_on else "Confidence gate inactive",
+        "required_fix": "Set CONFIDENCE_GATE=0 to disable" if confidence_on else None,
+    })
+
+    active_blockers = [b for b in blockers if b["blocked"]]
+    return {
+        "blockers": blockers,
+        "total_gates": len(blockers),
+        "active_blockers": len(active_blockers),
+        "trading_possible": not any(
+            b["blocked"] for b in blockers
+            if b["gate_name"] in ("trading_gates", "emergency_stop")
+        ),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

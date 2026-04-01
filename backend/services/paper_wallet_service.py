@@ -183,16 +183,33 @@ class PaperWalletService:
         return True, "Reserved"
 
     async def release_funds(self, user_id: str, amount: float, currency: str) -> None:
+        if amount <= 0:
+            raise ValueError("Release amount must be positive")
         await self.init_db()
         currency = currency.upper()
-        await self.collection.update_one(
-            {"user_id": user_id, "type": "paper"},
+        result = await self.collection.find_one_and_update(
+            {
+                "user_id": user_id,
+                "type": "paper",
+            },
             {
                 "$inc": {f"balances.{currency}": amount},
                 "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
             },
-            upsert=True
+            return_document=ReturnDocument.AFTER
         )
+        if not result:
+            raise RuntimeError(f"Wallet not found for user {user_id}")
+        new_balance = float((result.get("balances") or {}).get(currency, 0))
+        if new_balance < 0:
+            # Roll back the increment to prevent negative balance
+            await self.collection.find_one_and_update(
+                {"user_id": user_id, "type": "paper"},
+                {"$inc": {f"balances.{currency}": -amount}}
+            )
+            raise RuntimeError(
+                f"Release would cause negative balance ({new_balance:.2f} {currency})"
+            )
 
 
 paper_wallet_service = PaperWalletService()
