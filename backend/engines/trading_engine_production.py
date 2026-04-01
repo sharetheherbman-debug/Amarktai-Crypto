@@ -42,7 +42,7 @@ class TradingEngineProduction:
                     bot_id,
                     bot,
                     bot.get("pair", ""),
-                    "buy",
+                    bot.get("signal_side", "buy"),
                     bot.get("trade_amount", 0),
                     paper_mode=False,
                 )

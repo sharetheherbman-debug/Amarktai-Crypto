@@ -9,7 +9,7 @@ This service provides the single source of truth for:
 Phase 1: Read-only + parallel write (opt-in via feature flag)
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from bson import ObjectId
 import logging
@@ -1130,7 +1130,7 @@ class LedgerService:
                     "event_type": "reconciliation_correction",
                     "amount": correction_amount,
                     "currency": "ZAR",
-                    "timestamp": datetime.utcnow(),
+                    "timestamp": datetime.now(timezone.utc),
                     "description": (
                         f"Auto-repair: ledger equity {ledger_equity:.2f} → "
                         f"trades equity {trades_equity:.2f} "
