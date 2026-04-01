@@ -114,11 +114,12 @@ class SignalAggregator:
         ml_dir = ml_pred.get("direction", "neutral")
         ml_conf = float(ml_pred.get("confidence", 0.0))
         predicted_change = float(ml_pred.get("predicted_change", 0.0))
-        method = ml_pred.get("method", "rule_based_fallback")
-        if method not in ("xgboost",):
-            method = "rule_based_fallback"
-        else:
-            method = "ml+indicators"
+        raw_method = ml_pred.get("method", "fallback")
+        # Map predictor methods: "xgboost" → trained model path,
+        # "rule_based" / "fallback" → heuristic path.
+        method = (
+            "ml+indicators" if raw_method == "xgboost" else "rule_based_fallback"
+        )
 
         # -- 2. Regime ---------------------------------------------------
         regime_label = "unknown"
@@ -146,6 +147,7 @@ class SignalAggregator:
         if self._sentiment is not None:
             try:
                 coin = symbol.replace("/", "").replace("USDT", "").replace("USD", "")
+                coin = coin or symbol  # guard against empty result
                 agg = await self._sentiment.analyze_coin_sentiment(coin)
                 if agg is not None:
                     sent_score = float(agg.score)
@@ -159,9 +161,9 @@ class SignalAggregator:
         of_dir = "neutral"
         if self._order_flow is not None:
             try:
-                micro = self._order_flow.compute_score(symbol)
-                if micro is not None:
-                    of_score = float(micro.score)
+                of_result = self._order_flow.compute_score(symbol)
+                if of_result is not None:
+                    of_score = float(of_result.score)
                     of_dir = _direction_from_score(of_score)
                     availability["order_flow"] = True
             except Exception:
