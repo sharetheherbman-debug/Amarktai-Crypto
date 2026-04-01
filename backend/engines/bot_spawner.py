@@ -113,7 +113,7 @@ class BotSpawner:
                     else 0.0
                 )
                 deficit[mode] = target_fraction - actual_fraction
-            risk_mode = max(deficit, key=lambda m: deficit[m])
+            risk_mode = max(deficit, key=lambda m: (deficit[m], m))  # tie-break alphabetically
             
             # Calculate capital allocation
             capital = await wallet_manager.calculate_allocation_per_bot(user_id, self.max_bots)

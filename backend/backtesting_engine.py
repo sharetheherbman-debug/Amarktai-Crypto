@@ -86,7 +86,8 @@ class BacktestingEngine:
             df = df.dropna(subset=["rsi", "macd"]).reset_index(drop=True)
 
             if df.empty:
-                return {"error": f"Not enough OHLCV data for {pair} on {exchange_id}"}
+                logger.warning(f"Not enough OHLCV data for {pair} on {exchange_id}")
+                return {"error": "insufficient_ohlcv_data"}
 
             # Filter by date range if timestamp column exists
             if "timestamp" in df.columns:
@@ -120,8 +121,8 @@ class BacktestingEngine:
             return result
 
         except Exception as exc:
-            logger.error(f"Backtesting failed for {pair} on {exchange_id}: {exc}")
-            return {"error": str(exc)}
+            logger.error(f"Backtesting failed for {pair} on {exchange_id}: {exc}", exc_info=True)
+            return {"error": "backtest_execution_failed"}  # safe code; detail in server logs
 
     # ------------------------------------------------------------------
     # Internal helpers

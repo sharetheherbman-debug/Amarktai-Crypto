@@ -4,6 +4,7 @@ Replaces simulated trading with actual CCXT order execution
 """
 
 import asyncio
+import math
 import os
 import ccxt
 from typing import Dict, Optional, List
@@ -93,7 +94,6 @@ class LiveTradingEngine:
         Waits 2^attempt seconds (capped at 60) plus up to 1 second of jitter
         to avoid synchronised retries across concurrent bots.
         """
-        import math
         delay = min(2 ** attempt, 60)
         # Deterministic jitter: use the full microsecond range (0–999999) → 0..0.999999 s
         jitter = datetime.now(timezone.utc).microsecond / 1_000_000.0

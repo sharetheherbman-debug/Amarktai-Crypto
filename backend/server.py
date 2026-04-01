@@ -2707,7 +2707,8 @@ async def backtest_strategy(data: dict, user_id: str = Depends(get_current_user)
         if "error" in result:
             logger.error(f"Backtesting returned error: {result['error']}")
             raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
-        return result
+        # Return only safe (non-error) fields to the client
+        return {k: v for k, v in result.items() if k not in ("error", "traceback")}
     except HTTPException:
         raise
     except Exception as e:
