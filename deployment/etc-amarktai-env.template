@@ -96,7 +96,6 @@ LIVE_TIMEOUT_RISK_PCT=0.08
 # Beta safety: tighter daily loss limit for paper-trading beta (5% cap)
 # Increase to 0.10 for post-beta live trading once performance is verified
 MAX_DAILY_LOSS_PERCENT=0.05
-LIVE_TIMEOUT_RISK_PCT=0.08
 
 # ============================================================================
 # DEPLOYMENT INSTRUCTIONS

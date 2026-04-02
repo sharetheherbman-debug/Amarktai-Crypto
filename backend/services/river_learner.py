@@ -42,6 +42,13 @@ except ImportError:
     _RIVER_AVAILABLE = False
     logger.warning("river not installed — RiverLearner will run in no-op mode")
 
+# ── Tunable constants ─────────────────────────────────────────────────────────
+# SGD learning rate for the online logistic regression.
+# 0.01 is conservative — suitable for volatile market data.
+_LEARNING_RATE: float = 0.01
+# L2 regularisation strength — prevents the model from overfitting noisy signals.
+_L2_REGULARIZATION: float = 1e-4
+
 
 class RiverLearner:
     """Incremental online learner powered by river.LinearRegression.
@@ -63,8 +70,8 @@ class RiverLearner:
             try:
                 self._scaler = preprocessing.StandardScaler()
                 self._model = linear_model.LogisticRegression(
-                    optimizer=optim.SGD(0.01),
-                    l2=1e-4,
+                    optimizer=optim.SGD(_LEARNING_RATE),
+                    l2=_L2_REGULARIZATION,
                 )
                 self._ready = True
                 logger.info("RiverLearner initialised — online learning active")

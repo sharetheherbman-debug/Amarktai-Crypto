@@ -226,7 +226,26 @@ def _rule_based_prediction(indicators: pd.Series) -> tuple[str, float, float]:
     return direction, confidence, pct_change
 
 
-class MLPredictor:
+# Mapping from XGBoost integer class labels (used in >= 2.0) to direction strings.
+# XGBoost >= 2.0 requires integer labels during training and stores classes_ as
+# [0, 1, 2] rather than ['down', 'neutral', 'up'].
+_INT_TO_DIR: dict[int, str] = {0: "down", 1: "neutral", 2: "up"}
+# Direction → signed float for predicted-change calculation
+_DIR_SIGN: dict[str, float] = {"up": 1.0, "down": -1.0, "neutral": 0.0}
+
+
+def _class_to_direction(cls) -> str:
+    """Normalise an XGBoost class label (int or string) to a direction string."""
+    if isinstance(cls, str):
+        return cls
+    # numpy integer subtypes (np.int64 etc.) or plain Python int/float
+    try:
+        return _INT_TO_DIR.get(int(cls), "neutral")
+    except (TypeError, ValueError):
+        return str(cls)
+
+
+
     def __init__(self):
         self.model_loaded = False
         self.model = None
@@ -259,23 +278,12 @@ class MLPredictor:
         classes = list(self.model.classes_)
         pred_idx = int(np.argmax(proba[0]))
 
-        # Normalise class label to a string direction name.
-        # Integer-encoded models (XGBoost ≥ 2.0) store classes as 0/1/2.
-        _INT_TO_DIR = {0: "down", 1: "neutral", 2: "up"}
-        raw_cls = classes[pred_idx]
-        if isinstance(raw_cls, (int, float)) or (hasattr(raw_cls, "item") and np.issubdtype(type(raw_cls), np.integer)):
-            direction = _INT_TO_DIR.get(int(raw_cls), "neutral")
-        else:
-            direction = str(raw_cls)
+        direction = _class_to_direction(classes[pred_idx])
         confidence = round(float(proba[0][pred_idx]), 4)
 
-        # Compute predicted change from class probabilities.
-        # Map: up → +1, down → −1, neutral → 0.
-        # Supports both string labels and integer 0/1/2 labels.
-        sign_map = {"up": 1.0, "down": -1.0, "neutral": 0.0, "2": 1.0, "0": -1.0, "1": 0.0}
+        # Predicted change: probability-weighted signed sum of all classes.
         predicted_change = sum(
-            sign_map.get(_INT_TO_DIR.get(int(c), str(c)) if isinstance(c, (int, float)) or (hasattr(c, "item") and np.issubdtype(type(c), np.integer)) else str(c), 0.0)
-            * float(proba[0][i])
+            _DIR_SIGN.get(_class_to_direction(c), 0.0) * float(proba[0][i])
             for i, c in enumerate(classes)
         )
         return direction, confidence, round(predicted_change, 4)
