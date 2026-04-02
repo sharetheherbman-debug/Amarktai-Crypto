@@ -3,10 +3,13 @@ Description=Amarktai XGBoost Daily Retraining Timer
 Requires=amarktai-retrain.service
 
 [Timer]
-# Run daily at 02:00 UTC (after nightly learning loop at 01:30 UTC)
-OnCalendar=*-*-* 02:00:00 UTC
+# Run daily at 02:00 UTC (after nightly learning loop at 01:30 UTC).
+# TimeZone=UTC ensures the calendar fires in UTC regardless of the
+# system timezone configured on the VPS.
+OnCalendar=*-*-* 02:00:00
 Persistent=true
 Unit=amarktai-retrain.service
+TimeZone=UTC
 
 [Install]
 WantedBy=timers.target

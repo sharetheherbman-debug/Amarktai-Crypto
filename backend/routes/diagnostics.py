@@ -2197,10 +2197,11 @@ async def go_live_diagnostic(user_id: str = Depends(get_current_user)):
         try:
             from pathlib import Path
             _model_path = Path(__file__).resolve().parents[1] / "models" / "xgb_predictor.json"
+            _model_exists = _model_path.exists()
             checks["ml"]["xgboost_model"] = {
-                "exists": _model_path.exists(),
+                "exists": _model_exists,
                 "path": str(_model_path),
-                "size_kb": round(_model_path.stat().st_size / 1024, 1) if _model_path.exists() else 0,
+                "size_kb": round(_model_path.stat().st_size / 1024, 1) if _model_exists else 0,
             }
         except Exception as _xgb_err:
             checks["ml"]["xgboost_model"] = {"error": str(_xgb_err)}

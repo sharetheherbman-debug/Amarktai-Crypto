@@ -2,7 +2,7 @@
 River Online Learner — lightweight incremental model for paper-trade feedback.
 
 Provides a non-blocking, non-destructive hook that updates a streaming
-Logistic Regression (via the `river` library) after each completed paper
+LogisticRegression (via the `river` library) after each completed paper
 trade.  The learner operates independently of the XGBoost batch model and
 never blocks trade execution.
 
@@ -51,7 +51,7 @@ _L2_REGULARIZATION: float = 1e-4
 
 
 class RiverLearner:
-    """Incremental online learner powered by river.LinearRegression.
+    """Incremental online learner powered by river.LogisticRegression.
 
     Learns win/loss patterns from completed paper trades without retraining
     the main XGBoost model.  Intended as a supplementary signal layer and

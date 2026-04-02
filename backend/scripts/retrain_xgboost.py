@@ -131,6 +131,10 @@ def _extract_indicators(trade: dict) -> Optional[dict]:
     # Try nested 'entry_indicators' first (highest fidelity path)
     ind = trade.get("entry_indicators") or {}
 
+    # Defaults applied when a field is absent — must match the values below.
+    _DEFAULT_RSI = 50.0   # neutral/unknown RSI
+    _DEFAULT_ATR = 100.0  # placeholder ATR when not stored
+
     # Fall back to direct fields using multiple possible field names
     def _get(*keys, default: float = 0.0) -> float:
         for k in keys:
@@ -142,23 +146,25 @@ def _extract_indicators(trade: dict) -> Optional[dict]:
         return default
 
     features = {
-        "rsi":            _get("rsi", "entry_rsi", default=50.0),
-        "macd":           _get("macd", default=0.0),
-        "macd_signal":    _get("macd_signal", "macd_sig", default=0.0),
-        "macd_hist":      _get("macd_hist", "entry_macd_hist", default=0.0),
-        "atr":            _get("atr", default=100.0),
-        "bb_upper":       _get("bb_upper", default=0.0),
-        "bb_mid":         _get("bb_mid", default=0.0),
-        "bb_lower":       _get("bb_lower", default=0.0),
-        "vwap":           _get("vwap", default=0.0),
-        "close_vs_sma20": _get("close_vs_sma20", default=0.0),
+        "rsi":             _get("rsi", "entry_rsi", default=_DEFAULT_RSI),
+        "macd":            _get("macd", default=0.0),
+        "macd_signal":     _get("macd_signal", "macd_sig", default=0.0),
+        "macd_hist":       _get("macd_hist", "entry_macd_hist", default=0.0),
+        "atr":             _get("atr", default=_DEFAULT_ATR),
+        "bb_upper":        _get("bb_upper", default=0.0),
+        "bb_mid":          _get("bb_mid", default=0.0),
+        "bb_lower":        _get("bb_lower", default=0.0),
+        "vwap":            _get("vwap", default=0.0),
+        "close_vs_sma20":  _get("close_vs_sma20", default=0.0),
         "close_vs_bb_mid": _get("close_vs_bb_mid", default=0.0),
     }
 
-    # Require at least rsi + macd_hist to be non-zero/non-default to accept
+    # Accept a trade only if at least 2 of these key indicators are non-default.
+    # This filters out trades where the indicator snapshot was not captured.
+    _meaningless_defaults = {0.0, _DEFAULT_RSI, _DEFAULT_ATR, None}
     meaningful = sum(
         1 for k in ("rsi", "macd_hist", "close_vs_sma20", "atr")
-        if features.get(k) not in (0.0, 50.0, 100.0, None)
+        if features.get(k) not in _meaningless_defaults
     )
     if meaningful < 2:
         return None   # Skip trades with too-sparse indicator data
@@ -396,9 +402,17 @@ def main() -> int:
 
     # ── 3. Train/validation split ─────────────────────────────────────────
     from sklearn.model_selection import train_test_split  # type: ignore
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=HOLDOUT_FRACTION, random_state=42, stratify=None
-    )
+    # stratify=y preserves class distribution across the split, important for
+    # imbalanced down/neutral/up class counts from real paper trades.
+    # Fall back to no stratification if a class has only 1 sample.
+    try:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=HOLDOUT_FRACTION, random_state=42, stratify=y
+        )
+    except ValueError:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=HOLDOUT_FRACTION, random_state=42, stratify=None
+        )
     logger.info("Train: %d  Val: %d", len(X_train), len(X_val))
 
     # ── 4. Train new model ────────────────────────────────────────────────
