@@ -249,18 +249,33 @@ class MLPredictor:
                 self.model_loaded = False
 
     def _predict_with_model(self, features: np.ndarray) -> tuple[str, float, float]:
-        """Run XGBoost inference.  Returns (direction, confidence, predicted_change)."""
+        """Run XGBoost inference.  Returns (direction, confidence, predicted_change).
+
+        Handles both string-class models (classes_ = ['down','neutral','up'])
+        and integer-class models produced by XGBoost >= 2.0 (classes_ = [0, 1, 2]).
+        The canonical mapping for integer classes is: 0→down, 1→neutral, 2→up.
+        """
         proba = self.model.predict_proba(features)
         classes = list(self.model.classes_)
         pred_idx = int(np.argmax(proba[0]))
-        direction = str(classes[pred_idx])
+
+        # Normalise class label to a string direction name.
+        # Integer-encoded models (XGBoost ≥ 2.0) store classes as 0/1/2.
+        _INT_TO_DIR = {0: "down", 1: "neutral", 2: "up"}
+        raw_cls = classes[pred_idx]
+        if isinstance(raw_cls, (int, float)) or (hasattr(raw_cls, "item") and np.issubdtype(type(raw_cls), np.integer)):
+            direction = _INT_TO_DIR.get(int(raw_cls), "neutral")
+        else:
+            direction = str(raw_cls)
         confidence = round(float(proba[0][pred_idx]), 4)
 
-        # Compute predicted change from class probabilities
-        # Map: up → +1, down → −1, neutral → 0
-        sign_map = {"up": 1.0, "down": -1.0, "neutral": 0.0}
+        # Compute predicted change from class probabilities.
+        # Map: up → +1, down → −1, neutral → 0.
+        # Supports both string labels and integer 0/1/2 labels.
+        sign_map = {"up": 1.0, "down": -1.0, "neutral": 0.0, "2": 1.0, "0": -1.0, "1": 0.0}
         predicted_change = sum(
-            sign_map.get(str(c), 0.0) * float(proba[0][i])
+            sign_map.get(_INT_TO_DIR.get(int(c), str(c)) if isinstance(c, (int, float)) or (hasattr(c, "item") and np.issubdtype(type(c), np.integer)) else str(c), 0.0)
+            * float(proba[0][i])
             for i, c in enumerate(classes)
         )
         return direction, confidence, round(predicted_change, 4)

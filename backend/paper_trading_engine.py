@@ -2941,6 +2941,25 @@ class PaperTradingEngine:
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
                 f"{profit_pct:+.2f}% = R{net_profit:+.2f} (fees: R{fees:.2f})"
             )
+
+            # ── River online learner hook (non-fatal) ─────────────────────
+            # Feed the completed trade's entry indicators and realised P&L
+            # to the incremental online model for continuous improvement.
+            try:
+                from services.river_learner import river_learner
+                _entry_features = {
+                    "rsi":               float(open_trade.get("entry_rsi") or 50.0),
+                    "macd_hist":         float(open_trade.get("entry_macd_hist") or 0.0),
+                    "close_vs_sma20":    float(open_trade.get("close_vs_sma20") or 0.0),
+                    "atr_pct":           float(open_trade.get("atr_pct") or 0.0),
+                    "spread_pct":        float(open_trade.get("spread_pct") or 0.0),
+                    "confidence":        float(open_trade.get("confidence") or open_trade.get("entry_confidence") or 0.5),
+                    "regime_confidence": float(open_trade.get("regime_confidence") or 0.5),
+                }
+                river_learner.record_outcome(_entry_features, net_profit)
+            except Exception as _rl_err:
+                logger.debug("River learner hook skipped (non-fatal): %s", _rl_err)
+
             return trade_result
         except Exception as e:
             logger.error(f"Open trade close error: {e}")

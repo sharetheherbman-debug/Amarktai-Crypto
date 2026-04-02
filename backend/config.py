@@ -245,10 +245,10 @@ STOP_LOSS_SAFE = 0.05  # 5%
 STOP_LOSS_BALANCED = 0.10  # 10%
 STOP_LOSS_AGGRESSIVE = 0.15  # 15%
 
-# Risk Management - Adjusted for production (more tolerance)
-MAX_HOURLY_LOSS_PERCENT = 0.15  # 15% in 1 hour
-MAX_DAILY_LOSS_PERCENT = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '0.15'))  # 15% daily loss limit (increased from 10%)
-MAX_DRAWDOWN_PERCENT = float(os.getenv('MAX_DRAWDOWN_PERCENT', '0.25'))  # 25% drawdown limit (increased from 20%)
+# Risk Management
+MAX_HOURLY_LOSS_PERCENT = 0.05  # 5% in 1 hour (beta-safe)
+MAX_DAILY_LOSS_PERCENT = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '0.05'))  # 5% daily loss limit (conservative for paper-trading beta)
+MAX_DRAWDOWN_PERCENT = float(os.getenv('MAX_DRAWDOWN_PERCENT', '0.15'))  # 15% drawdown limit
 MIN_POSITION_SIZE_PERCENT = 0.02  # 2% minimum per-trade sizing
 MAX_POSITION_SIZE_PERCENT = 0.05  # 5% maximum per-trade sizing
 
