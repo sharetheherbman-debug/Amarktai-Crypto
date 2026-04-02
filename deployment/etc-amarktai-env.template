@@ -82,6 +82,21 @@ ENABLE_CCXT=true
 ENABLE_SCHEDULERS=1
 
 # ============================================================================
+# DAILY SELF-LEARNING FLAGS
+# ============================================================================
+# Enable the nightly learning loop (parameter reweighting from trade history).
+# The loop runs at 01:30 UTC every night and adjusts risk sizing/cooldowns
+# only when sanity checks pass.  Safe to enable from day 1 of paper beta.
+ENABLE_LEARNING_LOOP=true
+
+# Minimum completed paper trades required before XGBoost is retrained.
+# The bootstrap model is used until this threshold is reached.
+XGB_MIN_RETRAIN_TRADES=50
+
+# Minimum holdout accuracy the new model must achieve to replace the current.
+XGB_MIN_HOLDOUT_ACCURACY=0.52
+
+# ============================================================================
 # CRITICAL TRADING ENGINE FLAGS — MUST BE SET TO TRADE
 # ============================================================================
 # ENABLE_TRADING=1 is REQUIRED for the TradingScheduler to start at boot.

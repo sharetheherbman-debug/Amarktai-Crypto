@@ -92,6 +92,19 @@ curl -sI http://localhost/ | head -5
 # Add to root's crontab (crontab -e):
 #   0 3 * * * /var/amarktai/app/Amarktai-Crypto/deployment/backup_mongo.sh >> /var/log/amarktai/backup.log 2>&1
 
+# ── STEP 10b: Enable daily XGBoost retraining (systemd timer) ────────────────
+cp $APP_ROOT/deployment/systemd/amarktai-retrain.service /etc/systemd/system/amarktai-retrain.service
+cp $APP_ROOT/deployment/systemd/amarktai-retrain.timer  /etc/systemd/system/amarktai-retrain.timer
+systemctl daemon-reload
+systemctl enable amarktai-retrain.timer
+systemctl start  amarktai-retrain.timer
+systemctl status amarktai-retrain.timer --no-pager | head -10
+echo "Daily retraining timer enabled (runs 02:00 UTC)"
+
+# ── STEP 10c: Enable daily learning loop (already runs inside backend scheduler)
+# Ensure /etc/amarktai/amarktai.env contains:
+#   ENABLE_LEARNING_LOOP=true
+
 # ── STEP 11: Verify paper trading is running ─────────────────────────────────
 sleep 10
 journalctl -u amarktai-api -n 50 --no-pager | grep -E "TradingScheduler|ENABLE_TRADING|CRITICAL|ERROR|paper" | head -20

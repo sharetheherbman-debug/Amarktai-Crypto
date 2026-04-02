@@ -104,7 +104,10 @@ class RiverLearner:
         try:
             x = self._normalise(features)
             y = 1 if net_profit > 0 else 0
-            x_scaled = self._scaler.learn_one(x)
+            # learn_one() updates scaler statistics and returns self (the scaler).
+            # We must call transform_one() separately to get the scaled feature dict.
+            self._scaler.learn_one(x)
+            x_scaled = self._scaler.transform_one(x)
             self._model.learn_one(x_scaled, y)
             self._trained_count += 1
             if y == 1:
@@ -130,7 +133,8 @@ class RiverLearner:
             return 0.5
         try:
             x = self._normalise(features)
-            x_scaled = {k: self._scaler.transform_one({k: v}).get(k, v) for k, v in x.items()}
+            # transform_one() accepts the full feature dict and returns the scaled dict.
+            x_scaled = self._scaler.transform_one(x)
             proba_dict = self._model.predict_proba_one(x_scaled)
             return float(proba_dict.get(1, 0.5))
         except Exception as exc:

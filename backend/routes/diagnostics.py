@@ -2185,6 +2185,26 @@ async def go_live_diagnostic(user_id: str = Depends(get_current_user)):
         queue_status = await _ts.get_queue_status()
         checks["queue"] = queue_status
 
+        # 7. ML / learning subsystems
+        try:
+            from services.river_learner import river_learner
+            checks["ml"] = {
+                "river_learner": river_learner.diagnostics(),
+            }
+        except Exception as _ml_err:
+            checks["ml"] = {"error": str(_ml_err)}
+
+        try:
+            from pathlib import Path
+            _model_path = Path(__file__).resolve().parents[1] / "models" / "xgb_predictor.json"
+            checks["ml"]["xgboost_model"] = {
+                "exists": _model_path.exists(),
+                "path": str(_model_path),
+                "size_kb": round(_model_path.stat().st_size / 1024, 1) if _model_path.exists() else 0,
+            }
+        except Exception as _xgb_err:
+            checks["ml"]["xgboost_model"] = {"error": str(_xgb_err)}
+
         ready = len(blockers) == 0
         return {
             "ready": ready,
