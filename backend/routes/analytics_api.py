@@ -11,10 +11,26 @@ import logging
 from auth import get_current_user
 import database as db
 from services.canonical_metrics import get_canonical_metrics_snapshot
+from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _gqc
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
+
+
+def _trade_pnl_zar(trade: dict) -> float:
+    """Return a single trade's net P&L in ZAR.
+
+    Uses realized_pnl_zar (pre-converted) when available; otherwise
+    converts the raw net_pnl/profit_loss via the trade's quote currency.
+    """
+    pnl_zar = trade.get("realized_pnl_zar")
+    if pnl_zar is not None:
+        return float(pnl_zar)
+    raw_pnl = float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
+    qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
+    rate, _ = _gfr(qc, "ZAR")
+    return raw_pnl * rate
 
 
 @router.get("/pnl_timeseries")
@@ -160,13 +176,14 @@ async def get_performance_summary(
                 "timestamp": now.isoformat()
             }
         
-        # Use net_pnl (primary) → fallback profit_loss
-        winning_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
-        losing_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0])
+        # Use net_pnl (primary) → fallback profit_loss — normalised to ZAR
+        pnl_zar_list = [_trade_pnl_zar(t) for t in trades]
+        winning_trades = sum(1 for p in pnl_zar_list if p > 0)
+        losing_trades = sum(1 for p in pnl_zar_list if p < 0)
         
-        total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades)
-        gross_profit = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0)
-        gross_loss = abs(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0))
+        total_pnl = sum(pnl_zar_list)
+        gross_profit = sum(p for p in pnl_zar_list if p > 0)
+        gross_loss = abs(sum(p for p in pnl_zar_list if p < 0))
         
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else 0
@@ -252,14 +269,15 @@ async def get_exchange_comparison(
                 }
                 continue
             
-            # Calculate metrics using canonical field normalization
+            # Calculate metrics using canonical field normalization — ZAR normalised
             total_trades = len(exchange_trades)
-            # Use net_pnl (primary) → fallback profit_loss
-            winning = len([t for t in exchange_trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
-            total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in exchange_trades)
+            pnl_zar_list = [_trade_pnl_zar(t) for t in exchange_trades]
+            winning = sum(1 for p in pnl_zar_list if p > 0)
+            total_pnl = sum(pnl_zar_list)
             
-            # Estimate initial capital (sum of trade sizes)
-            initial_capital = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in exchange_trades) / total_trades if total_trades > 0 else 1
+            # Estimate initial capital in ZAR (sum of trade sizes × FX)
+            qc_rate, _ = _gfr(_gqc(exchange, ""), "ZAR")
+            initial_capital = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in exchange_trades) / total_trades * qc_rate if total_trades > 0 else 1
             roi_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
             win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
             
@@ -304,6 +322,9 @@ async def get_equity_curve(
 ):
     """Get equity curve showing total P&L over time with realized vs unrealized breakdown
     
+    All capital and P&L values are normalised to ZAR before summing to prevent
+    mixed-currency corruption across exchanges (Luno ZAR + Binance USDT).
+
     Returns:
         Timeseries data with equity progression, realized/unrealized PnL, and fee analysis
     """
@@ -319,59 +340,83 @@ async def get_equity_curve(
         }
         start_time = now - range_map.get(range, timedelta(days=7))
         
-        # Get all bots for initial capital
+        # Get all bots for initial capital — normalised to ZAR
         bots = await db.bots_collection.find(
             {"user_id": user_id},
-            {"_id": 0, "initial_capital": 1, "current_capital": 1}
+            {"_id": 0, "initial_capital": 1, "current_capital": 1,
+             "canonical_base_capital_zar": 1, "quote_currency": 1, "exchange": 1}
         ).to_list(1000)
         
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        initial_capital = 0.0
+        current_capital = 0.0
+        for bot in bots:
+            base_zar = bot.get("canonical_base_capital_zar")
+            if base_zar is not None:
+                initial_capital += float(base_zar)
+            else:
+                qc = bot.get("quote_currency") or _gqc(bot.get("exchange", ""), "")
+                rate, _ = _gfr(qc, "ZAR")
+                initial_capital += float(bot.get("initial_capital", 0) or 0) * rate
+            # Current capital always uses live FX
+            qc = bot.get("quote_currency") or _gqc(bot.get("exchange", ""), "")
+            rate, _ = _gfr(qc, "ZAR")
+            current_capital += float(bot.get("current_capital", 0) or 0) * rate
         
-        # Get trades in time range
+        # Get trades in time range — include FX fields for normalisation
         trades = await db.trades_collection.find(
             {
                 "user_id": user_id,
                 "timestamp": {"$gte": start_time.isoformat()}
             },
-            {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1, "fee_amount": 1, "fees": 1, "fee": 1}
+            {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1,
+             "fee_amount": 1, "fees": 1, "fee": 1,
+             "realized_pnl_zar": 1, "fee_display_zar": 1,
+             "quote_currency": 1, "exchange": 1}
         ).sort("timestamp", 1).to_list(10000)
         
-        # Build equity curve
+        # Build equity curve — all values in ZAR
         equity_points = []
-        cumulative_pnl = 0
-        cumulative_fees = 0
+        cumulative_pnl = 0.0
+        cumulative_fees = 0.0
         
         if not trades:
             # No trades - return initial state
             equity_points = [{
                 "timestamp": start_time.isoformat(),
-                "equity": initial_capital,
+                "equity": round(initial_capital, 2),
                 "realized_pnl": 0,
                 "unrealized_pnl": 0,
                 "fees": 0
             }]
         else:
             for trade in trades:
-                # Use canonical field normalization
-                cumulative_pnl += trade.get('net_pnl', trade.get('profit_loss', 0))
-                cumulative_fees += trade.get('fee_amount', trade.get('fees', trade.get('fee', 0)))
+                # P&L normalised to ZAR
+                cumulative_pnl += _trade_pnl_zar(trade)
+                # Fees normalised to ZAR
+                fee_zar = trade.get("fee_display_zar")
+                if fee_zar is not None:
+                    cumulative_fees += float(fee_zar)
+                else:
+                    raw_fee = float(trade.get('fee_amount', trade.get('fees', trade.get('fee', 0))) or 0)
+                    qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
+                    rate, _ = _gfr(qc, "ZAR")
+                    cumulative_fees += raw_fee * rate
                 
                 equity_points.append({
                     "timestamp": trade['timestamp'],
-                    "equity": initial_capital + cumulative_pnl,
-                    "realized_pnl": cumulative_pnl,
+                    "equity": round(initial_capital + cumulative_pnl, 2),
+                    "realized_pnl": round(cumulative_pnl, 2),
                     "unrealized_pnl": 0,  # Paper trading has no open positions
-                    "fees": cumulative_fees
+                    "fees": round(cumulative_fees, 2)
                 })
         
         # Add current point
         equity_points.append({
             "timestamp": now.isoformat(),
-            "equity": current_capital,
-            "realized_pnl": current_capital - initial_capital,
+            "equity": round(current_capital, 2),
+            "realized_pnl": round(current_capital - initial_capital, 2),
             "unrealized_pnl": 0,
-            "fees": cumulative_fees
+            "fees": round(cumulative_fees, 2)
         })
         
         return {
@@ -653,10 +698,23 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         for exchange in ["luno", "binance", "kucoin", "bybit", "bitget"]:
             exchange_bots = [b for b in bots if b.get('exchange', '').lower() == exchange]
             if exchange_bots:
+                # Use canonical metrics values (already ZAR-normalised); fallback
+                # converts raw current_capital via the bot's quote currency FX.
+                cap_sum = 0.0
+                for b in exchange_bots:
+                    bm = by_bot.get(b.get('id'), {})
+                    cap = bm.get("capital_current")
+                    if cap is not None:
+                        cap_sum += float(cap)
+                    else:
+                        raw = float(b.get('current_capital', 0) or 0)
+                        qc = b.get("quote_currency") or _gqc(b.get("exchange", ""), "")
+                        rate, _ = _gfr(qc, "ZAR")
+                        cap_sum += raw * rate
                 exchange_breakdown[exchange] = {
                     "bot_count": len(exchange_bots),
-                    "capital": sum(by_bot.get(b.get('id'), {}).get("capital_current", b.get('current_capital', 0)) for b in exchange_bots),
-                    "profit": sum(by_bot.get(b.get('id'), {}).get("profit_realized", 0) for b in exchange_bots)
+                    "capital": round(cap_sum, 2),
+                    "profit": round(sum(by_bot.get(b.get('id'), {}).get("profit_realized", 0) for b in exchange_bots), 2)
                 }
         
         # Per-bot summary (top 10 by profit)
@@ -671,13 +729,19 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         )[:10]
         for _, bot in ranked_bots:
             bot_metrics = by_bot.get(bot.get("id"), {})
+            cap = bot_metrics.get("capital_current")
+            if cap is None:
+                raw = float(bot.get('current_capital', 0) or 0)
+                qc = bot.get("quote_currency") or _gqc(bot.get("exchange", ""), "")
+                rate, _ = _gfr(qc, "ZAR")
+                cap = raw * rate
             bot_summaries.append({
                 "bot_id": bot['id'],
                 "name": bot.get('name'),
                 "exchange": bot.get('exchange'),
                 "mode": bot.get('trading_mode'),
                 "status": bot.get('status'),
-                "capital": round(bot_metrics.get("capital_current", bot.get('current_capital', 0)), 2),
+                "capital": round(float(cap), 2),
                 "profit": round(bot_metrics.get("profit_realized", 0), 2),
                 "win_rate": round(bot_metrics.get("win_rate_pct", bot.get('win_rate', 0)), 2),
                 "trades": bot_metrics.get("trade_count", bot.get('trades_count', 0))

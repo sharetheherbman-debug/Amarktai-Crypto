@@ -111,7 +111,7 @@ export default function CurrencyConverter({ className = '' }) {
       <div style={styles.header}>
         <span style={styles.icon}>💱</span>
         <span style={styles.title}>Currency Converter</span>
-        <span style={styles.subtitle}>Rates from treasury FX engine</span>
+        <span style={styles.subtitle}>Rates from live FX providers</span>
       </div>
 
       <div style={styles.inputRow}>

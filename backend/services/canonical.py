@@ -301,33 +301,55 @@ async def get_canonical_open_position_count(user_id: str) -> int:
 
 
 async def get_canonical_paper_wallet_equity(user_id: str) -> Dict[str, Any]:
-    """Canonical paper-wallet equity including available + allocated balances."""
-    available_total = 0.0
-    allocated_total = 0.0
+    """Canonical paper-wallet equity including available + allocated balances.
+
+    All per-currency balances are converted to ZAR before summing to prevent
+    mixed-currency corruption (e.g. raw ZAR + USDT treated as one number).
+    """
+    from services.fx_normalizer import to_display_zar
+
+    available_total_zar = 0.0
+    allocated_total_zar = 0.0
     try:
         available = await paper_wallet_service.get_balances(user_id)
-        available_total = float(available.get("total", 0) or 0)
+        # Convert each currency balance to ZAR before summing
+        balances = available.get("balances") or {}
+        for currency, amount in balances.items():
+            amt = float(amount or 0)
+            if amt == 0:
+                continue
+            zar_val, _, _ = to_display_zar(amt, currency)
+            available_total_zar += (zar_val or 0.0)
     except Exception as exc:
         logger.warning("paper wallet available fetch failed for %s: %s", user_id, exc)
 
     try:
         if db.paper_ledger_collection is not None:
+            # Group allocated ledger balances by currency for proper conversion
             pipeline = [
                 {"$match": {"user_id": user_id, "status": "active"}},
-                {"$group": {"_id": None, "total": {"$sum": "$current_balance"}}},
+                {"$group": {
+                    "_id": "$currency",
+                    "total": {"$sum": "$current_balance"},
+                }},
             ]
-            rows = await db.paper_ledger_collection.aggregate(pipeline).to_list(1)
-            if rows:
-                allocated_total = float(rows[0].get("total", 0) or 0)
+            rows = await db.paper_ledger_collection.aggregate(pipeline).to_list(20)
+            for row in rows:
+                currency = row.get("_id") or "ZAR"
+                amt = float(row.get("total", 0) or 0)
+                if amt == 0:
+                    continue
+                zar_val, _, _ = to_display_zar(amt, currency)
+                allocated_total_zar += (zar_val or 0.0)
     except Exception as exc:
         logger.warning("paper wallet allocated fetch failed for %s: %s", user_id, exc)
 
-    total_equity = max(0.0, available_total + allocated_total)
+    total_equity = max(0.0, available_total_zar + allocated_total_zar)
     return {
         "total_equity": round(total_equity, 2),
-        "available_total": round(available_total, 2),
-        "allocated_total": round(allocated_total, 2),
-        "source": "paper_wallet_total_equity",
+        "available_total": round(available_total_zar, 2),
+        "allocated_total": round(allocated_total_zar, 2),
+        "source": "paper_wallet_total_equity_zar",
     }
 
 

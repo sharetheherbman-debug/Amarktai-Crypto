@@ -17,6 +17,7 @@ from typing import Dict, Optional
 from auth import get_current_user
 import database as db
 from routes.system_mode import get_system_mode
+from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _gqc
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,6 +47,22 @@ def _safe_float(value, default=0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _sum_pnl_zar(trades) -> float:
+    """Sum trade P&L normalised to ZAR — uses realized_pnl_zar when available,
+    otherwise converts via the trade's quote currency FX rate."""
+    total = 0.0
+    for t in trades:
+        pnl_zar = t.get("realized_pnl_zar")
+        if pnl_zar is not None:
+            total += float(pnl_zar)
+        else:
+            raw_pnl = float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
+            qc = t.get("quote_currency") or _gqc(t.get("exchange", ""), "")
+            rate, _ = _gfr(qc, "ZAR")
+            total += raw_pnl * rate
+    return total
 
 
 @router.get("/api/dashboard/overview")
@@ -82,8 +99,13 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         training_bots = sum(1 for b in bots if b.get("status") in ["training", "quarantined"])
         total_bots = len(bots)
         
-        # Calculate total profit from bots
-        total_profit = sum(b.get("total_profit", 0) for b in bots)
+        # Calculate total profit from bots — normalised to ZAR
+        total_profit = 0.0
+        for b in bots:
+            raw_profit = float(b.get("total_profit", 0) or 0)
+            qc = b.get("quote_currency") or _gqc(b.get("exchange", ""), "")
+            rate, _ = _gfr(qc, "ZAR")
+            total_profit += raw_profit * rate
         
         # Get user info for profile-derived fields
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
@@ -119,35 +141,39 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         bot_ids = [b["id"] for b in bots]
         
         if bot_ids:
-            # Today's profit
+            # Today's profit — normalised to ZAR using realized_pnl_zar or FX conversion
             daily_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "timestamp": {"$gte": today_start.isoformat()},
                 "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
-            daily_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in daily_trades)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
+                "quote_currency": 1, "exchange": 1}).to_list(10000)
+            daily_profit = _sum_pnl_zar(daily_trades)
             
-            # Weekly profit
+            # Weekly profit — normalised to ZAR
             weekly_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "timestamp": {"$gte": week_start.isoformat()},
                 "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
-            weekly_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in weekly_trades)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
+                "quote_currency": 1, "exchange": 1}).to_list(10000)
+            weekly_profit = _sum_pnl_zar(weekly_trades)
             
-            # Monthly profit
+            # Monthly profit — normalised to ZAR
             monthly_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "timestamp": {"$gte": month_start.isoformat()},
                 "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
-            monthly_profit = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in monthly_trades)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
+                "quote_currency": 1, "exchange": 1}).to_list(10000)
+            monthly_profit = _sum_pnl_zar(monthly_trades)
             
             # Total trades and win rate
             all_trades = await db.trades_collection.find({
                 "bot_id": {"$in": bot_ids},
                 "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(10000)
+            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
+                "quote_currency": 1, "exchange": 1}).to_list(10000)
             
             total_trades = len(all_trades)
             winning_trades = sum(1 for t in all_trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
