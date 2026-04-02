@@ -59,10 +59,15 @@ def _sum_pnl_zar(trades) -> float:
             total += float(pnl_zar)
         else:
             raw_pnl = float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
-            qc = t.get("quote_currency") or _gqc(t.get("exchange", ""), "")
+            qc = _trade_qc(t)
             rate, _ = _gfr(qc, "ZAR")
             total += raw_pnl * rate
     return total
+
+
+def _trade_qc(trade) -> str:
+    """Return the canonical quote currency for a trade."""
+    return trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
 
 
 @router.get("/api/dashboard/overview")

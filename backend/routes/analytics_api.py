@@ -28,9 +28,14 @@ def _trade_pnl_zar(trade: dict) -> float:
     if pnl_zar is not None:
         return float(pnl_zar)
     raw_pnl = float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
-    qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
+    qc = _trade_qc(trade)
     rate, _ = _gfr(qc, "ZAR")
     return raw_pnl * rate
+
+
+def _trade_qc(trade: dict) -> str:
+    """Return the canonical quote currency for a trade."""
+    return trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
 
 
 @router.get("/pnl_timeseries")
@@ -276,8 +281,8 @@ async def get_exchange_comparison(
             total_pnl = sum(pnl_zar_list)
             
             # Estimate initial capital in ZAR (sum of trade sizes × FX)
-            qc_rate, _ = _gfr(_gqc(exchange, ""), "ZAR")
-            initial_capital = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in exchange_trades) / total_trades * qc_rate if total_trades > 0 else 1
+            exchange_to_zar_rate, _ = _gfr(_gqc(exchange, ""), "ZAR")
+            initial_capital = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in exchange_trades) / total_trades * exchange_to_zar_rate if total_trades > 0 else 1
             roi_pct = (total_pnl / initial_capital * 100) if initial_capital > 0 else 0
             win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
             
@@ -398,7 +403,7 @@ async def get_equity_curve(
                     cumulative_fees += float(fee_zar)
                 else:
                     raw_fee = float(trade.get('fee_amount', trade.get('fees', trade.get('fee', 0))) or 0)
-                    qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
+                    qc = _trade_qc(trade)
                     rate, _ = _gfr(qc, "ZAR")
                     cumulative_fees += raw_fee * rate
                 
