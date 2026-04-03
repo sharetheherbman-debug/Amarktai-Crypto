@@ -214,8 +214,14 @@ backend/requirements.production.lock.txt
 ```
 
 This file pins every package including trading/ML packages (xgboost, river,
-optuna, pandas-ta, aioredis, web3) with no version ranges. Dev tools
+optuna, aioredis, web3) with no version ranges. Dev tools
 (pytest, black, flake8, mypy) are excluded.
+
+> **Note:** `pandas-ta` was removed from all requirements files because
+> version `0.3.14b0` is no longer published on PyPI, and newer releases
+> (`0.4.x`) require `numpy>=2.2.6` which conflicts with `langchain-chroma`.
+> `ml_predictor.py` contains a full manual fallback for all technical
+> indicators (RSI, MACD, ATR, Bollinger Bands, VWAP, SMA).
 
 ### ⚠️ Critical: numpy constraint
 
@@ -224,11 +230,9 @@ optuna, pandas-ta, aioredis, web3) with no version ranges. Dev tools
 | Package | numpy requirement |
 |---|---|
 | `langchain-chroma==0.1.4` | `numpy<2.0.0` |
-| `pandas-ta==0.3.14b0` | works with numpy 1.x (released before numpy 2) |
 | `langchain-chroma` new versions | may support numpy 2.x — check before upgrading |
 
 `numpy` is pinned to `==1.26.4` in `requirements.production.lock.txt`.
-`pandas-ta` is pinned to `==0.3.14b0` (exact, not `>=`).
 
 If you see `ResolutionImpossible` or `resolution-too-deep` during `pip install`,
 the root cause is this conflict. **Always install from the lock file.**
@@ -252,7 +256,7 @@ pip install pip-tools
 cd backend
 pip-compile --constraint requirements/constraints.txt \
             -o requirements.production.lock.txt requirements.txt
-# Review changes carefully – watch for numpy and pandas-ta version bumps
+# Review changes carefully – watch for numpy version bumps
 git add backend/requirements.production.lock.txt
 git commit -m "chore: update production lock file"
 # Then redeploy:

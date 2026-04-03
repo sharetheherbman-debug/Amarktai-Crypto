@@ -167,7 +167,7 @@ echo ""
 
 # ── 8. Env file safety check ──────────────────────────────────────────────────
 echo -e "${BOLD}[8] Env File Safety${NC}"
-ENV_FILE="${ENV_FILE:-/etc/amarktai/backend.env}"
+ENV_FILE="${ENV_FILE:-/etc/amarktai/amarktai.env}"
 if [[ -f "$ENV_FILE" ]]; then
   pass "Env file present: $ENV_FILE"
   PERMS=$(stat -c "%a" "$ENV_FILE" 2>/dev/null || stat -f "%Lp" "$ENV_FILE" 2>/dev/null || echo "?")

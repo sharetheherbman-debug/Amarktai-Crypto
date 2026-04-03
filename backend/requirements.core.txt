@@ -73,9 +73,8 @@ xgboost==2.1.4
 river==0.21.2
 
 # Technical indicators
-# EXACT pin – newer pre-releases require numpy>=2.2.6 which conflicts with
-# langchain-chroma==0.1.4 (numpy<2.0). 0.3.14b0 works with numpy 1.x.
-pandas-ta==0.3.14b0
+# pandas-ta removed: 0.3.14b0 is no longer on PyPI. ml_predictor.py has
+# a manual fallback for RSI, MACD, ATR, Bollinger Bands, VWAP, SMA.
 
 # Hyperparameter optimisation
 optuna==3.6.0

@@ -3,7 +3,7 @@
 # /ops/backup.sh – Amarktai Network backup script
 #
 # Backs up:
-#   1. /etc/amarktai/backend.env  → timestamped copy in /var/backups/amarktai/
+#   1. /etc/amarktai/amarktai.env  → timestamped copy in /var/backups/amarktai/
 #   2. MongoDB database           → mongodump to /var/backups/amarktai/db/
 #   3. Frontend web root          → tar.gz snapshot
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Config ────────────────────────────────────────────────────────────────────
-ENV_FILE="${ENV_FILE:-/etc/amarktai/backend.env}"
+ENV_FILE="${ENV_FILE:-/etc/amarktai/amarktai.env}"
 FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/Amarktai-Crypto/frontend/build}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/amarktai}"
 DB_NAME="${DB_NAME:-amarktai_trading}"
@@ -46,8 +46,8 @@ sudo mkdir -p "$BACKUP_DIR"
 # ── 1. Env file ───────────────────────────────────────────────────────────────
 info "Backing up env file..."
 if [[ -f "$ENV_FILE" ]]; then
-  sudo cp "$ENV_FILE" "$BACKUP_DIR/backend.env"
-  sudo chmod 600 "$BACKUP_DIR/backend.env"
+  sudo cp "$ENV_FILE" "$BACKUP_DIR/amarktai.env"
+  sudo chmod 600 "$BACKUP_DIR/amarktai.env"
   ok "Env file backed up"
 else
   warn "Env file not found: $ENV_FILE"

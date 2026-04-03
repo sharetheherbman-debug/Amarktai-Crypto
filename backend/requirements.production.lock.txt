@@ -10,8 +10,9 @@
 # numpy is pinned to ==1.26.4 (numpy 1.x). DO NOT upgrade to numpy 2.x.
 # Reason: langchain-chroma==0.1.4 requires numpy<2.0.0. If numpy is >=2.0,
 # pip raises ResolutionImpossible when langchain-chroma is in the same env.
-# pandas-ta==0.3.14b0 (the only stable release) also targets numpy 1.x.
-# Newer pandas-ta pre-releases may require numpy>=2.2.6 – do NOT use them.
+# pandas-ta has been removed: 0.3.14b0 is no longer on PyPI and newer
+# releases (0.4.x) require numpy>=2.2.6. ml_predictor.py contains a full
+# manual fallback for all technical indicators (RSI, MACD, ATR, BB, VWAP, SMA).
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # Usage (production deploy):
@@ -82,7 +83,6 @@ tzdata==2025.2
 tzlocal==5.3.1
 
 # ── Email / Validation ────────────────────────────────────────────────────
-aiosmtplib==5.0.0
 email-validator==2.3.0
 idna==3.11
 
@@ -136,7 +136,9 @@ xgboost==2.1.4
 river==0.21.2
 
 # ── Technical indicators ──────────────────────────────────────────────────
-pandas-ta==0.3.14b0
+# pandas-ta removed: 0.3.14b0 is no longer published on PyPI (only 0.4.x
+# remain, which require numpy>=2.2.6 – incompatible with langchain-chroma).
+# ml_predictor.py has a full manual fallback for RSI/MACD/ATR/BB/VWAP/SMA.
 
 # ── Hyperparameter optimisation ───────────────────────────────────────────
 optuna==3.6.0

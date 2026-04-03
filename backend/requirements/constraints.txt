@@ -3,7 +3,7 @@
 
 # NumPy constraint
 # HARD UPPER BOUND: langchain-chroma==0.1.4 requires numpy<2.0.0.
-# pandas-ta==0.3.14b0 requires numpy 1.x (released before numpy 2 existed).
+# pandas-ta removed (0.3.14b0 delisted from PyPI; 0.4.x needs numpy>=2.2.6).
 # Raising this to >=2.0 will cause ResolutionImpossible on fresh installs.
 numpy>=1.26.0,<2.0
 

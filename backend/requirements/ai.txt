@@ -3,7 +3,7 @@
 
 # Core Data Science
 # CONSTRAINT: langchain-chroma==0.1.4 requires numpy<2.0.
-# pandas-ta==0.3.14b0 works with numpy 1.x. Do NOT raise to >=2.0.
+# pandas-ta removed (0.3.14b0 delisted; 0.4.x needs numpy>=2.2.6).
 numpy>=1.26.0,<2.0
 scipy==1.14.1
 pandas==2.3.3
