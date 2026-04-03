@@ -56,7 +56,7 @@ outputs, `/var/www/amarktai`, `/opt/amarktai`, `/var/amarktai/venv`.
 |---|---|
 | `/etc/systemd/system/amarktai-api.service` | `ops/systemd/amarktai-api.service` |
 | `/etc/nginx/sites-available/amarktai` | `ops/nginx/amarktai.conf` |
-| `/etc/amarktai/amarktai.env` | `deployment/etc-amarktai-env.template` (template only, fill in secrets) |
+| `/etc/amarktai/amarktai.env` | `ops/etc-amarktai-env.template` (template only, fill in secrets) |
 
 ---
 
@@ -75,7 +75,7 @@ sudo git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git \
 sudo chown -R www-data:www-data /var/amarktai/app/Amarktai-Crypto
 
 # 3. Create environment file from template (fill in REAL secrets)
-sudo cp /var/amarktai/app/Amarktai-Crypto/deployment/etc-amarktai-env.template \
+sudo cp /var/amarktai/app/Amarktai-Crypto/ops/etc-amarktai-env.template \
   /etc/amarktai/amarktai.env
 sudo chmod 600 /etc/amarktai/amarktai.env
 sudo chown root:www-data /etc/amarktai/amarktai.env
@@ -98,8 +98,8 @@ cd /var/amarktai/app/Amarktai-Crypto
 sudo bash ops/redeploy_production.sh
 ```
 
-That single command:
-1. Pulls latest code from `origin/main`
+That single command deploys the **currently checked-out commit** and:
+1. Records the checked-out commit SHA (does NOT auto-pull `origin/main`)
 2. Installs locked backend dependencies from `requirements.production.lock.txt`
 3. Rebuilds frontend
 4. Installs canonical systemd unit and nginx config
@@ -108,6 +108,13 @@ That single command:
 7. Compares built JS filename vs served JS filename (fails if mismatch)
 8. Runs health checks
 9. Prints PASS/FAIL summary
+
+> **To pull new code first:**
+> ```bash
+> cd /var/amarktai/app/Amarktai-Crypto
+> sudo git pull                          # or: sudo git reset --hard <sha>
+> sudo bash ops/redeploy_production.sh   # then deploy
+> ```
 
 ---
 

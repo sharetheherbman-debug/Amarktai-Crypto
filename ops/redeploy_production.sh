@@ -6,8 +6,8 @@
 #   sudo bash ops/redeploy_production.sh
 #
 # WHAT IT DOES
-#   1. Verifies repo path and git state
-#   2. Pulls latest code from origin/main
+#   1. Verifies repo path and git state (deploys the currently checked-out commit)
+#   2. Records current commit SHA and branch
 #   3. Runs backend preflight (env file, paths, venv, python import)
 #   4. Installs locked backend dependencies from requirements.production.lock.txt
 #   5. Installs canonical systemd unit (amarktai-api.service)
@@ -60,8 +60,8 @@ PASS_COUNT=0
 FAIL_COUNT=0
 FAILURES=()
 
-pass() { ok "$1"; ((PASS_COUNT++)); }
-fail() { err "$1"; ((FAIL_COUNT++)); FAILURES+=("$1"); }
+pass() { ok "$1"; PASS_COUNT=$(( PASS_COUNT + 1 )); }
+fail() { err "$1"; FAIL_COUNT=$(( FAIL_COUNT + 1 )); FAILURES+=("$1"); }
 
 ###############################################################################
 echo ""
@@ -95,15 +95,14 @@ GIT_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknow
 info "Branch: $GIT_BRANCH  SHA: $GIT_SHA"
 
 ###############################################################################
-head "STEP 2 – Pull latest code from origin/main"
+head "STEP 2 – Record checked-out commit"
 ###############################################################################
-info "Fetching latest code..."
-git -C "$REPO_ROOT" fetch --all --prune 2>&1 | tail -3
-git -C "$REPO_ROOT" checkout main 2>/dev/null || true
-git -C "$REPO_ROOT" reset --hard origin/main 2>&1 | tail -3
-GIT_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+# Deploys the CURRENTLY CHECKED-OUT commit only.
+# To update code before deploying, run: sudo git -C "$APP_ROOT" pull
+# or: sudo git -C "$APP_ROOT" reset --hard <sha>
+# This script will then deploy whatever is currently checked out.
 GIT_TAG=$(git -C "$REPO_ROOT" describe --tags --exact-match 2>/dev/null || echo "")
-pass "Code updated to $GIT_SHA ${GIT_TAG:+(tag: $GIT_TAG)}"
+pass "Deploying checked-out commit: $GIT_SHA ${GIT_TAG:+(tag: $GIT_TAG)} on branch $GIT_BRANCH"
 
 ###############################################################################
 head "STEP 3 – Backend preflight checks"
@@ -114,7 +113,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo ""
   echo "  To create it:"
   echo "    sudo mkdir -p /etc/amarktai"
-  echo "    sudo cp $REPO_ROOT/deployment/etc-amarktai-env.template $ENV_FILE"
+  echo "    sudo cp $REPO_ROOT/ops/etc-amarktai-env.template $ENV_FILE"
   echo "    sudo chmod 600 $ENV_FILE"
   echo "    sudo chown root:www-data $ENV_FILE"
   echo "    sudo nano $ENV_FILE   # fill in real secrets"

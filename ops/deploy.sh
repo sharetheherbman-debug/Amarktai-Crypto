@@ -68,7 +68,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo ""
   echo "  To create it, run:"
   echo "    sudo mkdir -p $(dirname "$ENV_FILE")"
-  echo "    sudo cp $REPO_ROOT/deployment/etc-amarktai-env.template $ENV_FILE"
+  echo "    sudo cp $REPO_ROOT/ops/etc-amarktai-env.template $ENV_FILE"
   echo "    sudo chmod 600 $ENV_FILE"
   echo "    sudo nano $ENV_FILE   # fill in real values"
   echo ""
