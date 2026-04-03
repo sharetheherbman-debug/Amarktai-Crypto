@@ -3,7 +3,7 @@
 # /ops/restore.sh – Amarktai Network restore script
 #
 # Restores from a backup created by ops/backup.sh:
-#   1. /etc/amarktai/backend.env
+#   1. /etc/amarktai/amarktai.env
 #   2. MongoDB database (mongorestore)
 #   3. Frontend web root
 #
@@ -34,7 +34,7 @@ if [[ ! -d "$BACKUP_DIR" ]]; then
 fi
 
 # ── Config ────────────────────────────────────────────────────────────────────
-ENV_FILE="${ENV_FILE:-/etc/amarktai/backend.env}"
+ENV_FILE="${ENV_FILE:-/etc/amarktai/amarktai.env}"
 FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/Amarktai-Crypto/frontend/build}"
 DB_NAME="${DB_NAME:-amarktai_trading}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-amarktai-api}"
@@ -61,10 +61,10 @@ info "Stopping $BACKEND_SERVICE..."
 sudo systemctl stop "$BACKEND_SERVICE" 2>/dev/null || warn "Service not running"
 
 # ── 2. Restore env file ───────────────────────────────────────────────────────
-if [[ -f "$BACKUP_DIR/backend.env" ]]; then
+if [[ -f "$BACKUP_DIR/amarktai.env" ]]; then
   info "Restoring env file..."
   sudo mkdir -p "$(dirname "$ENV_FILE")"
-  sudo cp "$BACKUP_DIR/backend.env" "$ENV_FILE"
+  sudo cp "$BACKUP_DIR/amarktai.env" "$ENV_FILE"
   sudo chmod 600 "$ENV_FILE"
   ok "Env file restored: $ENV_FILE"
 else

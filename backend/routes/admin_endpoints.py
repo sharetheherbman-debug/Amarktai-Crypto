@@ -1208,8 +1208,8 @@ async def get_user_storage_usage(admin_user_id: str = Depends(verify_admin)):
             # Define user-specific storage directories
             user_dirs = [
                 f"/var/log/amarktai/users/{user_id}",
-                f"/opt/amarktai/uploads/{user_id}",
-                f"/opt/amarktai/reports/{user_id}",
+                f"/var/amarktai/app/Amarktai-Crypto/uploads/{user_id}",
+                f"/var/amarktai/app/Amarktai-Crypto/reports/{user_id}",
                 f"logs/users/{user_id}",
                 f"uploads/{user_id}",
                 f"reports/{user_id}"

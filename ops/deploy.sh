@@ -3,7 +3,7 @@
 # /ops/deploy.sh – Amarktai Network idempotent deploy script
 #
 # DESIGN GOALS
-#   • NEVER loses /etc/amarktai/backend.env  (external secret store)
+#   • NEVER loses /etc/amarktai/amarktai.env  (external secret store)
 #   • Idempotent – safe to run multiple times in a row
 #   • Builds frontend, syncs to web root, restarts only if healthcheck passes
 #   • Injects BUILD_SHA env var so the API can report it on /api/health/ping
