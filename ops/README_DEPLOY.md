@@ -90,7 +90,7 @@ sudo git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git \
 sudo chown -R www-data:www-data /var/amarktai/app/Amarktai-Crypto
 
 # 3. Create env file from template
-sudo cp /var/amarktai/app/Amarktai-Crypto/deployment/etc-amarktai-env.template \
+sudo cp /var/amarktai/app/Amarktai-Crypto/ops/etc-amarktai-env.template \
   /etc/amarktai/amarktai.env
 sudo chmod 600 /etc/amarktai/amarktai.env
 sudo chown root:www-data /etc/amarktai/amarktai.env
