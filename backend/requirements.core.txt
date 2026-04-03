@@ -55,6 +55,8 @@ aioredis==2.0.1
 # ── Data Science (core ML – no heavy transformers/RAG) ───────────────────────
 # NUMPY 1.x CONSTRAINT: do NOT upgrade to >=2.0 while langchain-chroma
 # is in the environment. See requirements/constraints.txt for details.
+# numpy==1.26.4 is the final patch release in the 1.26.x series (numpy
+# jumped directly to 2.0.0 after this). There is no newer 1.x available.
 numpy==1.26.4
 pandas==2.3.3
 scipy==1.14.1

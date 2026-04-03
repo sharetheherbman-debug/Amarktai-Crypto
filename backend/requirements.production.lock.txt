@@ -116,6 +116,9 @@ s3transfer==0.15.0
 s5cmd==0.2.0
 
 # ── Data Science / ML core ────────────────────────────────────────────────
+# numpy==1.26.4 is the final patch release of the 1.26.x series.
+# numpy jumped directly from 1.26.4 to 2.0.0 – there is no 1.26.5 or later 1.x.
+# This is intentionally pinned to 1.x to satisfy langchain-chroma==0.1.4 (<2.0).
 numpy==1.26.4
 pandas==2.3.3
 scipy==1.14.1
