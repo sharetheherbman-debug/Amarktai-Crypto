@@ -51,8 +51,8 @@ ExecStartPre=/bin/sh -c 'test -f /etc/amarktai/amarktai.env || (echo "PREFLIGHT 
 ExecStartPre=/bin/sh -c 'test -d /var/amarktai/app/Amarktai-Crypto/backend || (echo "PREFLIGHT FAIL: backend dir missing" >&2; exit 1)'
 ExecStartPre=/bin/sh -c 'test -x /var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/uvicorn || (echo "PREFLIGHT FAIL: venv/uvicorn missing" >&2; exit 1)'
 ExecStartPre=/bin/sh -c 'test -w /var/log/amarktai || (echo "PREFLIGHT FAIL: /var/log/amarktai not writable" >&2; exit 1)'
-ExecStartPre=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/python3 -c "import server" \
-    --chdir /var/amarktai/app/Amarktai-Crypto/backend
+ExecStartPre=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/python3 \
+    -c "import sys; sys.path.insert(0, '/var/amarktai/app/Amarktai-Crypto/backend'); import server"
 
 # Start command
 ExecStart=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/uvicorn server:app \
