@@ -13,6 +13,7 @@ export default function BotManagementSection({
   embedded = false,
 }) {
   const content = (
+    <>
     <div className="card">
       {!embedded && (
         <SectionHeader
@@ -221,6 +222,7 @@ export default function BotManagementSection({
         />
         <CurrencyConverter />
       </div>
+    </>
   );
 
   if (embedded) return content;

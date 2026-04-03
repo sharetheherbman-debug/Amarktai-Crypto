@@ -1722,9 +1722,10 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
         paper_equity = await get_canonical_paper_wallet_equity(user_id)
         
-        # BACKEND TRUTH: Get all bots total capital from MongoDB
+        # BACKEND TRUTH: Get all bots total capital from MongoDB — normalised to ZAR
+        from services.reconciliation import compute_equity_zar
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-        total_bot_capital = sum(float(bot.get('current_capital', 0) or 0) for bot in bots)
+        total_bot_capital, _equity_breakdown = compute_equity_zar(bots)
         # Capital priority order:
         # 1) Paper mode: canonical multi-currency paper wallet total equity
         # 2) Ledger equity (ZAR) when available
@@ -1805,7 +1806,17 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 days_of_data = unique_trade_days
                 avg_daily_profit = total_profit / days_of_data if days_of_data else 0
             else:
-                total_profit = sum(trade.get('profit_loss', 0) for trade in recent_trades)
+                from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _gqc
+                total_profit = 0.0
+                for trade in recent_trades:
+                    pnl_zar = trade.get("realized_pnl_zar")
+                    if pnl_zar is not None:
+                        total_profit += float(pnl_zar)
+                    else:
+                        raw_pnl = float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
+                        qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
+                        rate, _ = _gfr(qc, "ZAR")
+                        total_profit += raw_pnl * rate
                 days_of_data = unique_trade_days
                 avg_daily_profit = total_profit / days_of_data if days_of_data else 0
             
