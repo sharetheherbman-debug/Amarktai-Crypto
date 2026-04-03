@@ -94,7 +94,7 @@ async def run_startup_migrations(db):
 if __name__ == "__main__":
     # Test migration standalone
     import sys
-    sys.path.append("/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment/backend")
+    sys.path.append("/home/runner/work/Amarktai-Crypto/Amarktai-Crypto/backend")
     
     import database as db
     

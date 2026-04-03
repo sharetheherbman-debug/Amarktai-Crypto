@@ -40,8 +40,8 @@ journalctl -u amarktai-backend --no-pager -n 30
 ## Deploy Frontend
 
 ```bash
-sudo rm -rf /var/www/amarktai/*
-sudo cp -r frontend/build/* /var/www/amarktai/
+sudo rm -rf /var/amarktai/app/frontend/build/*
+sudo cp -r frontend/build/* /var/amarktai/app/frontend/build/
 sudo systemctl reload nginx
 ```
 
@@ -72,6 +72,6 @@ bash scripts/go_live_evidence_pack.sh
 ```bash
 git checkout main
 sudo systemctl restart amarktai-backend
-sudo cp -r frontend/build/* /var/www/amarktai/
+sudo cp -r frontend/build/* /var/amarktai/app/frontend/build/
 sudo systemctl reload nginx
 ```

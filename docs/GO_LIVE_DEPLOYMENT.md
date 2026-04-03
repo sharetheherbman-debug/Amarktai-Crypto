@@ -115,7 +115,7 @@ server {
     
     # Frontend static files
     location / {
-        root /var/www/amarktai/frontend/dist;
+        root /var/amarktai/app/frontend/build/frontend/dist;
         try_files $uri $uri/ /index.html;
     }
     

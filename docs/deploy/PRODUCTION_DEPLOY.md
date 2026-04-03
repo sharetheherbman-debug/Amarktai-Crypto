@@ -34,7 +34,7 @@ sudo apt install -y python3.12 python3.12-venv python3-pip nginx redis-server gi
 
 # 3. Clone repository
 cd /opt
-sudo git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git amarktai
+sudo git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git amarktai
 cd amarktai
 
 # 4. Backend setup
@@ -176,5 +176,5 @@ curl http://localhost:8000/api/health/ping
 
 ## Support
 
-- GitHub: https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment/issues
+- GitHub: https://github.com/amarktainetwork-blip/Amarktai-Crypto/issues
 - Email: amarktainetwork@gmail.com

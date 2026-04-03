@@ -99,7 +99,7 @@ MAX_DRAWDOWN_PERCENT=0.25
 Use the provided deployment script for safe, repeatable deployments:
 
 ```bash
-cd /var/amarktai/app/Amarktai-Network---Deployment
+cd /var/amarktai/app
 sudo ./scripts/deploy_clean.sh
 ```
 
@@ -137,7 +137,7 @@ If you need to deploy manually:
 ### 1. Update Code
 
 ```bash
-cd /var/amarktai/app/Amarktai-Network---Deployment
+cd /var/amarktai/app
 git fetch --all --prune
 git reset --hard origin/main
 git clean -fd
@@ -283,7 +283,7 @@ The `run_server.py` entrypoint provides:
 
 4. **Test Python imports:**
    ```bash
-   cd /var/amarktai/app/Amarktai-Network---Deployment/backend
+   cd /var/amarktai/app/backend
    source .venv/bin/activate
    python -c "import server"
    ```
@@ -333,7 +333,7 @@ The `run_server.py` entrypoint provides:
 Run comprehensive smoke tests after deployment:
 
 ```bash
-cd /var/amarktai/app/Amarktai-Network---Deployment
+cd /var/amarktai/app
 ./scripts/smoke.sh
 ```
 
@@ -437,7 +437,7 @@ For issues or questions:
 1. Check logs first: `journalctl -u amarktai-api -n 150`
 2. Run smoke tests: `./scripts/smoke.sh`
 3. Review this deployment guide
-4. Check GitHub Issues: https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment/issues
+4. Check GitHub Issues: https://github.com/amarktainetwork-blip/Amarktai-Crypto/issues
 
 ---
 

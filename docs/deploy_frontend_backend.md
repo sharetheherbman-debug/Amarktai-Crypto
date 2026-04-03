@@ -59,8 +59,8 @@ EXCHANGE_API_KEYS_ENCRYPTED=true  # Use encrypted storage
 
 ```bash
 # Clone repository
-git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git
-cd Amarktai-Network---Deployment/backend
+git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git
+cd Amarktai-Crypto/backend
 
 # Create virtual environment
 python3 -m venv venv
@@ -601,7 +601,7 @@ sudo systemctl restart amarktai-backend
 ## Support & Contact
 
 For issues or questions:
-- GitHub Issues: [Repository Issues](https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment/issues)
+- GitHub Issues: [Repository Issues](https://github.com/amarktainetwork-blip/Amarktai-Crypto/issues)
 - Documentation: `/docs/` directory
 - Gap Report: `/docs/reports/gap_report.md`
 - Routes Documentation: `/docs/reports/dashboard_routes_used.md`

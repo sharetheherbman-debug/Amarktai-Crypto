@@ -3,7 +3,7 @@
 Test enhancements to paper trading and training APIs
 """
 import sys
-sys.path.insert(0, '/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment/backend')
+sys.path.insert(0, '/home/runner/work/Amarktai-Crypto/Amarktai-Crypto/backend')
 
 # Test 1: Import paper trading engine enhancements
 print("Testing paper trading engine enhancements...")

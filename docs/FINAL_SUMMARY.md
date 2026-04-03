@@ -194,7 +194,7 @@ npm install
 npm run build
 
 # 6. Deploy frontend
-sudo rsync -av build/ /var/www/amarktai/
+sudo rsync -av build/ /var/amarktai/app/frontend/build/
 
 # 7. Restart services
 sudo systemctl restart amarktai-api

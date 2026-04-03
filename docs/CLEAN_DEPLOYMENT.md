@@ -132,7 +132,7 @@ npm run build
 
 Copy build to Nginx serve directory:
 ```bash
-sudo cp -r build/* /var/www/amarktai/
+sudo cp -r build/* /var/amarktai/app/frontend/build/
 ```
 
 ### 9. Reload Nginx

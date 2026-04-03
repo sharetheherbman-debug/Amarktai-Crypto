@@ -50,8 +50,8 @@ sudo chmod 644 /var/log/mongodb/mongod.log
 
 #### 1. Clone Repository
 ```bash
-git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git
-cd Amarktai-Network---Deployment
+git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git
+cd Amarktai-Crypto
 ```
 
 #### 2. Create Virtual Environment

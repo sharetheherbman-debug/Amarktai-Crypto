@@ -7,7 +7,7 @@
 | **Repository URL** | `https://github.com/amarktainetwork-blip/Amarktai-Crypto` |
 | **Canonical Branch** | `main` (release branches: `release/go-live-paper-final`) |
 | **Backend Deploy Path** | VPS: `/var/amarktai/app/backend` |
-| **Frontend Deploy Path** | VPS: `/var/www/amarktai` |
+| **Frontend Deploy Path** | VPS: `/var/amarktai/app/frontend/build` |
 | **Backend Service** | `systemd: amarktai-api.service` (canonical: `ops/systemd/amarktai-api.service`) |
 | **Frontend Build** | `npm run build` → served by nginx |
 
@@ -50,7 +50,7 @@ ssh vps 'systemctl show amarktai-api --property=Environment' | grep BUILD_SHA
 # Or inspect the footer of the dashboard page.
 
 # On the VPS, check the static build:
-ssh vps 'grep -o "BUILD_SHA:[a-f0-9]*" /var/www/amarktai/static/js/main.*.js'
+ssh vps 'grep -o "BUILD_SHA:[a-f0-9]*" /var/amarktai/app/frontend/build/static/js/main.*.js'
 ```
 
 ## Rules

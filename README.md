@@ -113,7 +113,7 @@ See **[`docs/INSTALL.md`](docs/INSTALL.md)** for complete step-by-step guide.
 ```bash
 # 1. Clone repository
 git clone <repository-url>
-cd Amarktai-Network---Deployment
+cd Amarktai-Crypto
 
 # 2. Backend setup
 cd backend

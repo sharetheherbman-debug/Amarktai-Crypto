@@ -37,8 +37,8 @@
 ```bash
 # Clone repository
 cd /opt/
-git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git
-cd Amarktai-Network---Deployment
+git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git
+cd Amarktai-Crypto
 
 # Setup Python environment
 python3 -m venv venv
@@ -93,7 +93,7 @@ npm run build
 
 # Serve static files
 # Option A: Nginx (recommended)
-sudo cp -r build/* /var/www/amarktai/
+sudo cp -r build/* /var/amarktai/app/frontend/build/
 
 # Option B: Docker
 # Use provided Dockerfile
@@ -111,9 +111,9 @@ After=network.target mongodb.service
 [Service]
 Type=simple
 User=amarktai
-WorkingDirectory=/opt/Amarktai-Network---Deployment/backend
-Environment="PATH=/opt/Amarktai-Network---Deployment/venv/bin"
-ExecStart=/opt/Amarktai-Network---Deployment/venv/bin/python server.py
+WorkingDirectory=/opt/Amarktai-Crypto/backend
+Environment="PATH=/opt/Amarktai-Crypto/venv/bin"
+ExecStart=/opt/Amarktai-Crypto/venv/bin/python server.py
 Restart=always
 RestartSec=10
 
@@ -316,7 +316,7 @@ mongorestore --db amarktai_trading /backups/20240101/amarktai_trading/
 ### 2. Code Backup
 ```bash
 # Automated via Git
-cd /opt/Amarktai-Network---Deployment
+cd /opt/Amarktai-Crypto
 git pull origin main  # Update to latest
 ```
 

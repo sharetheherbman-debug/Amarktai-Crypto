@@ -87,7 +87,7 @@ curl -fsS https://www.amarktai.online/ | grep -i "amarktai network"
 ### 7. Run Complete Verification Script
 ```bash
 # On VPS, run the automated verification
-cd /path/to/Amarktai-Network---Deployment
+cd /path/to/Amarktai-Crypto
 bash scripts/verify_live.sh
 
 # Expected: All checks should PASS

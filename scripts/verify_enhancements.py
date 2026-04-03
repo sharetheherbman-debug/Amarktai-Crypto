@@ -46,7 +46,7 @@ print("Testing Paper Trading Engine Enhancements...")
 print("=" * 60)
 
 # Check paper_trading_engine.py
-pt_file = "/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment/backend/paper_trading_engine.py"
+pt_file = "/home/runner/work/Amarktai-Crypto/Amarktai-Crypto/backend/paper_trading_engine.py"
 
 is_valid, msg = check_file_syntax(pt_file)
 if is_valid:
@@ -94,7 +94,7 @@ print("\nTesting Training Routes Enhancements...")
 print("=" * 60)
 
 # Check training.py
-training_file = "/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment/backend/routes/training.py"
+training_file = "/home/runner/work/Amarktai-Crypto/Amarktai-Crypto/backend/routes/training.py"
 
 is_valid, msg = check_file_syntax(training_file)
 if is_valid:

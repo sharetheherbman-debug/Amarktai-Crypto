@@ -29,7 +29,7 @@ sudo apt-get install -y git python3 python3-venv python3-pip \
 # Clone to recommended location
 sudo mkdir -p /var/amarktai
 cd /var/amarktai
-sudo git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git app
+sudo git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git app
 cd app
 ```
 
