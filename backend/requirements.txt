@@ -66,7 +66,10 @@ motor==3.3.1
 multidict==6.7.0
 mypy==1.18.2
 mypy_extensions==1.1.0
-numpy>=1.26.0,<2.3
+# CONSTRAINT: langchain-chroma==0.1.4 requires numpy<2.0; keep pinned to 1.x.
+# pandas-ta==0.3.14b0 also works with numpy 1.x. Do NOT raise to >=2.0 without
+# verifying langchain-chroma compatibility.
+numpy>=1.26.0,<2.0
 oauthlib==3.3.1
 openai==1.99.9
 packaging>=23.2,<25
@@ -152,7 +155,9 @@ langchain-openai==0.2.14
 # AI Trading Intelligence — ML + Technical Analysis + Optimisation
 # ============================================================================
 # Technical indicators (RSI, MACD, ATR, Bollinger, VWAP, ADX, etc.)
-pandas-ta>=0.3.14b0
+# EXACT pin: newer pandas-ta releases require numpy>=2.2.6 which conflicts
+# with langchain-chroma==0.1.4 (numpy<2.0). Use 0.3.14b0 which works with numpy 1.x.
+pandas-ta==0.3.14b0
 
 # Gradient-boosted tree model for price-direction prediction
 xgboost>=2.0.0

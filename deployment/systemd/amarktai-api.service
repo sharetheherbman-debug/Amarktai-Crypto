@@ -1,23 +1,24 @@
 # ============================================================================
-# Amarktai Network – Canonical Systemd Service
+# Amarktai Crypto – Canonical Systemd Service Unit
 # deployment/systemd/amarktai-api.service
 #
-# INSTALL
+# INSTALL (run by ops/redeploy_production.sh automatically)
 #   sudo cp deployment/systemd/amarktai-api.service /etc/systemd/system/amarktai-api.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable amarktai-api
 #   sudo systemctl start amarktai-api
 #
-# CANONICAL PATHS (do NOT change without updating nginx + deploy scripts)
-#   App root:    /var/amarktai/app            (git clone target)
-#   Backend:     /var/amarktai/app/backend
-#   Venv:        /var/amarktai/app/backend/.venv
-#   Env file:    /etc/amarktai/amarktai.env   (external – never wiped by git)
-#   Frontend:    /var/amarktai/app/frontend/build  (nginx root)
+# CANONICAL PATHS (do NOT change without updating nginx + all deploy scripts)
+#   App root:    /var/amarktai/app/Amarktai-Crypto   (git clone target)
+#   Backend:     /var/amarktai/app/Amarktai-Crypto/backend
+#   Venv:        /var/amarktai/app/Amarktai-Crypto/backend/.venv
+#   Env file:    /etc/amarktai/amarktai.env          (external – never wiped by git)
+#   Frontend:    /var/amarktai/app/Amarktai-Crypto/frontend/build  (nginx root)
+#   Logs:        /var/log/amarktai/
 # ============================================================================
 
 [Unit]
-Description=Amarktai Network API Server
+Description=Amarktai Crypto API Server
 Documentation=https://github.com/amarktainetwork-blip/Amarktai-Crypto
 After=network.target mongod.service
 Wants=network.target
@@ -26,10 +27,10 @@ Wants=network.target
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/var/amarktai/app/backend
+WorkingDirectory=/var/amarktai/app/Amarktai-Crypto/backend
 
 # Python virtual environment
-Environment="PATH=/var/amarktai/app/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONDONTWRITEBYTECODE=1"
 Environment="PYTHONUNBUFFERED=1"
 
@@ -39,10 +40,19 @@ Environment="PYTHONUNBUFFERED=1"
 #   sudo mkdir -p /etc/amarktai
 #   sudo cp deployment/etc-amarktai-env.template /etc/amarktai/amarktai.env
 #   sudo chmod 600 /etc/amarktai/amarktai.env
-#   sudo chown www-data:www-data /etc/amarktai/amarktai.env
+#   sudo chown root:www-data /etc/amarktai/amarktai.env
 EnvironmentFile=/etc/amarktai/amarktai.env
 
-ExecStart=/var/amarktai/app/backend/.venv/bin/uvicorn server:app \
+# ── Preflight checks (run before ExecStart) ───────────────────────────────
+# Fail fast if critical paths or files are missing.
+ExecStartPre=/bin/sh -c 'test -f /etc/amarktai/amarktai.env || (echo "PREFLIGHT FAIL: /etc/amarktai/amarktai.env missing" >&2; exit 1)'
+ExecStartPre=/bin/sh -c 'test -d /var/amarktai/app/Amarktai-Crypto/backend || (echo "PREFLIGHT FAIL: backend dir missing" >&2; exit 1)'
+ExecStartPre=/bin/sh -c 'test -x /var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/uvicorn || (echo "PREFLIGHT FAIL: venv/uvicorn missing" >&2; exit 1)'
+ExecStartPre=/bin/sh -c 'test -w /var/log/amarktai || (echo "PREFLIGHT FAIL: /var/log/amarktai not writable" >&2; exit 1)'
+ExecStartPre=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/python3 \
+    -c "import server"
+
+ExecStart=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/uvicorn server:app \
     --host 127.0.0.1 \
     --port 8000 \
     --workers 1 \

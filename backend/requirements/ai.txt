@@ -2,7 +2,9 @@
 # Install with: pip install -r base.txt -r ai.txt
 
 # Core Data Science
-numpy>=1.26.0,<2.3
+# CONSTRAINT: langchain-chroma==0.1.4 requires numpy<2.0.
+# pandas-ta==0.3.14b0 works with numpy 1.x. Do NOT raise to >=2.0.
+numpy>=1.26.0,<2.0
 scipy==1.14.1
 pandas==2.3.3
 

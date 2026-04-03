@@ -20,7 +20,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ── Config ────────────────────────────────────────────────────────────────────
 API_BASE="${API_BASE:-http://127.0.0.1:8000/api}"
 NGINX_BASE="${NGINX_BASE:-http://localhost}"
-FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/www/amarktai}"
+FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/Amarktai-Crypto/frontend/build}"
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'

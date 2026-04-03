@@ -6,17 +6,32 @@
 
 ---
 
+## ONE-COMMAND REDEPLOY
+
+```bash
+cd /var/amarktai/app/Amarktai-Crypto
+sudo bash ops/redeploy_production.sh
+```
+
+## ONE-COMMAND VERIFY
+
+```bash
+sudo bash ops/verify_production.sh
+```
+
+---
+
 ## Canonical Paths (DO NOT CHANGE without updating ALL configs)
 
 | Resource | Path |
 |---|---|
-| App root (git clone) | `/var/amarktai/app` |
-| Backend | `/var/amarktai/app/backend` |
-| Python venv | `/var/amarktai/app/backend/.venv` |
-| Frontend source | `/var/amarktai/app/frontend` |
-| **Frontend build (nginx root)** | **`/var/amarktai/app/frontend/build`** |
+| App root (git clone) | `/var/amarktai/app/Amarktai-Crypto` |
+| Backend | `/var/amarktai/app/Amarktai-Crypto/backend` |
+| Python venv | `/var/amarktai/app/Amarktai-Crypto/backend/.venv` |
+| Frontend source | `/var/amarktai/app/Amarktai-Crypto/frontend` |
+| **Frontend build (nginx root)** | **`/var/amarktai/app/Amarktai-Crypto/frontend/build`** |
 | Environment file | `/etc/amarktai/amarktai.env` |
-| Systemd service | `/etc/systemd/system/amarktai-api.service` |
+| Systemd service | `amarktai-api` (`/etc/systemd/system/amarktai-api.service`) |
 | Nginx config | `/etc/nginx/sites-available/amarktai` |
 | Nginx symlink | `/etc/nginx/sites-enabled/amarktai` |
 | Log directory | `/var/log/amarktai/` |
@@ -24,7 +39,7 @@
 
 ### Architecture
 
-- **Backend**: FastAPI (uvicorn)
+- **Backend**: FastAPI (uvicorn) in Python 3.12
 - **Frontend**: React SPA (Create React App)
 - **Database**: MongoDB
 - **Realtime**: Redis
@@ -33,11 +48,19 @@
 ### NOT used (do not introduce)
 
 Next.js, PostgreSQL, Prisma, PM2, duplicate app directories, alternate build
-outputs, `/var/www/amarktai`, `/opt/amarktai`.
+outputs, `/var/www/amarktai`, `/opt/amarktai`, `/var/amarktai/venv`.
+
+### Config file source of truth
+
+| VPS Target | Repo Source (canonical) |
+|---|---|
+| `/etc/systemd/system/amarktai-api.service` | `ops/systemd/amarktai-api.service` |
+| `/etc/nginx/sites-available/amarktai` | `ops/nginx/amarktai.conf` |
+| `/etc/amarktai/amarktai.env` | `deployment/etc-amarktai-env.template` (template only, fill in secrets) |
 
 ---
 
-## Fresh Install (one-time)
+## Fresh Install (one-time VPS setup)
 
 ```bash
 # 1. Create directory structure
@@ -46,191 +69,188 @@ sudo mkdir -p /etc/amarktai
 sudo mkdir -p /var/log/amarktai
 sudo chown www-data:www-data /var/log/amarktai
 
-# 2. Clone repo (into /var/amarktai/app directly, no subdirectory)
-sudo git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git /var/amarktai/app
-sudo chown -R www-data:www-data /var/amarktai/app
+# 2. Clone repo into canonical path
+sudo git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git \
+  /var/amarktai/app/Amarktai-Crypto
+sudo chown -R www-data:www-data /var/amarktai/app/Amarktai-Crypto
 
-# 3. Create environment file from template
-sudo cp /var/amarktai/app/deployment/etc-amarktai-env.template /etc/amarktai/amarktai.env
+# 3. Create environment file from template (fill in REAL secrets)
+sudo cp /var/amarktai/app/Amarktai-Crypto/deployment/etc-amarktai-env.template \
+  /etc/amarktai/amarktai.env
 sudo chmod 600 /etc/amarktai/amarktai.env
-sudo chown www-data:www-data /etc/amarktai/amarktai.env
-# IMPORTANT: Edit this file and fill in real secrets
-sudo nano /etc/amarktai/amarktai.env
+sudo chown root:www-data /etc/amarktai/amarktai.env
+sudo nano /etc/amarktai/amarktai.env    # ← fill in secrets now
 
-# 4. Backend: create venv and install deps
-cd /var/amarktai/app/backend
-sudo -u www-data python3 -m venv .venv
-sudo -u www-data .venv/bin/pip install --upgrade pip
-sudo -u www-data .venv/bin/pip install -r requirements.txt
+# 4. Run the one-command deploy (builds everything, installs service + nginx)
+cd /var/amarktai/app/Amarktai-Crypto
+sudo bash ops/redeploy_production.sh
 
-# 5. Frontend: install and build
-cd /var/amarktai/app/frontend
-sudo -u www-data npm ci --legacy-peer-deps
-sudo -u www-data CI=false npm run build
-
-# 6. Install systemd service
-sudo cp /var/amarktai/app/deployment/systemd/amarktai-api.service /etc/systemd/system/amarktai-api.service
-sudo systemctl daemon-reload
-sudo systemctl enable amarktai-api
-sudo systemctl start amarktai-api
-
-# 7. Install nginx config
-sudo cp /var/amarktai/app/deployment/nginx/amarktai.conf /etc/nginx/sites-available/amarktai
-sudo ln -sf /etc/nginx/sites-available/amarktai /etc/nginx/sites-enabled/amarktai
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-
-# 8. Verify
-curl http://127.0.0.1:8000/api/health/ping
+# 5. Verify
+sudo bash ops/verify_production.sh
 ```
 
 ---
 
 ## Redeploy (update to latest code)
 
-This is the minimal command sequence to safely redeploy.
-
 ```bash
-cd /var/amarktai/app
-
-# 1. Pull latest code
-sudo -u www-data git fetch --all --prune
-sudo -u www-data git checkout main
-sudo -u www-data git reset --hard origin/main
-
-# 2. Backend deps (only if requirements changed)
-cd backend
-sudo -u www-data .venv/bin/pip install -r requirements.txt
-
-# 3. Frontend rebuild
-cd ../frontend
-sudo -u www-data npm ci --legacy-peer-deps
-sudo -u www-data CI=false npm run build
-
-# 4. Restart backend
-sudo systemctl restart amarktai-api
-
-# 5. Reload nginx (picks up new static files from build/)
-sudo nginx -t && sudo systemctl reload nginx
-
-# 6. Verify
-sleep 3
-curl -s http://127.0.0.1:8000/api/health/ping
-curl -s http://127.0.0.1/  | head -5
+cd /var/amarktai/app/Amarktai-Crypto
+sudo bash ops/redeploy_production.sh
 ```
 
-> **Why this works**: nginx root points directly at `frontend/build/`.
-> After `npm run build`, the new files are immediately what nginx serves.
-> No rsync, no copy, no separate webroot. Zero drift.
+That single command:
+1. Pulls latest code from `origin/main`
+2. Installs locked backend dependencies from `requirements.production.lock.txt`
+3. Rebuilds frontend
+4. Installs canonical systemd unit and nginx config
+5. Removes stale nginx sites and old systemd services
+6. Restarts backend and nginx
+7. Compares built JS filename vs served JS filename (fails if mismatch)
+8. Runs health checks
+9. Prints PASS/FAIL summary
 
 ---
 
 ## Verify Deployment
 
 ```bash
-# Backend health
-curl -s http://127.0.0.1:8000/api/health/ping | python3 -m json.tool
-
-# Frontend: confirm index.html references current JS bundle
-curl -s http://127.0.0.1/ | grep -oP 'main\.[a-f0-9]+\.js'
-
-# Compare with actual build output
-ls /var/amarktai/app/frontend/build/static/js/main.*.js
-
-# Service status
-sudo systemctl status amarktai-api --no-pager
-
-# Nginx config test
-sudo nginx -t
+sudo bash ops/verify_production.sh
 ```
+
+Checks:
+- `amarktai-api` service is active
+- ExecStart path uses canonical venv
+- uvicorn process path is correct
+- nginx root is canonical `frontend/build` path
+- Built JS filename equals served JS filename
+- `/api/health` and `/api/health/ping` return OK
+- No stale `amarktai.service` remains
+- No stale nginx sites remain enabled
+- Public domain HTTPS response
+
+---
+
+## Rollback
+
+```bash
+cd /var/amarktai/app/Amarktai-Crypto
+
+# Find the previous SHA
+sudo git log --oneline -10
+
+# Roll back
+sudo git reset --hard <prev_sha>
+
+# Rebuild and restart
+sudo bash ops/redeploy_production.sh
+```
+
+---
+
+## Cleanup Stale Deployment Artifacts
+
+```bash
+# Dry run first:
+sudo bash ops/cleanup_stale_deployment.sh --dry-run
+
+# Apply:
+sudo bash ops/cleanup_stale_deployment.sh
+```
+
+This safely removes:
+- Stale `amarktai.service` (old unit name)
+- Stale nginx symlinks: `default`, `amarktai-spa`, `amarktai-websocket`
+- Old venv at `/var/amarktai/venv`
+- Old webroots `/var/www/amarktai`, `/opt/amarktai` (if not in use)
 
 ---
 
 ## Troubleshooting: Old Frontend Being Served
 
-If nginx serves an old JS bundle after a rebuild:
+If nginx serves a stale JS bundle after a rebuild:
 
-1. **Check nginx root** — must be `/var/amarktai/app/frontend/build`:
+1. **Run the full redeploy** — it will detect and fail on mismatch:
+   ```bash
+   sudo bash ops/redeploy_production.sh
+   ```
+
+2. **Or verify manually**:
+   ```bash
+   # Built JS (should be the latest hash)
+   ls /var/amarktai/app/Amarktai-Crypto/frontend/build/static/js/main.*.js
+
+   # Served JS (from index.html)
+   grep -oP 'main\.[a-f0-9]+\.js' \
+     /var/amarktai/app/Amarktai-Crypto/frontend/build/index.html
+
+   # These must match
+   ```
+
+3. **Check nginx root** — must be canonical path:
    ```bash
    sudo nginx -T 2>/dev/null | grep 'root '
+   # Expected: root /var/amarktai/app/Amarktai-Crypto/frontend/build;
    ```
 
-2. **Check for stale nginx configs** that might point elsewhere:
+4. **Check for stale nginx sites** — only `amarktai` should be enabled:
    ```bash
    ls -la /etc/nginx/sites-enabled/
-   # Should contain ONLY: amarktai -> ../sites-available/amarktai
-   ```
-
-3. **Check for stale sites-enabled symlinks**:
-   ```bash
-   sudo rm -f /etc/nginx/sites-enabled/default
-   sudo rm -f /etc/nginx/sites-enabled/amarktai-spa
-   sudo rm -f /etc/nginx/sites-enabled/amarktai-websocket
-   ```
-
-4. **Verify index.html on disk matches what nginx serves**:
-   ```bash
-   # On-disk bundle name
-   grep -oP 'main\.[a-f0-9]+\.js' /var/amarktai/app/frontend/build/index.html
-   # Served bundle name
-   curl -s http://127.0.0.1/ | grep -oP 'main\.[a-f0-9]+\.js'
-   # These MUST match
-   ```
-
-5. **Force nginx to drop cached responses**:
-   ```bash
-   sudo systemctl restart nginx
    ```
 
 ---
 
-## Cleanup: Remove Stale Deployment Artifacts
+## Backend Dependency Management
 
-If a previous deployment left stale paths, clean them up:
-
+Production installs from the locked file:
 ```bash
-# Remove old separate webroot (if it exists)
-sudo rm -rf /var/www/amarktai
-
-# Remove old project directory (if it exists under wrong name)
-sudo rm -rf /var/amarktai/app/Amarktai-Network---Deployment
-
-# Remove stale nginx configs
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo rm -f /etc/nginx/sites-enabled/amarktai-spa
-sudo rm -f /etc/nginx/sites-enabled/amarktai-websocket
-sudo rm -f /etc/nginx/sites-available/amarktai-spa
-sudo rm -f /etc/nginx/sites-available/amarktai-websocket
-
-# Remove stale systemd service files
-sudo rm -f /etc/systemd/system/amarktai-monitor.service
-sudo rm -f /etc/systemd/system/amarktai-daily-report.service
-sudo systemctl daemon-reload
-
-# Remove old venv outside repo (if it exists)
-sudo rm -rf /var/amarktai/venv
-
-# Verify only canonical configs remain
-ls -la /etc/nginx/sites-enabled/
-sudo systemctl list-unit-files 'amarktai*'
+backend/requirements.production.lock.txt
 ```
 
----
+This file pins every package including trading/ML packages (xgboost, river,
+optuna, pandas-ta, aioredis, web3) with no version ranges. Dev tools
+(pytest, black, flake8, mypy) are excluded.
 
-## Config File Source Mapping
+### ⚠️ Critical: numpy constraint
 
-When installing/updating config files on VPS, use these canonical sources:
+**DO NOT upgrade numpy to >=2.0 without verifying langchain-chroma.**
 
-| VPS Target | Repo Source |
+| Package | numpy requirement |
 |---|---|
-| `/etc/systemd/system/amarktai-api.service` | `deployment/systemd/amarktai-api.service` |
-| `/etc/nginx/sites-available/amarktai` | `deployment/nginx/amarktai.conf` |
-| `/etc/amarktai/amarktai.env` | `deployment/etc-amarktai-env.template` (template only) |
+| `langchain-chroma==0.1.4` | `numpy<2.0.0` |
+| `pandas-ta==0.3.14b0` | works with numpy 1.x (released before numpy 2) |
+| `langchain-chroma` new versions | may support numpy 2.x — check before upgrading |
 
-> **Note**: The `ops/` directory contains an alternative nginx config with
-> production SSL and HTTPS redirect. Use `ops/nginx/amarktai.conf` instead
-> of the deployment/ version when SSL is configured with Let's Encrypt.
-> Both now use the same canonical frontend root path.
+`numpy` is pinned to `==1.26.4` in `requirements.production.lock.txt`.
+`pandas-ta` is pinned to `==0.3.14b0` (exact, not `>=`).
+
+If you see `ResolutionImpossible` or `resolution-too-deep` during `pip install`,
+the root cause is this conflict. **Always install from the lock file.**
+
+### Dependency file layout
+
+| File | Purpose |
+|---|---|
+| `requirements.production.lock.txt` | **Production single source of truth** – exact pins, no dev tools |
+| `requirements.core.txt` | Minimal trading API subset (no LangChain/RAG) |
+| `requirements.txt` | Full package list with version ranges (for development) |
+| `requirements/base.txt` | Core FastAPI/MongoDB/auth packages |
+| `requirements/ai.txt` | ML/LangChain/transformers (numpy<2.0 constraint) |
+| `requirements/constraints.txt` | Version constraint pins |
+| `requirements-ai.txt` | Optional Fetch.ai agents (protobuf conflicts – separate install) |
+
+### Updating the lock file after requirements.txt changes
+
+```bash
+pip install pip-tools
+cd backend
+pip-compile --constraint requirements/constraints.txt \
+            -o requirements.production.lock.txt requirements.txt
+# Review changes carefully – watch for numpy and pandas-ta version bumps
+git add backend/requirements.production.lock.txt
+git commit -m "chore: update production lock file"
+# Then redeploy:
+sudo bash ops/redeploy_production.sh
+```
 
 ---
 
@@ -239,13 +259,17 @@ When installing/updating config files on VPS, use these canonical sources:
 1. **One frontend build path** — `frontend/build/` is both the npm output
    AND the nginx root. No copy/sync step means no drift.
 
-2. **One systemd service** — `amarktai-api.service` always uses
-   `/var/amarktai/app/backend` with `.venv` inside.
+2. **One systemd service** — `amarktai-api` always uses
+   `/var/amarktai/app/Amarktai-Crypto/backend` with `.venv` inside.
 
 3. **One env file** — `/etc/amarktai/amarktai.env` is external to the repo,
-   never wiped by `git pull` or `git clean`.
+   never wiped by `git pull` or `git reset`.
 
-4. **Rebuild = instant live** — After `npm run build`, the new `index.html`
-   with new content-hashed JS filenames is immediately what nginx serves.
+4. **One locked requirements file** — `requirements.production.lock.txt`
+   eliminates pip resolver backtracking and numpy/langchain/chromadb conflicts.
 
-5. **No rsync required** — Eliminates the #1 source of frontend drift.
+5. **Preflight checks** — systemd unit runs 4 preflight checks before
+   starting uvicorn. Deploy script also verifies before restart.
+
+6. **JS filename cross-check** — deploy script compares built JS hash to
+   the hash referenced in `index.html`. Fails if they do not match.
