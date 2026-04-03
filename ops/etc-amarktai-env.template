@@ -99,7 +99,7 @@ LIVE_TIMEOUT_RISK_PCT=0.08
 
 # 1. Copy this file to /etc/amarktai/amarktai.env
 #    sudo mkdir -p /etc/amarktai
-#    sudo cp deployment/etc-amarktai-env.template /etc/amarktai/amarktai.env
+#    sudo cp ops/etc-amarktai-env.template /etc/amarktai/amarktai.env
 #
 # 2. Set correct permissions (600)
 #    sudo chmod 600 /etc/amarktai/amarktai.env
