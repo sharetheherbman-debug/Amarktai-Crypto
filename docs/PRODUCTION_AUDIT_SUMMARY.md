@@ -376,7 +376,7 @@ After merging this PR:
 
 ## Contributors
 
-Implementation by GitHub Copilot for sharetheherbman-debug/Amarktai-Network---Deployment
+Implementation by GitHub Copilot for amarktainetwork-blip/Amarktai-Crypto
 
 ---
 

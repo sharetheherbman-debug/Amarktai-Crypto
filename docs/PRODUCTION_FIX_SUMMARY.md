@@ -308,7 +308,7 @@ pytest tests/test_api_keys_status.py -v
 
 If issues arise:
 ```bash
-cd /var/www/amarktai
+cd /var/amarktai/app
 sudo -u www-data git checkout main
 cd frontend && sudo -u www-data npm run build
 sudo systemctl restart amarktai-backend

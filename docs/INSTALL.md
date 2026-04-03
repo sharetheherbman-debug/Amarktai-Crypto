@@ -77,7 +77,7 @@ sudo chown amarktai:amarktai /opt/amarktai
 ```bash
 sudo -u amarktai bash
 cd /opt/amarktai
-git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git .
+git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git .
 ```
 
 ### 3.3 Create virtual environment
@@ -410,7 +410,7 @@ sudo systemctl stop amarktai
 For issues, consult:
 - **Diagnostics**: https://your-domain.com/api/diagnostics/system-health
 - **Logs**: `sudo journalctl -u amarktai -n 100`
-- **GitHub Issues**: https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment/issues
+- **GitHub Issues**: https://github.com/amarktainetwork-blip/Amarktai-Crypto/issues
 
 ---
 

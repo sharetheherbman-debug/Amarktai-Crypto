@@ -291,7 +291,7 @@ The system is now:
 ## Support
 
 For questions or issues:
-- GitHub Issues: https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment/issues
+- GitHub Issues: https://github.com/amarktainetwork-blip/Amarktai-Crypto/issues
 - Email: amarktainetwork@gmail.com
 
 ---

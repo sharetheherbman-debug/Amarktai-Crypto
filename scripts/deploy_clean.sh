@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_DIR="/var/amarktai/app/Amarktai-Network---Deployment"
+REPO_DIR="/var/amarktai/app"
 BACKEND_DIR="$REPO_DIR/backend"
 FRONTEND_DIR="$REPO_DIR/frontend"
 LOG_FILE="/var/log/amarktai/deploy-$(date +%Y%m%d-%H%M%S).log"

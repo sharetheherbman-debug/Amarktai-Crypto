@@ -60,7 +60,7 @@ echo "📝 Creating systemd service file..."
 cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Amarktai Network API
-Documentation=https://github.com/amarktainetwork-blip/Amarktai-Network---Deployment
+Documentation=https://github.com/amarktainetwork-blip/Amarktai-Crypto
 After=network.target mongodb.service
 
 [Service]

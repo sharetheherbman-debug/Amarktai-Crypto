@@ -53,7 +53,7 @@ def categorize_priority(todo_text):
 def analyze_feature_files():
     """Analyze all new feature files"""
     
-    base_path = Path('/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment/backend')
+    base_path = Path('/home/runner/work/Amarktai-Crypto/Amarktai-Crypto/backend')
     
     features = {
         'External Signals': base_path / 'routes' / 'signals.py',

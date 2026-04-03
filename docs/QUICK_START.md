@@ -9,8 +9,8 @@
 
 ### Step 1: Clone Repository
 ```bash
-git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git
-cd Amarktai-Network---Deployment
+git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git
+cd Amarktai-Crypto
 ```
 
 ### Step 2: One-Command Install

@@ -3,7 +3,7 @@
 
 set -e
 
-REPO_ROOT="/home/runner/work/Amarktai-Network---Deployment/Amarktai-Network---Deployment"
+REPO_ROOT="/home/runner/work/Amarktai-Crypto/Amarktai-Crypto"
 cd "$REPO_ROOT"
 
 echo "=============================================================================="

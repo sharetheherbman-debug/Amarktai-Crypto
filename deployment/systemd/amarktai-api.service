@@ -1,5 +1,24 @@
+# ============================================================================
+# Amarktai Network – Canonical Systemd Service
+# deployment/systemd/amarktai-api.service
+#
+# INSTALL
+#   sudo cp deployment/systemd/amarktai-api.service /etc/systemd/system/amarktai-api.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable amarktai-api
+#   sudo systemctl start amarktai-api
+#
+# CANONICAL PATHS (do NOT change without updating nginx + deploy scripts)
+#   App root:    /var/amarktai/app            (git clone target)
+#   Backend:     /var/amarktai/app/backend
+#   Venv:        /var/amarktai/app/backend/.venv
+#   Env file:    /etc/amarktai/amarktai.env   (external – never wiped by git)
+#   Frontend:    /var/amarktai/app/frontend/build  (nginx root)
+# ============================================================================
+
 [Unit]
 Description=Amarktai Network API Server
+Documentation=https://github.com/amarktainetwork-blip/Amarktai-Crypto
 After=network.target mongod.service
 Wants=network.target
 
@@ -7,13 +26,35 @@ Wants=network.target
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/var/amarktai/app/Amarktai-Network---Deployment/backend
-Environment="PATH=/var/amarktai/app/Amarktai-Network---Deployment/backend/.venv/bin"
+WorkingDirectory=/var/amarktai/app/backend
+
+# Python virtual environment
+Environment="PATH=/var/amarktai/app/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONDONTWRITEBYTECODE=1"
+Environment="PYTHONUNBUFFERED=1"
+
+# Secrets loaded from external file outside the repo.
+# This file is NEVER wiped by git pull / deploy.
+# Create once with:
+#   sudo mkdir -p /etc/amarktai
+#   sudo cp deployment/etc-amarktai-env.template /etc/amarktai/amarktai.env
+#   sudo chmod 600 /etc/amarktai/amarktai.env
+#   sudo chown www-data:www-data /etc/amarktai/amarktai.env
 EnvironmentFile=/etc/amarktai/amarktai.env
-ExecStart=/var/amarktai/app/Amarktai-Network---Deployment/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000 --log-config /var/amarktai/app/Amarktai-Network---Deployment/backend/logger_config.py
-Restart=always
+
+ExecStart=/var/amarktai/app/backend/.venv/bin/uvicorn server:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+
+# Restart policy – backs off on repeated crashes
+Restart=on-failure
 RestartSec=10
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Logging
 StandardOutput=append:/var/log/amarktai/backend.log
 StandardError=append:/var/log/amarktai/backend.log
 SyslogIdentifier=amarktai-api
@@ -21,6 +62,10 @@ SyslogIdentifier=amarktai-api
 # Resource limits
 MemoryMax=2G
 CPUQuota=150%
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target

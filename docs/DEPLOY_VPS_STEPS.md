@@ -36,8 +36,8 @@ su - amarktai
 
 ```bash
 cd /home/amarktai
-git clone https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment.git
-cd Amarktai-Network---Deployment
+git clone https://github.com/amarktainetwork-blip/Amarktai-Crypto.git
+cd Amarktai-Crypto
 ```
 
 ---
@@ -111,10 +111,10 @@ After=network.target mongodb.service
 Type=notify
 User=amarktai
 Group=amarktai
-WorkingDirectory=/home/amarktai/Amarktai-Network---Deployment/backend
-Environment="PATH=/home/amarktai/Amarktai-Network---Deployment/backend/venv/bin"
-EnvironmentFile=/home/amarktai/Amarktai-Network---Deployment/backend/.env
-ExecStart=/home/amarktai/Amarktai-Network---Deployment/backend/venv/bin/gunicorn server:app \
+WorkingDirectory=/home/amarktai/Amarktai-Crypto/backend
+Environment="PATH=/home/amarktai/Amarktai-Crypto/backend/venv/bin"
+EnvironmentFile=/home/amarktai/Amarktai-Crypto/backend/.env
+ExecStart=/home/amarktai/Amarktai-Crypto/backend/venv/bin/gunicorn server:app \
   --workers 4 \
   --worker-class uvicorn.workers.UvicornWorker \
   --bind 127.0.0.1:8000 \
@@ -154,7 +154,7 @@ sudo systemctl status amarktai-backend
 
 ### 4.1 Install Dependencies
 ```bash
-cd /home/amarktai/Amarktai-Network---Deployment/frontend
+cd /home/amarktai/Amarktai-Crypto/frontend
 npm install
 ```
 
@@ -184,7 +184,7 @@ server {
     # return 301 https://$server_name$request_uri;
     
     # Frontend (React build)
-    root /home/amarktai/Amarktai-Network---Deployment/frontend/build;
+    root /home/amarktai/Amarktai-Crypto/frontend/build;
     index index.html;
     
     # Serve static files
@@ -433,7 +433,7 @@ In dashboard, go to API Setup and add:
 
 ### 11.1 Update Application
 ```bash
-cd /home/amarktai/Amarktai-Network---Deployment
+cd /home/amarktai/Amarktai-Crypto
 git pull origin main
 
 # Backend
@@ -496,10 +496,10 @@ sudo journalctl -u amarktai-backend -n 50
 sudo netstat -tulpn | grep 8000
 
 # Check permissions
-ls -la /home/amarktai/Amarktai-Network---Deployment/backend/.env
+ls -la /home/amarktai/Amarktai-Crypto/backend/.env
 
 # Test manually
-cd /home/amarktai/Amarktai-Network---Deployment/backend
+cd /home/amarktai/Amarktai-Crypto/backend
 source venv/bin/activate
 uvicorn server:app --host 127.0.0.1 --port 8000
 ```
@@ -510,10 +510,10 @@ uvicorn server:app --host 127.0.0.1 --port 8000
 sudo nginx -t
 
 # Check build exists
-ls -la /home/amarktai/Amarktai-Network---Deployment/frontend/build/
+ls -la /home/amarktai/Amarktai-Crypto/frontend/build/
 
 # Check permissions
-sudo chown -R amarktai:amarktai /home/amarktai/Amarktai-Network---Deployment
+sudo chown -R amarktai:amarktai /home/amarktai/Amarktai-Crypto
 ```
 
 ### Database Connection Issues
@@ -589,7 +589,7 @@ worker_processes auto;
 
 ## Support
 
-- Documentation: `/home/amarktai/Amarktai-Network---Deployment/docs/`
+- Documentation: `/home/amarktai/Amarktai-Crypto/docs/`
 - Gap Report: `docs/reports/FINAL_GO_LIVE_GAP_REPORT.md`
 - Backend logs: `/home/amarktai/logs/`
 - System logs: `sudo journalctl -u amarktai-backend`

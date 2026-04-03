@@ -88,18 +88,18 @@ All assertions should pass with new enum values.
 mongodump --uri="mongodb://localhost:27017/amarktai" --out=/backup/$(date +%Y%m%d-%H%M%S)
 
 # 2. Pull latest code
-cd /var/www/amarktai
+cd /var/amarktai/app
 sudo -u www-data git pull origin copilot/fix-api-key-management-issues
 
 # 3. Fix ownership
-sudo chown -R www-data:www-data /var/www/amarktai
+sudo chown -R www-data:www-data /var/amarktai/app
 
 # 4. Install dependencies (if needed)
 cd backend && sudo -u www-data pip install -r requirements.txt
 cd ../frontend && sudo -u www-data npm install
 
 # 5. Build frontend
-cd /var/www/amarktai/frontend
+cd /var/amarktai/app/frontend
 sudo -u www-data npm run build
 
 # 6. Restart backend
@@ -115,7 +115,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ## Rollback (If Needed)
 
 ```bash
-cd /var/www/amarktai
+cd /var/amarktai/app
 sudo -u www-data git checkout main  # or previous working commit
 cd frontend && sudo -u www-data npm run build
 sudo systemctl restart amarktai-backend

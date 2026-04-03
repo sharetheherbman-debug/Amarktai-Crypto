@@ -249,7 +249,7 @@ sudo systemctl restart amarktai-api.service
 
 # Frontend
 # Copy build/ directory to web server
-rsync -av frontend/build/ user@server:/var/www/amarktai/
+rsync -av frontend/build/ user@server:/var/amarktai/app/frontend/build/
 sudo systemctl reload nginx
 ```
 

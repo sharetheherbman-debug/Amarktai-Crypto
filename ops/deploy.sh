@@ -25,10 +25,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # ── Configurable paths ───────────────────────────────────────────────────────
-FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/www/amarktai}"
-ENV_FILE="${ENV_FILE:-/etc/amarktai/backend.env}"
+# Nginx serves directly from the build output directory.  No rsync drift.
+FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/frontend/build}"
+ENV_FILE="${ENV_FILE:-/etc/amarktai/amarktai.env}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-amarktai-api}"
-VENV_PATH="${VENV_PATH:-/var/amarktai/venv}"
+VENV_PATH="${VENV_PATH:-/var/amarktai/app/backend/.venv}"
 BACKEND_DIR="${BACKEND_DIR:-$REPO_ROOT/backend}"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 
@@ -106,19 +107,26 @@ if [[ "$SKIP_FRONTEND" == "false" ]]; then
   echo "$BUILD_SHA" > "$FRONTEND_DIR/build/BUILD_SHA.txt"
   echo "$BUILD_DATE" > "$FRONTEND_DIR/build/BUILD_DATE.txt"
 
-  # Backup existing web root
-  if [[ -d "$FRONTEND_WEBROOT" ]]; then
-    BACKUP="${FRONTEND_WEBROOT}_backup_$(date +%Y%m%d_%H%M%S)"
-    info "Backing up current web root to $BACKUP"
-    sudo cp -r "$FRONTEND_WEBROOT" "$BACKUP"
-    ok "Web root backed up"
+  # Nginx reads directly from the build output directory.
+  # If FRONTEND_WEBROOT is different from the build output (legacy / custom
+  # override), rsync the build there.  Otherwise just fix ownership.
+  if [[ "$FRONTEND_WEBROOT" != "$FRONTEND_DIR/build" ]]; then
+    # Legacy / custom webroot – sync build output
+    if [[ -d "$FRONTEND_WEBROOT" ]]; then
+      BACKUP="${FRONTEND_WEBROOT}_backup_$(date +%Y%m%d_%H%M%S)"
+      info "Backing up current web root to $BACKUP"
+      sudo cp -r "$FRONTEND_WEBROOT" "$BACKUP"
+      ok "Web root backed up"
+    fi
+    sudo mkdir -p "$FRONTEND_WEBROOT"
+    sudo rsync -a --delete "$FRONTEND_DIR/build/" "$FRONTEND_WEBROOT/"
+    sudo chown -R www-data:www-data "$FRONTEND_WEBROOT"
+    ok "Frontend deployed to $FRONTEND_WEBROOT"
+  else
+    # Canonical path – nginx reads build/ directly, just fix ownership
+    sudo chown -R www-data:www-data "$FRONTEND_DIR/build"
+    ok "Frontend build ready at $FRONTEND_DIR/build"
   fi
-
-  # Sync to web root
-  sudo mkdir -p "$FRONTEND_WEBROOT"
-  sudo rsync -a --delete "$FRONTEND_DIR/build/" "$FRONTEND_WEBROOT/"
-  sudo chown -R www-data:www-data "$FRONTEND_WEBROOT"
-  ok "Frontend deployed to $FRONTEND_WEBROOT"
 
   # Reload nginx
   if sudo nginx -t 2>/dev/null; then
