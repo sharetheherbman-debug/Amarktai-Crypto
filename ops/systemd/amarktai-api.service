@@ -11,7 +11,7 @@ Group=www-data
 WorkingDirectory=/var/amarktai/app/backend
 
 # Python virtual environment
-Environment="PATH=/var/amarktai/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=/var/amarktai/app/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONDONTWRITEBYTECODE=1"
 Environment="PYTHONUNBUFFERED=1"
 
@@ -20,14 +20,14 @@ Environment="PYTHONUNBUFFERED=1"
 # This file is NEVER wiped by git pull / rsync during deployment.
 # Create it once with:
 #   sudo mkdir -p /etc/amarktai
-#   sudo cp deployment/etc-amarktai-env.template /etc/amarktai/backend.env
-#   sudo chmod 600 /etc/amarktai/backend.env
-#   sudo chown www-data:www-data /etc/amarktai/backend.env
+#   sudo cp deployment/etc-amarktai-env.template /etc/amarktai/amarktai.env
+#   sudo chmod 600 /etc/amarktai/amarktai.env
+#   sudo chown www-data:www-data /etc/amarktai/amarktai.env
 # ─────────────────────────────────────────────────────────────────────────────
-EnvironmentFile=/etc/amarktai/backend.env
+EnvironmentFile=/etc/amarktai/amarktai.env
 
 # Start command
-ExecStart=/var/amarktai/venv/bin/uvicorn server:app \
+ExecStart=/var/amarktai/app/backend/.venv/bin/uvicorn server:app \
     --host 127.0.0.1 \
     --port 8000 \
     --workers 1 \

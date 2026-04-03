@@ -5,17 +5,17 @@ Wants=amarktai-api.service
 
 [Service]
 Type=simple
-User=amarktai
-Group=amarktai
-WorkingDirectory=/opt/amarktai
+User=www-data
+Group=www-data
+WorkingDirectory=/var/amarktai/app
 Environment="API_URL=http://127.0.0.1:8000"
 Environment="LOG_FILE=/var/log/amarktai/backend.log"
 Environment="ALERT_EMAIL=amarktainetwork@gmail.com"
 Environment="HEALTH_CHECK_INTERVAL=300"
-EnvironmentFile=/opt/amarktai/.env
+EnvironmentFile=/etc/amarktai/amarktai.env
 
 # Run health monitor in daemon mode
-ExecStart=/opt/amarktai/venv/bin/python3 /opt/amarktai/scripts/health_monitor.py daemon
+ExecStart=/var/amarktai/app/backend/.venv/bin/python3 /var/amarktai/app/scripts/health_monitor.py daemon
 
 # Restart on failure
 Restart=always

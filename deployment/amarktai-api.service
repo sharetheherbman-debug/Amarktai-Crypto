@@ -8,17 +8,23 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/var/amarktai/app/backend
-Environment="PATH=/var/amarktai/app/backend/.venv/bin"
-EnvironmentFile=/var/amarktai/app/backend/.env
+Environment="PATH=/var/amarktai/app/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/etc/amarktai/amarktai.env
 ExecStart=/var/amarktai/app/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
-Restart=always
+Restart=on-failure
 RestartSec=10
-StandardOutput=journal
-StandardError=journal
+StartLimitIntervalSec=120
+StartLimitBurst=5
+StandardOutput=append:/var/log/amarktai/backend.log
+StandardError=append:/var/log/amarktai/backend.log
 SyslogIdentifier=amarktai-api
 
 # Security
 PrivateNetwork=false
+NoNewPrivileges=yes
+PrivateTmp=yes
 
 # Resource Limits
 MemoryMax=2G
