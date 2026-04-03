@@ -61,10 +61,19 @@ info "Stopping $BACKEND_SERVICE..."
 sudo systemctl stop "$BACKEND_SERVICE" 2>/dev/null || warn "Service not running"
 
 # ── 2. Restore env file ───────────────────────────────────────────────────────
+# Support both new (amarktai.env) and old (backend.env) backup filenames
+BACKUP_ENV_FILE=""
 if [[ -f "$BACKUP_DIR/amarktai.env" ]]; then
+  BACKUP_ENV_FILE="$BACKUP_DIR/amarktai.env"
+elif [[ -f "$BACKUP_DIR/backend.env" ]]; then
+  BACKUP_ENV_FILE="$BACKUP_DIR/backend.env"
+  warn "Using legacy backup filename: backend.env"
+fi
+
+if [[ -n "$BACKUP_ENV_FILE" ]]; then
   info "Restoring env file..."
   sudo mkdir -p "$(dirname "$ENV_FILE")"
-  sudo cp "$BACKUP_DIR/amarktai.env" "$ENV_FILE"
+  sudo cp "$BACKUP_ENV_FILE" "$ENV_FILE"
   sudo chmod 600 "$ENV_FILE"
   ok "Env file restored: $ENV_FILE"
 else
