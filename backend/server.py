@@ -169,6 +169,26 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Startup queue/runtime cleanup completed")
         except Exception as cleanup_error:
             logger.warning(f"⚠️ Startup queue cleanup failed (non-fatal): {cleanup_error}")
+
+        # ========================================================================
+        # STEP 1.8: API key encryption migration (old JWT-derived → AMARKTAI_FERNET_KEY)
+        # ========================================================================
+        try:
+            new_key = os.getenv("AMARKTAI_FERNET_KEY") or os.getenv("FERNET_KEY")
+            if new_key:
+                from utils.key_migration import migrate_all_keys
+                migration_result = await migrate_all_keys()
+                migrated = migration_result.get("total_migrated", 0)
+                skipped = migration_result.get("total_skipped", 0)
+                failed = migration_result.get("total_failed", 0)
+                if migrated > 0:
+                    logger.info(f"✅ Key migration: {migrated} migrated, {skipped} skipped, {failed} failed")
+                elif skipped > 0:
+                    logger.debug(f"Key migration: all {skipped} keys already on current encryption")
+            else:
+                logger.debug("Key migration skipped: AMARKTAI_FERNET_KEY not set")
+        except Exception as migration_error:
+            logger.warning(f"⚠️ Key encryption migration failed (non-fatal): {migration_error}")
             
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)
