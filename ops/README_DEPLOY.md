@@ -5,6 +5,19 @@
 
 ---
 
+## ⚠️ numpy Constraint – DO NOT IGNORE
+
+`numpy` is pinned to `1.x` (==1.26.4). Do **not** upgrade to numpy 2.x.
+
+- `langchain-chroma==0.1.4` requires `numpy<2.0.0`
+- `pandas-ta==0.3.14b0` requires numpy 1.x (pre-dates numpy 2)
+- Upgrading numpy to >=2.0 causes `ResolutionImpossible` on pip install
+
+Production deploy installs from `backend/requirements.production.lock.txt`
+which has all packages at exact versions. This avoids the live-resolve conflict.
+
+---
+
 ## Canonical Paths
 
 | Resource | Path |

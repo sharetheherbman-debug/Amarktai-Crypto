@@ -1,8 +1,11 @@
 # Constraints - Version pins to prevent dependency conflicts
 # These constraints are applied across all requirement files
 
-# NumPy constraint (scipy requires <2.3)
-numpy>=1.26.0,<2.3
+# NumPy constraint
+# HARD UPPER BOUND: langchain-chroma==0.1.4 requires numpy<2.0.0.
+# pandas-ta==0.3.14b0 requires numpy 1.x (released before numpy 2 existed).
+# Raising this to >=2.0 will cause ResolutionImpossible on fresh installs.
+numpy>=1.26.0,<2.0
 
 # Transformers ecosystem constraints
 huggingface_hub>=0.23.2,<1.0

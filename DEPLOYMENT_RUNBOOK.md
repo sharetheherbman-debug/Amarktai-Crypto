@@ -210,12 +210,46 @@ This file pins every package including trading/ML packages (xgboost, river,
 optuna, pandas-ta, aioredis, web3) with no version ranges. Dev tools
 (pytest, black, flake8, mypy) are excluded.
 
-To update the lock file after `requirements.txt` changes:
+### ⚠️ Critical: numpy constraint
+
+**DO NOT upgrade numpy to >=2.0 without verifying langchain-chroma.**
+
+| Package | numpy requirement |
+|---|---|
+| `langchain-chroma==0.1.4` | `numpy<2.0.0` |
+| `pandas-ta==0.3.14b0` | works with numpy 1.x (released before numpy 2) |
+| `langchain-chroma` new versions | may support numpy 2.x — check before upgrading |
+
+`numpy` is pinned to `==1.26.4` in `requirements.production.lock.txt`.
+`pandas-ta` is pinned to `==0.3.14b0` (exact, not `>=`).
+
+If you see `ResolutionImpossible` or `resolution-too-deep` during `pip install`,
+the root cause is this conflict. **Always install from the lock file.**
+
+### Dependency file layout
+
+| File | Purpose |
+|---|---|
+| `requirements.production.lock.txt` | **Production single source of truth** – exact pins, no dev tools |
+| `requirements.core.txt` | Minimal trading API subset (no LangChain/RAG) |
+| `requirements.txt` | Full package list with version ranges (for development) |
+| `requirements/base.txt` | Core FastAPI/MongoDB/auth packages |
+| `requirements/ai.txt` | ML/LangChain/transformers (numpy<2.0 constraint) |
+| `requirements/constraints.txt` | Version constraint pins |
+| `requirements-ai.txt` | Optional Fetch.ai agents (protobuf conflicts – separate install) |
+
+### Updating the lock file after requirements.txt changes
+
 ```bash
 pip install pip-tools
 cd backend
-pip-compile --generate-hashes -o requirements.production.lock.txt requirements.txt
-# Review changes, commit, redeploy
+pip-compile --constraint requirements/constraints.txt \
+            -o requirements.production.lock.txt requirements.txt
+# Review changes carefully – watch for numpy and pandas-ta version bumps
+git add backend/requirements.production.lock.txt
+git commit -m "chore: update production lock file"
+# Then redeploy:
+sudo bash ops/redeploy_production.sh
 ```
 
 ---

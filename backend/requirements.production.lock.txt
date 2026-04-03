@@ -3,17 +3,24 @@
 # Python 3.12 / Ubuntu 24.04
 #
 # THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR PRODUCTION DEPENDENCY INSTALL.
-# Generated from requirements.lock.txt + pinned trading/ML packages.
-# Dev-only packages (pytest, black, flake8, mypy, isort, etc.) are excluded.
+# All packages are pinned to exact versions. Dev-only packages (pytest, black,
+# flake8, mypy, isort, etc.) are excluded.
 #
-# Usage:
-#   pip install --no-deps -r requirements.production.lock.txt
-# Or (with resolver for fresh env):
+# ── CRITICAL NUMPY CONSTRAINT ─────────────────────────────────────────────────
+# numpy is pinned to ==1.26.4 (numpy 1.x). DO NOT upgrade to numpy 2.x.
+# Reason: langchain-chroma==0.1.4 requires numpy<2.0.0. If numpy is >=2.0,
+# pip raises ResolutionImpossible when langchain-chroma is in the same env.
+# pandas-ta==0.3.14b0 (the only stable release) also targets numpy 1.x.
+# Newer pandas-ta pre-releases may require numpy>=2.2.6 – do NOT use them.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Usage (production deploy):
 #   pip install -r requirements.production.lock.txt
 #
 # To regenerate after requirements.txt changes:
 #   pip install pip-tools
-#   pip-compile --generate-hashes -o requirements.production.lock.txt requirements.txt
+#   pip-compile --constraint requirements/constraints.txt \
+#               -o requirements.production.lock.txt requirements.txt
 # =============================================================================
 
 # ── Core async & HTTP ──────────────────────────────────────────────────────

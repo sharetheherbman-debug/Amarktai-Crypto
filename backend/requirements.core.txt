@@ -1,0 +1,89 @@
+# =============================================================================
+# Amarktai Crypto – Core Production Requirements
+# backend/requirements.core.txt
+#
+# Minimal requirements for the trading API to start and run.
+# Excludes heavy AI/RAG stack (LangChain, ChromaDB, Transformers, HuggingFace).
+# Install this when you only need the trading backend without AI/RAG features.
+#
+# Usage:
+#   pip install -r requirements/base.txt -r requirements/trading.txt \
+#               -r requirements.core.txt
+#
+# For full production (including AI/RAG):
+#   pip install -r requirements.production.lock.txt
+# =============================================================================
+
+# ── FastAPI / Uvicorn / Starlette ─────────────────────────────────────────────
+fastapi==0.110.1
+uvicorn==0.25.0
+starlette==0.37.2
+pydantic==2.12.4
+pydantic_core==2.41.5
+python-multipart==0.0.20
+sse-starlette==3.0.3
+
+# ── MongoDB / Motor ───────────────────────────────────────────────────────────
+motor==3.3.1
+pymongo==4.5.0
+dnspython==2.8.0
+
+# ── Auth / Security ───────────────────────────────────────────────────────────
+bcrypt==4.0.1
+cryptography==46.0.3
+passlib==1.7.4
+PyJWT==2.10.1
+python-jose==3.5.0
+pyotp==2.9.0
+
+# ── Scheduler / Timezone ─────────────────────────────────────────────────────
+APScheduler==3.11.1
+pytz==2025.2
+tzdata==2025.2
+tzlocal==5.3.1
+
+# ── HTTP Clients ──────────────────────────────────────────────────────────────
+httpx==0.28.1
+aiohttp==3.13.2
+requests==2.32.5
+
+# ── Trading / Exchange ────────────────────────────────────────────────────────
+ccxt==4.5.21
+web3==6.15.1
+aioredis==2.0.1
+
+# ── Data Science (core ML – no heavy transformers/RAG) ───────────────────────
+# NUMPY 1.x CONSTRAINT: do NOT upgrade to >=2.0 while langchain-chroma
+# is in the environment. See requirements/constraints.txt for details.
+numpy==1.26.4
+pandas==2.3.3
+scipy==1.14.1
+scikit-learn==1.5.2
+hmmlearn==0.3.3
+joblib==1.5.3
+statsmodels==0.14.4
+
+# ── Trading ML ───────────────────────────────────────────────────────────────
+# Gradient-boosted tree model
+xgboost==2.1.4
+
+# Online/streaming learning
+river==0.21.2
+
+# Technical indicators
+# EXACT pin – newer pre-releases require numpy>=2.2.6 which conflicts with
+# langchain-chroma==0.1.4 (numpy<2.0). 0.3.14b0 works with numpy 1.x.
+pandas-ta==0.3.14b0
+
+# Hyperparameter optimisation
+optuna==3.6.0
+
+# ── Monitoring ────────────────────────────────────────────────────────────────
+prometheus_client==0.21.1
+psutil==7.1.3
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv==1.2.1
+certifi==2025.11.12
+cachetools==6.2.2
+click==8.3.1

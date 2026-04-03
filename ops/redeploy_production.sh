@@ -152,6 +152,10 @@ if [[ ! -f "$LOCK_FILE" ]]; then
   fail "Production lock file missing: $LOCK_FILE"
   exit 1
 fi
+# Using the locked file (not requirements.txt) eliminates live pip resolver
+# backtracking and the numpy/langchain-chroma/pandas-ta ResolutionImpossible.
+# numpy==1.26.4  satisfies: langchain-chroma==0.1.4 (numpy<2.0) AND
+#                           pandas-ta==0.3.14b0 (numpy 1.x era release).
 info "Installing from locked requirements: $LOCK_FILE"
 sudo -u www-data "$VENV/bin/pip" install --quiet -r "$LOCK_FILE"
 pass "Backend dependencies installed from locked file"
