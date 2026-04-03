@@ -13,10 +13,10 @@
 #
 # ENVIRONMENT (can be overridden)
 #   REPO_ROOT        – absolute path to repo checkout  (default: dir of this script)
-#   FRONTEND_WEBROOT – nginx static root               (default: /var/www/amarktai)
-#   ENV_FILE         – secrets env file                (default: /etc/amarktai/backend.env)
+#   FRONTEND_WEBROOT – nginx static root               (default: /var/amarktai/app/Amarktai-Crypto/frontend/build)
+#   ENV_FILE         – secrets env file                (default: /etc/amarktai/amarktai.env)
 #   BACKEND_SERVICE  – systemd service name            (default: amarktai-api)
-#   VENV_PATH        – Python venv path                (default: /var/amarktai/venv)
+#   VENV_PATH        – Python venv path                (default: /var/amarktai/app/Amarktai-Crypto/backend/.venv)
 #   BACKEND_DIR      – backend source directory        (default: $REPO_ROOT/backend)
 ###############################################################################
 set -euo pipefail
@@ -26,10 +26,10 @@ REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # ── Configurable paths ───────────────────────────────────────────────────────
 # Nginx serves directly from the build output directory.  No rsync drift.
-FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/frontend/build}"
+FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/Amarktai-Crypto/frontend/build}"
 ENV_FILE="${ENV_FILE:-/etc/amarktai/amarktai.env}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-amarktai-api}"
-VENV_PATH="${VENV_PATH:-/var/amarktai/app/backend/.venv}"
+VENV_PATH="${VENV_PATH:-/var/amarktai/app/Amarktai-Crypto/backend/.venv}"
 BACKEND_DIR="${BACKEND_DIR:-$REPO_ROOT/backend}"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 

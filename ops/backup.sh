@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 ENV_FILE="${ENV_FILE:-/etc/amarktai/backend.env}"
-FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/www/amarktai}"
+FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/Amarktai-Crypto/frontend/build}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/amarktai}"
 DB_NAME="${DB_NAME:-amarktai_trading}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

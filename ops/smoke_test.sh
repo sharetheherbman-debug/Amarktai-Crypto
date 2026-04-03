@@ -24,7 +24,7 @@ API_BASE="http://127.0.0.1:8000/api"
 NGINX_BASE="http://localhost"
 TEST_EMAIL="${SMOKE_EMAIL:-}"
 TEST_PASSWORD="${SMOKE_PASSWORD:-}"
-FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/www/amarktai}"
+FRONTEND_WEBROOT="${FRONTEND_WEBROOT:-/var/amarktai/app/Amarktai-Crypto/frontend/build}"
 
 # ── Arg parsing ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
