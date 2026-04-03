@@ -245,9 +245,9 @@ After=network.target mongodb.service
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/var/amarktai/app/frontend/build/backend
-Environment="PATH=/var/amarktai/app/frontend/build/backend/venv/bin"
-ExecStart=/var/amarktai/app/frontend/build/backend/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
+WorkingDirectory=/var/amarktai/app/backend
+Environment="PATH=/var/amarktai/app/backend/venv/bin"
+ExecStart=/var/amarktai/app/backend/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=10
 
@@ -269,7 +269,7 @@ sudo systemctl status amarktai-backend
 Update Nginx config to point to frontend build:
 
 ```nginx
-root /var/amarktai/app/frontend/build/frontend/build;
+root /var/amarktai/app/frontend/build;
 ```
 
 ### 6. Set Permissions
@@ -289,7 +289,7 @@ sudo chown www-data:www-data /var/amarktai/data/ai_memory
 Run the production smoke test script to verify deployment:
 
 ```bash
-cd /var/amarktai/app/frontend/build
+cd /var/amarktai/app
 
 # Test against production
 ./scripts/smoke_prod.sh https://amarktai.online AMARKTAI2024

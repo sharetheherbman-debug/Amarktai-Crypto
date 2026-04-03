@@ -82,7 +82,7 @@ server {
     
     # Frontend static files
     location / {
-        root /var/amarktai/app/frontend/build/frontend/build;
+        root /var/amarktai/app/frontend/build;
         try_files $uri $uri/ /index.html;
         
         # Cache static assets
