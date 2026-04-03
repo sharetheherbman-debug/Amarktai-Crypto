@@ -94,6 +94,20 @@ LIVE_SLIPPAGE_PCT=0.05
 LIVE_TIMEOUT_RISK_PCT=0.08
 
 # ============================================================================
+# LEARNING / ML FLAGS
+# ============================================================================
+# Nightly learning loop (parameter reweighting + XGBoost retraining)
+ENABLE_LEARNING_LOOP=true
+# River online learning (incremental model per trade)
+ENABLE_RIVER_LEARNING=true
+# Maximum daily loss before system pause (0.05 = 5%)
+MAX_DAILY_LOSS_PERCENT=0.05
+# Minimum closed trades before XGBoost retrain triggers
+XGB_MIN_RETRAIN_TRADES=50
+# Minimum holdout accuracy for model promotion
+XGB_MIN_ACCURACY=0.52
+
+# ============================================================================
 # DEPLOYMENT INSTRUCTIONS
 # ============================================================================
 

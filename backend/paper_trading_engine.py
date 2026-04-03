@@ -2937,6 +2937,20 @@ class PaperTradingEngine:
             except Exception as _cal_exit_err:
                 logger.debug(f"Calibration exit write failed (non-fatal): {_cal_exit_err}")
 
+            # ── River online learner hook (non-fatal) ────────────────────
+            try:
+                from services.river_learner import river_learner
+                river_features = {
+                    "rsi": float(open_trade.get("indicators", {}).get("rsi", 50)),
+                    "macd_hist": float(open_trade.get("indicators", {}).get("macd_hist", 0)),
+                    "atr_pct": float(open_trade.get("indicators", {}).get("atr", 0)) / max(entry_price, 1) * 100,
+                    "close_vs_sma20": float(open_trade.get("indicators", {}).get("close_vs_sma20", 0)),
+                    "volume_ratio": 1.0,
+                }
+                await river_learner.record_outcome(river_features, net_profit)
+            except Exception as _river_err:
+                logger.debug(f"River online learner hook failed (non-fatal): {_river_err}")
+
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
                 f"{profit_pct:+.2f}% = R{net_profit:+.2f} (fees: R{fees:.2f})"

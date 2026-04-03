@@ -65,6 +65,22 @@ class LearningLoop:
                 await self._run_for_user(user.get("id"), dry_run=dry_run)
             self.last_run = datetime.now(timezone.utc)
             logger.info("📚 Learning loop complete")
+
+            # ── XGBoost retraining (non-fatal) ────────────────────────────
+            try:
+                from scripts.retrain_xgboost import main as retrain_main
+                retrain_result = await retrain_main(dry_run=dry_run)
+                logger.info("🧠 XGBoost retrain: %s", retrain_result)
+                # Reload the global predictor so new model is used immediately
+                if not dry_run:
+                    try:
+                        from ml_predictor import ml_predictor
+                        ml_predictor._load_model()
+                    except Exception:
+                        pass
+            except Exception as xgb_err:
+                logger.warning("XGBoost retrain skipped: %s", xgb_err)
+
             try:
                 from services.autonomy_heartbeat import heartbeat_registry
                 heartbeat_registry.mark_ok("learning_loop")

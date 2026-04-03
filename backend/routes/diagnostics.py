@@ -3201,3 +3201,169 @@ async def get_self_learning_recommendations(request: Request):
     except Exception as exc:
         logger.error("self-learning error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# KEY / CREDENTIAL DIAGNOSTICS
+# ============================================================================
+
+EXCHANGE_PROVIDERS = ["luno", "binance", "kucoin", "bybit", "bitget", "kraken", "gate"]
+
+
+@router.get("/key-health")
+async def key_health_diagnostic(user_id: str = Depends(get_current_user)):
+    """Per-provider credential health: source, configured, decryptable,
+    last_test_ok, usable_for_trading."""
+    from routes.api_key_management import decrypt_api_key
+    from cryptography.fernet import Fernet, InvalidToken
+
+    results = []
+    for provider in EXCHANGE_PROVIDERS:
+        doc = await db.api_keys_collection.find_one(
+            {"user_id": user_id, "provider": provider}
+        )
+        entry: Dict = {
+            "provider": provider,
+            "source": "none",
+            "configured": False,
+            "decryptable": False,
+            "last_test_ok": None,
+            "usable_for_trading": False,
+        }
+
+        if doc:
+            entry["source"] = "database"
+            entry["configured"] = bool(doc.get("api_key_encrypted"))
+            # Try decryption
+            try:
+                raw = doc.get("api_key_encrypted", "")
+                if raw:
+                    plaintext = decrypt_api_key(raw)
+                    # If decrypt_api_key returns the raw token unchanged,
+                    # it means decryption failed and it fell back to plaintext.
+                    # Fernet tokens always start with 'gAAAAA'.
+                    if raw.startswith("gAAAAA") and plaintext != raw:
+                        entry["decryptable"] = True
+                    elif not raw.startswith("gAAAAA"):
+                        # Stored as plaintext
+                        entry["decryptable"] = True
+                    else:
+                        entry["decryptable"] = False
+            except Exception:
+                entry["decryptable"] = False
+
+            entry["last_test_ok"] = doc.get("status") == "active" or doc.get("last_test_ok", False)
+            entry["usable_for_trading"] = entry["configured"] and entry["decryptable"]
+
+        # Env fallback check
+        env_key = os.getenv(f"{provider.upper()}_API_KEY")
+        if env_key and not entry["configured"]:
+            entry["source"] = "env"
+            entry["configured"] = True
+            entry["decryptable"] = True  # env keys are plaintext
+
+        results.append(entry)
+
+    # Encryption key status
+    fernet_source = "none"
+    fernet_ok = False
+    if os.getenv("AMARKTAI_FERNET_KEY"):
+        fernet_source = "AMARKTAI_FERNET_KEY"
+        fernet_ok = True
+    elif os.getenv("FERNET_KEY"):
+        fernet_source = "FERNET_KEY"
+        fernet_ok = True
+
+    return {
+        "providers": results,
+        "encryption_key_source": fernet_source,
+        "encryption_key_valid": fernet_ok,
+        "migration_available": bool(os.getenv("JWT_SECRET")),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ============================================================================
+# ML / LEARNING DIAGNOSTICS
+# ============================================================================
+
+
+@router.get("/ml-health")
+async def ml_health_diagnostic(user_id: str = Depends(get_current_user)):
+    """Comprehensive ML/learning system diagnostics."""
+    from pathlib import Path
+    import json as _json
+
+    model_dir = Path(__file__).resolve().parent.parent / "models"
+    model_path = model_dir / "xgb_predictor.json"
+    meta_path = model_dir / "xgb_predictor_meta.json"
+
+    # XGBoost status
+    xgb_ready = model_path.exists()
+    xgb_meta = {}
+    if meta_path.exists():
+        try:
+            xgb_meta = _json.loads(meta_path.read_text())
+        except Exception:
+            pass
+
+    # River status
+    river_diag = {}
+    try:
+        from services.river_learner import river_learner
+        river_diag = river_learner.get_diagnostics()
+    except Exception:
+        river_diag = {"river_active": False, "river_installed": False}
+
+    # Optuna status
+    optuna_available = False
+    try:
+        import optuna  # noqa: F401
+        optuna_available = True
+    except ImportError:
+        pass
+
+    # Learning loop last run
+    last_run_doc = await db.learning_runs_collection.find_one(
+        {"user_id": user_id},
+        sort=[("completed_at", -1)],
+    )
+    last_retrain = xgb_meta.get("trained_at")
+
+    # Count available training data
+    trade_count = await db.trades_collection.count_documents(
+        {"user_id": user_id, "status": "closed"}
+    )
+    min_retrain_trades = int(os.getenv("XGB_MIN_RETRAIN_TRADES", "50"))
+
+    return {
+        "xgboost": {
+            "ready": xgb_ready,
+            "model_present": xgb_ready,
+            "model_path": str(model_path),
+            "holdout_accuracy": xgb_meta.get("holdout_accuracy"),
+            "last_retrain": last_retrain,
+            "n_features": xgb_meta.get("n_features"),
+        },
+        "river": river_diag,
+        "optuna": {
+            "active": optuna_available,
+            "installed": optuna_available,
+            "used_in_retraining": optuna_available,
+        },
+        "learning_loop": {
+            "enabled": os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true",
+            "last_run": {
+                "run_id": last_run_doc.get("run_id") if last_run_doc else None,
+                "status": last_run_doc.get("status") if last_run_doc else None,
+                "completed_at": last_run_doc.get("completed_at") if last_run_doc else None,
+                "trades_analyzed": last_run_doc.get("trades_analyzed") if last_run_doc else None,
+            } if last_run_doc else None,
+        },
+        "data": {
+            "closed_trades": trade_count,
+            "min_retrain_trades": min_retrain_trades,
+            "sufficient_for_retrain": trade_count >= min_retrain_trades,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

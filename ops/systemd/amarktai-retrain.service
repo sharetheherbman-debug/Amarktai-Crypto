@@ -1,0 +1,14 @@
+[Unit]
+Description=Amarktai XGBoost Nightly Retrain Job
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+EnvironmentFile=/etc/amarktai/amarktai.env
+WorkingDirectory=/var/amarktai/app/Amarktai-Crypto/backend
+ExecStart=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/python -m scripts.retrain_xgboost
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
