@@ -55,7 +55,7 @@ class RiverLearner:
         self._scaler = preprocessing.StandardScaler()
         self._model = compose.Pipeline(
             self._scaler,
-            linear_model.LogisticRegression(optimizer=None)  # SGD default
+            linear_model.LogisticRegression()  # uses default SGD optimizer
         )
         self._metric = river_metrics.Accuracy()
         self._samples_seen = 0

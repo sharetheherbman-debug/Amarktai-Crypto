@@ -3239,16 +3239,9 @@ async def key_health_diagnostic(user_id: str = Depends(get_current_user)):
                 raw = doc.get("api_key_encrypted", "")
                 if raw:
                     plaintext = decrypt_api_key(raw)
-                    # If decrypt_api_key returns the raw token unchanged,
-                    # it means decryption failed and it fell back to plaintext.
-                    # Fernet tokens always start with 'gAAAAA'.
-                    if raw.startswith("gAAAAA") and plaintext != raw:
-                        entry["decryptable"] = True
-                    elif not raw.startswith("gAAAAA"):
-                        # Stored as plaintext
-                        entry["decryptable"] = True
-                    else:
-                        entry["decryptable"] = False
+                    # If decrypt_api_key returns the raw token unchanged and it
+                    # looks like a Fernet token, decryption failed silently.
+                    entry["decryptable"] = not (raw.startswith("gAAAAA") and plaintext == raw)
             except Exception:
                 entry["decryptable"] = False
 

@@ -248,10 +248,10 @@ def train_model(
 def safe_swap_model(clf, holdout_acc: float, dry_run: bool = False) -> str:
     """Atomically swap the model file. Returns the path written to."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
     # Backup existing model
     if MODEL_PATH.exists() and not dry_run:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         backup_name = f"xgb_predictor_{ts}.json"
         shutil.copy2(MODEL_PATH, BACKUP_DIR / backup_name)
@@ -314,7 +314,7 @@ if __name__ == "__main__":
     parser.add_argument("--bootstrap", action="store_true", help="Train on synthetic data")
     args = parser.parse_args()
 
-    # Ensure backend is on path
+    # Ensure backend is on path when run directly (not needed for python -m)
     backend_dir = Path(__file__).resolve().parent.parent
     if str(backend_dir) not in sys.path:
         sys.path.insert(0, str(backend_dir))
