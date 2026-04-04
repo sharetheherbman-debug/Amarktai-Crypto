@@ -828,7 +828,7 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         return record
 
     # Prefix bot names by type for easy identification in the fleet view
-    name_prefix = 'Scalper' if bot_type == 'scalper' else 'Bot'
+    name_prefix = 'Scalper' if bot_type == 'scalper' else 'Normal'
 
     bots_to_create = []
     bot_number = await db.bots_collection.count_documents({"user_id": user_id}) + 1

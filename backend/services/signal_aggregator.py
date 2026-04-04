@@ -297,15 +297,13 @@ class SignalAggregator:
         except Exception:
             logger.debug("Funding rate skipped for %s", symbol, exc_info=True)
 
-        # -- 8. Hurst exponent (regime filter, non-fatal) ----------------
+        # -- 8. Hurst exponent (regime metadata, non-fatal) ----------------
         hurst_result: dict = {"hurst": 0.5, "regime": "unknown", "allowed": True}
-        hurst_allowed = True
         try:
             from services.hurst_filter import hurst_filter as _hf
             # We need recent close prices; they are not passed in here, so we
             # return the hurst metadata in the result and leave the allow/block
             # decision to the caller (paper_trading_engine) which has OHLCV data.
-            # hurst_allowed stays True here — this is informational only.
             hurst_result["note"] = "prices required from caller"
         except Exception:
             pass
