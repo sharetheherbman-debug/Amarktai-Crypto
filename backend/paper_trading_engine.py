@@ -1158,6 +1158,30 @@ class PaperTradingEngine:
                     prediction["signal_aggregator"] = _agg
             except Exception as _agg_err:
                 logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
+
+            # 3c. HURST EXPONENT FILTER: block entries when market memory doesn't
+            # match bot strategy (random-walk for trend bots, trending for scalpers).
+            try:
+                from ml_predictor import fetch_ohlcv as _fetch_ohlcv_hurst
+                from services.hurst_filter import hurst_filter as _hf
+                _ohlcv_h = await asyncio.get_event_loop().run_in_executor(
+                    None, _fetch_ohlcv_hurst, symbol, "1h", 100, exchange
+                )
+                if _ohlcv_h is not None and len(_ohlcv_h) >= 50:
+                    _close_h = [float(c[4]) for c in _ohlcv_h]
+                    _bt_h = str(bot_data.get("bot_type") or "normal").lower()
+                    _hurst_ok, _hurst_detail = _hf.should_enter(_close_h, _bt_h)
+                    if not _hurst_ok:
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "hurst_regime_mismatch",
+                            "error": _hurst_detail.get("reason", "Hurst regime mismatch"),
+                            "details": _hurst_detail,
+                        }
+                    prediction["hurst"] = _hurst_detail
+            except Exception as _hurst_err:
+                logger.debug("Hurst filter skipped (non-fatal): %s", _hurst_err)
             
             # 4. AI INTELLIGENCE: CoinStats derived from aggregated signals
             _cs_strength = 0
@@ -3324,6 +3348,23 @@ class PaperTradingEngine:
                 await rt_events.trade_closed(bot_data['user_id'], trade_doc)
             except Exception as e:
                 logger.warning(f"Realtime trade broadcast failed: {e}")
+
+            # River online learner hook — update per-user model with trade outcome.
+            try:
+                from services.river_learner import river_learner
+                _river_features = {
+                    k: trade_result.get(k, 0.0)
+                    for k in ("rsi", "macd", "macd_hist", "atr", "bb_upper", "bb_lower",
+                              "vwap", "close_vs_sma20", "volume", "confidence")
+                    if trade_result.get(k) is not None
+                }
+                river_learner.record_outcome(
+                    user_id=bot_data["user_id"],
+                    features=_river_features,
+                    net_profit=float(trade_result.get("profit_loss", 0)),
+                )
+            except Exception as _re:
+                logger.debug("River learner update skipped: %s", _re)
             
             return {
                 "bot_id": bot_id,

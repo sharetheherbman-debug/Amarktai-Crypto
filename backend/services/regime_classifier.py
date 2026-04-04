@@ -37,10 +37,12 @@ _REGIME_ALIAS_MAP = {
 }
 
 _STRATEGY_ALLOWED_REGIMES = {
-    # Scalpers thrive in quiet/sideways markets where price is range-bound.
-    # They are blocked in trending, breakout, and high-volatility regimes
-    # where momentum would overwhelm the tight microstructure edge scalpers rely on.
-    "scalper": {"consolidation", "low_volatility", "mean_reversion"},
+    # Scalpers thrive in quiet/sideways consolidating markets where price is range-bound.
+    # They are blocked in trending, breakout, and high-volatility regimes where momentum
+    # overwhelms the tight microstructure edge scalpers rely on.
+    # low_volatility is also blocked: extremely flat markets produce sub-spread moves
+    # that cannot cover round-trip costs, making scalper entries economically infeasible.
+    "scalper": {"consolidation", "mean_reversion"},
     "normal": {"trending_up", "trending_down", "consolidation", "mean_reversion", "breakout", "low_volatility"},
 }
 

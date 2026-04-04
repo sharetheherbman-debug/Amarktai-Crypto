@@ -274,6 +274,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Live Position Monitor: {e}")
 
+    # Start live USDT/ZAR rate updater — keeps FX conversions accurate.
+    # Uses USD/ZAR from fiat_fx_provider as a USDT proxy (USDT ≈ 1 USD).
+    # Refreshes every 15 minutes; falls back silently to env/static fallback.
+    try:
+        async def _usdt_zar_updater():
+            while True:
+                try:
+                    from services.fiat_fx_provider import get_zar_per_unit as _gzpu
+                    from services.fx_normalizer import update_fx_rate as _ufx
+                    rate, source = _gzpu("USD")
+                    if rate and rate > 0:
+                        _ufx(rate, f"fiat_proxy_{source}")
+                        logger.debug("USDT/ZAR rate updated: %.4f from %s", rate, source)
+                except Exception as _ue:
+                    logger.debug("USDT/ZAR updater skipped: %s", _ue)
+                await asyncio.sleep(900)  # 15-minute refresh
+
+        asyncio.create_task(_usdt_zar_updater())
+        logger.info("💱 Live USDT/ZAR rate updater started (15-min refresh via fiat_fx_provider)")
+    except Exception as e:
+        logger.warning(f"Could not start USDT/ZAR updater: {e}")
+
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint
@@ -712,11 +734,21 @@ async def spawn_bot_now(
 
 @api_router.post("/bots/batch-create")
 async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)):
-    """Batch create bots with distribution - enforces bot caps and profit gating"""
+    """Batch create bots with distribution - enforces bot caps and profit gating.
+
+    Supports both normal and scalper bot types via the 'bot_type' field.
+    For scalper bots: safe_count/risky_count/aggressive_count map to
+    conservative/balanced/aggressive risk profiles; profit_routing is forwarded.
+    """
     from uuid import uuid4
     from rules import check_bot_cap_limit, validate_exchange, get_reason_message
     from json_utils import serialize_list
     from services.fx_normalizer import resolve_capital_for_exchange
+
+    # Accepted bot_type values: 'normal' (default) or 'scalper'
+    bot_type = str(data.get('bot_type', 'normal')).lower()
+    if bot_type not in ('normal', 'scalper'):
+        bot_type = 'normal'
 
     count = data.get('count', 10)
     # capital_per_bot is ALWAYS interpreted as a ZAR economic base — identical to the
@@ -727,7 +759,11 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     risky_count = data.get('risky_count', 2)
     aggressive_count = data.get('aggressive_count', 2)
     exchange = data.get('exchange', 'luno').lower()
-    
+    # Profit routing for scalper bots (ignored for normal bots)
+    profit_routing = str(data.get('profit_routing', 'RETURN_TO_MAIN')).upper()
+    if profit_routing not in ('RETURN_TO_MAIN', 'SCALPER_GROWTH'):
+        profit_routing = 'RETURN_TO_MAIN'
+
     # Validate exchange
     is_valid, reason_code = validate_exchange(exchange)
     if not is_valid:
@@ -741,27 +777,26 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         capital_per_bot, exchange
     )
 
-    # Check bot cap for this exchange — only count normal bots (scalpers have separate caps)
+    total_bots_requested = safe_count + risky_count + aggressive_count
+
+    # Check bot cap — normal and scalper bots have separate caps
     current_bot_count = await db.bots_collection.count_documents({
         "user_id": user_id,
         "exchange": exchange,
-        "bot_type": "normal",  # count only normal bots — scalpers have separate caps
-        "status": {"$ne": "deleted"}  # Don't count deleted bots
+        "bot_type": bot_type,
+        "status": {"$ne": "deleted"}
     })
 
-    total_bots_requested = safe_count + risky_count + aggressive_count
-
-    # Check if adding these bots would exceed the cap (normal bot cap only)
-    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id, bot_type='normal')
+    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id, bot_type=bot_type)
     if not can_create:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}"
         )
 
     def _make_bot_record(name: str, risk_mode) -> dict:
         """Return a single bot dict with authoritative canonical capital fields."""
-        return {
+        record = {
             'id': str(uuid4()),
             'user_id': user_id,
             'name': name,
@@ -785,22 +820,29 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
             'trades_count': 0,
             'created_at': datetime.now(timezone.utc).isoformat(),
             'last_trade': None,
-            'bot_type': 'normal',
+            'bot_type': bot_type,
+            'strategy_preset': 'scalping' if bot_type == 'scalper' else 'adaptive',
         }
+        if bot_type == 'scalper':
+            record['profit_routing'] = profit_routing
+        return record
+
+    # Prefix bot names by type for easy identification in the fleet view
+    name_prefix = 'Scalper' if bot_type == 'scalper' else 'Normal'
 
     bots_to_create = []
     bot_number = await db.bots_collection.count_documents({"user_id": user_id}) + 1
 
     for i in range(safe_count):
-        bots_to_create.append(_make_bot_record(f'Safe-Bot-{bot_number + i}', BotRiskMode.SAFE))
+        bots_to_create.append(_make_bot_record(f'Safe-{name_prefix}-{bot_number + i}', BotRiskMode.SAFE))
     bot_number += safe_count
 
     for i in range(risky_count):
-        bots_to_create.append(_make_bot_record(f'Balanced-Bot-{bot_number + i}', BotRiskMode.BALANCED))
+        bots_to_create.append(_make_bot_record(f'Balanced-{name_prefix}-{bot_number + i}', BotRiskMode.BALANCED))
     bot_number += risky_count
 
     for i in range(aggressive_count):
-        bots_to_create.append(_make_bot_record(f'Aggressive-Bot-{bot_number + i}', BotRiskMode.AGGRESSIVE))
+        bots_to_create.append(_make_bot_record(f'Aggressive-{name_prefix}-{bot_number + i}', BotRiskMode.AGGRESSIVE))
 
     if bots_to_create:
         try:

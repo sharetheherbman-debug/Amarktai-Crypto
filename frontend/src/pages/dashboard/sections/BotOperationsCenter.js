@@ -29,6 +29,7 @@ export default function BotOperationsCenter({
   axiosConfig,
   bots,
   botManagementTab,
+  handleBulkCreateBots,
   handleCreateBot,
   handleCreateScalperBot,
   handleCreateUAgent,
@@ -151,6 +152,7 @@ export default function BotOperationsCenter({
         <BotManagementSection
           axiosConfig={axiosConfig}
           botManagementTab={botManagementTab}
+          handleBulkCreateBots={handleBulkCreateBots}
           handleCreateBot={handleCreateBot}
           handleCreateScalperBot={handleCreateScalperBot}
           handleCreateUAgent={handleCreateUAgent}

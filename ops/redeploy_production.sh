@@ -182,6 +182,19 @@ fi
 cp "$UNIT_SRC" "$SYSTEMD_UNIT"
 pass "Systemd unit installed: $SYSTEMD_UNIT"
 
+# Install nightly XGBoost retrain timer (optional — only runs when ENABLE_LEARNING_LOOP=true)
+RETRAIN_SVC_SRC="$REPO_ROOT/ops/systemd/amarktai-retrain.service"
+RETRAIN_TMR_SRC="$REPO_ROOT/ops/systemd/amarktai-retrain.timer"
+if [[ -f "$RETRAIN_SVC_SRC" && -f "$RETRAIN_TMR_SRC" ]]; then
+  cp "$RETRAIN_SVC_SRC" /etc/systemd/system/amarktai-retrain.service
+  cp "$RETRAIN_TMR_SRC" /etc/systemd/system/amarktai-retrain.timer
+  systemctl enable amarktai-retrain.timer 2>/dev/null || true
+  systemctl start amarktai-retrain.timer 2>/dev/null || true
+  pass "Nightly retrain timer installed and enabled (amarktai-retrain.timer)"
+else
+  warn "Retrain timer not found — skipping (ops/systemd/amarktai-retrain.{service,timer})"
+fi
+
 ###############################################################################
 head "STEP 7 – Disable stale systemd services"
 ###############################################################################

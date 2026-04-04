@@ -57,11 +57,35 @@ KUCOIN_MAX_TRADES_PER_DAY=100000
 # BOT SPAWNING
 # ============================================================================
 
-# Bot spawning profit threshold in ZAR (default: 1000)
-BOT_SPAWN_PROFIT_ZAR=1000
+# Bot spawning profit threshold in ZAR (default: 300 — compound profits faster)
+BOT_SPAWN_PROFIT_ZAR=300
+
+# Capital seeded to each newly spawned bot in ZAR (default: 200)
+NEW_BOT_SEED_CAPITAL_ZAR=200
 
 # Enable per-exchange profit threshold for bot spawning
 ENABLE_PER_EXCHANGE_BOT_SPAWN=true
+
+# ============================================================================
+# REINVESTMENT THRESHOLDS
+# ============================================================================
+
+# Minimum hourly profit (ZAR) before reinvestment cycle distributes to bots
+# Lower = more frequent compounding.  Default: 50
+REINVEST_THRESHOLD_ZAR=50
+
+# ============================================================================
+# TRADE FREQUENCY TUNING
+# ============================================================================
+
+# Minimum seconds between scalper bot re-entries after a trade closes (default: 30)
+# Set in exchange_limits.py; also controls PACK_SCALPER_* cooldowns when
+# SCALPER_POLICY_COOLDOWN_SECONDS is set independently.
+SCALPER_COOLDOWN_SECONDS=30
+SCALPER_POLICY_COOLDOWN_SECONDS=30
+
+# Minutes before a stale open paper trade is force-exited (default: 60)
+PAPER_STALE_EXIT_MINUTES=60
 
 # ============================================================================
 # EMAIL CONFIGURATION (Optional but recommended)
@@ -80,6 +104,37 @@ FROM_EMAIL=
 ENABLE_REALTIME=true
 ENABLE_CCXT=true
 ENABLE_SCHEDULERS=true
+
+# ============================================================================
+# MACHINE LEARNING & SELF-LEARNING FLAGS
+# ============================================================================
+
+# Enable the nightly learning loop (triggers XGBoost retrain at 01:30 UTC).
+# Set to true once 50+ real trades have accumulated.
+ENABLE_LEARNING_LOOP=false
+
+# Enable River online learner (updates per-user model after every trade)
+ENABLE_SELF_LEARNING=true
+
+# Minimum number of closed trades required before XGBoost retrain runs
+XGB_MIN_RETRAIN_TRADES=50
+
+# Number of Optuna hyperparameter tuning trials for XGBoost retrain
+XGB_OPTUNA_TRIALS=30
+
+# ============================================================================
+# CURRENCY / FX OVERRIDES (Optional — overrides live rates when set)
+# ============================================================================
+
+# Static USDT/ZAR fallback used until live provider rate is fetched.
+# The server auto-refreshes from live USD/ZAR every 15 minutes.
+# Only set this if you want to pin the rate (e.g. for testing).
+# USDT_ZAR_RATE=19.0
+
+# Static USD/ZAR, GBP/ZAR, EUR/ZAR overrides (optional)
+# USD_ZAR_RATE=18.5
+# GBP_ZAR_RATE=23.5
+# EUR_ZAR_RATE=20.0
 
 # ============================================================================
 # CRITICAL TRADING ENGINE FLAGS — MUST BE SET TO TRADE

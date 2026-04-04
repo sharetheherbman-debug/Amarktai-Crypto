@@ -168,5 +168,12 @@ river>=0.21.0
 # Hyperparameter optimisation for strategy tuning
 optuna>=3.6.0
 
+# Hurst exponent filter — classifies trending vs mean-reverting markets
+hurst>=0.0.5
+
+# Vectorised backtesting — offline strategy validation before deployment
+# NOTE: vectorbt is an optional dev/research tool; not imported at server startup.
+vectorbt>=0.26.0
+
 # Redis pub/sub for realtime events in multi-worker deployments
 aioredis>=2.0.1
