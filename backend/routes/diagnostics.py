@@ -5,7 +5,7 @@ Includes realtime smoke tests and system health checks
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 import os
 import subprocess
@@ -3265,7 +3265,7 @@ async def keys_detail(user_id: str = Depends(get_current_user)):
 
         present = bool(key_doc and key_doc.get("api_key_encrypted"))
 
-        decryptable = None  # type: Optional[bool]
+        decryptable: Optional[bool] = None
         if present and decrypt_api_key is not None:
             try:
                 decrypt_api_key(key_doc["api_key_encrypted"])
@@ -3342,7 +3342,7 @@ async def learning_readiness():
     timer_active = _systemctl(["is-active", "amarktai-retrain.timer"])
     timer_enabled = _systemctl(["is-enabled", "amarktai-retrain.timer"])
 
-    timer_next_run = None  # type: Optional[str]
+    timer_next_run: Optional[str] = None
     try:
         raw = _systemctl(["show", "amarktai-retrain.timer", "--property=NextElapseUSecRealtime"])
         if "=" in raw:
