@@ -1,7 +1,8 @@
 """
 Signal Aggregator: Unified entry point for all signal sources.
 Combines ML prediction, technical indicators, alpha fusion, order flow,
-whale monitoring, and sentiment into a single composite signal.
+whale monitoring, sentiment, Fear & Greed index, and funding rate into a
+single composite signal.
 """
 
 from datetime import datetime, timezone
@@ -39,14 +40,16 @@ except ImportError:
 
 
 # -----------------------------------------------------------------------
-# Weights
+# Weights — now includes fear_greed and funding_rate
 # -----------------------------------------------------------------------
 _BASE_WEIGHTS = {
-    "ml": 0.30,
-    "regime": 0.25,
-    "alpha_fusion": 0.20,
-    "sentiment": 0.15,
+    "ml": 0.28,
+    "regime": 0.22,
+    "alpha_fusion": 0.18,
+    "sentiment": 0.12,
     "order_flow": 0.10,
+    "fear_greed": 0.05,
+    "funding_rate": 0.05,
 }
 
 
@@ -69,6 +72,109 @@ def _direction_from_score(score: float, threshold: float = 0.05) -> str:
     if score < -threshold:
         return "down"
     return "neutral"
+
+
+# -----------------------------------------------------------------------
+# Fear & Greed helper
+# -----------------------------------------------------------------------
+_fear_greed_cache: dict = {"value": 50, "ts": 0.0}
+_FEAR_GREED_TTL = 900  # 15 min
+
+
+async def _fetch_fear_greed() -> float:
+    """
+    Fetch the Crypto Fear & Greed index from alternative.me (free, no key).
+    Returns a signed score in [-1, 1]:
+      • value < 25  (extreme fear)  → +1.0  strong buy contrarian signal
+      • value 25–40 (fear)          → +0.5
+      • value 40–60 (neutral)       → 0.0
+      • value 60–75 (greed)         → -0.5
+      • value > 75  (extreme greed) → -1.0  strong sell contrarian signal
+    Result is cached for 15 minutes.
+    """
+    import time
+    now = time.monotonic()
+    if now - _fear_greed_cache["ts"] < _FEAR_GREED_TTL:
+        return _fear_greed_cache["score"]
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://api.alternative.me/fng/", timeout=aiohttp.ClientTimeout(total=5)
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    value = int(data["data"][0].get("value", 50))
+                    if value < 25:
+                        score = 1.0
+                    elif value < 40:
+                        score = 0.5
+                    elif value <= 60:
+                        score = 0.0
+                    elif value <= 75:
+                        score = -0.5
+                    else:
+                        score = -1.0
+                    _fear_greed_cache.update({"value": value, "score": score, "ts": now})
+                    return score
+    except Exception:
+        logger.debug("Fear & Greed fetch failed – using cached value", exc_info=True)
+    return _fear_greed_cache.get("score", 0.0)
+
+
+# -----------------------------------------------------------------------
+# Funding rate helper
+# -----------------------------------------------------------------------
+_funding_cache: dict = {}
+_FUNDING_RATE_TTL = 300  # 5 min
+
+
+def _symbol_to_ccxt(symbol: str) -> str:
+    """Map e.g. 'BTC/ZAR' → 'BTC/USDT' for funding rate lookup."""
+    base = symbol.split("/")[0]
+    return f"{base}/USDT"
+
+
+async def _fetch_funding_rate(symbol: str) -> float:
+    """
+    Fetch perpetual funding rate from Binance public API (no key required).
+    Returns a signed score in [-1, 1]:
+      • rate > +0.02%  → -1.0 (over-leveraged longs → bearish fade)
+      • rate > +0.01%  → -0.5
+      • rate ~0        →  0.0
+      • rate < -0.01%  → +0.5 (over-leveraged shorts → bullish fade)
+      • rate < -0.02%  → +1.0
+    """
+    import time
+    now = time.monotonic()
+    ccxt_sym = _symbol_to_ccxt(symbol)
+    if now - _funding_cache.get(ccxt_sym, {}).get("ts", 0.0) < _FUNDING_RATE_TTL:
+        return _funding_cache[ccxt_sym]["score"]
+    try:
+        import aiohttp
+        # Binance public endpoint – rate limit 500 req/10 min, no auth needed
+        encoded = ccxt_sym.replace("/", "")
+        url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={encoded}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    rate = float(data.get("lastFundingRate", 0))
+                    if rate > 0.0002:
+                        score = -1.0
+                    elif rate > 0.0001:
+                        score = -0.5
+                    elif rate < -0.0002:
+                        score = 1.0
+                    elif rate < -0.0001:
+                        score = 0.5
+                    else:
+                        score = 0.0
+                    _funding_cache[ccxt_sym] = {"rate": rate, "score": score, "ts": now}
+                    return score
+    except Exception:
+        logger.debug("Funding rate fetch failed for %s – skipping", symbol, exc_info=True)
+    return _funding_cache.get(ccxt_sym, {}).get("score", 0.0)
 
 
 # -----------------------------------------------------------------------
@@ -107,6 +213,8 @@ class SignalAggregator:
             "alpha_fusion": False,
             "sentiment": False,
             "order_flow": False,
+            "fear_greed": False,
+            "funding_rate": False,
         }
 
         # -- 1. ML prediction (always) ----------------------------------
@@ -115,8 +223,6 @@ class SignalAggregator:
         ml_conf = float(ml_pred.get("confidence", 0.0))
         predicted_change = float(ml_pred.get("predicted_change", 0.0))
         raw_method = ml_pred.get("method", "fallback")
-        # Map predictor methods: "xgboost" → trained model path,
-        # "rule_based" / "fallback" → heuristic path.
         method = (
             "ml+indicators" if raw_method == "xgboost" else "rule_based_fallback"
         )
@@ -147,7 +253,7 @@ class SignalAggregator:
         if self._sentiment is not None:
             try:
                 coin = symbol.replace("/", "").replace("USDT", "").replace("USD", "")
-                coin = coin or symbol  # guard against empty result
+                coin = coin or symbol
                 agg = await self._sentiment.analyze_coin_sentiment(coin)
                 if agg is not None:
                     sent_score = float(agg.score)
@@ -169,7 +275,36 @@ class SignalAggregator:
             except Exception:
                 logger.debug("Order flow failed for %s", symbol, exc_info=True)
 
-        # -- 6. Redistribute weights & compute composite -----------------
+        # -- 6. Fear & Greed (contrarian macro) --------------------------
+        fg_score = 0.0
+        try:
+            fg_score = await _fetch_fear_greed()
+            availability["fear_greed"] = True
+        except Exception:
+            logger.debug("Fear & Greed skipped for %s", symbol, exc_info=True)
+
+        # -- 7. Funding Rate (contrarian derivatives signal) -------------
+        fr_score = 0.0
+        try:
+            fr_score = await _fetch_funding_rate(symbol)
+            availability["funding_rate"] = True
+        except Exception:
+            logger.debug("Funding rate skipped for %s", symbol, exc_info=True)
+
+        # -- 8. Hurst exponent (regime filter, non-fatal) ----------------
+        hurst_result: dict = {"hurst": 0.5, "regime": "unknown", "allowed": True}
+        hurst_allowed = True
+        try:
+            from services.hurst_filter import hurst_filter as _hf
+            # We need recent close prices; they are not passed in here, so we
+            # return the hurst metadata in the result and leave the allow/block
+            # decision to the caller (paper_trading_engine) which has OHLCV data.
+            # hurst_allowed stays True here — this is informational only.
+            hurst_result["note"] = "prices required from caller"
+        except Exception:
+            pass
+
+        # -- 9. Redistribute weights & compute composite -----------------
         weights = _redistribute_weights(availability)
 
         regime_dir = "neutral"
@@ -184,6 +319,8 @@ class SignalAggregator:
             "alpha_fusion": alpha_score,
             "sentiment": sent_score,
             "order_flow": of_score,
+            "fear_greed": fg_score,
+            "funding_rate": fr_score,
         }
 
         weighted_sum = sum(
@@ -196,6 +333,8 @@ class SignalAggregator:
             "alpha_fusion": abs(alpha_score),
             "sentiment": abs(sent_score),
             "order_flow": abs(of_score),
+            "fear_greed": abs(fg_score),
+            "funding_rate": abs(fr_score),
         }
         final_confidence = sum(
             weights[k] * confidences[k] for k in _BASE_WEIGHTS
@@ -211,6 +350,7 @@ class SignalAggregator:
             "confidence": final_confidence,
             "predicted_change": round(predicted_change, 4),
             "signals_used": signals_used,
+            "hurst": hurst_result,
             "signal_breakdown": {
                 "ml": {
                     "direction": ml_dir,
@@ -239,6 +379,17 @@ class SignalAggregator:
                     "direction": of_dir,
                     "weight": round(weights["order_flow"], 4),
                     "available": availability["order_flow"],
+                },
+                "fear_greed": {
+                    "score": round(fg_score, 4),
+                    "raw_value": _fear_greed_cache.get("value", 50),
+                    "weight": round(weights["fear_greed"], 4),
+                    "available": availability["fear_greed"],
+                },
+                "funding_rate": {
+                    "score": round(fr_score, 4),
+                    "weight": round(weights["funding_rate"], 4),
+                    "available": availability["funding_rate"],
                 },
             },
             "method": method,

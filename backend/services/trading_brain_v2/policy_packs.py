@@ -53,10 +53,15 @@ Usage
 """
 from __future__ import annotations
 
+import os
 from typing import Dict, List, Optional
 
 # Increment whenever any pack definition changes
 POLICY_PACK_VERSION: str = "v1.0"
+
+# Scalper cooldown can be tuned at runtime (lower = more trades per day).
+# Default 30s allows up to ~120 scalper trades/bot/hour in active markets.
+_SCALPER_COOLDOWN_SECONDS = int(os.getenv("SCALPER_POLICY_COOLDOWN_SECONDS", "30"))
 
 # Regime sets (re-exported for readability)
 _NORMAL_REGIMES = frozenset({
@@ -207,7 +212,7 @@ PACK_SCALPER_CONSERVATIVE = _pack(
     max_spread_pct=0.15,             # tight spread requirement
     max_slippage_pct=0.08,           # very tight slippage
     max_hold_seconds=180,            # 3 min max
-    cooldown_seconds=120,            # 2 min cooldown
+    cooldown_seconds=_SCALPER_COOLDOWN_SECONDS,  # env-tunable (default 30s)
     stop_loss_pct=0.005,             # 0.5% tight stop
     take_profit_pct=0.008,           # 0.8% target
     trailing_stop_pct=0.003,         # 0.3% trail
@@ -232,7 +237,7 @@ PACK_SCALPER_ACTIVE = _pack(
     max_spread_pct=0.20,             # 0.20% = 20 basis points of mid-price as spread cap
     max_slippage_pct=0.12,
     max_hold_seconds=300,            # 5 min max
-    cooldown_seconds=90,             # 90s cooldown
+    cooldown_seconds=_SCALPER_COOLDOWN_SECONDS,  # env-tunable (default 30s)
     stop_loss_pct=0.007,             # 0.7% stop
     take_profit_pct=0.010,           # 1.0% target
     trailing_stop_pct=0.004,         # 0.4% trail

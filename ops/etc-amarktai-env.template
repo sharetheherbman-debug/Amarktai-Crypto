@@ -57,11 +57,35 @@ KUCOIN_MAX_TRADES_PER_DAY=100000
 # BOT SPAWNING
 # ============================================================================
 
-# Bot spawning profit threshold in ZAR (default: 1000)
-BOT_SPAWN_PROFIT_ZAR=1000
+# Bot spawning profit threshold in ZAR (default: 300 — compound profits faster)
+BOT_SPAWN_PROFIT_ZAR=300
+
+# Capital seeded to each newly spawned bot in ZAR (default: 200)
+NEW_BOT_SEED_CAPITAL_ZAR=200
 
 # Enable per-exchange profit threshold for bot spawning
 ENABLE_PER_EXCHANGE_BOT_SPAWN=true
+
+# ============================================================================
+# REINVESTMENT THRESHOLDS
+# ============================================================================
+
+# Minimum hourly profit (ZAR) before reinvestment cycle distributes to bots
+# Lower = more frequent compounding.  Default: 50
+REINVEST_THRESHOLD_ZAR=50
+
+# ============================================================================
+# TRADE FREQUENCY TUNING
+# ============================================================================
+
+# Minimum seconds between scalper bot re-entries after a trade closes (default: 30)
+# Set in exchange_limits.py; also controls PACK_SCALPER_* cooldowns when
+# SCALPER_POLICY_COOLDOWN_SECONDS is set independently.
+SCALPER_COOLDOWN_SECONDS=30
+SCALPER_POLICY_COOLDOWN_SECONDS=30
+
+# Minutes before a stale open paper trade is force-exited (default: 60)
+PAPER_STALE_EXIT_MINUTES=60
 
 # ============================================================================
 # EMAIL CONFIGURATION (Optional but recommended)
