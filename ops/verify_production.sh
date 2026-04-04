@@ -228,10 +228,100 @@ fi
 
 ###############################################################################
 echo ""
+echo -e "${BOLD}[ Nightly retrain timer checks ]${NC}"
+###############################################################################
+
+# 19. Timer unit file installed
+if [[ -f "/etc/systemd/system/amarktai-retrain.timer" ]]; then
+  ok "amarktai-retrain.timer unit file present"
+else
+  fail "amarktai-retrain.timer unit file missing – run redeploy"
+fi
+
+# 20. Timer active
+TIMER_STATE=$(systemctl is-active amarktai-retrain.timer 2>/dev/null || echo "inactive")
+if [[ "$TIMER_STATE" == "active" ]]; then
+  ok "amarktai-retrain.timer is active"
+else
+  fail "amarktai-retrain.timer is $TIMER_STATE – run: sudo systemctl start amarktai-retrain.timer"
+fi
+
+# 21. Timer enabled (survives reboots)
+TIMER_ENABLED=$(systemctl is-enabled amarktai-retrain.timer 2>/dev/null || echo "disabled")
+if [[ "$TIMER_ENABLED" == "enabled" ]]; then
+  ok "amarktai-retrain.timer is enabled"
+else
+  fail "amarktai-retrain.timer is $TIMER_ENABLED – run: sudo systemctl enable amarktai-retrain.timer"
+fi
+
+###############################################################################
+echo ""
+echo -e "${BOLD}[ Learning / model artifact checks ]${NC}"
+###############################################################################
+
+MODEL_DIR="$BACKEND_DIR/models"
+RIVER_DIR="$MODEL_DIR/river"
+XGB_MODEL="$MODEL_DIR/xgb_predictor.json"
+
+# 22. Model directory
+if [[ -d "$MODEL_DIR" ]]; then
+  ok "Model directory exists: $MODEL_DIR"
+else
+  fail "Model directory missing: $MODEL_DIR – run redeploy"
+fi
+
+# 23. River model directory
+if [[ -d "$RIVER_DIR" ]]; then
+  ok "River model dir exists: $RIVER_DIR"
+else
+  fail "River model dir missing: $RIVER_DIR – run redeploy"
+fi
+
+# 24. XGBoost model (warn only – expected missing on fresh install)
+if [[ -f "$XGB_MODEL" ]]; then
+  ok "XGBoost model present: $XGB_MODEL"
+else
+  warn "XGBoost model not yet trained: $XGB_MODEL (normal on fresh install – trains at 02:00 UTC once ENABLE_LEARNING_LOOP=true)"
+fi
+
+###############################################################################
+echo ""
+echo -e "${BOLD}[ SMTP configuration check ]${NC}"
+###############################################################################
+
+# 25. SMTP config sanity (reads from env file, does NOT send email)
+SMTP_USER_VAL=$(grep -oP '(?<=^SMTP_USER=)\S+' "$ENV_FILE" 2>/dev/null | head -1 || echo "")
+SMTP_PASS_VAL=$(grep -oP '(?<=^SMTP_PASSWORD=)\S+' "$ENV_FILE" 2>/dev/null | head -1 || echo "")
+SMTP_HOST_VAL=$(grep -oP '(?<=^SMTP_HOST=)\S+' "$ENV_FILE" 2>/dev/null | head -1 || echo "smtp.gmail.com")
+if [[ -n "$SMTP_USER_VAL" && -n "$SMTP_PASS_VAL" ]]; then
+  ok "SMTP configured: SMTP_HOST=$SMTP_HOST_VAL  SMTP_USER=$SMTP_USER_VAL"
+  info "Tip: live SMTP probe → curl -sH 'Authorization: Bearer \$TOKEN' http://127.0.0.1:8000/api/diagnostics/smtp-test | python3 -m json.tool"
+else
+  warn "SMTP not configured (SMTP_USER or SMTP_PASSWORD blank in $ENV_FILE) – daily emails disabled"
+fi
+
+###############################################################################
+echo ""
+echo -e "${BOLD}[ Learning readiness API check ]${NC}"
+###############################################################################
+
+# 26. /api/diagnostics/learning-readiness (unauthenticated)
+LR_JSON=$(curl -sf --max-time 5 "http://127.0.0.1:8000/api/diagnostics/learning-readiness" 2>/dev/null || echo "{}")
+LR_XGB=$(echo "$LR_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print('present' if d.get('xgb_model_present') else 'missing')" 2>/dev/null || echo "unknown")
+LR_RIVER=$(echo "$LR_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print('present' if d.get('river_dir_present') else 'missing')" 2>/dev/null || echo "unknown")
+LR_TIMER=$(echo "$LR_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timer_active','unknown'))" 2>/dev/null || echo "unknown")
+if [[ "$LR_JSON" != "{}" ]]; then
+  ok "Learning readiness API: xgb=$LR_XGB  river=$LR_RIVER  timer=$LR_TIMER"
+else
+  warn "Learning readiness API: backend not reachable (check /api/health)"
+fi
+
+###############################################################################
+echo ""
 echo -e "${BOLD}[ Public domain check ]${NC}"
 ###############################################################################
 
-# 18. Public HTTPS (non-fatal)
+# 27. Public HTTPS (non-fatal)
 HTTPS_CODE=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" "https://$DOMAIN/" 2>/dev/null || echo "000")
 if [[ "$HTTPS_CODE" == "200" || "$HTTPS_CODE" == "301" || "$HTTPS_CODE" == "302" ]]; then
   ok "https://$DOMAIN/ responds: HTTP $HTTPS_CODE"
