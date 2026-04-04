@@ -29,15 +29,15 @@ except ImportError:
 
 class EmailReporter:
     def __init__(self):
-        # SMTP configuration from .env (optional)
-        self.smtp_enabled = os.environ.get('SMTP_ENABLED', 'false').lower() == 'true'
+        # SMTP configuration from canonical env vars (SMTP_HOST / SMTP_USER / SMTP_PASSWORD / FROM_EMAIL)
+        # Legacy SMTP_ENABLED / SMTP_USERNAME / SENDER_EMAIL are no longer used.
         self.smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
         self.smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-        self.smtp_username = os.environ.get('SMTP_USERNAME', '')
+        self.smtp_username = os.environ.get('SMTP_USER', '')
         self.smtp_password = os.environ.get('SMTP_PASSWORD', '')
-        self.sender_email = os.environ.get('SENDER_EMAIL', 'noreply@amarktai.com')
-        
-        self.reports_enabled = EMAIL_AVAILABLE and self.smtp_enabled and self.smtp_username
+        self.sender_email = os.environ.get('FROM_EMAIL', self.smtp_username)
+
+        self.reports_enabled = EMAIL_AVAILABLE and bool(self.smtp_username) and bool(self.smtp_password)
         
         if not self.reports_enabled:
             logger.info("📧 Email reports disabled (SMTP not configured)")

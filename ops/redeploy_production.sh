@@ -195,6 +195,14 @@ else
   warn "Retrain timer not found — skipping (ops/systemd/amarktai-retrain.{service,timer})"
 fi
 
+# Create model directories required by XGBoost retrain and River learner.
+# These must exist before the backend starts; River will mkdir on init but
+# XGBoost retrain fails silently if models/ is absent.
+MODEL_DIR="$BACKEND_DIR/models"
+mkdir -p "$MODEL_DIR/river"
+chown -R www-data:www-data "$MODEL_DIR" 2>/dev/null || true
+pass "Model directories ready: $MODEL_DIR  (xgb + river)"
+
 ###############################################################################
 head "STEP 7 – Disable stale systemd services"
 ###############################################################################
