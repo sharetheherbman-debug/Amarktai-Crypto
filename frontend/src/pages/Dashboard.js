@@ -112,6 +112,7 @@ export default function Dashboard() {
     handleChangePassword,
     handleChatKeyDown,
     handleClearChatHistory,
+    handleBulkCreateBots,
     handleCreateBot,
     handleCreateScalperBot,
     handleCreateUAgent,
@@ -384,6 +385,7 @@ export default function Dashboard() {
               axiosConfig={axiosConfig}
               bots={bots}
               botManagementTab={botManagementTab}
+              handleBulkCreateBots={handleBulkCreateBots}
               handleCreateBot={handleCreateBot}
               handleCreateScalperBot={handleCreateScalperBot}
               handleCreateUAgent={handleCreateUAgent}
