@@ -817,16 +817,17 @@ class TestNoRegressionCanonicalTruth:
 
     def test_qualified_win_classification_unchanged(self):
         from services.trading_brain_v2.trade_outcome_classifier import classify_trade_outcome
-        # small tier (equity=1500 ZAR): min_floor≈R1.50, meaningful_threshold≈R2.25
-        # net_pnl=3.0 > 2.25 → QUALIFIED_WIN
+        # small tier (equity=1500 ZAR): ABS_PROFIT_MIN_QUOTE[("normal","small","zar")]=3.00
+        # meaningful_threshold = 3.00 * MEANINGFUL_WIN_THRESHOLD_MULTIPLE(1.5) = 4.50
+        # net_pnl=5.0 > 4.50 → QUALIFIED_WIN
         result = classify_trade_outcome(
-            gross_pnl=4.0, net_pnl=3.0,
+            gross_pnl=6.0, net_pnl=5.0,
             bot_type="normal", exchange="luno",
             bot_equity=1500.0, notional=300.0, all_in_cost_bps=30.0,
         )
         assert result["outcome_class"] == "QUALIFIED_WIN", (
             f"Expected QUALIFIED_WIN; got {result['outcome_class']} "
-            f"(threshold={result['meaningful_threshold']}, net_pnl=3.0)"
+            f"(threshold={result['meaningful_threshold']}, net_pnl=5.0)"
         )
         assert result["win_count"] == 1
 
