@@ -274,6 +274,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Live Position Monitor: {e}")
 
+    # Start live USDT/ZAR rate updater — keeps FX conversions accurate.
+    # Uses USD/ZAR from fiat_fx_provider as a USDT proxy (USDT ≈ 1 USD).
+    # Refreshes every 15 minutes; falls back silently to env/static fallback.
+    try:
+        async def _usdt_zar_updater():
+            while True:
+                try:
+                    from services.fiat_fx_provider import get_zar_per_unit as _gzpu
+                    from services.fx_normalizer import update_fx_rate as _ufx
+                    rate, source = _gzpu("USD")
+                    if rate and rate > 0:
+                        _ufx(rate, f"fiat_proxy_{source}")
+                        logger.debug("USDT/ZAR rate updated: %.4f from %s", rate, source)
+                except Exception as _ue:
+                    logger.debug("USDT/ZAR updater skipped: %s", _ue)
+                await asyncio.sleep(900)  # 15-minute refresh
+
+        asyncio.create_task(_usdt_zar_updater())
+        logger.info("💱 Live USDT/ZAR rate updater started (15-min refresh via fiat_fx_provider)")
+    except Exception as e:
+        logger.warning(f"Could not start USDT/ZAR updater: {e}")
+
     logger.info("🚀 All autonomous systems operational")
     
     # Set startup time and bind status in health endpoint

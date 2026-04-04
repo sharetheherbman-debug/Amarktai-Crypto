@@ -106,6 +106,37 @@ ENABLE_CCXT=true
 ENABLE_SCHEDULERS=true
 
 # ============================================================================
+# MACHINE LEARNING & SELF-LEARNING FLAGS
+# ============================================================================
+
+# Enable the nightly learning loop (triggers XGBoost retrain at 01:30 UTC).
+# Set to true once 50+ real trades have accumulated.
+ENABLE_LEARNING_LOOP=false
+
+# Enable River online learner (updates per-user model after every trade)
+ENABLE_SELF_LEARNING=true
+
+# Minimum number of closed trades required before XGBoost retrain runs
+XGB_MIN_RETRAIN_TRADES=50
+
+# Number of Optuna hyperparameter tuning trials for XGBoost retrain
+XGB_OPTUNA_TRIALS=30
+
+# ============================================================================
+# CURRENCY / FX OVERRIDES (Optional — overrides live rates when set)
+# ============================================================================
+
+# Static USDT/ZAR fallback used until live provider rate is fetched.
+# The server auto-refreshes from live USD/ZAR every 15 minutes.
+# Only set this if you want to pin the rate (e.g. for testing).
+# USDT_ZAR_RATE=19.0
+
+# Static USD/ZAR, GBP/ZAR, EUR/ZAR overrides (optional)
+# USD_ZAR_RATE=18.5
+# GBP_ZAR_RATE=23.5
+# EUR_ZAR_RATE=20.0
+
+# ============================================================================
 # CRITICAL TRADING ENGINE FLAGS — MUST BE SET TO TRADE
 # ============================================================================
 # ENABLE_TRADING=1 is REQUIRED for the TradingScheduler to start at boot.

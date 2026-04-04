@@ -1,0 +1,14 @@
+[Unit]
+Description=Amarktai XGBoost Nightly Retrain Timer
+Requires=amarktai-retrain.service
+
+[Timer]
+# Run every day at 02:00 UTC (after the server is least busy)
+OnCalendar=*-*-* 02:00:00
+TimeZone=UTC
+# Run immediately at boot if the last scheduled run was missed
+Persistent=true
+Unit=amarktai-retrain.service
+
+[Install]
+WantedBy=timers.target
