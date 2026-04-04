@@ -20,6 +20,7 @@ an online-learning failure never blocks a trade.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import pickle
 from pathlib import Path
@@ -209,7 +210,6 @@ def _load_model(user_id: str) -> Optional[_UserModel]:
 
 def _sanitize_features(features: Dict[str, Any]) -> Dict[str, float]:
     """Convert feature dict values to floats, drop NaN/None."""
-    import math
     out: Dict[str, float] = {}
     for k, v in features.items():
         try:

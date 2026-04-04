@@ -6,8 +6,11 @@ single composite signal.
 """
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Optional
+
+import aiohttp
 
 from logger_config import logger
 
@@ -94,13 +97,11 @@ async def _fetch_fear_greed() -> float:
       • value > 75  (extreme greed) → -1.0  strong sell contrarian signal
     Result is cached for 15 minutes and protected by an asyncio lock.
     """
-    import time
     now = time.monotonic()
     async with _fear_greed_lock:
         if now - _fear_greed_cache.get("ts", 0.0) < _FEAR_GREED_TTL:
             return _fear_greed_cache.get("score", 0.0)
         try:
-            import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     "https://api.alternative.me/fng/", timeout=aiohttp.ClientTimeout(total=5)
@@ -150,14 +151,12 @@ async def _fetch_funding_rate(symbol: str) -> float:
       • rate < -0.02%  → +1.0
     Result is cached for 5 minutes and protected by an asyncio lock.
     """
-    import time
     now = time.monotonic()
     ccxt_sym = _symbol_to_ccxt(symbol)
     async with _funding_lock:
         if now - _funding_cache.get(ccxt_sym, {}).get("ts", 0.0) < _FUNDING_RATE_TTL:
             return _funding_cache.get(ccxt_sym, {}).get("score", 0.0)
         try:
-            import aiohttp
             # Binance USDM futures public endpoint – no auth needed.
             # _symbol_to_ccxt always returns "BASE/USDT"; strip "/" → "BTCUSDT".
             encoded = ccxt_sym.replace("/", "")
