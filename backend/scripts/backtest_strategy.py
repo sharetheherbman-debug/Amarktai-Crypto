@@ -55,7 +55,9 @@ except ImportError:
     print("pandas is not installed.", file=sys.stderr)
     sys.exit(1)
 
-# Supported symbols (mirrors PAPER_PAIR_WHITELIST for USDT exchanges)
+# Supported symbols — mirrors PAPER_PAIR_WHITELIST for USDT exchanges (config.py).
+# This is intentionally a standalone constant so the script works without
+# importing the server backend (it runs outside the server process).
 SUPPORTED_SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT",
     "BNB/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT",

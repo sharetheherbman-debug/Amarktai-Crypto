@@ -26,7 +26,7 @@ compute() returns a neutral result so the rest of the trading system is unaffect
 from __future__ import annotations
 
 import logging
-from typing import Sequence, Union
+from typing import Dict, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -51,7 +51,7 @@ WINDOW: int = 100
 # trend / adaptive → enter only when market is trending (H > 0.55)
 # scalper / mean_reversion → enter only when mean-reverting (H < 0.45)
 # normal (default) → pass unless market is pure random-walk (H ≈ 0.50 ± 0.03)
-_BOT_RULES: dict[str, dict] = {
+_BOT_RULES: Dict[str, Dict] = {
     "trend":           {"min_H": 0.55, "max_H": 1.0,  "regime": "trending"},
     "adaptive":        {"min_H": 0.52, "max_H": 1.0,  "regime": "trending"},
     "scalper":         {"min_H": 0.0,  "max_H": 0.47, "regime": "mean_reverting"},
@@ -128,7 +128,7 @@ class HurstFilter:
         self,
         prices: Sequence[float],
         bot_type: str = "normal",
-    ) -> tuple[bool, dict]:
+    ) -> Tuple[bool, dict]:
         """
         Decide whether the Hurst regime is suitable for the given bot type.
 

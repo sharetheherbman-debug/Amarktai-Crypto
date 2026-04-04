@@ -166,6 +166,8 @@ def _make_objective(X_train, y_train, X_val, y_val):
             "eval_metric": "mlogloss",
             "use_label_encoder": False,
             "verbosity": 0,
+            # 'hist' uses histogram-based splitting: fast on large datasets (>5k rows)
+            # and equivalent accuracy to 'exact' for the float features used here.
             "tree_method": "hist",
         }
         model = xgb.XGBClassifier(**params)

@@ -23,7 +23,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ class RiverLearner:
         """Return number of labelled samples seen for this user."""
         return self._get_or_load(user_id).n_samples
 
-    def accuracy_score(self, user_id: str) -> float | None:
+    def accuracy_score(self, user_id: str) -> Optional[float]:
         """Return rolling accuracy for this user's model, or None if < MIN_SAMPLES."""
         model = self._get_or_load(user_id)
         if model.n_samples < MIN_SAMPLES or model.accuracy is None:
@@ -194,7 +194,7 @@ def _save_model(user_id: str, model: _UserModel) -> None:
         logger.debug("RiverLearner: could not persist model for %s: %s", user_id, exc)
 
 
-def _load_model(user_id: str) -> _UserModel | None:
+def _load_model(user_id: str) -> Optional[_UserModel]:
     try:
         path = _model_path(user_id)
         if path.exists():

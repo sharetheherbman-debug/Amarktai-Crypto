@@ -5,6 +5,7 @@ whale monitoring, sentiment, Fear & Greed index, and funding rate into a
 single composite signal.
 """
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -79,6 +80,7 @@ def _direction_from_score(score: float, threshold: float = 0.05) -> str:
 # -----------------------------------------------------------------------
 _fear_greed_cache: dict = {"value": 50, "ts": 0.0}
 _FEAR_GREED_TTL = 900  # 15 min
+_fear_greed_lock = asyncio.Lock()
 
 
 async def _fetch_fear_greed() -> float:
@@ -90,36 +92,37 @@ async def _fetch_fear_greed() -> float:
       • value 40–60 (neutral)       → 0.0
       • value 60–75 (greed)         → -0.5
       • value > 75  (extreme greed) → -1.0  strong sell contrarian signal
-    Result is cached for 15 minutes.
+    Result is cached for 15 minutes and protected by an asyncio lock.
     """
     import time
     now = time.monotonic()
-    if now - _fear_greed_cache["ts"] < _FEAR_GREED_TTL:
-        return _fear_greed_cache["score"]
-    try:
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                "https://api.alternative.me/fng/", timeout=aiohttp.ClientTimeout(total=5)
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    value = int(data["data"][0].get("value", 50))
-                    if value < 25:
-                        score = 1.0
-                    elif value < 40:
-                        score = 0.5
-                    elif value <= 60:
-                        score = 0.0
-                    elif value <= 75:
-                        score = -0.5
-                    else:
-                        score = -1.0
-                    _fear_greed_cache.update({"value": value, "score": score, "ts": now})
-                    return score
-    except Exception:
-        logger.debug("Fear & Greed fetch failed – using cached value", exc_info=True)
-    return _fear_greed_cache.get("score", 0.0)
+    async with _fear_greed_lock:
+        if now - _fear_greed_cache.get("ts", 0.0) < _FEAR_GREED_TTL:
+            return _fear_greed_cache.get("score", 0.0)
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    "https://api.alternative.me/fng/", timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        value = int(data["data"][0].get("value", 50))
+                        if value < 25:
+                            score = 1.0
+                        elif value < 40:
+                            score = 0.5
+                        elif value <= 60:
+                            score = 0.0
+                        elif value <= 75:
+                            score = -0.5
+                        else:
+                            score = -1.0
+                        _fear_greed_cache.update({"value": value, "score": score, "ts": now})
+                        return score
+        except Exception:
+            logger.debug("Fear & Greed fetch failed – using cached value", exc_info=True)
+        return _fear_greed_cache.get("score", 0.0)
 
 
 # -----------------------------------------------------------------------
@@ -127,6 +130,7 @@ async def _fetch_fear_greed() -> float:
 # -----------------------------------------------------------------------
 _funding_cache: dict = {}
 _FUNDING_RATE_TTL = 300  # 5 min
+_funding_lock = asyncio.Lock()
 
 
 def _symbol_to_ccxt(symbol: str) -> str:
@@ -144,37 +148,40 @@ async def _fetch_funding_rate(symbol: str) -> float:
       • rate ~0        →  0.0
       • rate < -0.01%  → +0.5 (over-leveraged shorts → bullish fade)
       • rate < -0.02%  → +1.0
+    Result is cached for 5 minutes and protected by an asyncio lock.
     """
     import time
     now = time.monotonic()
     ccxt_sym = _symbol_to_ccxt(symbol)
-    if now - _funding_cache.get(ccxt_sym, {}).get("ts", 0.0) < _FUNDING_RATE_TTL:
-        return _funding_cache[ccxt_sym]["score"]
-    try:
-        import aiohttp
-        # Binance public endpoint – rate limit 500 req/10 min, no auth needed
-        encoded = ccxt_sym.replace("/", "")
-        url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={encoded}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    rate = float(data.get("lastFundingRate", 0))
-                    if rate > 0.0002:
-                        score = -1.0
-                    elif rate > 0.0001:
-                        score = -0.5
-                    elif rate < -0.0002:
-                        score = 1.0
-                    elif rate < -0.0001:
-                        score = 0.5
-                    else:
-                        score = 0.0
-                    _funding_cache[ccxt_sym] = {"rate": rate, "score": score, "ts": now}
-                    return score
-    except Exception:
-        logger.debug("Funding rate fetch failed for %s – skipping", symbol, exc_info=True)
-    return _funding_cache.get(ccxt_sym, {}).get("score", 0.0)
+    async with _funding_lock:
+        if now - _funding_cache.get(ccxt_sym, {}).get("ts", 0.0) < _FUNDING_RATE_TTL:
+            return _funding_cache.get(ccxt_sym, {}).get("score", 0.0)
+        try:
+            import aiohttp
+            # Binance USDM futures public endpoint – no auth needed.
+            # _symbol_to_ccxt always returns "BASE/USDT"; strip "/" → "BTCUSDT".
+            encoded = ccxt_sym.replace("/", "")
+            url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={encoded}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        rate = float(data.get("lastFundingRate", 0))
+                        if rate > 0.0002:
+                            score = -1.0
+                        elif rate > 0.0001:
+                            score = -0.5
+                        elif rate < -0.0002:
+                            score = 1.0
+                        elif rate < -0.0001:
+                            score = 0.5
+                        else:
+                            score = 0.0
+                        _funding_cache[ccxt_sym] = {"rate": rate, "score": score, "ts": now}
+                        return score
+        except Exception:
+            logger.debug("Funding rate fetch failed for %s – skipping", symbol, exc_info=True)
+        return _funding_cache.get(ccxt_sym, {}).get("score", 0.0)
 
 
 # -----------------------------------------------------------------------
