@@ -3026,8 +3026,8 @@ async def get_self_learning_recommendations(user_id: str = Depends(get_current_u
     if meta_path.exists():
         try:
             xgb_meta = _json.loads(meta_path.read_text())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not read XGBoost metadata: {e}")
 
     try:
         from services.river_learner import river_learner
@@ -3049,8 +3049,8 @@ async def get_self_learning_recommendations(user_id: str = Depends(get_current_u
                 {"user_id": user_id},
                 sort=[("completed_at", -1)],
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Could not query learning_runs_collection: {e}")
 
     last_retrain = xgb_meta.get("trained_at")
 
@@ -3059,8 +3059,8 @@ async def get_self_learning_recommendations(user_id: str = Depends(get_current_u
         trade_count = await db.trades_collection.count_documents(
             {"user_id": user_id, "status": "closed"}
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Could not count closed trades: {e}")
 
     min_retrain_trades = int(os.getenv("XGB_MIN_RETRAIN_TRADES", "50"))
 
