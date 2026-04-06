@@ -4,11 +4,10 @@
 # CCXT for exchange integration
 ccxt==4.5.21
 
-# Crypto utilities
-coincurve==21.0.0
-
 # Rate limiting and caching
 cachetools==6.2.2
 
 # Additional utilities for trading
 fastuuid==0.14.0
+# coincurve removed: secp256k1 library only needed by web3/eth stack.
+# Install via requirements/blockchain.txt if Ethereum features are required.
