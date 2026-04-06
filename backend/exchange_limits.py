@@ -26,6 +26,8 @@ These limits ensure:
 - Proper throttling and rate limiting
 """
 
+import os
+
 # ── Normal bot limits ───────────────────────────────────────────────────
 MAX_BOTS_GLOBAL = 65  # Normal bots only
 
@@ -60,7 +62,7 @@ SCALPER_MAX_HOLD_SECONDS = 300    # 5 minutes default max hold
 SCALPER_STAGNATION_SECONDS = 120  # Exit if no price movement in 2 min
 SCALPER_ORDERS_PER_MIN = 10       # Max orders per minute per bot
 SCALPER_CANCELS_PER_MIN = 5       # Max cancels per minute per bot
-SCALPER_COOLDOWN_SECONDS = 5      # Cooldown between trades per bot
+SCALPER_COOLDOWN_SECONDS = int(os.getenv("SCALPER_COOLDOWN_SECONDS", "30"))  # Cooldown between trades per bot
 
 # ── Forced exit reason codes ────────────────────────────────────────────
 EXIT_REASON_TIME = "TIME_EXIT"

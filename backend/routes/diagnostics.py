@@ -5,7 +5,7 @@ Includes realtime smoke tests and system health checks
 
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 
 from auth import get_current_user
@@ -2766,6 +2766,252 @@ async def ml_health_diagnostic(user_id: str = Depends(get_current_user)):
             pass
 
     river_diag = {}
+@router.get("/smtp-test")
+async def smtp_test(user_id: str = Depends(get_current_user)):
+    """
+    Live SMTP probe — verifies config, TCP connect, STARTTLS, and login.
+
+    Does NOT send any email.  Returns step-by-step results so ops can
+    pinpoint exactly where SMTP breaks (missing config / bad host / bad creds).
+
+    Steps tested
+    ------------
+    1. config_present  – SMTP_HOST, SMTP_USER, SMTP_PASSWORD all non-empty
+    2. tcp_connect     – TCP socket to SMTP_HOST:SMTP_PORT within 10 s
+    3. starttls        – EHLO + STARTTLS negotiation
+    4. login           – AUTH LOGIN with SMTP_USER / SMTP_PASSWORD
+    """
+    import smtplib
+    import socket
+    import config as _cfg
+
+    result: Dict = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "smtp_host": _cfg.SMTP_HOST or None,
+        "smtp_port": _cfg.SMTP_PORT,
+        "smtp_user": _cfg.SMTP_USER or None,
+        "from_email": _cfg.FROM_EMAIL or None,
+        "steps": {},
+        "overall": "fail",
+    }
+
+    steps = result["steps"]
+
+    # ── Step 1: config present ─────────────────────────────────────────────
+    config_ok = bool(_cfg.SMTP_HOST and _cfg.SMTP_USER and _cfg.SMTP_PASSWORD)
+    steps["config_present"] = {
+        "ok": config_ok,
+        "detail": (
+            "All required SMTP env vars set" if config_ok else
+            "One or more of SMTP_HOST / SMTP_USER / SMTP_PASSWORD is blank"
+        ),
+    }
+    if not config_ok:
+        result["overall"] = "fail"
+        return result
+
+    # ── Step 2: TCP connect ────────────────────────────────────────────────
+    tcp_ok = False
+    tcp_detail = ""
+    try:
+        sock = socket.create_connection((_cfg.SMTP_HOST, _cfg.SMTP_PORT), timeout=10)
+        sock.close()
+        tcp_ok = True
+        tcp_detail = f"Connected to {_cfg.SMTP_HOST}:{_cfg.SMTP_PORT}"
+    except Exception as exc:
+        tcp_detail = f"TCP connect failed: {exc}"
+    steps["tcp_connect"] = {"ok": tcp_ok, "detail": tcp_detail}
+    if not tcp_ok:
+        result["overall"] = "fail"
+        return result
+
+    # ── Steps 3 & 4: STARTTLS + login ─────────────────────────────────────
+    tls_ok = False
+    tls_detail = ""
+    login_ok = False
+    login_detail = ""
+    try:
+        with smtplib.SMTP(_cfg.SMTP_HOST, _cfg.SMTP_PORT, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            tls_ok = True
+            tls_detail = "STARTTLS negotiated"
+            try:
+                server.login(_cfg.SMTP_USER, _cfg.SMTP_PASSWORD)
+                login_ok = True
+                login_detail = f"Authenticated as {_cfg.SMTP_USER}"
+            except smtplib.SMTPAuthenticationError as exc:
+                login_detail = f"AUTH failed: {exc}"
+            except Exception as exc:
+                login_detail = f"Login error: {exc}"
+    except smtplib.SMTPException as exc:
+        tls_detail = f"STARTTLS failed: {exc}"
+    except Exception as exc:
+        tls_detail = f"SMTP error: {exc}"
+
+    steps["starttls"] = {"ok": tls_ok, "detail": tls_detail}
+    steps["login"] = {"ok": login_ok, "detail": login_detail}
+
+    all_ok = config_ok and tcp_ok and tls_ok and login_ok
+    result["overall"] = "pass" if all_ok else "fail"
+    return result
+
+
+@router.get("/keys-detail")
+async def keys_detail(user_id: str = Depends(get_current_user)):
+    """
+    Per-provider API key diagnostics.
+
+    For each supported provider returns:
+      present     – key document exists in DB
+      source      – "db" (keys stored in MongoDB) or "env" (legacy)
+      decryptable – whether the stored ciphertext can be decrypted
+      test_ok     – last stored test result (true / false / null = untested)
+      last_tested – ISO timestamp of last test, or null
+      last_error  – last test error message, or null
+
+    Covers all 11 providers tracked in the keys.py router.
+    """
+    PROVIDERS = [
+        "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate",
+        "openai", "coinstats", "huggingface", "coingecko",
+    ]
+
+    try:
+        from routes.api_key_management import decrypt_api_key
+    except Exception:
+        decrypt_api_key = None
+
+    out = {}
+    for provider in PROVIDERS:
+        key_doc = await db.api_keys_collection.find_one(
+            {"user_id": user_id, "provider": provider},
+            {"_id": 0, "api_key_encrypted": 1, "status": 1,
+             "last_tested_at": 1, "last_test_ok": 1, "last_test_error": 1},
+        )
+
+        present = bool(key_doc and key_doc.get("api_key_encrypted"))
+
+        decryptable: Optional[bool] = None
+        if present and decrypt_api_key is not None:
+            try:
+                decrypt_api_key(key_doc["api_key_encrypted"])
+                decryptable = True
+            except Exception:
+                decryptable = False
+
+        raw_test = key_doc.get("last_test_ok") if key_doc else None
+        # Normalise legacy string values
+        if raw_test == "test_ok":
+            raw_test = True
+        elif raw_test == "test_failed":
+            raw_test = False
+
+        out[provider] = {
+            "present": present,
+            "source": "db" if present else None,
+            "decryptable": decryptable,
+            "test_ok": raw_test,
+            "last_tested": key_doc.get("last_tested_at") if key_doc else None,
+            "last_error": key_doc.get("last_test_error") if key_doc else None,
+        }
+
+    exchange_providers = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
+    exchanges_present = [p for p in exchange_providers if out[p]["present"]]
+    exchanges_valid = [p for p in exchange_providers if out[p].get("test_ok") is True]
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "providers": out,
+        "summary": {
+            "exchanges_present": exchanges_present,
+            "exchanges_valid": exchanges_valid,
+            "any_exchange_ready": len(exchanges_present) > 0,
+        },
+    }
+
+
+@router.get("/learning-readiness")
+async def learning_readiness():
+    """
+    Learning and retrain readiness — no auth required for smoke tests.
+
+    Returns:
+      learning_enabled   – value of ENABLE_LEARNING_LOOP env var
+      xgb_model_present  – whether models/xgb_predictor.json exists on disk
+      river_dir_present  – whether models/river/ directory exists
+      timer_active       – systemd amarktai-retrain.timer is-active
+      timer_enabled      – systemd amarktai-retrain.timer is-enabled
+      timer_next_run     – next trigger time from systemctl show (or null)
+    """
+    from pathlib import Path
+    import subprocess
+
+    backend_dir = Path(__file__).resolve().parent.parent
+    model_dir = backend_dir / "models"
+    xgb_path = model_dir / "xgb_predictor.json"
+    river_dir = model_dir / "river"
+
+    learning_enabled = os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true"
+    xgb_present = xgb_path.exists()
+    river_present = river_dir.is_dir()
+
+    def _systemctl(args: list) -> str:
+        try:
+            r = subprocess.run(
+                ["systemctl"] + args,
+                capture_output=True, text=True, timeout=5
+            )
+            return r.stdout.strip()
+        except Exception:
+            return "unknown"
+
+    timer_active = _systemctl(["is-active", "amarktai-retrain.timer"])
+    timer_enabled = _systemctl(["is-enabled", "amarktai-retrain.timer"])
+
+    timer_next_run: Optional[str] = None
+    try:
+        raw = _systemctl(["show", "amarktai-retrain.timer", "--property=NextElapseUSecRealtime"])
+        if "=" in raw:
+            timer_next_run = raw.split("=", 1)[1].strip() or None
+    except Exception:
+        pass
+
+    overall_ready = (
+        xgb_present
+        and river_present
+        and timer_active == "active"
+        and timer_enabled == "enabled"
+    )
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "learning_enabled": learning_enabled,
+        "xgb_model_present": xgb_present,
+        "xgb_model_path": str(xgb_path),
+        "river_dir_present": river_present,
+        "river_dir_path": str(river_dir),
+        "timer_active": timer_active,
+        "timer_enabled": timer_enabled,
+        "timer_next_run": timer_next_run,
+        "overall_ready": overall_ready,
+        "notes": {
+            "xgb_missing": (
+                None if xgb_present else
+                "Normal on fresh install — XGBoost trains at 02:00 UTC once "
+                "ENABLE_LEARNING_LOOP=true and ≥50 closed trades exist."
+            ),
+            "timer_inactive": (
+                None if timer_active == "active" else
+                "Run: sudo systemctl enable --now amarktai-retrain.timer"
+            ),
+        },
+    }
+
+
+@router.get("/self-learning")
+async def get_self_learning_recommendations(request: Request):
+    """Self-learning pack recommendations using daily_evaluator."""
     try:
         from services.river_learner import river_learner
         river_diag = river_learner.get_diagnostics()

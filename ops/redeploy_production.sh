@@ -198,6 +198,27 @@ if [[ -f "$RETRAIN_SVC" && -f "$RETRAIN_TMR" ]]; then
   pass "Retraining timer installed"
 fi
 
+# Install nightly XGBoost retrain timer (optional — only runs when ENABLE_LEARNING_LOOP=true)
+RETRAIN_SVC_SRC="$REPO_ROOT/ops/systemd/amarktai-retrain.service"
+RETRAIN_TMR_SRC="$REPO_ROOT/ops/systemd/amarktai-retrain.timer"
+if [[ -f "$RETRAIN_SVC_SRC" && -f "$RETRAIN_TMR_SRC" ]]; then
+  cp "$RETRAIN_SVC_SRC" /etc/systemd/system/amarktai-retrain.service
+  cp "$RETRAIN_TMR_SRC" /etc/systemd/system/amarktai-retrain.timer
+  systemctl enable amarktai-retrain.timer 2>/dev/null || true
+  systemctl start amarktai-retrain.timer 2>/dev/null || true
+  pass "Nightly retrain timer installed and enabled (amarktai-retrain.timer)"
+else
+  warn "Retrain timer not found — skipping (ops/systemd/amarktai-retrain.{service,timer})"
+fi
+
+# Create model directories required by XGBoost retrain and River learner.
+# These must exist before the backend starts; River will mkdir on init but
+# XGBoost retrain fails silently if models/ is absent.
+MODEL_DIR="$BACKEND_DIR/models"
+mkdir -p "$MODEL_DIR/river"
+chown -R www-data:www-data "$MODEL_DIR" 2>/dev/null || true
+pass "Model directories ready: $MODEL_DIR  (xgb + river)"
+
 ###############################################################################
 head "STEP 7 – Disable stale systemd services"
 ###############################################################################

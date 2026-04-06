@@ -72,6 +72,24 @@ class AIModelRouter:
         }
         
         # Note: OpenAI client is now created per-request via resolver
+        # Initialize clients
+        self.openai_client = None
+        
+        # Get API keys from environment
+        self.openai_key = os.environ.get('OPENAI_API_KEY')
+        
+        if self.openai_key:
+            try:
+                openai.api_key = self.openai_key
+                self.openai_client = openai
+                logger.info("✅ OpenAI client initialized")
+            except Exception as e:
+                logger.error(f"Failed to init OpenAI client: {e}")
+        else:
+            logger.warning(
+                "⚠️  OPENAI_API_KEY is not set — AI chat, NLP, and insight features will be "
+                "unavailable until the key is configured in the environment file."
+            )
     
     async def chat_completion(self, messages: List[Dict], 
                              mode: str = 'balanced',

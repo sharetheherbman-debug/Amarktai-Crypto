@@ -556,32 +556,61 @@ class AutopilotEngine:
             return {"success": False, "error": str(e)}
             
     async def reinvest_in_top_bots(self, user_id: str, profit: float, bots: list):
-        """Reinvest profit in top 5 performing bots"""
+        """Reinvest profit across active bots weighted by Kelly fraction (win rate / avg PnL)."""
         try:
-            # Sort bots by win rate and profit
-            sorted_bots = sorted(
+            active_bots = sorted(
                 [b for b in bots if b['status'] == 'active'],
                 key=lambda x: (x.get('win_rate', 0), x.get('total_profit', 0)),
                 reverse=True
             )[:5]
-            
-            if not sorted_bots:
+
+            if not active_bots:
                 return
-                
-            # Distribute profit equally
-            profit_per_bot = profit / len(sorted_bots)
-            
-            for bot in sorted_bots:
-                current_capital = bot.get('current_capital', 0)
-                new_capital = current_capital + profit_per_bot
-                
+
+            # Compute Kelly weight for each bot.
+            from services.trading_brain_v2.kelly_sizing import KellySizingV2, MIN_POSITION_PCT
+            kelly_sizer = KellySizingV2()
+            weights: list[float] = []
+            for bot in active_bots:
+                win_rate = float(bot.get('win_rate', 0.5) or 0.5)
+                trades = int(bot.get('trades_count', 0) or 0)
+                equity = float(bot.get('current_capital', 1.0) or 1.0)
+                # Approximate avg_win / avg_loss from win rate and total profit.
+                avg_win = float(bot.get('average_win', 0.0) or 0.0)
+                avg_loss = float(bot.get('average_loss', 0.0) or 0.0)
+                result = kelly_sizer.compute(
+                    bot_type=str(bot.get('bot_type', 'normal')),
+                    bot_equity=equity,
+                    win_rate=win_rate,
+                    avg_win=avg_win,
+                    avg_loss=avg_loss,
+                    num_trades=trades,
+                )
+                # Use kelly_fraction as relative weight; floor at MIN_POSITION_PCT so
+                # no bot receives zero allocation.
+                raw_weight = max(float(result.get('kelly_fraction', MIN_POSITION_PCT / 100)), 0.001)
+                weights.append(raw_weight)
+
+            total_weight = sum(weights) or 1.0
+            norm_weights = [w / total_weight for w in weights]
+
+            for bot, share in zip(active_bots, norm_weights):
+                allocation = profit * share
+                if allocation <= 0:
+                    continue
+                current_capital = float(bot.get('current_capital', 0))
+                new_capital = current_capital + allocation
                 await self.db.bots.update_one(
                     {'id': bot['id']},
                     {'$set': {'current_capital': new_capital}}
                 )
-                
-            logger.info(f"User {user_id}: Reinvested R{profit:.2f} across {len(sorted_bots)} bots")
-            
+
+            logger.info(
+                f"User {user_id}: Kelly-proportional reinvestment of R{profit:.2f} "
+                f"across {len(active_bots)} bots (weights: "
+                f"{[round(w, 3) for w in norm_weights]})"
+            )
+
         except Exception as e:
             logger.error(f"Reinvestment error: {e}")
             

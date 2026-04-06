@@ -2323,6 +2323,78 @@ export default function useDashboardState(navigate) {
     }
   };
 
+  /**
+   * handleBulkCreateBots — Manual multi-bot creation from the Bot Management
+   * "Bulk Create" tab.  Accepts a plain config object so the caller (BotManagementSection)
+   * is completely decoupled from hook state.
+   *
+   * @param {Object} cfg
+   *   bot_type        'normal' | 'scalper'
+   *   exchange        exchange id (e.g. 'luno', 'binance')
+   *   count           total bots to create (3–30)
+   *   capital_per_bot ZAR economic base per bot (min 1000)
+   *   safe_count      number of safe/conservative bots
+   *   risky_count     number of balanced bots
+   *   aggressive_count number of aggressive bots
+   *   profit_routing  (scalper only) 'RETURN_TO_MAIN' | 'SCALPER_GROWTH'
+   */
+  const handleBulkCreateBots = async (cfg) => {
+    const {
+      bot_type = 'normal',
+      exchange = 'luno',
+      count,
+      capital_per_bot,
+      safe_count,
+      risky_count,
+      aggressive_count,
+      profit_routing = 'RETURN_TO_MAIN',
+    } = cfg;
+
+    if (count < 1 || count > 30) {
+      showNotification('❌ Bot count must be between 1 and 30', 'error');
+      return;
+    }
+    if (safe_count + risky_count + aggressive_count !== count) {
+      showNotification('❌ Risk distribution must add up to the total bot count', 'error');
+      return;
+    }
+    if (capital_per_bot < 1000) {
+      showNotification('❌ Minimum capital per bot is R1,000', 'error');
+      return;
+    }
+
+    const typeLabel = bot_type === 'scalper' ? 'Scalper' : 'Normal';
+    const total = count * capital_per_bot;
+    const confirmMsg =
+      `📦 Bulk Create ${count} ${typeLabel} bots on ${exchange.toUpperCase()}?\n\n` +
+      `💰 R${capital_per_bot.toLocaleString()} per bot  (R${total.toLocaleString()} total)\n` +
+      `🛡️ ${safe_count} Safe  ⚖️ ${risky_count} Balanced  🚀 ${aggressive_count} Aggressive\n` +
+      (bot_type === 'scalper' ? `🔄 Profit routing: ${profit_routing}\n` : '') +
+      `\nAll bots start in PAPER mode with FAKE funds.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await axios.post(`${API}/bots/batch-create`, {
+        bot_type,
+        exchange,
+        count,
+        capital_per_bot,
+        safe_count,
+        risky_count,
+        aggressive_count,
+        profit_routing,
+      }, axiosConfig);
+      const created = res.data.bots?.length ?? res.data.created ?? count;
+      showNotification(`✅ Created ${created} ${typeLabel} bots on ${exchange.toUpperCase()}!`, 'success');
+      await refreshBotState();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create bots';
+      showNotification(`❌ ${errorMsg}`, 'error');
+    }
+  };
+
   const handleSaveApiKey = async (provider) => {
     const formId = `form-${provider}`;
     const form = document.getElementById(formId);
@@ -3289,6 +3361,7 @@ export default function useDashboardState(navigate) {
     graphPeriod,
     handleBlockUser,
     handleBotSetup,
+    handleBulkCreateBots,
     handleChangeBotExchange,
     handleChangeBotMode,
     handleChangePassword,

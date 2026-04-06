@@ -151,6 +151,118 @@ class LiveTradingEngine:
         except Exception as e:
             logger.error(f"❌ Order placement failed: {e}")
             return None
+
+    # Maximum number of rate-limit retry attempts before giving up.
+    # At attempt 5 the backoff wait is 2^5 + jitter ≈ 33 s, so the total
+    # worst-case delay is ~1+2+4+8+16+32 ≈ 63 s before the call returns None.
+    _MAX_RATE_LIMIT_ATTEMPTS = 5
+
+    async def _rate_limit_backoff(self, attempt: int) -> None:
+        """Exponential backoff with jitter for rate-limit errors.
+
+        Waits 2^attempt seconds (capped at 60) plus up to 1 second of jitter
+        to avoid synchronised retries across concurrent bots.
+        """
+        delay = min(2 ** attempt, 60)
+        # Deterministic jitter: use the full microsecond range (0–999999) → 0..0.999999 s
+        jitter = datetime.now(timezone.utc).microsecond / 1_000_000.0
+        total = delay + jitter
+        logger.warning(f"⏳ Rate-limit backoff: sleeping {total:.2f}s (attempt {attempt})")
+        await asyncio.sleep(total)
+
+    async def place_limit_order(self, exchange: ccxt.Exchange, symbol: str,
+                               side: str, amount: float, price: float) -> Optional[Dict]:
+        """Place real limit order"""
+        for attempt in range(self._MAX_RATE_LIMIT_ATTEMPTS + 1):
+            try:
+                order = await asyncio.to_thread(
+                    exchange.create_limit_order,
+                    symbol, side, amount, price
+                )
+
+                logger.info(f"✅ Limit order placed: {side} {amount} {symbol} @ {price}")
+                return order
+
+            except ccxt.InsufficientFunds as e:
+                logger.error(f"❌ Insufficient funds: {e}")
+                return None
+            except ccxt.InvalidOrder as e:
+                logger.error(f"❌ Invalid order: {e}")
+                return None
+            except ccxt.AuthenticationError as e:
+                logger.error(
+                    f"❌ Authentication error on {exchange.id} — API key may be expired or revoked: {e}"
+                )
+                return None
+            except ccxt.InvalidNonce as e:
+                logger.error(
+                    f"❌ Invalid nonce on {exchange.id} — check server clock / NTP sync: {e}"
+                )
+                return None
+            except ccxt.ExchangeNotAvailable as e:
+                logger.error(
+                    f"❌ Exchange {exchange.id} unavailable (outage or maintenance): {e}"
+                )
+                return None
+            except ccxt.RateLimitExceeded as e:
+                if attempt >= self._MAX_RATE_LIMIT_ATTEMPTS:
+                    logger.error(
+                        f"❌ Rate limit exceeded on limit order after {attempt} retries — giving up: {e}"
+                    )
+                    return None
+                logger.warning(f"⏳ Rate limit exceeded on limit order: {e}")
+                await self._rate_limit_backoff(attempt=attempt)
+            except Exception as e:
+                logger.error(f"❌ Order placement failed: {e}")
+                return None
+        return None
+
+    async def place_market_order(self, exchange: ccxt.Exchange, symbol: str,
+                                 side: str, amount: float) -> Optional[Dict]:
+        """Place real market order"""
+        for attempt in range(self._MAX_RATE_LIMIT_ATTEMPTS + 1):
+            try:
+                order = await asyncio.to_thread(
+                    exchange.create_market_order,
+                    symbol, side, amount
+                )
+
+                logger.info(f"✅ Market order placed: {side} {amount} {symbol}")
+                return order
+
+            except ccxt.InsufficientFunds as e:
+                logger.error(f"❌ Insufficient funds: {e}")
+                return None
+            except ccxt.InvalidOrder as e:
+                logger.error(f"❌ Invalid order: {e}")
+                return None
+            except ccxt.AuthenticationError as e:
+                logger.error(
+                    f"❌ Authentication error on {exchange.id} — API key may be expired or revoked: {e}"
+                )
+                return None
+            except ccxt.InvalidNonce as e:
+                logger.error(
+                    f"❌ Invalid nonce on {exchange.id} — check server clock / NTP sync: {e}"
+                )
+                return None
+            except ccxt.ExchangeNotAvailable as e:
+                logger.error(
+                    f"❌ Exchange {exchange.id} unavailable (outage or maintenance): {e}"
+                )
+                return None
+            except ccxt.RateLimitExceeded as e:
+                if attempt >= self._MAX_RATE_LIMIT_ATTEMPTS:
+                    logger.error(
+                        f"❌ Rate limit exceeded on market order after {attempt} retries — giving up: {e}"
+                    )
+                    return None
+                logger.warning(f"⏳ Rate limit exceeded on market order: {e}")
+                await self._rate_limit_backoff(attempt=attempt)
+            except Exception as e:
+                logger.error(f"❌ Order placement failed: {e}")
+                return None
+        return None
     
     async def check_order_status(self, exchange: ccxt.Exchange, order_id: str, 
                                  symbol: str) -> Optional[Dict]:

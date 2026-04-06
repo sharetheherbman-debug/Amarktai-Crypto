@@ -394,6 +394,27 @@ def startup_self_check() -> None:
                 print(f"⚠️  Warning: {msg}")
         elif key != 'JWT_SECRET' and value in _WEAK_SECRETS:
             errors.append(f"❌ {key} is using a known-insecure default value")
+        if not value or value == 'your-secret-key-change-in-production':
+            errors.append(f"❌ Missing or invalid required env key: {key}")
+
+    # Check 1b: Admin password must not be a placeholder or the old hardcoded default.
+    # Comparison uses .lower() so mixed-case values like 'Ashmor12@' also match the
+    # lowercase blocklist entry 'ashmor12@'.
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    _admin_placeholders = {
+        "change-me-secure-password",
+        "change_me_strong_unique_admin_password",  # template placeholder
+        "changeme",
+        "admin",
+        "password",
+        "ashmor12@",  # old hardcoded default — must never be used in production
+        "",
+    }
+    if admin_password.lower() in _admin_placeholders:
+        errors.append(
+            "❌ ADMIN_PASSWORD is a placeholder value. "
+            "Set a strong password before running in production."
+        )
     
     # Check 2: Exchange limits consistency
     for exchange in SUPPORTED_EXCHANGES:

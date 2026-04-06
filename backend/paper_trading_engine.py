@@ -1092,6 +1092,58 @@ class PaperTradingEngine:
             
             # External signal provider removed — use unavailable stub
             ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
+            # 3. AI INTELLIGENCE: Get ML prediction + aggregated signals
+            from ml_predictor import ml_predictor
+            prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
+
+            # 3b. SIGNAL AGGREGATION: Combine ML, alpha fusion, sentiment, order flow
+            try:
+                from services.signal_aggregator import aggregate_signals
+                _agg = await aggregate_signals(symbol, exchange, bot_type=str(bot_data.get("bot_type") or "normal").lower(), regime_result=regime)
+                # Enrich prediction with aggregated confidence (higher quality)
+                if _agg.get("confidence", 0) > 0:
+                    prediction["confidence"] = max(prediction.get("confidence", 0), _agg["confidence"])
+                    prediction["predicted_change"] = _agg.get("predicted_change", prediction.get("predicted_change", 0))
+                    if _agg.get("direction") in ("up", "down"):
+                        prediction["direction"] = _agg["direction"]
+                    prediction["signal_aggregator"] = _agg
+            except Exception as _agg_err:
+                logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
+
+            # 3c. HURST EXPONENT FILTER: block entries when market memory doesn't
+            # match bot strategy (random-walk for trend bots, trending for scalpers).
+            try:
+                from ml_predictor import fetch_ohlcv as _fetch_ohlcv_hurst
+                from services.hurst_filter import hurst_filter as _hf
+                _ohlcv_h = await asyncio.get_event_loop().run_in_executor(
+                    None, _fetch_ohlcv_hurst, symbol, "1h", 100, exchange
+                )
+                if _ohlcv_h is not None and len(_ohlcv_h) >= 50:
+                    _close_h = [float(c[4]) for c in _ohlcv_h]
+                    _bt_h = str(bot_data.get("bot_type") or "normal").lower()
+                    _hurst_ok, _hurst_detail = _hf.should_enter(_close_h, _bt_h)
+                    if not _hurst_ok:
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "hurst_regime_mismatch",
+                            "error": _hurst_detail.get("reason", "Hurst regime mismatch"),
+                            "details": _hurst_detail,
+                        }
+                    prediction["hurst"] = _hurst_detail
+            except Exception as _hurst_err:
+                logger.debug("Hurst filter skipped (non-fatal): %s", _hurst_err)
+            
+            # 4. AI INTELLIGENCE: CoinStats derived from aggregated signals
+            _cs_strength = 0
+            _cs_sentiment = "neutral"
+            if prediction.get("signal_aggregator"):
+                _sb = prediction["signal_aggregator"].get("signal_breakdown", {})
+                _sent = _sb.get("sentiment", {})
+                if _sent.get("available"):
+                    _cs_strength = int(min(100, max(0, abs(_sent.get("score", 0)) * 100)))
+                    _cs_sentiment = _sent.get("direction", "neutral")
+            coinstats_data = {"strength": _cs_strength, "sentiment": _cs_sentiment}
             
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
             _fetchai = fetchai
@@ -2399,6 +2451,23 @@ class PaperTradingEngine:
                 await rt_events.trade_closed(bot_data['user_id'], trade_doc)
             except Exception as e:
                 logger.warning(f"Realtime trade broadcast failed: {e}")
+
+            # River online learner hook — update per-user model with trade outcome.
+            try:
+                from services.river_learner import river_learner
+                _river_features = {
+                    k: trade_result.get(k, 0.0)
+                    for k in ("rsi", "macd", "macd_hist", "atr", "bb_upper", "bb_lower",
+                              "vwap", "close_vs_sma20", "volume", "confidence")
+                    if trade_result.get(k) is not None
+                }
+                river_learner.record_outcome(
+                    user_id=bot_data["user_id"],
+                    features=_river_features,
+                    net_profit=float(trade_result.get("profit_loss", 0)),
+                )
+            except Exception as _re:
+                logger.debug("River learner update skipped: %s", _re)
             
             return {
                 "bot_id": bot_id,

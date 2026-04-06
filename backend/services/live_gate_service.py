@@ -81,7 +81,12 @@ class LiveGateService:
                 violations.append("Bot training not complete and no admin override")
             
             if admin_override:
-                logger.warning(f"LiveGate: Admin override active for bot {bot_id}")
+                logger.critical(
+                    "⚠️  SECURITY AUDIT: admin_live_override is set for bot %s (user %s) — "
+                    "7-day paper-training gate bypassed.  Ensure this was intentionally set "
+                    "by a human admin before proceeding.",
+                    bot_id, user_id,
+                )
             
             # Check 5: Bodyguard state must be OK
             from services.bodyguard_service import bodyguard_service

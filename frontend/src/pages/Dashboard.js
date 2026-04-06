@@ -106,6 +106,7 @@ export default function Dashboard() {
     handleChangePassword,
     handleChatKeyDown,
     handleClearChatHistory,
+    handleBulkCreateBots,
     handleCreateBot,
     handleCreateUAgent,
     handleDeleteBot,
@@ -584,6 +585,39 @@ export default function Dashboard() {
         {activeSection === 'bots' && (
           <ErrorBoundary title="Bot Management section error" message="Unable to load Bot Management section.">
             {renderBots()}
+        {activeSection === NAV.BOT_OPS && (
+          <ErrorBoundary title="Bot Operations error" message="Unable to load Bot Operations section.">
+            <BotOperationsCenter
+              axiosConfig={axiosConfig}
+              bots={bots}
+              botManagementTab={botManagementTab}
+              handleBulkCreateBots={handleBulkCreateBots}
+              handleCreateBot={handleCreateBot}
+              handleCreateScalperBot={handleCreateScalperBot}
+              handleCreateUAgent={handleCreateUAgent}
+              setBotManagementTab={setBotManagementTab}
+              formatDate={formatDate}
+              handleDeleteBot={handleDeleteBot}
+              handleResumeBot={handleResumeBot}
+              handleStartBot={handleStartBot}
+              handlePauseBot={handlePauseBot}
+              handleRestartBot={handleRestartBot}
+              handleToggleBotMode={handleToggleBotMode}
+              botControlLoading={botControlLoading}
+              selectedBotDetailId={selectedBotDetailId}
+              setSelectedBotDetailId={setSelectedBotDetailId}
+              botDetailTab={botDetailTab}
+              setBotDetailTab={setBotDetailTab}
+              botStatusFilter={botStatusFilter}
+              setBotStatusFilter={setBotStatusFilter}
+              platformFilter={platformFilter}
+              setPlatformFilter={setPlatformFilter}
+              editingBotId={editingBotId}
+              setEditingBotId={setEditingBotId}
+              editingBotName={editingBotName}
+              setEditingBotName={setEditingBotName}
+              handleRenameBotSubmit={handleRenameBotSubmit}
+            />
           </ErrorBoundary>
         )}
         {activeSection === 'system' && (

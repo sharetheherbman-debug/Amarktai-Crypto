@@ -12,3 +12,18 @@ ExecStart=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/python -m scripts.
 TimeoutStartSec=600
 StandardOutput=journal
 StandardError=journal
+Description=Amarktai XGBoost Nightly Retrain (Optuna-tuned)
+Documentation=https://github.com/amarktainetwork-blip/Amarktai-Crypto/blob/main/backend/scripts/retrain_xgboost.py
+
+[Service]
+Type=oneshot
+User=amarktai
+WorkingDirectory=/var/amarktai/app/Amarktai-Crypto/backend
+EnvironmentFile=/etc/amarktai/amarktai.env
+ExecStart=/var/amarktai/app/Amarktai-Crypto/backend/.venv/bin/python3 scripts/retrain_xgboost.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=amarktai-retrain
+
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,17 @@ Description=Amarktai XGBoost Nightly Retrain
 OnCalendar=*-*-* 02:00:00
 Persistent=true
 RandomizedDelaySec=300
+Description=Amarktai XGBoost Nightly Retrain Timer
+Requires=amarktai-retrain.service
+
+[Timer]
+# Run every day at 02:00 UTC (30 minutes after the learning loop fires at 01:30 UTC
+# so the loop has time to collect metrics before the retrain begins)
+OnCalendar=*-*-* 02:00:00
+TimeZone=UTC
+# Run immediately at boot if the last scheduled run was missed
+Persistent=true
+Unit=amarktai-retrain.service
 
 [Install]
 WantedBy=timers.target

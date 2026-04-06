@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import PlatformSelector from '../../../components/PlatformSelector';
 import TrainingQuarantineSection from '../../../components/Dashboard/TrainingQuarantineSection';
@@ -75,6 +75,163 @@ const formatDuration = (seconds) => {
   return `${secs}s`;
 };
 
+// ── Bulk Create helpers ────────────────────────────────────────────────────
+
+function BulkRiskRow({ label, value, onChange, min = 0, max }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+      <label style={{ minWidth: '120px', fontSize: '0.85rem', color: 'var(--muted)' }}>{label}</label>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={e => onChange(Math.max(min, Math.min(max, parseInt(e.target.value) || 0)))}
+        style={{ width: '64px', padding: '5px 8px', borderRadius: '6px', border: '1px solid var(--line)',
+          background: 'rgba(255,255,255,0.06)', color: 'var(--text)', textAlign: 'center' }}
+      />
+    </div>
+  );
+}
+
+function BulkCreateForm({ botType, handleBulkCreateBots }) {
+  const isScalper = botType === 'scalper';
+  const [exchange, setExchange] = useState('luno');
+  const [capitalPerBot, setCapitalPerBot] = useState(1000);
+  const [safeCount, setSafeCount] = useState(3);
+  const [balancedCount, setBalancedCount] = useState(2);
+  const [aggressiveCount, setAggressiveCount] = useState(1);
+  const [profitRouting, setProfitRouting] = useState('RETURN_TO_MAIN');
+
+  const total = safeCount + balancedCount + aggressiveCount;
+  const totalCapital = total * capitalPerBot;
+  const isValid = total >= 1 && total <= 30 && capitalPerBot >= 1000;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!handleBulkCreateBots) return;
+    handleBulkCreateBots({
+      bot_type: botType,
+      exchange,
+      count: total,
+      capital_per_bot: capitalPerBot,
+      safe_count: safeCount,
+      risky_count: balancedCount,
+      aggressive_count: aggressiveCount,
+      profit_routing: profitRouting,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: '14px',
+        marginBottom: '18px',
+      }}>
+        {/* Exchange */}
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem' }}>
+            Exchange Platform
+          </label>
+          <select
+            value={exchange}
+            onChange={e => setExchange(e.target.value)}
+            style={{ width: '100%' }}
+          >
+            {getAllExchanges().map(ex => (
+              <option key={ex.id} value={ex.id} disabled={ex.comingSoon}>
+                {ex.icon} {ex.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Capital per bot */}
+        <div>
+          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem' }}>
+            Capital per Bot (ZAR, min R1,000)
+          </label>
+          <input
+            type="number"
+            min="1000"
+            step="100"
+            value={capitalPerBot}
+            onChange={e => setCapitalPerBot(Math.max(1000, parseInt(e.target.value) || 1000))}
+            required
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        {/* Profit routing (scalper only) */}
+        {isScalper && (
+          <div>
+            <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem' }}>
+              Profit Routing
+            </label>
+            <select
+              value={profitRouting}
+              onChange={e => setProfitRouting(e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="RETURN_TO_MAIN">Return to Main — profits → main capital</option>
+              <option value="SCALPER_GROWTH">Scalper Growth — profits reinvested in scalpers</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Risk distribution */}
+      <div style={{
+        background: 'rgba(255,255,255,0.04)',
+        borderRadius: '10px',
+        padding: '14px 18px',
+        marginBottom: '16px',
+        border: '1px solid rgba(255,255,255,0.07)',
+      }}>
+        <div style={{ fontSize: '0.88rem', fontWeight: 600, marginBottom: '10px', color: 'var(--text)' }}>
+          Risk Distribution
+        </div>
+        <BulkRiskRow label="🛡️ Safe" value={safeCount} onChange={setSafeCount} max={30} />
+        <BulkRiskRow label="⚖️ Balanced" value={balancedCount} onChange={setBalancedCount} max={30} />
+        <BulkRiskRow label="🚀 Aggressive" value={aggressiveCount} onChange={setAggressiveCount} max={30} />
+        <div style={{
+          marginTop: '10px',
+          paddingTop: '10px',
+          borderTop: '1px solid rgba(255,255,255,0.07)',
+          fontSize: '0.85rem',
+          color: total > 30 ? 'var(--danger)' : 'var(--success)',
+        }}>
+          Total: <strong>{total}</strong> bot{total !== 1 ? 's' : ''}
+          {total > 30 && ' — max 30'}
+        </div>
+      </div>
+
+      {/* Capital preview */}
+      <div style={{
+        background: 'rgba(74,144,226,0.1)',
+        border: '1px solid rgba(74,144,226,0.25)',
+        borderRadius: '8px',
+        padding: '12px 16px',
+        marginBottom: '16px',
+        fontSize: '0.85rem',
+        color: 'var(--text)',
+      }}>
+        💰 <strong>R{capitalPerBot.toLocaleString()}</strong> × {total} bots =&nbsp;
+        <strong style={{ color: 'var(--success)' }}>R{totalCapital.toLocaleString()}</strong> total capital
+        &nbsp;·&nbsp; All bots start in <strong>PAPER mode</strong>
+      </div>
+
+      <button type="submit" disabled={!isValid} style={{ opacity: isValid ? 1 : 0.5 }}>
+        📦 Create {total} {isScalper ? 'Scalper' : ''} Bot{total !== 1 ? 's' : ''} on {exchange.charAt(0).toUpperCase() + exchange.slice(1)}
+      </button>
+    </form>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 export default function BotManagementSection({
   autoSpawnStatus,
   autopilotReinvestStatus,
@@ -83,6 +240,7 @@ export default function BotManagementSection({
   botStatusFilter,
   bots,
   formatDate,
+  handleBulkCreateBots,
   handleCreateBot,
   handleCreateUAgent,
   handleDeleteBot,
@@ -272,6 +430,14 @@ export default function BotManagementSection({
           <button
             className={`bot-tab ${botManagementTab === 'spawn' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('spawn')}
+            className={`bot-tab ${botManagementTab === 'bulk' ? 'active' : ''}`}
+            onClick={() => setBotManagementTab('bulk')}
+          >
+            📦 Bulk Create
+          </button>
+          <button
+            className={`bot-tab ${botManagementTab === 'uagent' ? 'active' : ''}`}
+            onClick={() => setBotManagementTab('uagent')}
           >
             Spawn Status
           </button>
@@ -534,6 +700,27 @@ export default function BotManagementSection({
 
         {botManagementTab === 'spawn' && (
           <div style={{display: 'grid', gap: '16px'}}>
+        {/* ── Tab 3: Bulk Create ─────────────────────────────── */}
+        {botManagementTab === 'bulk' && (
+          <div>
+            <div className="bot-form-card">
+              <h3>📦 Bulk Bot Creator</h3>
+              <p style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '16px' }}>
+                Create multiple bots at once on any exchange. Set the risk distribution and capital per bot —
+                the system creates all bots in one click. All bots start in <strong>Paper Mode</strong>.
+              </p>
+
+              <BulkTypeToggle handleBulkCreateBots={handleBulkCreateBots} />
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: '12px' }}>
+              💡 Created bots appear in <strong>Bot Fleet</strong>. Each bot gets its own paper wallet allocation.
+            </p>
+          </div>
+        )}
+
+        {/* ── Tab 4: Fetch.ai / uAgents ─────────────────────── */}
+        {botManagementTab === 'uagent' && (
+          <div>
             <div className="bot-form-card">
               <h3>Auto-Spawn Status</h3>
               {autoSpawnStatus ? (
@@ -616,5 +803,39 @@ export default function BotManagementSection({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * BulkTypeToggle — internal component that owns the normal/scalper sub-tab state
+ * so we avoid placing useState calls inside the mapping above.
+ */
+function BulkTypeToggle({ handleBulkCreateBots }) {
+  const [bulkType, setBulkType] = useState('normal');
+
+  const subTabStyle = (active) => ({
+    padding: '7px 18px',
+    background: active ? 'rgba(74,144,226,0.25)' : 'rgba(255,255,255,0.05)',
+    border: `1px solid ${active ? 'rgba(74,144,226,0.6)' : 'rgba(255,255,255,0.1)'}`,
+    borderRadius: '8px',
+    color: active ? '#fff' : 'var(--muted)',
+    cursor: 'pointer',
+    fontSize: '0.88rem',
+    fontWeight: active ? 700 : 500,
+    transition: 'all 0.2s',
+  });
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+        <button type="button" onClick={() => setBulkType('normal')} style={subTabStyle(bulkType === 'normal')}>
+          🤖 Normal Bots
+        </button>
+        <button type="button" onClick={() => setBulkType('scalper')} style={subTabStyle(bulkType === 'scalper')}>
+          ⚡ Scalper Bots
+        </button>
+      </div>
+      <BulkCreateForm botType={bulkType} handleBulkCreateBots={handleBulkCreateBots} />
+    </>
   );
 }
