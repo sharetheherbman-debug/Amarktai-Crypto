@@ -2,10 +2,9 @@
 # These constraints are applied across all requirement files
 
 # NumPy constraint
-# HARD UPPER BOUND: langchain-chroma==0.1.4 requires numpy<2.0.0.
-# pandas-ta removed (0.3.14b0 delisted from PyPI; 0.4.x needs numpy>=2.2.6).
-# Raising this to >=2.0 will cause ResolutionImpossible on fresh installs.
-numpy>=1.26.0,<2.0
+# Pinned to 1.26.4 for stability; no hard upper bound since langchain-chroma
+# is not installed in production.
+numpy>=1.26.4
 
 # Transformers ecosystem constraints
 huggingface_hub>=0.23.2,<1.0

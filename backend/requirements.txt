@@ -66,10 +66,9 @@ motor==3.3.1
 multidict==6.7.0
 mypy==1.18.2
 mypy_extensions==1.1.0
-# CONSTRAINT: langchain-chroma==0.1.4 requires numpy<2.0; keep pinned to 1.x.
 # pandas-ta removed: 0.3.14b0 is no longer on PyPI (0.4.x requires numpy>=2.2.6).
 # ml_predictor.py uses manual fallback for indicators instead.
-numpy>=1.26.0,<2.0
+numpy>=1.26.4
 oauthlib==3.3.1
 openai==1.99.9
 packaging>=23.2,<25
@@ -146,18 +145,14 @@ statsmodels==0.14.4
 scipy==1.14.1
 transformers==4.46.3
 prometheus-client==0.21.1
-chromadb==0.5.23
-langchain==0.3.13
-langchain-chroma==0.1.4
-langchain-openai==0.2.14
 
 # ============================================================================
 # AI Trading Intelligence — ML + Technical Analysis + Optimisation
 # ============================================================================
 # Technical indicators (RSI, MACD, ATR, Bollinger, VWAP, ADX, etc.)
 # pandas-ta removed: 0.3.14b0 is no longer published on PyPI. Newer releases
-# (0.4.x) require numpy>=2.2.6, conflicting with langchain-chroma (numpy<2.0).
-# ml_predictor.py provides a full manual fallback for all required indicators.
+# (0.4.x) require numpy>=2.2.6. ml_predictor.py provides a full manual
+# fallback for all required indicators.
 
 # Gradient-boosted tree model for price-direction prediction
 xgboost>=2.0.0
@@ -176,4 +171,4 @@ hurst>=0.0.5
 vectorbt>=0.26.0
 
 # Redis pub/sub for realtime events in multi-worker deployments
-aioredis>=2.0.1
+redis>=5.0.0

@@ -183,16 +183,8 @@ async def unlock_admin_panel(
         except ValueError as e:
             logger.error(f"Admin password misconfiguration: {e}")
             raise HTTPException(
-                status_code=500, 
-                detail="Server configuration error: Admin password not configured properly"
-        # Get admin password from environment — no hardcoded fallback
-        admin_password = os.getenv('ADMIN_PASSWORD')
-        
-        if not admin_password or not admin_password.strip():
-            logger.error("ADMIN_PASSWORD environment variable is not set or empty")
-            raise HTTPException(
                 status_code=500,
-                detail="Server configuration error: ADMIN_PASSWORD must be set via environment variable"
+                detail="Server configuration error: Admin password not configured properly"
             )
         
         if not is_valid:

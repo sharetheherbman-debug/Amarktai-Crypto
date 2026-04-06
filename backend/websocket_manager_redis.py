@@ -79,7 +79,7 @@ class ConnectionManager:
                 logger.info("Redis not configured, using in-memory realtime only")
                 return
             
-            import aioredis
+            import redis.asyncio as aioredis
             
             self.redis_client = await aioredis.from_url(
                 redis_url,
@@ -101,7 +101,7 @@ class ConnectionManager:
             logger.info("✅ Redis pub/sub initialized for realtime broadcast")
             
         except ImportError:
-            logger.warning("aioredis not installed, realtime limited to single worker")
+            logger.warning("redis package not installed, realtime limited to single worker")
         except Exception as e:
             logger.warning(f"Redis connection failed, using in-memory only: {e}")
             self.redis_enabled = False
