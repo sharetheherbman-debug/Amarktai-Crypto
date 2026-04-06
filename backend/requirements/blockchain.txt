@@ -1,0 +1,22 @@
+# =============================================================================
+# OPTIONAL — Blockchain / Ethereum extras
+# backend/requirements/blockchain.txt
+#
+# NOT part of the production deploy path.  None of these packages are imported
+# at server startup or required for trading, auth, database, or paper-trading.
+#
+# Install only when on-chain / Ethereum features are needed:
+#   pip install -r requirements/blockchain.txt
+#
+# Python 3.12 / Ubuntu 24.04 compatibility confirmed for web3==6.15.1.
+# =============================================================================
+
+# Ethereum JSON-RPC / Web3 client
+web3==6.15.1
+
+# Secp256k1 elliptic-curve operations (required by web3 / eth-account)
+coincurve==21.0.0
+
+# Vectorised backtesting — offline strategy validation only.
+# scripts/backtest_strategy.py uses a try/except guard; safe to omit at runtime.
+vectorbt>=0.26.0

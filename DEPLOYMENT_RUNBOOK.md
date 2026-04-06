@@ -214,7 +214,7 @@ backend/requirements.production.lock.txt
 ```
 
 This file pins every package including trading/ML packages (xgboost, river,
-optuna, redis, web3) with no version ranges. Dev tools
+optuna, redis) with no version ranges. Dev tools
 (pytest, black, flake8, mypy) are excluded.
 
 > **Note:** `pandas-ta` was removed from all requirements files because
@@ -223,6 +223,18 @@ optuna, redis, web3) with no version ranges. Dev tools
 > (RSI, MACD, ATR, Bollinger Bands, VWAP, SMA).
 > `langchain`/`chromadb` are not installed in production; they are optional
 > and guarded by `try/except` in `engines/reflexion_loop.py`.
+>
+> **`web3` and `coincurve` are NOT installed in production.**  
+> `web3==6.15.1` is never imported by any server or trading module. It pulls
+> in 8 additional transitive packages (`eth-abi`, `eth-account`, `eth-hash`,
+> `eth-typing`, `eth-utils`, `hexbytes`, `lru-dict`, `pyunormalize`) that, when
+> unpinned, force pip's resolver into extended backtracking on every deploy.
+> Install on-chain extras only when needed:
+> ```bash
+> pip install -r backend/requirements/blockchain.txt
+> ```
+> **`vectorbt`** is also excluded from the production lock — it is an offline
+> backtesting tool used only in `scripts/backtest_strategy.py`.
 
 ### ⚠️ Critical: numpy constraint
 
@@ -242,11 +254,13 @@ the root cause is this conflict. **Always install from the lock file.**
 
 | File | Purpose |
 |---|---|
-| `requirements.production.lock.txt` | **Production single source of truth** – exact pins, no dev tools |
+| `requirements.production.lock.txt` | **Production single source of truth** – exact pins, no dev tools, no web3/vectorbt |
 | `requirements.core.txt` | Minimal trading API subset (no LangChain/RAG) |
 | `requirements.txt` | Full package list with version ranges (for development) |
 | `requirements/base.txt` | Core FastAPI/MongoDB/auth packages |
 | `requirements/ai.txt` | ML/LangChain/transformers (numpy<2.0 constraint) |
+| `requirements/trading.txt` | CCXT and trading utilities |
+| `requirements/blockchain.txt` | **Optional** – web3, coincurve, vectorbt (not in production path) |
 | `requirements/constraints.txt` | Version constraint pins |
 | `requirements-ai.txt` | Optional Fetch.ai agents (protobuf conflicts – separate install) |
 
