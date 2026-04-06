@@ -169,7 +169,7 @@ class EmailReporter:
 </head>
 <body>
     <div class="container">
-        <h1>🚀 Amarktai Crypto (part of Amarktai Network) - Daily Report</h1>
+        <h1>🚀 Amarktai Network (part of Amarktai Network) - Daily Report</h1>
         <p><strong>Date:</strong> {report.get('report_date', 'N/A')}</p>
         
         <div class="summary">
@@ -216,7 +216,7 @@ class EmailReporter:
         {''.join([f"<div class='alert'><strong>{a['severity'].upper()}</strong>: {a['message']}</div>" for a in report.get('active_alerts', [])]) or '<p>No active alerts</p>'}
         
         <div class="footer">
-            <p>Amarktai Crypto (part of Amarktai Network) - Autonomous AI Trading</p>
+            <p>Amarktai Network (part of Amarktai Network) - Autonomous AI Trading</p>
             <p>This is an automated daily report. Do not reply to this email.</p>
         </div>
     </div>

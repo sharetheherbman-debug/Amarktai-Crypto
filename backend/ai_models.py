@@ -14,14 +14,20 @@ import os
 
 class AIModels:
     def __init__(self):
-        self.api_key = os.environ.get('OPENAI_API_KEY')
-        self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
+        # Note: OpenAI client is now created per-request via resolver
+        pass
     
-    async def system_ai(self, message: str, context: str = "") -> str:
+    async def system_ai(self, message: str, context: str = "", user_id: str = None) -> str:
         """SystemAI - gpt-4o for daily strategy decisions"""
         try:
-            if not self.client:
+            from services.openai_key_resolver import get_openai_client
+            
+            client, source = await get_openai_client(user_id)
+            if not client:
+                logger.warning(f"OpenAI key resolved source={source} - AI unavailable")
                 return "OpenAI API key not configured"
+            
+            logger.info(f"OpenAI key resolved source={source} for SystemAI")
                 
             system_message = f"""You are SystemAI, the global risk and strategy controller for Amarktai trading system.
 
@@ -35,7 +41,7 @@ Your role:
 
 Be concise and data-driven."""
             
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_message},
@@ -48,11 +54,17 @@ Be concise and data-driven."""
             logger.error(f"SystemAI error: {e}")
             return "System AI temporarily unavailable"
     
-    async def trade_ai(self, features: dict) -> dict:
+    async def trade_ai(self, features: dict, user_id: str = None) -> dict:
         """TradeAI - gpt-4o for trade execution"""
         try:
-            if not self.client:
+            from services.openai_key_resolver import get_openai_client
+            
+            client, source = await get_openai_client(user_id)
+            if not client:
+                logger.warning(f"OpenAI key resolved source={source} - AI unavailable")
                 return {"decision": "SKIP", "confidence": 0, "reasoning": "API key not configured"}
+            
+            logger.info(f"OpenAI key resolved source={source} for TradeAI")
                 
             message = f"""Analyze this trade opportunity:
 
@@ -62,13 +74,12 @@ Trend: {features.get('trend')}
 AI Signals:
 - Regime: {features.get('regime')}
 - ML Prediction: {features.get('ml_prediction')}
-- CoinStats Signal: {features.get('coinstats_signal')}
 - Fetch.ai: {features.get('fetchai_signal')}
 
 Decide: LONG, SHORT, or SKIP
 Provide confidence (0-1)"""
             
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are TradeAI. Analyze signals and make LONG/SHORT/SKIP decisions with confidence scores."},
@@ -100,11 +111,17 @@ Provide confidence (0-1)"""
             logger.error(f"TradeAI error: {e}")
             return {"decision": "SKIP", "confidence": 0, "reasoning": "AI unavailable"}
     
-    async def reporting_ai(self, data: dict) -> str:
+    async def reporting_ai(self, data: dict, user_id: str = None) -> str:
         """ReportingAI - gpt-4 for email reports"""
         try:
-            if not self.client:
+            from services.openai_key_resolver import get_openai_client
+            
+            client, source = await get_openai_client(user_id)
+            if not client:
+                logger.warning(f"OpenAI key resolved source={source} - using fallback report")
                 return f"Daily Report\n\n{data}"
+            
+            logger.info(f"OpenAI key resolved source={source} for ReportingAI")
                 
             message = f"""Generate a professional daily trading report email:
 
@@ -117,7 +134,7 @@ Create a clear, concise summary with:
 3. Notable events
 4. Recommendations"""
             
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are ReportingAI. Generate professional, human-readable trading reports."},

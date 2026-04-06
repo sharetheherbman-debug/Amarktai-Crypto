@@ -399,7 +399,7 @@ class ProductionReadinessTester:
         api_providers = [
             ("openai", "sk-test-key-123"),
             ("luno", "test-luno-key", "test-luno-secret"),
-            ("fetchai", "test-fetchai-key")
+            ("fetchai", "test-fetchai-key"),
         ]
         
         for provider_data in api_providers:
@@ -450,7 +450,7 @@ class ProductionReadinessTester:
             
             # Check for AI metadata
             if trades:
-                ai_fields = ["ai_regime", "ai_confidence", "ml_prediction", "fetchai_signal", "coinstats_strength"]
+                ai_fields = ["ai_regime", "ai_confidence", "ml_prediction", "fetchai_signal"]
                 trades_with_ai = sum(1 for trade in trades if any(field in trade for field in ai_fields))
                 
                 if trades_with_ai > 0:

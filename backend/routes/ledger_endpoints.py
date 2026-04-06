@@ -9,7 +9,7 @@ Provides read-only access to immutable ledger data:
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from auth import get_current_user
@@ -150,12 +150,11 @@ async def get_countdown_status(
             "status": "closed",
         })
 
-        if trades_total < 10:
-            remaining_trades = 10 - trades_total
+        if trades_total < 1:
             return {
                 "ready": False,
-                "message": "Need at least 10 trades",
-                "trades_remaining": remaining_trades,
+                "message": "No closed trades yet — projections start after first trade",
+                "trades_remaining": 1,
                 "trades_total": trades_total,
                 "current_equity": round(current_equity, 2),
                 "target": target,
@@ -434,3 +433,80 @@ async def verify_ledger_integrity(
     except Exception as e:
         logger.error(f"Error verifying ledger integrity: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to verify ledger integrity: {str(e)}")
+
+
+@router.get("/ledger/invariants/check")
+async def check_ledger_invariants(
+    current_user: str = Depends(get_current_user),
+    db=Depends(get_database)
+):
+    """
+    Check ledger invariants: total == available + allocated.
+
+    Computes wallet truth from ledger + open trades and returns invariant
+    status.  Always returns 200 with a structured result (never raises 500)
+    so that monitoring scripts can poll this endpoint safely.
+
+    Returns:
+        invariant_ok: bool – True when total == available + allocated (within rounding)
+        available: float
+        allocated: float
+        total: float
+        drift: float – absolute difference (0.0 when invariant holds)
+        last_drift_reason: str or null
+        computed_from: dict with ledger and trades summaries
+    """
+    user_id = current_user
+    try:
+        ledger = get_ledger_service(db)
+        equity = await ledger.compute_equity(user_id)
+
+        # Compute allocated from open trades
+        allocated = 0.0
+        drift_reason = None
+        try:
+            open_trades_cursor = db.trades_collection.find(
+                {"user_id": user_id, "status": "open"},
+                {"_id": 0, "entry_value": 1, "trade_amount": 1}
+            )
+            async for trade in open_trades_cursor:
+                ev = float(trade.get("entry_value") or trade.get("trade_amount") or 0)
+                allocated += ev
+        except Exception as trade_err:
+            drift_reason = f"trade_lookup_error: {trade_err}"
+
+        available = max(0.0, equity - allocated)
+        total = available + allocated
+        drift = abs(total - equity)
+        invariant_ok = drift < 0.01  # within rounding (currency-agnostic 1-cent tolerance)
+
+        if not invariant_ok and drift_reason is None:
+            drift_reason = f"total={total:.4f} != equity={equity:.4f} (drift={drift:.4f})"
+
+        return {
+            "invariant_ok": invariant_ok,
+            "available": round(available, 4),
+            "allocated": round(allocated, 4),
+            "total": round(total, 4),
+            "equity": round(equity, 4),
+            "drift": round(drift, 6),
+            "last_drift_reason": drift_reason,
+            "computed_from": {
+                "ledger_equity": round(equity, 4),
+                "open_trades_allocated": round(allocated, 4),
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Ledger invariants check error: {e}")
+        return {
+            "invariant_ok": False,
+            "available": 0.0,
+            "allocated": 0.0,
+            "total": 0.0,
+            "equity": 0.0,
+            "drift": 0.0,
+            "last_drift_reason": str(e),
+            "computed_from": {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }

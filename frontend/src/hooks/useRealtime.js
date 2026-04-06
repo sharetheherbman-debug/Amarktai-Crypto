@@ -74,7 +74,7 @@ export function useLastUpdate(eventType) {
     const interval = setInterval(() => {
       const status = realtimeClient.getStatus();
       setLastUpdate(status.lastUpdate[eventType] || null);
-    }, 1000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [eventType]);

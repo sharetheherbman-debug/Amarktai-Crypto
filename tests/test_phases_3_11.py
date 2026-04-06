@@ -80,12 +80,12 @@ class TestPhase5APIKeys:
     """Test API keys management"""
     
     def test_supported_providers(self):
-        """Test that all 7 exchanges + 4 AI providers are supported"""
+        """Test that all 7 exchanges + 3 AI providers are supported"""
         try:
             from services.provider_registry import PROVIDERS
             
             expected_exchanges = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
-            expected_ai = ['openai', 'fetchai', 'coinstats', 'huggingface']
+            expected_ai = ['openai', 'coinstats', 'fetchai']
             
             for provider in expected_exchanges + expected_ai:
                 assert provider in PROVIDERS, f"{provider} not in PROVIDERS"

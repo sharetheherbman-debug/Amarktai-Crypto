@@ -31,7 +31,7 @@ async def migrate_api_keys_user_id():
     """
     # Get MongoDB connection details
     mongo_url = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-    db_name = os.getenv('DB_NAME', 'amarktai_trading')
+    db_name = os.getenv('DB_NAME', 'amarktai')
     
     print(f"🔌 Connecting to MongoDB at {mongo_url}")
     print(f"📊 Database: {db_name}")

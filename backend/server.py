@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query, Body, Form, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, Request, APIRouter, Query, Body
 from routes.auth import router as auth_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
@@ -9,6 +9,8 @@ import logging
 import logging.config
 import os
 import asyncio
+import socket
+import aiohttp as _aiohttp
 import json
 import random
 import time
@@ -57,6 +59,7 @@ import ccxt.async_support as ccxt
 api_router = APIRouter()
 api_router.include_router(auth_router)
 
+
 # ============================================================================
 # LIFESPAN CONTEXT - Startup and Shutdown
 # ============================================================================
@@ -90,6 +93,11 @@ async def lifespan(app: FastAPI):
     logger.info(f"📊 Paper Trading: {'ON' if paper_trading else 'OFF'}")
     logger.info(f"🔴 Live Trading: {'ON' if live_trading else 'OFF'}")
     logger.info(f"🤖 Autopilot: {'ON' if autopilot else 'OFF'}")
+    if not os.getenv("METRICS_TOKEN", "").strip():
+        logger.critical(
+            "METRICS_TOKEN not set — /api/metrics requires JWT auth. "
+            "Set METRICS_TOKEN env var for standard Prometheus scraping."
+        )
     logger.info("="*80)
     
     # =========================================================================
@@ -136,40 +144,34 @@ async def lifespan(app: FastAPI):
             logger.error("❌ Boot selftest failed - some collections not initialized")
             # Continue anyway - collections may be initialized lazily
         
-        # ========================================================================
-        # STEP 1.5: Run startup migrations to fix schema drift
-        # ========================================================================
+        # STEP 1.5: Run all startup migrations
         try:
-            from migrations.fix_user_id_field import run_startup_migrations
-            await run_startup_migrations(db)
+            from migrations._runner import run_all_migrations
+            await run_all_migrations(db)
             logger.info("✅ Startup migrations completed")
         except Exception as migration_error:
             logger.warning(f"⚠️ Startup migrations failed (non-fatal): {migration_error}")
-            # Continue - migrations are best-effort repairs
 
         # ========================================================================
-        # STEP 1.6: Repair bot_type field for bots created before the validator fix
+        # STEP 1.6: API key encryption migration (old JWT-derived → AMARKTAI_FERNET_KEY)
         # ========================================================================
         try:
-            from migrations.fix_bot_type_field import run_bot_type_migration
-            fixed_s, fixed_n = await run_bot_type_migration(db)
-            if fixed_s or fixed_n:
-                logger.info(f"✅ bot_type repair: {fixed_s} bots promoted to scalper, {fixed_n} set to normal")
+            new_key = os.getenv("AMARKTAI_FERNET_KEY") or os.getenv("FERNET_KEY")
+            if new_key:
+                from utils.key_migration import migrate_all_keys
+                migration_result = await migrate_all_keys()
+                migrated = migration_result.get("total_migrated", 0)
+                skipped = migration_result.get("total_skipped", 0)
+                failed = migration_result.get("total_failed", 0)
+                if migrated > 0:
+                    logger.info(f"✅ Key migration: {migrated} migrated, {skipped} skipped, {failed} failed")
+                elif skipped > 0:
+                    logger.debug(f"Key migration: all {skipped} keys already on current encryption")
+            else:
+                logger.debug("Key migration skipped: AMARKTAI_FERNET_KEY not set")
         except Exception as migration_error:
-            logger.warning(f"⚠️ bot_type migration failed (non-fatal): {migration_error}")
-            # Continue - migrations are best-effort repairs
+            logger.warning(f"⚠️ Key encryption migration failed (non-fatal): {migration_error}")
 
-        # ========================================================================
-        # STEP 1.7: Queue/runtime cleanup at startup (remove stale drift)
-        # ========================================================================
-        try:
-            from engines.trade_staggerer import trade_staggerer
-            await trade_staggerer.clear_stale_trades()
-            await trade_staggerer.purge_orphaned_queue()
-            logger.info("✅ Startup queue/runtime cleanup completed")
-        except Exception as cleanup_error:
-            logger.warning(f"⚠️ Startup queue cleanup failed (non-fatal): {cleanup_error}")
-            
     except Exception as e:
         logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)
         # Log to stderr as well for systemd
@@ -206,7 +208,7 @@ async def lifespan(app: FastAPI):
             logger.info("🔮 Fetch.ai integration configured")
     except Exception as e:
         logger.warning(f"Could not configure Fetch.ai: {e}")
-    
+
     # Start Daily Reinvestment Scheduler (optional)
     try:
         if config.ENABLE_AUTOPILOT_REINVEST:
@@ -255,24 +257,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start Balance Sync Service: {e}")
 
-    # Start Daily Loss Lock Auto-Reset Job
-    # Clears stale daily_loss_lock_active flags at startup and then again at 00:00:01 UTC each day.
+    # Start Market Intelligence Scheduler (optional)
     try:
-        from jobs.daily_loss_reset import run_daily_loss_reset_loop
-        asyncio.create_task(run_daily_loss_reset_loop(db.db))
-        logger.info("🔓 Daily Loss Lock Auto-Reset Job started (midnight UTC scheduler)")
+        from services.market_intelligence_service import start_intelligence_scheduler
+        asyncio.create_task(start_intelligence_scheduler())
+        try:
+            from services.growth_engine_service import start_growth_engine_scheduler
+            asyncio.create_task(start_growth_engine_scheduler())
+        except Exception as _ge_err:
+            logger.warning(f"Growth Engine scheduler not started: {_ge_err}")
+        logger.info("🧠 Market Intelligence Scheduler started")
     except Exception as e:
-        logger.warning(f"Could not start Daily Loss Lock Auto-Reset Job: {e}")
-
-    # Start Live Position Monitor — continuously checks stop-loss / take-profit
-    # for all active live trading positions so no position sits unmonitored.
-    try:
-        from engines.risk_management import risk_management
-        if not risk_management.is_running:
-            risk_management.start()
-            logger.info("📊 Live Position Monitor started (stop-loss / take-profit monitoring)")
-    except Exception as e:
-        logger.warning(f"Could not start Live Position Monitor: {e}")
+        logger.warning(f"Could not start Market Intelligence Scheduler: {e}")
 
     # Start live USDT/ZAR rate updater — keeps FX conversions accurate.
     # Uses USD/ZAR from fiat_fx_provider as a USDT proxy (USDT ≈ 1 USD).
@@ -352,17 +348,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Error stopping Balance Sync Service: {e}")
     
-    # Close CCXT async sessions if trading/ccxt enabled
-    enable_trading = env_bool('ENABLE_TRADING', False)
-    enable_ccxt = env_bool('ENABLE_CCXT', True)
-    
-    if enable_ccxt or enable_trading:
-        try:
-            from paper_trading_engine import paper_engine
-            await paper_engine.close_exchanges()
-            logger.info("✅ CCXT sessions closed")
-        except Exception as e:
-            logger.error(f"Error closing CCXT sessions: {e}")
+    # Close CCXT async sessions unconditionally — avoids "Unclosed client session"
+    # warnings from aiohttp (fix for E resource leak).
+    try:
+        from paper_trading_engine import paper_engine
+        await paper_engine.close_exchanges()
+        logger.info("✅ CCXT sessions closed")
+    except Exception as e:
+        logger.error(f"Error closing CCXT sessions: {e}")
     
     # Close AI service sessions (aiohttp)
     try:
@@ -391,8 +384,9 @@ app = FastAPI(
 )
 
 @app.get("/openapi.json", include_in_schema=False)
-async def openapi_redirect():
-    return RedirectResponse(url="/api/openapi.json")
+async def openapi_json():
+    """Return OpenAPI schema directly (avoids redirect that can produce empty response)."""
+    return JSONResponse(content=app.openapi())
 
 # Add validation error handler for better debugging
 from fastapi.exceptions import RequestValidationError
@@ -418,9 +412,86 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler - prevents server crashes by returning JSON errors
+    All uncaught exceptions are caught here and returned as JSON 500 errors
+    """
+    # Log the full exception with traceback
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}", exc_info=True)
+    
+    # Return safe JSON error response (never crash the process)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "message": str(exc) if str(exc) else "An unexpected error occurred",
+            "path": str(request.url.path),
+            "method": request.method,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    )
+
+# ============================================================================
+# CORS MIDDLEWARE - Security hardened with environment-based origins
+# ============================================================================
+
+def get_cors_origins() -> list[str]:
+    """Get CORS allowed origins from environment"""
+    import os
+    
+    # Get configured origins from env
+    origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '')
+    origins = []
+    
+    if origins_env:
+        # Parse comma-separated list
+        origins = [origin.strip() for origin in origins_env.split(',') if origin.strip()]
+    
+    # Add development origins if enabled
+    enable_dev = os.getenv('ENABLE_DEV_CORS', 'false').lower() == 'true'
+    if enable_dev:
+        dev_origins = [
+            'http://localhost:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:5173',
+        ]
+        origins.extend(dev_origins)
+        logger.info(f"⚠️ CORS: Development origins enabled: {dev_origins}")
+    
+    # Fallback: secure prod origins or dev wildcard
+    if not origins:
+        environment = os.getenv('ENVIRONMENT', 'production').lower()
+        if environment == 'production':
+            prod_origins = ['https://amarktai.online', 'https://www.amarktai.online']
+            logger.info(f"✅ CORS: Production mode — using default prod origins: {prod_origins}")
+            return prod_origins
+        logger.critical(
+            "🚨 CORS WILDCARD ['*'] ACTIVE — all origins are allowed. "
+            "This is INSECURE and must NOT be used in production. "
+            "Set CORS_ALLOWED_ORIGINS or ENVIRONMENT=production to restrict origins."
+        )
+        return ["*"]
+    
+    # Refuse wildcard if somehow included in CORS_ALLOWED_ORIGINS in production
+    environment = os.getenv('ENVIRONMENT', 'production').lower()
+    if environment == 'production' and '*' in origins:
+        logger.critical(
+            "🚨 CORS wildcard '*' found in CORS_ALLOWED_ORIGINS for production environment. "
+            "Removing wildcard and using default prod origins instead."
+        )
+        origins = [o for o in origins if o != '*']
+        if not origins:
+            origins = ['https://amarktai.online', 'https://www.amarktai.online']
+
+    logger.info(f"✅ CORS: Allowed origins: {origins}")
+    return origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -540,12 +611,7 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     from uuid import uuid4
     
     bot_dict = bot.model_dump()
-    # Canonical capital resolution: 'initial_capital' is the canonical field.
-    # 'capital' is accepted as a backward-compat alias (resolved in BotCreate validator).
-    # After model_dump(), initial_capital holds the merged value.
-    initial_capital_value = float(bot_dict.get('initial_capital') or 0)
-    capital_alias_value = float(bot_dict.get('capital') or 0)
-    bot_dict['capital'] = initial_capital_value if initial_capital_value > 0 else capital_alias_value
+    bot_dict['capital'] = bot_dict.get('initial_capital', 1000)
     
     # Validate bot creation BEFORE database insertion
     is_valid, result = await bot_validator.validate_bot_creation(user_id, bot_dict)
@@ -564,34 +630,6 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     
     # Insert validated bot
     await db.bots_collection.insert_one(result)
-
-    # Auto-start the paper learning period on first bot creation.
-    # This ensures users are automatically enrolled in the 7-day evaluation
-    # window needed for live-trading eligibility — they no longer need to
-    # manually call POST /api/system/start-paper-learning.
-    try:
-        user_doc = await db.users_collection.find_one(
-            {"id": user_id}, {"paper_learning_start_ts": 1, "_id": 0}
-        )
-        if not (user_doc or {}).get("paper_learning_start_ts"):
-            from config import PAPER_TRAINING_DAYS as _PTD
-            _start_ts = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
-            await db.users_collection.update_one(
-                {"id": user_id},
-                {
-                    "$set": {
-                        "paper_learning_start_ts": _start_ts,
-                        "paper_learning_days_required": _PTD,
-                    }
-                },
-                upsert=True,
-            )
-            logger.info(
-                f"✅ Auto-started paper learning period for user {user_id[:8]} "
-                f"on first bot creation (required days: {_PTD})"
-            )
-    except Exception as _e:
-        logger.warning(f"Auto-start paper learning failed for {user_id[:8]}: {_e}")
 
     # Ensure paper wallet reserved for new bot
     try:
@@ -618,64 +656,6 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     logger.info(f"✅ Bot created: {result['name']} for user {user_id[:8]}")
     
     return result
-
-
-@api_router.post("/bots/uagent")
-async def create_uagent_bot(
-    name: str = Form(...),
-    strategy: str = Form("adaptive"),
-    file: UploadFile = File(...),
-    user_id: str = Depends(get_current_user)
-):
-    """Deploy a Fetch.ai uAgent bot.
-
-    Accepts a multipart upload of a Python agent script and registers
-    the agent as a bot with bot_type='uagent' so it appears correctly
-    in Bot Fleet → uAgents tab and Truth Console scalper/uagent counts.
-    """
-    from uuid import uuid4
-
-    _ALLOWED_STRATEGIES = {"adaptive", "trend", "mean_reversion"}
-
-    # Validate file extension and content type
-    if not file.filename or not file.filename.endswith('.py'):
-        raise HTTPException(status_code=400, detail="Agent file must be a .py script")
-    content_type = file.content_type or ""
-    if content_type and content_type not in ("text/x-python", "text/plain", "application/octet-stream", "application/x-python-code"):
-        raise HTTPException(status_code=400, detail="Agent file must be a Python (.py) script")
-
-    # Validate strategy against whitelist
-    safe_strategy = strategy.lower().strip() if strategy else "adaptive"
-    if safe_strategy not in _ALLOWED_STRATEGIES:
-        safe_strategy = "adaptive"
-
-    bot_doc = {
-        "id": str(uuid4()),
-        "user_id": user_id,
-        "name": name,
-        "bot_type": "uagent",
-        "exchange": "luno",           # default; uAgents can target any exchange
-        "trading_mode": "paper",
-        "status": "active",
-        "strategy_preset": safe_strategy,
-        "initial_capital": 0,
-        "current_capital": 0,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "uagent_filename": file.filename,
-        "learning_complete": False,
-    }
-    await db.bots_collection.insert_one(bot_doc)
-    bot_doc.pop("_id", None)
-
-    try:
-        from realtime_events import rt_events
-        await rt_events.bot_created(user_id, bot_doc)
-        await rt_events.force_refresh(user_id, f"uAgent '{name}' deployed")
-    except Exception as rt_err:
-        logger.warning(f"uAgent realtime notify failed: {rt_err}")
-
-    logger.info(f"✅ uAgent created: {name} for user {user_id[:8]}")
-    return {"success": True, "bot": bot_doc}
 
 
 @api_router.post("/bots/spawn")
@@ -742,7 +722,9 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     """
     from uuid import uuid4
     from rules import check_bot_cap_limit, validate_exchange, get_reason_message
+    from rules.bot_rules import get_max_bots_for_exchange
     from json_utils import serialize_list
+    
     from services.fx_normalizer import resolve_capital_for_exchange
 
     # Accepted bot_type values: 'normal' (default) or 'scalper'
@@ -751,13 +733,17 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         bot_type = 'normal'
 
     count = data.get('count', 10)
-    # capital_per_bot is ALWAYS interpreted as a ZAR economic base — identical to the
-    # single-bot creation flow.  For USDT exchanges the quote capital is derived via
-    # resolve_capital_for_exchange so that 1000 ZAR → ~52.63 USDT (not raw 1000 USDT).
-    capital_per_bot = float(data.get('capital_per_bot', 1000) or 1000)
-    safe_count = data.get('safe_count', 6)
-    risky_count = data.get('risky_count', 2)
-    aggressive_count = data.get('aggressive_count', 2)
+    capital_per_bot = data.get('capital_per_bot', 1000)
+    # Only use explicit per-mode counts if provided; otherwise allocate entire count to safe_count
+    explicit_split = 'safe_count' in data or 'risky_count' in data or 'aggressive_count' in data
+    if explicit_split:
+        safe_count = data.get('safe_count', 0)
+        risky_count = data.get('risky_count', 0)
+        aggressive_count = data.get('aggressive_count', 0)
+    else:
+        safe_count = count
+        risky_count = 0
+        aggressive_count = 0
     exchange = data.get('exchange', 'luno').lower()
     # Profit routing for scalper bots (ignored for normal bots)
     profit_routing = str(data.get('profit_routing', 'RETURN_TO_MAIN')).upper()
@@ -768,6 +754,30 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     is_valid, reason_code = validate_exchange(exchange)
     if not is_valid:
         raise HTTPException(status_code=400, detail=get_reason_message(reason_code))
+    
+    # Check bot cap for this exchange
+    current_bot_count = await db.bots_collection.count_documents({
+        "user_id": user_id,
+        "exchange": exchange,
+        "status": {"$ne": "deleted"}  # Don't count deleted bots
+    })
+    
+    total_bots_requested = safe_count + risky_count + aggressive_count
+    exchange_cap = get_max_bots_for_exchange(exchange)
+    
+    # Check if adding these bots would exceed the cap
+    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id)
+    if not can_create:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}, Cap: {exchange_cap}"
+        )
+    
+    bots_to_create = []
+    bot_number = await db.bots_collection.count_documents({"user_id": user_id}) + 1
+    
+    for i in range(safe_count):
+        bots_to_create.append({
 
     # Canonical capital conversion — mirrors bot_validator.validate_bot_creation logic.
     # quote_capital = capital in the exchange's native quote currency.
@@ -799,26 +809,19 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         record = {
             'id': str(uuid4()),
             'user_id': user_id,
-            'name': name,
-            # ── Canonical capital truth fields (mirrors bot_validator.py) ──────────
-            # canonical_base_capital_zar: original ZAR economic base — never mutated.
-            'canonical_base_capital_zar': round(capital_per_bot, 2),
-            'funding_input_amount': round(capital_per_bot, 2),
-            'funding_input_currency': 'ZAR',
-            'fx_rate_at_creation': fx_rate_at_creation,
-            'quote_currency': quote_currency,
-            # initial_capital / current_capital: trading capital in quote currency.
-            # For Luno: ZAR. For Binance/KuCoin/etc: USDT (= capital_per_bot / fx_rate).
-            'initial_capital': quote_capital,
-            'current_capital': quote_capital,
-            # ─────────────────────────────────────────────────────────────────────
+            'name': f'Safe-Bot-{bot_number + i}',
+            'initial_capital': capital_per_bot,
+            'current_capital': capital_per_bot,
             'total_profit': 0.0,
-            'risk_mode': risk_mode,
+            'risk_mode': BotRiskMode.SAFE,
             'trading_mode': 'paper',
             'exchange': exchange,
             'status': 'active',
             'trades_count': 0,
             'created_at': datetime.now(timezone.utc).isoformat(),
+            'last_trade': None
+        })
+    
             'last_trade': None,
             'bot_type': bot_type,
             'strategy_preset': 'scalping' if bot_type == 'scalper' else 'adaptive',
@@ -836,28 +839,56 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     for i in range(safe_count):
         bots_to_create.append(_make_bot_record(f'Safe-{name_prefix}-{bot_number + i}', BotRiskMode.SAFE))
     bot_number += safe_count
-
+    
     for i in range(risky_count):
+        bots_to_create.append({
+            'id': str(uuid4()),
+            'user_id': user_id,
+            'name': f'Balanced-Bot-{bot_number + i}',
+            'initial_capital': capital_per_bot,
+            'current_capital': capital_per_bot,
+            'total_profit': 0.0,
+            'risk_mode': BotRiskMode.BALANCED,
+            'trading_mode': 'paper',
+            'exchange': exchange,
+            'status': 'active',
+            'trades_count': 0,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'last_trade': None
+        })
+    
         bots_to_create.append(_make_bot_record(f'Balanced-{name_prefix}-{bot_number + i}', BotRiskMode.BALANCED))
     bot_number += risky_count
-
+    
     for i in range(aggressive_count):
+        bots_to_create.append({
+            'id': str(uuid4()),
+            'user_id': user_id,
+            'name': f'Aggressive-Bot-{bot_number + i}',
+            'initial_capital': capital_per_bot,
+            'current_capital': capital_per_bot,
+            'total_profit': 0.0,
+            'risk_mode': BotRiskMode.AGGRESSIVE,
+            'trading_mode': 'paper',
+            'exchange': exchange,
+            'status': 'active',
+            'trades_count': 0,
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'last_trade': None
+        })
+    
         bots_to_create.append(_make_bot_record(f'Aggressive-{name_prefix}-{bot_number + i}', BotRiskMode.AGGRESSIVE))
 
     if bots_to_create:
         try:
             from services.paper_wallet_service import paper_wallet_service
-            # Wallet check uses ZAR base (always) regardless of exchange.
-            # The ZAR economic base per bot is capital_per_bot; total is the sum.
-            total_required_zar = len(bots_to_create) * capital_per_bot
-            available_zar = await paper_wallet_service.get_available_balance(user_id, "ZAR")
-            if available_zar < total_required_zar:
+            currency = "ZAR" if exchange == "luno" else "USDT"
+            total_required = len(bots_to_create) * capital_per_bot
+            available = await paper_wallet_service.get_available_balance(user_id, currency)
+            if available < total_required:
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"Insufficient paper wallet funds (ZAR). "
-                        f"Available: R{available_zar:.2f}, Required: R{total_required_zar:.2f}"
-                    )
+                    detail=f"Insufficient paper wallet funds ({currency}). Available: {available:.2f}, Required: {total_required:.2f}"
                 )
         except HTTPException:
             raise
@@ -892,92 +923,19 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     }
 
 @api_router.put("/bots/{bot_id}")
-@api_router.patch("/bots/{bot_id}")
 async def update_bot(bot_id: str, update: dict, user_id: str = Depends(get_current_user)):
-    """Partial update of a bot's mutable fields.
-
-    Enforces live-trading gates when trading_mode='live' is requested:
-    1. LIVE_TRADING env var must be enabled.
-    2. System liveTrading mode flag must be True for the user.
-    3. User must have live_allowed=True (passed 7-day eligibility check).
-    4. Verified API keys must exist for the bot's exchange.
-    """
-    from datetime import datetime, timezone
-
     bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0})
     if not bot:
         raise HTTPException(status_code=404, detail="Bot not found")
-
-    # Whitelist: only allow safe mutable fields
-    ALLOWED_FIELDS = {
-        "trading_mode", "trading_enabled", "risk_mode",
-        "max_daily_trades", "max_position_pct", "max_drawdown_pct",
-        "name", "notes", "pair", "take_profit_pct", "stop_loss_pct",
-    }
-    update_data = {k: v for k, v in update.items() if k in ALLOWED_FIELDS and v is not None}
-    if not update_data:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"No recognised updatable fields in request. "
-                f"Allowed fields: {sorted(ALLOWED_FIELDS)}"
-            )
-        )
-
-    # ── Live-trading gate ────────────────────────────────────────────────
-    if update_data.get("trading_mode") == "live":
-        live_env = (
-            os.getenv("LIVE_TRADING", "0") in ("1", "true", "True") or
-            os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
-        )
-        if not live_env:
-            raise HTTPException(
-                status_code=403,
-                detail="Live trading is globally disabled (LIVE_TRADING env var not enabled)"
-            )
-
-        # System-mode gate
-        modes_doc = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
-        if modes_doc and not modes_doc.get("liveTrading", False):
-            raise HTTPException(
-                status_code=403,
-                detail="System mode is not set to live — switch system mode to live first."
-            )
-
-        # User eligibility gate
-        user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-        if not (user_doc or {}).get("live_allowed", False):
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "You have not yet qualified for live trading. "
-                    "Complete the 7-day paper learning period and pass the performance "
-                    "criteria via POST /api/system/request-live."
-                )
-            )
-
-        # API-key gate
-        exchange = (bot.get("exchange") or "").lower()
-        if exchange:
-            api_key_doc = await db.api_keys_collection.find_one(
-                {"user_id": user_id, "provider": exchange}
-            )
-            if not api_key_doc or not api_key_doc.get("api_key"):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"No verified API keys found for exchange '{exchange}'. "
-                        "Add and test your API keys before switching to live mode."
-                    )
-                )
-
+    
+    update_data = {k: v for k, v in update.items() if v is not None}
+    
     if update_data:
-        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.bots_collection.update_one(
             {"id": bot_id},
             {"$set": update_data}
         )
-
+    
     updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
     return updated_bot
 
@@ -1749,42 +1707,36 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         - projections: Both simple and compound projections
     """
     try:
+        from paper_trading_engine import paper_engine
         from services.ledger_service import get_ledger_service
-        from services.canonical import get_canonical_paper_wallet_equity
         
         # BACKEND TRUTH: Get system mode and wallet data from MongoDB
         system_mode = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         is_live = system_mode.get('liveTrading', False) if system_mode else False
 
         ledger = get_ledger_service(db.db)
-        trades_total = await db.trades_collection.count_documents({
-            "user_id": user_id,
-            "status": "closed",
-        })
+        stats = await ledger.get_stats(user_id)
+        trades_total = stats.get("total_fills", 0)
         ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
-        paper_equity = await get_canonical_paper_wallet_equity(user_id)
         
-        # BACKEND TRUTH: Get all bots total capital from MongoDB — normalised to ZAR
-        from services.reconciliation import compute_equity_zar
-        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-        total_bot_capital, _equity_breakdown = compute_equity_zar(bots)
-        # Capital priority order:
-        # 1) Paper mode: canonical multi-currency paper wallet total equity
-        # 2) Ledger equity (ZAR) when available
-        # 3) Bot-capital sum fallback
-        # 4) Zero/unavailable fallback
-        if not is_live and paper_equity["total_equity"] > 0:
-            total_capital = float(paper_equity["total_equity"])
-            capital_source = "wallet_snapshot"
-        elif ledger_equity and ledger_equity > 0:
-            total_capital = float(ledger_equity)
-            capital_source = "ledger_equity_zar"
-        elif total_bot_capital > 0:
-            total_capital = total_bot_capital
-            capital_source = "bots_current_capital_sum"
+        # Get current balance (paper or live based on mode)
+        if is_live:
+            # For live mode, calculate from real exchange balances
+            # For now, use paper as fallback (implement live balance fetching later)
+            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
+            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
         else:
-            total_capital = float(paper_equity["total_equity"] if not is_live else 0.0)
-            capital_source = "wallet_snapshot" if not is_live else "unavailable"
+            # Paper mode
+            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
+            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
+        
+        btc_price = await paper_engine.get_real_price('BTC/ZAR', 'luno')
+        current_capital = zar_balance + (btc_balance * btc_price)
+        
+        # BACKEND TRUTH: Get all bots total capital from MongoDB
+        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
+        total_bot_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        total_capital = max(current_capital, total_bot_capital, ledger_equity)
         
         target = 1_000_000
 
@@ -1794,13 +1746,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "message": "Need at least 10 trades",
                 "trades_remaining": 10 - trades_total,
                 "trades_total": trades_total,
-                "trade_count_source": "closed_trades_documents",
                 "current_capital": round(total_capital, 2),
-                "capital_source": capital_source,
-                "capital_components": {
-                    "available": paper_equity["available_total"] if not is_live else None,
-                    "allocated": paper_equity["allocated_total"] if not is_live else None,
-                },
                 "target": target,
                 "remaining": round(target - total_capital, 2),
                 "progress_pct": round((total_capital / target) * 100, 2) if target > 0 else 0,
@@ -1820,13 +1766,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "mode": "Live" if is_live else "Paper",
                 "status": "achieved",
                 "message": "🎉 TARGET ACHIEVED! You reached R1 Million!",
-                "compound_projection": None,
-                "trade_count_source": "closed_trades_documents",
-                "capital_source": capital_source,
-                "capital_components": {
-                    "available": paper_equity["available_total"] if not is_live else None,
-                    "allocated": paper_equity["allocated_total"] if not is_live else None,
-                },
+                "compound_projection": None
             }
         
         # BACKEND TRUTH: Calculate daily ROI from ledger profit series
@@ -1848,17 +1788,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 days_of_data = unique_trade_days
                 avg_daily_profit = total_profit / days_of_data if days_of_data else 0
             else:
-                from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _gqc
-                total_profit = 0.0
-                for trade in recent_trades:
-                    pnl_zar = trade.get("realized_pnl_zar")
-                    if pnl_zar is not None:
-                        total_profit += float(pnl_zar)
-                    else:
-                        raw_pnl = float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
-                        qc = trade.get("quote_currency") or _gqc(trade.get("exchange", ""), "")
-                        rate, _ = _gfr(qc, "ZAR")
-                        total_profit += raw_pnl * rate
+                total_profit = sum(trade.get('profit_loss', 0) for trade in recent_trades)
                 days_of_data = unique_trade_days
                 avg_daily_profit = total_profit / days_of_data if days_of_data else 0
             
@@ -1938,12 +1868,6 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "days_of_data": unique_trade_days,
                 "total_trades": trades_total
             },
-            "trade_count_source": "closed_trades_documents",
-            "capital_source": capital_source,
-            "capital_components": {
-                "available": paper_equity["available_total"] if not is_live else None,
-                "allocated": paper_equity["allocated_total"] if not is_live else None,
-            },
             "projections": {
                 "simple": simple_days,
                 "compound": compound_days,
@@ -1978,13 +1902,126 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
 # The canonical implementation delegates to routes/market_api.py for data.
 
 @api_router.get("/wallet/deposit-address")
-async def get_deposit_address(user_id: str = Depends(get_current_user)):
-    """Get deposit address - placeholder"""
-    return {
-        "address": "N/A - Connect your exchange API keys first",
-        "network": "BTC",
-        "note": "Paper trading mode - no real deposits needed"
-    }
+async def get_deposit_address(
+    exchange: str = "luno",
+    currency: str = "BTC",
+    user_id: str = Depends(get_current_user),
+):
+    """Fetch deposit address for a currency from the user's configured exchange.
+
+    Always returns HTTP 200.  When prerequisites are missing (no keys, trading
+    disabled) the response contains status="disabled" or status="unconfigured"
+    with address=null rather than raising a 4xx error.  This prevents the
+    frontend from logging console errors on every page load.
+    """
+    from utils.env_utils import env_bool
+
+    # Gate: must have live trading enabled or at least paper mode with exchange key
+    if not env_bool("ENABLE_LIVE_TRADING", False) and not env_bool("ENABLE_PAPER_TRADING", False):
+        return {
+            "status": "disabled",
+            "reason": "trading_not_enabled",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+        }
+
+    # Get exchange API key
+    creds = None
+    try:
+        from services.keys_service import keys_service
+        creds = await keys_service.get_user_api_key(user_id, exchange)
+    except Exception:
+        pass
+
+    if not creds:
+        return {
+            "status": "unconfigured",
+            "reason": f"no_{exchange}_api_key",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": f"Add your {exchange.upper()} API key in Settings → API Keys to enable deposits.",
+        }
+
+    # Try CCXT
+    try:
+        import ccxt
+        exchange_lower = exchange.lower()
+        exchange_cls = getattr(ccxt, exchange_lower, None)
+        if exchange_cls is None:
+            return {
+                "status": "error",
+                "reason": "exchange_not_supported",
+                "exchange": exchange,
+                "currency": currency,
+                "address": None,
+            }
+
+        # Build CCXT instance with user credentials
+        def _extract_credentials(raw) -> tuple:
+            """Extract (api_key, api_secret) from keys_service response (str or dict)."""
+            if isinstance(raw, str):
+                return raw, None
+            if isinstance(raw, dict):
+                return (
+                    raw.get("api_key") or raw.get("key") or raw.get("apiKey"),
+                    raw.get("api_secret") or raw.get("secret"),
+                )
+            return None, None
+
+        api_key, api_secret = _extract_credentials(creds)
+
+        ex = exchange_cls({
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+        })
+
+        # fetch_deposit_address is blocking — run in thread
+        import asyncio
+        addr_info = await asyncio.wait_for(
+            asyncio.to_thread(ex.fetch_deposit_address, currency),
+            timeout=15,
+        )
+        return {
+            "status": "ok",
+            "exchange": exchange,
+            "currency": currency,
+            "address": addr_info.get("address"),
+            "tag": addr_info.get("tag"),
+            "network": addr_info.get("network") or currency,
+            "info": addr_info.get("info", {}),
+        }
+
+    except ccxt.NotSupported:
+        return {
+            "status": "error",
+            "reason": "fetch_not_supported",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": f"{exchange.capitalize()} does not support deposit address fetching via API.",
+        }
+    except ccxt.AuthenticationError as e:
+        return {
+            "status": "error",
+            "reason": "auth_failed",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": f"Authentication failed for {exchange}. Check your API key and permissions.",
+        }
+    except Exception as e:
+        logger.error(f"Deposit address fetch failed for {exchange}/{currency}: {e}")
+        return {
+            "status": "error",
+            "reason": "fetch_failed",
+            "exchange": exchange,
+            "currency": currency,
+            "address": None,
+            "message": str(e),
+        }
 
 # ============================================================================
 # ADMIN
@@ -2003,21 +2040,21 @@ async def get_backend_health(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/admin/health-check")
 async def system_health_check(user_id: str = Depends(get_current_user)):
-    """Deprecated alias. Canonical endpoint is /api/admin/health."""
+    """Comprehensive system health check"""
     try:
-        from routes.admin_endpoints import admin_health
-        payload = await admin_health(admin_id=user_id)
-        payload["deprecated"] = True
-        payload["canonical_endpoint"] = "/api/admin/health"
-        return payload
+        from system_health import get_system_health
+        health_data = await get_system_health()
+        return health_data
     except Exception as e:
         logger.error(f"Health check error: {e}")
         return {
-            "status": "error",
-            "database": {"status": "error"},
-            "scheduler": {"running": False, "last_heartbeat": None},
-            "deprecated": True,
-            "canonical_endpoint": "/api/admin/health",
+            "health_score": 0,
+            "services": {
+                "database": "error",
+                "trading_engine": "error",
+                "ai_systems": "error",
+                "autonomous": "error"
+            },
             "error": str(e)
         }
 
@@ -2154,50 +2191,68 @@ async def get_eligible_bots(user_id: str = Depends(get_current_user)):
 
 @api_router.post("/bots/confirm-live-switch")
 async def confirm_live_switch(data: dict, user_id: str = Depends(get_current_user)):
-    """Confirm switching eligible bots to live trading with user confirmation"""
+    """Confirm switching eligible bots to live trading. Requires 2FA."""
     try:
+        import pyotp
+        # --- 2FA Gate ---
+        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not user.get("two_factor_enabled", False):
+            raise HTTPException(
+                status_code=403,
+                detail="2FA is required before switching to live trading. Enable 2FA in your security settings first.",
+            )
+        totp_code = str(data.get("totp_code", "")).strip()
+        if not totp_code:
+            raise HTTPException(
+                status_code=400,
+                detail="totp_code is required in request body when switching to live trading.",
+            )
+        secret = user.get("two_factor_secret")
+        if not secret:
+            raise HTTPException(status_code=400, detail="2FA secret not found. Please re-enable 2FA.")
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(totp_code, valid_window=1):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code. Please check your authenticator app.")
+        # --- End 2FA Gate ---
+
         from engines.promotion_engine import promotion_engine
-        
-        luno_funded = data.get('luno_funded', False)
-        bot_ids = data.get('bot_ids', [])
-        
+
+        luno_funded = data.get("luno_funded", False)
+        bot_ids = data.get("bot_ids", [])
+
         if not luno_funded:
             return {
                 "switched": 0,
-                "message": "⚠️ Please fund your exchange wallet before switching to live trading"
+                "message": "⚠️ Please fund your exchange wallet before switching to live trading",
             }
-        
-        # Promote each bot
+
         results = []
         for bot_id in bot_ids:
             result = await promotion_engine.promote_to_live(bot_id, user_confirmed=True)
-            if result['success']:
+            if result["success"]:
                 results.append(result)
-        
+
         if results:
-            # Enable live trading mode
             await db.system_modes_collection.update_one(
                 {"user_id": user_id},
                 {"$set": {"liveTrading": True}},
-                upsert=True
+                upsert=True,
             )
-            
-            # Send WebSocket notification
             from websocket_manager import manager
             await manager.send_message(user_id, {"type": "force_refresh"})
-            
             return {
                 "switched": len(results),
                 "message": f"🚀 Promoted {len(results)} bot(s) to LIVE trading!",
-                "bots": results
+                "bots": results,
             }
-        
-        return {
-            "switched": 0,
-            "message": "❌ No bots were eligible for promotion"
-        }
+
+        return {"switched": 0, "message": "❌ No bots were eligible for promotion"}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Live switch error: {e}")
+        logger.error(f"Live switch error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2231,49 +2286,30 @@ async def get_wallet_mode_stats(user_id: str = Depends(get_current_user)):
         logger.error(f"Wallet mode stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.post("/autopilot/enable")
-async def enable_autopilot(user_id: str = Depends(get_current_user)):
-    """Enable autopilot mode"""
-    try:
-        await db.system_modes_collection.update_one(
-            {"user_id": user_id},
-            {"$set": {"autopilot": True}},
-            upsert=True
-        )
-        logger.info(f"Autopilot enabled for user {user_id}")
-        return {"message": "Autopilot enabled", "autopilot": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/autopilot/disable")
-async def disable_autopilot(user_id: str = Depends(get_current_user)):
-    """Disable autopilot mode"""
-    try:
-        await db.system_modes_collection.update_one(
-            {"user_id": user_id},
-            {"$set": {"autopilot": False}},
-            upsert=True
-        )
-        logger.info(f"Autopilot disabled for user {user_id}")
-        return {"message": "Autopilot disabled", "autopilot": False}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# REMOVED: Duplicate autopilot enable/disable routes
+# These are now handled by routes/autopilot_control.py to avoid route collision
+# The router version provides better persistence and realtime event broadcasting
 
 @api_router.get("/autopilot/settings")
 async def get_autopilot_settings(user_id: str = Depends(get_current_user)):
-    """Get autopilot settings"""
+    """Get autopilot settings - reads from canonical user document"""
     try:
-        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
-        if not modes:
+        # Use users_collection for consistency with autopilot_control.py
+        user = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "autopilot_enabled": 1, "autopilot_settings": 1}
+        )
+        
+        if not user:
             return {
-                "autopilot": True,
+                "autopilot": False,
                 "reinvest_percentage": 80,
                 "spawn_threshold": 1000,
                 "max_bots": 50
             }
         
         return {
-            "autopilot": modes.get('autopilot', True),
+            "autopilot": user.get('autopilot_enabled', False),
             "reinvest_percentage": 80,
             "spawn_threshold": 1000,
             "max_bots": 50
@@ -2372,119 +2408,8 @@ async def get_mode_stats(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.delete("/admin/users/{target_user_id}")
-async def delete_user(target_user_id: str, user_id: str = Depends(get_current_user)):
-    """Hard delete user and all associated data (admin only)"""
-    try:
-        # Don't allow self-deletion
-        if target_user_id == user_id:
-            raise HTTPException(status_code=400, detail="Cannot delete yourself")
-        
-        # Check if user exists
-        user_to_delete = await db.users_collection.find_one({"id": target_user_id})
-        if not user_to_delete:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Hard delete: Remove user and ALL associated data
-        # 1. Delete all user's bots
-        await db.bots_collection.delete_many({"user_id": target_user_id})
-        
-        # 2. Delete all user's trades
-        await db.trades_collection.delete_many({"user_id": target_user_id})
-        
-        # 3. Delete all user's API keys
-        await db.api_keys_collection.delete_many({"user_id": target_user_id})
-        
-        # 4. Delete all user's chat messages
-        await db.chat_messages_collection.delete_many({"user_id": target_user_id})
-        
-        # 5. Delete all user's alerts
-        await db.alerts_collection.delete_many({"user_id": target_user_id})
-        
-        # 6. Delete user's system modes
-        await db.system_modes_collection.delete_many({"user_id": target_user_id})
-        
-        # 7. Finally, delete the user
-        result = await db.users_collection.delete_one({"id": target_user_id})
-        
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="User deletion failed")
-        
-        logger.info(f"Admin deleted user: {target_user_id} (email: {user_to_delete.get('email')})")
-        
-        return {
-            "message": "User and all associated data deleted successfully",
-            "deleted_user_id": target_user_id,
-            "deleted_user_email": user_to_delete.get('email')
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Delete user error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.put("/admin/users/{target_user_id}/block")
-async def block_unblock_user(target_user_id: str, data: dict, user_id: str = Depends(get_current_user)):
-    """Block or unblock a user (admin only)"""
-    try:
-        blocked = data.get('blocked', True)
-        
-        # Don't allow blocking yourself
-        if target_user_id == user_id:
-            raise HTTPException(status_code=400, detail="Cannot block yourself")
-        
-        result = await db.users_collection.update_one(
-            {"id": target_user_id},
-            {"$set": {"blocked": blocked}}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        action = "blocked" if blocked else "unblocked"
-        logger.info(f"Admin {action} user: {target_user_id}")
-        
-        return {
-            "message": f"User {action} successfully",
-            "user_id": target_user_id,
-            "blocked": blocked
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Block/unblock user error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.put("/admin/users/{target_user_id}/password")
-async def admin_change_password(target_user_id: str, data: dict, user_id: str = Depends(get_current_user)):
-    """Admin change user password (admin only)"""
-    try:
-        new_password = data.get('new_password')
-        if not new_password or len(new_password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-        
-        # Hash the new password
-        hashed = get_password_hash(new_password)
-        
-        result = await db.users_collection.update_one(
-            {"id": target_user_id},
-            {"$set": {"password_hash": hashed}}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        logger.info(f"Admin changed password for user: {target_user_id}")
-        
-        return {
-            "message": "Password changed successfully",
-            "user_id": target_user_id
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Admin password change error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# NOTE: Removed inline DELETE /admin/users/{id}, PUT /admin/users/{id}/block,
+# and PUT /admin/users/{id}/password - canonical versions in routes/admin_endpoints.py
 
 # ==== AUTONOMOUS SYSTEMS ENDPOINTS ====
 
@@ -2512,19 +2437,6 @@ async def manual_capital_reallocation(user_id: str = Depends(get_current_user)):
         return result
     except Exception as e:
         logger.error(f"Capital reallocation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.post("/autonomous/repair-capital")
-async def repair_capital_artefacts(user_id: str = Depends(get_current_user)):
-    """Repair current_capital values incorrectly reduced below initial_capital by a
-    previous buggy allocator run.  Safe to call at any time — only zero-trade bots
-    with capital below their initial allocation are touched."""
-    try:
-        from engines.capital_allocator import capital_allocator
-        result = await capital_allocator.repair_capital_artefacts(user_id)
-        return result
-    except Exception as e:
-        logger.error(f"Capital artefact repair error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/autonomous/reinvest-profits")
@@ -2568,43 +2480,8 @@ async def test_email_alert(user_id: str = Depends(get_current_user)):
         logger.error(f"Email test error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/fetchai/signals/{pair}")
-async def get_fetchai_signals(pair: str, user_id: str = Depends(get_current_user)):
-    """Get Fetch.ai market signals"""
-    try:
-        from fetchai_integration import fetchai
-        signals = await fetchai.fetch_market_signals(pair.replace('-', '/'))
-        return signals
-    except Exception as e:
-        logger.error(f"Fetch.ai signals error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/fetchai/recommendation/{pair}")
-async def get_fetchai_recommendation(pair: str, risk_level: str = "moderate", user_id: str = Depends(get_current_user)):
-    """Get Fetch.ai trading recommendation"""
-    try:
-        from fetchai_integration import fetchai
-        recommendation = await fetchai.get_trading_recommendation(pair.replace('-', '/'), risk_level)
-        return recommendation
-    except Exception as e:
-        logger.error(f"Fetch.ai recommendation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/fetchai/test-connection")
-async def test_fetchai_connection(user_id: str = Depends(get_current_user)):
-    """Test Fetch.ai API connection"""
-    try:
-        from fetchai_integration import fetchai
-        import os
-        api_key = os.environ.get('FETCHAI_API_KEY', '')
-        if not api_key:
-            return {"connected": False, "message": "No Fetch.ai API key configured"}
-        
-        result = await fetchai.test_connection(api_key)
-        return {"connected": result, "message": "Connected to Fetch.ai" if result else "Connection failed"}
-    except Exception as e:
-        logger.error(f"Fetch.ai connection test error: {e}")
-        return {"connected": False, "message": str(e)}
+# NOTE: Fetch.ai endpoints moved to routes/fetchai.py to avoid collision
+# The routes are now registered via include_router() below
 
 # ==== SERVER-SENT EVENTS (SSE) ENDPOINTS ====
 
@@ -2684,8 +2561,8 @@ async def sse_live_prices_stream(request: Request, user_id: str = Depends(get_cu
                                     ticker = await asyncio.to_thread(exchange.fetch_ticker, pair)
                                     change_24h = ticker.get('percentage', 0.0) or 0.0
                             except:
-                                # Fallback to simulated if ticker fetch fails
-                                change_24h = round(random.uniform(-2, 2), 2)
+                                # Fallback to 0.0 — unknown change is better than a random lie
+                                change_24h = 0.0
                             
                             prices[pair] = {
                                 "price": round(price, 2),
@@ -2757,16 +2634,10 @@ async def backtest_strategy(data: dict, user_id: str = Depends(get_current_user)
             data['end_date'],
             data.get('initial_capital', 1000)
         )
-        if "error" in result:
-            logger.error(f"Backtesting returned error: {result['error']}")
-            raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
-        # Return only safe (non-error) fields to the client
-        return {k: v for k, v in result.items() if k not in ("error", "traceback")}
-    except HTTPException:
-        raise
+        return result
     except Exception as e:
         logger.error(f"Backtesting error: {e}")
-        raise HTTPException(status_code=500, detail="Backtesting failed – see server logs for details.")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/bots/evolve")
 async def evolve_bots(user_id: str = Depends(get_current_user)):
@@ -2993,15 +2864,39 @@ async def admin_emergency_resume(user_id: str = Depends(get_current_user)):
 # ============================================================================
 
 @api_router.get("/metrics")
-async def get_prometheus_metrics():
-    """Expose Prometheus metrics for Grafana"""
+async def get_prometheus_metrics(request: Request):
+    """Expose Prometheus metrics. Protected by METRICS_TOKEN if set, otherwise JWT required."""
+    from fastapi.responses import Response
+    metrics_token = os.getenv("METRICS_TOKEN", "").strip()
+
+    if metrics_token:
+        # Prometheus-friendly auth: Bearer token check
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return Response(
+                content="Unauthorized: provide 'Authorization: Bearer <METRICS_TOKEN>'",
+                status_code=401,
+                media_type="text/plain",
+            )
+        provided = auth_header.removeprefix("Bearer ").strip()
+        if provided != metrics_token:
+            return Response(content="Unauthorized: invalid METRICS_TOKEN", status_code=401, media_type="text/plain")
+    else:
+        # No METRICS_TOKEN — require JWT (original behavior)
+        try:
+            from auth import decode_token
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return Response(content="Unauthorized", status_code=401, media_type="text/plain")
+            token = auth_header.removeprefix("Bearer ").strip()
+            decode_token(token)  # Will raise if invalid
+        except Exception:
+            return Response(content="Unauthorized: JWT required (set METRICS_TOKEN for Prometheus)", status_code=401, media_type="text/plain")
+
     try:
         from engines.prometheus_metrics import prometheus_metrics
-        from fastapi.responses import Response
-        
         content, content_type = prometheus_metrics.export_metrics()
         return Response(content=content, media_type=content_type)
-        
     except Exception as e:
         logger.error(f"Metrics export failed: {e}")
         raise HTTPException(status_code=500, detail="Metrics export failed")
@@ -3009,39 +2904,6 @@ async def get_prometheus_metrics():
 # ============================================================================
 # DIAGNOSTICS ENDPOINTS
 # ============================================================================
-
-async def diagnostics_go_live(user_id: str, db_handle=None) -> dict:
-    """Go-live readiness diagnostics helper.
-
-    Checks DB collections using the canonical db.db handle and returns
-    a structured readiness summary.  Used by the /api/diagnostics/go-live
-    route registered in routes/diagnostics.py.
-    """
-    try:
-        handle = db_handle or db.db
-        checks = {}
-        # Canonical DB access via db.db (Motor database handle)
-        bots_count = await handle["bots"].count_documents(
-            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}}
-        ) if handle is not None else 0
-        trades_count = await handle["trades"].count_documents(
-            {"user_id": user_id, "status": "closed"}
-        ) if handle is not None else 0
-        checks["bots_count"] = bots_count
-        checks["closed_trades_count"] = trades_count
-        checks["db_accessible"] = handle is not None
-        return {
-            "success": True,
-            "checks": checks,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as e:
-        logger.error("diagnostics_go_live error: %s", e)
-        return {
-            "success": False,
-            "error": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
 
 @api_router.get("/diagnostics/chat")
 async def diagnostics_chat(user_id: str = Depends(get_current_user)):
@@ -3103,6 +2965,236 @@ async def diagnostics_chat(user_id: str = Depends(get_current_user)):
         }
 
 
+@api_router.get("/diagnostics/go-live")
+async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin_user: bool = Depends(is_admin)):
+    """Go-live diagnostics endpoint - comprehensive system status (admin only)
+    
+    Returns PASS/FAIL report for production readiness:
+    - Health check
+    - Database connectivity  
+    - Build hash
+    - System mode flags
+    - Risk locks
+    - API keys status (openai + 7 exchanges)
+    - Chat diagnostic summary
+    - Bots scheduler state
+    - Realtime health
+    """
+    if not is_admin_user:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_status": "CHECKING",
+            "checks": {}
+        }
+        
+        # 1. Health check
+        try:
+            report["checks"]["health"] = {"status": "PASS", "message": "Server is running"}
+        except Exception as e:
+            report["checks"]["health"] = {"status": "FAIL", "error": str(e)}
+        
+        # 2. Database connectivity
+        try:
+            await db.users_collection.find_one({}, {"_id": 1})
+            report["checks"]["database"] = {"status": "PASS", "message": "MongoDB connected"}
+        except Exception as e:
+            report["checks"]["database"] = {"status": "FAIL", "error": str(e)}
+        
+        # 3. Build hash (if available)
+        build_hash = os.environ.get('BUILD_HASH', 'unknown')
+        report["checks"]["build_hash"] = {"status": "INFO", "value": build_hash}
+        
+        # 4. System modes
+        try:
+            modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+            report["checks"]["system_modes"] = {
+                "status": "INFO",
+                "paper_trading": modes.get('paperTrading', False),
+                "live_trading": modes.get('liveTrading', False),
+                "autopilot": modes.get('autopilot', False),
+                "emergency_stop": modes.get('emergencyStop', False)
+            }
+        except Exception as e:
+            report["checks"]["system_modes"] = {"status": "FAIL", "error": str(e)}
+        
+        # 5. API keys status
+        try:
+            from services.keys_service import keys_service
+            keys_status = {}
+            
+            # Check OpenAI
+            openai_key = await keys_service.get_user_api_key(user_id, 'openai')
+            keys_status['openai'] = openai_key.get('status') if openai_key else 'not_configured'
+            
+            # Check exchanges
+            for exchange in ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']:
+                exchange_key = await keys_service.get_user_api_key(user_id, exchange)
+                keys_status[exchange] = exchange_key.get('status') if exchange_key else 'not_configured'
+            
+            report["checks"]["api_keys"] = {"status": "INFO", "keys": keys_status}
+        except Exception as e:
+            report["checks"]["api_keys"] = {"status": "FAIL", "error": str(e)}
+        
+        # 6. Chat diagnostic
+        try:
+            chat_diag = await diagnostics_chat(user_id)
+            report["checks"]["chat"] = {
+                "status": "PASS" if chat_diag.get('chat_available') else "WARN",
+                "key_source": chat_diag.get('key_source_would_use'),
+                "available": chat_diag.get('chat_available')
+            }
+        except Exception as e:
+            report["checks"]["chat"] = {"status": "FAIL", "error": str(e)}
+        
+        # 7. Bots scheduler state
+        try:
+            # Check if scheduler is running
+            from engines.scheduler import trading_scheduler
+            scheduler_running = trading_scheduler.running if hasattr(trading_scheduler, 'running') else False
+            report["checks"]["scheduler"] = {
+                "status": "PASS" if scheduler_running else "WARN",
+                "running": scheduler_running
+            }
+        except Exception as e:
+            report["checks"]["scheduler"] = {"status": "WARN", "error": str(e)}
+        
+        # 8. Realtime health (WebSocket)
+        try:
+            from websocket_manager import manager as ws_manager
+            active_connections = len(ws_manager.active_connections) if hasattr(ws_manager, 'active_connections') else 0
+            report["checks"]["realtime"] = {
+                "status": "PASS",
+                "active_connections": active_connections
+            }
+        except Exception as e:
+            report["checks"]["realtime"] = {"status": "WARN", "error": str(e)}
+        
+        # Determine overall status
+        failed_checks = [k for k, v in report["checks"].items() if v.get("status") == "FAIL"]
+        if failed_checks:
+            report["overall_status"] = "FAIL"
+            report["failed_checks"] = failed_checks
+        else:
+            warn_checks = [k for k, v in report["checks"].items() if v.get("status") == "WARN"]
+            if warn_checks:
+                report["overall_status"] = "PASS_WITH_WARNINGS"
+                report["warning_checks"] = warn_checks
+            else:
+                report["overall_status"] = "PASS"
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"Go-live diagnostics error: {e}")
+        return {
+            "overall_status": "ERROR",
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+@api_router.get("/news/articles")
+async def get_news_articles(limit: int = 10, user_id: str = Depends(get_current_user)):
+    """Fetch latest crypto news from CoinStats (cached, no required key for basic tier)."""
+    try:
+        from services.news_coinstats import coinstats_provider
+        articles = await coinstats_provider.get_articles(limit=max(1, min(limit, 50)), user_id=user_id)
+        return {"articles": articles, "count": len(articles), "source": "coinstats"}
+    except Exception as e:
+        logger.error(f"News articles error: {e}")
+        return {"articles": [], "count": 0, "source": "coinstats", "error": str(e)}
+
+
+@api_router.get("/news/feed")
+async def get_news_feed(
+    limit: int = 50,
+    with_sentiment: bool = False,
+    user_id: str = Depends(get_current_user),
+):
+    """
+    Full news feed with optional HuggingFace sentiment enrichment.
+
+    Query params:
+      limit: max articles (default 50, max 50)
+      with_sentiment: if true, score headlines via HF (may add ~200ms per article batch)
+    """
+    try:
+        from services.news_coinstats import coinstats_provider
+        articles = await coinstats_provider.get_articles(
+            limit=max(1, min(limit, 50)),
+            user_id=user_id,
+            with_sentiment=with_sentiment,
+        )
+        cache = await coinstats_provider._maybe_refresh(user_id)
+        return {
+            "articles": articles,
+            "count": len(articles),
+            "source": "coinstats",
+            "with_sentiment": with_sentiment,
+            "fetched_at": cache.get("fetched_at"),
+            "last_error": coinstats_provider._last_error,
+            "cache_ttl_seconds": 300,
+        }
+    except Exception as e:
+        logger.error(f"News feed error: {e}")
+        return {"articles": [], "count": 0, "source": "coinstats", "error": str(e)}
+
+
+@api_router.get("/diagnostics/sentiment-news")
+async def diagnostics_sentiment_news(user_id: str = Depends(get_current_user)):
+    """News source diagnostics — CoinStats is the primary provider."""
+    try:
+        from services.news_coinstats import coinstats_provider
+        return await coinstats_provider.get_diagnostics(user_id=user_id)
+    except Exception as e:
+        logger.error(f"Sentiment news diagnostics error: {e}")
+        return {
+            "configured": False,
+            "source": "coinstats",
+            "articles_count": 0,
+            "last_fetch_ts": None,
+            "last_error": str(e),
+            "cache_ttl_seconds": 300,
+        }
+
+
+@api_router.get("/diagnostics/learning-last-run")
+async def diagnostics_learning_last_run(user_id: str = Depends(get_current_user)):
+    """Learning loop last run diagnostics"""
+    try:
+        last_run = await db.learning_runs_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0},
+            sort=[("completed_at", -1)],
+        )
+        if not last_run:
+            return {"last_run_ts": None, "bots_updated_count": 0, "errors_count": 0, "status": "never_run"}
+        return {
+            "last_run_ts": last_run.get("completed_at"),
+            "bots_updated_count": last_run.get("changes_applied", 0),
+            "errors_count": 1 if last_run.get("status") == "error" else 0,
+            "status": last_run.get("status"),
+            "run_id": last_run.get("run_id"),
+            "summary": last_run.get("summary"),
+        }
+    except Exception as e:
+        logger.error(f"Learning diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/diagnostics/migrations")
+async def diagnostics_migrations(user_id: str = Depends(get_current_user)):
+    """Migration runner status"""
+    try:
+        from migrations._runner import get_migration_status
+        return get_migration_status()
+    except Exception as e:
+        logger.error(f"Migration diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Mount API router (includes auth and other inline endpoints)
 app.include_router(api_router, prefix="/api")
 
@@ -3138,22 +3230,22 @@ routers_to_mount = [
     ("routes.health", "Health"),
     # REMOVED: routes.profits - duplicate of ledger_endpoints
     ("routes.system_status", "System Status"),
-    # REMOVED: routes.phase5_endpoints — superseded by dedicated service routes, never called by frontend
-    # REMOVED: routes.phase6_endpoints — superseded by dedicated AI/learning routes, never called by frontend
-    # REMOVED: routes.phase8_endpoints — superseded by dedicated audit/email routes, never called by frontend
+    ("routes.phase5_endpoints", "Phase 5"),
+    ("routes.phase6_endpoints", "Phase 6"),
+    ("routes.phase8_endpoints", "Phase 8"),
     ("routes.capital_tracking_endpoints", "Capital Tracking"),
     ("routes.emergency_stop_endpoints", "Emergency Stop"),
-    ("routes.wallet_endpoints", "Wallet Hub"),
+    # REMOVED: routes.wallet_endpoints - duplicate of wallet_hub (keep enhanced version)
     ("routes.wallet_hub", "Wallet Hub Enhanced"),  # NEW - All 5 exchanges
     # REMOVED: routes.system_health_endpoints - has duplicate /health/ping
-    ("routes.self_healing_endpoints", "Self-Healing Status"),  # Dedicated /api/self-healing/status route
-    ("routes.admin_endpoints", "Admin"),
+    # REMOVED: routes.admin_endpoints - duplicate of admin_enhanced (keep enhanced version)
+    ("routes.admin_endpoints", "Admin Endpoints"),  # RESTORED - unlock, runtime/reset, bots, users
     ("routes.admin_enhanced", "Admin Enhanced"),  # NEW - User dropdown, bot profit/loss
     ("routes.admin_start_fresh", "Admin Start Fresh"),  # NEW - Start Fresh wipe endpoint
     ("routes.risk_management", "Risk Management"),  # NEW - Daily loss lock control
     ("routes.dashboard_overview", "Dashboard Overview"),  # NEW - Consolidated overview stats
     ("routes.bot_lifecycle", "Bot Lifecycle"),  # CRITICAL - Bot management
-    # REMOVED: routes.bot_control - duplicate of bot_lifecycle, missing /api prefix (unreachable)
+    # REMOVED: routes.bot_control - duplicate of bot_lifecycle (pause/resume/start/status endpoints)
     ("routes.autopilot_control", "Autopilot Control"),  # NEW - Autopilot persistence
     ("routes.autopilot_growth", "Autopilot Growth"),  # NEW - Growth + reinvest
     ("routes.autonomy_control", "Autonomy Control"),  # NEW - Autonomy status + controls
@@ -3161,13 +3253,15 @@ routers_to_mount = [
     ("routes.training_quarantine", "Training & Quarantine Unified"),  # NEW - Unified interface
     ("routes.system_limits", "System Limits"),
     ("routes.live_trading_gate", "Live Trading Gate"),
+    ("routes.live_readiness", "Live Readiness Check"),  # NEW - Per-exchange readiness diagnostics
     ("routes.analytics_api", "Analytics API"),  # CRITICAL - PnL analytics
     ("routes.metrics_api", "Metrics API"),  # Trade cadence and countdown
     ("routes.learning_jobs", "Learning Jobs"),  # Nightly learning triggers
     ("routes.market_api", "Market API"),  # Live market prices for BTC/ZAR, ETH/ZAR, XRP/ZAR
     ("routes.prices", "Prices API"),  # NEW - Frontend-friendly /api/prices/live endpoint
     ("routes.diagnostics", "Diagnostics & Pre-Merge Tests"),  # NEW - Realtime smoke tests
-    ("routes.ai_chat", "AI Chat"),
+    # REMOVED: routes.ai_chat - duplicate of chat_enhanced (keep enhanced version)
+    ("routes.ai_chat", "AI Chat"),  # RESTORED - /api/ai/chat/greeting, /api/ai/chat
     ("routes.chat_enhanced", "AI Chat Enhanced"),  # NEW - Clear on refresh, daily summary
     ("routes.two_factor_auth", "2FA"),
     ("routes.genetic_algorithm", "Genetic Algorithm"),
@@ -3198,13 +3292,17 @@ routers_to_mount = [
     ("routes.execution_quality", "Execution Quality"),  # NEW - Execution quality monitoring
     ("routes.treasury", "Treasury & Compounding"),  # NEW - Treasury and capital allocation
     ("routes.notifications", "Notifications"),  # NEW - Email notifications, test emails, welcome emails
-    ("routes.radar", "Bot Radar"),  # NEW - Bot Radar / Bot Map visualization
-    ("routes.exchange_status", "Exchange Status"),  # NEW - Exchange status & test for all 7 exchanges
-    ("routes.admin_truth", "Admin Truth Console"),  # NEW - Truth Kernel summary endpoint
-    ("routes.scalper", "Scalper Bots"),  # NEW - Scalper bot management + EV gating
-    ("routes.coinstats", "CoinStats"),  # Market intelligence / news / tickers
-    ("routes.huggingface", "HuggingFace"),  # AI sentiment analysis
-    ("routes.fx_rates", "FX Rates"),  # Canonical fiat FX rates + diagnostics
+    ("routes.huggingface", "HuggingFace Integration"),  # NEW - HuggingFace AI models
+    ("routes.fetchai", "Fetch.ai Integration"),  # NEW - Fetch.ai market signals
+    ("routes.agents", "Agent Management"),  # NEW - Fetch.ai/FlokX agent creation and monitoring
+    ("routes.ai_rl", "AI/RL Status"),  # NEW - Reinforcement Learning agent status and control
+    ("routes.ai_status", "AI Configuration Status"),  # NEW - OpenAI key status for dashboard compatibility
+    ("routes.autopilot_config", "Autopilot Configuration"),  # NEW - User-configurable autopilot settings per exchange
+    ("routes.system_capabilities", "System Capabilities"),  # NEW - Unified capabilities and missing keys status
+    ("routes.events", "Events Feed"),  # NEW - Per-user events stream
+    ("routes.coinstats", "CoinStats"),  # CoinStats connectivity test
+    ("routes.intelligence", "Market Intelligence"),  # Automatic CoinStats intelligence pipeline
+    ("routes.growth_engine", "Growth Engine"),  # Per-user safe growth automation
 ]
 
 # Mount realtime router only if enabled via feature flag

@@ -104,41 +104,14 @@ async def find_bot_match(user_id: str, content: str) -> Optional[Dict[str, Any]]
     return bots[0] if len(bots) == 1 else None
 
 
-# Command prefixes that indicate the user wants to perform an action
-_ACTION_PREFIXES = (
-    "start", "resume", "pause", "stop", "switch", "toggle", "reset",
-    "transfer", "withdraw", "overview", "status", "risk", "truth",
-    "create", "scalper", "show",
-)
-
-
 def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[str, Any]]:
     content_lower = content.lower()
-    commandish = request_action or content_lower.startswith(_ACTION_PREFIXES)
+    commandish = request_action or content_lower.startswith(
+        ("start", "resume", "pause", "stop", "switch", "toggle", "reset", "transfer", "withdraw", "overview", "status", "risk")
+    )
 
     if not commandish:
         return None
-
-    # Truth check command (admin-only, handled by truth_check handler)
-    if "truth check" in content_lower or "truth" in content_lower and "check" in content_lower:
-        verbose = "verbose" in content_lower
-        return {"action": "truth_check", "params": {"verbose": verbose}}
-
-    # ── Scalper commands ────────────────────────────────────────────────
-    if "scalper" in content_lower and ("create" in content_lower or "spawn" in content_lower):
-        # Parse exchange from content
-        exchanges = ["luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"]
-        exchange = next((ex for ex in exchanges if ex in content_lower), "binance")
-        return {"action": "create_scalper_bot", "params": {"exchange": exchange}}
-    if "scalper" in content_lower and ("summary" in content_lower or "status" in content_lower):
-        return {"action": "scalper_summary"}
-    if "scalper" in content_lower and "cap" in content_lower:
-        return {"action": "scalper_caps"}
-    if ("profit routing" in content_lower or "routing mode" in content_lower) and "scalper" in content_lower:
-        mode = "SCALPER_GROWTH" if "growth" in content_lower else "RETURN_TO_MAIN"
-        return {"action": "set_scalper_routing", "params": {"mode": mode}, "requires_confirmation": True}
-    if "why not trading" in content_lower or "why no trade" in content_lower:
-        return {"action": "explain_not_trading"}
 
     if "overview" in content_lower:
         return {"action": "get_overview_snapshot"}
@@ -162,19 +135,21 @@ def detect_action_intent(content: str, request_action: bool) -> Optional[Dict[st
         return {"action": "stop_bot"}
     if "reset" in content_lower and "risk" in content_lower:
         return {"action": "reset_risk_locks"}
+    if "fund" in content_lower and ("paper" in content_lower or "wallet" in content_lower or "demo" in content_lower):
+        import re
+        m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(?:zar|r\b|rand)?", content_lower)
+        amount = float(m.group(1).replace(",", "")) if m else 30000.0
+        return {"action": "fund_paper_wallet", "params": {"amount": amount}}
+    if ("reset" in content_lower or "clear" in content_lower or "start fresh" in content_lower) and ("paper" in content_lower or "session" in content_lower or "demo" in content_lower):
+        return {"action": "reset_paper_session"}
+    if "regime" in content_lower or ("market" in content_lower and "condition" in content_lower):
+        return {"action": "get_market_regime", "params": {"pair": "BTC/ZAR"}}
     if "autopilot" in content_lower:
         enabled = "disable" not in content_lower
         return {"action": "pause_autonomy_subsystem", "params": {"subsystem": "autopilot"}} if not enabled else {"action": "resume_autonomy_subsystem", "params": {"subsystem": "autopilot"}}
-    if "live" in content_lower and ("switch" in content_lower or "enable" in content_lower or "turn on" in content_lower):
+    if "live" in content_lower and ("switch" in content_lower or "enable" in content_lower):
         return {"action": "set_system_mode", "params": {"mode": "live"}}
-    if ("paper" in content_lower or "live" in content_lower) and (
-        "off" in content_lower or "disable" in content_lower or "deactivate" in content_lower
-    ):
-        # "turn paper mode off" = switch to live; "turn live mode off" = switch to paper
-        if "live" in content_lower and ("off" in content_lower or "disable" in content_lower):
-            return {"action": "set_system_mode", "params": {"mode": "paper"}}
-        return {"action": "set_system_mode", "params": {"mode": "live"}}
-    if "paper" in content_lower and ("switch" in content_lower or "enable" in content_lower or "turn on" in content_lower):
+    if "paper" in content_lower and ("switch" in content_lower or "enable" in content_lower):
         return {"action": "set_system_mode", "params": {"mode": "paper"}}
     if "transfer" in content_lower or "withdraw" in content_lower:
         return {"action": "transfer_funds"}
@@ -203,19 +178,20 @@ def parse_transfer_params(content: str) -> Dict[str, Any]:
 
 
 async def resolve_openai_key(user_id: str) -> tuple[Optional[str], str]:
-    """Resolve OpenAI API key using canonical priority."""
-    from routes.api_key_management import get_decrypted_key
-
-    key_data = await get_decrypted_key(user_id, "openai")
-    if key_data and key_data.get("api_key"):
-        return key_data.get("api_key"), "user"
-
-    if ALLOW_ENV_OPENAI_KEY:
-        env_key = os.getenv("OPENAI_API_KEY")
-        if env_key:
-            return env_key, "env"
-
-    return None, "none"
+    """
+    Resolve OpenAI API key using canonical priority.
+    
+    Uses the centralized resolver from services/openai_key_resolver.py
+    to ensure consistent behavior across all AI features.
+    """
+    from services.openai_key_resolver import resolve_openai_key as canonical_resolver
+    
+    api_key, source = await canonical_resolver(user_id)
+    
+    # Log the resolution for debugging
+    logger.info(f"AI Chat: OpenAI key resolved source={source} for user {user_id[:8] if user_id else 'system'}")
+    
+    return api_key, source
 
 
 def record_ai_error(code: str, message: str) -> None:
@@ -320,6 +296,149 @@ def resolve_action_reply(action: str, tool_result: Optional[Dict[str, Any]]) -> 
     if reason:
         return reason
     return reply or f"Action '{action}' failed."
+
+
+async def generate_degraded_response(user_message: str, user_id: str, system_state: Dict) -> Dict[str, Any]:
+    """
+    Generate a basic response without OpenAI key by analyzing user intent
+    and querying database directly for common information requests.
+    
+    Args:
+        user_message: The user's chat message
+        user_id: User ID for potential future personalization
+        system_state: Current system state with bots, capital, modes, etc.
+    
+    Returns:
+        Dict with response content, metadata, and degraded_mode flag
+    """
+    message_lower = user_message.lower()
+    
+    # Pattern matching for common queries
+    response_parts = []
+    
+    # System status query
+    if any(word in message_lower for word in ["status", "overview", "summary", "health", "how are things"]):
+        bots_info = system_state.get("bots", {})
+        capital_info = system_state.get("capital", {})
+        modes = system_state.get("system_modes", {})
+        
+        response_parts.append("📊 **System Status**")
+        response_parts.append(f"• Bots: {bots_info.get('total', 0)} total ({bots_info.get('active', 0)} active, {bots_info.get('paused', 0)} paused)")
+        response_parts.append(f"• Capital: ${capital_info.get('total', 0):,.2f}")
+        response_parts.append(f"• Total Profit: ${capital_info.get('total_profit', 0):,.2f}")
+        response_parts.append(f"• Mode: {'Live Trading' if modes.get('liveTrading') else 'Paper Trading'}")
+        response_parts.append(f"• Autopilot: {'Enabled' if modes.get('autopilot') else 'Disabled'}")
+    
+    # Wallet/balance query
+    elif any(word in message_lower for word in ["wallet", "balance", "capital", "money", "funds"]):
+        capital_info = system_state.get("capital", {})
+        budget_status = system_state.get("budget_status", {})
+        
+        response_parts.append("💰 **Wallet Summary**")
+        response_parts.append(f"• Total Capital: ${capital_info.get('total', 0):,.2f}")
+        response_parts.append(f"• Total Profit/Loss: ${capital_info.get('total_profit', 0):,.2f}")
+        
+        if budget_status:
+            response_parts.append("\n**Exchange Budgets:**")
+            for exchange, data in budget_status.items():
+                if isinstance(data, dict):
+                    allocated = data.get('allocated', 0)
+                    available = data.get('available', 0)
+                    response_parts.append(f"• {exchange.title()}: ${allocated:,.2f} allocated, ${available:,.2f} available")
+    
+    # Bot query
+    elif any(word in message_lower for word in ["bot", "trading bot", "bots"]):
+        bots_info = system_state.get("bots", {})
+        
+        response_parts.append("🤖 **Bot Status**")
+        response_parts.append(f"• Total Bots: {bots_info.get('total', 0)}")
+        response_parts.append(f"• Active: {bots_info.get('active', 0)}")
+        response_parts.append(f"• Paused: {bots_info.get('paused', 0)}")
+        response_parts.append(f"• Stopped: {bots_info.get('stopped', 0)}")
+    
+    # Performance query
+    elif any(word in message_lower for word in ["performance", "profit", "loss", "pnl", "trades"]):
+        capital_info = system_state.get("capital", {})
+        perf_info = system_state.get("recent_performance", {})
+        
+        response_parts.append("📈 **Performance Summary**")
+        response_parts.append(f"• Total Profit/Loss: ${capital_info.get('total_profit', 0):,.2f}")
+        response_parts.append(f"• Recent Trades: {perf_info.get('recent_trades_count', 0)}")
+        response_parts.append(f"• Recent PnL: ${perf_info.get('recent_pnl', 0):,.2f}")
+    
+    # Autopilot query
+    elif "autopilot" in message_lower:
+        modes = system_state.get("system_modes", {})
+        autopilot_enabled = modes.get("autopilot", False)
+        
+        response_parts.append("🚀 **Autopilot Status**")
+        response_parts.append(f"• Status: {'✅ Enabled' if autopilot_enabled else '❌ Disabled'}")
+        if autopilot_enabled:
+            response_parts.append("• Autopilot is actively managing your trading strategies")
+        else:
+            response_parts.append("• Enable autopilot to allow AI-driven trading decisions")
+    
+    # Mode query (live/paper)
+    elif any(word in message_lower for word in ["mode", "paper", "live", "trading mode"]):
+        modes = system_state.get("system_modes", {})
+        
+        response_parts.append("⚙️ **Trading Mode**")
+        if modes.get("liveTrading"):
+            response_parts.append("• Mode: 🔴 **LIVE TRADING**")
+            response_parts.append("• Real money is being used for trades")
+        else:
+            response_parts.append("• Mode: 📝 **PAPER TRADING**")
+            response_parts.append("• Simulated trading with virtual funds")
+    
+    # Events query
+    elif any(word in message_lower for word in ["event", "alert", "notification", "recent", "latest"]):
+        perf_info = system_state.get("recent_performance", {})
+        
+        response_parts.append("📅 **Recent Events**")
+        response_parts.append(f"• Recent Trades: {perf_info.get('recent_trades_count', 0)}")
+        response_parts.append("• Check the Dashboard for detailed event history")
+    
+    # Learning/AI query
+    elif any(word in message_lower for word in ["learn", "learning", "ai", "intelligence", "smart"]):
+        response_parts.append("🧠 **AI Learning Status**")
+        response_parts.append("• Basic system monitoring active")
+        response_parts.append("• Advanced AI learning requires OpenAI key")
+        response_parts.append("• Add API key in Settings → API Keys for full intelligence")
+    
+    # Generic/help query
+    else:
+        response_parts.append("👋 **AI Chat (Basic Mode)**")
+        response_parts.append("\nI can help you with:")
+        response_parts.append("• System status and overview")
+        response_parts.append("• Wallet balance and capital")
+        response_parts.append("• Bot status and management")
+        response_parts.append("• Performance and trading results")
+        response_parts.append("• Autopilot and trading mode info")
+        response_parts.append("\nTry asking: 'show status' or 'what's my balance?'")
+    
+    # Add footer note about OpenAI key
+    response_parts.append("\n---")
+    response_parts.append("ℹ️ *Advanced intelligence requires OpenAI key - add in Settings → API Keys*")
+    
+    response_text = "\n".join(response_parts)
+    
+    return {
+        "success": True,
+        "role": "assistant",
+        "content": response_text,
+        "reply": response_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system_state": system_state,
+        "key_source": "degraded_mode",
+        "degraded_mode": True,
+        "action_meta": {
+            "action_attempted": False,
+            "action_name": None,
+            "action_result": None,
+            "reason": None
+        }
+    }
+
 
 async def create_confirmation_record(
     user_id: str,
@@ -431,105 +550,6 @@ async def build_ai_status(user_id: str) -> Dict[str, Any]:
     }
 
 
-def _normalize_provider_status(raw_status: Optional[str]) -> str:
-    status = raw_status or "not_configured"
-    mapping = {
-        "saved_untested": "configured_untested",
-        "test_ok": "configured_valid",
-        "test_failed": "configured_invalid",
-    }
-    return mapping.get(status, status)
-
-
-def _provider_is_usable(status: str) -> bool:
-    return status in {"configured_valid", "configured_untested", "configured_rate_limited"}
-
-
-async def build_ai_capability_status(user_id: str) -> Dict[str, Any]:
-    """Build canonical AI capability and degradation status for UI truth."""
-    ai_status = await build_ai_status(user_id)
-    key_docs = await db.api_keys_collection.find(
-        {
-            "user_id": str(user_id),
-            "provider": {"$in": ["openai", "huggingface", "fetchai"]},
-        },
-        {"_id": 0, "provider": 1, "status": 1},
-    ).to_list(20)
-    key_map = {k.get("provider"): _normalize_provider_status(k.get("status")) for k in key_docs}
-
-    openai_state = "configured_valid" if ai_status.get("key_configured") else key_map.get("openai", "not_configured")
-    huggingface_state = key_map.get("huggingface", "not_configured")
-    fetchai_state = key_map.get("fetchai", "not_configured")
-
-    providers = {
-        "openai": {
-            "configured": ai_status.get("key_configured", False),
-            "status": openai_state,
-            "usable": _provider_is_usable(openai_state),
-        },
-        "huggingface": {
-            "configured": huggingface_state != "not_configured",
-            "status": huggingface_state,
-            "usable": _provider_is_usable(huggingface_state),
-        },
-        "fetchai": {
-            "configured": fetchai_state != "not_configured",
-            "status": fetchai_state,
-            "usable": _provider_is_usable(fetchai_state),
-        },
-    }
-
-    capabilities = {
-        "chatops": {
-            "implemented": True,
-            "available": providers["openai"]["usable"],
-            "requires": ["openai"],
-            "degraded_reason": None if providers["openai"]["usable"] else "OpenAI key not configured or invalid",
-        },
-        "learning": {
-            "implemented": True,
-            "available": True,
-            "requires": [],
-            "degraded_reason": None,
-        },
-        "bot_evolution": {
-            "implemented": True,
-            "available": True,
-            "requires": [],
-            "degraded_reason": None,
-        },
-        "insights": {
-            "implemented": True,
-            "available": True,
-            "requires": [],
-            "degraded_reason": None,
-        },
-        "predict_price": {
-            "implemented": True,
-            "available": providers["fetchai"]["usable"] or providers["huggingface"]["usable"] or providers["openai"]["usable"],
-            "requires": ["fetchai", "huggingface", "openai"],
-            "degraded_reason": None if (
-                providers["fetchai"]["usable"] or providers["huggingface"]["usable"] or providers["openai"]["usable"]
-            ) else "No AI model provider key configured (FetchAI/HuggingFace/OpenAI)",
-        },
-        "reinvest_profits": {
-            "implemented": True,
-            "available": True,
-            "requires": [],
-            "degraded_reason": None,
-        },
-    }
-
-    degraded_features = [name for name, meta in capabilities.items() if not meta.get("available", False)]
-    return {
-        "providers": providers,
-        "capabilities": capabilities,
-        "degraded_mode": len(degraded_features) > 0,
-        "degraded_features": degraded_features,
-        "status_timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-
 async def build_grounded_context(user_id: str) -> Dict[str, Any]:
     from routes.system_status import get_system_status
     from routes.system_mode import get_mode
@@ -599,14 +619,9 @@ class AIActionRouter:
             {"_id": 0}
         ).sort("timestamp", -1).limit(10).to_list(10)
         
-        # Get wallet summary from canonical overview source (avoids stale bot doc counters)
-        from services.overview_service import overview_service
-        from services.canonical_metrics import get_canonical_metrics_snapshot
-        overview_snapshot = await overview_service.get_snapshot(user_id)
-        canonical_metrics = await get_canonical_metrics_snapshot(user_id, bots=bots)
-        metrics_summary = canonical_metrics.get("summary", {})
-        total_capital = float(overview_snapshot.get("equity", 0) or 0)
-        total_profit = float(overview_snapshot.get("total_profit", 0) or 0)
+        # Get wallet summary
+        total_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        total_profit = sum(bot.get('total_profit', 0) for bot in bots)
         
         # Get budget status
         budget_status = await trade_budget_manager.get_all_exchanges_budget_report()
@@ -624,9 +639,7 @@ class AIActionRouter:
             },
             "recent_performance": {
                 "recent_trades_count": len(recent_trades),
-                "recent_pnl": round(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in recent_trades), 2),
-                "total_trades": int(metrics_summary.get("trade_count", 0)),
-                "win_rate_pct": float(metrics_summary.get("win_rate_pct", 0)),
+            "recent_pnl": round(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in recent_trades), 2)
             },
             "system_modes": modes or {},
             "budget_status": budget_status,
@@ -917,32 +930,13 @@ async def _handle_get_risk_status(user_id: str, params: Dict[str, Any]) -> Dict[
 
 
 async def _handle_set_system_mode(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    from routes.system_mode import set_system_mode, live_trading_enabled, check_live_readiness
-    from realtime_events import rt_events as _rt_events
+    from routes.system_mode import switch_mode, ModeSwitchRequest
     mode = (params.get("mode") or "").lower()
     if mode not in {"paper", "live", "autopilot"}:
         return {"success": False, "error": "Invalid mode. Use paper, live, or autopilot."}
-
-    if mode == "live":
-        if not live_trading_enabled():
-            return {
-                "success": False,
-                "error": "Live trading is globally disabled. Contact your administrator to enable ENABLE_LIVE_TRADING.",
-            }
-        ready, errors = await check_live_readiness(user_id)
-        if not ready:
-            return {
-                "success": False,
-                "error": f"Cannot enable live trading: {'; '.join(errors)}",
-            }
-
-    new_state = await set_system_mode(mode, user_id)
-    try:
-        await _rt_events.mode_switched(user_id, mode, new_state)
-    except Exception:
-        pass
-    logger.info("AI ChatOps: mode switched to %s for user=%s", mode, user_id[:8])
-    return {"success": True, "data": new_state, "message": f"✅ System mode switched to {mode}."}
+    confirmation_token = CONFIRM_LIVE_TRADING if mode == "live" else None
+    data = await switch_mode(ModeSwitchRequest(mode=mode, confirmation_token=confirmation_token), user_id)
+    return {"success": True, "data": data, "message": f"System mode switched to {mode}."}
 
 
 async def _handle_list_bots(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1151,195 +1145,241 @@ async def _handle_report_last_errors(user_id: str, params: Dict[str, Any]) -> Di
     return {"success": True, "data": errors, "message": "Last error summary retrieved."}
 
 
-async def _handle_truth_check(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle 'truth check' command — admin-only truth summary."""
+async def _handle_start_bot(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("start_bot", params, user_id)
+    return {"success": data.get("success", False), "data": data, "message": "Bot start requested."}
+
+
+async def _handle_emergency_stop(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("emergency_stop", params, user_id)
+    return {"success": data.get("success", False), "data": data, "message": "Emergency stop activated."}
+
+
+async def _handle_toggle_autopilot(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("toggle_autopilot", params, user_id)
+    enabled = data.get("enabled", bool(params.get("enabled", False)))
+    return {"success": data.get("success", False), "data": data, "message": f"Autopilot {'enabled' if enabled else 'disabled'}."}
+
+
+async def _handle_switch_mode(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("switch_mode", params, user_id)
+    mode = data.get("mode") or params.get("mode") or "unknown"
+    return {"success": data.get("success", False), "data": data, "message": f"Switched to {mode} mode."}
+
+
+async def _handle_reset_risk_locks(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    data = await action_router.execute_action("reset_risk_locks", params, user_id)
+    return {"success": data.get("success", False), "data": data, "message": "Risk locks reset."}
+
+
+async def _handle_get_portfolio_summary(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    from services.ledger_service import get_ledger_service
+    import database as _db
+    ledger = get_ledger_service(_db.db)
+    equity = await ledger.compute_equity(user_id)
+    realized_pnl = await ledger.compute_realized_pnl(user_id)
+    fees_total = await ledger.compute_fees_paid(user_id)
+    current_dd, max_dd = await ledger.compute_drawdown(user_id)
+    win_rate = await ledger.calculate_win_rate(user_id)
+    data = {
+        "equity": round(equity, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "fees_total": round(fees_total, 2),
+        "drawdown_current_pct": round(current_dd, 2),
+        "drawdown_max_pct": round(max_dd, 2),
+        "win_rate_pct": round(win_rate * 100, 2) if win_rate is not None else None,
+    }
+    return {"success": True, "data": data, "message": "Portfolio summary retrieved."}
+
+
+async def _handle_get_win_rate(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    period = params.get("period", "30d")
+    if period not in {"today", "7d", "30d", "all"}:
+        period = "30d"
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    now = _dt.now(_tz.utc)
+    if period == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "7d":
+        start = now - _td(days=7)
+    elif period == "30d":
+        start = now - _td(days=30)
+    else:
+        start = _dt(2020, 1, 1, tzinfo=_tz.utc)
+    trades = await db.trades_collection.find(
+        {"user_id": user_id, "timestamp": {"$gte": start.isoformat()}},
+        {"_id": 0, "net_pnl": 1, "profit_loss": 1}
+    ).to_list(10000)
+    if not trades:
+        return {"success": True, "data": {"period": period, "total_trades": 0, "win_rate_pct": 0}, "message": "No trades found."}
+    wins = [t for t in trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0]
+    win_rate = round(len(wins) / len(trades) * 100, 1)
+    return {"success": True, "data": {"period": period, "total_trades": len(trades), "wins": len(wins), "win_rate_pct": win_rate}, "message": f"Win rate for {period}: {win_rate}%"}
+
+
+async def _handle_get_drawdown(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    from services.ledger_service import get_ledger_service
+    import database as _db
+    ledger = get_ledger_service(_db.db)
+    current_dd, max_dd = await ledger.compute_drawdown(user_id)
+    return {"success": True, "data": {"current_drawdown_pct": round(current_dd, 2), "max_drawdown_pct": round(max_dd, 2)}, "message": f"Current drawdown: {current_dd:.1f}%, Max: {max_dd:.1f}%"}
+
+
+async def _handle_get_countdown(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    target = float(params.get("target_amount", 10000))
+    bots = await db.bots_collection.find(
+        {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+        {"_id": 0, "current_capital": 1, "initial_capital": 1}
+    ).to_list(1000)
+    equity = sum(b.get("current_capital", 0) for b in bots)
+    initial = sum(b.get("initial_capital", 0) for b in bots)
+    net_pnl = equity - initial
+    remaining = max(0.0, target - net_pnl)
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    first_trade = await db.trades_collection.find_one({"user_id": user_id}, {"_id": 0, "timestamp": 1})
+    days_elapsed = 0
+    if first_trade and first_trade.get("timestamp"):
+        try:
+            start = _dt.fromisoformat(first_trade["timestamp"].replace("Z", "+00:00"))
+            days_elapsed = max(1, (_dt.now(_tz.utc) - start).days)
+        except Exception:
+            logger.warning("Invalid timestamp format in first trade record — days_elapsed defaulting to 0")
+    avg_daily = net_pnl / days_elapsed if days_elapsed > 0 else 0
+    days_to_target = round(remaining / avg_daily) if avg_daily > 0 else None
+    return {
+        "success": True,
+        "data": {
+            "target_amount": target,
+            "net_pnl_total": round(net_pnl, 2),
+            "remaining": round(remaining, 2),
+            "avg_daily_pnl": round(avg_daily, 2),
+            "days_elapsed": days_elapsed,
+            "days_to_target": days_to_target,
+        },
+        "message": f"R{net_pnl:.2f} earned, R{remaining:.2f} remaining to target R{target:.0f}."
+    }
+
+
+async def _handle_trigger_reinvestment(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        from services.truth_kernel import compute_truth_summary
-        summary = await compute_truth_summary(user_id, db.database)
+        from services.daily_reinvestment import get_reinvestment_service
+        import database as _db
+        reinvest_service = get_reinvestment_service(_db.db)
+        result = await reinvest_service.execute_reinvestment(user_id=user_id, manual_trigger=True)
+        return {"success": True, "data": result, "message": "Profit reinvestment cycle triggered."}
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Reinvestment trigger failed."}
 
-        overall = summary.get("overall_status", "UNKNOWN")
-        subsystems = summary.get("subsystems", {})
-        contradictions = summary.get("contradictions", [])
-        verbose = params.get("verbose", False)
 
-        # Build human-readable report
-        lines = [f"**Truth Check: {overall}**\n"]
+async def _handle_delete_bot(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    bot_id = params.get("bot_id")
+    if not bot_id:
+        return {"success": False, "error": "bot_id is required."}
+    bot = await db.bots_collection.find_one({"id": bot_id, "user_id": user_id}, {"_id": 0, "name": 1})
+    if not bot:
+        return {"success": False, "error": "Bot not found."}
+    from datetime import datetime as _dt, timezone as _tz
+    await db.bots_collection.update_one(
+        {"id": bot_id},
+        {"$set": {"status": "deleted", "deleted": True, "is_deleted": True, "deleted_at": _dt.now(_tz.utc).isoformat(), "deleted_by": user_id}},
+    )
+    return {"success": True, "message": f"Bot '{bot.get('name', bot_id)}' deleted successfully."}
 
-        # Failing subsystems
-        failing = [(k, v) for k, v in subsystems.items() if v.get("status") == "FAIL"]
-        warning = [(k, v) for k, v in subsystems.items() if v.get("status") == "WARN"]
 
-        if failing:
-            lines.append("**❌ Failing:**")
-            for name, info in failing[:5]:
-                reasons = info.get("reasons", [])
-                reason_str = ", ".join(reasons[:3]) if reasons else "no reason codes"
-                lines.append(f"  • {name}: {info.get('detail', '')} ({reason_str})")
-                if verbose and info.get("endpoint"):
-                    lines.append(f"    → {info['endpoint']}")
-        elif warning:
-            lines.append("**⚠️ Warnings:**")
-            for name, info in warning[:5]:
-                lines.append(f"  • {name}: {info.get('detail', '')}")
-                if verbose and info.get("endpoint"):
-                    lines.append(f"    → {info['endpoint']}")
-        else:
-            lines.append("✅ All subsystems passing.")
+async def _handle_evolve_bots(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    from bot_dna_evolution import BotDNAEvolution
+    evolution = BotDNAEvolution()
+    result = await evolution.evolve_bots(user_id)
+    return {"success": True, "data": result, "message": f"Evolution complete. {result.get('evolved_count', 0)} bots evolved."}
 
-        # Contradictions
-        if contradictions:
-            lines.append(f"\n**🔍 Contradictions ({len(contradictions)}):**")
-            for c in contradictions[:3]:
-                lines.append(f"  • [{c['severity'].upper()}] {c['description']}")
 
-        # Suggestions
-        if failing or contradictions:
-            lines.append("\n**Next actions (safe):**")
-            if any(c["id"] == "ELIGIBLE_BOTS_NO_TICK" for c in contradictions):
-                lines.append("  1. Check scheduler: GET /api/diagnostics/paper-status")
-            if any(c["id"] == "BALANCE_MISMATCH" for c in contradictions):
-                lines.append("  1. Reconcile wallet: GET /api/diagnostics/data-integrity")
-            if not failing and not contradictions:
-                lines.append("  1. Run evidence pack: ./scripts/evidence_pack.sh")
-            lines.append("  • Run full evidence: GET /api/admin/truth/summary")
+async def _handle_predict_price(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    pair = params.get("pair", "BTC/ZAR")
+    try:
+        from ml_predictor import MLPredictor
+        predictor = MLPredictor()
+        result = await predictor.predict(pair, user_id=user_id)
+        return {"success": True, "data": result, "message": f"Price prediction for {pair} generated."}
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": f"Price prediction failed for {pair}."}
 
-        if verbose:
-            lines.append(f"\n**Verbose details:**")
-            lines.append(f"  Subsystems checked: {len(subsystems)}")
-            lines.append(f"  Contradictions: {len(contradictions)}")
-            lines.append(f"  Evidence endpoint: GET /api/admin/truth/summary")
 
-        report_text = "\n".join(lines)
+async def _handle_fund_paper_wallet(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Fund the paper wallet to a specified ZAR amount via set-balance."""
+    amount = float(params.get("amount", 30000) or 30000)
+    if amount <= 0:
+        return {"success": False, "error": "amount must be positive", "message": "Please specify a positive amount."}
+    try:
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.reset(user_id)
+        if amount > 0:
+            await paper_wallet_service.fund(user_id, amount, "ZAR")
+        return {
+            "success": True,
+            "message": f"Paper wallet funded with R{amount:,.2f} ZAR.",
+            "data": {"funded_amount": amount, "currency": "ZAR"},
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Failed to fund paper wallet."}
+
+
+async def _handle_reset_paper_session(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Reset the paper trading session: delete paper bots, trades, fills and reset wallet."""
+    try:
+        from datetime import timezone as tz
+        now = datetime.now(tz.utc).isoformat()
+        summary: Dict[str, int] = {}
+
+        # Soft-delete paper bots
+        if db.bots_collection is not None:
+            r = await db.bots_collection.update_many(
+                {"user_id": user_id, "trading_mode": "paper", "deleted_at": {"$exists": False}},
+                {"$set": {"status": "deleted", "deleted_at": now, "deleted_by": user_id, "deletion_reason": "chat_paper_reset"}},
+            )
+            summary["bots_deleted"] = r.modified_count
+
+        # Clear paper trades / fills
+        for col_attr, key in [
+            ("trades_collection", "trades_deleted"),
+            ("orders_collection", "orders_deleted"),
+            ("positions_collection", "positions_deleted"),
+        ]:
+            col = getattr(db, col_attr, None)
+            if col is not None:
+                r = await col.delete_many({"user_id": user_id, "mode": "paper"})
+                summary[key] = r.deleted_count
+
+        # Clear paper ledger
+        if db.paper_ledger_collection is not None:
+            r = await db.paper_ledger_collection.delete_many({"user_id": user_id})
+            summary["ledger_entries_deleted"] = r.deleted_count
+
+        # Reset paper wallet to zero
+        from services.paper_wallet_service import paper_wallet_service
+        await paper_wallet_service.reset(user_id)
+        summary["wallet_reset"] = True
 
         return {
             "success": True,
-            "data": {"overall": overall, "report": report_text, "subsystem_count": len(subsystems)},
-            "message": report_text,
+            "message": "Paper session reset: bots cleared, trades removed, wallet zeroed.",
+            "data": {"deleted": summary},
         }
     except Exception as e:
-        logger.error(f"Truth check error: {e}", exc_info=True)
-        return {"success": False, "message": f"Truth check failed: {e}"}
+        return {"success": False, "error": str(e), "message": "Failed to reset paper session."}
 
 
-async def _handle_create_scalper_bot(user_id, db, params=None, **kw):
-    """Create a scalper bot on the specified exchange (respects caps)."""
+async def _handle_get_market_regime(user_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Return current market regime classification for a pair."""
+    pair = params.get("pair", "BTC/ZAR")
     try:
-        exchange = (params or {}).get("exchange", "binance")
-        from exchange_limits import get_scalper_cap
-        cap = get_scalper_cap(exchange)
-        current = await db["bots"].count_documents(
-            {"user_id": user_id, "bot_type": "scalper", "exchange": exchange, "deleted": {"$ne": True}}
-        )
-        if current >= cap:
-            return {"success": False, "message": f"Scalper cap reached for {exchange}: {current}/{cap}"}
-        return {
-            "success": True,
-            "message": f"✅ Scalper bot creation on {exchange} is available ({current}/{cap} used). "
-                       f"Use the Bot Management → Scalper section in the dashboard to create one.",
-            "data": {"exchange": exchange, "current": current, "cap": cap},
-        }
+        from engines.regime_detector import regime_detector
+        result = await regime_detector.detect_regime(pair)
+        return {"success": True, "data": result, "message": f"Market regime for {pair}: {result.get('regime', 'unknown')}."}
     except Exception as e:
-        return {"success": False, "message": f"Error: {e}"}
-
-
-async def _handle_scalper_summary(user_id, db, **kw):
-    """Show scalper bot summary."""
-    try:
-        bots = await db["bots"].find(
-            {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}}
-        ).to_list(length=200)
-        normal_count = await db["bots"].count_documents(
-            {"user_id": user_id, "bot_type": {"$ne": "scalper"}, "deleted": {"$ne": True}}
-        )
-        total_pnl = sum(float(b.get("total_profit", 0)) for b in bots)
-        active = sum(1 for b in bots if b.get("status") == "active")
-        growth = sum(1 for b in bots if b.get("profit_routing") == "SCALPER_GROWTH")
-        lines = [
-            f"📊 **Scalper Summary**",
-            f"  Scalper bots: {len(bots)} ({active} active)",
-            f"  Normal bots: {normal_count}",
-            f"  Scalper PnL: {total_pnl:.2f}",
-            f"  Routing: {growth} GROWTH / {len(bots) - growth} RETURN_TO_MAIN",
-        ]
-        return {"success": True, "message": "\n".join(lines), "data": {"scalper_count": len(bots)}}
-    except Exception as e:
-        return {"success": False, "message": f"Error: {e}"}
-
-
-async def _handle_scalper_caps(user_id, db, **kw):
-    """Show scalper cap usage per exchange."""
-    try:
-        from exchange_limits import SCALPER_BOT_ALLOCATION, MAX_SCALPER_BOTS_GLOBAL
-        bots = await db["bots"].find(
-            {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}}
-        ).to_list(length=200)
-        lines = [f"📋 **Scalper Caps** (global: {len(bots)}/{MAX_SCALPER_BOTS_GLOBAL})"]
-        for ex, cap in SCALPER_BOT_ALLOCATION.items():
-            count = sum(1 for b in bots if b.get("exchange") == ex)
-            status = "🟢" if count < cap else "🔴"
-            lines.append(f"  {status} {ex}: {count}/{cap}")
-        return {"success": True, "message": "\n".join(lines)}
-    except Exception as e:
-        return {"success": False, "message": f"Error: {e}"}
-
-
-async def _handle_set_scalper_routing(user_id, db, params=None, **kw):
-    """Set profit routing mode for all scalper bots."""
-    try:
-        mode = (params or {}).get("mode", "RETURN_TO_MAIN")
-        if mode not in ("SCALPER_GROWTH", "RETURN_TO_MAIN"):
-            return {"success": False, "message": f"Invalid mode: {mode}"}
-        result = await db["bots"].update_many(
-            {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}},
-            {"$set": {"profit_routing": mode}},
-        )
-        return {
-            "success": True,
-            "message": f"✅ Profit routing set to **{mode}** for {result.modified_count} scalper bots.",
-        }
-    except Exception as e:
-        return {"success": False, "message": f"Error: {e}"}
-
-
-async def _handle_explain_not_trading(user_id, db, **kw):
-    """Explain why bots are not trading using canonical reason codes."""
-    try:
-        from services.truth_kernel import compute_truth_summary
-        truth = await compute_truth_summary(user_id, db)
-        subsystems = truth.get("subsystems", {})
-        contradictions = truth.get("contradictions", [])
-        failing = [(k, v) for k, v in subsystems.items() if v.get("status") == "FAIL"]
-        warnings = [(k, v) for k, v in subsystems.items() if v.get("status") in ("WARN", "PASS_WITH_WARNINGS")]
-
-        lines = ["🔍 **Why Not Trading — Canonical Reasons**"]
-        if not failing and not warnings and not contradictions:
-            lines.append("  ✅ All subsystems PASS. Trading should be active if bots exist and scheduler is running.")
-        else:
-            if failing:
-                lines.append(f"\n  ❌ **Failing subsystems ({len(failing)}):**")
-                for name, info in failing:
-                    reasons = info.get("reasons", [])
-                    lines.append(f"    • {name}: {info.get('detail', 'unknown')} — reasons: {reasons}")
-            if warnings:
-                lines.append(f"\n  ⚠️ **Warnings ({len(warnings)}):**")
-                for name, info in warnings:
-                    lines.append(f"    • {name}: {info.get('detail', 'unknown')}")
-            if contradictions:
-                lines.append(f"\n  ⚡ **Contradictions ({len(contradictions)}):**")
-                for c in contradictions[:5]:
-                    lines.append(f"    • [{c.get('severity', 'unknown')}] {c.get('id', '')}: {c.get('description', '')}")
-        return {"success": True, "message": "\n".join(lines)}
-    except Exception as e:
-        return {"success": False, "message": f"Error: {e}"}
+        return {"success": False, "error": str(e), "message": f"Could not detect regime for {pair}."}
 
 
 ACTION_REGISTRY = {
-    "truth_check": {
-        "description": "Run Truth Kernel check and report system health (admin-only).",
-        "params": ["verbose"],
-        "requires_confirmation": False,
-        "handler": _handle_truth_check,
-    },
     "get_system_status": {
         "description": "Fetch system status and health summary.",
         "params": [],
@@ -1371,9 +1411,10 @@ ACTION_REGISTRY = {
         "handler": _handle_get_risk_status,
     },
     "set_system_mode": {
-        "description": "Switch system mode. Paper mode executes immediately. Live/autopilot modes require confirmation.",
+        "description": "Switch system mode (paper/live/autopilot).",
         "params": ["mode"],
-        "requires_confirmation": False,  # handled dynamically in execute_tool_action
+        "requires_confirmation": True,
+        "confirmation_phrase": CONFIRM_LIVE_TRADING,
         "handler": _handle_set_system_mode,
     },
     "list_bots": {
@@ -1446,15 +1487,13 @@ ACTION_REGISTRY = {
     "pause_autonomy_subsystem": {
         "description": "Pause autonomy subsystem.",
         "params": ["subsystem"],
-        "requires_confirmation": True,
-        "confirmation_phrase": "CONFIRM AUTONOMY PAUSE",
+        "requires_confirmation": False,
         "handler": _handle_pause_autonomy,
     },
     "resume_autonomy_subsystem": {
         "description": "Resume autonomy subsystem.",
         "params": ["subsystem"],
-        "requires_confirmation": True,
-        "confirmation_phrase": "CONFIRM AUTONOMY RESUME",
+        "requires_confirmation": False,
         "handler": _handle_resume_autonomy,
     },
     "run_autonomy_cycle_now": {
@@ -1485,13 +1524,13 @@ ACTION_REGISTRY = {
     "enable_learning_loop": {
         "description": "Enable learning loop scheduler.",
         "params": [],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_enable_learning,
     },
     "disable_learning_loop": {
         "description": "Disable learning loop scheduler.",
         "params": [],
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "handler": _handle_disable_learning,
     },
     "diagnostics_realtime": {
@@ -1506,36 +1545,107 @@ ACTION_REGISTRY = {
         "requires_confirmation": False,
         "handler": _handle_report_last_errors,
     },
-    # ── Scalper Bot Commands ─────────────────────────────────────────────
-    "create_scalper_bot": {
-        "description": "Create a new scalper bot on a specific exchange.",
-        "params": ["exchange"],
+    "start_bot": {
+        "description": "Start (activate) a bot by ID.",
+        "params": ["bot_id"],
+        "requires_confirmation": False,
+        "handler": _handle_start_bot,
+    },
+    "emergency_stop": {
+        "description": "Activate emergency stop: immediately pause all bots and halt trading.",
+        "params": [],
         "requires_confirmation": True,
-        "handler": _handle_create_scalper_bot,
+        "confirmation_phrase": "CONFIRM EMERGENCY STOP",
+        "handler": _handle_emergency_stop,
     },
-    "scalper_summary": {
-        "description": "Show scalper bot summary (counts, PnL, routing mode).",
-        "params": [],
+    "toggle_autopilot": {
+        "description": "Enable or disable autopilot mode.",
+        "params": ["enabled"],
         "requires_confirmation": False,
-        "handler": _handle_scalper_summary,
+        "handler": _handle_toggle_autopilot,
     },
-    "scalper_caps": {
-        "description": "Show scalper cap usage per exchange.",
-        "params": [],
-        "requires_confirmation": False,
-        "handler": _handle_scalper_caps,
-    },
-    "set_scalper_routing": {
-        "description": "Set profit routing mode for all scalper bots (SCALPER_GROWTH / RETURN_TO_MAIN).",
+    "switch_mode": {
+        "description": "Switch system trading mode (paper/live/autopilot). Alias for set_system_mode.",
         "params": ["mode"],
         "requires_confirmation": True,
-        "handler": _handle_set_scalper_routing,
+        "confirmation_phrase": CONFIRM_LIVE_TRADING,
+        "handler": _handle_switch_mode,
     },
-    "explain_not_trading": {
-        "description": "Explain why bots are not trading using canonical reason codes.",
+    "reset_risk_locks": {
+        "description": "Reset all risk locks (daily loss lock, bodyguard lock).",
+        "params": [],
+        "requires_confirmation": True,
+        "confirmation_phrase": CONFIRM_RESET_RISK,
+        "handler": _handle_reset_risk_locks,
+    },
+    "get_portfolio_summary": {
+        "description": "Get full portfolio summary: equity, realized PnL, fees, drawdown, win rate.",
         "params": [],
         "requires_confirmation": False,
-        "handler": _handle_explain_not_trading,
+        "handler": _handle_get_portfolio_summary,
+    },
+    "get_win_rate": {
+        "description": "Get win rate and trade statistics for a time period.",
+        "params": ["period"],
+        "requires_confirmation": False,
+        "handler": _handle_get_win_rate,
+    },
+    "get_drawdown": {
+        "description": "Get current and maximum drawdown percentages.",
+        "params": [],
+        "requires_confirmation": False,
+        "handler": _handle_get_drawdown,
+    },
+    "get_countdown": {
+        "description": "Get countdown to profit target with days-to-target estimate.",
+        "params": ["target_amount"],
+        "requires_confirmation": False,
+        "handler": _handle_get_countdown,
+    },
+    "trigger_reinvestment": {
+        "description": "Trigger a manual profit reinvestment cycle.",
+        "params": [],
+        "requires_confirmation": True,
+        "handler": _handle_trigger_reinvestment,
+    },
+    "delete_bot": {
+        "description": "Soft-delete a bot by ID (preserves history, removes from active use).",
+        "params": ["bot_id"],
+        "requires_confirmation": True,
+        "confirmation_phrase": "CONFIRM DELETE BOT",
+        "handler": _handle_delete_bot,
+    },
+    "evolve_bots": {
+        "description": "Run genetic algorithm evolution to improve bot strategies.",
+        "params": [],
+        "requires_confirmation": True,
+        "handler": _handle_evolve_bots,
+    },
+    "predict_price": {
+        "description": "Run ML price prediction for a trading pair.",
+        "params": ["pair"],
+        "requires_confirmation": False,
+        "handler": _handle_predict_price,
+    },
+    "fund_paper_wallet": {
+        "description": "Fund the paper wallet to a specified ZAR amount (reset then deposit). Defaults to 30000 ZAR.",
+        "params": ["amount"],
+        "requires_confirmation": True,
+        "confirmation_phrase": "CONFIRM FUND WALLET",
+        "handler": _handle_fund_paper_wallet,
+    },
+    "reset_paper_session": {
+        "description": "Reset the paper trading session: clears paper bots, trades, fills and resets wallet to zero.",
+        "params": [],
+        "requires_confirmation": True,
+        "confirmation_phrase": "START FRESH",
+        "handler": _handle_reset_paper_session,
+    },
+    "get_market_regime": {
+        "description": "Get current market regime classification (bullish/bearish/sideways/volatile) for a trading pair.",
+        "params": ["pair"],
+        "requires_confirmation": False,
+        "handler": _handle_get_market_regime,
     },
 }
 
@@ -1566,12 +1676,7 @@ async def execute_tool_action(
     if tool.get("admin_only") and not await _is_admin_user(user_id):
         return {"success": False, "error": "Admin access required."}
 
-    # For set_system_mode: live/autopilot mode requires confirmation; paper mode does not
     requires_confirmation = tool.get("requires_confirmation", False)
-    if action == "set_system_mode":
-        mode = (params.get("mode") or "").lower()
-        requires_confirmation = mode in {"live", "autopilot"}
-
     confirmation_phrase = tool.get("confirmation_phrase")
     if requires_confirmation and not from_confirmation:
         record = await create_confirmation_record(
@@ -1580,44 +1685,24 @@ async def execute_tool_action(
             params,
             confirmation_phrase=confirmation_phrase,
         )
-        mode = (params.get("mode") or "").lower()
-        if action == "set_system_mode" and mode == "live":
-            confirm_msg = (
-                f"⚠️ Switching to LIVE trading will use real funds. "
-                f"To confirm, reply with your confirmation ID: {record['confirmation_id']}"
-            )
-        else:
-            confirm_msg = tool.get("confirmation_message") or (
-                f"Confirmation required. Reply with confirmation_id {record['confirmation_id']}" +
-                (f" and phrase: {record['confirmation_phrase']}" if record.get("confirmation_phrase") else "")
-            )
-        logger.info(
-            "AI ChatOps: action=%s blocked pending confirmation=%s user=%s",
-            action, record["confirmation_id"], user_id[:8]
+        message = tool.get("confirmation_message") or (
+            f"Confirmation required. Reply with confirmation_id {record['confirmation_id']}" +
+            (f" and phrase: {record['confirmation_phrase']}" if record.get("confirmation_phrase") else "")
         )
         return {
             "success": False,
             "requires_confirmation": True,
             "confirmation_id": record["confirmation_id"],
-            "reply": confirm_msg,
+            "reply": message,
         }
 
-    logger.info("AI ChatOps: executing action=%s params=%s user=%s", action, params, user_id[:8])
     try:
         result = await tool["handler"](user_id, params)
-        if result.get("success"):
-            logger.info("AI ChatOps: action=%s succeeded user=%s", action, user_id[:8])
-        else:
-            logger.warning(
-                "AI ChatOps: action=%s failed reason=%s user=%s",
-                action, result.get("error") or result.get("message"), user_id[:8]
-            )
         return {"success": True, "result": result, "reply": result.get("message") or "Action completed."}
     except HTTPException as exc:
-        logger.warning("AI ChatOps: action=%s http_error=%s user=%s", action, exc.detail, user_id[:8])
         return {"success": False, "error": exc.detail}
     except Exception as exc:
-        logger.error("AI ChatOps: action=%s exception=%s user=%s", action, exc, user_id[:8])
+        logger.error("Tool action error (%s): %s", action, exc)
         return {"success": False, "error": str(exc)}
 
 
@@ -1655,6 +1740,10 @@ async def ai_chat(
         }
     """
     try:
+        # Initialise error_code at the very top so it is always defined even if an
+        # exception is raised before line 1800 (prevents "cannot access local variable
+        # 'error_code' where it is not associated with a value" UnboundLocalError).
+        error_code = None
         content = message.get('message') or message.get('content', '')
         request_action = message.get('request_action', False)
         confirmation_token = message.get('confirmation_token') or message.get('confirmation_id')
@@ -1667,6 +1756,25 @@ async def ai_chat(
             len(content or ""),
             request_action
         )
+
+        # --- Per-user rate limiting ---
+        from services.rate_limiter import ai_rate_limiter
+        bypass = os.getenv("ADMIN_RATE_LIMIT_BYPASS", "false").lower() == "true" and await _is_admin_user(user_id)
+        allowed, used, retry_after = await ai_rate_limiter.check_and_record(
+            key=user_id or "anonymous", bypass=bypass
+        )
+        if not allowed:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limit_exceeded",
+                    "message": f"AI chat rate limit reached ({ai_rate_limiter._get_limit()} requests/hour). Please wait before sending more messages.",
+                    "retry_after_seconds": retry_after,
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        # --- End rate limiting ---
 
         if not confirmation_token and content:
             match = UUID_PATTERN.search(content)
@@ -1752,49 +1860,29 @@ async def ai_chat(
             "user_id": user_id,
             "role": "user",
             "content": content,
+            "message_id": str(uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        try:
-            await db.chat_messages_collection.insert_one(user_msg)
-        except Exception as _db_err:
-            logger.warning("Could not persist user chat message: %s", _db_err)
+        await db.chat_messages_collection.insert_one(user_msg)
         
         # Get system state for AI context
-        try:
-            system_state = await action_router.get_system_state(user_id)
-        except Exception:
-            system_state = {}
-        try:
-            grounded_context = await build_grounded_context(user_id)
-        except Exception:
-            grounded_context = {}
+        system_state = await action_router.get_system_state(user_id)
+        grounded_context = await build_grounded_context(user_id)
         
         # Load full chat history for context (last 30 messages)
-        try:
-            chat_history = await db.chat_messages_collection.find(
-                {"user_id": user_id},
-                {"_id": 0}
-            ).sort("timestamp", -1).limit(30).to_list(30)
-            chat_history.reverse()
-        except Exception:
-            chat_history = []
+        chat_history = await db.chat_messages_collection.find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(30).to_list(30)
+        chat_history.reverse()
 
         # Load per-user memory and update with latest 7-day summary
-        try:
-            memory = await get_user_memory(user_id)
-        except Exception:
-            memory = {}
-        try:
-            recent_summary = await build_recent_summary(user_id)
-        except Exception:
-            recent_summary = {}
-        try:
-            user_doc = await db.users_collection.find_one(
-                {"id": user_id},
-                {"_id": 0, "risk_profile": 1, "first_name": 1, "last_name": 1, "email": 1, "username": 1}
-            )
-        except Exception:
-            user_doc = None
+        memory = await get_user_memory(user_id)
+        recent_summary = await build_recent_summary(user_id)
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "risk_profile": 1, "first_name": 1, "last_name": 1, "email": 1, "username": 1}
+        )
         risk_profile = (user_doc or {}).get("risk_profile") or memory.get("risk_profile") or "balanced"
         first_name = (user_doc or {}).get("first_name") or ""
         last_name = (user_doc or {}).get("last_name") or ""
@@ -1804,23 +1892,18 @@ async def ai_chat(
             display_name = f"{first_name} {last_name}".strip()
         else:
             display_name = first_name or username or email or "Trader"
-        try:
-            await update_user_memory(user_id, {
-                "risk_profile": risk_profile,
-                "last_7d_summary": recent_summary
-            })
-        except Exception:
-            pass
-        try:
-            memory = await get_user_memory(user_id)
-        except Exception:
-            pass
+        await update_user_memory(user_id, {
+            "risk_profile": risk_profile,
+            "last_7d_summary": recent_summary
+        })
+        memory = await get_user_memory(user_id)
 
         tool_actions: List[Dict[str, Any]] = []
         action_results: List[Dict[str, Any]] = []
         requires_confirmation = False
         confirmation_id = None
         handled_action = False
+        error_code = None
         action_meta = build_action_meta(None, None)
         action_success = False
 
@@ -1898,7 +1981,6 @@ async def ai_chat(
 
             if not handled_action:
                 # Generate AI response with OpenAI - CANONICAL KEY RETRIEVAL + MODEL FALLBACK
-                error_code = None
                 try:
                     user_api_key, key_source = await resolve_openai_key(user_id)
                     logger.info(
@@ -1908,17 +1990,37 @@ async def ai_chat(
                         key_source
                     )
                     
+                    # CRITICAL: Never block if key is missing - use degraded mode instead
+                    # The resolver will have already fallen back to system key
                     if not user_api_key:
-                        return build_ai_error_response(
-                            status_code=409,
-                            code="OPENAI_KEY_MISSING",
-                            message="Please set your OpenAI API key in API Setup.",
-                            user_message="Set your OpenAI API key in API Setup to enable Super Brain Chat.",
-                            system_state=system_state,
-                            key_source="none"
+                        # Use degraded mode - provide basic responses without OpenAI
+                        logger.info(f"AI Chat: Using degraded mode (no OpenAI key) for user {user_tag}")
+                        degraded_response = await generate_degraded_response(content, user_id, system_state)
+                        
+                        # Store assistant response in chat history
+                        assistant_msg = {
+                            "user_id": user_id,
+                            "role": "assistant",
+                            "content": degraded_response["content"],
+                            "timestamp": degraded_response["timestamp"],
+                            "key_source": "degraded_mode"
+                        }
+                        await db.chat_messages_collection.insert_one(assistant_msg)
+                        
+                        # Send real-time update
+                        await manager.send_personal_message(
+                            json.dumps({
+                                "type": "ai_chat_response",
+                                "message": degraded_response["content"],
+                                "timestamp": degraded_response["timestamp"],
+                                "degraded_mode": True
+                            }),
+                            user_id
                         )
+                        
+                        return JSONResponse(content=degraded_response)
                     
-                    # Use AsyncOpenAI client (openai>=1.x) with user's key
+                    # Use AsyncOpenAI client (openai>=1.x) with resolved key
                     from openai import AsyncOpenAI
                     
                     try:
@@ -1927,8 +2029,11 @@ async def ai_chat(
                         request_timeout = 30.0
                         logger.warning("Invalid OPENAI_TIMEOUT_SECONDS value, defaulting to 30s")
                     
-                    # Create client with user's API key
+                    # Create client with resolved API key (user or system)
                     client = AsyncOpenAI(api_key=user_api_key, timeout=request_timeout)
+                    
+                    # Log which key source is being used
+                    logger.info(f"AI Chat: Using OpenAI key source={key_source} for user {user_tag}")
                     
                     # MODEL FALLBACK - Same as keys/test
                     fallback_models = []
@@ -1970,7 +2075,7 @@ async def ai_chat(
                     ]
 
                     # Prepare context for AI
-                    context = f"""You are an AI trading assistant for Amarktai Crypto (part of Amarktai Network).
+                    context = f"""You are an AI trading assistant for Amarktai Network (part of Amarktai Network).
 
                     User:
                     - Name: {display_name}
@@ -1982,6 +2087,10 @@ async def ai_chat(
                     - Live Trading: {system_mode_status.get("liveTrading", False)}
                     - Autopilot: {system_mode_status.get("autopilot", False)}
 
+                    Capabilities:
+                    - {"; ".join(capabilities)}
+                    - Allowed Actions: {allowed_actions}
+
                     Grounded System Context (JSON):
                     {context_payload}
 
@@ -1990,15 +2099,21 @@ async def ai_chat(
                     - Last 7-day summary: {recent_summary}
                     - Last commands: {memory_commands}
 
+                    Available Tools (JSON):
+                    {tools_payload}
+
+                    User Question: {content}
+
                     Instructions:
-                    - ALWAYS respond in plain, friendly natural language. NEVER output raw JSON or code payloads to the user.
-                    - Use the grounded system context above. Do not guess unknown values.
-                    - Never claim an action completed unless you can confirm it succeeded.
-                    - If the user asks to take an action, describe what you understand they want and confirm the current state.
-                    - If you cannot fulfil a request, explain clearly why (e.g. missing API key, live trading disabled).
-                    - Provide concise, helpful responses. Use bullet points or short paragraphs.
-                    - Do NOT produce JSON, code blocks, or internal tool payloads in your reply.
-                    - Use conversation history for context to maintain continuity.
+                    - Respond in plain language (no code blocks unless the user asks for code)
+                    - Use the grounded system context. Do not guess unknown values.
+                    - Never claim an action completed unless the tool reports success.
+                    - If an action requires confirmation, ask for confirmation before executing.
+                    - If an action is needed, respond with JSON: {{ "action": "<tool_name>", "params": {{...}}, "reply": "<short response>" }}
+                    - If multiple actions are needed, respond with JSON: {{ "tool_actions": [{{"action": "...", "params": {{...}}}}], "reply": "<short response>" }}
+                    - Explain safety checks and confirmations as needed
+                    - Provide concise next steps
+                    - Use conversation history for context to maintain continuity
                     """
                     
                     # Build messages with history for context
@@ -2127,6 +2242,9 @@ async def ai_chat(
                     ai_response = tool_reply if tool_reply and action_meta.get("action_result") == "success" else action_reply
                     if action_meta.get("action_result") == "success":
                         action_success = True
+            elif tool_reply and not tool_action and not tool_action_list:
+                # AI returned JSON with only a reply (no action) — use the reply text and strip raw JSON
+                ai_response = tool_reply
             elif tool_action_list:
                 if tool_reply:
                     ai_response = tool_reply
@@ -2153,38 +2271,36 @@ async def ai_chat(
                             failure_reason = action_meta.get("reason") or "Action failed."
                             ai_response += f" {failure_reason}"
         except Exception as tool_error:
-            logger.warning("AI ChatOps: tool parsing error=%s", tool_error)
+            logger.warning(f"Tool action parsing failed: {tool_error}")
 
-        # JSON leakage guard: if ai_response still looks like a raw JSON action payload,
-        # replace it with a safe fallback so the user never sees internal tool payloads.
+        # Safety: if ai_response is still raw JSON (starts/ends with {}), strip it to avoid
+        # showing tool payloads to the user.
         if isinstance(ai_response, str):
             _stripped = ai_response.strip()
             if _stripped.startswith("{") and _stripped.endswith("}"):
                 try:
-                    _candidate = json.loads(_stripped)
-                    if isinstance(_candidate, dict) and ("action" in _candidate or "tool_actions" in _candidate):
-                        # Extract the human-readable reply if present
-                        _safe_reply = (
-                            _candidate.get("reply")
-                            or _candidate.get("response")
-                            or _candidate.get("content")
-                        )
-                        if _safe_reply:
-                            ai_response = _safe_reply
-                        else:
-                            ai_response = "I understood your request but was unable to process it right now. Please try again or rephrase."
-                        logger.warning(
-                            "AI ChatOps: suppressed raw JSON payload in ai_response, used safe fallback. user=%s",
-                            user_id[:8]
-                        )
-                except (json.JSONDecodeError, ValueError):
+                    _payload = json.loads(_stripped)
+                    # Extract any human-readable text
+                    _clean = (
+                        _payload.get("reply") or _payload.get("response")
+                        or _payload.get("content") or _payload.get("message")
+                    )
+                    if _clean and isinstance(_clean, str):
+                        ai_response = _clean
+                    else:
+                        ai_response = "Action processed."
+                except Exception:
                     pass
+
+        # Generate stable message_id for deduplication
+        _msg_id = str(uuid4())
 
         # Save AI response
         ai_msg = {
             "user_id": user_id,
             "role": "assistant",
             "content": ai_response,
+            "message_id": _msg_id,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         await db.chat_messages_collection.insert_one(ai_msg)
@@ -2203,6 +2319,7 @@ async def ai_chat(
             "role": "assistant",
             "content": ai_response,
             "reply": ai_response,
+            "message_id": _msg_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **action_meta,
             "actions": tool_actions,
@@ -2230,18 +2347,13 @@ async def ai_chat(
         )
 
 
-@router.get("/status")
+# NOTE: GET /status disabled here - canonical version is in routes/ai_status.py (already mounted).
+# Served at /api/ai/chat/status to avoid collision.
+@router.get("/chat/status")
 async def get_ai_status(user_id: str = Depends(get_current_user)):
     """Return AI configuration status for the authenticated user."""
     data = await build_ai_status(user_id)
     return {"success": True, **data}
-
-
-@router.get("/capability-status")
-async def get_ai_capability_status(user_id: str = Depends(get_current_user)):
-    """Canonical capability status for AI panels and tool availability badges."""
-    status = await build_ai_capability_status(user_id)
-    return {"success": True, **status}
 
 
 @router.get("/chat/history")
@@ -2367,11 +2479,13 @@ async def get_daily_greeting(user_id: str = Depends(get_current_user)):
         
         user_name = user.get("name", "User")
         
-        # Check last greeting timestamp
-        last_greeting = await db.chat_sessions_collection.find_one(
-            {"user_id": user_id},
-            {"_id": 0}
-        )
+        # Check last greeting timestamp (skip if collection is unavailable)
+        last_greeting = None
+        if db.chat_sessions_collection is not None:
+            last_greeting = await db.chat_sessions_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0}
+            )
         
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2524,17 +2638,18 @@ Keep it conversational, under 150 words. Use emojis sparingly."""
         }
         await db.chat_messages_collection.insert_one(greeting_msg)
         
-        # Update session record
-        await db.chat_sessions_collection.update_one(
-            {"user_id": user_id},
-            {
-                "$set": {
-                    "last_greeting_at": now.isoformat(),
-                    "last_session_start": now.isoformat()
-                }
-            },
-            upsert=True
-        )
+        # Update session record (skip if collection is unavailable)
+        if db.chat_sessions_collection is not None:
+            await db.chat_sessions_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "last_greeting_at": now.isoformat(),
+                        "last_session_start": now.isoformat()
+                    }
+                },
+                upsert=True
+            )
         
         return {
             "role": "assistant",

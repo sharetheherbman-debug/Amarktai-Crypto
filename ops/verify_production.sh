@@ -329,6 +329,20 @@ else
   warn "https://$DOMAIN/ HTTP $HTTPS_CODE (may be DNS / cert issue or non-public VPS)"
 fi
 
+# 19. XGBoost model artifact (non-fatal)
+if [[ -f "$BACKEND_DIR/models/xgb_predictor.json" ]]; then
+  ok "XGBoost model present: $BACKEND_DIR/models/xgb_predictor.json"
+else
+  warn "XGBoost model missing – run: cd $BACKEND_DIR && $VENV/bin/python3 scripts/bootstrap_xgboost_model.py"
+fi
+
+# 20. Retraining timer (non-fatal)
+if systemctl is-enabled amarktai-retrain.timer &>/dev/null 2>&1; then
+  ok "Retraining timer enabled"
+else
+  warn "Retraining timer not enabled (optional)"
+fi
+
 ###############################################################################
 echo ""
 echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════════════════${NC}"

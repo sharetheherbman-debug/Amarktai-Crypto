@@ -148,7 +148,7 @@ const providers = [
     return { id: platformId, name: config.displayName, fields };
   }),
   { id: 'fetchai', name: 'Fetch.ai', fields: ['api_key'] },
-  { id: 'flokx', name: 'Flokx', fields: ['api_key'] }
+  { id: 'coinstats', name: 'Flokx', fields: ['api_key'] }
 ];
 ```
 

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Line } from 'react-chartjs-2';
 import SectionHeader from '@/ui/components/SectionHeader';
+import StatCard from '@/ui/components/StatCard';
 import ErrorBoundary from '../../../components/ErrorBoundary';
-import { formatZAR } from '../../../lib/moneyFormat';
+import apiClient from '@/lib/apiClient';
 
 const NOT_AVAILABLE = 'Not available';
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -14,7 +15,12 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 const safePercent = (value, digits = 1, fallback = '0.0') => `${safeToFixed(value, digits, fallback)}%`;
-// formatZAR imported from canonical moneyFormat.js — do not redefine here
+const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const formatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return `${num < 0 ? '-R' : 'R'}${formatted}`;
+};
 
 const ProfitsSection = ({
   drawdownData,
@@ -36,6 +42,29 @@ const ProfitsSection = ({
   winRatePeriod,
   getAlertColor,
 }) => {
+  const [systemMetrics, setSystemMetrics] = useState(null);
+  const [systemMetricsLoading, setSystemMetricsLoading] = useState(false);
+
+  // Fetch system metrics when the metrics tab is active
+  useEffect(() => {
+    if (profitsTab !== 'metrics') return;
+    let cancelled = false;
+    const fetchMetrics = async () => {
+      setSystemMetricsLoading(true);
+      try {
+        const res = await apiClient.get('/metrics/system');
+        if (!cancelled) setSystemMetrics(res.data);
+      } catch (e) {
+        console.error('System metrics fetch error:', e);
+      } finally {
+        if (!cancelled) setSystemMetricsLoading(false);
+      }
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 60000); // refresh every 60 s
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [profitsTab]);
+
   const maxDrawdown = drawdownData?.max_drawdown_pct ?? drawdownData?.max_drawdown;
   const feesValue = profitData?.fees ?? profitData?.total_fees ?? null;
 
@@ -45,20 +74,13 @@ const ProfitsSection = ({
       label: 'Profit (ZAR)',
       data: profitData?.values || [0, 0, 0, 0, 0, 0, 0],
       borderColor: '#22c55e',
-      backgroundColor: (context) => {
-        const ctx = context.chart.ctx;
-        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-        gradient.addColorStop(0, 'rgba(34, 197, 94, 0.25)');
-        gradient.addColorStop(0.5, 'rgba(34, 197, 94, 0.08)');
-        gradient.addColorStop(1, 'rgba(34, 197, 94, 0)');
-        return gradient;
-      },
+      backgroundColor: 'rgba(34, 197, 94, 0.15)',
       fill: true,
-      tension: 0.35,
-      pointRadius: 3,
-      pointHoverRadius: 7,
+      tension: 0.4,
+      pointRadius: 4,
+      pointHoverRadius: 8,
       pointBackgroundColor: '#22c55e',
-      pointBorderColor: 'rgba(34, 197, 94, 0.5)',
+      pointBorderColor: 'rgba(34, 197, 94, 0.6)',
       pointBorderWidth: 2,
       borderWidth: 2.5,
       segment: { borderColor: ctx => ctx.p0.parsed.y > ctx.p1.parsed.y ? '#ef4444' : '#22c55e' }
@@ -69,50 +91,51 @@ const ProfitsSection = ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { display: false },
+      legend: {
+        display: false
+      },
       tooltip: {
-        backgroundColor: 'rgba(5, 8, 15, 0.95)',
-        titleColor: '#22c55e',
-        bodyColor: '#e4f0ff',
-        borderColor: 'rgba(59, 130, 246, 0.3)',
+        backgroundColor: 'rgba(10, 12, 20, 0.95)',
+        titleColor: 'var(--success)',
+        bodyColor: '#ffffff',
+        borderColor: 'rgba(34, 197, 94, 0.6)',
         borderWidth: 1,
-        padding: 14,
-        titleFont: { size: 13, weight: 'bold' },
-        bodyFont: { size: 12 },
-        cornerRadius: 8,
-        displayColors: false,
-        callbacks: {
-          label: function(context) {
-            const val = context.parsed.y;
-            return `R${Math.abs(val).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-          }
-        }
+        padding: 12,
+        titleFont: { size: 14, weight: 'bold' },
+        bodyFont: { size: 13 }
       }
     },
     scales: {
       y: {
         beginAtZero: true,
         ticks: {
-          color: 'rgba(180, 210, 255, 0.5)',
+          color: 'var(--muted)',
           font: { size: 11 },
-          padding: 8,
-          callback: function(value) { return 'R' + value.toLocaleString(); }
+          callback: function(value) {
+            return 'R' + value;
+          }
         },
-        grid: { color: 'rgba(59, 130, 246, 0.06)', drawBorder: false },
+        grid: { 
+          color: 'rgba(255, 255, 255, 0.05)',
+          drawBorder: false
+        },
         border: { display: false }
       },
       x: {
         ticks: {
-          color: 'rgba(180, 210, 255, 0.5)',
-          font: { size: 11 },
-          padding: 8,
+          color: 'var(--muted)',
+          font: { size: 11 }
         },
-        grid: { display: false },
+        grid: { 
+          display: false
+        },
         border: { display: false }
       }
     },
-    interaction: { intersect: false, mode: 'index' },
-    elements: { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } }
+    interaction: {
+      intersect: false,
+      mode: 'index'
+    }
   };
 
   return (
@@ -122,9 +145,15 @@ const ProfitsSection = ({
           title="💹 Profits & Performance"
           subtitle="Track equity, drawdown, and performance metrics across bots."
         />
-
+        
         {/* Horizontal Sub-tabs */}
         <div className="profit-tabs">
+          <button
+            onClick={() => setProfitsTab('metrics')}
+            className={`profit-tab ${profitsTab === 'metrics' ? 'active' : ''}`}
+          >
+            📊 Metrics
+          </button>
           <button
             onClick={() => setProfitsTab('profit-history')}
             className={`profit-tab ${profitsTab === 'profit-history' ? 'active' : ''}`}
@@ -152,6 +181,121 @@ const ProfitsSection = ({
         </div>
         
         {/* Tab Content */}
+        {profitsTab === 'metrics' && (
+          <div style={{marginTop: '20px'}}>
+            <ErrorBoundary title="Metrics Error" message="Unable to load metrics data.">
+              {systemMetricsLoading && !systemMetrics ? (
+                <div style={{color: 'var(--muted)', padding: '20px 0'}}>Loading system metrics…</div>
+              ) : (
+                <div>
+                  {/* Trading Performance */}
+                  <h3 style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '12px'}}>
+                    📊 Trading Performance
+                  </h3>
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '24px'}}>
+                    {[
+                      {
+                        label: 'Net Profit / Loss',
+                        help: 'Total realised profit after fees (ZAR)',
+                        value: systemMetrics?.trading?.net_pnl != null
+                          ? formatZAR(systemMetrics.trading.net_pnl)
+                          : NOT_AVAILABLE,
+                        color: systemMetrics?.trading?.net_pnl >= 0 ? 'var(--success)' : 'var(--error)',
+                      },
+                      {
+                        label: 'Win Rate',
+                        help: 'Percentage of closed trades that were profitable',
+                        value: systemMetrics?.trading?.win_rate != null
+                          ? `${systemMetrics.trading.win_rate}%`
+                          : NOT_AVAILABLE,
+                        color: 'var(--accent2)',
+                      },
+                      {
+                        label: 'Total Trades',
+                        help: 'Number of completed closed trades',
+                        value: systemMetrics?.trading?.trade_count != null
+                          ? String(systemMetrics.trading.trade_count)
+                          : NOT_AVAILABLE,
+                        color: 'var(--text)',
+                      },
+                      {
+                        label: 'Max Drawdown',
+                        help: 'Worst peak-to-trough loss — lower is better',
+                        value: systemMetrics?.trading?.max_drawdown_pct != null
+                          ? `${systemMetrics.trading.max_drawdown_pct}%`
+                          : NOT_AVAILABLE,
+                        color: 'var(--warning)',
+                      },
+                    ].map(({label, help, value, color}) => (
+                      <div key={label} style={{
+                        padding: '14px',
+                        background: 'var(--panel)',
+                        borderRadius: '8px',
+                        border: '1px solid var(--line)',
+                      }}>
+                        <div style={{fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px'}}>{label}</div>
+                        <div style={{fontSize: '1.25rem', fontWeight: 700, color}}>{value}</div>
+                        <div style={{fontSize: '0.72rem', color: 'var(--muted)', marginTop: '4px'}}>{help}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {systemMetrics?.trading?.last_trade_at && (
+                    <div style={{fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '20px'}}>
+                      Last trade: {new Date(systemMetrics.trading.last_trade_at).toLocaleString()}
+                    </div>
+                  )}
+
+                  {/* Market Intelligence */}
+                  <h3 style={{fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                    🌐 Market Intelligence
+                    <span style={{fontSize: '0.75rem', fontWeight: 400, color: 'var(--muted)'}}>
+                      Source: {systemMetrics?.market_intelligence?.source || 'CoinStats'}
+                    </span>
+                  </h3>
+                  {systemMetrics?.market_intelligence ? (
+                    <div style={{
+                      padding: '16px',
+                      background: 'var(--panel)',
+                      borderRadius: '8px',
+                      border: '1px solid var(--line)',
+                    }}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px'}}>
+                        <span style={{
+                          fontSize: '1rem',
+                          fontWeight: 700,
+                          color: systemMetrics.market_intelligence.mood === 'positive' ? 'var(--success)' :
+                                 systemMetrics.market_intelligence.mood === 'negative' ? 'var(--error)' : 'var(--warning)',
+                        }}>
+                          {systemMetrics.market_intelligence.mood === 'positive' ? '📈' :
+                           systemMetrics.market_intelligence.mood === 'negative' ? '📉' : '➡️'}{' '}
+                          Mood: {systemMetrics.market_intelligence.mood}
+                        </span>
+                        {systemMetrics.market_intelligence.top_risk !== 'none' && (
+                          <span style={{fontSize: '0.82rem', color: 'var(--warning)'}}>
+                            ⚠️ {systemMetrics.market_intelligence.top_risk}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{fontSize: '0.9rem', color: 'var(--text)', marginBottom: '8px'}}>
+                        {systemMetrics.market_intelligence.brief}
+                      </div>
+                      {systemMetrics.market_intelligence.last_updated && (
+                        <div style={{fontSize: '0.75rem', color: 'var(--muted)'}}>
+                          Updated: {new Date(systemMetrics.market_intelligence.last_updated).toLocaleString()} · Source: CoinStats
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{color: 'var(--muted)', fontSize: '0.9rem'}}>
+                      News and market signals are served by CoinStats. Waiting for first fetch…
+                    </div>
+                  )}
+                </div>
+              )}
+            </ErrorBoundary>
+          </div>
+        )}
+        
         {profitsTab === 'profit-history' && (
           <div style={{marginTop: '20px'}}>
             {/* Header with period selector */}
@@ -372,22 +516,15 @@ const ProfitsSection = ({
                         datasets: [{
                           label: 'Equity (ZAR)',
                           data: equityData.equity_curve.map(p => p.equity),
-                          borderColor: '#22c55e',
-                          backgroundColor: (context) => {
-                            const ctx = context.chart.ctx;
-                            const gradient = ctx.createLinearGradient(0, 0, 0, 280);
-                            gradient.addColorStop(0, 'rgba(34, 197, 94, 0.2)');
-                            gradient.addColorStop(1, 'rgba(34, 197, 94, 0)');
-                            return gradient;
-                          },
+                          borderColor: 'var(--success)',
+                          backgroundColor: 'rgba(16, 185, 129, 0.2)',
                           fill: true,
-                          tension: 0.35,
-                          pointRadius: 2,
+                          tension: 0.4,
+                          pointRadius: 3,
                           pointHoverRadius: 6,
-                          pointBackgroundColor: '#22c55e',
-                          pointBorderColor: 'rgba(34, 197, 94, 0.5)',
-                          pointBorderWidth: 2,
-                          borderWidth: 2.5
+                          pointBackgroundColor: 'var(--success)',
+                          pointBorderColor: '#ffffff',
+                          pointBorderWidth: 2
                         }]
                       }}
                       options={{
@@ -396,16 +533,14 @@ const ProfitsSection = ({
                         plugins: {
                           legend: { display: false },
                           tooltip: {
-                            backgroundColor: 'rgba(5, 8, 15, 0.95)',
-                            titleColor: '#22c55e',
-                            bodyColor: '#e4f0ff',
-                            borderColor: 'rgba(59, 130, 246, 0.3)',
-                            borderWidth: 1,
-                            padding: 14,
-                            cornerRadius: 8,
-                            displayColors: false,
-                            titleFont: { size: 13, weight: 'bold' },
-                            bodyFont: { size: 12 },
+                            backgroundColor: 'rgba(0, 0, 42, 0.95)',
+                            titleColor: 'var(--success)',
+                            bodyColor: '#ffffff',
+                            borderColor: 'var(--success)',
+                            borderWidth: 2,
+                            padding: 12,
+                            titleFont: { size: 14, weight: 'bold' },
+                            bodyFont: { size: 13 },
                             callbacks: {
                               label: (context) => `Equity: R${safeToFixed(context.parsed.y, 2)}`
                             }
@@ -415,21 +550,17 @@ const ProfitsSection = ({
                           y: {
                             beginAtZero: false,
                             ticks: { 
-                              color: 'rgba(180, 210, 255, 0.5)',
+                              color: '#8b8b8b',
                               font: { size: 11 },
-                              padding: 8,
-                              callback: (value) => 'R' + value.toLocaleString()
+                              callback: (value) => 'R' + safeToFixed(value, 0, '0')
                             },
-                            grid: { color: 'rgba(59, 130, 246, 0.06)', drawBorder: false },
-                            border: { display: false }
+                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
                           },
                           x: {
-                            ticks: { color: 'rgba(180, 210, 255, 0.5)', font: { size: 10 }, maxRotation: 45, minRotation: 45, padding: 6 },
-                            grid: { display: false },
-                            border: { display: false }
+                            ticks: { color: '#8b8b8b', font: { size: 10 }, maxRotation: 45, minRotation: 45 },
+                            grid: { display: false }
                           }
-                        },
-                        elements: { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } }
+                        }
                       }}
                     />
                   )}
@@ -542,9 +673,10 @@ const ProfitsSection = ({
                   minHeight: '350px', 
                   height: '350px',
                   padding: '20px',
-                  background: 'rgba(10, 14, 26, 0.6)',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(239, 68, 68, 0.15)',
+                  background: 'linear-gradient(135deg, rgba(0, 0, 42, 0.4) 0%, rgba(0, 0, 20, 0.6) 100%)',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
                   display: 'flex',
                   flexDirection: 'column'
                 }}>
@@ -556,21 +688,14 @@ const ProfitsSection = ({
                           label: 'Drawdown %',
                           data: drawdownData.drawdown_curve.map(p => -p.drawdown_pct),
                           borderColor: '#ef4444',
-                          backgroundColor: (context) => {
-                            const ctx = context.chart.ctx;
-                            const gradient = ctx.createLinearGradient(0, 0, 0, 280);
-                            gradient.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
-                            gradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
-                            return gradient;
-                          },
+                          backgroundColor: 'rgba(239, 68, 68, 0.2)',
                           fill: true,
-                          tension: 0.35,
-                          pointRadius: 2,
+                          tension: 0.4,
+                          pointRadius: 3,
                           pointHoverRadius: 6,
                           pointBackgroundColor: '#ef4444',
-                          pointBorderColor: 'rgba(239, 68, 68, 0.5)',
-                          pointBorderWidth: 2,
-                          borderWidth: 2.5
+                          pointBorderColor: '#ffffff',
+                          pointBorderWidth: 2
                         }]
                       }}
                       options={{
@@ -579,16 +704,14 @@ const ProfitsSection = ({
                         plugins: {
                           legend: { display: false },
                           tooltip: {
-                            backgroundColor: 'rgba(5, 8, 15, 0.95)',
+                            backgroundColor: 'rgba(0, 0, 42, 0.95)',
                             titleColor: '#ef4444',
-                            bodyColor: '#e4f0ff',
-                            borderColor: 'rgba(239, 68, 68, 0.3)',
-                            borderWidth: 1,
-                            padding: 14,
-                            cornerRadius: 8,
-                            displayColors: false,
-                            titleFont: { size: 13, weight: 'bold' },
-                            bodyFont: { size: 12 },
+                            bodyColor: '#ffffff',
+                            borderColor: '#ef4444',
+                            borderWidth: 2,
+                            padding: 12,
+                            titleFont: { size: 14, weight: 'bold' },
+                            bodyFont: { size: 13 },
                             callbacks: {
                               label: (context) => `Drawdown: ${safeToFixed(Math.abs(context.parsed.y), 2)}%`
                             }
@@ -599,21 +722,17 @@ const ProfitsSection = ({
                             reverse: false,
                             max: 0,
                             ticks: { 
-                              color: 'rgba(180, 210, 255, 0.5)',
+                              color: '#8b8b8b',
                               font: { size: 11 },
-                              padding: 8,
                               callback: (value) => safeToFixed(Math.abs(value), 1, '0.0') + '%'
                             },
-                            grid: { color: 'rgba(59, 130, 246, 0.06)', drawBorder: false },
-                            border: { display: false }
+                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
                           },
                           x: {
-                            ticks: { color: 'rgba(180, 210, 255, 0.5)', font: { size: 10 }, maxRotation: 45, minRotation: 45, padding: 6 },
-                            grid: { display: false },
-                            border: { display: false }
+                            ticks: { color: '#8b8b8b', font: { size: 10 }, maxRotation: 45, minRotation: 45 },
+                            grid: { display: false }
                           }
-                        },
-                        elements: { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } }
+                        }
                       }}
                     />
                   ) : (

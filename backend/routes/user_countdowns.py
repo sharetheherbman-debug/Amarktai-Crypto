@@ -167,12 +167,12 @@ async def calculate_daily_roi(user_id: str) -> float:
 async def create_countdown(countdown: CountdownCreate, user_id: str = Depends(get_current_user)):
     """Create a new custom countdown"""
     try:
-        # Check if user already has 2 custom countdowns (limit)
+        # Check if user already has 4 custom countdowns (limit)
         existing = await db.user_countdowns_collection.count_documents({"user_id": user_id})
-        if existing >= 2:
+        if existing >= 4:
             raise HTTPException(
                 status_code=400,
-                detail="Maximum of 2 custom countdowns allowed per user"
+                detail="Maximum of 4 custom countdowns allowed per user"
             )
         
         # Generate ID

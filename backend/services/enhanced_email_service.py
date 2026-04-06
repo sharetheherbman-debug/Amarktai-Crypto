@@ -129,7 +129,7 @@ class EnhancedEmailService:
         # Send email
         success = await self.send_email(
             to_email=user_email,
-            subject="Welcome to Amarktai Crypto - Set Your Password",
+            subject="Welcome to Amarktai Network - Set Your Password",
             html_body=html_body,
             plain_text_body=plain_text
         )
@@ -246,7 +246,7 @@ class EnhancedEmailService:
         # Simple test email
         html_body = """
         <div style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2 style="color: #3b82f6;">Test Email from Amarktai Crypto</h2>
+            <h2 style="color: #3b82f6;">Test Email from Amarktai Network</h2>
             <p>This is a test email to verify your SMTP configuration is working correctly.</p>
             <p>If you received this email, your email service is configured properly!</p>
             <hr>
@@ -262,7 +262,7 @@ class EnhancedEmailService:
         )
         
         plain_text = f"""
-Test Email from Amarktai Crypto
+Test Email from Amarktai Network
 
 This is a test email to verify your SMTP configuration is working correctly.
 
@@ -275,7 +275,7 @@ From: {self.from_name} <{self.from_email}>
         
         success = await self.send_email(
             to_email=to_email,
-            subject="Test Email - Amarktai Crypto",
+            subject="Test Email - Amarktai Network",
             html_body=html_body,
             plain_text_body=plain_text
         )

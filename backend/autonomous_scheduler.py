@@ -59,20 +59,33 @@ class AutonomousScheduler:
                 users = await db.users_collection.find({}, {"_id": 0}).to_list(1000)
                 
                 for user in users:
-                    user_id = user.get('id')
+                    try:
+                        user_id = user.get('id')
+                        if not user_id:
+                            continue
+                        
+                        # 1. Check bot promotions
+                        try:
+                            promotions = await bot_lifecycle.check_promotions()
+                            if isinstance(promotions, dict) and promotions.get('promoted_count', 0) > 0:
+                                logger.info(f"Promoted {promotions['promoted_count']} bots for user {user_id}")
+                        except Exception as e:
+                            logger.error(f"Bot promotion check failed for user {user_id}: {e}")
+                        
+                        # 2. Rank bot performance
+                        try:
+                            await performance_ranker.rank_bots(user_id)
+                        except Exception as e:
+                            logger.error(f"Bot ranking failed for user {user_id}: {e}")
                     
-                    # 1. Check bot promotions
-                    promotions = await bot_lifecycle.check_promotions()
-                    if promotions > 0:
-                        logger.info(f"Promoted {promotions} bots for user {user_id}")
-                    
-                    # 2. Rank bot performance
-                    await performance_ranker.rank_bots(user_id)
+                    except Exception as e:
+                        logger.error(f"Hourly tasks failed for user {user.get('id', 'unknown')} (sub-task error): {e}")
+                        continue  # Continue with next user
                 
                 logger.info("✅ Hourly tasks completed")
                 
             except Exception as e:
-                logger.error(f"Hourly tasks failed: {e}")
+                logger.error(f"Hourly tasks loop error: {e}", exc_info=True)
             
             # Wait 1 hour
             await asyncio.sleep(3600)
@@ -87,34 +100,60 @@ class AutonomousScheduler:
                 users = await db.users_collection.find({}, {"_id": 0}).to_list(1000)
                 
                 for user in users:
-                    user_id = user.get('id')
+                    try:
+                        user_id = user.get('id')
+                        if not user_id:
+                            continue
+                        
+                        # 1. Reallocate capital
+                        try:
+                            reallocation_result = await capital_allocator.reallocate_capital(user_id)
+                            logger.info(f"Reallocation for {user_id}: {reallocation_result}")
+                        except Exception as e:
+                            logger.error(f"Capital reallocation failed for user {user_id}: {e}")
+                        
+                        # 2. Reinvest profits
+                        try:
+                            reinvest_result = await capital_allocator.reinvest_daily_profits(user_id)
+                            logger.info(f"Reinvestment for {user_id}: {reinvest_result}")
+                        except Exception as e:
+                            logger.error(f"Profit reinvestment failed for user {user_id}: {e}")
+                        
+                        # 3. Check for auto-spawn (use current trading mode)
+                        try:
+                            modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+                            trading_mode = "live" if modes.get("liveTrading") else "paper"
+                            spawn_result = await capital_allocator.auto_spawn_bot(user_id, trading_mode=trading_mode)
+                            if spawn_result.get('spawned'):
+                                logger.info(f"🎉 Auto-spawned bot for {user_id}")
+                        except Exception as e:
+                            logger.error(f"Auto-spawn failed for user {user_id}: {e}")
                     
-                    # 1. Reallocate capital
-                    reallocation_result = await capital_allocator.reallocate_capital(user_id)
-                    logger.info(f"Reallocation for {user_id}: {reallocation_result}")
-                    
-                    # 2. Reinvest profits
-                    reinvest_result = await capital_allocator.reinvest_daily_profits(user_id)
-                    logger.info(f"Reinvestment for {user_id}: {reinvest_result}")
-                    
-                    # 3. Check for auto-spawn (use current trading mode)
-                    modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
-                    trading_mode = "live" if modes.get("liveTrading") else "paper"
-                    spawn_result = await capital_allocator.auto_spawn_bot(user_id, trading_mode=trading_mode)
-                    if spawn_result.get('spawned'):
-                        logger.info(f"🎉 Auto-spawned bot for {user_id}")
+                    except Exception as e:
+                        logger.error(f"Daily tasks failed for user {user.get('id', 'unknown')}: {e}")
+                        continue  # Continue with next user
                 
-                logger.info("Running daily learning...")
-                # Trigger self-learning for all users
-                # self_learning.run_daily_analysis()
+                # Daily system-wide tasks
+                try:
+                    logger.info("Running daily learning...")
+                    # Trigger self-learning for all users
+                    # self_learning.run_daily_analysis()
+                except Exception as e:
+                    logger.error(f"Daily learning failed: {e}")
                 
-                logger.info("Running daily healing checks...")
-                # AI Bodyguard + Self-Healing
-                # self_healing.scan_all_users()
+                try:
+                    logger.info("Running daily healing checks...")
+                    # AI Bodyguard + Self-Healing - runs daily scans of all users
+                    await self_healing.scan_all_users()
+                except Exception as e:
+                    logger.error(f"Daily healing scan failed: {e}")
                 
-                logger.info("Running auto-promotion check...")
-                # Check all bots for 7-day promotion eligibility
-                await auto_promotion_manager.run_daily_check()
+                try:
+                    logger.info("Running auto-promotion check...")
+                    # Check all bots for 7-day promotion eligibility
+                    await auto_promotion_manager.run_daily_check()
+                except Exception as e:
+                    logger.error(f"Auto-promotion check failed: {e}")
                 
                 # Removed "spawn to 65" logic - auto-spawning is now profit-gated per exchange
                 # and enforces per-exchange bot caps (Luno: 5, others: 10)
@@ -123,7 +162,7 @@ class AutonomousScheduler:
                 logger.info("✅ Daily tasks completed")
                 
             except Exception as e:
-                logger.error(f"Daily tasks failed: {e}")
+                logger.error(f"Daily tasks loop error: {e}", exc_info=True)
             
             # Wait 24 hours
             await asyncio.sleep(86400)

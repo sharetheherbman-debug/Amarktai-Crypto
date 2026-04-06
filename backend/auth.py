@@ -12,32 +12,47 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")  # Allow override via env
 ALGORITHM = JWT_ALGORITHM  # Keep for backward compatibility
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
-# ---------- Startup validation ----------
-_UNSAFE_JWT_DEFAULTS = {
-    "your-secret-key",
-    "your-secret-key-change-in-production",
-    "change-me-use-openssl-rand-hex-32",
-    "changeme",
-    "",
-}
+# Approved JWT algorithms — prevents downgrade to 'none' or insecure variants
+_ALLOWED_JWT_ALGORITHMS = {"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256"}
+if JWT_ALGORITHM not in _ALLOWED_JWT_ALGORITHMS:
+    raise ValueError(
+        f"JWT_ALGORITHM '{JWT_ALGORITHM}' is not in the approved list: "
+        f"{sorted(_ALLOWED_JWT_ALGORITHMS)}"
+    )
 
-def validate_jwt_secret():
-    """Fail fast if JWT_SECRET is still a placeholder.
+# ── JWT secret validation ───────────────────────────────────────────────────
+# Production MUST have a strong secret (>=32 chars).  Non-production environments
+# may run with a weak/missing secret after emitting a clearly visible warning.
+_MIN_SECRET_LENGTH = 32
+_KNOWN_WEAK_SECRETS = {"your-secret-key", "secret", "change-me", "changeme",
+                       "your-secret-key-change-in-production"}
 
-    Called once at import time so the server refuses to start with an
-    insecure configuration.  The check is skipped when ENVIRONMENT is
-    explicitly set to 'testing' (used by the test-suite).
-    """
-    env = os.getenv("ENVIRONMENT", "").lower()
-    if env == "testing":
-        return  # allow tests to run with dummy values
-    if JWT_SECRET in _UNSAFE_JWT_DEFAULTS:
-        raise RuntimeError(
-            "CRITICAL: JWT_SECRET is not set or is still a default placeholder. "
-            "Set a strong random value via: openssl rand -hex 32"
+def _validate_jwt_secret() -> None:
+    environment = os.getenv("ENVIRONMENT", "").lower()
+    secret = JWT_SECRET or ""
+    is_weak = (len(secret) < _MIN_SECRET_LENGTH or secret in _KNOWN_WEAK_SECRETS)
+    if not is_weak:
+        return  # All good
+
+    _logger = logging.getLogger(__name__)
+    if environment == "production":
+        msg = (
+            "FATAL: JWT_SECRET is missing or too weak (must be >= 32 characters). "
+            "Set a strong JWT_SECRET in your .env file before starting the server. "
+            "Refusing to start in production with a weak JWT secret."
+        )
+        _logger.critical(msg)
+        raise RuntimeError(msg)
+    else:
+        _logger.warning(
+            "⚠️  JWT_SECRET is weak or using default (length=%d). "
+            "This is only tolerated in non-production environments. "
+            "Set ENVIRONMENT=production to enforce the 32-char minimum.",
+            len(secret),
         )
 
-validate_jwt_secret()
+_validate_jwt_secret()
+# ────────────────────────────────────────────────────────────────────────────
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -79,12 +94,20 @@ def decode_token(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)) -> str:
     """Get current user ID from JWT token - returns string user_id
     
     Supports both "sub" (JWT standard) and "user_id" (legacy) fields for backward compatibility.
     Always returns a string user_id, never a dict.
+    Raises 401 when Authorization header is missing or token is invalid.
+    Also checks force_logout flag — if set, returns 401 with detail="FORCE_LOGOUT".
     """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     token = credentials.credentials
     payload = decode_token(token)
     
@@ -96,6 +119,26 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+
+    # Check force_logout flag — one-time kill switch set by admin
+    try:
+        import database as db
+        user_doc = await db.users_collection.find_one(
+            {"id": user_id},
+            {"_id": 0, "force_logout": 1}
+        )
+        if user_doc and user_doc.get("force_logout"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="FORCE_LOGOUT",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Never crash auth on a DB error — log and continue
+        logger.warning("force_logout check failed (DB error): %s", exc)
+
     return user_id
 
 async def get_optional_user(credentials: HTTPAuthorizationCredentials = Depends(optional_security)) -> Optional[str]:
@@ -169,10 +212,46 @@ async def resolve_current_user(current_user) -> str:
         detail=f"Unsupported current_user type: {type(current_user)}"
     )
 
+def get_admin_password() -> str:
+    """Get admin password from environment with NO default for security.
+    
+    Returns:
+        Admin password string
+        
+    Raises:
+        ValueError: If ADMIN_PASSWORD is not set or empty (security requirement)
+    """
+    admin_password = os.getenv("ADMIN_PASSWORD")
+    
+    if not admin_password or admin_password == "":
+        raise ValueError(
+            "ADMIN_PASSWORD environment variable is required for admin access. "
+            "Set ADMIN_PASSWORD in your .env file for production deployment. "
+            "This is a security requirement - no default password is allowed."
+        )
+    
+    return admin_password
+
 async def verify_admin_password(password: str) -> bool:
-    """Verify admin password"""
-    admin_password = os.getenv("ADMIN_PASSWORD", "ashmor12@")
-    return password == admin_password
+    """Verify admin password - case-insensitive comparison.
+    
+    Args:
+        password: Password to verify
+        
+    Returns:
+        True if password matches, False otherwise
+        
+    Raises:
+        ValueError: If admin password is misconfigured (empty string)
+    """
+    try:
+        admin_password = get_admin_password()
+    except ValueError as e:
+        logger.error(f"Admin password misconfiguration: {e}")
+        raise
+    
+    # Case-insensitive and whitespace-tolerant comparison
+    return password.strip().lower() == admin_password.strip().lower()
 
 async def is_admin(user_id: str) -> bool:
     """Check if user has admin privileges - never crashes"""

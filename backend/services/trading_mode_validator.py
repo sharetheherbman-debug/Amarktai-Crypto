@@ -94,7 +94,7 @@ class TradingModeValidator:
             user_id = bot_data.get('user_id')
             bot_id = bot_data.get('id')
 
-            if not env_bool('PAPER_TRADING', False):
+            if not env_bool('PAPER_TRADING', False) and not env_bool('ENABLE_PAPER_TRADING', False):
                 return False, "paper", "Paper trading not enabled globally"
 
             # Check user's system mode

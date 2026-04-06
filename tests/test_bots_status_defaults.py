@@ -46,14 +46,24 @@ def test_bots_status_returns_empty_when_no_bots():
     assert set(exchange_counts.keys()) == set(payload.get("all_exchanges"))
 
 
-def test_bots_status_returns_error_when_collection_missing():
+def test_bots_status_requires_auth_when_collection_missing():
     with patch.object(bot_lifecycle.db, "bots_collection", None):
         response = client.get("/api/bots/status")
 
-    assert response.status_code == 503
-    payload = response.json()
+    assert response.status_code == 401
 
-    assert payload.get("detail")
+
+def test_bots_status_returns_401_without_token():
+    """GET /api/bots/status without Authorization header must return 401."""
+    mock_cursor = MagicMock()
+    mock_cursor.to_list = AsyncMock(return_value=[])
+    mock_collection = MagicMock()
+    mock_collection.find.return_value = mock_cursor
+
+    with patch.object(bot_lifecycle.db, "bots_collection", mock_collection):
+        response = client.get("/api/bots/status")
+
+    assert response.status_code == 401
 
 
 def test_bots_status_returns_error_with_auth_when_collection_missing():

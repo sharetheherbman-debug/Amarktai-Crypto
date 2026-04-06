@@ -171,6 +171,13 @@ else
   exit 1
 fi
 
+# Bootstrap XGBoost model if not present
+if [[ ! -f "$BACKEND_DIR/models/xgb_predictor.json" ]]; then
+  info "Bootstrapping XGBoost model..."
+  sudo -u www-data bash -c "cd '$BACKEND_DIR' && '$VENV/bin/python3' scripts/bootstrap_xgboost_model.py" 2>&1 || warn "XGBoost bootstrap skipped (non-fatal)"
+  pass "XGBoost model bootstrapped"
+fi
+
 ###############################################################################
 head "STEP 6 – Install canonical systemd unit"
 ###############################################################################
@@ -181,6 +188,15 @@ if [[ ! -f "$UNIT_SRC" ]]; then
 fi
 cp "$UNIT_SRC" "$SYSTEMD_UNIT"
 pass "Systemd unit installed: $SYSTEMD_UNIT"
+
+# Install retraining timer + service
+RETRAIN_SVC="$REPO_ROOT/ops/systemd/amarktai-retrain.service"
+RETRAIN_TMR="$REPO_ROOT/ops/systemd/amarktai-retrain.timer"
+if [[ -f "$RETRAIN_SVC" && -f "$RETRAIN_TMR" ]]; then
+  cp "$RETRAIN_SVC" /etc/systemd/system/amarktai-retrain.service
+  cp "$RETRAIN_TMR" /etc/systemd/system/amarktai-retrain.timer
+  pass "Retraining timer installed"
+fi
 
 # Install nightly XGBoost retrain timer (optional — only runs when ENABLE_LEARNING_LOOP=true)
 RETRAIN_SVC_SRC="$REPO_ROOT/ops/systemd/amarktai-retrain.service"
@@ -297,6 +313,13 @@ systemctl enable "$SERVICE" 2>/dev/null || true
 systemctl restart "$SERVICE"
 sleep 8
 pass "Service restarted: $SERVICE"
+
+# Enable retraining timer
+if [[ -f /etc/systemd/system/amarktai-retrain.timer ]]; then
+  systemctl enable amarktai-retrain.timer 2>/dev/null || true
+  systemctl start amarktai-retrain.timer 2>/dev/null || true
+  pass "Retraining timer enabled"
+fi
 
 # Reload nginx (after backend is up)
 systemctl reload nginx || systemctl restart nginx

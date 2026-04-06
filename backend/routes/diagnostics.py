@@ -3,266 +3,34 @@ Diagnostics Endpoints - Pre-Merge Verification
 Includes realtime smoke tests and system health checks
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import logging
-import os
-import subprocess
 
 from auth import get_current_user
 from websocket_manager import manager
 from realtime_events import rt_events
 import database as db
+from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES, SOFT_MAX_HOLD_SECONDS, HARD_MAX_HOLD_SECONDS
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/diagnostics", tags=["Diagnostics"])
 
-# Maximum number of bots fetched in a single diagnostics query.
-# Matches the cap used by truth_kernel and bot_lifecycle for consistency.
-_MAX_BOTS_QUERY = 500
 
-
-@router.get("/provider-health")
-async def provider_health_snapshot(user_id: str = Depends(get_current_user)):
-    """Canonical provider health + live market intelligence snapshot for dashboard panels."""
+def _get_close_rejects_from_engine() -> dict:
+    """Aggregate close SKIP/REJECT reasons from the paper engine action log."""
     try:
-        from services.provider_registry import list_providers
-        from engines.market_intelligence_engine import market_intelligence_engine
-
-        providers = list_providers()
-        keys = await db.api_keys_collection.find(
-            {"user_id": user_id},
-            {"_id": 0, "provider": 1, "status": 1, "last_tested_at": 1, "last_test_error": 1},
-        ).to_list(200)
-        key_map = {k.get("provider"): k for k in keys if k.get("provider")}
-
-        health_map = {}
-        for provider in providers:
-            pid = provider.get("id")
-            key_doc = key_map.get(pid, {})
-            status = str(key_doc.get("status", "not_configured")).lower()
-            configured_by_user = bool(key_doc)
-            if status in {"configured_valid", "test_ok"}:
-                normalized = "healthy"
-                valid_key = True
-            elif status in {"configured_untested", "saved_untested", "configured_rate_limited"}:
-                normalized = "degraded"
-                valid_key = "unknown"
-            elif status in {"configured_invalid", "test_failed"}:
-                normalized = "down"
-                valid_key = False
-            else:
-                normalized = "unconfigured"
-                valid_key = False
-            health_map[pid] = {
-                "status": normalized,
-                # Canonical truth fields
-                "configured_by_user": configured_by_user,
-                "valid_key": valid_key,
-                "using_public_fallback": False,
-                "ownership_scope": "user" if configured_by_user else "public",
-                "last_tested": key_doc.get("last_tested_at"),
-                "last_error": key_doc.get("last_test_error"),
-                "type": provider.get("type"),
-            }
-
-        try:
-            live_health = await market_intelligence_engine.health_check()
-            usage = market_intelligence_engine.get_provider_usage() or {}
-        except Exception:
-            live_health = {}
-            usage = {}
-
-        for pid, ok in (live_health or {}).items():
-            existing = health_map.get(pid, {"status": "unconfigured", "configured_by_user": False, "valid_key": False, "using_public_fallback": False})
-            if existing.get("status") == "unconfigured":
-                # Provider is reachable via public/system endpoint but user has NOT configured a key.
-                # Mark as public_fallback — do NOT upgrade to "healthy".
-                existing["status"] = "public_fallback" if ok else "unconfigured"
-                existing["using_public_fallback"] = bool(ok)
-                existing["ownership_scope"] = "public"
-            elif existing.get("status") in {"healthy", "degraded"} and ok is False:
-                existing["status"] = "degraded"
-            existing["healthy"] = bool(ok) and existing.get("configured_by_user", False)
-            existing["reachable"] = bool(ok)
-            existing["usage"] = usage.get(pid, {})
-            health_map[pid] = existing
-
-        intelligence = {}
-        try:
-            intelligence = await market_intelligence_engine.get_intelligence_summary(["BTC", "ETH"])
-        except Exception:
-            intelligence = {}
-
-        return {
-            "provider_health": health_map,
-            "intelligence": intelligence,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error("provider_health_snapshot failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/regime-summary")
-async def regime_summary(user_id: str = Depends(get_current_user)):
-    """Summarize latest bot-visible regime and confidence state."""
-    try:
-        from utils.bot_state import normalize_bot_state
-
-        bots = await db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$nin": ["deleted", "marked_for_deletion"]},
-                "deleted": {"$ne": True},
-                "is_deleted": {"$ne": True},
-                "deleted_at": {"$exists": False},
-            },
-            {"_id": 0},
-        ).to_list(_MAX_BOTS_QUERY)
-        if not bots:
-            return {}
-
-        summary: Dict[str, Dict] = {}
-        for raw in bots:
-            bot = normalize_bot_state(raw)
-            symbol = str(bot.get("pair") or bot.get("symbol") or "UNKNOWN")
-            regime = str(bot.get("market_regime", bot.get("canonical_market_regime", "unknown"))).lower()
-            confidence = float(
-                bot.get("canonical_regime_confidence", bot.get("regime_confidence", bot.get("confidence_score", 0))) or 0
-            )
-            bucket = summary.setdefault(symbol, {"regime": regime, "confidence": confidence, "bots": 0})
-            bucket["bots"] += 1
-            if confidence > float(bucket.get("confidence", 0)):
-                bucket["regime"] = regime
-                bucket["confidence"] = confidence
-        return summary
-    except Exception as exc:
-        logger.error("regime_summary failed: %s", exc)
-        return {}
-
-
-@router.get("/whale-signals")
-async def whale_signals(user_id: str = Depends(get_current_user)):
-    """Whale flow signals for dashboard panel with graceful unavailable semantics."""
-    try:
-        from routes.advanced_trading_endpoints import get_whale_summary
-
-        payload = await get_whale_summary(current_user=user_id)
-        data = payload.get("data") or payload.get("summary") or {}
-        signals = data.get("signals") if isinstance(data, dict) else []
-        if not isinstance(signals, list):
-            signals = []
-        return {
-            "status": payload.get("status", "success"),
-            "signals": signals,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.warning("whale_signals unavailable: %s", exc)
-        return {"status": "unavailable", "signals": [], "timestamp": datetime.now(timezone.utc).isoformat()}
-
-
-@router.get("/sentiment-summary")
-async def sentiment_summary(user_id: str = Depends(get_current_user)):
-    """Sentiment summary endpoint used by intelligence panels."""
-    try:
-        from routes.advanced_trading_endpoints import get_sentiment_summary
-
-        payload = await get_sentiment_summary(current_user=user_id)
-        summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
-        if isinstance(summary, dict) and summary:
-            first = next(iter(summary.values()))
-            score = float(first.get("score", 0.5) if isinstance(first, dict) else 0.5)
-            return {
-                "score": score,
-                "label": "Bullish" if score > 0.6 else "Bearish" if score < 0.4 else "Neutral",
-                "headlines": [],
-            }
+        from paper_trading_engine import paper_engine
+        rejects: dict = {}
+        for entry in paper_engine._action_log:
+            if entry.get("action") == "SKIP":
+                reason = entry.get("reason", "unknown")
+                rejects[reason] = rejects.get(reason, 0) + 1
+        return rejects
     except Exception:
-        pass
-    return {"score": 0.5, "label": "Unavailable", "headlines": []}
-
-
-@router.get("/orderbook-summary")
-async def orderbook_summary(user_id: str = Depends(get_current_user)):
-    """Orderbook-like operational summary based on recorded spread/slippage fields."""
-    try:
-        recent = await db.trades_collection.find(
-            {"user_id": user_id},
-            {"_id": 0, "spread_estimate": 1, "slippage_estimate": 1, "type": 1, "side": 1},
-        ).sort("timestamp", -1).limit(200).to_list(200)
-        if not recent:
-            return {"imbalance": 0.0, "spread_pct": 0.0, "walls": []}
-
-        buys = sum(1 for t in recent if str(t.get("side", t.get("type", "")).lower()) in {"buy", "long"})
-        sells = sum(1 for t in recent if str(t.get("side", t.get("type", "")).lower()) in {"sell", "short"})
-        total = max(1, buys + sells)
-        imbalance = (buys - sells) / total
-        spreads = [float(t.get("spread_estimate") or 0) for t in recent if t.get("spread_estimate") is not None]
-        spread_pct = sum(spreads) / len(spreads) if spreads else 0.0
-        return {
-            "imbalance": round(float(imbalance), 4),
-            "spread_pct": round(float(spread_pct), 4),
-            "walls": [],
-        }
-    except Exception as exc:
-        logger.warning("orderbook_summary failed: %s", exc)
-        return {"imbalance": 0.0, "spread_pct": 0.0, "walls": []}
-
-
-@router.get("/capital-efficiency")
-async def capital_efficiency(user_id: str = Depends(get_current_user)):
-    """Capital efficiency snapshot derived from canonical metrics."""
-    try:
-        from services.canonical_metrics import get_canonical_metrics_snapshot
-
-        bots = await db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$nin": ["deleted", "marked_for_deletion"]},
-                "deleted": {"$ne": True},
-                "is_deleted": {"$ne": True},
-                "deleted_at": {"$exists": False},
-            },
-            {"_id": 0},
-        ).to_list(_MAX_BOTS_QUERY)
-        metrics = await get_canonical_metrics_snapshot(user_id, bots=bots)
-        summary = metrics.get("summary", {})
-        return {
-            "capital_utilization_pct": summary.get("capital_utilization_pct", 0),
-            "roi_pct": summary.get("roi_pct", 0),
-            "profit_realized": summary.get("profit_realized", 0),
-            "trade_count": summary.get("trade_count", 0),
-        }
-    except Exception as exc:
-        logger.warning("capital_efficiency failed: %s", exc)
-        return {"capital_utilization_pct": 0, "roi_pct": 0, "profit_realized": 0, "trade_count": 0}
-
-
-@router.get("/genetics-summary")
-async def genetics_summary(user_id: str = Depends(get_current_user)):
-    """Bot evolution summary for intelligence panel."""
-    try:
-        bots = await db.bots_collection.find(
-            {"user_id": user_id},
-            {"_id": 0, "parent_bot_id": 1, "generation": 1, "strategy_preset": 1},
-        ).to_list(_MAX_BOTS_QUERY)
-        if not bots:
-            return {"available": False, "reason": "no_bots"}
-        evolved = [b for b in bots if b.get("parent_bot_id")]
-        max_generation = max(int(b.get("generation", 1) or 1) for b in bots)
-        return {
-            "available": True,
-            "total_bots": len(bots),
-            "evolved_bots": len(evolved),
-            "max_generation": max_generation,
-        }
-    except Exception as exc:
-        logger.warning("genetics_summary failed: %s", exc)
-        return {"available": False, "reason": str(exc)[:120]}
+        return {}
 
 
 @router.get("/realtime-smoke")
@@ -676,47 +444,52 @@ async def autopilot_runtime_diagnostics(user_id: str = Depends(get_current_user)
 @router.get("/paper-status")
 async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
     """Get paper trading diagnostic status
-
+    
     Returns:
         last_tick: Last scheduler tick time
         last_decision: Last trading decision made
         last_order_attempt: Last order attempt
         last_fill: Last successful fill
         last_error: Last error encountered
-        active_bots: Count of active bots (canonical)
-        runnable_bots: Count of bots eligible to trade
-        total_bots: Total non-deleted bot count
+        active_bots: Count of active paper trading bots
         trades_today: Count of trades executed today
         scheduler_running: Whether scheduler is active
-        scheduler_state: Full scheduler lifecycle truth (queue size, noop reason, blocked count)
     """
     try:
         from paper_trading_engine import paper_trading_engine
         from trading_scheduler import trading_scheduler
-        from datetime import datetime, timezone
-        from services.canonical import get_canonical_bot_counts, get_canonical_trade_counts
-
-        # Get scheduler status — use the real is_running attribute
-        scheduler_running = getattr(trading_scheduler, 'is_running', False)
-
-        # Get paper trading engine status
+        from datetime import datetime, timezone, timedelta
+        
+        # Get scheduler status
+        scheduler_status = trading_scheduler.get_status() if hasattr(trading_scheduler, 'get_status') else {}
+        
+        # Get paper trading engine status  
         engine_status = {}
         if hasattr(paper_trading_engine, 'last_tick_time'):
             engine_status['last_tick'] = paper_trading_engine.last_tick_time
-
-        # Canonical bot counts (same function used by /api/bots/status and /api/overview/snapshot)
-        counts = await get_canonical_bot_counts(user_id)
-
-        trade_counts = await get_canonical_trade_counts(user_id)
-        trades_today = trade_counts["today"]
-
+        
+        # Count active paper trading bots for this user
+        active_bots_count = await db.bots_collection.count_documents({
+            "user_id": user_id,
+            "status": "active",
+            "mode": "paper"
+        })
+        
+        # Count trades today
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        trades_today = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": today_start.isoformat()},
+            "mode": "paper"
+        })
+        
         # Get last trade/order info
         last_trade = await db.trades_collection.find_one(
-            {"user_id": user_id},
+            {"user_id": user_id, "mode": "paper"},
             {"_id": 0},
             sort=[("timestamp", -1)]
         )
-
+        
         # Get last decision from bot decisions collection if it exists
         last_decision = None
         if hasattr(db, 'bot_decisions_collection'):
@@ -731,7 +504,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                     "reason": decision_doc.get('reason'),
                     "timestamp": decision_doc.get('timestamp')
                 }
-
+        
         # Get last error from logs (if available)
         last_error = None
         if hasattr(db, 'error_logs_collection'):
@@ -745,11 +518,7 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                     "error": error_doc.get('error'),
                     "timestamp": error_doc.get('timestamp')
                 }
-
-        # Expose canonical scheduler lifecycle truth so the API reflects runtime state.
-        # This closes the gap between VPS logs and API-visible diagnostics.
-        scheduler_state = trading_scheduler.get_health_snapshot()
-
+        
         return {
             "success": True,
             "last_tick": engine_status.get('last_tick'),
@@ -763,51 +532,14 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
                 "price": last_trade.get('price')
             } if last_trade else None,
             "last_error": last_error,
-            "active_bots": counts["active"],
-            "runnable_bots": counts["runnable"],
-            "total_bots": counts["total"],
+            "active_bots": active_bots_count,
             "trades_today": trades_today,
-            "scheduler_running": scheduler_running,
-            # Canonical scheduler lifecycle truth — queue → execution → persistence
-            "scheduler_state": {
-                "queue_size": scheduler_state.get("queue_size", 0),
-                "queued_bot_ids": scheduler_state.get("queued_bot_ids", []),
-                "active_trades": scheduler_state.get("active_trades", 0),
-                "last_tick_at": scheduler_state.get("last_tick_at"),
-                "last_tick_queued": scheduler_state.get("last_tick_queued", 0),
-                "last_tick_processed": scheduler_state.get("last_tick_processed", 0),
-                "last_tick_blocked": scheduler_state.get("last_tick_blocked", 0),
-                "last_tick_executed": scheduler_state.get("last_tick_executed", 0),
-                "last_tick_noop_reason": scheduler_state.get("last_tick_noop_reason"),
-                "last_trade_at": scheduler_state.get("last_trade_at"),
-                "last_trade_result": scheduler_state.get("last_trade_result"),
-                "total_ticks": scheduler_state.get("total_ticks", 0),
-                "total_trades_executed": scheduler_state.get("total_trades_executed", 0),
-                "total_noop_ticks": scheduler_state.get("total_noop_ticks", 0),
-            },
+            "scheduler_running": scheduler_status.get('running', False),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-
+        
     except Exception as e:
         logger.error(f"Paper trading status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/truth")
-async def get_truth_snapshot(user_id: str = Depends(get_current_user)):
-    """Canonical truth snapshot — single source of truth for all subsystems.
-
-    Returns per-subsystem PASS/FAIL with evidence fields, contradiction
-    detector output, and rule precedence order.  Any mismatch between
-    endpoint-derived counts and the canonical values is surfaced in the
-    ``contradictions`` array.
-    """
-    try:
-        from services.truth_kernel import compute_truth_summary
-        snapshot = await compute_truth_summary(user_id, db.db)
-        return snapshot
-    except Exception as e:
-        logger.error(f"Truth snapshot error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -829,6 +561,7 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
     try:
         import os
         import config
+        from utils.env_utils import env_bool
         from rules import SUPPORTED_EXCHANGES, check_bot_cap_limit, get_reason_message, PROFIT_THRESHOLD_ZAR
         from profit_ledger import profit_ledger
 
@@ -842,7 +575,7 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
                     return None
             return None
 
-        enabled = os.getenv('ENABLE_AUTO_SPAWN', '0') == '1' or os.getenv('AUTOPILOT_ENABLED', '0') == '1'
+        enabled = env_bool('ENABLE_AUTO_SPAWN', False) or env_bool('AUTOPILOT_ENABLED', False) or env_bool('ENABLE_AUTOPILOT', False)
         profit_threshold = float(PROFIT_THRESHOLD_ZAR)
         cooldown_minutes = getattr(config, "AUTO_SPAWN_COOLDOWN_MINUTES", 60)
         max_spawns_per_day = getattr(config, "AUTO_SPAWN_MAX_PER_DAY", 2)
@@ -852,12 +585,18 @@ async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
 
         total_available = 0
         try:
-            from engines.wallet_manager import wallet_manager
-            wallet_balance = await wallet_manager.get_master_balance(user_id)
-            if 'total_zar' in wallet_balance:
-                total_available = wallet_balance['total_zar']
+            from services.wallet_summary_service import wallet_summary_service
+            wallet_summary = await wallet_summary_service.get_summary(user_id)
+            total_available = float(wallet_summary.get('available_wallet_zar', 0) or 0)
         except Exception as e:
             logger.warning(f"Auto-spawn wallet balance fallback: {e}")
+            try:
+                from engines.wallet_manager import wallet_manager
+                wallet_balance = await wallet_manager.get_master_balance(user_id)
+                if 'total_zar' in wallet_balance:
+                    total_available = wallet_balance['total_zar']
+            except Exception as e2:
+                logger.warning(f"Auto-spawn wallet balance secondary fallback: {e2}")
 
         bot_capital_requirement = float(os.getenv('BOT_INITIAL_CAPITAL_ZAR', '1000'))
         now = datetime.now(timezone.utc)
@@ -1197,6 +936,9 @@ async def get_wallet_status(user_id: str = Depends(get_current_user)):
         
         return {
             "success": True,
+            # scope: this endpoint reads LIVE exchange balance snapshots only.
+            # For paper wallet balances use GET /api/wallet/paper.
+            "scope": "live_exchanges_only",
             "balances": balances,
             "active_transfers": len(active_transfers),
             "active_transfer_details": active_transfers,
@@ -1757,1388 +1499,1273 @@ async def websocket_diagnostics():
 
 
 # ============================================================================
-# DATA INTEGRITY ENDPOINT
+# Data Integrity Diagnostics  (C3)
 # ============================================================================
 
-# Tolerance for wallet balance reconciliation (cents)
-WALLET_BALANCE_TOLERANCE = 0.01
-# Tolerance for bot capital vs wallet reserved reconciliation (R1)
-CAPITAL_RECONCILIATION_TOLERANCE = 1.0
-
 @router.get("/data-integrity")
-async def data_integrity_check(user_id: str = Depends(get_current_user)):
+async def get_data_integrity(user_id: str = Depends(get_current_user)):
     """
-    GET /api/diagnostics/data-integrity
+    Data integrity snapshot for rapid go-live debugging.
 
-    Reconciles wallet, bots, trades, and ledger data for the authenticated user.
-    Returns per-subsystem pass/fail with details on mismatches.
+    Returns:
+        - total_trades, paper_trades, live_trades
+        - filled_count, closed_count
+        - net_realized_pnl  (closed trades only, net_pnl field)
+        - current_paper_wallet_balance
+        - bots_current_capital_sum
+        - db_name   (safe – no credentials)
     """
-    now = datetime.now(timezone.utc)
-    checks: Dict = {}
-
     try:
-        # 1. Bot count consistency
-        all_bots = await db.bots_collection.find(
-            {"user_id": user_id, "deleted": {"$ne": True}}
-        ).to_list(length=500)
+        # Trade counts
+        total_trades = 0
+        paper_trades = 0
+        live_trades = 0
+        filled_count = 0
+        closed_count = 0
+        net_realized_pnl = 0.0
 
-        active_bots = [b for b in all_bots if b.get("status") == "active"]
-        paused_bots = [b for b in all_bots if b.get("status") == "paused"]
+        if db.trades_collection is not None:
+            total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+            paper_trades = await db.trades_collection.count_documents({"user_id": user_id, "is_paper": True})
+            live_trades = await db.trades_collection.count_documents({"user_id": user_id, "is_live": True})
+            filled_count = await db.trades_collection.count_documents({"user_id": user_id, "status": "filled"})
+            closed_count = await db.trades_collection.count_documents({"user_id": user_id, "status": "closed"})
 
-        checks["bot_counts"] = {
-            "status": "PASS",
-            "total": len(all_bots),
-            "active": len(active_bots),
-            "paused": len(paused_bots),
-        }
+            closed_cursor = db.trades_collection.find(
+                {"user_id": user_id, "status": "closed"},
+                {"net_pnl": 1, "profit_loss": 1, "_id": 0}
+            )
+            async for t in closed_cursor:
+                _net_pnl = t.get("net_pnl")
+                pnl = _net_pnl if _net_pnl is not None else t.get("profit_loss", 0)
+                net_realized_pnl += float(pnl or 0)
 
-        # 2. Wallet balance check
-        wallet_doc = await db.db["paper_wallets"].find_one({"user_id": user_id}) or {}
-        wallet_total = float(wallet_doc.get("total", wallet_doc.get("available", 0)))
-        wallet_available = float(wallet_doc.get("available", 0))
-        wallet_reserved = float(wallet_doc.get("reserved", 0))
-
-        balance_match = abs(wallet_total - (wallet_available + wallet_reserved)) < WALLET_BALANCE_TOLERANCE
-        checks["wallet_balance"] = {
-            "status": "PASS" if balance_match else "FAIL",
-            "total": wallet_total,
-            "available": wallet_available,
-            "reserved": wallet_reserved,
-            "discrepancy": None if balance_match else round(wallet_total - wallet_available - wallet_reserved, 2),
-        }
-
-        # 3. Bot capital vs wallet reconciliation
-        total_bot_capital = sum(float(b.get("current_capital", 0)) for b in all_bots)
-        capital_close = abs(total_bot_capital - wallet_reserved) < CAPITAL_RECONCILIATION_TOLERANCE
-        checks["capital_reconciliation"] = {
-            "status": "PASS" if capital_close else "WARN",
-            "total_bot_capital": round(total_bot_capital, 2),
-            "wallet_reserved": round(wallet_reserved, 2),
-            "difference": round(total_bot_capital - wallet_reserved, 2),
-        }
-
-        # 4. Trade count check
-        total_trades = await db.trades_collection.count_documents({"user_id": user_id})
-        open_trades = await db.trades_collection.count_documents(
-            {"user_id": user_id, "status": {"$in": ["open", "active"]}}
-        )
-        checks["trades"] = {
-            "status": "PASS",
-            "total_trades": total_trades,
-            "open_trades": open_trades,
-        }
-
-        # 5. Ledger fill count
+        # Paper wallet balance
+        paper_wallet_balance = 0.0
         try:
-            fills_count = await db.db["fills_ledger"].count_documents({"user_id": user_id})
+            from services.paper_wallet_ledger import paper_wallet_ledger
+            balances = await paper_wallet_ledger.get_all_balances(user_id)
+            paper_wallet_balance = sum(float(v or 0) for v in balances.values())
         except Exception:
-            fills_count = 0
-        checks["ledger_fills"] = {
-            "status": "PASS" if fills_count >= 0 else "WARN",
-            "total_fills": fills_count,
-        }
+            pass
 
-        # Overall status
-        failed = [k for k, v in checks.items() if v.get("status") == "FAIL"]
-        warned = [k for k, v in checks.items() if v.get("status") == "WARN"]
+        # Bots capital sum
+        bots_capital_sum = 0.0
+        if db.bots_collection is not None:
+            async for bot in db.bots_collection.find(
+                {"user_id": user_id, "status": {"$ne": "deleted"}},
+                {"current_capital": 1, "_id": 0}
+            ):
+                bots_capital_sum += float(bot.get("current_capital") or 0)
+
+        # Safe DB identity
+        db_name = "unknown"
+        try:
+            from database import _parse_mongo_config
+            _, db_name = _parse_mongo_config()
+        except Exception:
+            pass
 
         return {
-            "timestamp": now.isoformat(),
-            "user_id": user_id,
-            "overall_status": "FAIL" if failed else ("WARN" if warned else "PASS"),
-            "failed_checks": failed,
-            "warning_checks": warned,
-            "checks": checks,
+            "success": True,
+            "total_trades": total_trades,
+            "paper_trades": paper_trades,
+            "live_trades": live_trades,
+            "filled_count": filled_count,
+            "closed_count": closed_count,
+            "net_realized_pnl": round(net_realized_pnl, 2),
+            "paper_wallet_balance": round(paper_wallet_balance, 2),
+            "bots_current_capital_sum": round(bots_capital_sum, 2),
+            "db_name": db_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
-        logger.error(f"Data integrity check error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Data integrity check failed: {e}")
+        logger.error(f"Data integrity diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Frontend ↔ Backend Contract Endpoint
-# No authentication required – used by smoke tests and the frontend error panel
-# ─────────────────────────────────────────────────────────────────────────────
+# ============================================================================
+# DB Diagnostics  (A1 – admin only)
+# ============================================================================
 
-@router.get("/frontend-contract")
-async def frontend_contract():
-    """Return the expected API contract version and key flags for frontend validation.
-
-    This endpoint is intentionally unauthenticated so it can be:
-      - Hit by smoke_test.sh without a token
-      - Used by the frontend ErrorBoundary "Copy Diagnostics" flow
-      - Polled by monitoring tools
+@router.get("/db")
+async def get_db_diagnostics(user_id: str = Depends(get_current_user)):
     """
-    def get_build_sha() -> str:
-        sha = os.environ.get("BUILD_SHA", "")
-        if sha:
-            return sha
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, timeout=3
-            )
-            return result.stdout.strip() if result.returncode == 0 else "unknown"
-        except Exception:
-            return "unknown"
-
-    return {
-        "contract_version": "1",
-        "api_version": "3.0.0",
-        "build_sha": get_build_sha(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "expected_endpoints": {
-            "auth_login":        "POST /api/auth/login",
-            "auth_me":           "GET  /api/auth/me",
-            "bots_status":       "GET  /api/bots/status",
-            "overview_snapshot": "GET  /api/overview/snapshot",
-            "system_mode":       "GET  /api/system/mode",
-            "keys_status":       "GET  /api/keys/status",
-            "health_ping":       "GET  /api/health/ping",
-            "prices_live":       "GET  /api/prices/live",
-            "trades_recent":     "GET  /api/trades/recent",
-            "wallet_balances":   "GET  /api/wallet/balances",
-            "ws_realtime":       "WS  /api/ws",
-        },
-        "feature_flags": {
-            "paper_trading":  True,
-            "live_trading":   bool(int(os.environ.get("LIVE_TRADING", "0"))),
-            "autopilot":      bool(int(os.environ.get("AUTOPILOT_ENABLED", "0"))),
-            "realtime_ws":    True,
-            "ai_chat":        bool(os.environ.get("OPENAI_API_KEY", "")),
-        },
-        "supported_exchanges": [
-            "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"
-        ],
-    }
-
-
-@router.get("/daily-loss-status")
-async def get_daily_loss_status(user_id: str = Depends(get_current_user)):
-    """
-    Diagnostics: Daily loss lock state for the current user.
+    Admin-level DB diagnostics endpoint.
 
     Returns:
-      - lock_active: whether the daily loss lock is currently set
-      - day_key: the UTC date when the lock was triggered
-      - is_stale: True if day_key != today's UTC date (lock will auto-clear)
-      - locked_reason: human-readable reason
-      - locked_at: timestamp of lock activation
-      - today_utc: today's UTC date string (YYYY-MM-DD)
+        - effective mongo_uri_host (credentials redacted)
+        - db_name
+        - collections list
+        - key index summaries for trades
+        - document counts
     """
+    from auth import require_admin
+    # Require admin – raise 403 if not
     try:
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        user = await db.users_collection.find_one(
-            {"id": user_id},
-            {
-                "_id": 0,
-                "daily_loss_lock_active": 1,
-                "daily_loss_day_key": 1,
-                "daily_loss_locked_at": 1,
-                "daily_loss_locked_reason": 1,
-                "daily_loss_pct": 1,
-                "daily_loss_lock_reset_at": 1,
-                "daily_loss_lock_reset_by": 1,
-            },
-        )
-        if not user:
-            return {"error": "User not found", "today_utc": today}
+        from auth import is_admin as _is_admin
+        from database import db as _db_instance, client as _client
+        if not await _is_admin(user_id):
+            from fastapi import HTTPException as _HTTPException
+            raise _HTTPException(status_code=403, detail="Admin access required")
+    except ImportError:
+        pass
 
-        lock_active = bool(user.get("daily_loss_lock_active", False))
-        day_key = user.get("daily_loss_day_key", "")
-        is_stale = lock_active and (not day_key or day_key != today)
-
-        return {
-            "lock_active": lock_active,
-            "day_key": day_key or None,
-            "is_stale": is_stale,
-            "locked_reason": user.get("daily_loss_locked_reason") if lock_active else None,
-            "locked_at": user.get("daily_loss_locked_at") if lock_active else None,
-            "daily_loss_pct": user.get("daily_loss_pct") if lock_active else None,
-            "last_reset_at": user.get("daily_loss_lock_reset_at"),
-            "last_reset_by": user.get("daily_loss_lock_reset_by"),
-            "today_utc": today,
-        }
-    except Exception as exc:
-        logger.error(f"daily-loss-status error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-# =====================================================================
-# NEW DIAGNOSTIC ENDPOINTS — Pass 1 Go-Live Recovery
-# =====================================================================
-
-
-@router.get("/scheduler-health")
-async def scheduler_health_diagnostic(user_id: str = Depends(get_current_user)):
-    """Canonical scheduler-health diagnostic.
-
-    Reports comprehensive scheduler state including tick history,
-    last trade info, queue status, and heartbeat.
-    """
     try:
-        from trading_scheduler import trading_scheduler
+        from database import _parse_mongo_config, db as _db_instance, client as _client
+        mongo_url, db_name = _parse_mongo_config()
 
-        return trading_scheduler.get_health_snapshot()
-    except Exception as exc:
-        logger.error(f"scheduler-health error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/reset-proof")
-async def reset_proof_diagnostic(user_id: str = Depends(get_current_user)):
-    """Canonical reset-proof diagnostic.
-
-    Returns counts for every collection affected by a paper-reset so
-    operators can verify that a reset actually cleared the expected data.
-    """
-    try:
-        bots_count = await db.bots_collection.count_documents({
-            "user_id": user_id,
-            "status": {"$nin": ["deleted"]},
-        })
-
-        trades_count = await db.trades_collection.count_documents({
-            "user_id": user_id,
-        })
-
-        orders_count = await db.orders_collection.count_documents({
-            "user_id": user_id,
-        })
-
-        fills_count = 0
-        if hasattr(db, 'fills_collection'):
-            fills_count = await db.fills_collection.count_documents({
-                "user_id": user_id,
-            })
-
-        paper_wallet_count = 0
-        if hasattr(db, 'paper_wallets_collection'):
-            paper_wallet_count = await db.paper_wallets_collection.count_documents({
-                "user_id": user_id,
-            })
-
-        ledger_count = 0
-        if hasattr(db, 'ledger_collection'):
-            ledger_count = await db.ledger_collection.count_documents({
-                "user_id": user_id,
-            })
-
-        risk_user = await db.users_collection.find_one(
-            {"id": user_id},
-            {"_id": 0, "daily_loss_lock_active": 1, "emergency_stop": 1}
-        )
-
-        return {
-            "user_id_prefix": user_id[:8] + "...",
-            "bots_non_deleted": bots_count,
-            "trades": trades_count,
-            "orders": orders_count,
-            "fills": fills_count,
-            "paper_wallets": paper_wallet_count,
-            "ledger_entries": ledger_count,
-            "daily_loss_lock_active": (risk_user or {}).get("daily_loss_lock_active", False),
-            "emergency_stop": (risk_user or {}).get("emergency_stop", False),
-            "is_clean": (
-                bots_count == 0
-                and trades_count == 0
-                and orders_count == 0
-                and fills_count == 0
-                and paper_wallet_count == 0
-                and ledger_count == 0
-            ),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error(f"reset-proof error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/paper-activity")
-async def paper_activity_diagnostic(user_id: str = Depends(get_current_user)):
-    """Canonical paper-trading-activity diagnostic.
-
-    Proves whether end-to-end paper trading execution has occurred by
-    showing the most recent trade, fill, and decision for the user.
-    """
-    try:
-        from services.canonical import get_canonical_bot_counts, get_canonical_trade_counts
-
-        counts = await get_canonical_bot_counts(user_id)
-
-        trades_today = (await get_canonical_trade_counts(user_id))["today"]
-
-        last_trade = await db.trades_collection.find_one(
-            {"user_id": user_id},
-            {"_id": 0, "timestamp": 1, "pair": 1, "side": 1, "amount": 1, "price": 1, "bot_id": 1},
-            sort=[("timestamp", -1)],
-        )
-
-        last_fill = None
-        if hasattr(db, 'fills_collection'):
-            last_fill = await db.fills_collection.find_one(
-                {"user_id": user_id},
-                {"_id": 0, "timestamp": 1, "pair": 1, "side": 1},
-                sort=[("timestamp", -1)],
-            )
-
-        return {
-            "active_bots": counts.get("active", 0),
-            "total_bots": counts.get("total", 0),
-            "trades_today": trades_today,
-            "last_trade": last_trade,
-            "last_fill": last_fill,
-            "execution_proven": trades_today > 0 or last_trade is not None,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error(f"paper-activity error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/go-live")
-async def go_live_diagnostic(user_id: str = Depends(get_current_user)):
-    """Consolidated go-live readiness check.
-
-    Evaluates all subsystems needed for a confident go-live decision:
-    - scheduler health
-    - paper execution proof
-    - reset cleanliness
-    - risk status
-    - heartbeat vitals
-    - queue health
-    """
-    try:
-        checks = {}
-        blockers = []
-
-        # 1. Scheduler health
-        from trading_scheduler import trading_scheduler
-        sched = trading_scheduler.get_health_snapshot()
-        checks["scheduler"] = {
-            "running": sched["scheduler_running"],
-            "task_alive": sched["task_alive"],
-            "last_tick_at": sched["last_tick_at"],
-            "total_ticks": sched["total_ticks"],
-            "total_trades_executed": sched["total_trades_executed"],
-        }
-        if not sched["scheduler_running"]:
-            blockers.append("scheduler_not_running")
-        if not sched["task_alive"]:
-            blockers.append("scheduler_task_dead")
-
-        # 2. Paper execution proof
-        from services.canonical import get_canonical_trade_counts
-        trades_today = (await get_canonical_trade_counts(user_id))["today"]
-        last_trade_doc = await db.trades_collection.find_one(
-            {"user_id": user_id},
-            sort=[("timestamp", -1)],
-            projection={"_id": 0, "timestamp": 1, "pair": 1, "side": 1, "profit_loss": 1},
-        )
-        checks["execution"] = {
-            "trades_today": trades_today,
-            "last_trade": last_trade_doc,
-            "execution_proven": trades_today > 0 or last_trade_doc is not None,
-        }
-
-        # 3. Bot status
-        total_bots = await db.bots_collection.count_documents({"user_id": user_id, "status": {"$ne": "deleted"}})
-        active_bots = await db.bots_collection.count_documents({"user_id": user_id, "status": "active"})
-        checks["bots"] = {"total": total_bots, "active": active_bots}
-        if active_bots == 0:
-            blockers.append("no_active_bots")
-
-        # 4. Risk status
+        # Safe host
         try:
-            from services.risk_lock_service import risk_lock_service as _rls
-            locked, lock_reason = await _rls.is_locked_today(user_id)
+            from urllib.parse import urlparse
+            parsed = urlparse(mongo_url)
+            safe_host = f"{parsed.hostname or 'unknown'}:{parsed.port or 27017}"
         except Exception:
-            locked, lock_reason = False, None
-        modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
-        emergency_stop = (modes or {}).get("emergencyStop", False)
-        checks["risk"] = {
-            "daily_loss_locked": locked,
-            "lock_reason": lock_reason,
-            "emergency_stop": emergency_stop,
-        }
-        if emergency_stop:
-            blockers.append("emergency_stop_active")
-        if locked:
-            blockers.append("daily_loss_locked")
+            safe_host = "unknown"
 
-        # 5. Heartbeat vitals
-        try:
-            from services.autonomy_heartbeat import heartbeat_registry
-            hb = heartbeat_registry.snapshot()
-            sched_hb = hb.get("trading_scheduler", {})
-            checks["heartbeat"] = {
-                "trading_scheduler": sched_hb,
-            }
-            if sched_hb.get("last_error_at") and not sched_hb.get("last_ok_at"):
-                blockers.append("scheduler_heartbeat_error_only")
-        except Exception:
-            checks["heartbeat"] = {"error": "heartbeat_registry_unavailable"}
+        # Collection list
+        collections = []
+        counts = {}
+        index_summary = {}
 
-        # 6. Queue health
-        from engines.trade_staggerer import trade_staggerer as _ts
-        queue_status = await _ts.get_queue_status()
-        checks["queue"] = queue_status
+        if _db_instance is not None:
+            collections = await _db_instance.list_collection_names()
 
-        ready = len(blockers) == 0
-        return {
-            "ready": ready,
-            "blockers": blockers,
-            "checks": checks,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error(f"go-live diagnostic error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/subsystem-health")
-async def get_subsystem_health(user_id: str = Depends(get_current_user)):
-    """User-accessible subsystem health summary.
-
-    Returns the live status of every key subsystem so users can immediately
-    see what is healthy, degraded, or blocked — and why.  Includes a
-    dependency chain so a single failed component's downstream impact is
-    visible.
-
-    Unlike /api/admin/truth/summary this endpoint is available to all
-    authenticated users, not only admins.
-    """
-    # database already imported as db at module top
-    try:
-        now = datetime.now(timezone.utc)
-
-        # ── 1. Scheduler health ────────────────────────────────────────────
-        try:
-            from trading_scheduler import trading_scheduler
-            snap = trading_scheduler.get_health_snapshot()
-            last_tick_at = snap.get("last_tick_at")
-            lag_s = None
-            if last_tick_at:
+            # Count key collections
+            for cname in ("trades", "bots", "users", "api_keys"):
                 try:
-                    lt = datetime.fromisoformat(str(last_tick_at).replace("Z", "+00:00"))
-                    lag_s = round((now - lt).total_seconds(), 1)
+                    counts[cname] = await _db_instance[cname].count_documents({})
                 except Exception:
-                    lag_s = None
-            sched_healthy = snap.get("running", False) and (lag_s is None or lag_s < 120)
-            scheduler_status = {
-                "healthy": sched_healthy,
-                "status": "healthy" if sched_healthy else "stale",
-                "last_tick_at": last_tick_at,
-                "lag_seconds": lag_s,
-                "total_ticks": snap.get("total_ticks", 0),
-                "total_trades": snap.get("total_trades_executed", 0),
-                "reason": None if sched_healthy else (
-                    "Scheduler not running" if not snap.get("running") else
-                    f"No tick in {lag_s}s (stale threshold: 120s)"
-                ),
-            }
-        except Exception as _e:
-            scheduler_status = {"healthy": False, "status": "error", "reason": str(_e)}
+                    counts[cname] = -1
 
-        # ── 2. WebSocket / realtime ────────────────────────────────────────
-        try:
-            ws_count = len(manager.active_connections) if hasattr(manager, "active_connections") else 0
-            ws_status = {"healthy": True, "status": "healthy", "active_connections": ws_count, "reason": None}
-        except Exception as _e:
-            ws_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── 3. Market intelligence ─────────────────────────────────────────
-        try:
-            recent_alert = await db.alerts_collection.find_one(
-                {"user_id": user_id, "is_simulated": True},
-                sort=[("created_at", -1)],
-            )
-            mi_degraded = recent_alert is not None
-            mi_status = {
-                "healthy": not mi_degraded,
-                "status": "degraded" if mi_degraded else "healthy",
-                "reason": (
-                    "Recent market intelligence alerts flagged as simulated "
-                    "(source unavailable / DNS failure)" if mi_degraded else None
-                ),
-                "last_simulated_alert": (recent_alert or {}).get("created_at"),
-            }
-        except Exception as _e:
-            mi_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── 4. Paper wallet ────────────────────────────────────────────────
-        try:
-            from services.paper_wallet_service import paper_wallet_service
-            wallet = await paper_wallet_service.get_balances(user_id)
-            total = wallet.get("total", 0)
-            wallet_status = {
-                "healthy": True,
-                "status": "healthy",
-                "total_zar": total,
-                "funded": total > 0,
-                "reason": None if total > 0 else "Paper wallet is empty — fund via Wallet Hub",
-            }
-        except Exception as _e:
-            wallet_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── 5. Exchange readiness ──────────────────────────────────────────
-        try:
-            # Use canonical exchange list from exchange_adapter (single source of truth)
-            from services.exchange_adapter import SUPPORTED_EXCHANGES as _SX
-            configured_exchanges = []
-            for ex in _SX:
-                key_doc = await db.api_keys_collection.find_one(
-                    {"user_id": user_id, "provider": ex}
-                )
-                if key_doc and key_doc.get("api_key"):
-                    configured_exchanges.append(ex)
-            ex_status = {
-                "healthy": len(configured_exchanges) > 0,
-                "status": "healthy" if configured_exchanges else "no_keys",
-                "configured_exchanges": configured_exchanges,
-                "reason": None if configured_exchanges else "No exchange API keys configured",
-            }
-        except Exception as _e:
-            ex_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── 6. Risk locks ──────────────────────────────────────────────────
-        try:
-            from services.risk_lock_service import risk_lock_service
-            daily_lock = await risk_lock_service.get_lock_status(user_id)
-            from emergency_stop import emergency_stop_service
-            es = await emergency_stop_service.get_status(user_id)
-            global_disabled = es.get("global_disabled", False)
-            daily_locked = daily_lock.get("daily_loss_lock_active", False)
-            risk_ok = not global_disabled and not daily_locked
-            risk_status = {
-                "healthy": risk_ok,
-                "status": "healthy" if risk_ok else "locked",
-                "global_disabled": global_disabled,
-                "daily_loss_lock": daily_locked,
-                "reason": (
-                    "Emergency/global disable is active" if global_disabled else
-                    "Daily loss lock is active" if daily_locked else None
-                ),
-            }
-        except Exception as _e:
-            risk_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── 7. Live-trading eligibility ────────────────────────────────────
-        try:
-            from routes.live_trading_gate import check_user_live_eligibility
-            eligibility = await check_user_live_eligibility(user_id)
-            live_status = {
-                "healthy": eligibility.get("eligible", False),
-                "status": "eligible" if eligibility.get("eligible") else "not_yet_eligible",
-                "eligible": eligibility.get("eligible", False),
-                "days_elapsed": (eligibility.get("statistics") or {}).get("days_elapsed"),
-                "reasons": eligibility.get("reasons", []),
-                "warnings": eligibility.get("warnings", []),
-                "reason": (
-                    None if eligibility.get("eligible") else
-                    "; ".join(eligibility.get("reasons", ["Requirements not met"]))
-                ),
-            }
-        except Exception as _e:
-            live_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── 8. Learning / training pipeline ────────────────────────────────
-        try:
-            perf_count = await db.performance_metrics_collection.count_documents(
-                {"user_id": user_id}
-            )
-            training_count = await db.training_jobs_collection.count_documents(
-                {"user_id": user_id}
-            )
-            learning_status = {
-                "healthy": True,
-                "status": "healthy" if perf_count > 0 else "no_data",
-                "performance_metrics_count": perf_count,
-                "training_jobs_count": training_count,
-                "reason": (
-                    None if perf_count > 0 else
-                    "No performance metrics yet — will populate as bots trade"
-                ),
-            }
-        except Exception as _e:
-            learning_status = {"healthy": False, "status": "error", "reason": str(_e)}
-
-        # ── Aggregate overall health ────────────────────────────────────────
-        subsystems = {
-            "scheduler": scheduler_status,
-            "websocket": ws_status,
-            "market_intelligence": mi_status,
-            "paper_wallet": wallet_status,
-            "exchange_keys": ex_status,
-            "risk_locks": risk_status,
-            "live_eligibility": live_status,
-            "learning_pipeline": learning_status,
-        }
-
-        # Determine blocking chain: which failing subsystems block trading
-        BLOCKS_TRADING = ("scheduler", "risk_locks")
-        BLOCKS_LIVE = ("exchange_keys", "live_eligibility")
-
-        trading_blockers = [
-            k for k in BLOCKS_TRADING
-            if not subsystems[k].get("healthy", True)
-        ]
-        live_blockers = [
-            k for k in BLOCKS_LIVE
-            if not subsystems[k].get("healthy", True)
-        ]
-
-        overall_healthy = all(v.get("healthy", True) for v in subsystems.values())
+            # Index summary for trades
+            try:
+                trade_indexes = await _db_instance["trades"].index_information()
+                index_summary["trades"] = {
+                    name: {
+                        "key": info.get("key"),
+                        "unique": info.get("unique", False),
+                        "sparse": info.get("sparse", False),
+                    }
+                    for name, info in trade_indexes.items()
+                }
+            except Exception as idx_err:
+                index_summary["trades"] = {"error": str(idx_err)}
 
         return {
-            "timestamp": now.isoformat(),
-            "overall_healthy": overall_healthy,
-            "trading_blocked": bool(trading_blockers),
-            "trading_blockers": trading_blockers,
-            "live_blocked": bool(live_blockers),
-            "live_blockers": live_blockers,
-            "subsystems": subsystems,
-        }
-
-    except Exception as exc:
-        logger.error(f"Subsystem health error: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Trade quality + meaningful win diagnostics
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/trade-quality")
-async def trade_quality_diagnostics(
-    user_id: str = Depends(get_current_user),
-    days: int = 7,
-):
-    """
-    Canonical trade-quality diagnostics.
-
-    Returns:
-        meaningful_win_stats  — qualified_win_count, micro_win_count, loss_count,
-                                meaningful_win_rate_pct, gross_win_rate_pct, net_win_rate_pct
-        paper_floor_stats     — how many trades had paper_edge_floor_applied=True
-        reject_reasons        — top reject reason codes with counts and percentages
-        bot_reject_summary    — reject reason breakdown per bot_id
-        exchange_reject_summary — reject reason breakdown per exchange
-        policy_version        — active policy version
-    """
-    try:
-        from datetime import datetime, timezone, timedelta
-        from services.trading_brain_v2.trade_outcome_classifier import (
-            classify_trade_outcome,
-            build_outcome_counts,
-            OUTCOME_LOSS,
-            OUTCOME_MICRO_WIN,
-            OUTCOME_QUALIFIED_WIN,
-        )
-        from services.trading_brain_v2.entry_thresholds import POLICY_VERSION
-
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-
-        # ── Closed trades for win stats ──
-        trades = await db.trades_collection.find(
-            {"user_id": user_id, "status": "closed", "timestamp": {"$gte": cutoff}},
-            {"_id": 0, "gross_pnl": 1, "net_pnl": 1, "bot_type": 1, "exchange": 1,
-             "current_capital": 1, "notional": 1, "all_in_cost_bps": 1,
-             "outcome_class": 1, "paper_edge_floor_applied": 1,
-             "decision_reason_code": 1, "bot_id": 1},
-        ).to_list(2000)
-
-        # Classify any unclassified trades
-        classified = []
-        paper_floor_count = 0
-        for t in trades:
-            if not t.get("outcome_class"):
-                result = classify_trade_outcome(
-                    gross_pnl=float(t.get("gross_pnl") or 0),
-                    net_pnl=float(t.get("net_pnl") or 0),
-                    bot_type=t.get("bot_type", "normal"),
-                    exchange=t.get("exchange", "luno"),
-                    bot_equity=float(t.get("current_capital") or 0),
-                    notional=float(t.get("notional") or 0),
-                    all_in_cost_bps=float(t.get("all_in_cost_bps") or 25),
-                )
-                t["outcome_class"] = result["outcome_class"]
-            classified.append(t)
-            if t.get("paper_edge_floor_applied"):
-                paper_floor_count += 1
-
-        outcome_counts = build_outcome_counts(classified)
-
-        # ── Reject reason aggregation ──
-        rejected_trades = await db.trades_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$in": ["rejected", "skipped", "blocked"]},
-                "timestamp": {"$gte": cutoff},
-            },
-            {"_id": 0, "decision_reason_code": 1, "bot_id": 1, "exchange": 1},
-        ).to_list(5000)
-
-        reason_counts: dict = {}
-        bot_reject: dict = {}
-        exchange_reject: dict = {}
-        for r in rejected_trades:
-            code = str(r.get("decision_reason_code") or "UNKNOWN")
-            bot_id = str(r.get("bot_id") or "unknown")
-            exchange = str(r.get("exchange") or "unknown")
-            reason_counts[code] = reason_counts.get(code, 0) + 1
-            bot_reject.setdefault(bot_id, {})
-            bot_reject[bot_id][code] = bot_reject[bot_id].get(code, 0) + 1
-            exchange_reject.setdefault(exchange, {})
-            exchange_reject[exchange][code] = exchange_reject[exchange].get(code, 0) + 1
-
-        total_rejected = len(rejected_trades)
-        reject_reasons = [
-            {
-                "reason_code": code,
-                "count": count,
-                "pct": round(count / total_rejected * 100, 1) if total_rejected else 0.0,
-            }
-            for code, count in sorted(reason_counts.items(), key=lambda x: -x[1])
-        ]
-
-        return {
-            "meaningful_win_stats": outcome_counts,
-            "paper_floor_stats": {
-                "trades_with_floor": paper_floor_count,
-                "total_closed_trades": len(trades),
-                "paper_floor_usage_pct": round(paper_floor_count / len(trades) * 100, 1) if trades else 0.0,
-            },
-            "reject_reasons": reject_reasons,
-            "reject_total": total_rejected,
-            "bot_reject_summary": bot_reject,
-            "exchange_reject_summary": exchange_reject,
-            "policy_version": POLICY_VERSION,
-            "days_window": days,
+            "success": True,
+            "mongo_uri_host": safe_host,
+            "db_name": db_name,
+            "collections": sorted(collections),
+            "counts": counts,
+            "indexes": index_summary,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-    except Exception as exc:
-        logger.error("trade_quality_diagnostics failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as e:
+        logger.error(f"DB diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/scalper-regime")
-async def scalper_regime_diagnostics(
-    user_id: str = Depends(get_current_user),
-    days: int = 7,
-):
+# ============================================================================
+# Realtime Diagnostics  (A4)
+# ============================================================================
+
+@router.get("/realtime-status")
+async def get_realtime_status_summary(user_id: str = Depends(get_current_user)):
     """
-    Scalper vs normal-bot regime block diagnostics.
-
-    Returns a breakdown of how many times scalper bots were allowed vs blocked
-    per regime, with explicit compatibility reason codes.
+    Realtime system diagnostics.
 
     Returns:
-        scalper_regime_summary   — regime → {allowed_count, blocked_count, reason_codes}
-        normal_regime_summary    — regime → {allowed_count, blocked_count}
-        top_scalper_block_reasons — ranked list of scalper block reasons
-        active_scalper_regimes   — regimes where scalpers are currently allowed
+        - connected_users count
+        - total active connections
+        - last broadcast timestamps per event type (where tracked)
     """
     try:
-        from services.trading_brain_v2.regime_scorer import STRATEGY_REGIME_MAP
-        from services.regime_classifier import _STRATEGY_ALLOWED_REGIMES
-
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-
-        # Fetch bot activity snapshots with regime data
-        bots = await db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$nin": ["deleted", "marked_for_deletion"]},
-            },
-            {"_id": 0, "id": 1, "bot_type": 1, "market_regime": 1,
-             "canonical_market_regime": 1, "regime_confidence": 1,
-             "last_decision_reason": 1, "last_entry_reason_code": 1},
-        ).to_list(_MAX_BOTS_QUERY)
-
-        scalper_bots = [b for b in bots if str(b.get("bot_type", "")).lower() == "scalper"]
-        normal_bots = [b for b in bots if str(b.get("bot_type", "")).lower() != "scalper"]
-
-        def _summarize_bots(bot_list, strategy):
-            from services.trading_brain_v2.regime_scorer import RegimeScorerV2
-            scorer = RegimeScorerV2()
-            regime_summary: dict = {}
-            for b in bot_list:
-                regime = str(b.get("canonical_market_regime") or b.get("market_regime") or "unknown").lower()
-                confidence = float(b.get("regime_confidence") or 0.0)
-                elig = scorer.is_eligible(strategy, {"regime_label": regime, "regime_confidence": confidence})
-                bucket = regime_summary.setdefault(regime, {
-                    "allowed_count": 0, "blocked_count": 0, "reason_codes": {}
-                })
-                if elig.get("eligible"):
-                    bucket["allowed_count"] += 1
-                else:
-                    bucket["blocked_count"] += 1
-                rc = elig.get("compatibility_reason_code", "UNKNOWN")
-                bucket["reason_codes"][rc] = bucket["reason_codes"].get(rc, 0) + 1
-            return regime_summary
-
-        scalper_summary = _summarize_bots(scalper_bots, "scalper")
-        normal_summary = _summarize_bots(normal_bots, "normal")
-
-        # Top scalper block reasons
-        all_scalper_reasons: dict = {}
-        for data in scalper_summary.values():
-            for rc, cnt in data["reason_codes"].items():
-                all_scalper_reasons[rc] = all_scalper_reasons.get(rc, 0) + cnt
-        top_block_reasons = sorted(
-            [{"reason_code": rc, "count": cnt} for rc, cnt in all_scalper_reasons.items()],
-            key=lambda x: -x["count"],
+        from websocket_manager import manager as _ws_manager
+        active_connections_count = sum(
+            len(v) for v in _ws_manager.active_connections.values()
         )
+        connected_users = list(_ws_manager.active_connections.keys())
+
+        # Try to get broadcast timestamps from realtime_events if available
+        broadcast_stats: dict = {}
+        try:
+            from realtime_events import rt_events as _rt
+            if hasattr(_rt, '_last_broadcast'):
+                broadcast_stats = _rt._last_broadcast
+        except Exception:
+            pass
 
         return {
-            "scalper_regime_summary": scalper_summary,
-            "normal_regime_summary": normal_summary,
-            "top_scalper_block_reasons": top_block_reasons,
-            "active_scalper_regimes": sorted(STRATEGY_REGIME_MAP.get("scalper", set())),
-            "scalper_bot_count": len(scalper_bots),
-            "normal_bot_count": len(normal_bots),
-            "days_window": days,
+            "success": True,
+            "connected_users_count": len(connected_users),
+            "total_connections": active_connections_count,
+            "broadcast_stats": broadcast_stats,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-    except Exception as exc:
-        logger.error("scalper_regime_diagnostics failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as e:
+        logger.error(f"Realtime diagnostics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/exit-distribution")
-async def exit_distribution_diagnostics(
-    user_id: str = Depends(get_current_user),
-    days: int = 7,
-):
+# ============================================================================
+# Phase 1 — Safe Read-only Trading Diagnostics
+# ============================================================================
+
+@router.get("/why-not-trading")
+async def why_not_trading(user_id: str = Depends(get_current_user)):
+    """Return ranked, truthful reasons why bots may not be trading.
+
+    Read-only. No side effects.
+
+    Checks (in priority order):
+    1. System mode (paper/live enabled?)
+    2. Scheduler running
+    3. Active bots count
+    4. Paper wallet funded
+    5. Risk locks / circuit breakers
+    6. Bots in quarantine
+    7. Bot-level blocks (no exchange key, unsupported exchange, paused)
     """
-    Hold time and exit reason distribution for closed trades.
+    reasons: list = []
 
-    Returns:
-        exit_reason_counts      — count per exit reason code
-        bot_type_avg_hold_s     — avg hold time in seconds per bot type
-        exit_reason_pct         — percentage breakdown of exit reasons
-        hold_percentiles        — p25/p50/p75/p90/p99 hold durations
-        scalper_exit_breakdown  — exit reasons for scalper bots only
-        normal_exit_breakdown   — exit reasons for normal bots only
-    """
+    # 1. System mode flags
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        from services.system_mode_service import system_mode_service
+        mode = await system_mode_service.get_mode(user_id)
+        if mode != 'paper':
+            reasons.append({"code": "PAPER_DISABLED", "severity": "critical",
+                             "message": "paperTrading mode is OFF — enable it in Settings"})
+    except Exception as e:
+        reasons.append({"code": "MODE_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-        trades = await db.trades_collection.find(
-            {"user_id": user_id, "status": "closed", "timestamp": {"$gte": cutoff}},
-            {"_id": 0, "exit_reason": 1, "trade_close_reason": 1, "hold_seconds": 1,
-             "hold_time_seconds": 1, "bot_type": 1, "created_at": 1, "closed_at": 1},
-        ).to_list(5000)
-
-        if not trades:
-            return {
-                "exit_reason_counts": {},
-                "bot_type_avg_hold_s": {},
-                "exit_reason_pct": {},
-                "hold_percentiles": {},
-                "scalper_exit_breakdown": {},
-                "normal_exit_breakdown": {},
-                "total_trades": 0,
-                "days_window": days,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-
-        reason_counts: dict = {}
-        bot_type_holds: dict = {}
-        scalper_exits: dict = {}
-        normal_exits: dict = {}
-        hold_durations: list = []
-
-        for t in trades:
-            reason = str(
-                t.get("exit_reason") or t.get("trade_close_reason") or "unknown"
-            )
-            bot_type = str(t.get("bot_type") or "normal").lower()
-            hold_s = float(
-                t.get("hold_seconds") or t.get("hold_time_seconds") or 0
-            )
-
-            reason_counts[reason] = reason_counts.get(reason, 0) + 1
-            bot_type_holds.setdefault(bot_type, []).append(hold_s)
-            if hold_s > 0:
-                hold_durations.append(hold_s)
-
-            if bot_type == "scalper":
-                scalper_exits[reason] = scalper_exits.get(reason, 0) + 1
-            else:
-                normal_exits[reason] = normal_exits.get(reason, 0) + 1
-
-        total = len(trades)
-        exit_reason_pct = {
-            r: round(c / total * 100, 1)
-            for r, c in reason_counts.items()
-        }
-
-        avg_hold = {
-            bt: round(sum(hs) / len(hs), 1)
-            for bt, hs in bot_type_holds.items()
-            if hs
-        }
-
-        # Compute percentiles
-        percentiles = {}
-        if hold_durations:
-            sorted_h = sorted(hold_durations)
-            n = len(sorted_h)
-            for pct, label in [(25, "p25"), (50, "p50"), (75, "p75"), (90, "p90"), (99, "p99")]:
-                idx = min(int(n * pct / 100), n - 1)
-                percentiles[label] = round(sorted_h[idx], 1)
-
-        return {
-            "exit_reason_counts": reason_counts,
-            "bot_type_avg_hold_s": avg_hold,
-            "exit_reason_pct": exit_reason_pct,
-            "hold_percentiles": percentiles,
-            "scalper_exit_breakdown": scalper_exits,
-            "normal_exit_breakdown": normal_exits,
-            "total_trades": total,
-            "days_window": days,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error("exit_distribution_diagnostics failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/edge-realization")
-async def edge_realization_diagnostics(
-    user_id: str = Depends(get_current_user),
-    days: int = 7,
-):
-    """
-    Projected vs realized net profit diagnostics.
-
-    Shows how well projected edge (at entry) translates to realized edge (at close).
-    This surfaces systematic over-confidence in projected profit, especially when
-    paper_edge_floor_applied=True inflated entry projections.
-
-    Returns:
-        avg_projected_net_profit     — average projected_net_profit at entry
-        avg_realized_net_profit      — average actual net_pnl at close
-        avg_implementation_shortfall — projected minus realized (per trade)
-        paper_floor_inflation        — avg projected profit for floor-applied vs non-floor trades
-        bot_type_shortfall           — shortfall breakdown per bot type
-        exchange_shortfall           — shortfall breakdown per exchange
-    """
+    # 2. Scheduler running
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        from trading_scheduler import trading_scheduler
+        sched_running = getattr(trading_scheduler, "is_running", False)
+        if not sched_running:
+            reasons.append({"code": "SCHEDULER_STOPPED", "severity": "critical",
+                             "message": "Trading scheduler is not running"})
+    except Exception as e:
+        reasons.append({"code": "SCHEDULER_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-        trades = await db.trades_collection.find(
-            {"user_id": user_id, "status": "closed", "timestamp": {"$gte": cutoff}},
-            {"_id": 0, "projected_net_profit_quote": 1, "net_pnl": 1,
-             "paper_edge_floor_applied": 1, "bot_type": 1, "exchange": 1},
-        ).to_list(5000)
-
-        if not trades:
-            return {
-                "avg_projected_net_profit": 0.0,
-                "avg_realized_net_profit": 0.0,
-                "avg_implementation_shortfall": 0.0,
-                "paper_floor_inflation": {},
-                "bot_type_shortfall": {},
-                "exchange_shortfall": {},
-                "total_trades": 0,
-                "days_window": days,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-
-        projected_list: list = []
-        realized_list: list = []
-        floor_projected: list = []
-        no_floor_projected: list = []
-        bt_data: dict = {}
-        ex_data: dict = {}
-
-        for t in trades:
-            proj = float(t.get("projected_net_profit_quote") or 0)
-            real = float(t.get("net_pnl") or 0)
-            floor_applied = bool(t.get("paper_edge_floor_applied"))
-            bot_type = str(t.get("bot_type") or "normal")
-            exchange = str(t.get("exchange") or "unknown")
-
-            shortfall = proj - real
-            projected_list.append(proj)
-            realized_list.append(real)
-
-            if floor_applied:
-                floor_projected.append(proj)
-            else:
-                no_floor_projected.append(proj)
-
-            bt_data.setdefault(bot_type, {"shortfalls": [], "projected": [], "realized": []})
-            bt_data[bot_type]["shortfalls"].append(shortfall)
-            bt_data[bot_type]["projected"].append(proj)
-            bt_data[bot_type]["realized"].append(real)
-
-            ex_data.setdefault(exchange, {"shortfalls": [], "projected": [], "realized": []})
-            ex_data[exchange]["shortfalls"].append(shortfall)
-            ex_data[exchange]["projected"].append(proj)
-            ex_data[exchange]["realized"].append(real)
-
-        def _avg(lst):
-            return round(sum(lst) / len(lst), 6) if lst else 0.0
-
-        bot_type_shortfall = {
-            bt: {
-                "avg_shortfall": _avg(d["shortfalls"]),
-                "avg_projected": _avg(d["projected"]),
-                "avg_realized": _avg(d["realized"]),
-                "count": len(d["shortfalls"]),
-            }
-            for bt, d in bt_data.items()
-        }
-        exchange_shortfall = {
-            ex: {
-                "avg_shortfall": _avg(d["shortfalls"]),
-                "avg_projected": _avg(d["projected"]),
-                "avg_realized": _avg(d["realized"]),
-                "count": len(d["shortfalls"]),
-            }
-            for ex, d in ex_data.items()
-        }
-
-        return {
-            "avg_projected_net_profit": _avg(projected_list),
-            "avg_realized_net_profit": _avg(realized_list),
-            "avg_implementation_shortfall": _avg([p - r for p, r in zip(projected_list, realized_list)]),
-            "paper_floor_inflation": {
-                "avg_projected_with_floor": _avg(floor_projected),
-                "avg_projected_without_floor": _avg(no_floor_projected),
-                "floor_trade_count": len(floor_projected),
-                "non_floor_trade_count": len(no_floor_projected),
-            },
-            "bot_type_shortfall": bot_type_shortfall,
-            "exchange_shortfall": exchange_shortfall,
-            "total_trades": len(trades),
-            "days_window": days,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error("edge_realization_diagnostics failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Policy pack diagnostics
-# ══════════════════════════════════════════════════════════════════════════
-
-@router.get("/policy-packs")
-async def policy_pack_diagnostics(
-    user_id: str = Depends(get_current_user),
-    days: int = 7,
-):
-    """
-    Policy pack diagnostics endpoint.
-
-    Returns:
-        available_packs          — all named packs with their parameters
-        pack_summary             — lightweight summary of all packs
-        bot_pack_assignments     — {bot_id: pack_name} for all active bots
-        pack_scorecard           — per-pack scorecard aggregated from calibration records
-        recommended_packs        — daily_evaluator recommendations per bot_type
-        policy_pack_version      — POLICY_PACK_VERSION string
-    """
+    # 3. Active bots — canonical: status=active AND NOT paused_by_user/system (C).
     try:
-        from services.trading_brain_v2.policy_packs import (
-            ALL_PACKS, pack_summary, select_pack_for_bot, POLICY_PACK_VERSION,
-        )
-        from services.trading_brain_v2.trade_calibration import (
-            compute_pack_scorecard, daily_evaluator,
-        )
-        from utils.bot_state import normalize_bot_state
-
-        # ── Bot pack assignments ──
-        bots = await db.bots_collection.find(
-            {
+        from services.bot_filters import bot_not_deleted_filter
+        active_bots = await db.bots_collection.count_documents(
+            bot_not_deleted_filter({
                 "user_id": user_id,
-                "status": {"$nin": ["deleted", "marked_for_deletion"]},
-                "deleted": {"$ne": True},
-                "is_deleted": {"$ne": True},
-            },
-            {"_id": 0, "id": 1, "bot_type": 1, "policy_pack_name": 1, "policy_pack": 1},
-        ).to_list(_MAX_BOTS_QUERY)
+                "status": "active",
+                "paused_by_user": {"$ne": True},
+                "paused_by_system": {"$ne": True},
+            })
+        )
+        if active_bots == 0:
+            reasons.append({"code": "NO_ACTIVE_BOTS", "severity": "critical",
+                             "message": "No active bots found — create and start bots via dashboard"})
+    except Exception as e:
+        reasons.append({"code": "BOTS_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-        bot_pack_assignments = {}
-        for b in bots:
-            bot_id = str(b.get("id") or "unknown")
-            pack = select_pack_for_bot(b)
-            bot_pack_assignments[bot_id] = {
-                "pack_name":    pack["pack_name"],
-                "pack_version": pack["pack_version"],
-                "bot_type":     str(b.get("bot_type") or "normal"),
-                "explicit":     bool(b.get("policy_pack_name") or b.get("policy_pack")),
-            }
-
-        # ── Calibration records for scorecard ──
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        cal_records = await db.trades_collection.find(
-            {
-                "user_id": user_id,
-                "status": "closed",
-                "calibration_complete": True,
-                "timestamp": {"$gte": cutoff},
-            },
-            {
-                "_id": 0,
-                "outcome_class": 1, "policy_pack_name": 1,
-                "realized_projection_ratio": 1, "hold_seconds": 1,
-                "realized_net_profit_quote": 1, "paper_edge_floor_applied": 1,
-                "exit_reason_code": 1, "bot_type": 1,
-            },
-        ).to_list(5000)
-
-        # Group by pack_name for scorecards
-        by_pack: dict = {}
-        for r in cal_records:
-            pn = str(r.get("policy_pack_name") or "unknown")
-            by_pack.setdefault(pn, []).append(r)
-
-        pack_scorecards = {
-            pn: compute_pack_scorecard(records, pack_name=pn, window_days=days)
-            for pn, records in by_pack.items()
-        }
-
-        # ── Recommendations per bot type ──
-        recommendations: dict = {}
-        for bt in ["normal", "scalper", "mean_reversion"]:
-            rec = daily_evaluator(pack_scorecards, bot_type=bt, exchange="all")
-            recommendations[bt] = {
-                "recommended_pack": rec.get("recommended_pack_name"),
-                "score":            rec.get("recommended_score"),
-                "reasoning":        rec.get("reasoning"),
-                "pack_scores":      rec.get("pack_scores", {}),
-                "insufficient_packs": rec.get("insufficient_data_packs", []),
-            }
-
-        return {
-            "available_packs":       list(ALL_PACKS.values()),
-            "pack_summary":          pack_summary(),
-            "bot_pack_assignments":  bot_pack_assignments,
-            "pack_scorecards":       pack_scorecards,
-            "recommended_packs":     recommendations,
-            "policy_pack_version":   POLICY_PACK_VERSION,
-            "calibration_days":      days,
-            "timestamp":             datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error("policy_pack_diagnostics failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/blockers")
-async def get_trade_blockers(request: Request):
-    """Return every gate that can block trade execution and its current status."""
-    from utils.env_utils import env_bool
-    from utils.trading_gates import check_trading_mode_enabled, check_autopilot_gates
-
-    blockers: list[dict] = []
-
-    # 1. Trading gates (any mode enabled)
-    trading_ok, trading_reason = check_trading_mode_enabled()
-    blockers.append({
-        "gate_name": "trading_gates",
-        "blocked": not trading_ok,
-        "reason_code": "NO_TRADING_MODE" if not trading_ok else "OK",
-        "human_readable": trading_reason,
-        "required_fix": "Set PAPER_TRADING=1 or LIVE_TRADING=1" if not trading_ok else None,
-    })
-
-    # 2. Autopilot
-    ap_ok, ap_reason = check_autopilot_gates()
-    blockers.append({
-        "gate_name": "autopilot",
-        "blocked": not ap_ok,
-        "reason_code": "AUTOPILOT_DISABLED" if not ap_ok else "OK",
-        "human_readable": ap_reason,
-        "required_fix": "Set AUTOPILOT_ENABLED=1 and enable a trading mode" if not ap_ok else None,
-    })
-
-    # 3. Emergency stop
-    emergency = env_bool("EMERGENCY_STOP", False)
-    blockers.append({
-        "gate_name": "emergency_stop",
-        "blocked": emergency,
-        "reason_code": "EMERGENCY_STOP_ACTIVE" if emergency else "OK",
-        "human_readable": "Emergency stop is ACTIVE — all trading halted" if emergency else "Emergency stop not active",
-        "required_fix": "Set EMERGENCY_STOP=0 to resume trading" if emergency else None,
-    })
-
-    # 4. Paper trading
-    paper_on = env_bool("PAPER_TRADING", False)
-    blockers.append({
-        "gate_name": "paper_trading",
-        "blocked": not paper_on,
-        "reason_code": "PAPER_TRADING_OFF" if not paper_on else "OK",
-        "human_readable": "Paper trading is disabled" if not paper_on else "Paper trading enabled",
-        "required_fix": "Set PAPER_TRADING=1 to enable paper trading" if not paper_on else None,
-    })
-
-    # 5. Live trading
-    live_on = env_bool("LIVE_TRADING", False)
-    blockers.append({
-        "gate_name": "live_trading",
-        "blocked": not live_on,
-        "reason_code": "LIVE_TRADING_OFF" if not live_on else "OK",
-        "human_readable": "Live trading is disabled" if not live_on else "Live trading enabled",
-        "required_fix": "Set LIVE_TRADING=1 to enable live trading" if not live_on else None,
-    })
-
-    # 6. Wallet check (paper wallet service available)
-    wallet_ok = True
-    wallet_reason = "Paper wallet service available"
+    # 4. Paper wallet funded — use total including ledger-allocated funds (C).
+    # A wallet is funded if available + allocated > 0 (funds may be deployed in positions).
     try:
         from services.paper_wallet_service import paper_wallet_service
-        await paper_wallet_service.init_db()
-    except Exception as exc:
-        wallet_ok = False
-        wallet_reason = f"Paper wallet unavailable: {exc}"
-    blockers.append({
-        "gate_name": "wallet",
-        "blocked": not wallet_ok,
-        "reason_code": "WALLET_UNAVAILABLE" if not wallet_ok else "OK",
-        "human_readable": wallet_reason,
-        "required_fix": "Check database connectivity and wallet collection" if not wallet_ok else None,
-    })
+        from services.paper_wallet_ledger import paper_wallet_ledger as _pwl
+        wallet = await paper_wallet_service.get_wallet_status(user_id)
+        available_total = float(wallet.get("total", 0) or 0) if wallet else 0.0
+        # Include ledger-reserved (bot-allocated) funds in the funded check
+        allocated_total = await _pwl.get_user_balance(user_id)
+        # Validate: must be a non-negative number
+        if not isinstance(allocated_total, (int, float)) or allocated_total < 0:
+            allocated_total = 0.0
+        total = available_total + float(allocated_total)
+        if total == 0:
+            reasons.append({"code": "WALLET_UNFUNDED", "severity": "critical",
+                             "message": "Paper wallet balance is 0 — fund it via dashboard"})
+    except Exception as e:
+        reasons.append({"code": "WALLET_CHECK_ERROR", "severity": "warning", "message": str(e)})
 
-    # 7. Edge gate
+    # 5. Risk locks
     try:
-        from config import EDGE_GATE_PAPER, EDGE_GATE_LIVE
-    except ImportError:
-        EDGE_GATE_PAPER, EDGE_GATE_LIVE = False, False
-    edge_active = EDGE_GATE_PAPER or EDGE_GATE_LIVE
-    blockers.append({
-        "gate_name": "edge_gate",
-        "blocked": edge_active,
-        "reason_code": "EDGE_GATE_ACTIVE" if edge_active else "OK",
-        "human_readable": (
-            f"Edge gate active (paper={EDGE_GATE_PAPER}, live={EDGE_GATE_LIVE}) — "
-            "low-edge trades will be rejected"
-        ) if edge_active else "Edge gate inactive",
-        "required_fix": "Set EDGE_GATE_PAPER=false / EDGE_GATE_LIVE=false to relax" if edge_active else None,
-    })
+        from risk_engine import risk_engine
+        if hasattr(risk_engine, "is_locked") and await risk_engine.is_locked(user_id):
+            reasons.append({"code": "RISK_LOCKED", "severity": "critical",
+                             "message": "Risk engine lock active — check risk dashboard"})
+    except Exception:
+        pass
 
-    # 8. Confidence gate
-    confidence_on = env_bool("CONFIDENCE_GATE", False)
-    blockers.append({
-        "gate_name": "confidence_gate",
-        "blocked": confidence_on,
-        "reason_code": "CONFIDENCE_GATE_ACTIVE" if confidence_on else "OK",
-        "human_readable": "Confidence gate active — low-confidence signals rejected" if confidence_on else "Confidence gate inactive",
-        "required_fix": "Set CONFIDENCE_GATE=0 to disable" if confidence_on else None,
-    })
+    # 6. Quarantine
+    try:
+        qcount = await db.bot_quarantine_collection.count_documents(
+            {"user_id": user_id, "status": "quarantined"}
+        ) if hasattr(db, "bot_quarantine_collection") else 0
+        if qcount > 0:
+            reasons.append({"code": "BOTS_IN_QUARANTINE", "severity": "warning",
+                             "message": f"{qcount} bot(s) in quarantine — review and release via dashboard"})
+    except Exception:
+        pass
 
-    active_blockers = [b for b in blockers if b["blocked"]]
+    # 7. Bot-level blocks (sample up to 20 active bots)
+    try:
+        from config import PAPER_SUPPORTED_EXCHANGES
+        from services.bot_filters import bot_not_deleted_filter
+        bots = await db.bots_collection.find(
+            bot_not_deleted_filter({"user_id": user_id, "status": "active"}),
+            {"_id": 0, "id": 1, "name": 1, "exchange": 1, "status": 1, "pause_reason": 1}
+        ).to_list(20)
+        unsupported = [b["name"] for b in bots if b.get("exchange", "").lower() not in PAPER_SUPPORTED_EXCHANGES]
+        if unsupported:
+            reasons.append({"code": "UNSUPPORTED_EXCHANGE", "severity": "warning",
+                             "message": f"Bots on unsupported exchange: {unsupported}"})
+    except Exception:
+        pass
+
+    # 8. Regime standdown — detect if all recent ticks were blocked by regime.
+    try:
+        from paper_trading_engine import paper_engine as _pe
+        action_log = getattr(_pe, "_action_log", [])
+        if action_log:
+            # Resolve bot_ids belonging to this user for accurate filtering.
+            try:
+                from services.bot_filters import bot_not_deleted_filter
+                user_bot_ids = {
+                    b["id"]
+                    for b in await db.bots_collection.find(
+                        bot_not_deleted_filter({"user_id": user_id}),
+                        {"_id": 0, "id": 1},
+                    ).to_list(200)
+                    if b.get("id")
+                }
+            except Exception:
+                user_bot_ids = None  # fall back: include all entries
+
+            # Look at the last 20 SKIP entries scoped to this user's bots.
+            recent_skips = [
+                e for e in action_log
+                if e.get("action") == "SKIP"
+                and (user_bot_ids is None or e.get("bot_id") in user_bot_ids)
+            ][-20:]
+            if recent_skips:
+                regime_skips = sum(
+                    1 for e in recent_skips
+                    if e.get("reason") == "regime_standdown"
+                )
+                pct = regime_skips / len(recent_skips)
+                if pct >= 0.8:
+                    reasons.append({
+                        "code": "REGIME_STANDDOWN",
+                        "severity": "warning",
+                        "message": (
+                            f"regime_standdown is blocking {pct:.0%} of recent trade decisions. "
+                            "This occurs when the market regime is classified as volatile_downtrend "
+                            "or BEARISH_VOLATILE. Check /api/diagnostics/paper-engine for per-bot "
+                            "regime details. If conditions are normal, this should self-resolve."
+                        ),
+                    })
+    except Exception:
+        pass
+
+    status = "ok" if not reasons else ("critical" if any(r["severity"] == "critical" for r in reasons) else "warning")
     return {
-        "blockers": blockers,
-        "total_gates": len(blockers),
-        "active_blockers": len(active_blockers),
-        "trading_possible": not any(
-            b["blocked"] for b in blockers
-            if b["gate_name"] in ("trading_gates", "emergency_stop")
-        ),
+        "success": True,
+        "status": status,
+        "reasons": reasons,
+        "reasons_count": len(reasons),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
-# ── Policy Performance ────────────────────────────────────────────────────
+@router.get("/last-tick")
+async def last_tick_summary(user_id: str = Depends(get_current_user)):
+    """Summary of the last scheduler tick for the current user.
 
+    Read-only. No side effects.
 
-@router.get("/policy-performance")
-async def get_policy_performance(request: Request):
-    """Per-pack performance scorecards with outcome classification."""
+    Returns:
+        last_tick_at: when the scheduler last ran (from bot_runtime_state)
+        bots_evaluated: count of bots that were evaluated
+        orders_attempted: count of orders attempted in last tick
+        fills_saved: count of fills saved in last tick
+        trades_opened: count of trades opened in last tick
+        trades_closed: count of trades closed in last tick
+        rejects: count of rejected/skipped orders with reasons
+    """
     try:
-        from services.policy_performance_engine import get_pack_performance
+        from trading_scheduler import trading_scheduler
+        last_tick = getattr(trading_scheduler, "last_tick", None)
+        tick_count = getattr(trading_scheduler, "tick_count", 0)
+        is_running = getattr(trading_scheduler, "is_running", False)
+    except Exception:
+        last_tick = None
+        tick_count = 0
+        is_running = False
 
-        # Extract user_id from query params if present (optional filter)
-        user_id = request.query_params.get("user_id")
-        result = await get_pack_performance(user_id=user_id)
-        return result
-    except Exception as exc:
-        logger.error("policy-performance error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-# ── Dashboard Truth ───────────────────────────────────────────────────────
-
-
-@router.get("/dashboard-truth")
-async def get_dashboard_truth(request: Request):
-    """Canonical dashboard truth: win rates, quality metrics, calibration stats."""
+    # Get the most recent bot runtime state records for this user
     try:
-        from services.trading_brain_v2.trade_outcome_classifier import build_outcome_counts
-        from services.trading_brain_v2.trade_calibration import compute_pack_scorecard
-        from services.trading_brain_v2.policy_packs import get_default_pack_for_bot_type
+        runtime_docs = await db.bot_runtime_state_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "bot_id": 1, "last_tick_at": 1, "last_decision": 1,
+             "last_order_error": 1, "updated_at": 1}
+        ).sort("updated_at", -1).to_list(50)
+    except Exception:
+        runtime_docs = []
 
-        user_id = request.query_params.get("user_id")
-        query: dict = {"status": "closed"}
-        if user_id:
-            query["user_id"] = user_id
+    last_tick_at = None
+    if runtime_docs:
+        raw = runtime_docs[0].get("updated_at") or runtime_docs[0].get("last_tick_at")
+        last_tick_at = raw.isoformat() if hasattr(raw, "isoformat") else raw
+    elif last_tick:
+        last_tick_at = last_tick.isoformat() if hasattr(last_tick, "isoformat") else str(last_tick)
 
+    # Prefer scheduler.last_tick when it is more recent than the DB record
+    # (covers the period before record_tick() first writes to bot_runtime_state).
+    if last_tick is not None:
+        sched_ts = last_tick.isoformat() if hasattr(last_tick, "isoformat") else str(last_tick)
+        if last_tick_at is None or sched_ts > last_tick_at:
+            last_tick_at = sched_ts
+
+    bots_evaluated = len(runtime_docs)
+
+    # Count recent activity (last 5 minutes)
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    try:
+        trades_opened = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "open",
+             "$expr": {"$gt": [{"$ifNull": ["$opened_at", "$timestamp"]}, window_start]}}
+        )
+        trades_closed = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": {"$in": ["closed", "completed"]},
+             "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}}
+        )
+        trades_failed = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "failed",
+             "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}}
+        )
+    except Exception:
+        trades_opened = trades_closed = trades_failed = 0
+
+    rejects = [
+        {"bot_id": d.get("bot_id"), "reason": d.get("last_order_error")}
+        for d in runtime_docs
+        if d.get("last_order_error")
+    ]
+
+    return {
+        "success": True,
+        "scheduler_running": is_running,
+        "tick_count": tick_count,
+        "last_tick_at": last_tick_at,
+        "bots_evaluated": bots_evaluated,
+        "window_minutes": 5,
+        "trades_opened_in_window": trades_opened,
+        "trades_closed_in_window": trades_closed,
+        "trades_failed_in_window": trades_failed,
+        "rejects": rejects,
+        "rejects_count": len(rejects),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/decision-trace")
+async def decision_trace(
+    bot_id: str = None,
+    limit: int = 20,
+    user_id: str = Depends(get_current_user)
+):
+    """Read-only trace of last bot decisions and reasons.
+
+    Queries bot_runtime_state and recent trades to reconstruct
+    the decision history without requiring a separate decisions collection.
+
+    Read-only. No side effects.
+    """
+    # Runtime state (last known decision per bot)
+    query: dict = {"user_id": user_id}
+    if bot_id:
+        query["bot_id"] = bot_id
+
+    try:
+        runtime_docs = await db.bot_runtime_state_collection.find(
+            query,
+            {"_id": 0, "bot_id": 1, "last_tick_at": 1, "last_decision": 1,
+             "last_order_error": 1, "updated_at": 1, "open_position": 1}
+        ).sort("updated_at", -1).to_list(limit)
+    except Exception:
+        runtime_docs = []
+
+    # Recent trades for context
+    trade_query: dict = {"user_id": user_id}
+    if bot_id:
+        trade_query["bot_id"] = bot_id
+
+    try:
+        recent_trades = await db.trades_collection.find(
+            trade_query,
+            {"_id": 0, "id": 1, "bot_id": 1, "status": 1, "side": 1,
+             "pair": 1, "opened_at": 1, "closed_at": 1,
+             "net_pnl": 1, "trade_close_reason": 1, "skip_reason": 1,
+             "last_order_error": 1}
+        ).sort([("opened_at", -1), ("_id", -1)]).limit(limit).to_list(limit)
+    except Exception:
+        recent_trades = []
+
+    return {
+        "success": True,
+        "bot_id_filter": bot_id,
+        "runtime_states": runtime_docs,
+        "recent_trades": recent_trades,
+        "runtime_states_count": len(runtime_docs),
+        "recent_trades_count": len(recent_trades),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/last-tick-summary")
+async def last_tick_summary_v2(user_id: str = Depends(get_current_user)):
+    """Per-user summary of the last scheduler tick.
+
+    Returns deterministic counts derived from DB records so the response is
+    accurate even after a backend restart (unlike in-memory counters).
+
+    Fields:
+        last_tick_at        – when the scheduler last ran for any of this user's bots
+        bots_evaluated      – bots that had a runtime-state record updated in last tick
+        decisions_made      – bots that produced a trade decision (open or close attempt)
+        opens_attempted     – trade open records created in last 5 min window
+        opens_done          – opens that ended in status "open" (fill confirmed)
+        closes_attempted    – close attempts recorded (closed + failed in window)
+        closes_done         – trades transitioned to "closed"/"completed" in window
+        skips_by_reason     – {reason: count} for bots that were skipped
+        rejects_by_reason   – {reason: count} for bots with last_order_error set
+        last_error          – most recent last_order_error across all bots (or null)
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+        is_running = getattr(trading_scheduler, "is_running", False)
+        tick_count = getattr(trading_scheduler, "tick_count", 0)
+    except Exception:
+        is_running = False
+        tick_count = 0
+
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+    # Runtime state records for this user
+    try:
+        runtime_docs = await db.bot_runtime_state_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "bot_id": 1, "last_tick_at": 1, "last_decision": 1,
+             "last_order_error": 1, "updated_at": 1}
+        ).sort("updated_at", -1).to_list(200)
+    except Exception:
+        runtime_docs = []
+
+    last_tick_at = None
+    if runtime_docs:
+        raw = runtime_docs[0].get("updated_at") or runtime_docs[0].get("last_tick_at")
+        last_tick_at = raw.isoformat() if hasattr(raw, "isoformat") else raw
+
+    # Prefer scheduler.last_tick when it is more recent than the DB record.
+    try:
+        sched_last = getattr(trading_scheduler, "last_tick", None)
+        if sched_last is not None:
+            sched_ts = sched_last.isoformat() if hasattr(sched_last, "isoformat") else str(sched_last)
+            if last_tick_at is None or sched_ts > last_tick_at:
+                last_tick_at = sched_ts
+    except Exception:
+        pass
+
+    bots_evaluated = len(runtime_docs)
+
+    # Trade counts in window
+    try:
+        opens_attempted = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "$expr": {"$gt": [{"$ifNull": ["$opened_at", "$timestamp"]}, window_start]}
+        })
+        opens_done = await db.trades_collection.count_documents({
+            "user_id": user_id, "status": "open",
+            "$expr": {"$gt": [{"$ifNull": ["$opened_at", "$timestamp"]}, window_start]}
+        })
+        closes_done = await db.trades_collection.count_documents({
+            "user_id": user_id, "status": {"$in": ["closed", "completed"]},
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}
+        })
+        closes_failed = await db.trades_collection.count_documents({
+            "user_id": user_id, "status": "failed",
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]}
+        })
+        closes_attempted = closes_done + closes_failed
+    except Exception:
+        opens_attempted = opens_done = closes_attempted = closes_done = closes_failed = 0
+
+    decisions_made = opens_attempted + closes_attempted
+
+    # Aggregate skip / reject reasons from runtime state
+    skips_by_reason: dict = {}
+    rejects_by_reason: dict = {}
+    last_error = None
+    for doc in runtime_docs:
+        err = doc.get("last_order_error")
+        if err:
+            rejects_by_reason[err] = rejects_by_reason.get(err, 0) + 1
+            if last_error is None:
+                last_error = err
+        decision = doc.get("last_decision")
+        if decision and isinstance(decision, dict):
+            skip = decision.get("skip_reason")
+            if skip:
+                skips_by_reason[skip] = skips_by_reason.get(skip, 0) + 1
+
+    return {
+        "success": True,
+        "scheduler_running": is_running,
+        "tick_count": tick_count,
+        "last_tick_at": last_tick_at,
+        "window_minutes": 5,
+        "bots_evaluated": bots_evaluated,
+        "decisions_made": decisions_made,
+        "opens_attempted": opens_attempted,
+        "opens_done": opens_done,
+        "closes_attempted": closes_attempted,
+        "closes_done": closes_done,
+        "closes_failed": closes_failed,
+        "skips_by_reason": skips_by_reason,
+        "rejects_by_reason": rejects_by_reason,
+        "close_rejects_by_reason": _get_close_rejects_from_engine(),
+        "last_error": last_error,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/paper-close-proof")
+async def paper_close_proof(user_id: str = Depends(get_current_user)):
+    """Deterministic paper-close proof diagnostic (auth required).
+
+    All counts are derived from the DB so this endpoint is accurate across
+    restarts and does not rely on in-memory counters.
+
+    Returns
+    -------
+    open_trades_count           : number of trades currently open for this user
+    oldest_open_trade_age_minutes : age in minutes of the oldest open trade (or null)
+    closes_attempted_last_5m    : trades transitioned to closed/completed OR failed in last 5 min
+    closes_done_last_5m         : trades that reached status closed/completed in last 5 min
+    last_close_at               : ISO timestamp of the last successful paper-engine close (or null)
+    last_10_closes              : list of up to 10 recent closed trades with id + close_reason
+    """
+    window_start = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    now = datetime.now(timezone.utc)
+
+    try:
+        open_trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "open"},
+            {"_id": 0, "id": 1, "opened_at": 1, "entry_time": 1, "timestamp": 1},
+        ).sort([("opened_at", 1), ("_id", 1)]).to_list(200)
+    except Exception:
+        open_trades = []
+
+    open_trades_count = len(open_trades)
+
+    oldest_open_trade_age_minutes = None
+    if open_trades:
+        oldest_raw = (
+            open_trades[0].get("opened_at")
+            or open_trades[0].get("entry_time")
+            or open_trades[0].get("timestamp")
+        )
+        if oldest_raw:
+            try:
+                oldest_dt = datetime.fromisoformat(str(oldest_raw).replace("Z", "+00:00"))
+                oldest_open_trade_age_minutes = round((now - oldest_dt).total_seconds() / 60, 1)
+            except Exception:
+                pass
+
+    try:
+        closes_done_last_5m = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "status": {"$in": ["closed", "completed"]},
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]},
+        })
+        closes_failed_last_5m = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "status": "failed",
+            "$expr": {"$gt": [{"$ifNull": ["$closed_at", "$timestamp"]}, window_start]},
+        })
+    except Exception:
+        closes_done_last_5m = 0
+        closes_failed_last_5m = 0
+
+    closes_attempted_last_5m = closes_done_last_5m + closes_failed_last_5m
+
+    # last_close_at from the paper engine singleton
+    last_close_at = None
+    try:
+        from paper_trading_engine import paper_engine
+        last_close_at = paper_engine.get_status().get("last_close_time")
+    except Exception:
+        pass
+
+    # last 10 closed trades
+    try:
+        recent_closes = await db.trades_collection.find(
+            {"user_id": user_id, "status": {"$in": ["closed", "completed"]}},
+            {"_id": 0, "id": 1, "trade_close_reason": 1, "closed_at": 1, "pair": 1},
+        ).sort([("closed_at", -1), ("_id", -1)]).to_list(10)
+    except Exception:
+        recent_closes = []
+
+    return {
+        "success": True,
+        "open_trades_count": open_trades_count,
+        "oldest_open_trade_age_minutes": oldest_open_trade_age_minutes,
+        "closes_attempted_last_5m": closes_attempted_last_5m,
+        "closes_done_last_5m": closes_done_last_5m,
+        "last_close_at": last_close_at,
+        "last_10_closes": [
+            {
+                "id": t.get("id"),
+                "close_reason": t.get("trade_close_reason"),
+                "pair": t.get("pair"),
+                "closed_at": t.get("closed_at"),
+            }
+            for t in recent_closes
+        ],
+        "timestamp": now.isoformat(),
+    }
+
+
+@router.get("/news-sources")
+async def news_sources_diagnostic(user_id: str = Depends(get_current_user)):
+    """Provider diagnostics for CoinStats and other configured news providers (auth required).
+
+    Returns structured status for each provider so the frontend can display
+    exactly what is configured, when it last ran, and why articles may be missing.
+
+    Returns
+    -------
+    success     : bool
+    providers   : list of provider status objects
+    timestamp   : ISO timestamp
+    """
+    from services.news_coinstats import coinstats_provider, resolve_coinstats_key
+
+    # CoinStats diagnostics
+    key, key_source = await resolve_coinstats_key(user_id)
+    cached = coinstats_provider._cache or {}
+    articles = cached.get("articles", [])
+    cache_ts = coinstats_provider._cache_ts
+    cache_age_seconds: int | None = None
+    if cache_ts is not None:
+        try:
+            cache_age_seconds = int((datetime.now(timezone.utc) - cache_ts).total_seconds())
+        except Exception:
+            pass
+
+    # Derive fetch_status from provider state
+    last_err = coinstats_provider._last_error
+    if not key:
+        fetch_status = "key_missing"
+    elif last_err and "429" in str(last_err):
+        fetch_status = "rate_limited"
+    elif last_err and "401" in str(last_err):
+        fetch_status = "invalid_key"
+    elif last_err:
+        fetch_status = "error"
+    elif cache_ts is None:
+        fetch_status = "pending"
+    elif articles:
+        fetch_status = "ok"
+    else:
+        fetch_status = "no_articles"
+
+    coinstats_entry = {
+        "provider": "coinstats",
+        "configured": bool(key),
+        "key_source": key_source,
+        "last_run_at": cached.get("fetched_at"),
+        "last_ok_at": cached.get("fetched_at") if articles else None,
+        "last_error": last_err,
+        "fetch_status": fetch_status,
+        "last_articles_count": len(articles),
+        "cache_age_seconds": cache_age_seconds,
+        "http_status_last": None,  # not tracked per-request; test_connection covers this
+    }
+
+    # GDELT stub entry (secondary provider when configured)
+    import os
+    news_provider = os.getenv("NEWS_PROVIDER", "coinstats").lower()
+    gdelt_entry = {
+        "provider": "gdelt",
+        "configured": news_provider == "gdelt",
+        "key_source": "none",
+        "last_run_at": None,
+        "last_ok_at": None,
+        "last_error": None,
+        "fetch_status": "not_primary" if news_provider != "gdelt" else "pending",
+        "last_articles_count": 0,
+        "cache_age_seconds": None,
+        "http_status_last": None,
+    }
+
+    return {
+        "success": True,
+        "providers": [coinstats_entry, gdelt_entry],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/open-trades")
+async def open_trades_diagnostic(user_id: str = Depends(get_current_user)):
+    """List open trades for the current user with diagnostic context.
+
+    Read-only. Shows per-trade: age, tp/sl prices, current price (cached),
+    next exit condition, how far away it is, and whether hard/soft exit is triggered.
+    """
+    try:
         trades = await db.trades_collection.find(
-            query, {"_id": 0},
-        ).sort("closed_at", -1).to_list(5000)
+            {"user_id": user_id, "status": "open"},
+            {"_id": 0}
+        ).sort([("opened_at", -1), ("_id", -1)]).to_list(200)
+    except Exception:
+        trades = []
 
-        # Outcome counts
-        trade_quality_metrics = build_outcome_counts(trades)
+    now = datetime.now(timezone.utc)
+    enriched = []
+    oldest_age: float = 0.0
+    for t in trades:
+        entry_time_raw = t.get("entry_time") or t.get("opened_at") or t.get("timestamp")
+        try:
+            entry_time = datetime.fromisoformat(str(entry_time_raw).replace("Z", "+00:00"))
+            age_minutes = round((now - entry_time).total_seconds() / 60, 1)
+            age_seconds = age_minutes * 60
+        except Exception:
+            age_minutes = None
+            age_seconds = 0.0
 
-        # Calibration stats — build lightweight calibration records
-        calibration_records = []
-        for t in trades:
-            projected = float(t.get("projected_net_profit_quote", 0) or 0)
-            realized = float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
-            ratio = max(-3.0, min(3.0, realized / projected)) if projected > 0 else None
-            calibration_records.append({
-                "calibration_complete": True,
-                "outcome_class": t.get("outcome_class", "LOSS" if realized <= 0 else "QUALIFIED_WIN"),
-                "realized_projection_ratio": ratio,
-                "hold_seconds": t.get("hold_seconds"),
-                "realized_net_profit_quote": realized,
-                "paper_edge_floor_applied": t.get("paper_edge_floor_applied", False),
-                "exit_reason_code": t.get("trade_close_reason", "unknown"),
-            })
+        if age_minutes is not None and age_minutes > oldest_age:
+            oldest_age = age_minutes
 
-        # Active policy pack (from first active bot, or default)
-        active_bot = await db.bots_collection.find_one(
-            {"status": {"$in": ["active", "running"]}},
-            {"_id": 0, "policy_pack_name": 1, "bot_type": 1},
+        entry_price = float(t.get("entry_price") or t.get("price") or 0)
+        stop_loss_pct = float(t.get("stop_loss_pct", 0.02))
+        take_profit_pct = float(t.get("take_profit_pct", 0.03))
+        stop_loss_price = t.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct) if entry_price else None)
+        take_profit_price = t.get("take_profit_price") or (entry_price * (1 + take_profit_pct) if entry_price else None)
+
+        hard_exit_triggered = age_seconds >= HARD_MAX_HOLD_SECONDS if age_minutes is not None else False
+        soft_exit_triggered = age_seconds >= SOFT_MAX_HOLD_SECONDS if age_minutes is not None else False
+
+        next_exit = "awaiting_signal"
+        if age_minutes is not None:
+            if hard_exit_triggered:
+                next_exit = "hard_exit_overdue"
+            elif soft_exit_triggered:
+                next_exit = "soft_exit_triggered"
+            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
+                next_exit = "time_exit_due"
+            elif age_minutes >= PAPER_STALE_EXIT_MINUTES:
+                next_exit = "stale_exit_eligible"
+            else:
+                remaining = round(PAPER_MAX_HOLD_MINUTES - age_minutes, 1)
+                next_exit = f"time_exit_in_{remaining}min"
+
+        enriched.append({
+            "id": t.get("id"),
+            "bot_id": t.get("bot_id"),
+            "pair": t.get("pair") or t.get("symbol"),
+            "exchange": t.get("exchange"),
+            "entry_price": entry_price,
+            "stop_loss_price": round(stop_loss_price, 6) if stop_loss_price else None,
+            "take_profit_price": round(take_profit_price, 6) if take_profit_price else None,
+            "age_minutes": age_minutes,
+            "next_exit": next_exit,
+            "hard_exit_triggered": hard_exit_triggered,
+            "soft_exit_triggered": soft_exit_triggered,
+            "opened_at": entry_time_raw,
+            "trade_amount": t.get("trade_amount"),
+            "data_source": t.get("data_source"),
+        })
+
+    return {
+        "success": True,
+        "open_trades_count": len(enriched),
+        "oldest_open_trade_age_minutes": round(oldest_age, 1) if enriched else None,
+        "trades": enriched,
+        "timestamp": now.isoformat(),
+    }
+
+
+@router.get("/paper-engine")
+@router.get("/paper")
+async def paper_engine_diagnostics(user_id: str = Depends(get_current_user)):
+    """Truth diagnostics for the paper trading engine.
+
+    Returns a real-time snapshot of engine state, all open trades with
+    age/next-exit details, and the last 20 engine actions (ring buffer).
+
+    Fields
+    ------
+    engine_running          : bool — engine has run at least one tick
+    last_tick_at            : ISO timestamp of last tick (or null)
+    tick_interval_seconds   : configured scheduler interval
+    open_trades_count       : number of open paper trades for this user
+    open_trades             : list (up to 50) with per-trade diagnostics
+    last_20_actions         : ring buffer entries from the paper engine
+    """
+    from paper_trading_engine import paper_engine
+    from config import PAPER_MAX_HOLD_MINUTES, PAPER_STALE_EXIT_MINUTES
+
+    now = datetime.now(timezone.utc)
+
+    # Engine-level state
+    engine_status = paper_engine.get_status()
+    last_tick_raw = engine_status.get("last_tick_time")
+    last_tick_at = last_tick_raw
+
+    # Scheduler interval + running state
+    tick_interval_seconds: int = 30
+    sched_is_running = False
+    sched_last_tick = None
+    try:
+        from trading_scheduler import trading_scheduler
+        tick_interval_seconds = getattr(trading_scheduler, "tick_interval", 30)
+        sched_is_running = getattr(trading_scheduler, "is_running", False)
+        sched_last_tick = getattr(trading_scheduler, "last_tick", None)
+        if sched_last_tick is not None:
+            sched_ts = sched_last_tick.isoformat() if hasattr(sched_last_tick, "isoformat") else str(sched_last_tick)
+            if last_tick_at is None or sched_ts > (last_tick_at or ""):
+                last_tick_at = sched_ts
+    except Exception:
+        pass
+
+    # engine_running: True if either the paper engine OR the scheduler is active
+    # (paper_engine.is_running is only set on first run_trading_cycle call,
+    #  so use scheduler state as primary truth while engine warms up)
+    engine_running = engine_status.get("is_running", False) or sched_is_running
+
+    # Open trades for this user
+    try:
+        raw_trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "open"},
+            {"_id": 0},
+        ).sort([("opened_at", 1), ("_id", 1)]).to_list(50)
+    except Exception:
+        raw_trades = []
+
+    open_trades = []
+    for t in raw_trades:
+        entry_time_raw = t.get("entry_time") or t.get("opened_at") or t.get("timestamp")
+        try:
+            entry_time = datetime.fromisoformat(str(entry_time_raw).replace("Z", "+00:00"))
+            age_minutes = round((now - entry_time).total_seconds() / 60, 1)
+        except Exception:
+            age_minutes = None
+
+        entry_price = float(t.get("entry_price") or t.get("price") or 0)
+
+        # Determine next_exit condition
+        age_seconds = (age_minutes * 60) if age_minutes is not None else 0.0
+        hard_exit_triggered = age_seconds >= HARD_MAX_HOLD_SECONDS if age_minutes is not None else False
+        soft_exit_triggered = age_seconds >= SOFT_MAX_HOLD_SECONDS if age_minutes is not None else False
+        next_exit = "awaiting_signal"
+        if age_minutes is not None:
+            if hard_exit_triggered:
+                next_exit = "hard_exit_overdue"
+            elif soft_exit_triggered:
+                next_exit = "soft_exit_triggered"
+            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
+                next_exit = "time_exit_due"
+            elif age_minutes >= PAPER_STALE_EXIT_MINUTES:
+                next_exit = "stale_exit_eligible"
+            else:
+                remaining_time = round(PAPER_MAX_HOLD_MINUTES - age_minutes, 1)
+                remaining_stale = round(PAPER_STALE_EXIT_MINUTES - age_minutes, 1)
+                next_exit = f"time_exit_in_{remaining_time}min"
+                if remaining_stale < remaining_time and remaining_stale > 0:
+                    next_exit = f"stale_exit_in_{remaining_stale}min_or_{next_exit}"
+
+        open_trades.append({
+            "id": t.get("id"),
+            "bot_id": t.get("bot_id"),
+            "bot_name": t.get("bot_name"),
+            "exchange": t.get("exchange"),
+            "symbol": t.get("pair") or t.get("symbol"),
+            "opened_at": entry_time_raw,
+            "age_minutes": age_minutes,
+            "entry_price": entry_price,
+            "trade_amount": float(t.get("trade_amount") or t.get("entry_value") or 0),
+            "current_price": None,  # populated below via price_fallback_service
+            "unrealized_pnl_zar": None,
+            "next_exit": next_exit,
+            "hard_exit_triggered": hard_exit_triggered,
+            "soft_exit_triggered": soft_exit_triggered,
+        })
+
+    # Enrich open trades with current price + unrealized PnL
+    # Uses price_fallback_service (non-blocking; falls back to cached/static prices).
+    try:
+        from services.price_fallback_service import price_fallback_service
+        for trade in open_trades:
+            sym = trade.get("symbol")
+            exch = trade.get("exchange") or "luno"
+            if not sym:
+                continue
+            try:
+                price = await price_fallback_service.get_price(exch, sym)
+                if price and price > 0:
+                    trade["current_price"] = price
+                    entry = trade.get("entry_price") or 0
+                    trade_amount = trade.get("trade_amount") or 0
+                    if entry and entry > 0 and trade_amount:
+                        # unrealized_pnl_zar = position_value * price_change_ratio
+                        trade["unrealized_pnl_zar"] = round(
+                            (price - entry) / entry * trade_amount, 2
+                        )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "engine_running": engine_running,
+        "last_tick_at": last_tick_at,
+        "last_close_at": engine_status.get("last_close_time"),
+        "closes_attempted": engine_status.get("closes_attempted", 0),
+        "closes_done": engine_status.get("closes_done", 0),
+        "close_loop_enabled": True,
+        "tick_interval_seconds": tick_interval_seconds,
+        "open_trades_count": len(open_trades),
+        "oldest_open_trade_age_minutes": max(
+            (t["age_minutes"] for t in open_trades if t.get("age_minutes") is not None),
+            default=None,
+        ),
+        "open_trades": open_trades,
+        "last_20_actions": engine_status.get("last_20_actions", []),
+        "timestamp": now.isoformat(),
+    }
+
+
+@router.get("/symbol-selection")
+async def symbol_selection_diagnostic(
+    bot_id: str = "",
+    user_id: str = Depends(get_current_user),
+):
+    """Truth diagnostic for symbol selection (C1).
+
+    Returns:
+      - candidate_count: how many symbols passed universe + exchange filters
+      - filtered_out_reasons: summary of why symbols were dropped
+      - top5_scored: the top 5 candidate symbols and their scores
+      - winner: the symbol that was (or would be) selected
+      - winner_reason: why this symbol won
+
+    If bot_id is provided, shows the last recorded selection for that bot.
+    If bot_id is omitted, simulates a fresh selection for Luno using the
+    default symbol universe.
+    """
+    from services.symbol_universe import symbol_universe as _su
+    from paper_trading_engine import paper_engine
+
+    # If bot_id given and we have a cached selection, return it
+    if bot_id:
+        cached = paper_engine._last_symbol_selection
+        if cached and cached.get("bot_id") == bot_id:
+            return {"success": True, "source": "engine_cache", **cached}
+
+    # Simulate a selection for the given (or default) exchange
+    # Use Luno universe as a safe default demo
+    exchange = "luno"
+    try:
+        bots_cursor = db.bots_collection.find(
+            {"user_id": user_id, "id": bot_id} if bot_id else {"user_id": user_id},
+            {"exchange": 1, "pair": 1, "symbol_universe": 1, "_id": 0},
         )
-        if active_bot and active_bot.get("policy_pack_name"):
-            policy_pack_in_use = active_bot["policy_pack_name"]
-        else:
-            bt = (active_bot or {}).get("bot_type", "normal")
-            policy_pack_in_use = get_default_pack_for_bot_type(bt)["pack_name"]
+        bot_list = await bots_cursor.to_list(1)
+        if bot_list:
+            exchange = bot_list[0].get("exchange", "luno")
+    except Exception:
+        pass
 
-        scorecard = compute_pack_scorecard(
-            calibration_records, pack_name=policy_pack_in_use,
+    universe = _su.get_universe(exchange)
+    open_symbols: List[str] = []
+    try:
+        open_trades_cursor = db.trades_collection.find(
+            {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}
         )
+        open_trades_list = await open_trades_cursor.to_list(100)
+        open_symbols = [
+            t.get("pair") or t.get("symbol", "") for t in open_trades_list
+            if t.get("pair") or t.get("symbol")
+        ]
+    except Exception:
+        pass
 
-        return {
-            "qualified_win_rate": trade_quality_metrics.get("meaningful_win_rate_pct", 0.0),
-            "micro_win_rate": round(
-                trade_quality_metrics["micro_win_count"] / trade_quality_metrics["total_trades"] * 100, 2
-            ) if trade_quality_metrics["total_trades"] > 0 else 0.0,
-            "total_win_rate": trade_quality_metrics.get("net_win_rate_pct", 0.0),
-            "policy_pack_in_use": policy_pack_in_use,
-            "trade_quality_metrics": trade_quality_metrics,
-            "calibration_stats": scorecard,
-            "total_closed_trades": len(trades),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+    _winner, diag = await _su.select(
+        bot_id=bot_id or "demo",
+        user_id=user_id,
+        exchange=exchange,
+        available_pairs=universe,
+        open_symbols_for_user=open_symbols,
+    )
+    return {
+        "success": True,
+        "source": "simulated",
+        "last_n_closed_symbols": _su.last_n_symbols(bot_id or "demo"),
+        **diag,
+    }
+
+
+@router.get("/strategy-params")
+async def strategy_params_diagnostic(user_id: str = Depends(get_current_user)):
+    """Truth diagnostic for the UCB1 strategy tuner (per user / exchange / risk_mode).
+
+    Returns:
+      - current_params: the live parameter set being used for each (exchange, risk_mode) combo
+      - recent_changes: last 20 UCB adjustment records from strategy_params_collection
+      - rate_limit_budgets: current request budget status per exchange
+
+    All information is read-only (no state mutation).
+    """
+    # Fetch all persisted strategy param documents for this user
+    strategy_docs: List[Dict] = []
+    try:
+        strategy_docs = await db.strategy_params_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "arms": 0}  # exclude raw arm details for brevity
+        ).to_list(50)
+    except Exception:
+        pass
+
+    # Fetch recent learning changes
+    recent_changes: List[Dict] = []
+    try:
+        recent_changes = await db.learning_changes_collection.find(
+            {"user_id": user_id},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(20).to_list(20)
+    except Exception:
+        pass
+
+    # Rate limit budget snapshot
+    rate_budget_status: Dict = {}
+    try:
+        from services.rate_limit_budget import rate_limit_budget as _rlb
+        rate_budget_status = _rlb.get_all_status()
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "strategy_params_count": len(strategy_docs),
+        "strategy_params": strategy_docs,
+        "recent_changes": recent_changes,
+        "rate_limit_budgets": rate_budget_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/bot/{bot_id}")
+async def get_bot_diagnostics_alias(
+    bot_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Alias for /api/bots/{bot_id}/diagnostics — returns the same detailed
+    diagnostic payload including performance/circuit_breaker fields."""
+    from routes.bot_lifecycle import get_bot_diagnostics as _bot_diag
+    return await _bot_diag(bot_id=bot_id, user_id=user_id)
+
+
+# ============================================================================
+# KEY / CREDENTIAL DIAGNOSTICS
+# ============================================================================
+
+EXCHANGE_PROVIDERS = ["luno", "binance", "kucoin", "bybit", "bitget", "kraken", "gate"]
+
+
+@router.get("/key-health")
+async def key_health_diagnostic(user_id: str = Depends(get_current_user)):
+    """Per-provider credential health: source, configured, decryptable,
+    last_test_ok, usable_for_trading."""
+    from routes.api_key_management import decrypt_api_key
+
+    results = []
+    for provider in EXCHANGE_PROVIDERS:
+        doc = await db.api_keys_collection.find_one(
+            {"user_id": user_id, "provider": provider}
+        )
+        entry: Dict = {
+            "provider": provider,
+            "source": "none",
+            "configured": False,
+            "decryptable": False,
+            "last_test_ok": None,
+            "usable_for_trading": False,
         }
-    except Exception as exc:
-        logger.error("dashboard-truth error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+
+        if doc:
+            entry["source"] = "database"
+            entry["configured"] = bool(doc.get("api_key_encrypted"))
+            try:
+                raw = doc.get("api_key_encrypted", "")
+                if raw:
+                    plaintext = decrypt_api_key(raw)
+                    entry["decryptable"] = not (raw.startswith("gAAAAA") and plaintext == raw)
+            except Exception:
+                entry["decryptable"] = False
+
+            entry["last_test_ok"] = doc.get("status") == "active" or doc.get("last_test_ok", False)
+            entry["usable_for_trading"] = entry["configured"] and entry["decryptable"]
+
+        env_key = os.getenv(f"{provider.upper()}_API_KEY")
+        if env_key and not entry["configured"]:
+            entry["source"] = "env"
+            entry["configured"] = True
+            entry["decryptable"] = True
+
+        results.append(entry)
+
+    fernet_source = "none"
+    fernet_ok = False
+    if os.getenv("AMARKTAI_FERNET_KEY"):
+        fernet_source = "AMARKTAI_FERNET_KEY"
+        fernet_ok = True
+    elif os.getenv("FERNET_KEY"):
+        fernet_source = "FERNET_KEY"
+        fernet_ok = True
+
+    return {
+        "providers": results,
+        "encryption_key_source": fernet_source,
+        "encryption_key_valid": fernet_ok,
+        "migration_available": bool(os.getenv("JWT_SECRET")),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
-# ── Self-Learning Recommendations ─────────────────────────────────────────
+# ============================================================================
+# ML / LEARNING DIAGNOSTICS
+# ============================================================================
 
 
+@router.get("/ml-health")
+async def ml_health_diagnostic(user_id: str = Depends(get_current_user)):
+    """Comprehensive ML/learning system diagnostics."""
+    from pathlib import Path
+    import json as _json
+
+    model_dir = Path(__file__).resolve().parent.parent / "models"
+    model_path = model_dir / "xgb_predictor.json"
+    meta_path = model_dir / "xgb_predictor_meta.json"
+
+    xgb_ready = model_path.exists()
+    xgb_meta = {}
+    if meta_path.exists():
+        try:
+            xgb_meta = _json.loads(meta_path.read_text())
+        except Exception:
+            pass
+
+    river_diag = {}
 @router.get("/smtp-test")
 async def smtp_test(user_id: str = Depends(get_current_user)):
     """
@@ -3386,61 +3013,57 @@ async def learning_readiness():
 async def get_self_learning_recommendations(request: Request):
     """Self-learning pack recommendations using daily_evaluator."""
     try:
-        from services.trading_brain_v2.trade_calibration import (
-            compute_pack_scorecard,
-            daily_evaluator,
-        )
-        from services.trading_brain_v2.policy_packs import ALL_PACKS
+        from services.river_learner import river_learner
+        river_diag = river_learner.get_diagnostics()
+    except Exception:
+        river_diag = {"river_active": False, "river_installed": False}
 
-        user_id = request.query_params.get("user_id")
-        bot_type = request.query_params.get("bot_type", "normal")
-        exchange = request.query_params.get("exchange", "")
+    optuna_available = False
+    try:
+        import optuna  # noqa: F401
+        optuna_available = True
+    except ImportError:
+        pass
 
-        query: dict = {"status": "closed"}
-        if user_id:
-            query["user_id"] = user_id
+    last_run_doc = await db.learning_runs_collection.find_one(
+        {"user_id": user_id},
+        sort=[("completed_at", -1)],
+    )
+    last_retrain = xgb_meta.get("trained_at")
 
-        trades = await db.trades_collection.find(
-            query, {"_id": 0},
-        ).sort("closed_at", -1).to_list(5000)
+    trade_count = await db.trades_collection.count_documents(
+        {"user_id": user_id, "status": "closed"}
+    )
+    min_retrain_trades = int(os.getenv("XGB_MIN_RETRAIN_TRADES", "50"))
 
-        # Group by pack and build scorecards
-        pack_trades: Dict[str, list] = {}
-        for t in trades:
-            pack_name = t.get("policy_pack_name") or t.get("policy_pack") or "balanced"
-            pack_trades.setdefault(pack_name, []).append(t)
-
-        scorecards: Dict[str, dict] = {}
-        for pack_name, pack_list in pack_trades.items():
-            records = []
-            for t in pack_list:
-                projected = float(t.get("projected_net_profit_quote", 0) or 0)
-                realized = float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
-                ratio = max(-3.0, min(3.0, realized / projected)) if projected > 0 else None
-                records.append({
-                    "calibration_complete": True,
-                    "outcome_class": t.get("outcome_class", "LOSS" if realized <= 0 else "QUALIFIED_WIN"),
-                    "realized_projection_ratio": ratio,
-                    "hold_seconds": t.get("hold_seconds"),
-                    "realized_net_profit_quote": realized,
-                    "paper_edge_floor_applied": t.get("paper_edge_floor_applied", False),
-                    "exit_reason_code": t.get("trade_close_reason", "unknown"),
-                })
-            scorecards[pack_name] = compute_pack_scorecard(records, pack_name=pack_name)
-
-        recommendation = daily_evaluator(
-            scorecards,
-            bot_type=bot_type,
-            exchange=exchange,
-        )
-
-        return {
-            "recommendation": recommendation,
-            "scorecards": scorecards,
-            "bot_type": bot_type,
-            "exchange": exchange,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.error("self-learning error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+    return {
+        "xgboost": {
+            "ready": xgb_ready,
+            "model_present": xgb_ready,
+            "model_path": str(model_path),
+            "holdout_accuracy": xgb_meta.get("holdout_accuracy"),
+            "last_retrain": last_retrain,
+            "n_features": xgb_meta.get("n_features"),
+        },
+        "river": river_diag,
+        "optuna": {
+            "active": optuna_available,
+            "installed": optuna_available,
+            "used_in_retraining": optuna_available,
+        },
+        "learning_loop": {
+            "enabled": os.getenv("ENABLE_LEARNING_LOOP", "false").lower() == "true",
+            "last_run": {
+                "run_id": last_run_doc.get("run_id") if last_run_doc else None,
+                "status": last_run_doc.get("status") if last_run_doc else None,
+                "completed_at": last_run_doc.get("completed_at") if last_run_doc else None,
+                "trades_analyzed": last_run_doc.get("trades_analyzed") if last_run_doc else None,
+            } if last_run_doc else None,
+        },
+        "data": {
+            "closed_trades": trade_count,
+            "min_retrain_trades": min_retrain_trades,
+            "sufficient_for_retrain": trade_count >= min_retrain_trades,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

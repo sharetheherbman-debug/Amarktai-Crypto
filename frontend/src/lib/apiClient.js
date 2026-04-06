@@ -7,11 +7,13 @@
  * - Timeout handling
  * - Retry strategy with exponential backoff
  * - Consistent error normalization
+ * - Global circuit breaker for backend down detection
  */
 
 import axios from 'axios';
 import { toast } from 'sonner';
 import { API_BASE } from './api';
+import { circuitBreaker } from './circuitBreaker';
 
 // Create axios instance with defaults
 const apiClient = axios.create({
@@ -22,9 +24,16 @@ const apiClient = axios.create({
   }
 });
 
-// Request interceptor - Add JWT token
+// Request interceptor - Add JWT token and check circuit breaker
 apiClient.interceptors.request.use(
   (config) => {
+    // Check circuit breaker
+    if (!circuitBreaker.isRequestAllowed()) {
+      const error = new Error('Circuit breaker is OPEN - backend appears down');
+      error.code = 'CIRCUIT_OPEN';
+      return Promise.reject(error);
+    }
+
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -39,11 +48,22 @@ apiClient.interceptors.request.use(
 // Response interceptor - Handle errors and retries
 apiClient.interceptors.response.use(
   (response) => {
-    // Successful response
+    // Successful response - notify circuit breaker
+    circuitBreaker.recordSuccess();
     return response;
   },
   async (error) => {
     const originalRequest = error.config;
+
+    // Record failure in circuit breaker
+    circuitBreaker.recordFailure(error);
+
+    // Guard: Only retry if we have a valid config object (502 errors may not have config)
+    if (!originalRequest) {
+      console.warn('⚠️ No request config available for retry (possibly 502/gateway error)');
+      const normalizedError = normalizeError(error);
+      return Promise.reject(normalizedError);
+    }
 
     // Don't retry if already retried max times
     if (!originalRequest._retry) {
@@ -69,30 +89,33 @@ apiClient.interceptors.response.use(
       return apiClient(originalRequest);
     }
 
-    // Handle 401 Unauthorized - token expired
+    // Handle 401 Unauthorized — token expired or force-logout
     if (error.response?.status === 401) {
-      // On public routes (login, register, landing), suppress this silently
-      const isPublicRoute = ['/', '/login', '/register'].some(p =>
-        window.location.pathname === p || window.location.pathname.startsWith(p + '/')
-      );
+      const detail = error.response?.data?.detail;
+      const isForceLogout = detail === 'FORCE_LOGOUT';
 
-      if (isPublicRoute) {
-        // Expected on public pages — do not spam console or redirect
-        localStorage.removeItem('token');
+      if (isForceLogout) {
+        console.warn('🚪 Admin force-logout triggered');
       } else {
-        console.error('❌ Unauthorized - token may be expired');
-        localStorage.removeItem('token');
+        console.error('❌ Unauthorized - session expired or invalid token');
+      }
 
-        if (!window.location.pathname.includes('/login')) {
-          console.log('🔀 Redirecting to login...');
-          window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-          
-          setTimeout(() => {
-            if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login';
-            }
-          }, 100);
-        }
+      // Clear token
+      localStorage.removeItem('token');
+
+      // Only redirect if not already on login page
+      if (!window.location.pathname.includes('/login')) {
+        const reason = isForceLogout ? 'force_logout' : 'session_expired';
+        console.log(`🔀 Redirecting to login (reason: ${reason})...`);
+        // Emit event for React Router to handle — carry reason so UI can show correct message
+        window.dispatchEvent(new CustomEvent('auth:unauthorized', { detail: { reason } }));
+
+        // Fallback: direct redirect after a short delay to allow event handling
+        setTimeout(() => {
+          if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login';
+          }
+        }, 100);
       }
     }
 
@@ -213,4 +236,8 @@ export async function patch(url, data = {}, config = {}) {
   return response.data;
 }
 
+// Named export for components that prefer it
+export { apiClient };
+
+// Default export for backward compatibility
 export default apiClient;

@@ -479,6 +479,11 @@ export default function AdminPanelSection({
           )}
           
           {/* User Storage Tracking */}
+          {storageError && (
+            <div style={{marginTop: '24px', marginBottom: '8px', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--error)', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)'}}>
+              ⚠️ Unable to load storage data: {storageError}
+            </div>
+          )}
           {storageData && (
             <div style={{marginTop: '24px', padding: '20px', background: 'var(--panel)', borderRadius: '8px', border: '1px solid var(--line)'}}>
               <h3 style={{marginBottom: '16px', color: 'var(--accent)'}}>💾 User Storage Tracking</h3>

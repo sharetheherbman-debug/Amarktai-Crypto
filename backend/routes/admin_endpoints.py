@@ -19,7 +19,7 @@ from auth import get_current_user, require_admin
 from utils.bot_state import normalize_bot_state
 from services.wallet_summary_service import wallet_summary_service
 from services.emergency_stop_override_service import emergency_stop_override_service
-from routes.health import get_build_metadata
+from services.bot_filters import bot_not_deleted_filter
 import database as db
 from engines.audit_logger import audit_logger
 from json_utils import serialize_doc, serialize_list
@@ -149,6 +149,11 @@ class SystemResetRequest(BaseModel):
     confirm_token: Optional[str] = Field(None, description="Optional confirmation token")
 
 
+class RuntimeResetRequest(BaseModel):
+    confirmation_phrase: str = Field(..., description="Confirmation phrase required for reset")
+    mode: str = Field("paper", description="Mode to reset: paper or live")
+
+
 @router.post("/unlock")
 async def unlock_admin_panel(
     request: AdminUnlockRequest,
@@ -169,6 +174,17 @@ async def unlock_admin_panel(
         if not password:
             raise HTTPException(status_code=400, detail="Password is required")
         
+        # Import centralized verification from auth.py
+        from auth import verify_admin_password, get_admin_password
+        
+        # Verify password using centralized function
+        try:
+            is_valid = await verify_admin_password(password)
+        except ValueError as e:
+            logger.error(f"Admin password misconfiguration: {e}")
+            raise HTTPException(
+                status_code=500, 
+                detail="Server configuration error: Admin password not configured properly"
         # Get admin password from environment — no hardcoded fallback
         admin_password = os.getenv('ADMIN_PASSWORD')
         
@@ -179,10 +195,7 @@ async def unlock_admin_panel(
                 detail="Server configuration error: ADMIN_PASSWORD must be set via environment variable"
             )
         
-        admin_password = admin_password.strip()
-        
-        # Case-insensitive and whitespace-tolerant comparison
-        if password.lower() != admin_password.lower():
+        if not is_valid:
             # Log failed attempt
             await audit_logger.log_event(
                 event_type="admin_unlock_failed",
@@ -271,176 +284,10 @@ async def admin_health(admin_id: str = Depends(require_admin)):
             "status": "ok" if db_status == "ok" else "degraded",
             "database": {"status": db_status},
             "scheduler": scheduler_status,
-            "build": get_build_metadata(),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
         logger.error(f"Admin health error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/key-monitor")
-async def admin_key_monitor(admin_id: str = Depends(require_admin)):
-    """Admin-only API key monitor with provider telemetry and fallback order."""
-    try:
-        from services.provider_registry import list_providers
-        from engines.market_intelligence_engine import market_intelligence_engine
-
-        providers = list_providers()
-        removed_provider_ids = {"glassnode", "lunarcrush"}
-        provider_priority_order = {p["id"]: idx + 1 for idx, p in enumerate(providers)}
-        usage_map: Dict[str, Dict[str, Any]] = {}
-        try:
-            usage_map = market_intelligence_engine.get_provider_usage() or {}
-        except Exception:
-            usage_map = {}
-
-        keys = await db.api_keys_collection.find(
-            {"user_id": str(admin_id)},
-            {
-                "_id": 0,
-                "provider": 1,
-                "status": 1,
-                "last_test_ok": 1,
-                "last_tested_at": 1,
-                "last_test_error": 1,
-                "api_key": 1,
-                "api_key_encrypted": 1,
-                "call_count": 1,
-                "last_latency_ms": 1,
-                "avg_latency_ms": 1,
-                "rate_limit_remaining": 1,
-                "quota_remaining": 1,
-                "updated_at": 1,
-            },
-        ).to_list(500)
-        key_map = {k.get("provider"): k for k in keys if k.get("provider")}
-
-        entries = []
-        for p in providers:
-            provider_id = p["id"]
-            if provider_id in removed_provider_ids:
-                continue
-            doc = key_map.get(provider_id, {})
-            status = str(doc.get("status") or "not_configured")
-            configured = bool(doc.get("api_key") or doc.get("api_key_encrypted"))
-            valid = bool(doc.get("last_test_ok")) or status in {"configured_valid", "test_ok"}
-            provider_usage = usage_map.get(provider_id, {})
-            monthly_pct = float(provider_usage.get("monthly_pct", 0) or 0)
-            minute_calls = float(provider_usage.get("minute_calls", 0) or 0)
-            minute_limit = float(provider_usage.get("per_minute_limit", 0) or 0)
-            minute_pct = (minute_calls / minute_limit * 100.0) if minute_limit > 0 else 0.0
-
-            if status == "configured_rate_limited":
-                rate_limit_status = "rate_limited"
-            elif minute_pct >= 90:
-                rate_limit_status = "near_limit"
-            else:
-                rate_limit_status = "ok"
-
-            entries.append({
-                "provider": provider_id,
-                "display_name": p.get("display_name", provider_id),
-                "type": p.get("type"),
-                "deployment_tier": "core_supported",
-                "default_flow": True,
-                "configured": configured,
-                "valid": valid,
-                "status": status,
-                "last_tested_at": doc.get("last_tested_at"),
-                "estimated_call_usage": {
-                    "monthly_calls": provider_usage.get("monthly_calls", doc.get("call_count", 0)),
-                    "monthly_limit": provider_usage.get("monthly_limit"),
-                    "monthly_pct": round(monthly_pct, 1),
-                    "minute_calls": provider_usage.get("minute_calls"),
-                    "per_minute_limit": provider_usage.get("per_minute_limit"),
-                    "minute_pct": round(minute_pct, 1),
-                },
-                "rate_limit_status": rate_limit_status,
-                "quota_threshold_warning": monthly_pct >= 80 or minute_pct >= 80,
-                "fallback_priority": provider_priority_order.get(provider_id),
-                "health_latency_ms": doc.get("avg_latency_ms") or doc.get("last_latency_ms"),
-                "last_error": doc.get("last_test_error"),
-                "updated_at": doc.get("updated_at"),
-            })
-        entries.sort(key=lambda row: (0 if row.get("default_flow") else 1, row.get("fallback_priority") or 999, row.get("provider")))
-
-        return {
-            "success": True,
-            "providers": entries,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"Admin key monitor error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/key-monitor/per-user")
-async def admin_key_monitor_per_user(admin_id: str = Depends(require_admin)):
-    """Per-user API key status for admin monitoring."""
-    try:
-        users_cursor = db.users_collection.find(
-            {},
-            {"_id": 0, "id": 1, "first_name": 1, "email": 1, "role": 1},
-        )
-        users = await users_cursor.to_list(500)
-
-        all_keys = await db.api_keys_collection.find(
-            {},
-            {
-                "_id": 0,
-                "user_id": 1,
-                "provider": 1,
-                "status": 1,
-                "last_test_ok": 1,
-                "last_tested_at": 1,
-                "last_test_error": 1,
-                "api_key": 1,
-                "api_key_encrypted": 1,
-            },
-        ).to_list(5000)
-
-        # Group keys by user
-        keys_by_user: Dict[str, list] = {}
-        for k in all_keys:
-            uid = k.get("user_id", "")
-            keys_by_user.setdefault(uid, []).append(k)
-
-        result = []
-        for u in users:
-            uid = u.get("id", "")
-            user_keys = keys_by_user.get(uid, [])
-            providers = []
-            for k in user_keys:
-                configured = bool(k.get("api_key") or k.get("api_key_encrypted"))
-                status_str = str(k.get("status") or "not_configured")
-                valid = bool(k.get("last_test_ok")) or status_str in {"configured_valid", "test_ok"}
-                providers.append({
-                    "provider": k.get("provider", "unknown"),
-                    "configured": configured,
-                    "valid": valid,
-                    "status": status_str,
-                    "last_tested_at": k.get("last_tested_at"),
-                    "last_error": k.get("last_test_error"),
-                })
-
-            result.append({
-                "user_id": uid,
-                "name": u.get("first_name", ""),
-                "email": u.get("email", ""),
-                "role": u.get("role", "user"),
-                "providers": providers,
-                "total_keys": len(providers),
-                "valid_keys": sum(1 for p in providers if p["valid"]),
-            })
-
-        return {
-            "success": True,
-            "users": result,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"Admin per-user key monitor error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -495,6 +342,27 @@ async def reset_system_zero(
     }
 
 
+@router.post("/runtime/reset")
+async def runtime_reset(
+    request: RuntimeResetRequest,
+    admin_id: str = Depends(require_admin),
+):
+    """DEPRECATED: Use POST /api/admin/start-fresh instead.
+
+    This endpoint is kept for backward compatibility but redirects to the
+    canonical start-fresh flow.  The System Mode section is the single source
+    of truth for runtime resets.
+    """
+    return {
+        "success": False,
+        "deprecated": True,
+        "message": (
+            "This endpoint is deprecated. "
+            "Use POST /api/admin/start-fresh with confirmation_phrase='START FRESH'."
+        ),
+    }
+
+
 @router.get("/status")
 async def admin_status(admin_id: str = Depends(require_admin)):
     """Admin status summary including system modes and counts."""
@@ -502,9 +370,9 @@ async def admin_status(admin_id: str = Depends(require_admin)):
         modes = await db.system_modes_collection.find_one({"user_id": admin_id}, {"_id": 0}) or {}
 
         total_users = await db.users_collection.count_documents({})
-        total_bots = await db.bots_collection.count_documents({"status": {"$ne": "deleted"}})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        paused_bots = await db.bots_collection.count_documents({"status": "paused"})
+        total_bots = await db.bots_collection.count_documents(bot_not_deleted_filter())
+        active_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "active"}))
+        paused_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "paused"}))
         total_trades = await db.trades_collection.count_documents({})
 
         from trading_scheduler import trading_scheduler
@@ -569,8 +437,11 @@ async def get_all_users(admin_id: str = Depends(require_admin)):
                 "gate": any(k.get("provider") == "gate" for k in api_keys),
             }
             
-            # Get bots summary
-            bots_cursor = db.bots_collection.find({"user_id": user_id}, {"_id": 0, "exchange": 1, "trading_mode": 1, "status": 1})
+            # Get bots summary (exclude deleted)
+            bots_cursor = db.bots_collection.find(
+                bot_not_deleted_filter({"user_id": user_id}),
+                {"_id": 0, "exchange": 1, "trading_mode": 1, "status": 1}
+            )
             bots = await bots_cursor.to_list(1000)
             
             # Count by exchange
@@ -993,11 +864,48 @@ async def force_logout_user(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/users/{user_id}/clear-force-logout")
+async def clear_force_logout(
+    user_id: str,
+    admin_id: str = Depends(require_admin),
+    req: Request = None
+):
+    """Clear force_logout flag for a user (admin only).
+
+    This is a one-time kill switch — once an admin force-logs a user out,
+    that user cannot authenticate again until this endpoint is called.
+    """
+    try:
+        result = await db.users_collection.update_one(
+            {"id": user_id},
+            {"$unset": {"force_logout": 1, "force_logout_at": 1, "force_logout_by": 1}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        await log_admin_action(
+            admin_id=admin_id,
+            action="clear_force_logout",
+            target_type="user",
+            target_id=user_id,
+            details={},
+            request=req
+        )
+        return {"success": True, "message": "Force logout cleared for user", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Clear force logout error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # BOT OVERRIDE ENDPOINTS
 # ============================================================================
 
-@router.get("/system-stats")
+# GET /system-stats canonical version is in routes/admin_enhanced.py (already mounted).
+# This extended version is available at /system-stats-extended to avoid collision.
+@router.get("/system-stats-extended")
 async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
     """
     Get comprehensive system statistics including VPS resources
@@ -1016,11 +924,7 @@ async def get_system_stats_extended(admin_user_id: str = Depends(verify_admin)):
         })
         active_users = max(total_users - blocked_users, 0)
 
-        bot_filter = {
-            "status": {"$ne": "deleted"},
-            "deleted": {"$ne": True},
-            "deleted_at": {"$exists": False}
-        }
+        bot_filter = bot_not_deleted_filter()
         total_bots = await db.bots_collection.count_documents(bot_filter)
         active_bots = await db.bots_collection.count_documents({**bot_filter, "status": "active"})
         paused_bots = await db.bots_collection.count_documents({**bot_filter, "status": "paused"})
@@ -1208,8 +1112,8 @@ async def get_user_storage_usage(admin_user_id: str = Depends(verify_admin)):
             # Define user-specific storage directories
             user_dirs = [
                 f"/var/log/amarktai/users/{user_id}",
-                f"/var/amarktai/app/Amarktai-Crypto/uploads/{user_id}",
-                f"/var/amarktai/app/Amarktai-Crypto/reports/{user_id}",
+                f"/opt/amarktai/uploads/{user_id}",
+                f"/opt/amarktai/reports/{user_id}",
                 f"logs/users/{user_id}",
                 f"uploads/{user_id}",
                 f"reports/{user_id}"
@@ -1271,16 +1175,16 @@ async def get_system_stats(admin_user_id: str = Depends(verify_admin)):
         active_users = await db.users_collection.count_documents({"status": "active"})
         blocked_users = await db.users_collection.count_documents({"status": "blocked"})
         
-        total_bots = await db.bots_collection.count_documents({})
-        active_bots = await db.bots_collection.count_documents({"status": "active"})
-        live_bots = await db.bots_collection.count_documents({"mode": "live"})
+        total_bots = await db.bots_collection.count_documents(bot_not_deleted_filter())
+        active_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"status": "active"}))
+        live_bots = await db.bots_collection.count_documents(bot_not_deleted_filter({"$or": [{"mode": "live"}, {"trading_mode": "live"}]}))
         
         total_trades = await db.trades_collection.count_documents({})
         live_trades = await db.trades_collection.count_documents({"is_paper": False})
         
-        # Calculate total profit across all users
+        # Calculate total profit across all active bots
         all_bots = await db.bots_collection.find(
-            {},
+            bot_not_deleted_filter(),
             {"_id": 0, "total_profit": 1}
         ).to_list(10000)
         total_profit = sum(b.get('total_profit', 0) for b in all_bots)
@@ -1542,9 +1446,17 @@ async def change_admin_password(
         current_password = request.current_password.strip()
         new_password = request.new_password.strip()
         
-        # Verify current password
-        admin_password = os.getenv('ADMIN_PASSWORD')
-        if not admin_password or current_password.lower() != admin_password.lower():
+        # Import centralized verification from auth.py
+        from auth import verify_admin_password
+        
+        # Verify current password using centralized function
+        try:
+            is_valid = await verify_admin_password(current_password)
+        except ValueError as e:
+            logger.error(f"Admin password misconfiguration: {e}")
+            raise HTTPException(status_code=500, detail="Server configuration error")
+        
+        if not is_valid:
             raise HTTPException(status_code=403, detail="Current password incorrect")
         
         # Hash new password
@@ -1656,18 +1568,12 @@ async def get_all_bots_admin(
     admin_id: str = Depends(require_admin)
 ):
     """
-    Get all bots (admin view) with comprehensive details
-    - Bot info (id, name, user, exchange, mode, status)
-    - Pause information (reason, timestamp)
-    - Capital and profit/loss
-    
-    Args:
-        mode: Filter by trading mode ('paper' or 'live')
-        user_id: Filter by specific user (optional)
+    Get all bots (admin view) with comprehensive details — excludes deleted bots.
+    Use GET /api/admin/bots/archived to see deleted bots.
     """
     try:
-        # Build query
-        query = {}
+        # Build query — always exclude deleted bots
+        query = bot_not_deleted_filter()
         if mode:
             query["trading_mode"] = mode
         if user_id:
@@ -1703,7 +1609,7 @@ async def get_all_bots_admin(
             enriched_bots.append(enriched_bot)
         
         # Sort by name
-        enriched_bots.sort(key=lambda b: b["name"])
+        enriched_bots.sort(key=lambda b: b["name"] or "")
         
         return {
             "bots": enriched_bots,
@@ -1712,6 +1618,60 @@ async def get_all_bots_admin(
         
     except Exception as e:
         logger.error(f"Get all bots admin error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bots/archived")
+async def get_archived_bots(
+    user_id: Optional[str] = None,
+    admin_id: str = Depends(require_admin)
+):
+    """Admin-only: return soft-deleted (archived) bots.
+    
+    These are bots with status='deleted' or is_deleted=True.
+    Normal queries never include these; this endpoint provides explicit access.
+    """
+    try:
+        query: dict = {
+            "$or": [
+                {"status": "deleted"},
+                {"is_deleted": True},
+                {"deleted_at": {"$exists": True}},
+            ]
+        }
+        if user_id:
+            query["user_id"] = user_id
+
+        bots_cursor = db.bots_collection.find(query, {"_id": 0})
+        bots = await bots_cursor.to_list(10000)
+
+        enriched = []
+        for bot in bots:
+            bot_user_id = bot.get("user_id")
+            user_doc = await db.users_collection.find_one(
+                {"id": bot_user_id},
+                {"_id": 0, "email": 1, "first_name": 1}
+            )
+            enriched.append({
+                "bot_id": bot.get("id"),
+                "name": bot.get("name"),
+                "user_id": bot_user_id,
+                "username": user_doc.get("first_name") if user_doc else "Unknown",
+                "email": user_doc.get("email") if user_doc else "Unknown",
+                "exchange": bot.get("exchange"),
+                "mode": bot.get("trading_mode", "paper"),
+                "status": bot.get("status"),
+                "deleted_at": bot.get("deleted_at"),
+                "deleted_by": bot.get("deleted_by"),
+                "current_capital": bot.get("current_capital", 0),
+                "profit_loss": bot.get("total_profit", 0),
+            })
+
+        enriched.sort(key=lambda b: b.get("deleted_at") or "0000-00-00", reverse=True)
+        return {"bots": enriched, "total": len(enriched)}
+
+    except Exception as e:
+        logger.error(f"Get archived bots error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1979,47 +1939,96 @@ async def reset_bot_locks(
     admin_id: str = Depends(require_admin),
     req: Request = None
 ):
-    """Reset safety lock flags for a bot (admin-only)."""
+    """Reset safety lock flags for a bot (admin-only).
+
+    After reset the bot becomes active again and the bodyguard is given a
+    grace period so it cannot immediately re-lock.  equity_peak is aligned
+    to the current capital so the next drawdown calculation starts from a
+    fresh baseline.
+    """
     try:
         bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
 
+        # Determine a fresh equity baseline: prefer current_capital, fall back to initial_capital.
+        current_capital = bot.get("current_capital") or bot.get("initial_capital") or 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+
         await db.bots_collection.update_one(
             {"id": bot_id},
             {
                 "$set": {
-                    "status": "paused",
-                    "pause_reason": request.reason,
-                    "paused_at": datetime.now(timezone.utc).isoformat(),
+                    # Make bot tradeable immediately
+                    "status": "active",
                     "paused_by_system": False,
                     "paused_by_bodyguard": False,
-                    "requires_manual_reset": False
+                    "requires_manual_reset": False,
+                    # Re-baseline equity so bodyguard drawdown calculation starts clean
+                    "equity_peak": current_capital,
+                    "current_drawdown_pct": 0,
+                    # Grace-period timestamp: bodyguard will not re-lock for N minutes after this
+                    "bodyguard_reset_at": now_iso,
+                    # Reset breach counter
+                    "bodyguard_breach_count": 0,
                 },
                 "$unset": {
+                    "pause_reason": "",
+                    "pause_reason_code": "",
+                    "paused_at": "",
+                    "paused_by": "",
                     "quarantine_reason": "",
+                    "quarantine_reason_code": "",
                     "quarantined_at": "",
                     "retraining_until": "",
+                    "quarantine_duration_seconds": "",
                     "bodyguard_pause_threshold": "",
-                    "bodyguard_pause_drawdown": ""
-                }
+                    "bodyguard_pause_drawdown": "",
+                    "bodyguard_last_pause_at": "",
+                    "bodyguard_last_breach_at": "",
+                    "bodyguard_warmup": "",
+                    "bodyguard_warmup_reason": "",
+                    "bodyguard_status": "",
+                    "training_job_id": "",
+                },
             }
         )
+
+        # Cancel any pending training jobs for this bot so they don't hold the lock
+        try:
+            await db.training_jobs_collection.update_many(
+                {"bot_id": bot_id, "status": {"$in": ["pending", "running"]}},
+                {"$set": {"status": "cancelled", "cancelled_at": now_iso, "cancelled_by": "admin_reset_locks"}}
+            )
+        except Exception:
+            pass
+
+        # Emit realtime event so the dashboard reflects the new state immediately
+        try:
+            from realtime_events import rt_events
+            updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
+            user_id_for_event = (updated_bot or bot).get("user_id", "")
+            await rt_events.bot_status_changed(user_id_for_event, bot_id, "active", "admin_reset_locks")
+        except Exception:
+            pass
 
         await log_admin_action(
             admin_id=admin_id,
             action="reset_bot_locks",
             target_type="bot",
             target_id=bot_id,
-            details={"reason": request.reason},
+            details={"reason": request.reason, "equity_baseline_reset_to": current_capital},
             request=req
         )
 
         return {
             "success": True,
             "bot_id": bot_id,
-            "status": "paused",
-            "message": "Bot safety locks reset. Resume manually when ready."
+            "status": "active",
+            "paused_by_bodyguard": False,
+            "reason": request.reason,
+            "equity_peak_reset_to": current_capital,
+            "message": "Bot safety locks cleared. Bot is now active with a fresh equity baseline.",
         }
     except HTTPException:
         raise
@@ -3070,3 +3079,150 @@ async def clear_emergency_stop_user_override(
     except Exception as e:
         logger.warning(f"Emergency stop clear override realtime broadcast failed: {e}")
     return {"success": True, "per_user": overrides.get("per_user", {})}
+
+
+@router.get("/trade-queue/state")
+async def get_trade_queue_state(admin_id: str = Depends(require_admin)):
+    """Admin-only diagnostic endpoint for trade queue state
+    
+    Returns:
+        queue_size: int - Number of trades queued
+        next_eligible: str - Timestamp when next trade can execute
+        locks: dict - Current locks by bot_id
+        cooldowns: dict - Current cooldowns by exchange
+        sample_items: list - Small sample of queued items (redacted)
+        timestamp: str - State snapshot timestamp
+    """
+    try:
+        from engines.trade_staggerer import trade_staggerer
+        
+        # Get queue state
+        state = await trade_staggerer.get_queue_state()
+        
+        return {
+            "success": True,
+            "queue_size": state.get("queue_size", 0),
+            "next_eligible": state.get("next_eligible"),
+            "locks": state.get("locks", {}),
+            "cooldowns": state.get("cooldowns", {}),
+            "sample_items": state.get("sample_items", []),
+            "exchange_stats": state.get("exchange_stats", {}),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Trade queue state error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/status")
+async def get_scheduler_status(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    Get trading scheduler status (admin-only diagnostic endpoint)
+    
+    Returns scheduler state including:
+    - running status
+    - last tick timestamp
+    - next tick timestamp  
+    - total tick count
+    - check interval
+    """
+    try:
+        from trading_scheduler import trading_scheduler
+        
+        status = trading_scheduler.get_status()
+        
+        return {
+            "success": True,
+            "scheduler": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/status")
+async def get_learning_scheduler_status(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    Get nightly learning scheduler status (admin-only diagnostic endpoint)
+    
+    Returns scheduler state including:
+    - enabled status and reason
+    - running status
+    - last run timestamp and status
+    - schedule hour
+    - live learning flag
+    """
+    try:
+        from services.nightly_learning_scheduler import nightly_learning_scheduler
+        
+        status = nightly_learning_scheduler.get_status()
+        
+        return {
+            "success": True,
+            "learning_scheduler": status,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Learning scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Admin: AI Chat Audit Trail ───────────────────────────────────────────────
+
+@router.get("/audit/chat")
+async def get_chat_audit(
+    user_id_filter: Optional[str] = None,
+    last_n: int = 100,
+    admin_id: str = Depends(require_admin),
+):
+    """Get AI chat message audit trail (admin only).
+
+    Query params:
+        user_id_filter: restrict to a single user (optional)
+        last_n: max number of records to return (default 100, max 500)
+
+    Returns messages with action_name, action_payload, action_result, error_code.
+    """
+    try:
+        limit = min(int(last_n), 500)
+        query: dict = {}
+        if user_id_filter:
+            query["user_id"] = user_id_filter
+
+        if db.chat_messages_collection is None:
+            return {"success": True, "messages": [], "count": 0, "note": "chat_messages collection not available"}
+
+        cursor = db.chat_messages_collection.find(
+            query, {"_id": 0}
+        ).sort("created_at", -1).limit(limit)
+        messages = await cursor.to_list(limit)
+
+        # Summarise per-user counts for the filtered set
+        user_summary: dict = {}
+        for msg in messages:
+            uid = msg.get("user_id", "unknown")
+            user_summary.setdefault(uid, {"messages": 0, "actions": 0, "errors": 0})
+            user_summary[uid]["messages"] += 1
+            if msg.get("action_name"):
+                user_summary[uid]["actions"] += 1
+            if msg.get("error_code"):
+                user_summary[uid]["errors"] += 1
+
+        return {
+            "success": True,
+            "messages": messages,
+            "count": len(messages),
+            "user_summary": user_summary,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Chat audit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

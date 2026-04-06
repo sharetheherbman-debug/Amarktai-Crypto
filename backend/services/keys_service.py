@@ -10,26 +10,16 @@ from datetime import datetime, timezone
 import os
 
 import database as db
-# Encryption utilities live in routes/api_key_management.py (a utility module,
-# NOT an active route — unmounted in server.py).  Import is intentional.
 from routes.api_key_management import encrypt_api_key, decrypt_api_key, get_decrypted_key
 from config.models import get_model_fallback_chain, get_default_model
 
 logger = logging.getLogger(__name__)
 
 
-# All supported providers — must match provider_registry.py
+# All supported providers
 SUPPORTED_PROVIDERS = [
-    # AI providers
-    'openai', 'fetchai', 'huggingface',
-    # Market data providers
-    'coindesk', 'cryptocompare', 'coingecko', 'coinranking',
-    # Intelligence enrichers
-    'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic',
-    # Exchange providers (7)
-    'luno', 'binance', 'kucoin', 'bybit', 'bitget', 'kraken', 'gate',
-    # Legacy (deprecated, fallback-only)
-    'coinstats',
+    'openai', 'fetchai',  # AI providers
+    'luno', 'binance', 'kucoin', 'bybit', 'bitget'  # Exchange providers
 ]
 
 
@@ -103,7 +93,7 @@ class KeysService:
         """Test exchange API key
         
         Args:
-            provider: Exchange name (luno, binance, kucoin, bybit, bitget, kraken, gate)
+            provider: Exchange name (luno, binance, kucoin, bybit, bitget)
             api_key: API key
             api_secret: API secret
             passphrase: Optional passphrase (for KuCoin, Bitget)
@@ -114,11 +104,8 @@ class KeysService:
         try:
             import ccxt.async_support as ccxt
             
-            # Normalize provider name for ccxt
-            ccxt_id = 'gateio' if provider == 'gate' else provider
-            
             # Get exchange class
-            exchange_class = getattr(ccxt, ccxt_id, None)
+            exchange_class = getattr(ccxt, provider, None)
             if not exchange_class:
                 return False, None, f"Exchange {provider} not supported"
             
@@ -191,18 +178,16 @@ class KeysService:
             metadata = {'working_model': model} if success else None
             return success, metadata, error
             
-        elif provider_lower in ['luno', 'binance', 'kucoin', 'bybit', 'bitget', 'kraken', 'gate']:
+        elif provider_lower in ['luno', 'binance', 'kucoin', 'bybit', 'bitget']:
             if not api_secret:
                 return False, None, "API secret required for exchange"
             return await self.test_exchange_key(provider_lower, api_key, api_secret, passphrase)
             
-        elif provider_lower in ['fetchai', 'coinstats', 'huggingface', 'coindesk',
-                                  'cryptocompare', 'coingecko', 'coinranking',
-                                  'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic']:
-            # Generic format validation for non-exchange providers (AI, market data, enrichers, legacy)
+        elif provider_lower in ['fetchai']:
+            # Generic validation for AI providers without live test
             metadata = {'provider': provider_lower, 'test_type': 'format_validation'}
             return True, metadata, None
-            
+
         else:
             return False, None, f"Provider {provider} not supported"
     

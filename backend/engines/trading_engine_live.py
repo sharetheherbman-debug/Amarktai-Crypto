@@ -4,7 +4,6 @@ Replaces simulated trading with actual CCXT order execution
 """
 
 import asyncio
-import math
 import os
 import ccxt
 from typing import Dict, Optional, List
@@ -17,7 +16,6 @@ from ccxt_service import CCXTService
 from engines.risk_management import risk_management
 from utils.trading_gates import enforce_live_trading_gates, TradingGateError
 from config import *
-from services.entry_quality import evaluate_expectancy_gate
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +84,72 @@ class LiveTradingEngine:
             return snapshot.get("mid")
         except Exception as e:
             logger.error(f"Failed to fetch price for {symbol}: {e}")
+            return None
+    
+    async def place_limit_order(self, exchange: ccxt.Exchange, symbol: str, 
+                               side: str, amount: float, price: float) -> Optional[Dict]:
+        """Place real limit order"""
+        try:
+            order = await asyncio.to_thread(
+                exchange.create_limit_order,
+                symbol, side, amount, price
+            )
+            
+            logger.info(f"✅ Limit order placed: {side} {amount} {symbol} @ {price}")
+            return order
+            
+        except ccxt.InsufficientFunds as e:
+            logger.error(f"❌ Insufficient funds: {e}")
+            return None
+        except ccxt.InvalidOrder as e:
+            logger.error(f"❌ Invalid order: {e}")
+            return None
+        except ccxt.RateLimitExceeded as e:
+            logger.error(f"⏳ Rate limit exceeded: {e}")
+            await asyncio.sleep(2)
+            return None
+        except Exception as e:
+            logger.error(f"❌ Order placement failed: {e}")
+            return None
+    
+    async def place_market_order(self, exchange: ccxt.Exchange, symbol: str, 
+                                 side: str, amount: float, _internal_only: bool = False) -> Optional[Dict]:
+        """
+        Place real market order
+        
+        WARNING: This method should ONLY be called internally after OrderPipeline approval.
+        All external order requests must go through services/order_pipeline.py -> submit_order()
+        
+        Args:
+            _internal_only: Must be True to execute. Prevents direct external calls.
+        """
+        if not _internal_only:
+            raise RuntimeError(
+                "Direct order placement is not allowed. "
+                "All orders must go through OrderPipeline.submit_order() for safety gates."
+            )
+        
+        try:
+            order = await asyncio.to_thread(
+                exchange.create_market_order,
+                symbol, side, amount
+            )
+            
+            logger.info(f"✅ Market order placed: {side} {amount} {symbol}")
+            return order
+            
+        except ccxt.InsufficientFunds as e:
+            logger.error(f"❌ Insufficient funds: {e}")
+            return None
+        except ccxt.InvalidOrder as e:
+            logger.error(f"❌ Invalid order: {e}")
+            return None
+        except ccxt.RateLimitExceeded as e:
+            logger.error(f"⏳ Rate limit exceeded: {e}")
+            await asyncio.sleep(2)
+            return None
+        except Exception as e:
+            logger.error(f"❌ Order placement failed: {e}")
             return None
 
     # Maximum number of rate-limit retry attempts before giving up.
@@ -261,16 +325,41 @@ class LiveTradingEngine:
             
             # Paper trading (realistic simulation with real prices)
             if paper_mode:
-                # Paper trades should NOT be processed by the live engine.
-                # The paper_trading_engine handles these.
-                logger.warning(
-                    f"Paper trade for bot {bot_id} routed to live engine — "
-                    "rejecting. Use paper_trading_engine instead."
-                )
+                current_price = await self.get_real_price(exchange, normalized_symbol) if exchange else None
+                if not current_price:
+                    # Fallback to default prices if exchange unavailable
+                    current_price = 1000000 if 'BTC' in symbol else 50000
+                
+                # Use real current price for both entry and exit (instantaneous paper fill)
+                # This avoids random drift and gives honest paper P&L based on actual prices
+                entry_price = current_price
+                exit_price = current_price  # Paper fill at market price — no random slippage
+                
+                # Calculate fees (exchange-specific)
+                fee_rates = {
+                    'luno': 0.0025,  # 0.25%
+                    'binance': 0.001,  # 0.1%
+                    'kucoin': 0.001   # 0.1%
+                }
+                fee_rate = fee_rates.get(exchange_name, 0.001)
+                
+                gross_profit = (exit_price - entry_price) * amount
+                fees = (entry_price * amount * fee_rate) + (exit_price * amount * fee_rate)
+                net_profit = gross_profit - fees
+                
                 return {
-                    "success": False,
-                    "error": "Paper trades must be executed via paper_trading_engine, not the live engine",
+                    "success": True,
+                    "order_id": f"paper_{datetime.now(timezone.utc).timestamp()}",
+                    "symbol": symbol,
+                    "side": side,
+                    "amount": amount,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "gross_profit": gross_profit,
+                    "fees": fees,
+                    "net_profit": net_profit,
                     "paper": True,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             
             # LIVE TRADING - Real orders
@@ -303,26 +392,16 @@ class LiveTradingEngine:
                         fee_pct_roundtrip = get_fee_rate(exchange_name, "taker") * 2 * 100
                         slippage_pct_roundtrip = float(os.getenv("LIVE_SLIPPAGE_PCT", "0.05")) * 2
                         estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
-                        expectancy = evaluate_expectancy_gate(
-                            bot_type=str(bot_data.get("bot_type", "normal")).lower(),
-                            expected_move_pct=expected_move_pct,
-                            estimated_cost_pct=estimated_cost_pct,
-                            market_quality=float(bot_data.get("market_quality_score", 0.7) or 0.7),
-                            entry_confidence_score=float(bot_data.get("entry_confidence_score", 0.72) or 0.72),
-                            timeout_risk_pct=float(os.getenv("LIVE_TIMEOUT_RISK_PCT", "0.08")),
-                        )
-                        if expected_move_pct < estimated_cost_pct + EDGE_BUFFER_PCT or not expectancy.get("accepted"):
+                        if expected_move_pct < estimated_cost_pct + EDGE_BUFFER_PCT:
                             return {
                                 "success": False,
                                 "error": "Edge gate blocked trade",
                                 "skip_reason": "edge_gate",
-                                "reason_code": "INSUFFICIENT_NET_EXPECTANCY",
                                 "details": {
                                     "expected_move_pct": expected_move_pct,
                                     "estimated_cost_pct": round(estimated_cost_pct, 4),
                                     "edge_buffer_pct": EDGE_BUFFER_PCT,
-                                    "spread_pct": round(spread_pct, 4),
-                                    "expectancy": expectancy,
+                                    "spread_pct": round(spread_pct, 4)
                                 }
                             }
                 except Exception as e:
@@ -395,7 +474,7 @@ class LiveTradingEngine:
         """Wait for order to fill"""
         start_time = datetime.now(timezone.utc)
         
-        while (datetime.now(timezone.utc) - start_time).total_seconds() < timeout:
+        while (datetime.now(timezone.utc) - start_time).seconds < timeout:
             order = await self.check_order_status(exchange, order_id, symbol)
             
             if order and order['status'] in ['closed', 'filled']:

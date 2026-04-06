@@ -255,11 +255,11 @@ Trigger these via chat interface:
 
 ## External Integrations
 
-### FLOKx
-- `GET /api/flokx/test-connection` - Test FLOKx connection
-- `GET /api/flokx/coefficients/{pair}` - Get market intelligence coefficients
-- `POST /api/flokx/create-alert` - Create alert from FLOKx intelligence
-- `GET /api/flokx/alerts` - Get FLOKx market alerts
+### CoinStats
+- `GET /api/coinstats/test-connection` - Test CoinStats connection
+- `GET /api/coinstats/coefficients/{pair}` - Get market intelligence coefficients
+- `POST /api/coinstats/create-alert` - Create alert from CoinStats intelligence
+- `GET /api/coinstats/alerts` - Get CoinStats market alerts
 
 ### Fetch.ai
 - `GET /api/fetchai/test-connection` - Test Fetch.ai connection

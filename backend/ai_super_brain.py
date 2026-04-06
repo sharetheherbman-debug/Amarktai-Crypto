@@ -6,16 +6,14 @@ AI Super-Brain
 - Strategic recommendations
 """
 
-import asyncio
 from datetime import datetime, timezone, timedelta
 from logger_config import logger
 import database as db
 import os
 
-
 class AISuperBrain:
     def __init__(self):
-        self.openai_key = os.getenv('OPENAI_API_KEY', '')
+        # Note: OpenAI key is now resolved per-request via resolver
         self.insights_cache = {}
     
     async def generate_daily_insights(self, user_id: str) -> dict:
@@ -30,7 +28,7 @@ class AISuperBrain:
             patterns = await self._analyze_patterns(data)
             
             # Generate insights with AI
-            insights = await self._generate_ai_insights(data, patterns)
+            insights = await self._generate_ai_insights(data, patterns, user_id)
             
             result = {
                 "user_id": user_id,
@@ -76,9 +74,9 @@ class AISuperBrain:
         if not trades:
             return {"no_data": True}
         
-        # Winning patterns
-        winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
-        losing_trades = [t for t in trades if t.get('pnl', 0) < 0]
+        # Winning patterns — use net_pnl (canonical) with fallback to profit_loss
+        winning_trades = [t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0]
+        losing_trades = [t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0]
         
         # By pair
         pair_performance = {}
@@ -87,12 +85,13 @@ class AISuperBrain:
             if pair not in pair_performance:
                 pair_performance[pair] = {'wins': 0, 'losses': 0, 'total_pnl': 0}
             
-            if trade.get('pnl', 0) > 0:
+            pnl = trade.get('net_pnl', trade.get('profit_loss', 0))
+            if pnl > 0:
                 pair_performance[pair]['wins'] += 1
             else:
                 pair_performance[pair]['losses'] += 1
             
-            pair_performance[pair]['total_pnl'] += trade.get('pnl', 0)
+            pair_performance[pair]['total_pnl'] += pnl
         
         # By time of day
         hour_performance = {}
@@ -120,15 +119,18 @@ class AISuperBrain:
             "worst_hour": min(hour_performance.items(), key=lambda x: x[1]['wins'])[0] if hour_performance else None
         }
     
-    async def _generate_ai_insights(self, data: dict, patterns: dict) -> str:
+    async def _generate_ai_insights(self, data: dict, patterns: dict, user_id: str = None) -> str:
         """Generate AI insights using LLM"""
-        if not self.openai_key:
-            return self._generate_basic_insights(patterns)
-        
         try:
-            import openai
-            openai.api_key = self.openai_key
-            
+            from services.openai_key_resolver import get_openai_client
+
+            client, source = await get_openai_client(user_id)
+            if not client:
+                logger.info(f"OpenAI client resolved source={source} - using basic insights")
+                return self._generate_basic_insights(patterns)
+
+            logger.info(f"OpenAI client resolved source={source} for AI insights")
+
             prompt = f"""
 Analyze this crypto trading data and provide actionable insights:
 
@@ -146,16 +148,15 @@ Provide:
 
 Keep it concise (3-4 sentences).
 """
-            
-            response = await asyncio.to_thread(
-                openai.ChatCompletion.create,
-                model="gpt-4",
+
+            response = await client.chat.completions.create(
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200
+                max_tokens=200,
             )
-            
+
             return response.choices[0].message.content
-            
+
         except Exception as e:
             logger.error(f"AI insight generation failed: {e}")
             return self._generate_basic_insights(patterns)

@@ -66,8 +66,23 @@ class CCXTService:
             return {}
     
     async def create_market_order(self, exchange: ccxt.Exchange, symbol: str, 
-                                 side: str, amount: float, paper_trading: bool = True) -> Dict:
-        """Create market order (paper or live)"""
+                                 side: str, amount: float, paper_trading: bool = True,
+                                 _internal_only: bool = False) -> Dict:
+        """
+        Create market order (paper or live)
+        
+        WARNING: This method should ONLY be called internally by OrderPipeline.
+        All external order requests must go through services/order_pipeline.py -> submit_order()
+        
+        Args:
+            _internal_only: Must be True to execute. Prevents direct external calls.
+        """
+        if not _internal_only:
+            raise RuntimeError(
+                "Direct order placement is not allowed. "
+                "All orders must go through OrderPipeline.submit_order() for safety gates. "
+                "This prevents bypassing: idempotency, fee coverage, rate limits, and circuit breakers."
+            )
         try:
             if paper_trading:
                 # Simulate paper trading
@@ -111,6 +126,38 @@ class CCXTService:
             self.paper_balances[user_id] = {}
         current = self.paper_balances[user_id].get(currency, 0.0)
         self.paper_balances[user_id][currency] = current + amount
+
+    async def get_exchange_instance(
+        self,
+        exchange_name: str,
+        api_key: str,
+        api_secret: str,
+        passphrase: Optional[str] = None,
+        testnet: bool = False,
+    ) -> ccxt.Exchange:
+        """Create and return an async-ready exchange instance.
+
+        This is the async companion to :meth:`init_exchange` and is used
+        by routes that need an exchange object for balance/order calls.
+        """
+        import ccxt.async_support as accxt
+
+        ccxt_id = "gateio" if exchange_name.lower() == "gate" else exchange_name.lower()
+        exchange_cls = getattr(accxt, ccxt_id, None)
+        if exchange_cls is None:
+            raise ValueError(f"Unknown exchange: {exchange_name}")
+
+        config: Dict = {
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+        }
+        if passphrase:
+            config["password"] = passphrase
+        if testnet and exchange_name.lower() == "binance":
+            config.setdefault("options", {})["testnet"] = True
+
+        return exchange_cls(config)
 
 # Global instance
 ccxt_service = CCXTService()

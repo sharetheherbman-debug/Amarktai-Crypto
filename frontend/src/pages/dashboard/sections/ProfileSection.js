@@ -107,13 +107,29 @@ export default function ProfileSection({
           </div>
         </div>
 
-        {/* Emergency Stop - moved from top bar */}
-        <div style={{marginTop: '24px', padding: '16px', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)'}}>
-          <h3 style={{marginBottom: '12px', color: 'var(--error)'}}>⚠️ Emergency Controls</h3>
-          <p style={{fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px'}}>
-            Immediately halts all bots and trading activity across the system.
-          </p>
-          <button className="emergency-btn" onClick={handleEmergencyStop} style={{padding: '10px 24px', fontSize: '0.95rem'}}>
+        {/* Emergency Stop - Compact Button */}
+        <div style={{marginTop: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px'}}>
+          <div>
+            <h4 style={{margin: 0, fontSize: '0.9rem', color: 'var(--muted)'}}>Emergency Controls</h4>
+            <p style={{fontSize: '0.75rem', color: 'var(--muted)', margin: '4px 0 0 0'}}>
+              Immediately halt all trading activity
+            </p>
+          </div>
+          <button 
+            className="emergency-btn" 
+            onClick={handleEmergencyStop}
+            style={{
+              padding: '10px 20px',
+              fontSize: '0.9rem',
+              background: 'var(--error)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
             🛑 Emergency Stop
           </button>
         </div>

@@ -45,7 +45,7 @@ ENABLE_SCHEDULERS=0           # Safe default
 # API Keys (optional, can be set per-user in dashboard)
 OPENAI_API_KEY=
 FETCHAI_API_KEY=
-FLOKX_API_KEY=
+COINSTATS_API_KEY=
 
 # External Services
 EXCHANGE_API_KEYS_ENCRYPTED=true  # Use encrypted storage

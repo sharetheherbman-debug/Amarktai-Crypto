@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 from datetime import datetime, timezone
@@ -12,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from paper_trading_engine import PaperTradingEngine
 from services import ledger_service as ledger_module
 from services.ledger_service import LedgerService
+
 
 class MockCollection:
     def __init__(self):
@@ -29,21 +29,38 @@ class MockCollection:
         if not query or not self.data:
             return None
         for doc in self.data:
-            # Only match equality conditions; dict values are MongoDB operators
-            # (e.g. $gte) which this simplified mock does not support.
-            match = all(doc.get(k) == v for k, v in query.items() if not isinstance(v, dict))
+            match = True
+            for key, val in query.items():
+                if isinstance(val, dict):
+                    # Handle operators like {"$nin": [...]}
+                    if "$nin" in val and doc.get(key) in val["$nin"]:
+                        match = False
+                        break
+                    if "$in" in val and doc.get(key) not in val["$in"]:
+                        match = False
+                        break
+                elif doc.get(key) != val:
+                    match = False
+                    break
             if match:
                 return doc
         return None
 
-    async def update_one(self, query, update, **kwargs):
-        for doc in self.data:
-            # Same simplified equality-only matching as find_one.
-            match = all(doc.get(k) == v for k, v in query.items() if not isinstance(v, dict))
-            if match:
-                if "$set" in update:
-                    doc.update(update["$set"])
-                return SimpleNamespace(modified_count=1, matched_count=1)
+    async def update_one(self, filter_query=None, update=None, **kwargs):
+        if filter_query and update and self.data:
+            for doc in self.data:
+                match = True
+                for key, val in (filter_query or {}).items():
+                    if doc.get(key) != val:
+                        match = False
+                        break
+                if match:
+                    if "$set" in update:
+                        doc.update(update["$set"])
+                    if "$inc" in update:
+                        for k, v in update["$inc"].items():
+                            doc[k] = doc.get(k, 0) + v
+                    return SimpleNamespace(modified_count=1, matched_count=1)
         return SimpleNamespace(modified_count=0, matched_count=0)
 
     def find(self, query=None, projection=None):
@@ -77,11 +94,8 @@ class MockDatabase:
         return self.collections[name]
 
 
-def test_paper_trade_scenario_deterministic():
-    asyncio.run(_test_paper_trade_scenario_deterministic_async())
-
-
-async def _test_paper_trade_scenario_deterministic_async():
+@pytest.mark.asyncio
+async def test_paper_trade_scenario_deterministic():
     ledger_module._ledger_service_instance = None
     engine = PaperTradingEngine()
     ledger_db = MockDatabase()
@@ -101,6 +115,8 @@ async def _test_paper_trade_scenario_deterministic_async():
         "trading_mode": "paper",
         "initial_capital": 10000,
         "current_capital": 10000,
+        "take_profit_pct": 0.001,  # 0.1% TP so trade closes quickly in test
+        "stop_loss_pct": 0.05,     # 5% SL kept wide to avoid accidental SL hit
     }
 
     bots_collection.find_one.return_value = bot_data
@@ -125,8 +141,7 @@ async def _test_paper_trade_scenario_deterministic_async():
     price_state = {"value": 10000.0}
 
     async def market_provider(symbol, exchange):
-        # Increase by 5% each call so take-profit (3%) is quickly triggered on the exit cycle
-        price_state["value"] *= 1.05
+        price_state["value"] += 5.0
         mid = price_state["value"]
         return {
             "bid": mid - 1.0,
@@ -143,12 +158,11 @@ async def _test_paper_trade_scenario_deterministic_async():
     with patch("paper_trading_engine.db") as mock_db, \
         patch("paper_trading_engine.rate_limiter") as mock_rate_limiter, \
         patch("paper_trading_engine.risk_engine") as mock_risk_engine, \
-        patch("market_regime.market_regime_detector") as mock_regime, \
-        patch("ml_predictor.ml_predictor") as mock_predictor, \
-        patch("fetchai_integration.fetchai") as mock_fetchai, \
+        patch("paper_trading_engine.market_regime_detector") as mock_regime, \
+        patch("paper_trading_engine.ml_predictor") as mock_predictor, \
+        patch("paper_trading_engine.fetchai") as mock_fetchai, \
         patch("paper_trading_engine.paper_wallet_ledger") as mock_wallet, \
-        patch("paper_trading_engine.enforce_trading_gates"), \
-        patch("paper_trading_engine.trading_mode_validator") as mock_tv:
+        patch("paper_trading_engine.enforce_trading_gates"):
         mock_db.bots_collection = bots_collection
         mock_db.trades_collection = trades_collection
         mock_db.api_keys_collection = api_keys_collection
@@ -170,13 +184,13 @@ async def _test_paper_trade_scenario_deterministic_async():
         mock_wallet.can_trade = AsyncMock(side_effect=can_trade)
 
         results = []
-        for _ in range(20):
+        for _ in range(30):
             result = await engine.run_trading_cycle(
                 "bot_1",
                 bot_data,
                 {"bots": bots_collection, "trades": trades_collection}
             )
-            if result:
+            if result and result.get("new_capital"):
                 results.append(result)
 
     assert results, "Expected at least one paper trade result"

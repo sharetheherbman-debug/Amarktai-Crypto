@@ -325,6 +325,23 @@ class SignalAggregator:
         elif regime_label in ("trending_down",):
             regime_dir = "down"
 
+        # River edge adjustment (non-fatal): If the online learner has
+        # accumulated enough samples, bias confidence toward its prediction.
+        river_edge = 0.5
+        try:
+            from services.river_learner import river_learner
+            if river_learner.active and river_learner._samples_seen >= 10:
+                _river_feats = {
+                    "rsi": float(ml_pred.get("rsi", 50)),
+                    "macd_hist": float(ml_pred.get("macd_hist", 0)),
+                    "atr_pct": 0.0,
+                    "close_vs_sma20": 0.0,
+                    "volume_ratio": 1.0,
+                }
+                river_edge = await river_learner.predict_edge(_river_feats)
+        except Exception:
+            pass
+
         signed_scores = {
             "ml": self._score_for_direction(ml_dir, ml_conf),
             "regime": self._score_for_direction(regime_dir, regime_conf),
@@ -362,6 +379,7 @@ class SignalAggregator:
             "confidence": final_confidence,
             "predicted_change": round(predicted_change, 4),
             "signals_used": signals_used,
+            "river_edge": round(river_edge, 4),
             "hurst": hurst_result,
             "signal_breakdown": {
                 "ml": {

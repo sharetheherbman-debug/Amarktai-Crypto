@@ -1,22 +1,22 @@
 .api-key-settings {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 12px;
+  padding: 20px;
   color: var(--text);
   font-family: Inter, sans-serif;
 }
 
 .api-key-header h2 {
-  margin: 0 0 6px 0;
+  margin: 0 0 8px 0;
   font-size: 1.6rem;
   color: #ffffff;
 }
 
 .api-key-subtitle {
-  margin: 0 0 20px 0;
+  margin: 0 0 24px 0;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.4;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .api-message {
@@ -41,20 +41,38 @@
 
 .api-key-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--card-gap);
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+/* Tablet and up: 2 columns */
+@media (min-width: 768px) {
+  .api-key-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Desktop: maintain 2 columns for better readability */
+@media (min-width: 1024px) {
+  .api-key-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+  }
 }
 
 .api-key-card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* Changed to visible to prevent dropdown clipping when expanded */
+  overflow: visible;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  display: grid;
-  gap: 12px;
-  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
   cursor: pointer;
+  position: relative;
 }
 
 .api-key-card:hover {
@@ -166,45 +184,73 @@
 
 .api-key-fields {
   display: grid;
-  gap: 10px;
+  gap: 16px;
 }
 
 .api-key-field label {
   display: block;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--muted);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
-.api-key-field input {
+.api-key-field input,
+.api-key-field select {
   width: 100%;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--glass);
   color: var(--text);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  min-height: 44px;
 }
 
-.api-key-field input:focus {
+.api-key-field input:focus,
+.api-key-field select:focus {
   outline: none;
   border-color: rgba(56, 189, 248, 0.6);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+}
+
+.api-key-field select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23999' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.api-key-field select option {
+  background: var(--surface);
+  color: var(--text);
+  padding: 12px;
 }
 
 .api-key-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
+  margin-top: 8px;
 }
 
 .api-key-button {
   border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 0.85rem;
+  padding: 10px 18px;
+  font-size: 0.9rem;
   font-weight: 600;
   border: 1px solid transparent;
   cursor: pointer;
+  min-height: 44px;
+  transition: all 0.2s ease;
+}
+
+.api-key-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .api-key-button:disabled {
@@ -254,30 +300,54 @@
 }
 
 .api-key-security {
-  margin-top: 24px;
-  padding: 16px;
+  margin-top: 32px;
+  padding: 20px;
   border-radius: var(--radius-lg);
   background: var(--glass);
   border: 1px solid var(--line);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--muted);
+  line-height: 1.6;
 }
 
 .api-key-security h4 {
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
   color: var(--accent2);
+  font-size: 1rem;
 }
 
 /* Accordion body for inline key forms */
 .api-key-accordion-body {
-  margin-top: 12px;
-  padding: 16px;
+  margin-top: 16px;
+  padding: 20px;
   background: rgba(10, 12, 20, 0.6);
   border: 1px solid var(--line);
   border-radius: 8px;
   animation: fadeIn 0.3s ease-out;
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .api-key-card.expanded {
   border-color: rgba(56, 189, 248, 0.4);
 }
+
+/* Section headings for Exchanges / AI Providers */
+.api-key-section-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 20px 0 12px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+

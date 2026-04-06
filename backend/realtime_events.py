@@ -66,10 +66,11 @@ class RealTimeEvents:
         })
     
     @staticmethod
-    async def bot_deleted(user_id: str, bot_name: str):
+    async def bot_deleted(user_id: str, bot_name: str, bot_id: str = ""):
         """Broadcast when bot is deleted"""
         await manager.send_message(user_id, {
             "type": "bot_deleted",
+            "bot_id": bot_id,
             "message": f"🗑️ Bot '{bot_name}' deleted"
         })
     

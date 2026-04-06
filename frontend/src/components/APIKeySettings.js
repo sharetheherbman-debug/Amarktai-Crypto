@@ -1,28 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './APIKeySettings.css';
-import {
-  PLATFORM_CONFIG,
-  PROVIDER_TYPES,
-  getCanonicalProviders,
-} from '../constants/platforms';
+import { SUPPORTED_PLATFORMS, SUPPORTED_AI_PROVIDERS, ALL_PROVIDERS, PLATFORM_CONFIG } from '../constants/platforms';
 import realtimeClient from '../lib/realtime';
 import { get, post, del, notifyError } from '../lib/apiClient';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
-
-  // Build providers list from canonical config (excludes legacy/deprecated)
-  const PROVIDERS = getCanonicalProviders().map(id => {
+  // Build providers list from platform config (11 providers: 4 AI + 7 exchanges)
+  const PROVIDERS = ALL_PROVIDERS.map(id => {
     const config = PLATFORM_CONFIG[id];
     return {
       id: config.id,
       name: config.displayName || config.name,
       icon: config.icon,
       fields: config.requiredKeyFields,
-      type: config.type,
-      helpText: config.helpText || '',
+      type: config.type || 'exchange'
     };
   });
+
+  // Separated lists for rendering
+  const EXCHANGE_PROVIDERS = PROVIDERS.filter(p => SUPPORTED_PLATFORMS.includes(p.id));
+  const AI_PROVIDERS_LIST = PROVIDERS.filter(p => SUPPORTED_AI_PROVIDERS.includes(p.id));
 
   const [providers, setProviders] = useState([]);
   const [formData, setFormData] = useState({});
@@ -100,7 +98,7 @@ const APIKeySettings = () => {
         return {
           provider: provider.id,
           status,
-          status_display: getStatusDisplay(status, statusInfo.last_test_error, provider.id),
+          status_display: getStatusDisplay(status, statusInfo.last_test_error),
           last_test_error: statusInfo.last_test_error,
           updated_at: statusInfo.updated_at,
           last_tested_at: statusInfo.last_tested_at
@@ -251,19 +249,16 @@ const APIKeySettings = () => {
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
   };
 
-  const getStatusDisplay = (status, lastTestError, providerId) => {
-    if (!isProviderAvailable(providerId)) {
-      return 'Disabled in this deployment';
-    }
+  const getStatusDisplay = (status, lastTestError) => {
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid') {
-      return 'Connected';
+      return 'Valid ✅';
     }
     if (normalizedStatus === 'configured_invalid') {
-      return lastTestError ? `Configured but failing - ${lastTestError}` : 'Configured but failing';
+      return lastTestError ? `Invalid ❌ - ${lastTestError}` : 'Invalid ❌';
     }
     if (normalizedStatus === 'configured_untested') {
-      return 'Configured but untested';
+      return 'Configured (untested)';
     }
     if (normalizedStatus === 'configured_rate_limited') {
       return 'Rate limited ⏱️';
@@ -281,37 +276,35 @@ const APIKeySettings = () => {
     return date.toLocaleString();
   };
 
-  const getStatusBadge = (status, providerId, available = true) => {
+  const getStatusBadge = (status, available = true) => {
     if (!available) {
-      return { label: 'Disabled in deployment', tone: 'muted' };
+      return { label: 'Not available', tone: 'muted' };
     }
     const normalizedStatus = status?.toLowerCase();
     if (normalizedStatus === 'configured_valid' || normalizedStatus === 'test_ok') {
-      return { label: 'Connected', tone: 'success' };
+      return { label: 'Test OK', tone: 'success' };
     }
     if (normalizedStatus === 'configured_invalid' || normalizedStatus === 'test_failed') {
-      return { label: 'Configured (failing)', tone: 'error' };
+      return { label: 'Test failed', tone: 'error' };
     }
     if (normalizedStatus === 'configured_untested' || normalizedStatus === 'saved_untested') {
-      return { label: 'Configured, untested', tone: 'warning' };
+      return { label: 'Configured', tone: 'warning' };
     }
     if (normalizedStatus === 'testing') {
       return { label: 'Testing', tone: 'info' };
     }
     return { label: 'Not configured', tone: 'muted' };
   };
-  
-  // Render a single provider card
+
+  // Reusable card renderer for both exchanges and AI providers
   const renderProviderCard = (provider) => {
     const providerStatus = providers.find(p => p.provider === provider.id);
     const status = providerStatus?.status || 'not_configured';
     const isAvailable = isProviderAvailable(provider.id);
-    const statusBadge = getStatusBadge(status, provider.id, isAvailable);
-    const fallbackStatusDetails = getStatusDisplay(status, providerStatus?.last_test_error, provider.id);
-    let statusDetails = fallbackStatusDetails;
-    if (isAvailable && providerStatus?.status_display) {
-      statusDetails = providerStatus.status_display;
-    }
+    const statusBadge = getStatusBadge(status, isAvailable);
+    const statusDetails = isAvailable
+      ? providerStatus?.status_display || getStatusDisplay(status, providerStatus?.last_test_error)
+      : 'Not available in this build';
     const isConfigured = status !== 'not_configured';
 
     return (
@@ -338,18 +331,15 @@ const APIKeySettings = () => {
         </div>
 
         <div className="api-key-card-meta">
-          <span>Status: {statusDetails}</span>
-          <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : NOT_AVAILABLE}</span>
+          <span>Status: {statusDetails || 'Not configured'}</span>
+          <span>Last tested: {isAvailable ? formatTimestamp(providerStatus?.last_tested_at) : 'Not available in this build'}</span>
         </div>
 
         {/* Accordion: inline form when expanded */}
         {activeProviderId === provider.id && isAvailable && (
           <div className="api-key-accordion-body">
-            {provider.helpText && (
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 10px' }}>{provider.helpText}</p>
-            )}
             <div className="api-key-fields">
-              {provider.fields.map(field => (
+              {(provider.fields || []).map(field => (
                 <div key={field} className="api-key-field">
                   <label>
                     {field === 'api_key' ? 'API Key' :
@@ -409,20 +399,14 @@ const APIKeySettings = () => {
       </div>
     );
   };
-
-  // Group providers by type for display
-  const exchangeProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.EXCHANGE);
-  const aiProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.AI);
-  const marketDataProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.MARKET_DATA);
-  const enricherProviders = PROVIDERS.filter(p => p.type === PROVIDER_TYPES.ENRICHER);
-
+  
   return (
     <div className="api-key-settings">
       <div className="api-key-header">
         <div>
           <h2>🔑 API Key Management</h2>
           <p className="api-key-subtitle">
-            Configure credentials for exchanges, AI providers, market data sources, and intelligence enrichers. Keys are encrypted and scoped to your account.
+            Select a provider to add, update, or test your credentials. Keys are encrypted and scoped to your account.
           </p>
         </div>
       </div>
@@ -433,36 +417,16 @@ const APIKeySettings = () => {
         </div>
       )}
 
-      {/* Exchanges */}
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
-        🏦 Exchanges
-      </h3>
+      {/* ── Exchanges section ── */}
+      <h3 className="api-key-section-heading">🏦 Exchanges</h3>
       <div className="api-key-grid">
-        {exchangeProviders.map(renderProviderCard)}
+        {EXCHANGE_PROVIDERS.map(provider => renderProviderCard(provider))}
       </div>
 
-      {/* AI Providers */}
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
-        🤖 AI Providers
-      </h3>
+      {/* ── AI Providers section ── */}
+      <h3 className="api-key-section-heading" style={{marginTop: '28px'}}>🤖 AI Providers</h3>
       <div className="api-key-grid">
-        {aiProviders.map(renderProviderCard)}
-      </div>
-
-      {/* Market Data Providers */}
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
-        📈 Market Data Providers
-      </h3>
-      <div className="api-key-grid">
-        {marketDataProviders.map(renderProviderCard)}
-      </div>
-
-      {/* Optional / Supported Intelligence */}
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', margin: '20px 0 10px' }}>
-        🔍 Optional / Supported Intelligence
-      </h3>
-      <div className="api-key-grid">
-        {enricherProviders.map(renderProviderCard)}
+        {AI_PROVIDERS_LIST.map(provider => renderProviderCard(provider))}
       </div>
 
       <div className="api-key-security">

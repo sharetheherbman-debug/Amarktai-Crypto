@@ -1,3 +1,4 @@
+import React from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import APIKeySettings from '../../../components/APIKeySettings';
 
@@ -7,12 +8,21 @@ export default function ApiSetupSection() {
       <div className="card">
         <SectionHeader
           title="🔑 API Setup"
-          subtitle="Manage provider credentials and run key tests from a single command center view."
+          subtitle="Configure AI providers and exchange credentials with improved layout"
         />
-        <div className="api-setup-split">
-          <div className="api-setup-panel">
-            <APIKeySettings />
-          </div>
+        <APIKeySettings />
+        <div style={{
+          marginTop: '24px',
+          padding: '18px',
+          background: 'var(--glass)',
+          borderRadius: '8px',
+          border: '1px solid var(--line)',
+          fontSize: '0.9rem',
+          color: 'var(--muted)',
+          lineHeight: '1.6'
+        }}>
+          <strong style={{color: 'var(--text)'}}>💡 Tip:</strong> All API keys are encrypted and stored securely.
+          Test your credentials after saving to ensure proper configuration.
         </div>
       </div>
     </section>

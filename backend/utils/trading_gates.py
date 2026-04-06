@@ -26,7 +26,7 @@ def check_trading_mode_enabled() -> Tuple[bool, str]:
     Returns:
         Tuple[bool, str]: (is_enabled, reason_or_mode)
     """
-    paper_trading = env_bool('PAPER_TRADING', False)
+    paper_trading = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
     live_trading = env_bool('LIVE_TRADING', False)
     
     if not paper_trading and not live_trading:
@@ -151,7 +151,7 @@ def enforce_trading_gates(trading_mode: str = None) -> None:
         TradingGateError: If trading gates are not satisfied
     """
     if trading_mode == "paper":
-        paper_enabled = env_bool('PAPER_TRADING', False)
+        paper_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
         if not paper_enabled:
             msg = "❌ Paper trading gate FAILED: PAPER_TRADING not enabled"
             logger.error(msg)

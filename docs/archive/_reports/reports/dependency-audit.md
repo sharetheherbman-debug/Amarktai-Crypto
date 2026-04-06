@@ -238,7 +238,7 @@ protobuf>=3.19.5,<7.0      # Google AI (conflicts with agents)
 # server.py (module level)
 from market_regime import market_regime_detector
 from ml_predictor import ml_predictor
-from flokx_integration import flokx
+from coinstats_integration import coinstats
 from fetchai_integration import fetchai
 ```
 

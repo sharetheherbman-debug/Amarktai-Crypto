@@ -6,7 +6,7 @@ Trade Staggerer - 24/7 Staggered Trade Execution
 """
 
 import asyncio
-from typing import Dict, List, Optional, Set
+from typing import Dict, List
 from datetime import datetime, timezone, timedelta
 from collections import deque
 import logging
@@ -20,7 +20,6 @@ class TradeStaggerer:
         # Queue management
         self.trade_queue = deque()
         self.active_trades = {}  # {bot_id: timestamp}
-        self.last_dispatched_bot_id = None
         
         # Rate limiting per exchange
         self.exchange_limits = {
@@ -101,11 +100,9 @@ class TradeStaggerer:
     async def add_to_queue(self, bot_id: str, exchange: str, priority: int = 0):
         """Add a trade request to the queue"""
         try:
-            if not bot_id:
+            if not bot_id or not exchange:
                 logger.warning(
-                    "⚠️ add_to_queue called with empty bot_id for exchange=%s — skipping; "
-                    "caller must resolve canonical bot id before queuing",
-                    exchange,
+                    f"⚠️ Rejecting malformed add_to_queue call: bot_id={bot_id!r}, exchange={exchange!r}"
                 )
                 return
 
@@ -132,43 +129,47 @@ class TradeStaggerer:
         try:
             if not self.trade_queue:
                 return None
-            deferred_same_bot = None
             
             # Try each item in queue until we find one that can execute
             for _ in range(len(self.trade_queue)):
                 trade_request = self.trade_queue.popleft()
                 
-                bot_id = trade_request['bot_id']
-                exchange = trade_request['exchange']
+                bot_id = trade_request.get('bot_id')
+                exchange = trade_request.get('exchange')
+
+                if not bot_id or not exchange:
+                    logger.warning(
+                        f"⚠️ Malformed queue entry – dropping. payload={trade_request!r}"
+                    )
+                    continue
+
+                # Drop entry immediately if bot is no longer active in DB
+                try:
+                    bot_doc = await db.bots_collection.find_one(
+                        {"id": bot_id, "status": "active"}, {"_id": 0, "id": 1}
+                    )
+                    if not bot_doc:
+                        bot_id_display = str(bot_id)[:8] if bot_id else 'unknown'
+                        logger.info(f"🗑️ Discarding queue entry for inactive/deleted bot {bot_id_display}")
+                        continue
+                except Exception:
+                    pass  # If DB check fails, fall through to normal logic
                 
                 can_execute, reason = await self.can_execute_now(bot_id, exchange)
                 
                 if can_execute:
-                    # Fairness guard: avoid repeatedly dispatching same bot back-to-back
-                    # when other queued candidates exist.
-                    if (
-                        bot_id == self.last_dispatched_bot_id
-                        and len(self.trade_queue) > 0
-                        and deferred_same_bot is None
-                    ):
-                        deferred_same_bot = trade_request
-                        continue
-                    if deferred_same_bot is not None:
-                        self.trade_queue.append(deferred_same_bot)
-                    self.last_dispatched_bot_id = bot_id
                     return trade_request
                 else:
                     # Put back in queue if still relevant
                     queued_time = datetime.fromisoformat(trade_request['queued_at'].replace('Z', '+00:00'))
-                    age_minutes = max(0.0, (datetime.now(timezone.utc) - queued_time).total_seconds() / 60)
+                    age_minutes = (datetime.now(timezone.utc) - queued_time).seconds / 60
                     
                     if age_minutes < 30:  # Only re-queue if less than 30 minutes old
                         self.trade_queue.append(trade_request)
                     else:
-                        logger.warning(f"⏰ Dropped stale trade request: {bot_id[:8]} (age: {age_minutes:.1f}m)")
-            if deferred_same_bot is not None:
-                self.last_dispatched_bot_id = deferred_same_bot.get("bot_id")
-                return deferred_same_bot
+                        bot_id_display = str(bot_id)[:8] if bot_id else 'unknown'
+                        logger.warning(f"⏰ Dropped stale trade request: {bot_id_display} (age: {age_minutes:.1f}m)")
+            
             return None
             
         except Exception as e:
@@ -230,9 +231,9 @@ class TradeStaggerer:
                 "concurrent_by_exchange": dict(self.concurrent_trades_per_exchange),
                 "queue_items": [
                     {
-                        "bot_id": item['bot_id'][:8],
-                        "exchange": item['exchange'],
-                        "queued_at": item['queued_at']
+                        "bot_id": (item.get('bot_id') or '')[:8],
+                        "exchange": item.get('exchange', ''),
+                        "queued_at": item.get('queued_at', '')
                     }
                     for item in list(self.trade_queue)[:10]  # Show first 10
                 ]
@@ -240,6 +241,89 @@ class TradeStaggerer:
             
         except Exception as e:
             logger.error(f"Get queue status error: {e}")
+            return {"error": str(e)}
+    
+    async def get_queue_state(self) -> Dict:
+        """Get detailed queue state for diagnostics (admin-only)
+        
+        Returns:
+            queue_size: Number of trades in queue
+            next_eligible: When next trade can execute
+            locks: Active trade locks by bot_id
+            cooldowns: Last trade time per exchange
+            sample_items: Redacted sample of queue items
+            exchange_stats: Statistics per exchange
+        """
+        try:
+            # Calculate next eligible time
+            next_eligible = None
+            now = datetime.now(timezone.utc)
+            
+            # Check minimum wait times across all exchanges
+            for exchange, last_time in self.last_trade_per_exchange.items():
+                if last_time:
+                    limits = self.exchange_limits.get(exchange, self.exchange_limits['binance'])
+                    next_time = last_time + timedelta(seconds=limits['min_delay'])
+                    if not next_eligible or next_time < next_eligible:
+                        next_eligible = next_time
+            
+            # Build locks info (active trades)
+            locks = {}
+            for bot_id, timestamp in self.active_trades.items():
+                age_seconds = (now - timestamp).total_seconds()
+                locks[bot_id] = {  # Use full bot_id to avoid collisions
+                    "started_at": timestamp.isoformat(),
+                    "age_seconds": int(age_seconds)
+                }
+            
+            # Build cooldowns info
+            cooldowns = {}
+            for exchange, last_time in self.last_trade_per_exchange.items():
+                if last_time:
+                    limits = self.exchange_limits.get(exchange, {})
+                    age_seconds = (now - last_time).total_seconds()
+                    remaining = max(0, limits.get('min_delay', 0) - int(age_seconds))
+                    cooldowns[exchange] = {
+                        "last_trade": last_time.isoformat(),
+                        "age_seconds": int(age_seconds),
+                        "remaining_seconds": remaining,
+                        "min_delay": limits.get('min_delay', 0)
+                    }
+            
+            # Sample queue items (redacted)
+            sample_items = []
+            for item in list(self.trade_queue)[:5]:
+                bid = item.get('bot_id') or ''
+                sample_items.append({
+                    "bot_id": bid[:12] + "..." if len(bid) > 12 else bid,  # Show more characters to reduce collision risk
+                    "exchange": item.get('exchange', ''),
+                    "priority": item.get('priority', 0),
+                    "queued_at": item.get('queued_at', '')
+                })
+            
+            # Exchange stats
+            exchange_stats = {}
+            for exchange, limits in self.exchange_limits.items():
+                concurrent = self.concurrent_trades_per_exchange.get(exchange, 0)
+                exchange_stats[exchange] = {
+                    "concurrent_trades": concurrent,
+                    "max_concurrent": limits['max_concurrent'],
+                    "min_delay_seconds": limits['min_delay'],
+                    "last_trade": self.last_trade_per_exchange.get(exchange, None).isoformat() if self.last_trade_per_exchange.get(exchange) else None
+                }
+            
+            return {
+                "queue_size": len(self.trade_queue),
+                "active_trades_count": len(self.active_trades),
+                "next_eligible": next_eligible.isoformat() if next_eligible else None,
+                "locks": locks,
+                "cooldowns": cooldowns,
+                "sample_items": sample_items,
+                "exchange_stats": exchange_stats
+            }
+            
+        except Exception as e:
+            logger.error(f"Get queue state error: {e}")
             return {"error": str(e)}
     
     async def clear_stale_trades(self):
@@ -265,89 +349,6 @@ class TradeStaggerer:
                     
         except Exception as e:
             logger.error(f"Clear stale trades error: {e}")
-
-    async def purge_orphaned_queue(self, valid_bot_ids: Optional[Set[str]] = None) -> Dict:
-        """Remove queue items for deleted/non-existent bots and stale queued items."""
-        try:
-            if valid_bot_ids is None:
-                docs = await db.bots_collection.find(
-                    {
-                        "status": {"$ne": "deleted"},
-                        "deleted_at": {"$exists": False},
-                    },
-                    {"_id": 0, "id": 1},
-                ).to_list(5000)
-                valid_bot_ids = {d.get("id") for d in docs if d.get("id")}
-
-            now = datetime.now(timezone.utc)
-            kept = deque()
-            removed_missing = 0
-            removed_stale = 0
-
-            for item in list(self.trade_queue):
-                bot_id = item.get("bot_id")
-                if bot_id not in valid_bot_ids:
-                    removed_missing += 1
-                    continue
-                queued_at = self._parse_queued_at(item.get("queued_at"), now)
-                age_minutes = (now - queued_at).total_seconds() / 60
-                if age_minutes >= 30:
-                    removed_stale += 1
-                    continue
-                kept.append(item)
-
-            self.trade_queue = kept
-
-            # Active-trade entries for invalid bots should be removed too.
-            stale_active = [bid for bid in list(self.active_trades.keys()) if bid not in valid_bot_ids]
-            for bid in stale_active:
-                self.active_trades.pop(bid, None)
-
-            if removed_missing or removed_stale or stale_active:
-                logger.info(
-                    "🧹 Queue cleanup: removed_missing=%d removed_stale=%d stale_active=%d queue_size=%d",
-                    removed_missing, removed_stale, len(stale_active), len(self.trade_queue),
-                )
-
-            return {
-                "removed_missing": removed_missing,
-                "removed_stale": removed_stale,
-                "stale_active_removed": len(stale_active),
-                "queue_size": len(self.trade_queue),
-            }
-        except Exception as e:
-            logger.error(f"Purge orphaned queue error: {e}")
-            return {"error": str(e), "queue_size": len(self.trade_queue)}
-
-    async def clear_bot(self, bot_id: str) -> None:
-        """Remove all queued/active runtime state for a bot."""
-        self.active_trades.pop(bot_id, None)
-        self.trade_queue = deque([item for item in self.trade_queue if item.get("bot_id") != bot_id])
-
-    async def clear_user(self, user_id: str) -> None:
-        """Remove queued/active runtime state for all bots belonging to user."""
-        try:
-            docs = await db.bots_collection.find({"user_id": user_id}, {"_id": 0, "id": 1}).to_list(5000)
-            for doc in docs:
-                bot_id = doc.get("id")
-                if bot_id:
-                    await self.clear_bot(bot_id)
-        except Exception as e:
-            logger.warning(f"clear_user queue cleanup failed: {e}")
-
-    @staticmethod
-    def _parse_queued_at(value, fallback: datetime) -> datetime:
-        """Best-effort queued_at parser for queue cleanup."""
-        if isinstance(value, datetime):
-            return value
-        try:
-            raw = str(value or "").strip()
-            if raw.endswith("Z"):
-                raw = raw[:-1] + "+00:00"
-            parsed = datetime.fromisoformat(raw)
-            return parsed
-        except Exception:
-            return fallback
 
 # Global instance
 trade_staggerer = TradeStaggerer()

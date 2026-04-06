@@ -1,0 +1,273 @@
+"""
+Automatic Market Intelligence Service
+Pulls from CoinStats on a schedule, emits events to user feeds.
+"""
+import asyncio
+import logging
+import os
+from datetime import datetime, timezone
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# How often to refresh intelligence (default 60 seconds, min 30, max 900)
+_REFRESH_INTERVAL = max(30, min(900, int(os.getenv("MARKET_INTEL_REFRESH_SECONDS", "60"))))
+
+_last_brief: Optional[dict] = None
+_last_error: Optional[str] = None
+
+# All field name variants used by the key-storage layer for encrypted API keys.
+# Checked in order of most-common first.
+_ENCRYPTED_KEY_FIELDS = [
+    "api_key_encrypted",
+    "apiKeyEncrypted",
+    "api_key_ciphertext",
+    "key_encrypted",
+    "api_key",
+]
+
+
+async def get_latest_intelligence(user_id: Optional[str] = None) -> dict:
+    """Return the most recently computed market intelligence.
+
+    If *user_id* is supplied the CoinStats key is resolved for that user so
+    the background brief is accurate for users that have their own key.
+    """
+    if _last_brief is not None and user_id:
+        # If the cached brief shows a key error but this user has a valid key,
+        # trigger an immediate per-user fetch to replace the stale cached brief.
+        stale_statuses = {"key_missing", "invalid_key"}
+        if _last_brief.get("fetch_status") in stale_statuses:
+            await _fetch_and_process(user_id=user_id)
+    return _last_brief or {
+        "what_happened": f"No market data yet — intelligence updates every {_REFRESH_INTERVAL} seconds.",
+        "why_it_matters": "Market intelligence is collected automatically from CoinStats.",
+        "what_amarktai_is_doing": "AmarktAI Crypto monitors markets continuously and adjusts bot strategy.",
+        "confidence": "Pending first fetch",
+        "mood": "neutral",
+        "top_risk": "none",
+        "source": "CoinStats",
+        "updated_at": None,
+        "refresh_interval_seconds": _REFRESH_INTERVAL,
+        "last_error": None,
+    }
+
+
+async def _resolve_scheduler_user_id() -> Optional[str]:
+    """Return any user_id that has a CoinStats key saved in the DB (for scheduler use).
+
+    Supports all encrypted-key field name variants used by the key storage layer
+    (api_key_encrypted, apiKeyEncrypted, api_key_ciphertext, key_encrypted, api_key).
+    """
+    try:
+        import database as db
+        if db.api_keys_collection is None:
+            return None
+        # Build a query that matches whichever encrypted-key field is present.
+        # The DB may store keys under different field names depending on the
+        # version that saved them — check all known variants.
+        encrypted_field_query = {"$or": [
+            {field: {"$exists": True, "$ne": ""}}
+            for field in _ENCRYPTED_KEY_FIELDS
+        ]}
+        doc = await db.api_keys_collection.find_one(
+            {"provider": "coinstats", **encrypted_field_query},
+            {"user_id": 1, "_id": 0},
+        )
+        return doc.get("user_id") if doc else None
+    except Exception:
+        return None
+
+
+async def _fetch_and_process(user_id: Optional[str] = None):
+    """Fetch CoinStats news and build market brief.
+
+    *user_id* is passed to resolve a per-user CoinStats key.  When called from
+    the background scheduler *user_id* is None and the scheduler resolves its
+    own eligible user via :func:`_resolve_scheduler_user_id`.
+    """
+    global _last_brief, _last_error
+    now = datetime.now(timezone.utc)
+    try:
+        from services.news_coinstats import coinstats_provider, resolve_coinstats_key
+        # Scheduler has no user context — try to find any user with a saved key
+        sched_user_id = user_id or await _resolve_scheduler_user_id()
+        articles = await coinstats_provider.get_articles(limit=10, user_id=sched_user_id)
+
+        if not articles:
+            # Diagnose why — missing key, rate-limit, network, etc.
+            last_error = getattr(coinstats_provider, "_last_error", None)
+            key, key_source = await resolve_coinstats_key(sched_user_id)
+            if not key:
+                block_reason = "CoinStats API key not configured. Add COINSTATS_API_KEY env var or save via API Setup."
+                fetch_status = "key_missing"
+            elif last_error and "429" in str(last_error):
+                block_reason = "CoinStats rate-limited (HTTP 429). Retrying on next interval."
+                fetch_status = "rate_limited"
+            elif last_error and "401" in str(last_error):
+                block_reason = "CoinStats API key rejected (HTTP 401). Check your key."
+                fetch_status = "invalid_key"
+            elif last_error:
+                block_reason = f"CoinStats fetch failed: {last_error}"
+                fetch_status = "error"
+            else:
+                block_reason = "CoinStats returned no articles. Will retry on next interval."
+                fetch_status = "no_articles"
+
+            logger.warning(f"Market intelligence: no articles — {block_reason}")
+            # Update _last_brief with status so updated_at becomes non-null
+            _last_brief = {
+                "what_happened": block_reason,
+                "why_it_matters": "Market intelligence is awaiting CoinStats data.",
+                "what_amarktai_is_doing": "AmarktAI Crypto is monitoring markets. Data will appear once CoinStats is reachable.",
+                "confidence": "Pending first fetch",
+                "mood": "neutral",
+                "top_risk": "none",
+                "source": "CoinStats",
+                "fetch_status": fetch_status,
+                "block_reason": block_reason,
+                "updated_at": now.isoformat(),
+            }
+            return
+
+        # Build simple mood from sentiment scores
+        sentiments = [a.get("sentiment_label", "").upper() for a in articles if a.get("sentiment_label")]
+        pos = sentiments.count("POSITIVE")
+        neg = sentiments.count("NEGATIVE")
+
+        if pos > neg + 2:
+            mood = "positive"
+            confidence = "High — majority of recent headlines are positive"
+        elif neg > pos + 2:
+            mood = "negative"
+            confidence = "High — majority of recent headlines are negative"
+        else:
+            mood = "neutral"
+            confidence = "Moderate — mixed market signals"
+
+        # Top headline
+        top = articles[0] if articles else {}
+        what_happened = top.get("title") or top.get("description") or "No recent headlines"
+
+        # Risk label
+        risk_keywords = {
+            "hack": "exchange security incident",
+            "regulatory": "regulatory headline",
+            "sec": "regulatory headline",
+            "ban": "regulatory action",
+            "crash": "high volatility",
+            "volatile": "high volatility",
+            "liquidat": "liquidation event",
+            "outage": "exchange outage",
+            "exploit": "DeFi exploit",
+        }
+        top_risk = "none"
+        all_text = " ".join([a.get("title", "") + " " + a.get("description", "") for a in articles]).lower()
+        for keyword, label in risk_keywords.items():
+            if keyword in all_text:
+                top_risk = label
+                break
+
+        now = datetime.now(timezone.utc)
+        _last_brief = {
+            "what_happened": what_happened,
+            "why_it_matters": f"This {mood} signal from CoinStats affects crypto prices and bot entry/exit decisions.",
+            "what_amarktai_is_doing": f"AmarktAI Crypto bots are operating in {mood} mode — {'seeking opportunities' if mood == 'positive' else 'applying caution' if mood == 'negative' else 'monitoring closely'}.",
+            "confidence": confidence,
+            "mood": mood,
+            "top_risk": top_risk,
+            "headlines_count": len(articles),
+            "top_articles": [
+                {"title": a.get("title", ""), "url": a.get("url", ""), "source": a.get("source", "")}
+                for a in articles[:5]
+            ],
+            "source": "CoinStats",
+            "fetch_status": "ok",
+            "block_reason": None,
+            "updated_at": now.isoformat(),
+            "refresh_interval_seconds": _REFRESH_INTERVAL,
+            "last_error": None,
+        }
+        _last_error = None
+
+        logger.info(f"Market intelligence updated: mood={mood}, risk={top_risk}, articles={len(articles)}")
+
+        # Emit event to all active users (best-effort)
+        await _emit_intelligence_event()
+
+    except Exception as e:
+        logger.warning(f"Market intelligence fetch failed: {e}")
+        _last_error = str(e)[:400]
+        # Still update _last_brief so updated_at is non-null
+        _last_brief = {
+            "what_happened": f"Market intelligence fetch error: {str(e)[:200]}",
+            "why_it_matters": "An error occurred while fetching CoinStats data.",
+            "what_amarktai_is_doing": "AmarktAI Crypto is retrying market data fetch on the next interval.",
+            "confidence": "Pending",
+            "mood": "neutral",
+            "top_risk": "none",
+            "source": "CoinStats",
+            "fetch_status": "error",
+            "block_reason": str(e)[:200],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "refresh_interval_seconds": _REFRESH_INTERVAL,
+            "last_error": str(e)[:400],
+        }
+
+
+async def _emit_intelligence_event():
+    """Emit market brief event to all active users."""
+    try:
+        import database as db
+        if db.db is None or _last_brief is None:
+            return
+        brief = _last_brief
+        mood_emoji = {"positive": "📈", "negative": "📉", "neutral": "➡️"}.get(brief["mood"], "📊")
+        message = f"{mood_emoji} Market brief: {brief['what_happened'][:120]}"
+        # Emit to all users who have bots or recent activity
+        users = await db.users_collection.find({}, {"id": 1}).to_list(length=200)
+        from routes.events import emit_event
+        for user in users:
+            uid = user.get("id") or str(user.get("_id", ""))
+            if uid:
+                await emit_event(uid, "market_intelligence", "info", message, meta={"mood": brief["mood"], "risk": brief["top_risk"]})
+    except Exception as e:
+        logger.debug(f"Could not emit intelligence event: {e}")
+
+
+_last_run_at: Optional[str] = None
+
+
+async def start_intelligence_scheduler():
+    """Start the background market intelligence refresh loop.
+    Performs an immediate fetch on startup so data is available right away."""
+    global _last_run_at
+    logger.info(f"Market intelligence scheduler starting (interval={_REFRESH_INTERVAL}s)")
+    while True:
+        await _fetch_and_process()
+        _last_run_at = datetime.now(timezone.utc).isoformat()
+        await asyncio.sleep(_REFRESH_INTERVAL)
+
+
+def get_intelligence_status() -> dict:
+    """Return current scheduler status including last_run_at, next_run_in_seconds, and last_error."""
+    now = datetime.now(timezone.utc)
+    if _last_run_at:
+        try:
+            last_run = datetime.fromisoformat(_last_run_at)
+            elapsed = (now - last_run).total_seconds()
+            next_run_in = max(0, _REFRESH_INTERVAL - int(elapsed))
+        except Exception:
+            elapsed = None
+            next_run_in = None
+    else:
+        elapsed = None
+        next_run_in = None
+
+    return {
+        "last_run_at": _last_run_at,
+        "next_run_in_seconds": next_run_in,
+        "refresh_interval_seconds": _REFRESH_INTERVAL,
+        "last_error": _last_error,
+        "has_data": _last_brief is not None,
+    }

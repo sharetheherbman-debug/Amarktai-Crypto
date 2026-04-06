@@ -8,9 +8,19 @@ import { formatTimestamp } from '../utils/time.js';
 import { useRealtimeEvent } from './useRealtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
-import { NAV } from '../constants/dashboardNav';
-import { formatZAR, formatAmount, getCurrencySymbol } from '../lib/moneyFormat';
-import useDisplayCurrency from './useDisplayCurrency';
+
+/**
+ * Helper function to get token from localStorage
+ * Returns null if no token exists
+ */
+const getToken = () => {
+  try {
+    return localStorage.getItem('token') || null;
+  } catch (error) {
+    console.error('Error reading token:', error);
+    return null;
+  }
+};
 
 const API = '';
 const axios = apiClient;
@@ -27,9 +37,7 @@ const safeNumber = (value, fallback = 0) => {
 
 const resolveSystemMode = (modeRes) => {
   if (!modeRes) return 'paper';
-  if (modeRes.system_mode) return modeRes.system_mode;
-  if (modeRes.mode && modeRes.mode !== 'autopilot') return modeRes.mode;
-  return modeRes.liveTrading ? 'live' : modeRes.paperTrading ? 'paper' : 'testing';
+  return modeRes.mode || (modeRes.liveTrading ? 'live' : modeRes.autopilot ? 'autopilot' : 'paper');
 };
 
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -48,7 +56,15 @@ const formatCurrencyValue = (value, digits = 2) => {
   });
 };
 
-// formatZAR imported from canonical moneyFormat.js — do not redefine here
+const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const formatted = Math.abs(num).toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  });
+  return `${num < 0 ? '-R' : 'R'}${formatted}`;
+};
 
 const toTitleCase = (value) => value.replace(/\w\S*/g, (word) =>
   word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
@@ -116,10 +132,11 @@ const formatReasonInline = (reason) => {
 
 export default function useDashboardState(navigate) {
   const [user, setUser] = useState(null);
-  const [activeSection, setActiveSection] = useState(NAV.OVERVIEW);
-  const [metricsTab, setMetricsTab] = useState('decision-trace'); // Tab state for Metrics section
+  const [activeSection, setActiveSection] = useState('welcome');
+  const [intelligenceTab, setIntelligenceTab] = useState('whale-flow'); // Tab state for Intelligence section
+  const [metricsTab, setMetricsTab] = useState('news'); // Tab state for Metrics section - default to News
   const [botManagementTab, setBotManagementTab] = useState('creation'); // Tab state for Bot Management parent section
-  const [profitsTab, setProfitsTab] = useState('profit-history'); // Tab state for Profits & Performance parent section
+  const [profitsTab, setProfitsTab] = useState('metrics'); // Tab state for Profits & Performance parent section
   const [botStatusFilter, setBotStatusFilter] = useState('all');
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   // Admin panel state - Hidden by default each session, only shown after password unlock
@@ -138,7 +155,6 @@ export default function useDashboardState(navigate) {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
-  const [pendingConfirmationId, setPendingConfirmationId] = useState(null);
   const [bots, setBots] = useState([]);
   const [apiKeys, setApiKeys] = useState({});
   const [metrics, setMetrics] = useState({
@@ -225,7 +241,10 @@ export default function useDashboardState(navigate) {
   const [autonomyStatus, setAutonomyStatus] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
   const [learningStatus, setLearningStatus] = useState(null);
-  const [notableEvent, setNotableEvent] = useState(null);
+  // RL Agent State
+  const [rlMetrics, setRlMetrics] = useState(null);
+  const [rlLoading, setRlLoading] = useState(false);
+  const [rlRecommendations, setRlRecommendations] = useState({});
   const [riskProfile, setRiskProfile] = useState('balanced');
   const [autoSpawnStatus, setAutoSpawnStatus] = useState(null);
   const [autopilotGrowthStatus, setAutopilotGrowthStatus] = useState(null);
@@ -242,17 +261,12 @@ export default function useDashboardState(navigate) {
   const [showAITools, setShowAITools] = useState(false); // Toggle AI tools submenu
   const [eligibleBots, setEligibleBots] = useState([]);
   const [showPromotionModal, setShowPromotionModal] = useState(false);
-  const [paperResetPassword, setPaperResetPassword] = useState('');
   const [paperResetError, setPaperResetError] = useState('');
   const [paperResetLoading, setPaperResetLoading] = useState(false);
-  const [paperResetValid, setPaperResetValid] = useState(false);
-  const [paperResetChecking, setPaperResetChecking] = useState(false);
   const [showPaperResetModal, setShowPaperResetModal] = useState(false);
-  const [paperResetUnavailable, setPaperResetUnavailable] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminBots, setAdminBots] = useState([]);
   const [adminApiHealth, setAdminApiHealth] = useState({ status: 'Unknown', lastCheck: null, error: null });
-  const [adminKeyMonitor, setAdminKeyMonitor] = useState({ providers: [], timestamp: null });
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingBots, setLoadingBots] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
@@ -260,26 +274,20 @@ export default function useDashboardState(navigate) {
   const [selectedBotId, setSelectedBotId] = useState('');
   const [filteredAdminBots, setFilteredAdminBots] = useState([]);
   const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
+  const [tradesErrorShown, setTradesErrorShown] = useState(false);
+  const [tradesLoadError, setTradesLoadError] = useState(null);
+  const [tradesLoading, setTradesLoading] = useState(false);
   
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
   const sseRef = useRef(null);
   const botStatusErrorRef = useRef({ lastShown: 0 });
-
+  
   const token = localStorage.getItem('token');
   const axiosConfig = useMemo(() => ({
     headers: { Authorization: `Bearer ${token}` }
   }), [token]);
   const { livePrices, loadLivePrices, setLivePrices } = useDashboardData(token);
-
-  // ── Display currency preference ───────────────────────────────────────────
-  const {
-    displayCurrency,
-    setDisplayCurrency,
-    currencySymbol: displayCurrencySymbol,
-    loading: displayCurrencyLoading,
-    error: displayCurrencyError,
-  } = useDisplayCurrency();
   const storageTotals = useMemo(() => {
     if (!storageData) {
       return null;
@@ -362,8 +370,6 @@ export default function useDashboardState(navigate) {
     loadMetrics();
     loadSystemModes();
     loadApiStatuses();
-    loadAiStatus();
-    loadLearningStatus();
     loadRecentTrades();
     loadCountdown();
     loadCustomCountdowns();
@@ -393,37 +399,36 @@ export default function useDashboardState(navigate) {
     // Add personalized welcome message
     setChatMessages([{
       role: 'assist',
-      content: `Hello ${user?.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
+      content: `Hello ${user?.first_name || 'there'}! Welcome to AmarktAI Crypto. I'm your AI assistant with full control over your trading system. Try commands like 'create a bot', 'show performance', 'enable autopilot', or ask me anything about your trading!`
     }]);
     
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('navigateToSection', handleNavigateToSection);
-      if (wsRef.current) {
-        wsRef.current.close();
+      if (wsRef.current?.rttInterval) {
+        clearInterval(wsRef.current.rttInterval);
         wsInitializedRef.current = false;
       }
       if (sseRef.current) sseRef.current.close();
+      // Disconnect realtime client
+      realtimeClient.disconnect();
     };
   }, []);
   
   useEffect(() => {
     if (token && user) {
       refreshAllDashboardData();
-      loadSystemStats();
       loadProfitData();
       // REMOVED: Duplicate setupRealTimeConnections() call
 
-      let priceInterval;
+      // NOTE: Price polling is handled by useDashboardData (4s interval).
+      // Only do an initial load here; no interval to avoid triple polling.
       const startPolling = () => {
         loadLivePrices();
-        priceInterval = setInterval(loadLivePrices, 4000);
       };
 
       const stopPolling = () => {
-        if (priceInterval) {
-          clearInterval(priceInterval);
-        }
+        // no-op: interval owned by useDashboardData
       };
 
       const handleVisibility = () => {
@@ -452,16 +457,17 @@ export default function useDashboardState(navigate) {
     const interval = setInterval(() => {
       loadOverviewData();
       loadRiskStatus();
-      loadLearningStatus();
       if (realtimeFallback) {
         loadSystemHealth();
         loadCountdown();
-        loadSystemStats();
+        if (showAdmin) {
+          loadSystemStats();
+        }
       }
     }, 10000);
     
     return () => clearInterval(interval);
-  }, [token, user, realtimeFallback]);
+  }, [token, user, realtimeFallback, showAdmin]);
 
   useEffect(() => {
     if (!token) return;
@@ -553,7 +559,7 @@ export default function useDashboardState(navigate) {
     if (user && chatMessages.length === 0) {
       setChatMessages([{
         role: 'assistant',
-        content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+        content: `Hello ${user.first_name || 'there'}! Welcome to AmarktAI Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
       }]);
     }
   }, [user]);
@@ -563,14 +569,23 @@ export default function useDashboardState(navigate) {
       // Load chat history from backend (per-user, auto-namespaced by JWT)
       const data = await get('/chat/history?days=30&limit=100');
       if (data.messages && data.messages.length > 0) {
-        // Messages are already in chronological order (newest-last) from backend
-        setChatMessages(data.messages);
+        // Dedup messages by message_id (or timestamp+content hash as fallback)
+        const msgKey = (m) => m.message_id || `${m.timestamp || ''}_${(m.content || '').slice(0, 40)}`;
+        const seen = new Set();
+        const deduped = data.messages.filter(m => {
+          const key = msgKey(m);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        // Replace current messages with deduped history
+        setChatMessages(deduped);
       } else {
         // Initialize with welcome message if no history
         if (user) {
           setChatMessages([{
             role: 'assistant',
-            content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+            content: `Hello ${user.first_name || 'there'}! Welcome to AmarktAI Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
           }]);
         }
       }
@@ -580,7 +595,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to AmarktAI Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
     }
@@ -597,7 +612,7 @@ export default function useDashboardState(navigate) {
       if (user) {
         setChatMessages([{
           role: 'assistant',
-          content: `Hello ${user.first_name || 'there'}! Welcome to Amarktai Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
+          content: `Hello ${user.first_name || 'there'}! Welcome to AmarktAI Crypto. I'm your AI assistant. Try commands like 'show admin', 'help', or ask me anything!`
         }]);
       }
       showNotification('Chat history cleared successfully', 'success');
@@ -614,7 +629,6 @@ export default function useDashboardState(navigate) {
     if (task.status === 'completed') {
       setAiTaskLoading(null);
       toast.success(`${task.task_type} completed successfully`);
-      registerNotableEvent('ai task completed', `${task.task_type} completed`);
       
       // Refresh data based on task type
       if (task.task_type === 'bot_evolution') {
@@ -622,13 +636,10 @@ export default function useDashboardState(navigate) {
       } else if (task.task_type === 'profit_reinvestment') {
         loadMetrics();
         loadBalances();
-      } else if (task.task_type === 'learning') {
-        loadLearningStatus();
       }
     } else if (task.status === 'failed') {
       setAiTaskLoading(null);
       toast.error(`${task.task_type} failed: ${task.error || 'Unknown error'}`);
-      registerNotableEvent('ai task failed', `${task.task_type} failed`);
     } else if (task.status === 'running') {
       toast.info(`${task.task_type} in progress: ${Math.round(task.progress * 100)}%`);
     }
@@ -650,7 +661,7 @@ export default function useDashboardState(navigate) {
       loadAutopilotReinvestStatus()
     ]);
     if (showAdmin) {
-      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats(), loadAdminKeyMonitor()]);
+      await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats()]);
     }
   };
 
@@ -660,8 +671,6 @@ export default function useDashboardState(navigate) {
       loadMetrics(),
       loadSystemModes(),
       loadApiStatuses(),
-      loadAiStatus(),
-      loadLearningStatus(),
       loadRecentTrades(),
       loadCountdown(),
       loadLivePrices(),
@@ -678,33 +687,12 @@ export default function useDashboardState(navigate) {
 
   useEffect(() => {
     if (!isPaperResetMode) {
-      setPaperResetPassword('');
-      setPaperResetValid(false);
-      setPaperResetChecking(false);
       setPaperResetError('');
       setShowPaperResetModal(false);
     }
   }, [isPaperResetMode]);
 
-  useEffect(() => {
-    if (!token) return undefined;
-    loadLivePrices();
-    const priceInterval = setInterval(loadLivePrices, 5000);
-    return () => clearInterval(priceInterval);
-  }, [token, loadLivePrices]);
-
-  useEffect(() => {
-    if (!isPaperResetMode) {
-      setPaperResetPassword('');
-      setPaperResetValid(false);
-      setPaperResetError('');
-      return undefined;
-    }
-    const isMatch = paperResetPassword === 'RESET PAPER MODE';
-    setPaperResetValid(isMatch);
-    setPaperResetError(paperResetPassword && !isMatch ? 'Type exactly: RESET PAPER MODE' : '');
-    return undefined;
-  }, [paperResetPassword, isPaperResetMode]);
+  // NOTE: Price polling is handled by useDashboardData (4s interval). Removed duplicate interval here.
 
   // Update filtered bots when adminBots or selectedUserId changes
   useEffect(() => {
@@ -716,138 +704,78 @@ export default function useDashboardState(navigate) {
     }
   }, [adminBots, selectedUserId]);
 
+
+
   const setupRealTimeConnections = () => {
-    console.log('✅ Initializing WebSocket connection...');
-    
-    // Also connect the realtime client for API key events
-    if (token) {
-      realtimeClient.connect(token);
+    // Guard: Only setup connections if token exists
+    const currentToken = getToken();
+    if (!currentToken) {
+      console.log('⏸️  No token available - skipping WebSocket setup');
+      return;
     }
+
+    console.log('✅ Initializing WebSocket connection via realtimeClient...');
     
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
-    
-    const connectWebSocket = () => {
-      try {
-        // Use shared helper to build same-origin WS URL (wss:// on HTTPS)
-        const wsEndpoint = `${wsUrl()}?token=${token}`;
-        wsRef.current = new WebSocket(wsEndpoint);
+    // Connect using the centralized realtime client (no duplicate WebSocket)
+    // NOTE: connection is owned by useDashboardData; this block only subscribes
+    if (token) {
+      // Do NOT call realtimeClient.connect(token) here - useDashboardData owns the connection
+      
+      // Subscribe to connection status events
+      realtimeClient.on('connection', (data) => {
+        const isConnected = data.status === 'connected';
+        setConnectionStatus(prev => ({
+          ...prev,
+          ws: isConnected ? 'Connected' : 'Disconnected',
+          sse: isConnected ? 'Connected' : 'Disconnected'
+        }));
+        console.log('🔌 Connection status:', data.status, 'mode:', data.mode);
         
-        wsRef.current.onopen = () => {
-          reconnectAttempts = 0; // Reset on successful connection
-          setConnectionStatus(prev => ({ ...prev, ws: 'Connected', sse: 'Connected' }));
-          console.log('✅ WebSocket connected');
+        if (isConnected) {
           refreshAllDashboardData();
-          
-          const pingInterval = setInterval(() => {
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              const startTime = Date.now();
-              wsRef.current.send(JSON.stringify({ 
-                type: 'ping', 
-                timestamp: startTime 
-              }));
-            }
-          }, 20000); // Ping every 20 seconds
-          
-          wsRef.current.pingInterval = pingInterval;
-        };
-        
-        wsRef.current.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'pong') {
-              const rtt = Date.now() - data.timestamp;
-              setWsRtt(`${rtt}ms`);
-            } else {
-              handleRealTimeUpdate(data);
-            }
-          } catch (err) {
-            console.error('WebSocket message parse error:', err);
-          }
-        };
-        
-        wsRef.current.onclose = () => {
-          setConnectionStatus(prev => ({ ...prev, ws: 'Disconnected', sse: 'Disconnected' }));
+        }
+      });
+      
+      // Subscribe to all event types and route through handleRealTimeUpdate
+      const eventTypes = [
+        'connection_established', 'ping', 'pong', 'metrics', 'bot_status', 
+        'balance', 'live_prices', 'prices_update', 'overview_update', 
+        'bots_update', 'trades_update', 'notification', 'chat_response', 
+        'trade_executed', 'trade_opened', 'trade_closed', 'bot_created', 'bot_updated', 'bot_deleted',
+        'alert', 'system_health', 'wallet_update', 'ai_task_update',
+        'api_key_added', 'api_key_updated', 'api_key_deleted',
+        'balance_updated', 'transfer_updated'
+      ];
+      
+      eventTypes.forEach(eventType => {
+        realtimeClient.on(eventType, (data) => {
+          // Route through existing handleRealTimeUpdate function
+          handleRealTimeUpdate({ type: eventType, ...data });
+        });
+      });
+      
+      // Monitor RTT from realtime client status
+      const rttInterval = setInterval(() => {
+        const status = realtimeClient.getStatus();
+        if (status.rtt) {
+          setWsRtt(`${status.rtt}ms`);
+        } else if (!status.connected) {
           setWsRtt(NOT_AVAILABLE);
-          
-          // Only reconnect if under max attempts
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            setTimeout(() => {
-              console.log(`Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-              connectWebSocket();
-            }, 5000);
-          } else {
-            console.log('❌ Max reconnect attempts reached');
-          }
-        };
-        
-        wsRef.current.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          setConnectionStatus(prev => ({ ...prev, ws: 'Error', sse: 'Error' }));
-        };
-      } catch (err) {
-        console.error('WebSocket connection error:', err);
-        setConnectionStatus(prev => ({ ...prev, ws: 'Error', sse: 'Error' }));
-      }
-    };
-    
-    // Only use WebSocket (SSE disabled due to auth issues)
-    try {
-      connectWebSocket();
-    } catch (err) {
-      console.error('Failed to initialize WebSocket:', err);
-      setConnectionStatus({ ws: 'Error', sse: 'Error', api: 'Connected' });
+        }
+      }, 5000);
+      
+      // Store interval for cleanup
+      wsRef.current = { rttInterval };
     }
   };
 
   // Rate limiter for unknown message types
   const unknownMessageRateLimit = useRef({ count: 0, lastReset: Date.now() });
 
-  const refreshCanonicalTradeTruth = useCallback(() => {
-    loadRecentTrades();
-    loadMetrics();
-    loadCountdown();
-  }, []);
-
-  const registerNotableEvent = useCallback((title, detail) => {
-    setNotableEvent({
-      title: title || 'System event',
-      detail: detail || 'Update received',
-      timestamp: new Date().toISOString(),
-    });
-  }, []);
-
   const handleRealTimeUpdate = (data) => {
     const eventType = typeof data.type === 'string' ? data.type.toLowerCase() : '';
     if (!eventType) {
       return;
-    }
-    const notableEventTypes = new Set([
-      'self_healing',
-      'ai_evolution',
-      'trade_executed',
-      'trade_opened',
-      'trade_closed',
-      'trade_inserted',
-      'system_mode_update',
-      'system_mode_changed',
-      'bot_created',
-      'bot_paused',
-      'bot_resumed',
-      'bot_deleted',
-      'profit_updated',
-      'countdown_update',
-      'key_saved',
-      'key_tested',
-      'key_deleted',
-      'api_key_update',
-      'system_update',
-      'emergency_stop',
-    ]);
-    if (data?.message && notableEventTypes.has(eventType)) {
-      registerNotableEvent(eventType.replace(/_/g, ' '), data.message);
     }
     switch (eventType) {
       case 'connection':
@@ -863,6 +791,11 @@ export default function useDashboardState(navigate) {
       case 'ping':
         // Handle ping messages - update last seen timestamp silently
         setSseLastUpdate(new Date().toISOString());
+        break;
+      
+      case 'pong':
+        // Handle pong messages - RTT is monitored via realtimeClient.getStatus()
+        // No action needed here as RTT interval in setupRealTimeConnections handles it
         break;
       
       case 'metrics':
@@ -896,30 +829,29 @@ export default function useDashboardState(navigate) {
       case 'overview_update': {
         const overview = data.data?.overview || data.overview;
         if (overview) {
-          const activeBots = safeNumber(overview.bots_active, 0);
-          const runnableBots = safeNumber(overview.runnable_bots, activeBots);
+          const totalBots = safeNumber(overview.bots_active, 0) + safeNumber(overview.bots_paused, 0) + safeNumber(overview.bots_training, 0) + safeNumber(overview.bots_quarantine, 0);
           setOverviewData(prev => ({ ...prev, ...overview }));
-          const sym = displayCurrencySymbol || 'R';
           setMetrics(prev => ({
             ...prev,
-            totalProfit: `${sym}${safeNumber(overview.total_profit, 0).toFixed(2)}`,
-            activeBots: `${runnableBots} runnable / ${activeBots} active`,
+            totalProfit: `R${safeNumber(overview.total_profit, 0).toFixed(2)}`,
+            activeBots: `${safeNumber(overview.bots_active, 0)} / ${totalBots}`,
             lastUpdate: formatTimestamp(new Date(), { includeDate: false })
           }));
         }
         break;
       }
       case 'bots_update': {
-        // Event payloads can be partial; always re-fetch canonical bot status.
-        refreshBotState();
-        loadMetrics();
+        const botsPayload = data.data?.bots || data.bots;
+        if (Array.isArray(botsPayload)) {
+          setBots(botsPayload);
+        }
         break;
       }
-      case 'trades_update':
-      case 'trade_inserted': {
-        // Canonical truth: always refresh from source; do not trust deltas.
-        refreshCanonicalTradeTruth();
-        loadCustomCountdowns();
+      case 'trades_update': {
+        const tradesPayload = data.data?.trades || data.trades;
+        if (Array.isArray(tradesPayload)) {
+          setRecentTrades(tradesPayload);
+        }
         break;
       }
       case 'notification':
@@ -932,9 +864,33 @@ export default function useDashboardState(navigate) {
         }]);
         break;
       case 'trade_executed':
-        // Trade truth must come from backend canonical source (not screen-local merges).
-        refreshCanonicalTradeTruth();
-        loadCustomCountdowns();
+        // Real-time trade feed update - only update state, don't reload
+        setRecentTrades(prev => {
+          // Prevent duplicates by checking if trade already exists
+          const tradeExists = prev.some(t => t.id === data.trade?.id);
+          if (tradeExists) return prev;
+          
+          return [{
+            ...data.trade,
+            bot_name: data.bot_name,
+            timestamp: new Date().toISOString()
+          }, ...prev.slice(0, 49)]; // Keep last 50 trades
+        });
+        
+        // Update bot data
+        setBots(prev => prev.map(bot => 
+          bot.id === data.bot_id 
+            ? { 
+                ...bot, 
+                current_capital: data.new_capital,
+                total_profit: data.total_profit,
+                name: bot.name || data.bot_name // Preserve bot name
+              }
+            : bot
+        ));
+        
+        // Refresh metrics to show new profit
+        loadMetrics();
         
         // Refresh analytics tabs if they are active
         if (profitsTab === 'equity') {
@@ -947,41 +903,26 @@ export default function useDashboardState(navigate) {
           loadProfitData();
         }
         break;
-      case 'trade_opened':
-      case 'trade_closed':
-        // Keep live/open/closed truth in sync with canonical backend collections.
-        refreshCanonicalTradeTruth();
-        loadCustomCountdowns();
-        break;
-      case 'analytics_update':
-        // Recompute dashboard surfaces from canonical endpoints.
-        refreshCanonicalTradeTruth();
-        break;
       
       case 'profit_update':
         // Real-time profit update in overview
         setMetrics(prev => ({
           ...prev,
-          totalProfit: `${displayCurrencySymbol || 'R'}${safeToFixed(data.total_profit, 2)}`
+          totalProfit: `R${safeToFixed(data.total_profit, 2)}`
         }));
         // Update countdown when profit changes
         loadCountdown();
         break;
-
+      
       case 'overview_updated':
         // Update overview data from WebSocket
         if (data.overview) {
-          const activeBots = safeNumber(data.overview.active_bots, 0);
-          const runnableBots = safeNumber(data.overview.runnable_bots, activeBots);
-          const sym = displayCurrencySymbol || 'R';
           setMetrics(prev => ({
             ...prev,
             totalProfit: Number.isFinite(Number(data.overview.portfolio_value))
-              ? `${sym}${safeToFixed(data.overview.portfolio_value, 2)}`
+              ? `R${safeToFixed(data.overview.portfolio_value, 2)}`
               : prev.totalProfit,
-            activeBots: data.overview.active_bots !== undefined
-              ? `${runnableBots} runnable / ${activeBots} active`
-              : prev.activeBots,
+            activeBots: data.overview.active_bots !== undefined ? `${safeNumber(data.overview.active_bots, 0)}` : prev.activeBots,
             exposure: Number.isFinite(Number(data.overview.exposure)) ? `${safeToFixed(data.overview.exposure, 1, '0.0')}%` : prev.exposure,
             riskLevel: data.overview.risk_level || prev.riskLevel
           }));
@@ -1004,13 +945,8 @@ export default function useDashboardState(navigate) {
         break;
       
       case 'system_mode_update':
-      case 'system_mode_changed':
         // System mode changed
-        if (data.modes && typeof data.modes === 'object') {
-          setSystemModes(data.modes);
-        } else if (data.mode) {
-          setSystemModes(prev => ({ ...prev, [data.mode]: !!data.enabled }));
-        }
+        setSystemModes(data.modes);
         toast.success('System modes updated');
         break;
       
@@ -1022,9 +958,10 @@ export default function useDashboardState(navigate) {
         break;
       
       case 'bot_updated':
-        // Avoid stale local merges; re-sync from canonical /api/bots/status.
-        refreshBotState();
-        loadMetrics();
+        // Update specific bot
+        setBots(prev => prev.map(bot => 
+          bot.id === data.bot_id ? { ...bot, ...data.changes } : bot
+        ));
         break;
       case 'bot_paused':
       case 'bot_resumed':
@@ -1049,7 +986,6 @@ export default function useDashboardState(navigate) {
       case 'api_key_update':
         // API key connected/updated
         loadApiStatuses();
-        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1057,7 +993,6 @@ export default function useDashboardState(navigate) {
         // API key saved (realtime event)
         console.log('🔑 Key saved event:', data);
         loadApiStatuses();
-        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1065,7 +1000,6 @@ export default function useDashboardState(navigate) {
         // API key tested (realtime event)
         console.log('🔑 Key tested event:', data);
         loadApiStatuses();
-        loadAiStatus();
         if (data.message) {
           if (data.success) {
             toast.success(data.message);
@@ -1079,7 +1013,6 @@ export default function useDashboardState(navigate) {
         // API key deleted (realtime event)
         console.log('🔑 Key deleted event:', data);
         loadApiStatuses();
-        loadAiStatus();
         if (data.message) toast.success(data.message);
         break;
       
@@ -1120,7 +1053,6 @@ export default function useDashboardState(navigate) {
         // AI learning/evolution happened
         if (data.message) toast.info(data.message);
         loadBots(); // May have new bots
-        loadLearningStatus();
         break;
       
       case 'system_update':
@@ -1133,43 +1065,6 @@ export default function useDashboardState(navigate) {
         }
         break;
       
-      case 'paper_reset':
-        // Backend has completed a full paper reset — clear ALL client state immediately
-        // so the dashboard reflects the clean zero state before the backend refresh arrives.
-        console.log('🔄 PAPER RESET WebSocket event — clearing all client state');
-        setProfitData({ labels: [], values: [], total: 0, avg_daily: 0, best_day: 0, growth_rate: 0 });
-        setEquityData(null);
-        setDrawdownData(null);
-        setCountdown(null);
-        setRecentTrades([]);
-        setBots([]);
-        setBalances({ zar: 0, btc: 0 });
-        setMetrics({ total_profit: 0, total_trades: 0, win_rate: 0, active_bots: 0 });
-        setOverviewData(prev => ({
-          ...prev,
-          totalProfit: 0,
-          todaysTrades: 0,
-          openPositions: 0,
-          winRate: 0,
-          activeBots: 0,
-          paperWalletTotal: 0,
-          paperWalletAllocated: 0,
-          lastTradeTime: null,
-        }));
-        sessionStorage.removeItem('profitData');
-        sessionStorage.removeItem('recentTrades');
-        // Brief delay so all MongoDB writes from the reset are visible before
-        // we re-query.  Without this, a same-tick read can return stale data.
-        const RESET_REHYDRATE_DELAY_MS = 200;
-        setTimeout(() => {
-          refreshAllDashboardData();
-          loadProfitData();
-          loadBalances();
-          loadEquityData();
-          loadDrawdownData();
-        }, RESET_REHYDRATE_DELAY_MS);
-        break;
-
       case 'force_refresh':
         // FORCE IMMEDIATE REFRESH from AI action - COMPLETE STATE RESET
         console.log('🔄 FORCE REFRESH - Clearing ALL state');
@@ -1209,6 +1104,27 @@ export default function useDashboardState(navigate) {
         }
         break;
       
+      case 'balance_updated':
+        // Backend emits balance_updated - treat same as 'balance'
+        setBalances(prev => ({ ...prev, ...(data.balance || data.payload || data) }));
+        break;
+
+      case 'trade_opened':
+      case 'trade_closed':
+        // Backend emits trade_opened/closed - treat same as trade_executed
+        setRecentTrades(prev => {
+          const tradeExists = prev.some(t => t.id === data.trade?.id);
+          if (tradeExists) return prev;
+          return [{ ...data.trade, timestamp: new Date().toISOString() }, ...prev.slice(0, 49)];
+        });
+        loadMetrics();
+        break;
+
+      case 'transfer_updated':
+        // Wallet transfer state change - refresh profit data
+        loadProfitData(graphPeriod);
+        break;
+
       default:
         // Rate-limited debug logging for unknown message types
         const now = Date.now();
@@ -1248,7 +1164,8 @@ export default function useDashboardState(navigate) {
     } catch (err) {
       console.error('User fetch error:', err);
       setConnectionStatus(prev => ({ ...prev, api: 'Disconnected' }));
-      if (err.response?.status === 401) navigate('/login');
+      // 401 is already handled globally by the apiClient interceptor (clears token + redirect).
+      // Do NOT duplicate the navigate('/login') here to avoid double-redirect races.
     }
   };
 
@@ -1279,17 +1196,14 @@ export default function useDashboardState(navigate) {
 
   const loadOverviewData = async () => {
     try {
-      // Pass display_currency so the snapshot values come back in the user's currency
-      const snapshotUrl = displayCurrency && displayCurrency !== 'ZAR'
-        ? `/overview/snapshot?display_currency=${encodeURIComponent(displayCurrency)}`
-        : '/overview/snapshot';
-
-      const [snapshotResult, paperWalletResult, modeResult, tradesResult, autonomyResult] = await Promise.allSettled([
-        get(snapshotUrl),
+      const [snapshotResult, paperWalletResult, modeResult, tradesResult, autonomyResult, aiResult, learningResult] = await Promise.allSettled([
+        get('/overview/snapshot'),
         get('/wallet/paper'),
         get('/system/mode'),
         get('/trades/recent?limit=1'),
-        get('/autonomy/status')
+        get('/autonomy/status'),
+        get('/ai/status'),
+        get('/learning/status')
       ]);
 
       const snapshotRes = snapshotResult.status === 'fulfilled' ? snapshotResult.value : {};
@@ -1297,13 +1211,14 @@ export default function useDashboardState(navigate) {
       const modeRes = modeResult.status === 'fulfilled' ? modeResult.value : {};
       const tradesRes = tradesResult.status === 'fulfilled' ? tradesResult.value : {};
       const autonomyRes = autonomyResult.status === 'fulfilled' ? autonomyResult.value : null;
+      const aiRes = aiResult.status === 'fulfilled' ? aiResult.value : null;
+      const learningRes = learningResult.status === 'fulfilled' ? learningResult.value : null;
 
       const totalProfit = safeNumber(snapshotRes?.totalProfit, 0);
       const todaysTrades = safeNumber(snapshotRes?.todaysTrades, 0);
       const openPositions = safeNumber(snapshotRes?.openPositions, 0);
       const winRate = safeNumber(snapshotRes?.winRate, 0);
       const activeBots = safeNumber(snapshotRes?.activeBots, 0);
-      const runnableBots = safeNumber(snapshotRes?.runnableBots, activeBots);
       const paperWalletTotal = safeNumber(paperWalletRes?.total, 0);
       const paperWalletAllocated = Object.values(paperWalletRes?.allocated || {}).reduce(
         (sum, value) => sum + safeNumber(value, 0),
@@ -1318,18 +1233,16 @@ export default function useDashboardState(navigate) {
         openPositions,
         winRate,
         activeBots,
-        runnableBots,
         paperWalletTotal,
         paperWalletAllocated,
         lastTradeTime,
         systemMode,
         lastRebalance: snapshotRes?.lastRebalance || 'Not available',
-        nextReinvest: snapshotRes?.nextReinvest || 'Not available',
-        // Pass through display currency metadata so components can format correctly
-        display_currency: snapshotRes?.display_currency || displayCurrency || 'ZAR',
-        fx_metadata: snapshotRes?.fx_metadata || null,
+        nextReinvest: snapshotRes?.nextReinvest || 'Not available'
       });
       setAutonomyStatus(autonomyRes);
+      setAiStatus(aiRes);
+      setLearningStatus(learningRes);
     } catch (err) {
       console.error('Overview data fetch error:', err);
     }
@@ -1406,34 +1319,6 @@ export default function useDashboardState(navigate) {
     }
   };
 
-  const handlePauseBot = async (botId) => {
-    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
-    try {
-      await post(`/bots/${botId}/pause`, {});
-      toast.success('Bot paused');
-      await refreshBotState();
-    } catch (err) {
-      const errorMsg = formatActionError(err, 'Failed to pause bot');
-      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
-    } finally {
-      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
-    }
-  };
-
-  const handleRestartBot = async (botId) => {
-    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
-    try {
-      await post(`/bots/${botId}/restart`, {});
-      toast.success('Bot restarted successfully');
-      await refreshBotState();
-    } catch (err) {
-      const errorMsg = formatActionError(err, 'Failed to restart bot');
-      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
-    } finally {
-      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
-    }
-  };
-
   const handleResumeAllBots = async () => {
     setBotControlLoading(prev => ({ ...prev, 'all': true }));
     try {
@@ -1485,20 +1370,40 @@ export default function useDashboardState(navigate) {
   };
 
   const loadRecentTrades = async () => {
+    setTradesLoading(true);
     try {
       const res = await axios.get(`${API}/trades/recent?limit=50`, axiosConfig);
-      setRecentTrades(res.data.trades || []);
+      // Handle both array responses and wrapped responses
+      const trades = Array.isArray(res.data) ? res.data : (res.data.trades || res.data.data || []);
+      setRecentTrades(trades);
+      setTradesLoadError(null);
+      // Clear error state on success
+      setTradesErrorShown(false);
     } catch (err) {
       console.error('Recent trades fetch error:', err);
+      const statusCode = err.response?.status || 'Network Error';
+      const endpoint = '/api/trades/recent';
+      const errorMsg = err.response?.data?.detail || err.message || 'Unknown error';
+      setTradesLoadError(`Failed to load trades (${statusCode}): ${errorMsg}`);
+      
+      // Show error toast only once per error state
+      if (!tradesErrorShown) {
+        toast.error(
+          `Failed to load trades (${statusCode}): ${errorMsg} • Endpoint: ${endpoint}`,
+          { duration: 10000 }
+        );
+        setTradesErrorShown(true);
+      }
+    } finally {
+      setTradesLoading(false);
     }
   };
 
   const loadMetrics = async () => {
     try {
       const res = await axios.get(`${API}/portfolio/summary`, axiosConfig);
-      const sym = displayCurrencySymbol || 'R';
       setMetrics({
-        totalProfit: `${sym}${safeToFixed(res.data.net_pnl, 2)}`,
+        totalProfit: `R${safeToFixed(res.data.net_pnl, 2)}`,
         activeBots: `${safeNumber(res.data.active_bots, 0)} / ${safeNumber(res.data.total_bots, 0)}`,
         exposure: `${safeToFixed(res.data.exposure, 1, '0.0')}%`,
         riskLevel: res.data.risk_level || 'Unknown',
@@ -1530,44 +1435,6 @@ export default function useDashboardState(navigate) {
       setApiKeys(statusMap);
     } catch (err) {
       console.error('API keys fetch error:', err);
-    }
-  };
-
-  const loadAiStatus = async () => {
-    try {
-      const res = await axios.get(`${API}/ai/capability-status`, axiosConfig);
-      setAiStatus(res.data);
-    } catch (err) {
-      console.error('AI status fetch error:', err);
-      setAiStatus(null);
-    }
-  };
-
-  const loadLearningStatus = async () => {
-    try {
-      const res = await axios.get(`${API}/learning/status`, axiosConfig);
-      setLearningStatus(res.data);
-      if (res.data?.last_run) {
-        setNotableEvent((prev) => {
-          const previousAt = prev?.timestamp ? Date.parse(prev.timestamp) : 0;
-          const learningAt = res.data.last_run ? Date.parse(res.data.last_run) : Number.NaN;
-          if (
-            !prev
-            || (Number.isNaN(previousAt) && !Number.isNaN(learningAt))
-            || (!Number.isNaN(learningAt) && !Number.isNaN(previousAt) && learningAt > previousAt)
-          ) {
-            return {
-              title: 'learning loop',
-              detail: 'Last successful learning cycle available',
-              timestamp: res.data.last_run,
-            };
-          }
-          return prev;
-        });
-      }
-    } catch (err) {
-      console.error('Learning status fetch error:', err);
-      setLearningStatus(null);
     }
   };
 
@@ -1625,7 +1492,7 @@ export default function useDashboardState(navigate) {
 
   const loadStorageData = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/admin/storage`, axiosConfig);
+      const res = await axios.get(`${API}/admin/user-storage`, axiosConfig);
       setStorageData(res.data);
       setStorageError(null);
     } catch (err) {
@@ -1683,11 +1550,9 @@ export default function useDashboardState(navigate) {
       setProfitData(res.data);
     } catch (err) {
       console.error('Profit data error:', err);
-      // Do NOT substitute fake placeholder labels — show an empty chart instead
-      // so the display always reflects real backend state.
       setProfitData({
-        labels: [],
-        values: [],
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        values: [0, 0, 0, 0, 0, 0, 0],
         total: 0,
         avg_daily: 0,
         best_day: 0,
@@ -1744,9 +1609,16 @@ export default function useDashboardState(navigate) {
   const loadDepositAddress = async () => {
     try {
       const res = await axios.get(`${API}/wallet/deposit-address`, axiosConfig);
-      setDepositAddress(res.data);
+      // Backend always returns 200; handle soft-error statuses gracefully
+      const data = res.data || {};
+      if (data.status === 'disabled' || data.status === 'unconfigured') {
+        // Not an error — just not configured yet. Set a safe sentinel value.
+        setDepositAddress({ ...data, address: null });
+      } else {
+        setDepositAddress(data);
+      }
     } catch (err) {
-      console.error('Deposit address error:', err);
+      // Silently swallow — deposit address is non-critical for page load
     }
   };
 
@@ -1805,10 +1677,9 @@ export default function useDashboardState(navigate) {
 
   const loadAdminHealth = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/admin/health`, axiosConfig);
+      const res = await axios.get(`${API}/admin/health-check`, axiosConfig);
       setAdminApiHealth({
-        status: res.data?.status || 'Healthy',
-        build: res.data?.build || null,
+        status: res.data?.health_status || 'Healthy',
         lastCheck: new Date().toISOString(),
         error: null
       });
@@ -1820,22 +1691,6 @@ export default function useDashboardState(navigate) {
         error: errorMsg
       });
       toast.error(errorMsg);
-    }
-  }, [axiosConfig]);
-
-  const loadAdminKeyMonitor = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API}/admin/key-monitor`, axiosConfig);
-      setAdminKeyMonitor({
-        providers: Array.isArray(res.data?.providers) ? res.data.providers : [],
-        timestamp: res.data?.timestamp || new Date().toISOString(),
-      });
-    } catch (err) {
-      console.error('Admin key monitor error:', err);
-      setAdminKeyMonitor(prev => ({
-        providers: Array.isArray(prev?.providers) ? prev.providers : [],
-        timestamp: new Date().toISOString(),
-      }));
     }
   }, [axiosConfig]);
 
@@ -1888,7 +1743,7 @@ export default function useDashboardState(navigate) {
             
             // Auto-switch to admin section
             setTimeout(() => {
-              setActiveSection(NAV.HIDDEN_ADMIN);
+              setActiveSection('admin');
               console.log('Admin section activated, showAdmin:', true);
             }, 100);
             
@@ -1905,13 +1760,13 @@ export default function useDashboardState(navigate) {
             }
           } else if (adminAction === 'hide') {
             console.log('🔒 HIDING ADMIN - Setting state to FALSE');
-            const currentlyInAdmin = activeSection === NAV.HIDDEN_ADMIN;
+            const currentlyInAdmin = activeSection === 'admin';
             
               setShowAdmin(false);
               
-              // If currently viewing admin, switch to home
+              // If currently viewing admin, switch to welcome
             if (currentlyInAdmin) {
-              setActiveSection(NAV.OVERVIEW);
+              setActiveSection('welcome');
             }
             
             // Success feedback message
@@ -2007,18 +1862,11 @@ export default function useDashboardState(navigate) {
 
       // Send all other messages to AI backend
       try {
-        const requestBody = {
+        const res = await axios.post(`${API}/chat/message`, {
           message: originalInput,
           context: 'dashboard',
           request_action: true
-        };
-        // If there's a pending confirmation, include the confirmation_id so the
-        // backend can complete the confirmed action instead of triggering OpenAI again.
-        if (pendingConfirmationId) {
-          requestBody.confirmation_id = pendingConfirmationId;
-          setPendingConfirmationId(null);
-        }
-        const res = await axios.post(`${API}/chat/message`, requestBody, axiosConfig);
+        }, axiosConfig);
         const payload = res.data || {};
         if (payload?.error_code === 'OPENAI_KEY_MISSING') {
           setChatMessages(prev => [...prev, {
@@ -2041,11 +1889,6 @@ export default function useDashboardState(navigate) {
           const statusLabel = payload.action_result === 'blocked' ? '⛔ Action blocked' : '❌ Action failed';
           const reason = payload.reason ? `: ${payload.reason}` : '';
           finalReply = `${reply}\n\n${statusLabel}${reason}`;
-        }
-        // If this response requires confirmation, store the confirmation_id so the
-        // next message automatically carries it for the backend to resolve.
-        if (payload?.requires_confirmation && payload?.confirmation_id) {
-          setPendingConfirmationId(payload.confirmation_id);
         }
         const assistantMsg = { role: 'assistant', content: finalReply };
         setChatMessages(prev => [...prev, assistantMsg]);
@@ -2094,9 +1937,6 @@ export default function useDashboardState(navigate) {
   };
 
   const handleLogout = () => {
-    // Tear down realtime connections first (before clearing token)
-    realtimeClient.disconnect();
-    
     // Clear all storage including admin state and chat history
     localStorage.clear();
     sessionStorage.clear();
@@ -2197,56 +2037,96 @@ export default function useDashboardState(navigate) {
     }
   };
 
-  const handlePaperReset = async () => {
-    if (paperResetPassword !== 'RESET PAPER MODE') {
-      setPaperResetError('Type exactly: RESET PAPER MODE to confirm.');
+  const handlePaperReset = async (confirmPhrase) => {
+    if (!confirmPhrase || confirmPhrase !== 'START FRESH') {
+      setPaperResetError('Please type "START FRESH" to confirm.');
       return;
     }
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      await axios.post(`${API}/system/paper-reset`, {}, axiosConfig);
-      toast.success('Paper session reset completed.');
-      setPaperResetPassword('');
-      setShowPaperResetModal(false);
-      setChatMessages([]);
-      setBots([]);
-      setRecentTrades([]);
-      setAutoSpawnStatus(null);
-      setAutopilotGrowthStatus(null);
-      setAutopilotReinvestStatus(null);
-      setCountdown(null);
-      setCustomCountdowns([]);
-      setOverviewData({
-        totalProfit: 0,
-        todaysTrades: 0,
-        openPositions: 0,
-        winRate: 0,
-        activeBots: 0,
-        paperWalletTotal: 0,
-        paperWalletAllocated: 0,
-        lastTradeTime: null,
-        systemMode: 'paper',
-        lastRebalance: NOT_AVAILABLE,
-        nextReinvest: NOT_AVAILABLE
+      const response = await apiClient.post('/user/paper-start-fresh', { 
+        confirmation_phrase: confirmPhrase,
+        scope: 'paper_only',
+        also_reset_risk_locks: true
       });
-      setMetrics({
-        totalProfit: 'R0.00',
-        activeBots: '0 / 0',
-        exposure: '0%',
-        riskLevel: NOT_AVAILABLE,
-        aiSentiment: NOT_AVAILABLE,
-        lastUpdate: NOT_AVAILABLE
-      });
-      refreshAllDashboardData();
+      
+      if (response.data.ok) {
+        toast.success(response.data.message || 'Reset runtime completed successfully');
+        setShowPaperResetModal(false);
+        // Clear dashboard state
+        setChatMessages([]);
+        setBots([]);
+        setRecentTrades([]);
+        setAutoSpawnStatus(null);
+        setAutopilotGrowthStatus(null);
+        setAutopilotReinvestStatus(null);
+        setCountdown(null);
+        setCustomCountdowns([]);
+        setOverviewData({
+          totalProfit: 0,
+          todaysTrades: 0,
+          openPositions: 0,
+          winRate: 0,
+          activeBots: 0,
+          paperWalletTotal: 0,
+          paperWalletAllocated: 0,
+          lastTradeTime: null,
+          systemMode: 'paper',
+          lastRebalance: NOT_AVAILABLE,
+          nextReinvest: NOT_AVAILABLE
+        });
+        setMetrics({
+          totalProfit: 'R0.00',
+          activeBots: '0 / 0',
+          exposure: '0%',
+          riskLevel: NOT_AVAILABLE,
+          aiSentiment: NOT_AVAILABLE,
+          lastUpdate: NOT_AVAILABLE
+        });
+        // Explicitly clear local equity/countdown caches before refresh so stale
+        // values from before the reset are never shown.
+        setEquityData(null);
+        setCountdown(null);
+        const totalCleared = response.data?.deleted
+          ? Object.values(response.data.deleted).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0)
+          : response.data?.total_deleted || 0;
+        if (totalCleared > 0) {
+          toast.success(`Reset complete — ${totalCleared} records cleared`);
+        }
+        const warnings = response.data?.invariant_warnings || [];
+        warnings.forEach(w => toast.warning(`Reset warning: ${w}`));
+        // Hard refresh all data sources so no stale panel shows phantom values
+        refreshAllDashboardData();
+        // Fetch reset-proof to confirm clean state (non-blocking)
+        try {
+          const proofRes = await apiClient.get('/system/reset-proof');
+          const proof = proofRes.data;
+          if (proof.is_clean) {
+            toast.success('✅ Reset verified: equity=0, trades=0, bots=0');
+          } else {
+            const nonZero = [];
+            if (proof.equity !== 0) nonZero.push(`equity=${proof.equity}`);
+            if (proof.trades_total !== 0) nonZero.push(`trades=${proof.trades_total}`);
+            if (proof.bots !== 0) nonZero.push(`bots=${proof.bots}`);
+            if (nonZero.length) toast.warning(`Reset incomplete: ${nonZero.join(', ')} non-zero`);
+          }
+        } catch (_proofErr) {
+          // Non-critical — just log
+          console.warn('Reset proof check failed:', _proofErr);
+        }
+      } else {
+        setPaperResetError(response.data.message || 'Reset failed');
+      }
     } catch (err) {
       const statusCode = err.response?.status;
-      if (statusCode === 404 || statusCode === 501) {
-        setPaperResetError('Reset not available in this build.');
-        setPaperResetUnavailable(true);
-        return;
+      if (statusCode === 403) {
+        setPaperResetError('Access denied. Admin privileges required.');
+      } else if (statusCode === 400) {
+        setPaperResetError(err.response?.data?.detail || 'Invalid confirmation phrase or request.');
+      } else {
+        setPaperResetError(extractErrorMessage(err, 'Reset runtime failed. Please try again.'));
       }
-      setPaperResetError(extractErrorMessage(err, 'Paper reset failed'));
     } finally {
       setPaperResetLoading(false);
     }
@@ -2298,7 +2178,6 @@ export default function useDashboardState(navigate) {
         risk_mode: riskMode,
         initial_capital: budget,
         strategy_preset: strategyPreset,
-        bot_type: 'normal', // Explicit canonical bot type — scalper bots use ScalperBotsPanel
         created_by: 'user', // Track origin
         paper_start_date: new Date().toISOString(), // Start 7-day countdown
         learning_complete: false
@@ -2313,52 +2192,6 @@ export default function useDashboardState(navigate) {
       const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create bot';
       showNotification(errorMsg, 'error');
       console.error('Bot creation error:', err);
-    }
-  };
-
-  const handleCreateScalperBot = async (e) => {
-    e.preventDefault();
-    const name = e.target['scalper-name'].value;
-    const budget = parseInt(e.target['scalper-budget'].value);
-    const exchange = e.target['scalper-exchange'].value;
-    const riskMode = e.target['scalper-risk'].value;
-    const profitRouting = e.target['scalper-routing']?.value || 'RETURN_TO_MAIN';
-
-    if (!name) {
-      showNotification('Please enter a bot name', 'error');
-      return;
-    }
-    if (budget < 1000) {
-      showNotification('Minimum budget for scalper bots is R1000', 'error');
-      return;
-    }
-
-    try {
-      const botData = {
-        name,
-        exchange,
-        trading_mode: 'paper',
-        risk_mode: riskMode,
-        initial_capital: budget,
-        strategy_preset: 'scalping',
-        bot_type: 'scalper',
-        profit_routing: profitRouting,
-        created_by: 'user',
-      };
-      await axios.post(`${API}/bots`, botData, axiosConfig);
-      showNotification(`Scalper bot "${name}" created!`, 'success');
-      await refreshBotState();
-      e.target.reset();
-    } catch (err) {
-      const detail = err.response?.data?.detail;
-      let errorMsg;
-      if (typeof detail === 'object') {
-        errorMsg = detail.message || JSON.stringify(detail);
-      } else {
-        errorMsg = detail || 'Failed to create scalper bot';
-      }
-      showNotification(errorMsg, 'error');
-      console.error('Scalper bot creation error:', err);
     }
   };
 
@@ -2378,7 +2211,6 @@ export default function useDashboardState(navigate) {
     formData.append('file', file);
     formData.append('strategy', strategy);
     formData.append('type', 'uagent');
-    formData.append('bot_type', 'uagent'); // canonical bot_type for fleet/truth tracking
 
     try {
       await axios.post(`${API}/bots/uagent`, formData, {
@@ -2397,18 +2229,14 @@ export default function useDashboardState(navigate) {
   };
 
   const handleDeleteBot = async (botId) => {
-    // Confirmation is handled by the UI's two-step confirm flow in BotFleetSection;
-    // do NOT use window.confirm() here as that would double-prompt the user.
-    setBotControlLoading(prev => ({ ...prev, [botId]: true }));
+    if (!window.confirm('Delete this bot? This cannot be undone.')) return;
+    
     try {
       await axios.delete(`${API}/bots/${botId}`, axiosConfig);
-      toast.success('Bot deleted');
+      showNotification('Bot deleted');
       await refreshBotState();
     } catch (err) {
-      const errorMsg = formatActionError(err, 'Failed to delete bot');
-      toast.error(`Error: ${errorMsg} (${err.response?.status || 'Network Error'})`);
-    } finally {
-      setBotControlLoading(prev => ({ ...prev, [botId]: false }));
+      showNotification('Failed to delete bot', 'error');
     }
   };
 
@@ -2487,7 +2315,7 @@ export default function useDashboardState(navigate) {
       const createdCount = res.data.bots?.length || res.data.created || botSetup.count;
       showNotification(`✅ Created ${createdCount} bots successfully!`, 'success');
       await refreshBotState();
-      showSection(NAV.BOT_MANAGEMENT);
+      showSection('bots');
     } catch (err) {
       const detail = err.response?.data?.detail;
       const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create bots';
@@ -2794,7 +2622,7 @@ export default function useDashboardState(navigate) {
     try {
       setAiTaskLoading('bodyguard');
       showNotification('🛡️ AI Bodyguard scanning system...', 'info');
-      setActiveSection(NAV.WELCOME); // Switch to chat to see results
+      setActiveSection('welcome'); // Switch to chat to see results
       
       const res = await axios.post(`${API}/autonomous/bodyguard/system-check`, {}, axiosConfig);
       const report = res.data;
@@ -2840,7 +2668,7 @@ export default function useDashboardState(navigate) {
     try {
       setAiTaskLoading('learning');
       showNotification('📚 AI Learning in progress...', 'info');
-      setActiveSection(NAV.WELCOME); // Switch to chat to see results
+      setActiveSection('welcome'); // Switch to chat to see results
       
       const res = await axios.post(`${API}/autonomous/learning/trigger`, {}, axiosConfig);
       
@@ -2861,6 +2689,9 @@ export default function useDashboardState(navigate) {
       }]);
       
       showNotification('✅ AI Learning complete!', 'success');
+      
+      // Also refresh RL metrics after learning
+      await fetchRLMetrics();
     } catch (err) {
       const errorMsg = err.response?.data?.detail || 'Learning failed';
       setChatMessages(prev => [...prev, { 
@@ -2873,6 +2704,80 @@ export default function useDashboardState(navigate) {
       setAiTaskLoading(null);
     }
   };
+
+  // RL Agent Functions
+  const fetchRLMetrics = async () => {
+    try {
+      setRlLoading(true);
+      const response = await axios.get(`${API}/ai/rl-status`, axiosConfig);
+      setRlMetrics(response.data.rl_agent);
+    } catch (err) {
+      console.error('Failed to fetch RL metrics:', err);
+      // Gracefully handle if endpoint doesn't exist
+      setRlMetrics(null);
+    } finally {
+      setRlLoading(false);
+    }
+  };
+
+  const getRLRecommendations = async (botId) => {
+    try {
+      const response = await axios.get(`${API}/ai/rl-recommendations/${botId}`, axiosConfig);
+      setRlRecommendations(prev => ({
+        ...prev,
+        [botId]: response.data
+      }));
+      return response.data;
+    } catch (err) {
+      console.error(`Failed to get RL recommendations for bot ${botId}:`, err);
+      showNotification('Failed to get RL recommendations', 'error');
+      return null;
+    }
+  };
+
+  const applyRLAdjustments = async (botId, adjustments) => {
+    try {
+      showNotification('⚙️ Applying RL adjustments...', 'info');
+      
+      // Apply adjustments via phase6 endpoint
+      const response = await axios.post(
+        `${API}/phase6/learning/apply-adjustments/${botId}`,
+        { adjustments },
+        axiosConfig
+      );
+      
+      showNotification('✅ RL adjustments applied successfully!', 'success');
+      
+      // Refresh bot state and RL metrics
+      await refreshBotState();
+      await fetchRLMetrics();
+      
+      return response.data;
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || 'Failed to apply adjustments';
+      showNotification(`❌ ${errorMsg}`, 'error');
+      console.error('Apply RL adjustments error:', err);
+      return null;
+    }
+  };
+
+  // Auto-refresh RL metrics every 30 seconds
+  useEffect(() => {
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken) {
+      return undefined;
+    }
+
+    fetchRLMetrics();
+    const interval = setInterval(() => {
+      // Double-check token before each poll
+      if (getToken()) {
+        fetchRLMetrics();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // PHASE 10: Additional AI Tool Handlers
   const handleEvolveBots = async () => {
@@ -2918,22 +2823,19 @@ export default function useDashboardState(navigate) {
     try {
       setAiTaskLoading('insights');
       toast.info('🔮 Generating AI insights...');
-
-      const result = await get('/overview/snapshot');
-
+      
+      const result = await get('/ai/insights');
+      
       const message = `🔮 Daily AI Insights\n\n` +
-        `📊 Active Bots: ${result?.activeBots ?? 0}\n` +
-        `💹 Today's Trades: ${result?.todaysTrades ?? 0}\n` +
-        `💰 Total Profit: R${(result?.totalProfit?.toFixed(2)) ?? '0.00'}\n` +
-        `🎯 Win Rate: ${(result?.winRate?.toFixed(1)) ?? '0.0'}%\n\n` +
+        `${result.insights || 'No insights available at this time.'}\n\n` +
         `⏱️ Generated: ${new Date().toLocaleTimeString()}`;
-
+      
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
         type: 'system',
         content: message 
       }]);
-
+      
       toast.success('✅ Insights generated!');
     } catch (err) {
       const errorMsg = err.message || 'Failed to get insights';
@@ -3037,7 +2939,7 @@ export default function useDashboardState(navigate) {
     
     try {
       setAiTaskLoading('email');
-      const result = await post('/admin/email/broadcast', { subject, message });
+      const result = await post('/admin/email-all-users', { subject, message });
       toast.success(`✅ Sent to ${result.sent || 0} users (${result.failed || 0} failed)`);
     } catch (err) {
       const errorMsg = err.message || 'Failed to send emails';
@@ -3175,30 +3077,40 @@ export default function useDashboardState(navigate) {
 
   // Load admin data when admin panel is shown
   useEffect(() => {
-    if (showAdmin) {
-      loadAllUsers();
-      loadSystemStats();
-      loadStorageData();
-      loadAdminUsers();
-      loadAdminBots();
-      loadAdminHealth();
-      loadAdminKeyMonitor();
-      loadEmergencyOverrideStatus();
+    // Guard: Only run if token exists and admin panel is shown
+    const currentToken = getToken();
+    if (!currentToken || !showAdmin) {
+      return;
     }
-  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadAdminKeyMonitor, loadEmergencyOverrideStatus]);
+
+    loadAllUsers();
+    loadSystemStats();
+    loadStorageData();
+    loadAdminUsers();
+    loadAdminBots();
+    loadAdminHealth();
+    loadEmergencyOverrideStatus();
+  }, [showAdmin, loadAllUsers, loadSystemStats, loadStorageData, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
 
   useEffect(() => {
-    if (!showAdmin) return undefined;
+    // Guard: Only poll if token exists and admin panel is shown
+    const currentToken = getToken();
+    if (!currentToken || !showAdmin) {
+      return undefined;
+    }
+
     const interval = setInterval(() => {
-      loadSystemStats();
-      loadAdminUsers();
-      loadAdminBots();
-      loadAdminHealth();
-      loadAdminKeyMonitor();
-      loadEmergencyOverrideStatus();
+      // Double-check token before each poll
+      if (getToken()) {
+        loadSystemStats();
+        loadAdminUsers();
+        loadAdminBots();
+        loadAdminHealth();
+        loadEmergencyOverrideStatus();
+      }
     }, 15000);
     return () => clearInterval(interval);
-  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadAdminKeyMonitor, loadEmergencyOverrideStatus]);
+  }, [showAdmin, loadSystemStats, loadAdminUsers, loadAdminBots, loadAdminHealth, loadEmergencyOverrideStatus]);
 
   // Handle user selection - filter bots for selected user
   const handleUserSelection = (userId) => {
@@ -3226,9 +3138,8 @@ export default function useDashboardState(navigate) {
 
     setActionLoading(prev => ({ ...prev, [`reset-${userId}`]: true }));
     try {
-      await axios.post(`${API}/admin/users/${userId}/reset-password`, 
-        { new_password: newPassword }, 
-        axiosConfig
+      await apiClient.post(`/admin/users/${userId}/reset-password`, 
+        { new_password: newPassword }
       );
       showNotification('Password reset successfully', 'success');
     } catch (err) {
@@ -3385,12 +3296,17 @@ export default function useDashboardState(navigate) {
   const realtimeConnected = connectionStatus.ws === 'Connected';
   const realtimeLabel = realtimeConnected ? 'Connected' : 'Reconnecting';
   const realtimeTone = realtimeConnected ? 'success' : 'warning';
-  const riskLabel = riskStatus?.emergency_stop?.active
-    ? 'Paused'
-    : (riskStatus?.daily_loss_lock?.active || riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active)
-      ? 'Guarded'
-      : 'OK';
-  const riskTone = riskLabel === 'OK' ? 'success' : riskLabel === 'Guarded' ? 'warning' : 'error';
+  // Guard: show neutral 'Checking...' until riskStatus is confirmed by the API.
+  // Without this guard the badge reads 'OK' before the first /risk/status response
+  // arrives, which would be a false positive in the topbar.
+  const riskLabel = riskStatus === null
+    ? 'Checking...'
+    : riskStatus?.emergency_stop?.active
+      ? 'Paused'
+      : (riskStatus?.daily_loss_lock?.active || riskStatus?.bodyguard_lock?.active || riskStatus?.quarantine_active?.active)
+        ? 'Guarded'
+        : 'OK';
+  const riskTone = riskLabel === 'OK' ? 'success' : riskLabel === 'Checking...' ? 'default' : riskLabel === 'Guarded' ? 'warning' : 'error';
   const userInitial = user?.first_name?.[0] || user?.email?.[0] || 'U';
 
   return {
@@ -3399,15 +3315,14 @@ export default function useDashboardState(navigate) {
     activeSection,
     addCustomCountdown,
     adminApiHealth,
-    adminKeyMonitor,
     adminBots,
     adminUsers,
     aiStatus,
     aiTaskLoading,
     allUsers,
+    applyRLAdjustments,
     autoSpawnStatus,
     autonomyStatus,
-    autopilotGrowthStatus,
     autopilotReinvestStatus,
     awaitingPassword,
     axiosConfig,
@@ -3438,9 +3353,11 @@ export default function useDashboardState(navigate) {
     equityData,
     equityRange,
     executeEmergencyStop,
+    fetchRLMetrics,
     filteredAdminBots,
     formatDate,
     getAlertColor,
+    getRLRecommendations,
     graphPeriod,
     handleBlockUser,
     handleBotSetup,
@@ -3451,7 +3368,6 @@ export default function useDashboardState(navigate) {
     handleChatKeyDown,
     handleClearChatHistory,
     handleCreateBot,
-    handleCreateScalperBot,
     handleCreateUAgent,
     handleDeleteBot,
     handleDeleteUser,
@@ -3474,8 +3390,6 @@ export default function useDashboardState(navigate) {
     handleResetPassword,
     handleResumeAllBots,
     handleResumeBot,
-    handlePauseBot,
-    handleRestartBot,
     handleRiskProfileChange,
     handleSendMessage,
     handleStartBot,
@@ -3491,6 +3405,7 @@ export default function useDashboardState(navigate) {
     loadAdminBots,
     loadAdminUsers,
     loadChatHistory,
+    loadRecentTrades,
     loadingBots,
     loadingUsers,
     metrics,
@@ -3499,13 +3414,9 @@ export default function useDashboardState(navigate) {
     modeTone,
     newCountdownAmount,
     newCountdownLabel,
-    notableEvent,
     overviewData,
-    paperResetChecking,
     paperResetError,
     paperResetLoading,
-    paperResetPassword,
-    paperResetValid,
     platformFilter,
     profileData,
     profitData,
@@ -3514,10 +3425,15 @@ export default function useDashboardState(navigate) {
     realtimeLabel,
     realtimeTone,
     recentTrades,
+    tradesLoadError,
+    tradesLoading,
     riskLabel,
     riskProfile,
     riskStatus,
     riskTone,
+    rlLoading,
+    rlMetrics,
+    rlRecommendations,
     selectedBotDetailId,
     selectedBotId,
     selectedTradeId,
@@ -3539,8 +3455,6 @@ export default function useDashboardState(navigate) {
     setNewCountdownAmount,
     setNewCountdownLabel,
     setPaperResetError,
-    setPaperResetPassword,
-    setPaperResetValid,
     setPlatformFilter,
     setProfitsTab,
     setSelectedBotDetailId,
@@ -3578,12 +3492,6 @@ export default function useDashboardState(navigate) {
     user,
     userInitial,
     winRateData,
-    winRatePeriod,
-    // ── Display currency preference ─────────────────────────────────────────
-    displayCurrency,
-    setDisplayCurrency,
-    displayCurrencySymbol,
-    displayCurrencyLoading,
-    displayCurrencyError,
+    winRatePeriod
   };
 }

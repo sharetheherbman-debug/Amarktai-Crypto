@@ -33,98 +33,116 @@ def set_bind_ok(status: bool = True):
     _bind_ok = status
 
 
-# Module-level build hash cache (computed once at import time)
+# Module-level build info cache (computed once at import time)
 _BUILD_HASH_CACHE = None
+_BUILD_BRANCH_CACHE = None
 
 
-def get_build_metadata() -> dict:
-    """Get build metadata/provenance (cached)."""
-    global _BUILD_HASH_CACHE
-    
-    # Return cached value if available
-    if _BUILD_HASH_CACHE is not None:
-        return _BUILD_HASH_CACHE
+def _find_repo_root() -> str:
+    """Locate the repository root directory.
 
-    metadata = {
-        "version": os.getenv("BUILD_VERSION") or "unknown",
-        "tag": os.getenv("BUILD_VERSION_TAG") or "unknown",
-        "hash": "unknown",
-        "source": "unknown",
-        "environment": os.getenv("ENVIRONMENT", "unknown"),
-        "build_timestamp": os.getenv("BUILD_TIMESTAMP") or os.getenv("BUILD_TIME") or "unknown",
-        "git_branch": None,
-        "git_dirty": None,
-    }
+    Resolution order:
+    1. AMARKTAI_REPO_ROOT env var (set by ops/systemd overrides).
+    2. Walk upward from this file's directory looking for a .git/ folder
+       (works in dev / CI environments where the repo is cloned).
+    3. Fallback: parent of the backend/ directory (two levels above this file).
+    """
+    _MAX_UPWARD_SEARCH_LEVELS = 5
 
-    try:
-        # First try BUILD_SHA environment variable
-        build_sha = os.environ.get("BUILD_SHA")
-        if build_sha:
-            metadata["hash"] = build_sha
-            if metadata["version"] == "unknown":
-                metadata["version"] = build_sha
-            metadata["source"] = "env_BUILD_SHA"
-            _BUILD_HASH_CACHE = metadata
-            return metadata
-        
-        # Fall back to git command (with restricted scope and timeout)
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            check=False  # Don't raise on non-zero exit
-        )
-        if result.returncode == 0:
-            metadata["hash"] = result.stdout.strip()
-            if metadata["version"] == "unknown":
-                metadata["version"] = metadata["hash"]
-            metadata["source"] = "git_rev_parse"
+    # 1. Explicit env override
+    env_root = os.environ.get("AMARKTAI_REPO_ROOT", "").strip()
+    if env_root and os.path.isdir(env_root):
+        return env_root
 
-            branch = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                check=False
-            )
-            if branch.returncode == 0:
-                metadata["git_branch"] = branch.stdout.strip()
+    # 2. Walk upward from current file looking for .git/
+    current = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(_MAX_UPWARD_SEARCH_LEVELS):
+        if os.path.isdir(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:  # filesystem root
+            break
+        current = parent
 
-            if metadata["tag"] == "unknown":
-                tag = subprocess.run(
-                    ["git", "describe", "--tags", "--exact-match"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    check=False
-                )
-                if tag.returncode == 0 and (tag.stdout or "").strip():
-                    metadata["tag"] = tag.stdout.strip()
+    # 3. Fallback: repo_root = grandparent of backend/routes/ = parent of backend/
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-            dirty = subprocess.run(
-                ["git", "status", "--porcelain"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                check=False
-            )
-            if dirty.returncode == 0:
-                metadata["git_dirty"] = bool((dirty.stdout or "").strip())
-    except Exception as e:
-        logger.debug(f"Could not get build hash: {e}")
 
-    _BUILD_HASH_CACHE = metadata
-    return metadata
+_REPO_ROOT = _find_repo_root()
 
 
 def get_build_hash() -> str:
-    """Backwards-compatible accessor for legacy callers."""
-    return get_build_metadata().get("hash", "unknown")
+    """Get current git commit SHA for build identification (cached).
+
+    Resolution order:
+    1. BUILD_SHA env var (set at deploy time)
+    2. GIT_SHA / GITHUB_SHA env vars (set by CI pipelines)
+    3. git subprocess using _REPO_ROOT
+    4. "unknown"
+    """
+    global _BUILD_HASH_CACHE
+
+    if _BUILD_HASH_CACHE is not None:
+        return _BUILD_HASH_CACHE
+
+    # 1 & 2. Environment variable fallbacks (no git required)
+    for env_var in ("BUILD_SHA", "GIT_SHA", "GITHUB_SHA"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            _BUILD_HASH_CACHE = val[:12]
+            return _BUILD_HASH_CACHE
+
+    # 3. Try git subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5, cwd=_REPO_ROOT, check=False
+        )
+        if result.returncode == 0:
+            _BUILD_HASH_CACHE = result.stdout.strip()
+            return _BUILD_HASH_CACHE
+    except Exception as e:
+        logger.debug(f"Could not get build hash: {e}")
+
+    _BUILD_HASH_CACHE = "unknown"
+    return "unknown"
+
+
+def get_build_branch() -> str:
+    """Get current git branch for build identification (cached).
+
+    Resolution order:
+    1. BUILD_BRANCH env var (set at deploy time)
+    2. GIT_BRANCH / GITHUB_REF_NAME env vars (set by CI pipelines)
+    3. git subprocess using _REPO_ROOT
+    4. "unknown"
+    """
+    global _BUILD_BRANCH_CACHE
+
+    if _BUILD_BRANCH_CACHE is not None:
+        return _BUILD_BRANCH_CACHE
+
+    # 1 & 2. Environment variable fallbacks (no git required)
+    for env_var in ("BUILD_BRANCH", "GIT_BRANCH", "GITHUB_REF_NAME"):
+        val = os.environ.get(env_var, "").strip()
+        if val:
+            _BUILD_BRANCH_CACHE = val
+            return _BUILD_BRANCH_CACHE
+
+    # 3. Try git subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=5, cwd=_REPO_ROOT, check=False
+        )
+        if result.returncode == 0:
+            _BUILD_BRANCH_CACHE = result.stdout.strip()
+            return _BUILD_BRANCH_CACHE
+    except Exception as e:
+        logger.debug(f"Could not get build branch: {e}")
+
+    _BUILD_BRANCH_CACHE = "unknown"
+    return "unknown"
 
 
 def set_router_status(mounted: list, failed: list):
@@ -328,7 +346,7 @@ async def health_ping() -> dict:
             "db": db_status,
             "timestamp": current_time.isoformat(),
             "build_hash": get_build_hash(),
-            "build": get_build_metadata(),
+            "build_branch": get_build_branch(),
             "bind_ok": _bind_ok,
         }
         
@@ -359,7 +377,6 @@ async def health_ping() -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "error": str(e),
                 "build_hash": get_build_hash(),
-                "build": get_build_metadata(),
                 "bind_ok": _bind_ok
             }
         )

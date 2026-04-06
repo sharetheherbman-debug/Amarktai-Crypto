@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 class AIService:
     def __init__(self):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
+        # Note: OpenAI client is now created per-request via resolver
         self.chats: Dict[str, List[Dict]] = {}  # user_id -> conversation history
         self.available_models = ['gpt-4o', 'gpt-4', 'gpt-3.5-turbo']
         self.default_model = 'gpt-4o'  # Using OpenAI's best available model
@@ -19,7 +18,7 @@ class AIService:
     def get_chat_history(self, user_id: str, first_name: str = "User") -> List[Dict]:
         """Get or create chat history for user with personalization"""
         if user_id not in self.chats:
-            system_message = f"""You are the AI brain of Amarktai Crypto, an autonomous cryptocurrency trading system with FULL CONTROL over the entire dashboard.
+            system_message = f"""You are the AI brain of Amarktai Network, an autonomous cryptocurrency trading system with FULL CONTROL over the entire dashboard.
 
 You are speaking with {first_name}. Always address them by name to create a personal connection.
 
@@ -65,8 +64,15 @@ Be conversational, helpful, and proactive. Warn about risks immediately. Suggest
     async def process_command_with_context(self, user_id: str, message: str, first_name: str, context: List[Dict]) -> Dict:
         """Process user command with AI including conversation context"""
         try:
-            if not self.client:
+            from services.openai_key_resolver import get_openai_client
+            
+            # Get OpenAI client for this user
+            client, source = await get_openai_client(user_id)
+            if not client:
+                logger.warning(f"OpenAI key resolved source={source} - AI unavailable")
                 raise Exception("OpenAI API key not configured")
+            
+            logger.info(f"OpenAI key resolved source={source} for AI chat")
             
             # Get conversation history
             history = self.get_chat_history(user_id, first_name)
@@ -78,7 +84,7 @@ Be conversational, helpful, and proactive. Warn about risks immediately. Suggest
             logger.info(f"AI Processing for {first_name} (user {user_id}): {message[:50]}...")
             
             # Call OpenAI API
-            response = await self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.default_model,
                 messages=history,
                 temperature=0.7,

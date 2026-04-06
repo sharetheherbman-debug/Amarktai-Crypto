@@ -13,7 +13,7 @@ import database as db
 from realtime_events import manager
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(prefix="/api")
 
 
 @router.get("/autopilot/status")

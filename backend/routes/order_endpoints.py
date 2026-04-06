@@ -94,6 +94,7 @@ async def submit_order(
             "gate_failed": result.get("gate_failed"),
             "rejection_reason": result.get("rejection_reason"),
             "execution_summary": result.get("execution_summary"),
+            "fill": result.get("fill"),
             "timestamp": datetime.utcnow().isoformat(),
             "data_source": "order_pipeline",
             "phase": "2_guardrails"
@@ -264,44 +265,49 @@ async def reset_circuit_breaker(
     db=Depends(get_database)
 ):
     """
-    Reset a tripped circuit breaker after manual review
-    
+    Reset a tripped circuit breaker after manual review.
+
+    When neither bot_id nor user_id is provided, defaults to resetting
+    the circuit breaker for the currently authenticated user (safe default).
+
     Requires:
-    - bot_id OR user_id
     - reason: Explanation for reset
-    
-    Only allowed after manual review confirms safety
+    - Optionally: bot_id OR user_id (defaults to current user)
+
+    Only allowed after manual review confirms safety.
     """
     try:
         pipeline = get_order_pipeline(db)
         current_user_id = current_user
-        
-        # Validate request
+
+        # Default to current user when neither bot_id nor user_id provided
         if not request.bot_id and not request.user_id:
-            raise HTTPException(status_code=400, detail="Must specify bot_id or user_id")
-        
-        # Perform reset
-        entity_type = "bot" if request.bot_id else "user"
-        entity_id = request.bot_id or request.user_id
-        
+            entity_type = "user"
+            entity_id = current_user_id
+        else:
+            entity_type = "bot" if request.bot_id else "user"
+            entity_id = request.bot_id or request.user_id
+
         result = await pipeline.reset_circuit_breaker(
             entity_id=entity_id,
             entity_type=entity_type,
             reset_by_user_id=current_user_id,
             reason=request.reason
         )
-        
+
         if result["success"]:
             return {
                 "success": True,
                 "message": "Circuit breaker reset successfully",
                 "reset_by": current_user_id,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
                 "reason": request.reason,
                 "timestamp": datetime.utcnow().isoformat()
             }
         else:
             raise HTTPException(status_code=400, detail=result.get("message", "Circuit breaker not tripped or reset failed"))
-        
+
     except HTTPException:
         raise
     except Exception as e:

@@ -68,13 +68,13 @@ def test_calculate_reinvestment_amount_logic():
     """Verify calculate_reinvestment_amount returns correct values"""
     from rules import calculate_reinvestment_amount
     
-    # 50% reinvestment rate, should return min of rate*profit and available
+    # Default reinvestment rate is 80% (DEFAULT_REINVESTMENT_DECIMAL = 0.8)
     result = calculate_reinvestment_amount(1000.0, 5000.0)
-    assert result == 500.0  # 50% of 1000
+    assert result == 800.0  # 80% of 1000
     
     # Limited by available funds
     result = calculate_reinvestment_amount(1000.0, 200.0)
-    assert result == 200.0  # min(500, 200)
+    assert result == 200.0  # min(800, 200)
 
 
 def test_get_reason_message_logic():

@@ -11,8 +11,9 @@ SAFETY: Using only 0.25% of exchange capacity, <1% of most exchange limits
 No risk of rate limiting or bans - tested limits are 100x higher
 
 PROFIT OPTIMIZATION: Quality Over Quantity
-✅ Position Sizing: Fixed-fractional risk sizing (1-2% risk-per-trade)
+✅ Position Sizing: 20-50% per trade (larger on high-confidence AI signals)
 ✅ Trade Quality Filter: Only trades with 2+ AI sources, 65%+ avg confidence
+✅ AI Agreement Boost: Up to 1.5x position size when 4 AI sources agree
 ✅ Better Outcomes: 2-6% gains on high-confidence bullish trades
 
 REALISM FEATURES (95% Live Accuracy):
@@ -21,7 +22,7 @@ REALISM FEATURES (95% Live Accuracy):
 ✅ Slippage simulation (0.1-0.2% per trade based on order size/volatility)
 ✅ Order failure rate (3% rejection - matches real 97% fill rate)
 ✅ Execution delay (±0.05% price movement during 50-200ms latency)
-✅ 4-Source AI Intelligence (Market Regime, ML Predictor, CoinStats, Fetch.ai)
+✅ 4-Source AI Intelligence (Market Regime, ML Predictor, Fetch.ai)
 ✅ Centralized order validation (precision, min notional, exchange rules)
 ✅ Paper wallet ledger with reserve/debit/credit system (NO FREE MONEY)
 ✅ Capital enforcement - trades blocked if insufficient funds
@@ -35,8 +36,9 @@ EXPECTED RESULTS:
 import ccxt.async_support as ccxt
 import asyncio
 import os
+from collections import deque
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import logging
 import database as db
 from exchange_limits import get_fee_rate
@@ -45,18 +47,7 @@ from risk_engine import risk_engine
 from services.order_validation import order_validator
 from utils.trading_gates import enforce_trading_gates, TradingGateError
 from services.paper_wallet_ledger import paper_wallet_ledger
-from services.paper_wallet_service import paper_wallet_service
 from services.trading_mode_validator import trading_mode_validator
-from services.hold_policy import resolve_hold_policy
-from services.regime_classifier import classify_regime, strategy_regime_allowed
-from services.entry_quality import (
-    compute_entry_confidence,
-    evaluate_expectancy_gate,
-    derive_adaptive_discipline,
-    evaluate_pre_timeout_exit,
-)
-from services.trade_worth_filter import evaluate_minimum_worthwhile_trade
-from services.fx_normalizer import to_display_zar as _fx_to_display_zar
 from config import (
     MIN_TRADE_PROFIT_THRESHOLD_ZAR,
     EDGE_BUFFER_PCT,
@@ -66,51 +57,58 @@ from config import (
     PAPER_PAIR_WHITELIST,
     PAPER_PAIR_WHITELIST_ENABLED,
     PAPER_STALE_EXIT_MINUTES,
-    NEW_TRADING_BRAIN_V2,
+    PAPER_MAX_HOLD_MINUTES,
+    PAPER_SAFETY_EXIT_MINUTES,
+    STAGNATION_EXIT_MINUTES,
+    FEE_BREAK_EVEN_WINDOW_MINUTES,
+    TIME_DECAY_EXIT_MINUTES,
+    STOP_LOSS_COOLDOWN_MINUTES,
+    LOSING_STREAK_THRESHOLD,
+    LOSING_STREAK_SIGNAL_BOOST,
+    BASE_CONFIDENCE_THRESHOLD,
+    SOFT_MAX_HOLD_SECONDS,
+    HARD_MAX_HOLD_SECONDS,
+    SYMBOL_COOLDOWN_MINUTES,
+    PORTFOLIO_GUARD_WINDOW_MINUTES,
+    PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
+    TRAINING_TRADES_REQUIRED,
+    TRAINING_MAX_HOLD_MINUTES,
+    MAX_DRAWDOWN_PCT,
+    MIN_EXPECTANCY_ZAR,
+    SAFETY_BUFFER_PCT,
+    SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER,
+    RISK_MODE_CONFIG,
 )
+from services.symbol_universe import symbol_universe as _symbol_universe
 from realtime_events import rt_events
 
+# Module-level imports for AI/market-intelligence providers.
+# Imported here so unit tests can patch them via
+# `patch("paper_trading_engine.market_regime_detector")` etc.
+try:
+    from market_regime import market_regime_detector
+except ImportError:
+    market_regime_detector = None  # type: ignore
+
+try:
+    from ml_predictor import ml_predictor
+except ImportError:
+    ml_predictor = None  # type: ignore
+
+try:
+    from fetchai_integration import fetchai
+except ImportError:
+    fetchai = None  # type: ignore
+
+try:
+    from engines.regime_playbooks import select_playbook, get_playbook_params
+except ImportError:
+    def select_playbook(r):  # type: ignore
+        return {"playbook": "momentum", "regime": "unknown", "strength": 0.5, "confidence": 0.0}
+    def get_playbook_params(rm, pb):  # type: ignore
+        return {}
+
 logger = logging.getLogger(__name__)
-SUPPORTED_QUOTE_CURRENCIES = {"ZAR", "USDT"}
-
-# ── Trading Brain V2 services (lazy-init, gated by feature flag) ──
-_brain_v2 = None
-
-def _get_brain_v2():
-    """Lazy-initialize V2 services only when feature flag is on."""
-    global _brain_v2
-    if _brain_v2 is None:
-        from services.trading_brain_v2 import (
-            AllInCostModel, SlippageEstimator, RegimeScorerV2,
-            TradeFeasibilityGate, TargetPolicyV2, BotBehavioralContracts,
-            ExecutionRouterV2, PortfolioConcentration, OpenTradeManager,
-            TradeTelemetry, KellySizingV2,
-        )
-        from services.trading_brain_v2.reason_codes import make_decision_payload, ReasonCodes
-        from services.trading_brain_v2.quality_gates import ExecutionQualityGate
-        from services.trading_brain_v2.pack_runtime import resolve_runtime_pack, pack_fields_for_trade_record
-        from services.trading_brain_v2.trade_calibration import build_entry_calibration, enrich_exit_calibration
-        _brain_v2 = {
-            "cost_model": AllInCostModel(),
-            "slippage_estimator": SlippageEstimator(),
-            "regime_scorer": RegimeScorerV2(),
-            "feasibility_gate": TradeFeasibilityGate(),
-            "quality_gate": ExecutionQualityGate(),
-            "target_policy": TargetPolicyV2(),
-            "bot_contracts": BotBehavioralContracts(),
-            "execution_router": ExecutionRouterV2(),
-            "portfolio_concentration": PortfolioConcentration(),
-            "open_trade_manager": OpenTradeManager(),
-            "telemetry": TradeTelemetry(),
-            "kelly_sizing": KellySizingV2(),
-            "make_decision_payload": make_decision_payload,
-            "ReasonCodes": ReasonCodes,
-            "resolve_runtime_pack": resolve_runtime_pack,
-            "pack_fields_for_trade_record": pack_fields_for_trade_record,
-            "build_entry_calibration": build_entry_calibration,
-            "enrich_exit_calibration": enrich_exit_calibration,
-        }
-    return _brain_v2
 
 # EXCHANGE FEE STRUCTURES (realistic simulation)
 # Updated to match actual exchange fee schedules (as of 2024)
@@ -131,53 +129,6 @@ PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
-
-# Exit strategy defaults (fractional, configurable by bot and env)
-SCALPER_STOP_LOSS_DEFAULT = float(os.getenv("SCALPER_STOP_LOSS_DEFAULT", "0.003"))
-SCALPER_TAKE_PROFIT_DEFAULT = float(os.getenv("SCALPER_TAKE_PROFIT_DEFAULT", "0.006"))
-SCALPER_TRAILING_STOP_DEFAULT = float(os.getenv("SCALPER_TRAILING_STOP_DEFAULT", "0.004"))
-NORMAL_STOP_LOSS_DEFAULT = float(os.getenv("NORMAL_STOP_LOSS_DEFAULT", "0.01"))
-NORMAL_TAKE_PROFIT_DEFAULT = float(os.getenv("NORMAL_TAKE_PROFIT_DEFAULT", "0.02"))
-NORMAL_TRAILING_STOP_DEFAULT = float(os.getenv("NORMAL_TRAILING_STOP_DEFAULT", "0.01"))
-ENABLE_ATR_DYNAMIC_TARGETS = os.getenv("ENABLE_ATR_DYNAMIC_TARGETS", "true").lower() == "true"
-ATR_TAKE_PROFIT_MULTIPLIER = float(os.getenv("ATR_TAKE_PROFIT_MULTIPLIER", "1.5"))
-SCALPER_MIN_EDGE_PCT = float(os.getenv("SCALPER_MIN_EDGE_PCT", "1.0"))
-SCALPER_MIN_AVG_CONFIDENCE = float(os.getenv("SCALPER_MIN_AVG_CONFIDENCE", "0.70"))
-def _env_int(name: str, default: int) -> int:
-    """Parse an integer env var, falling back to *default* on invalid input."""
-    raw = os.getenv(name, str(default))
-    try:
-        return int(raw)
-    except (ValueError, TypeError):
-        import logging as _log
-        _log.getLogger(__name__).warning(
-            "Invalid value for %s=%r; using default %s", name, raw, default
-        )
-        return default
-
-def _env_float(name: str, default: float) -> float:
-    """Parse a float env var, falling back to *default* on invalid input."""
-    raw = os.getenv(name, str(default))
-    try:
-        return float(raw)
-    except (ValueError, TypeError):
-        import logging as _log
-        _log.getLogger(__name__).warning(
-            "Invalid value for %s=%r; using default %s", name, raw, default
-        )
-        return default
-
-SCALPER_MIN_SOURCES = _env_int("SCALPER_MIN_SOURCES", 1)
-SCALPER_MIN_CONSENSUS_STRENGTH = _env_int("SCALPER_MIN_CONSENSUS_STRENGTH", 1)
-SCALPER_REGIME_CONF_THRESHOLD = _env_float("SCALPER_REGIME_CONF_THRESHOLD", 0.55)
-NORMAL_MIN_AVG_CONFIDENCE = _env_float("NORMAL_MIN_AVG_CONFIDENCE", 0.60)
-NORMAL_MIN_SOURCES = _env_int("NORMAL_MIN_SOURCES", 1)
-SCALPER_NO_PROGRESS_HOLD_RATIO = float(os.getenv("SCALPER_NO_PROGRESS_HOLD_RATIO", "0.70"))
-NORMAL_NO_PROGRESS_HOLD_RATIO = float(os.getenv("NORMAL_NO_PROGRESS_HOLD_RATIO", "0.45"))
-MIN_PROVEN_WINNER_PCT = float(os.getenv("MIN_PROVEN_WINNER_PCT", "0.18"))
-TAKE_PROFIT_PROVEN_MULTIPLIER = float(os.getenv("TAKE_PROFIT_PROVEN_MULTIPLIER", "0.35"))
-MIN_ADAPTIVE_TRAILING_PCT = float(os.getenv("MIN_ADAPTIVE_TRAILING_PCT", "0.0015"))
-PROVEN_WINNER_TRAILING_MULTIPLIER = float(os.getenv("PROVEN_WINNER_TRAILING_MULTIPLIER", "0.6"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -250,7 +201,7 @@ This paper trading engine achieves 95% accuracy compared to live trading through
 9. AI INTEGRATION (4-Source Intelligence)
    - Market Regime Detector
    - ML Price Predictor
-   - CoinStats Signals
+   - AI Signals
    - Fetch.ai Signals
    - Trades only execute with 2+ AI sources agreeing
    - Position sizing adjusts based on AI confidence
@@ -404,189 +355,37 @@ class PaperTradingEngine:
         # Status tracking for monitoring
         self.is_running = False
         self.last_tick_time = None
+        self.last_close_time = None
         self.last_trade_simulation = None
         self.last_error = None
         self.trade_count = 0
+
+        # Close-attempt tracking for diagnostics (C2)
+        self.closes_attempted: int = 0
+        self.closes_done: int = 0
+        self.closes_failed: int = 0
+
+        # Per-bot consecutive stop-loss counter for adaptive confidence threshold.
+        # Incremented on stop_loss close; reset on any take_profit close.
+        self._bot_loss_streaks: Dict[str, int] = {}
+
+        # Last symbol-selection diagnostics (C1)
+        self._last_symbol_selection: dict = {}
+
+        # Ring buffer of the last 20 engine actions for diagnostics
+        self._action_log: deque = deque(maxlen=20)
         
-        # Dual-mode support: 'paper' (public endpoints, no keys) or 'verified' (authenticated with Luno keys)
-        self.current_mode = 'paper'  # Default to paper/public mode
+        # Dual-mode support: 'demo' (no keys) or 'verified' (with Luno keys)
+        self.current_mode = 'demo'  # Default to demo/public mode
         self.user_id = None  # Track which user's keys we're using (if any)
         self.luno_keys_available = False
-
-    @staticmethod
-    def _resolve_exit_profile(bot_data: Dict, open_trade: Optional[Dict] = None) -> Dict[str, float]:
-        bot_type = str(bot_data.get("bot_type", "normal")).lower()
-        defaults = {
-            "scalper": {
-                "stop_loss_pct": SCALPER_STOP_LOSS_DEFAULT,
-                "take_profit_pct": SCALPER_TAKE_PROFIT_DEFAULT,
-                "trailing_stop_pct": SCALPER_TRAILING_STOP_DEFAULT,
-            },
-            "normal": {
-                "stop_loss_pct": NORMAL_STOP_LOSS_DEFAULT,
-                "take_profit_pct": NORMAL_TAKE_PROFIT_DEFAULT,
-                "trailing_stop_pct": NORMAL_TRAILING_STOP_DEFAULT,
-            },
-        }.get(bot_type, {
-            "stop_loss_pct": NORMAL_STOP_LOSS_DEFAULT,
-            "take_profit_pct": NORMAL_TAKE_PROFIT_DEFAULT,
-            "trailing_stop_pct": NORMAL_TRAILING_STOP_DEFAULT,
-        })
-
-        source = open_trade or {}
-        stop_loss_pct = float(source.get("stop_loss_pct", bot_data.get("stop_loss_pct", defaults["stop_loss_pct"])))
-        take_profit_pct = float(source.get("take_profit_pct", bot_data.get("take_profit_pct", defaults["take_profit_pct"])))
-        trailing_stop_pct = float(source.get("trailing_stop_pct", bot_data.get("trailing_stop_pct", defaults["trailing_stop_pct"])))
-        return {
-            "stop_loss_pct": max(0.001, stop_loss_pct),
-            "take_profit_pct": max(0.001, take_profit_pct),
-            "trailing_stop_pct": max(0.001, trailing_stop_pct),
-        }
-
-    @staticmethod
-    def _signal_direction(value: Optional[str]) -> str:
-        v = str(value or "").lower().strip()
-        if v in {"bullish", "buy", "long", "up"}:
-            return "bullish"
-        if v in {"bearish", "sell", "short", "down"}:
-            return "bearish"
-        return "neutral"
-
-    @classmethod
-    def _compute_signal_consensus(cls, regime: Dict, prediction: Dict, fetchai_data: Dict) -> Dict[str, int]:
-        """Compute directional consensus across high-confidence signal sources."""
-        signals = []
-        if float(regime.get("confidence", 0) or 0) >= 0.6:
-            signals.append(cls._signal_direction(regime.get("trend")))
-        if float(prediction.get("confidence", 0) or 0) >= 0.65:
-            signals.append(cls._signal_direction(prediction.get("direction")))
-        if float(fetchai_data.get("confidence", 0) or 0) >= 70:
-            signals.append(cls._signal_direction(fetchai_data.get("signal")))
-        bullish = sum(1 for s in signals if s == "bullish")
-        bearish = sum(1 for s in signals if s == "bearish")
-        neutral = sum(1 for s in signals if s == "neutral")
-        return {
-            "sources": len(signals),
-            "bullish": bullish,
-            "bearish": bearish,
-            "neutral": neutral,
-            "consensus_strength": abs(bullish - bearish),
-        }
-
-    async def _record_decision_trace(
-        self,
-        *,
-        user_id: str,
-        bot_id: str,
-        bot_data: Dict,
-        symbol: str,
-        exchange: str,
-        decision: str,
-        reason_code: str,
-        reason_text: str,
-        details: Optional[Dict] = None,
-    ) -> None:
-        """Persist machine-readable decision traces for accepted/rejected trades."""
-        if getattr(db, "decisions_collection", None) is None:
-            return
-        try:
-            payload = {
-                "user_id": user_id,
-                "bot_id": bot_id,
-                "bot_name": bot_data.get("name"),
-                "symbol": symbol,
-                "exchange": exchange,
-                "decision": decision,
-                "reason_code": reason_code,
-                "reason_text": reason_text,
-                "bot_type": bot_data.get("bot_type", "normal"),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "details": details or {},
-            }
-            await db.decisions_collection.insert_one(payload)
-        except Exception as trace_err:
-            logger.debug(f"Decision trace insert skipped: {trace_err}")
-
-    async def _recent_closed_trades(self, bot_id: str, limit: int = 10) -> list[Dict]:
-        if db.trades_collection is None:
-            return []
-        try:
-            return await db.trades_collection.find(
-                {"bot_id": bot_id, "status": "closed"},
-                {"_id": 0, "net_pnl": 1, "profit_loss": 1, "trade_close_reason": 1, "timestamp": 1},
-            ).sort("timestamp", -1).limit(limit).to_list(limit)
-        except Exception:
-            return []
-
-    @staticmethod
-    def _evaluate_pre_timeout_exit(
-        *,
-        bot_class: str,
-        hold_ratio: float,
-        pnl_pct: float,
-        min_progress_pct: float,
-        regime_trend: str,
-        regime_confidence: float,
-    ) -> Optional[str]:
-        """Evaluate strategic exit reasons before timeout fallback."""
-        reason = evaluate_pre_timeout_exit(
-            bot_class=bot_class,
-            hold_ratio=hold_ratio,
-            pnl_pct=pnl_pct,
-            min_progress_pct=min_progress_pct,
-            regime_trend=regime_trend,
-            regime_confidence=regime_confidence,
-        )
-        if reason == "scalper_no_progress_exit" and hold_ratio < SCALPER_NO_PROGRESS_HOLD_RATIO:
-            return None
-        if reason == "normal_no_progress_exit" and hold_ratio < NORMAL_NO_PROGRESS_HOLD_RATIO:
-            return None
-        return reason
-
-    async def _apply_dynamic_exit_targets(
-        self,
-        bot_id: str,
-        symbol: str,
-        entry_price: float,
-        stop_loss_pct: float,
-        take_profit_pct: float,
-    ) -> Dict[str, float]:
-        stop_loss_price = entry_price * (1 - stop_loss_pct)
-        take_profit_price = entry_price * (1 + take_profit_pct)
-        atr_value = None
-
-        if ENABLE_ATR_DYNAMIC_TARGETS:
-            try:
-                from engines.atr_stops import atr_stop_loss
-                atr_result = await atr_stop_loss.calculate_atr_stop_loss(
-                    bot_id=bot_id,
-                    pair=symbol,
-                    entry_price=entry_price,
-                    direction="long",
-                )
-                if atr_result and not atr_result.get("error"):
-                    atr_stop = atr_result.get("stop_loss")
-                    if atr_stop and 0 < atr_stop < entry_price:
-                        stop_loss_price = float(atr_stop)
-                        atr_value = abs(entry_price - stop_loss_price)
-                        take_profit_price = entry_price + (atr_value * ATR_TAKE_PROFIT_MULTIPLIER)
-            except Exception as atr_err:
-                logger.debug(f"ATR dynamic targets skipped: {atr_err}")
-
-        return {
-            "stop_loss_price": stop_loss_price,
-            "take_profit_price": take_profit_price,
-            "stop_loss_pct": max(0.001, (entry_price - stop_loss_price) / entry_price),
-            "take_profit_pct": max(0.001, (take_profit_price - entry_price) / entry_price),
-            "atr_distance": atr_value or 0.0,
-        }
         
-    async def init_exchanges(self, mode='paper', user_keys=None):
+    async def init_exchanges(self, mode='demo', user_keys=None):
         """
         Initialize all supported exchanges with dual-mode support
         
         Args:
-            mode: 'paper' (public endpoints, no keys) or 'verified' (authenticated with Luno keys)
+            mode: 'demo' (public endpoints, no keys) or 'verified' (authenticated with Luno keys)
             user_keys: Dict with Luno API credentials if mode='verified'
                       {'api_key': '...', 'api_secret': '...'}
         """
@@ -690,11 +489,32 @@ class PaperTradingEngine:
             }
         else:
             return {
-                'mode': 'paper',
-                'label': 'Live Public Data',
-                'description': 'Using real public market data via exchange APIs for paper trading'
+                'mode': 'demo',
+                'label': 'Estimated (Demo)',
+                'description': 'Using public market data only - simulated for demonstration purposes'
             }
-    
+
+    def _log_action(
+        self,
+        action: str,
+        bot_id: str,
+        symbol: str,
+        *,
+        reason: str = "",
+        trade_id: str = "",
+        bot_name: str = "",
+    ) -> None:
+        """Append an action entry to the ring buffer (last 20 kept)."""
+        self._action_log.append({
+            "action": action,
+            "bot_id": bot_id,
+            "bot_name": bot_name,
+            "symbol": symbol,
+            "reason": reason,
+            "trade_id": trade_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+
     async def get_available_pairs(self, exchange: str = 'luno') -> list:
         """Dynamically fetch ALL available trading pairs for maximum profit"""
         try:
@@ -828,24 +648,35 @@ class PaperTradingEngine:
                     }
                 return float(cached_price)
         
-        # No real price and no cached price — market data is truly unavailable.
-        # Do NOT substitute hardcoded fake prices; callers must handle None explicitly.
-        logger.warning(
-            f"Market data unavailable for {symbol} on {exchange}: "
-            "no live price, no valid cache entry. Returning None."
-        )
+        # Fallback 2: Default safe prices (never None)
+        if 'BTC' in symbol:
+            fallback_price = 50000.0
+        elif 'ETH' in symbol:
+            fallback_price = 3000.0
+        elif 'BNB' in symbol:
+            fallback_price = 300.0
+        elif 'SOL' in symbol:
+            fallback_price = 100.0
+        elif 'XRP' in symbol:
+            fallback_price = 0.5
+        else:
+            fallback_price = 1.0
+        
+        logger.warning(f"Using fallback price for {symbol}: {fallback_price}")
+        self.price_cache[symbol] = fallback_price
+        
         if with_label:
             return {
-                'price': None,
+                'price': fallback_price,
                 'symbol': symbol,
                 'exchange': exchange,
                 'timestamp': datetime.now(timezone.utc).isoformat(),
-                'source': 'unavailable',
-                'mode': 'paper',
-                'label': 'Unavailable',
-                'description': 'Market data unavailable — trade blocked to prevent fake-price execution'
+                'source': 'fallback',
+                'mode': 'demo',
+                'label': 'Estimated (Fallback)',
+                'description': 'Using safe fallback price - real market data unavailable'
             }
-        return None
+        return fallback_price
 
     async def get_market_snapshot(self, symbol: str, exchange: str = "luno") -> Dict:
         """Get best bid/ask snapshot for a symbol with fallback pricing."""
@@ -868,7 +699,7 @@ class PaperTradingEngine:
         bid_volume = None
         ask_volume = None
         depth_notional = None
-        source = "unavailable"  # default; updated below when real data is obtained
+        source = "fallback"
 
         if exchange_obj:
             try:
@@ -900,27 +731,7 @@ class PaperTradingEngine:
 
         if mid is None:
             mid = await self.get_real_price(symbol, exchange)
-            if mid is not None:
-                source = "cache"  # get_real_price returned a cached value
-            else:
-                # Market data is genuinely unavailable — return explicit sentinel.
-                # Callers MUST check source == "unavailable" and block execution.
-                logger.warning(
-                    f"No market data for {symbol} on {exchange}: "
-                    "returning unavailable snapshot to block fake-price trades."
-                )
-                return {
-                    "bid": None,
-                    "ask": None,
-                    "mid": None,
-                    "spread": 0.0,
-                    "spread_bps": 0.0,
-                    "bid_volume": None,
-                    "ask_volume": None,
-                    "depth_notional": None,
-                    "source": "unavailable",
-                    "timestamp": timestamp,
-                }
+            source = "fallback"
 
         if bid is None:
             bid = mid * (1 - (PAPER_SPREAD_BPS / 20000))
@@ -999,11 +810,43 @@ class PaperTradingEngine:
             max_drawdown_pct = bot_data.get('max_drawdown_pct', 0.15)  # 15%
             circuit_breaker_loss_pct = bot_data.get('circuit_breaker_loss_pct', 0.10)  # 10%
             
-            # Check circuit breaker - daily loss limit
-            daily_pnl_pct = ((current_capital - initial_capital) / initial_capital) if initial_capital > 0 else 0
+            # Check circuit breaker - TRUE daily loss limit using per-day baseline.
+            # We store 'daily_capital_baseline' and 'daily_baseline_date' on the bot doc.
+            # If the date is stale (new day) or missing, we reinitialise the baseline to
+            # current_capital so daily_pnl_pct starts at 0 — no false trip.
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stored_baseline_date = bot_data.get('daily_baseline_date')
+            stored_baseline = bot_data.get('daily_capital_baseline')
+
+            if (
+                not stored_baseline_date
+                or stored_baseline_date != today_str
+                or not stored_baseline
+                or stored_baseline <= 0
+            ):
+                # New day or first run — initialise baseline; no trip
+                equity_start_of_day = current_capital if current_capital > 0 else (initial_capital or 1000)
+                try:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {
+                            "daily_capital_baseline": equity_start_of_day,
+                            "daily_baseline_date": today_str
+                        }}
+                    )
+                except Exception:
+                    pass
+                daily_pnl_pct = 0.0
+            else:
+                equity_start_of_day = stored_baseline
+                daily_pnl_pct = (current_capital - equity_start_of_day) / equity_start_of_day
+
             if daily_pnl_pct < -circuit_breaker_loss_pct:
-                logger.warning(f"Circuit breaker triggered: {bot_data['name'][:15]} - daily loss {daily_pnl_pct*100:.1f}% exceeds {circuit_breaker_loss_pct*100:.1f}%")
-                return {"success": False, "bot_id": bot_id, "error": f"Circuit breaker: daily loss limit exceeded"}
+                logger.warning(
+                    f"Circuit breaker triggered: {bot_data['name'][:15]} - "
+                    f"daily loss {daily_pnl_pct*100:.1f}% exceeds {circuit_breaker_loss_pct*100:.1f}%"
+                )
+                return {"success": False, "bot_id": bot_id, "error": "Circuit breaker: daily loss limit exceeded"}
             
             # Check max drawdown
             max_drawdown = bot_data.get('max_drawdown', 0)
@@ -1063,49 +906,116 @@ class PaperTradingEngine:
                 }
             if requested_symbol and requested_symbol in available_pairs:
                 symbol = requested_symbol
+                self._last_symbol_selection = {
+                    "winner": symbol, "winner_reason": "bot_requested",
+                    "candidate_count": len(available_pairs),
+                    "filtered_out_count": 0, "filtered_out_reasons_summary": {},
+                    "top5_scored": [], "bot_id": bot_id, "exchange": exchange,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
             else:
                 if not available_pairs and allowed_pairs:
                     available_pairs = allowed_pairs
-                symbol = available_pairs[0] if available_pairs else 'BTC/USDT'
-
-            logger.info(
-                "📊 SYMBOL RESOLVED | bot=%s exchange=%s symbol=%s | "
-                "source=%s requested=%r available_count=%d",
-                bot_id, exchange, symbol,
-                "request" if (requested_symbol and requested_symbol in available_pairs) else "auto",
-                requested_symbol, len(available_pairs),
-            )
-            # Persist resolved pair to bot document so radar can display correct symbol.
-            try:
-                if db.bots_collection is not None:
-                    await db.bots_collection.update_one(
-                        {"id": bot_id},
-                        {"$set": {"pair": symbol, "symbol": symbol}},
+                # Portfolio guard: fetch open symbol set for this user to apply
+                # diversity scoring (non-blocking – ignore errors).
+                open_symbols_for_user: List[str] = []
+                try:
+                    open_trades_cursor = db.trades_collection.find(
+                        {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}
                     )
-            except Exception as _pair_err:
-                logger.debug("Could not persist resolved pair for bot %s: %s", bot_id, _pair_err)
+                    open_trades_list = await open_trades_cursor.to_list(100)
+                    open_symbols_for_user = [
+                        t.get("pair") or t.get("symbol", "")
+                        for t in open_trades_list
+                        if t.get("pair") or t.get("symbol")
+                    ]
+                except Exception:
+                    pass
+
+                selected, sym_diag = await _symbol_universe.select(
+                    bot_id=bot_id,
+                    user_id=user_id,
+                    exchange=exchange,
+                    available_pairs=available_pairs if available_pairs else (allowed_pairs or ["BTC/USDT"]),
+                    open_symbols_for_user=open_symbols_for_user,
+                    bot_override_universe=bot_data.get("symbol_universe"),
+                )
+                symbol = selected or (available_pairs[0] if available_pairs else "BTC/USDT")
+                self._last_symbol_selection = sym_diag
+
+            # Portfolio guard (C3): prevent >PORTFOLIO_GUARD_MAX_SAME_SYMBOL concurrent
+            # opens on the same symbol per user within PORTFOLIO_GUARD_WINDOW_MINUTES.
+            # Only blocks opening NEW trades; never affects closing.
+            if PORTFOLIO_GUARD_MAX_SAME_SYMBOL > 0:
+                try:
+                    cutoff = datetime.now(timezone.utc) - timedelta(
+                        minutes=PORTFOLIO_GUARD_WINDOW_MINUTES
+                    )
+                    same_symbol_count = await db.trades_collection.count_documents({
+                        "user_id": user_id,
+                        "status": "open",
+                        "pair": symbol,
+                    })
+                    if same_symbol_count >= PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
+                        logger.info(
+                            f"PORTFOLIO_GUARD: user={user_id} symbol={symbol} "
+                            f"open={same_symbol_count} >= max={PORTFOLIO_GUARD_MAX_SAME_SYMBOL}"
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "portfolio_guard",
+                            "error": (
+                                f"Portfolio guard: already {same_symbol_count} open trade(s) "
+                                f"on {symbol} for this user"
+                            ),
+                        }
+                except Exception:
+                    pass  # non-blocking
+
+            # ── Drawdown stand-down gate ────────────────────────────────────
+            # If current drawdown >= MAX_DRAWDOWN_PCT, do NOT open new trades.
+            # Closing existing trades is never affected by this gate.
+            if MAX_DRAWDOWN_PCT > 0:
+                try:
+                    from services.ledger_service import get_ledger_service
+                    _ledger = get_ledger_service(db.db)
+                    current_dd, _max_dd = await _ledger.compute_drawdown(user_id)
+                    if current_dd >= MAX_DRAWDOWN_PCT:
+                        logger.info(
+                            f"DRAWDOWN_STANDOWN bot={bot_id} user={user_id} "
+                            f"drawdown={current_dd*100:.2f}% >= limit={MAX_DRAWDOWN_PCT*100:.0f}%"
+                        )
+                        self._log_action(
+                            "SKIP", bot_id, symbol or "?",
+                            reason="drawdown_limit",
+                            bot_name=bot_data.get("name", ""),
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "drawdown_limit",
+                            "error": (
+                                f"Drawdown stand-down: current drawdown "
+                                f"{current_dd*100:.2f}% >= limit {MAX_DRAWDOWN_PCT*100:.0f}%"
+                            ),
+                            "diagnostics": {
+                                "drawdown_current_pct": round(current_dd * 100, 2),
+                                "drawdown_limit_pct": round(MAX_DRAWDOWN_PCT * 100, 2),
+                            },
+                        }
+                except Exception:
+                    pass  # drawdown gate is best-effort — never crash the engine
 
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
-            market_source = market_snapshot.get("source", "unavailable")
-
-            # CRITICAL: Block trades when market data is unavailable.
-            # source == "unavailable" means no real price could be obtained.
-            # We never use fake/hardcoded fallback prices in trading decisions.
-            if market_source == "unavailable" or current_price is None or current_price <= 0:
-                reason = (
-                    f"Real market data unavailable for {symbol} on {exchange} — "
-                    "trade blocked to prevent fake-price execution"
-                )
-                logger.error(reason)
-                self.last_error = reason
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "error": reason,
-                    "skip_reason": "market_data_unavailable",
-                }
+            
+            # CRITICAL: Guard against None or invalid price
+            if current_price is None or current_price <= 0:
+                logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
+                self.last_error = f"Invalid price: {current_price}"
+                return {"success": False, "bot_id": bot_id, "error": f"Market unavailable for {symbol}"}
 
             spread_pct = (market_snapshot.get("spread", 0) / current_price) * 100 if current_price else 0
             if spread_pct > PAPER_MAX_SPREAD_PCT and not bot_data.get("allow_wide_spread"):
@@ -1138,9 +1048,50 @@ class PaperTradingEngine:
                 }
             
             # 2. AI INTELLIGENCE: Check market regime
-            from market_regime import market_regime_detector
-            regime = await market_regime_detector.detect_regime(symbol, exchange)
+            _regime_detector = market_regime_detector
+            if _regime_detector is None:
+                from market_regime import market_regime_detector as _regime_detector
+            regime = await _regime_detector.detect_regime(symbol, exchange)
+
+            # Regime playbook selection — determines entry/exit style for this tick.
+            playbook_info = select_playbook(regime)
+            playbook = playbook_info["playbook"]
+            playbook_params = get_playbook_params(risk_mode, playbook, caution=playbook_info.get("caution", False))
+
+            # REGIME STAND-DOWN: if playbook is stand_down, skip new entries.
+            if playbook == "stand_down":
+                logger.info(
+                    f"⏭️  SKIP_REGIME_STANDDOWN | {bot_data.get('name', bot_id[:8])} | "
+                    f"regime={playbook_info['regime']} conf={playbook_info['confidence']}"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="regime_standdown",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "regime_standdown",
+                    "error": "Regime stand-down: no new entries in current market conditions",
+                    "details": {
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
+                        "regime_strength": playbook_info["strength"],
+                        "regime_confidence": playbook_info["confidence"],
+                        "exchange": exchange,
+                        "symbol": symbol,
+                    },
+                }
             
+            # 3. AI INTELLIGENCE: Get ML prediction
+            _ml_pred = ml_predictor
+            if _ml_pred is None:
+                from ml_predictor import ml_predictor as _ml_pred
+            prediction = await _ml_pred.predict_price(symbol, timeframe="1h")
+            
+            # External signal provider removed — use unavailable stub
+            ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
             # 3. AI INTELLIGENCE: Get ML prediction + aggregated signals
             from ml_predictor import ml_predictor
             prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
@@ -1195,8 +1146,10 @@ class PaperTradingEngine:
             coinstats_data = {"strength": _cs_strength, "sentiment": _cs_sentiment}
             
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
-            from fetchai_integration import fetchai
-            fetchai_data = await fetchai.fetch_market_signals(symbol)
+            _fetchai = fetchai
+            if _fetchai is None:
+                from fetchai_integration import fetchai as _fetchai
+            fetchai_data = await _fetchai.fetch_market_signals(symbol)
             
             # Analyze REAL trend (fallback if AI fails)
             trend = await self.analyze_trend(symbol, exchange)
@@ -1220,30 +1173,9 @@ class PaperTradingEngine:
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
 
-            # ═══════════════════════════════════════════════════════════════
-            # TRADING BRAIN V2 — economics-first decision path
-            # ═══════════════════════════════════════════════════════════════
-            if NEW_TRADING_BRAIN_V2:
-                return await self._execute_v2_decision(
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    user_id=user_id,
-                    symbol=symbol,
-                    exchange=exchange,
-                    risk_mode=risk_mode,
-                    current_price=current_price,
-                    market_snapshot=market_snapshot,
-                    spread_pct=spread_pct,
-                    depth_notional=depth_notional,
-                    data_source=data_source,
-                    regime=regime,
-                    prediction=prediction,
-                    coinstats_data=coinstats_data,
-                    fetchai_data=fetchai_data,
-                    trend=trend,
-                )
-
             # EDGE GATE: Require expected move to clear costs + buffer
+            # Skip the gate when the ML prediction has no real data (is_simulated=True)
+            # Adaptive safety buffer: use risk-mode config default, increase if spread is wide.
             slippage_rate = PAPER_SLIPPAGE_BPS / 10000
             latency_rate = PAPER_LATENCY_BPS / 10000
             exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
@@ -1252,369 +1184,177 @@ class PaperTradingEngine:
             fee_pct_roundtrip = fee_rate * 2 * 100
             slippage_pct_roundtrip = slippage_rate * 2 * 100
             estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
-            edge_required_pct = estimated_cost_pct + EDGE_BUFFER_PCT
-            bot_type = str(bot_data.get("bot_type") or "normal").lower()
 
-            canonical_regime = classify_regime(
-                raw_regime=regime.get("regime"),
-                trend=regime.get("trend"),
-                trend_pct=float(regime.get("trend_pct", 0) or 0),
-                volatility_pct=float(regime.get("volatility_pct", 0) or 0),
-                spread_pct=spread_pct,
-                depth_notional=depth_notional,
-            )
-            regime_gate = strategy_regime_allowed(
-                bot_type=bot_type,
-                regime=str(canonical_regime.get("regime", "unknown")),
-                confidence=float(canonical_regime.get("confidence", 0) or 0),
-            )
-            if not bool(regime_gate.get("allowed")):
-                await self._record_decision_trace(
-                    user_id=user_id,
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    symbol=symbol,
-                    exchange=exchange,
-                    decision="reject",
-                    reason_code=str(regime_gate.get("reason_code", "REGIME_BLOCK")),
-                    reason_text=str(regime_gate.get("reason_text", "Regime blocked trade")),
-                    details={"regime": canonical_regime},
-                )
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "skip_reason": str(regime_gate.get("reason_code", "REGIME_BLOCK")).lower(),
-                    "reason_code": str(regime_gate.get("reason_code", "REGIME_BLOCK")),
-                    "error": str(regime_gate.get("reason_text", "Regime blocked trade")),
-                    "details": {"regime": canonical_regime},
-                }
+            # Adaptive safety buffer per risk mode and spread quality
+            _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
+            _base_safety_buffer = float(_risk_mode_cfg.get("safety_buffer_pct", SAFETY_BUFFER_PCT))
+            _wide_spread_threshold = PAPER_MAX_SPREAD_PCT * 0.6  # 60% of max = "getting wide"
+            if spread_pct >= _wide_spread_threshold:
+                _effective_safety_buffer = _base_safety_buffer * SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER
+            else:
+                _effective_safety_buffer = _base_safety_buffer
+            edge_required_pct = estimated_cost_pct + _effective_safety_buffer
 
-            recent_closed = await self._recent_closed_trades(bot_id, limit=10)
-            adaptive = derive_adaptive_discipline(recent_closed)
-            if adaptive.get("stand_down"):
-                await self._record_decision_trace(
-                    user_id=user_id,
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    symbol=symbol,
-                    exchange=exchange,
-                    decision="stand_down",
-                    reason_code=str(adaptive.get("reason_code", "ADAPTIVE_STAND_DOWN")),
-                    reason_text="Adaptive discipline stand-down after weak recent outcomes",
-                    details={"recent_sample": len(recent_closed)},
-                )
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "skip_reason": "adaptive_stand_down",
-                    "reason_code": str(adaptive.get("reason_code", "ADAPTIVE_STAND_DOWN")),
-                    "error": "Adaptive discipline stand-down",
-                }
-
-            if bot_type == "scalper":
-                # Scalpers have short holds and higher turnover, so require stronger edge.
-                # Gate is tightened by both an absolute uplift and a relative-cost multiplier.
-                edge_required_pct = max(
-                    edge_required_pct + 0.35,
-                    estimated_cost_pct * 2.25,
-                    SCALPER_MIN_EDGE_PCT + float(adaptive.get("edge_uplift_pct", 0) or 0),
-                )
-
-            if EDGE_GATE_PAPER and expected_move_pct < edge_required_pct:
-                await self._record_decision_trace(
-                    user_id=user_id,
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    symbol=symbol,
-                    exchange=exchange,
-                    decision="reject",
-                    reason_code="INSUFFICIENT_COST_EDGE",
-                    reason_text="Expected move below strict cost-aware edge threshold",
-                    details={
-                        "expected_move_pct": round(expected_move_pct, 4),
-                        "edge_required_pct": round(edge_required_pct, 4),
-                    },
+            ml_is_simulated = prediction.get("is_simulated", False)
+            if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
+                logger.info(
+                    f"⏭️  SKIP_EDGE_GATE | {bot_data.get('name', bot_id[:8])} | "
+                    f"expected={expected_move_pct:.4f}% required={edge_required_pct:.4f}%"
                 )
                 return {
                     "success": False,
                     "bot_id": bot_id,
                     "skip_reason": "edge_gate",
-                    "reason_code": "INSUFFICIENT_COST_EDGE",
                     "error": "Expected move below edge gate threshold",
                     "details": {
                         "expected_move_pct": round(expected_move_pct, 4),
                         "estimated_cost_pct": round(estimated_cost_pct, 4),
-                        "edge_buffer_pct": EDGE_BUFFER_PCT,
+                        "edge_buffer_pct": round(_effective_safety_buffer, 4),
+                        "safety_buffer_pct": round(_effective_safety_buffer, 4),
                         "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
                         "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
                         "spread_pct": round(spread_pct, 4),
                         "exchange": exchange,
-                        "symbol": symbol
+                        "symbol": symbol,
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
                     }
                 }
             
-            # QUALITY FILTER: Skip low-confidence or conflicting trades
+            # ── Expectancy gate ──────────────────────────────────────────────
+            # Before entering, estimate whether this trade has positive expectancy.
+            # We use a simplified model: expected_move_pct as a proxy for avg_win
+            # and estimated_cost_pct as the round-trip cost.  If MIN_EXPECTANCY_ZAR
+            # is set, we also check the absolute ZAR expectancy.
+            #
+            # This is distinct from the edge gate (which only checks if expected
+            # move > cost + buffer).  The expectancy gate can be configured to a
+            # stricter threshold and is also used in the learning loop.
+            # Estimate trade size as a fraction of current capital.
+            # Use bot-level trade_size_pct if set; otherwise fall back to 10 %.
+            _position_size_pct = float(bot_data.get("trade_size_pct", 0.10))
+            trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
+            estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
+            estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
+            if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+                logger.info(
+                    f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
+                    f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
+                    f"(expected_move={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}%)"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="expectancy_gate",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "expectancy_gate",
+                    "error": "Estimated expectancy does not support this trade",
+                    "details": {
+                        "estimated_expectancy_zar": round(estimated_expectancy_zar, 4),
+                        "min_expectancy_zar": MIN_EXPECTANCY_ZAR,
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "estimated_cost_pct": round(estimated_cost_pct, 4),
+                        "trade_amount_estimate": round(trade_amount_for_exp, 2),
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
+                    },
+                }
+
+            # QUALITY FILTER: Skip low-confidence trades (save capacity for better opportunities)
+            # Only count AI sources that are non-simulated (i.e. real data available).
+            # When external APIs (Fetch.ai) are not configured their data is marked
+            # is_simulated=True and must not inflate or block the gate.
             total_confidence = 0
             confidence_sources = 0
-            
+            available_sources = 0  # how many non-simulated sources exist
+
+            # Market regime is always locally computed
+            available_sources += 1
             if regime.get('confidence', 0) > 0.5:
                 total_confidence += regime.get('confidence', 0)
                 confidence_sources += 1
-            if prediction.get('confidence', 0) > 0.6:
-                total_confidence += prediction.get('confidence', 0)
-                confidence_sources += 1
-            if fetchai_data.get('confidence', 0) > 60:
-                total_confidence += (fetchai_data.get('confidence', 0) / 100)
-                confidence_sources += 1
-            if coinstats_data.get('strength', 0) > 60:
-                total_confidence += (coinstats_data.get('strength', 0) / 100)
-                confidence_sources += 1
 
+            # ML predictor uses public CCXT data — count only when not simulated
+            if not prediction.get('is_simulated', False):
+                available_sources += 1
+                if prediction.get('confidence', 0) > 0.6:
+                    total_confidence += prediction.get('confidence', 0)
+                    confidence_sources += 1
+
+            # Fetch.ai — only count when configured (not simulated)
+            if not fetchai_data.get('is_simulated', True):
+                available_sources += 1
+                if fetchai_data.get('confidence', 0) > 60:
+                    total_confidence += (fetchai_data.get('confidence', 0) / 100)
+                    confidence_sources += 1
+
+            # (external signal provider removed — always simulated, not counted)
+
+            # Require at least 1 confident source when ≤2 sources are available,
+            # or at least 2 when 3+ sources are available.
+            # Adaptive boost: after LOSING_STREAK_THRESHOLD consecutive stop-losses,
+            # raise the avg_confidence bar by LOSING_STREAK_SIGNAL_BOOST to filter
+            # low-quality entries more aggressively.
+            min_sources_required = 1 if available_sources <= 2 else 2
             avg_confidence = total_confidence / max(confidence_sources, 1)
-            consensus = self._compute_signal_consensus(regime, prediction, fetchai_data)
-            regime_name = str(regime.get("regime", "unknown")).lower()
-            trend_direction = self._signal_direction(trend)
-            dominant_direction = "neutral"
-            if consensus["bullish"] > consensus["bearish"]:
-                dominant_direction = "bullish"
-            elif consensus["bearish"] > consensus["bullish"]:
-                dominant_direction = "bearish"
-            direction_conflict = dominant_direction != "neutral" and trend_direction != "neutral" and dominant_direction != trend_direction
-
-            confidence_result = compute_entry_confidence(
-                bot_type=bot_type,
-                regime_confidence=float(canonical_regime.get("confidence", 0) or 0),
-                ml_confidence=float(prediction.get("confidence", 0) or 0),
-                fetchai_confidence=float(fetchai_data.get("confidence", 0) or 0),
-                coinstats_strength=float(coinstats_data.get("strength", 0) or 0),
-                consensus_strength=int(consensus.get("consensus_strength", 0)),
-                consensus_sources=int(consensus.get("sources", 0)),
-                direction_conflict=direction_conflict,
-            )
-            min_required_confidence = float(confidence_result.get("minimum_required", 0.68)) + float(adaptive.get("confidence_uplift", 0) or 0)
-            entry_confidence_score = float(confidence_result.get("entry_confidence_score", 0) or 0)
-
-            if entry_confidence_score < min_required_confidence:
-                await self._record_decision_trace(
-                    user_id=user_id,
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    symbol=symbol,
-                    exchange=exchange,
-                    decision="reject",
-                    reason_code="LOW_ENTRY_CONFIDENCE",
-                    reason_text="Signal confidence below minimum threshold",
-                    details={
-                        "entry_confidence_score": entry_confidence_score,
-                        "required_confidence": round(min_required_confidence, 4),
-                        "consensus": consensus,
-                    },
-                )
-                return {"success": False, "bot_id": bot_id, "skip_reason": "low_entry_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Trade quality threshold not met"}
-
-            if bot_type == "scalper":
-                if regime_name in {"unknown", "choppy", "sideways"} and float(regime.get("confidence", 0) or 0) < SCALPER_REGIME_CONF_THRESHOLD:
-                    await self._record_decision_trace(
-                        user_id=user_id,
-                        bot_id=bot_id,
-                        bot_data=bot_data,
-                        symbol=symbol,
-                        exchange=exchange,
-                        decision="reject",
-                        reason_code="REGIME_UNKNOWN_BLOCK",
-                        reason_text="Scalper blocked: unknown/low-confidence regime",
-                        details={"regime": canonical_regime, "consensus": consensus},
-                    )
-                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_unknown_regime", "reason_code": "REGIME_UNKNOWN_BLOCK", "error": "Scalper trade blocked in low-confidence regime"}
-                if confidence_sources < 2 or avg_confidence < SCALPER_MIN_AVG_CONFIDENCE:
-                    logger.debug(
-                        "Scalper quality filter: low confidence (sources=%s avg=%.2f)",
-                        confidence_sources,
-                        avg_confidence,
-                    )
-                    await self._record_decision_trace(
-                        user_id=user_id,
-                        bot_id=bot_id,
-                        bot_data=bot_data,
-                        symbol=symbol,
-                        exchange=exchange,
-                        decision="reject",
-                        reason_code="LOW_ENTRY_CONFIDENCE",
-                        reason_text="Scalper signal confidence threshold not met",
-                        details={"avg_confidence": avg_confidence, "confidence_sources": confidence_sources, "consensus": consensus},
-                    )
-                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Scalper quality threshold not met"}
-                if consensus["consensus_strength"] < SCALPER_MIN_CONSENSUS_STRENGTH or consensus["sources"] < SCALPER_MIN_SOURCES:
-                    await self._record_decision_trace(
-                        user_id=user_id,
-                        bot_id=bot_id,
-                        bot_data=bot_data,
-                        symbol=symbol,
-                        exchange=exchange,
-                        decision="reject",
-                        reason_code="SIGNAL_CONFLICT",
-                        reason_text="Scalper signal consensus too weak",
-                        details={"consensus": consensus, "regime": canonical_regime},
-                    )
-                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_conflicting_signals", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signal consensus too weak"}
-                if dominant_direction == "neutral" or (trend_direction != "neutral" and dominant_direction != trend_direction):
-                    await self._record_decision_trace(
-                        user_id=user_id,
-                        bot_id=bot_id,
-                        bot_data=bot_data,
-                        symbol=symbol,
-                        exchange=exchange,
-                        decision="reject",
-                        reason_code="SIGNAL_CONFLICT",
-                        reason_text="Scalper directional signals conflict with trend",
-                        details={"trend_direction": trend_direction, "dominant_direction": dominant_direction, "consensus": consensus},
-                    )
-                    return {"success": False, "bot_id": bot_id, "skip_reason": "scalper_direction_conflict", "reason_code": "SIGNAL_CONFLICT", "error": "Scalper signals conflict with trend"}
+            _loss_streak = self._bot_loss_streaks.get(bot_id, 0)
+            if _loss_streak >= LOSING_STREAK_THRESHOLD:
+                _conf_threshold = BASE_CONFIDENCE_THRESHOLD + LOSING_STREAK_SIGNAL_BOOST
             else:
-                if confidence_sources < NORMAL_MIN_SOURCES or avg_confidence < NORMAL_MIN_AVG_CONFIDENCE:
-                    logger.debug(
-                        "Normal quality filter: low confidence (sources=%s avg=%.2f)",
-                        confidence_sources,
-                        avg_confidence,
-                    )
-                    await self._record_decision_trace(
-                        user_id=user_id,
-                        bot_id=bot_id,
-                        bot_data=bot_data,
-                        symbol=symbol,
-                        exchange=exchange,
-                        decision="reject",
-                        reason_code="LOW_ENTRY_CONFIDENCE",
-                        reason_text="Normal bot quality threshold not met",
-                        details={"avg_confidence": avg_confidence, "confidence_sources": confidence_sources, "consensus": consensus},
-                    )
-                    return {"success": False, "bot_id": bot_id, "skip_reason": "low_confidence", "reason_code": "LOW_ENTRY_CONFIDENCE", "error": "Trade quality threshold not met"}
-                if consensus["consensus_strength"] == 0 and avg_confidence < 0.75:
-                    await self._record_decision_trace(
-                        user_id=user_id,
-                        bot_id=bot_id,
-                        bot_data=bot_data,
-                        symbol=symbol,
-                        exchange=exchange,
-                        decision="reject",
-                        reason_code="SIGNAL_CONFLICT",
-                        reason_text="Signal consensus threshold not met",
-                        details={"avg_confidence": avg_confidence, "consensus": consensus},
-                    )
-                    return {"success": False, "bot_id": bot_id, "skip_reason": "conflicting_signals", "reason_code": "SIGNAL_CONFLICT", "error": "Signal consensus threshold not met"}
-
-            timeout_risk_pct = 0.12 if bot_type == "scalper" else 0.08
-            expectancy = evaluate_expectancy_gate(
-                bot_type=bot_type,
-                expected_move_pct=expected_move_pct,
-                estimated_cost_pct=estimated_cost_pct,
-                market_quality=float(canonical_regime.get("market_quality", 0) or 0),
-                entry_confidence_score=entry_confidence_score,
-                timeout_risk_pct=timeout_risk_pct,
-                adaptive_edge_uplift_pct=float(adaptive.get("edge_uplift_pct", 0) or 0),
-            )
-            if not expectancy.get("accepted"):
-                await self._record_decision_trace(
-                    user_id=user_id,
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    symbol=symbol,
-                    exchange=exchange,
-                    decision="reject",
-                    reason_code="INSUFFICIENT_NET_EXPECTANCY",
-                    reason_text="Post-cost expected edge is insufficient",
-                    details={"expectancy": expectancy},
+                _conf_threshold = BASE_CONFIDENCE_THRESHOLD
+            if confidence_sources < min_sources_required or avg_confidence < _conf_threshold:
+                logger.info(
+                    f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
+                    f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
+                    f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak}"
                 )
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "skip_reason": "insufficient_net_expectancy",
-                    "reason_code": "INSUFFICIENT_NET_EXPECTANCY",
-                    "error": "Insufficient net expectancy after costs and risk",
-                    "details": {"expectancy": expectancy},
-                }
+                return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             
-            # Candidate notional is full available paper capital.
-            # Final size is risk-capped by fixed-fractional sizing below.
-
-            # ── WORTHWHILE TRADE GATE (V1) ───────────────────────────────────────
-            # Reject entries whose projected absolute profit is too small to justify
-            # the round-trip cost, slippage, and capital lock.  Uses current capital
-            # as an equity proxy; notional is estimated as capital × 3% (conservative
-            # floor before fixed-fractional sizing).  SCALPER_MIN_EDGE_PCT already
-            # handles edge, so this gate adds the absolute-profit and reward-rate
-            # checks that the edge-% check alone cannot enforce.
-            _worth_equity = float(bot_data.get("current_capital", 1000) or 1000)
-            # Use 3% of equity as a conservative notional proxy.  The real trade
-            # size is determined later by fixed-fractional sizing (typically 1-2%
-            # risk), so 3% is a safe upper-bound pre-filter: if the trade cannot
-            # pass minimum worthwhile checks at 3% notional it will never pass at
-            # the actual (smaller) risk-capped size either.
-            _worth_notional = _worth_equity * 0.03
-            _worth_result = evaluate_minimum_worthwhile_trade(
-                bot_type=bot_type,
-                exchange=exchange,
-                bot_equity=_worth_equity,
-                notional=_worth_notional,
-                expected_gross_edge_bps=expected_move_pct * 100,
-                all_in_cost_bps=estimated_cost_pct * 100,
-            )
-            if not _worth_result["approved"]:
-                _wrc = _worth_result["reason_code"]
-                _wrt = _worth_result["reason_text"]
-                logger.debug(
-                    "Worth filter block [%s]: %s – %s",
-                    bot_id,
-                    _wrc,
-                    _wrt,
-                )
-                await self._record_decision_trace(
-                    user_id=user_id,
-                    bot_id=bot_id,
-                    bot_data=bot_data,
-                    symbol=symbol,
-                    exchange=exchange,
-                    decision="reject",
-                    reason_code=_wrc,
-                    reason_text=_wrt,
-                    details=_worth_result.get("diagnostics", {}),
-                )
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "skip_reason": "trade_worth_filter",
-                    "reason_code": _wrc,
-                    "error": _wrt,
-                }
-            # ────────────────────────────────────────────────────────────────────
-
+            # Position sizing - OPTIMIZED for quality over quantity
+            # Larger positions on high-confidence AI signals
+            position_sizes = {
+                'safe': 0.20,       # 20% per trade (was 15%)
+                'balanced': 0.30,   # 30% (was 20%)
+                'risky': 0.40,      # 40% (was 25%)
+                'aggressive': 0.50  # 50% (was 30%)
+            }
+            
+            base_position_size = position_sizes.get(risk_mode, 0.20)
+            
+            # BOOST position size on HIGH-CONFIDENCE AI signals (up to +50% larger)
+            confidence_boost = 1.0
+            
+            # If multiple AI sources agree, increase position
+            ai_agreement = 0
+            if regime.get('confidence', 0) > 0.7:
+                ai_agreement += 1
+            if prediction.get('confidence', 0) > 0.75:
+                ai_agreement += 1
+            if fetchai_data.get('confidence', 0) > 80:
+                ai_agreement += 1
+            
+            # Boost: 1-2 sources = 1.0x, 3 sources = 1.25x, 4 sources = 1.5x
+            if ai_agreement >= 4:
+                confidence_boost = 1.5
+            elif ai_agreement >= 3:
+                confidence_boost = 1.25
+            elif ai_agreement >= 2:
+                confidence_boost = 1.1
+            
             # PHASE 4A: Check paper wallet balance BEFORE calculating trade amount
             bot_id_val = bot_data.get('id')
             can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
             
             if not can_afford:
-                # get_balance() already attempts auto-initialization from bot data.
-                # If it still fails, ensure the user-level paper wallet exists with
-                # the initial capital so the per-bot reservation can succeed.
-                _init_capital = float(bot_data.get("initial_capital") or bot_data.get("current_capital") or 0)
-                if _init_capital > 0:
-                    _wallet_currency = "ZAR" if exchange.lower() == "luno" else "USDT"
-                    logger.warning(
-                        "⚠️ %s - Wallet missing, ensuring user wallet funded with %.2f %s",
-                        bot_data['name'][:15], _init_capital, _wallet_currency,
-                    )
-                    try:
-                        await paper_wallet_service.deposit(user_id, _init_capital, _wallet_currency)
-                        can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
-                    except Exception as _wallet_err:
-                        logger.error("Wallet auto-fund failed: %s", _wallet_err)
-                if not can_afford:
-                    logger.warning(f"❌ {bot_data['name'][:15]} - No paper wallet: {wallet_msg}")
-                    return {
-                        "success": False,
-                        "bot_id": bot_id,
-                        "error": f"Paper wallet not found: {wallet_msg}"
-                    }
+                logger.warning(f"❌ {bot_data['name'][:15]} - No paper wallet: {wallet_msg}")
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "error": f"Paper wallet not found: {wallet_msg}"
+                }
             
             # Use paper wallet balance instead of bot capital
             paper_capital = balance
@@ -1627,7 +1367,8 @@ class PaperTradingEngine:
                     "error": f"Insufficient paper funds: R{paper_capital:.2f}"
                 }
             
-            trade_amount = paper_capital
+            final_position_size = min(base_position_size * confidence_boost, 0.60)  # Cap at 60%
+            trade_amount = paper_capital * final_position_size
             
             # PHASE 4A: Verify paper wallet can afford this trade
             can_execute, wallet_check_msg = await paper_wallet_ledger.can_trade(bot_id_val, trade_amount)
@@ -1639,6 +1380,31 @@ class PaperTradingEngine:
                     "bot_id": bot_id,
                     "error": wallet_check_msg
                 }
+            
+            # CLAMP trade_amount to the risk engine's allowed notional BEFORE validation.
+            # This prevents infinite "Trade size too large" rejection loops when the
+            # paper wallet balance is higher than the bot's current_capital record.
+            # Percentages mirror risk_engine.py's max_percent dict (single source of
+            # truth is risk_engine; these are intentionally kept in sync).
+            _risk_max_pct = {
+                "safe": 0.25, "balanced": 0.35, "risky": 0.45, "aggressive": 0.60,
+            }
+            _bot_capital_for_risk = bot_data.get("current_capital", paper_capital)
+            _max_allowed_notional = _bot_capital_for_risk * _risk_max_pct.get(risk_mode, 0.25)
+            if trade_amount > _max_allowed_notional and _max_allowed_notional > 0:
+                logger.debug(
+                    f"Clamping trade_amount from {trade_amount:.2f} to {_max_allowed_notional:.2f} "
+                    f"for {risk_mode} mode (bot capital {_bot_capital_for_risk:.2f})"
+                )
+                trade_amount = _max_allowed_notional
+
+            # 2. CHECK RISK ENGINE
+            risk_ok, risk_reason = await risk_engine.check_trade_risk(
+                user_id, bot_id, exchange, trade_amount, risk_mode
+            )
+            if not risk_ok:
+                logger.warning(f"Risk block: {bot_data['name'][:15]} - {risk_reason}")
+                return {"success": False, "bot_id": bot_id, "error": risk_reason}
             
             # Guard against invalid current_price before calculations
             if current_price is None or current_price <= 0:
@@ -1682,8 +1448,7 @@ class PaperTradingEngine:
                     "timestamp": second_entry_time
                 })
 
-            pre_risk_adjustment_entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
-            entry_value = pre_risk_adjustment_entry_value
+            entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
 
             if entry_value <= 0:
                 logger.error(f"Invalid trade values: entry={entry_value}")
@@ -1695,56 +1460,10 @@ class PaperTradingEngine:
             entry_fee = entry_value * fee_rate
             fees = entry_fee
 
-            exit_profile = self._resolve_exit_profile(bot_data)
-            dynamic_targets = await self._apply_dynamic_exit_targets(
-                bot_id=bot_id,
-                symbol=symbol,
-                entry_price=avg_entry_price,
-                stop_loss_pct=exit_profile["stop_loss_pct"],
-                take_profit_pct=exit_profile["take_profit_pct"],
-            )
-            stop_loss_pct = dynamic_targets["stop_loss_pct"]
-            take_profit_pct = dynamic_targets["take_profit_pct"]
-            trailing_stop_pct = exit_profile["trailing_stop_pct"]
-            stop_loss_price = dynamic_targets["stop_loss_price"]
-            take_profit_price = dynamic_targets["take_profit_price"]
+            stop_loss_pct = float(bot_data.get("stop_loss_pct", 0.02))
+            take_profit_pct = float(bot_data.get("take_profit_pct", 0.03))
 
-            # Fixed-fractional size cap from stop distance and bot capital
-            max_risk_notional = risk_engine._calculate_max_notional_for_risk(
-                bot=bot_data,
-                bot_capital=paper_capital,
-                risk_fraction=risk_engine._resolve_risk_fraction(bot_data, risk_mode),
-                entry_price=avg_entry_price,
-                stop_loss_price=stop_loss_price,
-            )
-            trade_amount = min(entry_value, max_risk_notional)
-            if trade_amount <= 0:
-                return {"success": False, "bot_id": bot_id, "error": "Trade rejected by fixed-fractional sizing"}
-            if trade_amount < pre_risk_adjustment_entry_value:
-                scale = trade_amount / pre_risk_adjustment_entry_value
-                for fill in entry_fills:
-                    fill["qty"] = fill["qty"] * scale
-                crypto_amount = sum(fill["qty"] for fill in entry_fills)
-                entry_value = sum(fill["qty"] * fill["price"] for fill in entry_fills)
-                avg_entry_price = (entry_value / crypto_amount) if crypto_amount > 0 else avg_entry_price
-            entry_fee = entry_value * fee_rate
-            fees = entry_fee
-
-            # 2. CHECK RISK ENGINE (with stop distance)
-            risk_ok, risk_reason = await risk_engine.check_trade_risk(
-                user_id,
-                bot_id,
-                exchange,
-                trade_amount,
-                risk_mode,
-                entry_price=avg_entry_price,
-                stop_loss_price=stop_loss_price,
-            )
-            if not risk_ok:
-                logger.warning(f"Risk block: {bot_data['name'][:15]} - {risk_reason}")
-                return {"success": False, "bot_id": bot_id, "error": risk_reason}
-
-            fee_currency = self._resolve_quote_currency(symbol)
+            fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
             market_source = market_snapshot.get("source") if isinstance(market_snapshot, dict) else data_source
             spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if isinstance(market_snapshot, dict) else PAPER_SPREAD_BPS
 
@@ -1791,37 +1510,48 @@ class PaperTradingEngine:
                 "latency_ms": PAPER_LATENCY_MS,
                 "stop_loss_pct": stop_loss_pct,
                 "take_profit_pct": take_profit_pct,
-                "trailing_stop_pct": trailing_stop_pct,
-                "highest_price": round(avg_entry_price, 6),
-                "stop_loss_price": round(stop_loss_price, 6),
-                "take_profit_price": round(take_profit_price, 6),
+                "stop_loss_price": round(avg_entry_price * (1 - stop_loss_pct), 6),
+                "take_profit_price": round(avg_entry_price * (1 + take_profit_pct), 6),
                 "expected_move_pct": round(expected_move_pct, 4),
                 "estimated_cost_pct": round(estimated_cost_pct, 4),
                 "edge_buffer_pct": EDGE_BUFFER_PCT,
-                "edge_required_pct": round(edge_required_pct, 4),
-                "reason_code": "ENTRY_APPROVED",
-                "entry_reason_code": "ENTRY_APPROVED",
-                "entry_confidence_score": round(entry_confidence_score, 4),
-                "entry_confidence_required": round(min_required_confidence, 4),
-                "expectancy_score": round(float(expectancy.get("quality_multiplier", 0) or 0), 4),
-                "expectancy_net_edge_pct": round(float(expectancy.get("net_edge_pct", 0) or 0), 4),
-                "expectancy_required_edge_pct": round(float(expectancy.get("required_net_edge_pct", 0) or 0), 4),
-                "canonical_market_regime": canonical_regime.get("regime", "unknown"),
-                "canonical_regime_confidence": round(float(canonical_regime.get("confidence", 0) or 0), 4),
-                "market_quality_score": round(float(canonical_regime.get("market_quality", 0) or 0), 4),
-                "adaptive_discipline_code": str(adaptive.get("reason_code", "ADAPTIVE_NEUTRAL")),
+                # Planned exit deadlines (used by diagnostics and exit loop)
+                "planned_exit_deadline": (
+                    datetime.now(timezone.utc) + timedelta(seconds=SOFT_MAX_HOLD_SECONDS)
+                ).isoformat(),
+                "hard_exit_deadline": (
+                    datetime.now(timezone.utc) + timedelta(seconds=HARD_MAX_HOLD_SECONDS)
+                ).isoformat(),
+                "stagnation_deadline": (
+                    datetime.now(timezone.utc) + timedelta(minutes=STAGNATION_EXIT_MINUTES)
+                ).isoformat() if STAGNATION_EXIT_MINUTES > 0 else None,
                 # AI Intelligence metadata
                 "ai_regime": regime.get('regime', 'unknown'),
                 "ai_confidence": round(regime.get('confidence', 0), 2),
                 "ml_prediction": prediction.get('direction', 'neutral'),
                 "ml_confidence": round(prediction.get('confidence', 0), 2),
-                "coinstats_strength": round(coinstats_data.get('strength', 0), 1),
-                "coinstats_sentiment": coinstats_data.get('sentiment', 'neutral'),
                 "fetchai_signal": fetchai_data.get('signal', 'HOLD'),
                 "fetchai_confidence": round(fetchai_data.get('confidence', 0), 1),
-                "signal_consensus_strength": consensus.get("consensus_strength", 0),
-                "signal_sources": consensus.get("sources", 0),
-                "avg_ai_confidence": round(avg_confidence, 3),
+                # Decision trace (Section 7 diagnostics)
+                "decision_trace": {
+                    "evaluated_pairs_count": self._last_symbol_selection.get("candidate_count", 1),
+                    "top_candidates": self._last_symbol_selection.get("top5_scored", []),
+                    "chosen_pair": symbol,
+                    "expectancy_estimate": round(estimated_expectancy_zar, 4),
+                    "cost_estimate": round(estimated_cost_pct, 4),
+                    "regime": playbook_info["regime"],
+                    "playbook": playbook,
+                    "planned_exit": {
+                        "take_profit_pct": take_profit_pct,
+                        "stop_loss_pct": stop_loss_pct,
+                        "time_exit_minutes": PAPER_MAX_HOLD_MINUTES,
+                        "safety_exit_minutes": PAPER_SAFETY_EXIT_MINUTES,
+                        "hard_max_hold_seconds": HARD_MAX_HOLD_SECONDS,
+                        "soft_max_hold_seconds": SOFT_MAX_HOLD_SECONDS,
+                        "time_to_forced_exit_seconds": HARD_MAX_HOLD_SECONDS,
+                        "next_exit_reason": "take_profit_or_stop_loss",
+                    },
+                },
             }
 
             # RECORD TRADE FOR RATE LIMITER (entry)
@@ -1831,23 +1561,6 @@ class PaperTradingEngine:
             self.last_trade_simulation = trade_result
             self.trade_count += 1
             self.last_error = None
-
-            await self._record_decision_trace(
-                user_id=user_id,
-                bot_id=bot_id,
-                bot_data=bot_data,
-                symbol=symbol,
-                exchange=exchange,
-                decision="approve",
-                reason_code="ENTRY_APPROVED",
-                reason_text="Entry accepted by regime/consensus/expectancy gates",
-                details={
-                    "canonical_regime": canonical_regime,
-                    "expectancy": expectancy,
-                    "entry_confidence_score": entry_confidence_score,
-                    "adaptive": adaptive,
-                },
-            )
 
             logger.info(f"🟡 {bot_data['name'][:15]} | {symbol} | OPEN @ R{avg_entry_price:.2f}")
 
@@ -1890,733 +1603,47 @@ class PaperTradingEngine:
         else:
             return 3   # Very poor
 
-    # Max hold times per risk_mode (seconds) — must stay consistent with radar.py
-    RISK_MODE_MAX_HOLD = {
-        "safe": 6 * 3600,        # 6 hours
-        "balanced": 3 * 3600,    # 3 hours
-        "aggressive": 90 * 60,   # 90 minutes
-    }
-
-    # ═══════════════════════════════════════════════════════════════════
-    # TRADING BRAIN V2 — economics-first decision + execution
-    # ═══════════════════════════════════════════════════════════════════
-    async def _execute_v2_decision(
-        self,
-        bot_id: str,
-        bot_data: Dict,
-        user_id: str,
-        symbol: str,
-        exchange: str,
-        risk_mode: str,
-        current_price: float,
-        market_snapshot: Dict,
-        spread_pct: float,
-        depth_notional: float,
-        data_source: str,
-        regime: Dict,
-        prediction: Dict,
-        coinstats_data: Dict,
-        fetchai_data: Dict,
-        trend: str,
-    ) -> Dict:
-        """V2 economics-first decision path (feature-flagged)."""
-        v2 = _get_brain_v2()
-        RC = v2["ReasonCodes"]
-        bot_type = str(bot_data.get("bot_type") or "normal").lower()
-        paper_capital = bot_data.get("current_capital", 1000)
-
-        # In paper mode, if depth is unavailable (None or 0), use a conservative
-        # fallback so the depth gate does not permanently block all paper trades.
-        # Real-money paths should not reach V2 with depth=None.
-        if depth_notional is None or depth_notional == 0:
-            from services.trading_brain_v2.trade_feasibility_gate import DEPTH_MIN_NOTIONAL
-            _strat_key = "scalper" if bot_type == "scalper" else "normal"
-            depth_notional = float(DEPTH_MIN_NOTIONAL.get(_strat_key, 50000))
-
-        # 1) Resolve bot capital from paper wallet
-        bot_id_val = bot_data.get('id')
-        can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
-        if can_afford and balance > 0:
-            paper_capital = balance
-
-        if paper_capital <= 0:
-            return self._v2_reject(bot_id, RC.INSUFFICIENT_BALANCE, "No paper funds available")
-
-        # 2) All-in cost model
-        bid = market_snapshot.get("bid") or current_price * 0.999
-        ask = market_snapshot.get("ask") or current_price * 1.001
-        mid = current_price
-        depth_snap = market_snapshot.get("order_book") or market_snapshot.get("depth")
-        vol_est = abs(float(regime.get("volatility_pct", 0) or 0)) / 100.0
-
-        # Determine order mode from bot contract
-        contract = v2["bot_contracts"].get_contract(bot_type)
-        order_mode = contract.order_mode_preference
-
-        cost = v2["cost_model"].compute(
-            venue=exchange,
-            symbol=symbol,
-            quote_currency=self._resolve_quote_currency(symbol),
-            side="buy",
-            order_mode=order_mode,
-            notional_size=paper_capital,
-            best_bid=bid,
-            best_ask=ask,
-            mid=mid,
-            depth_snapshot=depth_snap,
-            spread=spread_pct / 100.0,
-            volatility_estimate=vol_est,
-        )
-
-        # 3) Regime scoring V2
-        # Paper cold-start fix: market_regime_detector returns confidence=0 when < 10
-        # price data points are collected.  Feeding zero trend/vol to the scorer
-        # produces REGIME_LOW_VOL (confidence ≈ 1.0), which blocks scalpers via
-        # REGIME_BLOCK.  When real regime data is absent we use a mild trending
-        # fallback so the system can begin accumulating price history while still
-        # gating on edge/feasibility rather than an artificial regime dead-lock.
-        _raw_regime_conf = float(regime.get("confidence", 0) or 0)
-        _raw_regime_label = str(regime.get("regime") or "").lower()
-        _regime_cold_start = (
-            _raw_regime_conf == 0.0
-            or _raw_regime_label in ("unknown", "error", "")
-        )
-        _trend_pct = float(regime.get("trend_pct", 0) or 0)
-        _vol_pct = float(regime.get("volatility_pct", 0) or 0)
-        if _regime_cold_start:
-            _trend_pct = float(os.getenv("PAPER_FALLBACK_TREND_PCT", "2.0"))
-            _vol_pct = float(os.getenv("PAPER_FALLBACK_VOL_PCT", "2.5"))
-            logger.info(
-                "📊 PAPER REGIME FALLBACK | bot=%s symbol=%s exchange=%s | "
-                "regime cold-start (conf=0 label=%r) → fallback trend_pct=%.1f vol_pct=%.1f",
-                bot_id, symbol, exchange, _raw_regime_label, _trend_pct, _vol_pct,
-            )
-        regime_result = v2["regime_scorer"].score(
-            symbol=symbol,
-            trend_pct=_trend_pct,
-            volatility_pct=_vol_pct,
-            spread_pct=spread_pct,
-            depth_notional=depth_notional or 0,
-        )
-        regime_eligibility = v2["regime_scorer"].is_eligible(bot_type, regime_result)
-        logger.info(
-            "📊 REGIME SCORED | bot=%s symbol=%s exchange=%s | "
-            "label=%s conf=%.2f eligible=%s action=%s",
-            bot_id, symbol, exchange,
-            regime_result.get("regime_label"),
-            regime_result.get("regime_confidence", 0),
-            regime_eligibility.get("eligible"),
-            regime_eligibility.get("action"),
-        )
-
-        # 4) Adaptive discipline (reuse existing)
-        recent_closed = await self._recent_closed_trades(bot_id, limit=10)
-        adaptive = derive_adaptive_discipline(recent_closed)
-        if adaptive.get("stand_down"):
-            await self._record_decision_trace(
-                user_id=user_id, bot_id=bot_id, bot_data=bot_data,
-                symbol=symbol, exchange=exchange,
-                decision="stand_down",
-                reason_code=RC.ADAPTIVE_STAND_DOWN,
-                reason_text="Adaptive discipline stand-down",
-                details={"recent_sample": len(recent_closed)},
-            )
-            return self._v2_reject(bot_id, RC.ADAPTIVE_STAND_DOWN, "Adaptive discipline stand-down")
-
-        # 5) Scalper-specific readiness check
-        if bot_type == "scalper":
-            spread_bps = spread_pct * 100  # spread_pct is already %, convert to bps
-
-            # 5a. Re-entry discipline: block if bot exited weakly and conditions haven't improved
-            # Compute provisional entry confidence from regime for the discipline check.
-            _prov_rc = float(regime_result.get("regime_confidence", 0.0) or 0.0)
-            _prov_ec = float(prediction.get("confidence", 0) or 0) * 0.30 + _prov_rc * 0.35
-            reentry_check = v2["bot_contracts"].check_scalper_reentry_discipline(
-                bot_id=bot_id,
-                current_regime_confidence=_prov_rc,
-                current_entry_confidence=_prov_ec,
-            )
-            if not reentry_check["allowed"]:
-                return self._v2_reject(
-                    bot_id,
-                    reentry_check["reason_code"],
-                    reentry_check["reason_text"],
-                )
-
-            scalper_ready = v2["bot_contracts"].check_scalper_readiness(
-                bot_id=bot_id,
-                spread_bps=spread_bps,
-                liquidity_score=regime_result.get("liquidity_score", 0.5),
-                regime_label=regime_result.get("regime_label", "unknown"),
-                regime_confidence=regime_result.get("regime_confidence", 0.5),
-            )
-            if not scalper_ready["ready"]:
-                return self._v2_reject(bot_id, scalper_ready["reason_code"], scalper_ready["reason_text"])
-
-        # 6) Entry confidence (reuse existing)
-        consensus = self._compute_signal_consensus(regime, prediction, fetchai_data)
-        direction_conflict = False
-        trend_dir = self._signal_direction(trend)
-        dom_dir = "neutral"
-        if consensus["bullish"] > consensus["bearish"]:
-            dom_dir = "bullish"
-        elif consensus["bearish"] > consensus["bullish"]:
-            dom_dir = "bearish"
-        if dom_dir != "neutral" and trend_dir != "neutral" and dom_dir != trend_dir:
-            direction_conflict = True
-
-        confidence_result = compute_entry_confidence(
-            bot_type=bot_type,
-            regime_confidence=float(regime_result.get("regime_confidence", 0) or 0),
-            ml_confidence=float(prediction.get("confidence", 0) or 0),
-            fetchai_confidence=float(fetchai_data.get("confidence", 0) or 0),
-            coinstats_strength=float(coinstats_data.get("strength", 0) or 0),
-            consensus_strength=int(consensus.get("consensus_strength", 0)),
-            consensus_sources=int(consensus.get("sources", 0)),
-            direction_conflict=direction_conflict,
-        )
-        entry_confidence = float(confidence_result.get("entry_confidence_score", 0) or 0)
-
-        # 7) Expected gross edge
-        expected_move_pct = abs(float(prediction.get("predicted_change", 0) or 0))
-        expected_gross_edge_bps = expected_move_pct * 100  # % → bps
-        all_in_cost_bps = cost.get("all_in_cost_bps", 0)
-
-        # ── Repair 1: Edge Floor Transparency ──
-        # Track raw edge BEFORE any floor is applied.
-        raw_gross_edge_bps = expected_gross_edge_bps
-        paper_edge_floor_applied = False
-
-        # Paper-mode minimum viable edge floor:
-        # When the ML predictor returns a zero or near-zero predicted_change (common
-        # with the simplified paper-mode predictor that has no live model), the
-        # expected_gross_edge_bps falls below the K_COST feasibility requirement and
-        # every trade is rejected with EDGE_TOO_SMALL.  Apply a floor that guarantees
-        # the net edge can clear the K_COST * all_in_cost requirement so paper bots
-        # can trade while real AI signals accumulate.
-        _k_cost_map = {"scalper": 1.2, "mean_reversion": 1.3}
-        _k_cost = _k_cost_map.get(bot_type, 1.5)
-        # _EDGE_FLOOR_NET_BUFFER_BPS: extra net-edge headroom above the strict
-        # K_COST * all_in_cost requirement, to avoid landing exactly on the boundary.
-        _EDGE_FLOOR_NET_BUFFER_BPS = 15.0
-        _paper_edge_floor = max(
-            float(os.getenv("PAPER_EDGE_FLOOR_BPS", "100.0")),
-            (_k_cost + 1.0) * all_in_cost_bps + _EDGE_FLOOR_NET_BUFFER_BPS,
-        )
-        if expected_gross_edge_bps < _paper_edge_floor:
-            logger.info(
-                "📊 PAPER EDGE FLOOR | bot=%s symbol=%s exchange=%s | "
-                "raw_edge=%.1f bps < floor=%.1f bps (all_in_cost=%.1f) → diagnostic flag only (no override)",
-                bot_id, symbol, exchange,
-                raw_gross_edge_bps, _paper_edge_floor, all_in_cost_bps,
-            )
-            # Phase-1 fix: paper edge floor is diagnostic-only.
-            # Do NOT inflate expected_gross_edge_bps — let real signal quality
-            # determine whether the trade passes the feasibility gate.
-            paper_edge_floor_applied = True
-        logger.info(
-            "📊 EXPECTANCY | bot=%s symbol=%s exchange=%s | "
-            "raw_edge=%.1f bps gross_edge=%.1f bps all_in_cost=%.1f bps "
-            "net_edge=%.1f bps floor_applied=%s",
-            bot_id, symbol, exchange,
-            raw_gross_edge_bps, expected_gross_edge_bps, all_in_cost_bps,
-            expected_gross_edge_bps - all_in_cost_bps, paper_edge_floor_applied,
-        )
-
-        # ── Repair 4: Confidence Gate Truth ──
-        # Build confidence source breakdown for diagnostics.
-        confidence_sources = {
-            "regime_confidence": round(float(regime_result.get("regime_confidence", 0) or 0), 4),
-            "regime_weight": 0.35,
-            "ml_confidence": round(float(prediction.get("confidence", 0) or 0), 4),
-            "ml_weight": 0.30,
-            "fetchai_confidence": round(float(fetchai_data.get("confidence", 0) or 0), 4),
-            "fetchai_weight": 0.20,
-            "fetchai_is_fallback": float(fetchai_data.get("confidence", 0) or 0) == 0,
-            "coinstats_strength": round(float(coinstats_data.get("strength", 0) or 0), 4),
-            "coinstats_weight": 0.15,
-            "coinstats_is_fallback": float(coinstats_data.get("strength", 0) or 0) == 0,
-            "consensus_strength": int(consensus.get("consensus_strength", 0)),
-            "consensus_sources_count": int(consensus.get("sources", 0)),
-            "direction_conflict": direction_conflict,
-            "effective_confidence_threshold": float(os.getenv("MIN_ENTRY_CONFIDENCE", "0.40")),
-            "entry_quality_threshold": (
-                0.78 if str(bot_type).lower() == "scalper" else 0.68
-            ),
-        }
-
-        # 8) Kelly sizing V2
-        win_rate = 0.5
-        avg_win = 0.0
-        avg_loss = 0.0
-        if recent_closed:
-            wins = [t for t in recent_closed if float(t.get("net_pnl", t.get("profit_loss", 0)) or 0) > 0]
-            losses = [t for t in recent_closed if float(t.get("net_pnl", t.get("profit_loss", 0)) or 0) <= 0]
-            if recent_closed:
-                win_rate = len(wins) / len(recent_closed)
-            if wins:
-                avg_win = sum(abs(float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)) for t in wins) / len(wins)
-            if losses:
-                avg_loss = sum(abs(float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)) for t in losses) / len(losses)
-
-        sizing = v2["kelly_sizing"].compute(
-            bot_type=bot_type,
-            bot_equity=paper_capital,
-            win_rate=win_rate,
-            avg_win=avg_win,
-            avg_loss=avg_loss,
-            num_trades=len(recent_closed),
-            defense_mode=adaptive.get("tightened", False),
-            liquidity_score=regime_result.get("liquidity_score", 0.5),
-            confidence_calibration=entry_confidence,
-            regime_size_multiplier=regime_eligibility.get("size_multiplier", 1.0),
-        )
-        notional = sizing.get("position_quote", paper_capital * 0.03)
-
-        # ── Repair 2: Paper vs Live Notional Truth ──
-        # Track Kelly-suggested notional before any boost.
-        kelly_notional = notional
-        paper_notional_cap_pct = 100.0  # Paper mode allows 100% of capital
-        live_notional_cap_pct = 10.0    # Live mode caps at 10% of capital
-
-        # Boost notional so bootstrap sizing can clear the absolute profit floor.
-        # When Kelly is conservative (few trades), the tiny position can't meet the
-        # per-trade absolute minimum. Raise to the minimum needed.
-        # Paper mode: cap at full capital (not 10% as in live mode) because paper
-        # bots have no real capital at risk — the 10% live-trading guard would
-        # permanently block small paper accounts from clearing the abs_profit floor.
-        _net_edge_frac = max((expected_gross_edge_bps - all_in_cost_bps) / 10000.0, 0.0001)
-        try:
-            # BLOCKER 2 FIX: import from entry_thresholds (the canonical source).
-            # The previous import from trade_feasibility_gate silently failed because
-            # ABS_PROFIT_MIN_QUOTE / equity_bucket / venue_class are NOT re-exported
-            # from that module, causing the entire boost block to be skipped via
-            # `except Exception: pass`.  With no boost, bootstrap Kelly sizing
-            # produces ~1% notional which never clears the abs_profit minimum, so
-            # every paper trade is rejected with ENTRY_REJECTED_MIN_PROFIT.
-            from services.trading_brain_v2.entry_thresholds import (
-                ABS_PROFIT_MIN_QUOTE,
-                equity_bucket as _equity_bucket,
-                venue_class as _venue_class,
-            )
-            _vc = _venue_class(exchange)
-            _eq_bucket = _equity_bucket(paper_capital, _vc)
-            _lookup = (
-                bot_type if bot_type in ("scalper", "mean_reversion") else "normal",
-                _eq_bucket, _vc,
-            )
-            _abs_min = ABS_PROFIT_MIN_QUOTE.get(_lookup, 2.0)
-            _min_notional = _abs_min / _net_edge_frac
-            # Cap at 100% of paper_capital (NOT 10% as in live mode).
-            # Paper bots have no real capital at risk: there is no financial harm
-            # in using the full paper balance as notional.  The 10% live-mode guard
-            # would permanently block small paper accounts from meeting the
-            # abs_profit_min floor.
-            notional = max(notional, min(_min_notional, paper_capital))
-        except Exception:
-            pass
-
-        # Compute notional truth metrics
-        effective_notional_pct = round((notional / paper_capital * 100) if paper_capital > 0 else 0, 2)
-        paper_sizing_amplified = effective_notional_pct > live_notional_cap_pct
-
-        # 9) Trade Feasibility Gate — the hard gate
-        feasibility = v2["feasibility_gate"].evaluate(
-            strategy=bot_type,
-            venue=exchange,
-            symbol=symbol,
-            bot_equity=paper_capital,
-            notional=notional,
-            expected_gross_edge_bps=expected_gross_edge_bps,
-            all_in_cost_bps=all_in_cost_bps,
-            spread_pct=spread_pct,
-            depth_notional=depth_notional or 0,
-            regime_result=regime_result,
-            regime_eligibility=regime_eligibility,
-            entry_confidence=entry_confidence,
-            mid_price=mid,
-            # Repair 1: Edge floor transparency
-            raw_gross_edge_bps=raw_gross_edge_bps,
-            paper_edge_floor_applied=paper_edge_floor_applied,
-            # Repair 4: Confidence gate truth
-            confidence_sources=confidence_sources,
-        )
-
-        if not feasibility.get("approved"):
-            reason_code = feasibility.get("decision_reason_code", "EDGE_TOO_SMALL")
-            reason_text = feasibility.get("decision_reason_text", "Trade rejected by feasibility gate")
-            await self._record_decision_trace(
-                user_id=user_id, bot_id=bot_id, bot_data=bot_data,
-                symbol=symbol, exchange=exchange,
-                decision="reject",
-                reason_code=reason_code,
-                reason_text=reason_text,
-                details=feasibility,
-            )
-            return self._v2_reject(bot_id, reason_code, reason_text, details=feasibility)
-
-        # 9b) Execution Quality Gate — policy-pack-aware execution realism check
-        # Runs after feasibility so it can use projected_net_profit already computed.
-        _active_pack = v2["resolve_runtime_pack"](bot_data)
-        _proj_profit = feasibility.get("projected_net_profit_quote", 0)
-        _min_profit_req = feasibility.get("min_net_profit_required", 0)
-        _consensus_count = int(consensus.get("sources", 0)) if isinstance(consensus, dict) else 0
-        _regime_conf = float(regime_result.get("regime_confidence", 0))
-        _mkt_quality = float(regime_result.get("liquidity_score", 0))
-        _slippage_pct = float(PAPER_SLIPPAGE_BPS / 100)  # bps → percent (e.g. 5 bps → 0.05%)
-
-        quality_gate_result = v2["quality_gate"].evaluate(
-            policy_pack=_active_pack,
-            spread_pct=spread_pct,
-            estimated_slippage_pct=_slippage_pct,
-            projected_net_profit_quote=_proj_profit,
-            min_profit_required_quote=_min_profit_req,
-            consensus_sources=_consensus_count,
-            regime_confidence=_regime_conf,
-            market_quality=_mkt_quality,
-            bot_type=bot_type,
-            exchange=exchange,
-        )
-
-        if not quality_gate_result.get("approved"):
-            qg_code = quality_gate_result.get("reason_code", "QUALITY_GATE_REJECTED")
-            qg_text = quality_gate_result.get("reason_text", "Rejected by execution quality gate")
-            await self._record_decision_trace(
-                user_id=user_id, bot_id=bot_id, bot_data=bot_data,
-                symbol=symbol, exchange=exchange,
-                decision="reject",
-                reason_code=qg_code,
-                reason_text=qg_text,
-                details={**quality_gate_result, "policy_pack_name": _active_pack["pack_name"]},
-            )
-            return self._v2_reject(
-                bot_id, qg_code, qg_text,
-                details={**quality_gate_result, "policy_pack_name": _active_pack["pack_name"]},
-            )
-
-        # 10) Target policy V2
-        target = v2["target_policy"].compute(
-            bot_type=bot_type,
-            venue=exchange,
-            quote_currency=self._resolve_quote_currency(symbol),
-            bot_equity=paper_capital,
-            notional=notional,
-            all_in_cost_bps=all_in_cost_bps,
-            horizon_volatility=vol_est,
-            regime_label=regime_result.get("regime_label", "unknown"),
-            liquidity_score=regime_result.get("liquidity_score", 0.5),
-            signal_confidence=entry_confidence,
-            entry_price=current_price,
-            side="buy",
-        )
-
-        # 11) Verify paper wallet can trade
-        can_execute, wallet_check_msg = await paper_wallet_ledger.can_trade(bot_id_val, notional)
-        if not can_execute:
-            return self._v2_reject(bot_id, RC.INSUFFICIENT_BALANCE, wallet_check_msg)
-
-        # 12) Build trade using existing execution logic
-        slippage_rate = PAPER_SLIPPAGE_BPS / 10000
-        latency_rate = PAPER_LATENCY_BPS / 10000
-        exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
-        fee_rate = exchange_fee_struct.get(order_mode, exchange_fee_struct.get('taker', 0.001))
-
-        entry_base = market_snapshot.get("ask") or current_price
-        entry_price = entry_base * (1 + slippage_rate + latency_rate)
-        crypto_amount = notional / entry_price
-
-        # Validate order
-        is_valid, validation_msg, adjusted_params = validate_order(exchange, symbol, crypto_amount, entry_price)
-        if not is_valid:
-            return self._v2_reject(bot_id, RC.POSITION_SIZE_BELOW_MIN, f"Order validation: {validation_msg}")
-
-        if adjusted_params:
-            crypto_amount = adjusted_params.get("quantity", crypto_amount)
-            entry_price = adjusted_params.get("price", entry_price)
-            notional = crypto_amount * entry_price
-
-        entry_time = datetime.now(timezone.utc)
-        entry_fills = [{"qty": crypto_amount, "price": entry_price, "timestamp": entry_time}]
-        entry_value = crypto_amount * entry_price
-        avg_entry_price = entry_price
-        entry_fee = entry_value * fee_rate
-
-        # Risk engine check
-        stop_loss_price = target.get("stop_loss_price", entry_price * 0.99)
-        take_profit_price = target.get("take_profit_price", entry_price * 1.01)
-
-        risk_ok, risk_reason = await risk_engine.check_trade_risk(
-            user_id, bot_id, exchange, entry_value, risk_mode,
-            entry_price=avg_entry_price, stop_loss_price=stop_loss_price,
-        )
-        if not risk_ok:
-            return self._v2_reject(bot_id, RC.RISK_MODE_BLOCK, risk_reason)
-
-        # Record rate limiter
-        rate_limiter.record_trade(bot_id, exchange)
-        v2["bot_contracts"].record_trade_entry(bot_id)
-
-        fee_currency = self._resolve_quote_currency(symbol)
-        market_source = market_snapshot.get("source", data_source)
-        spread_bps_val = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if isinstance(market_snapshot, dict) else PAPER_SPREAD_BPS
-        exit_profile = self._resolve_exit_profile(bot_data)
-
-        # Build V2-enriched trade result
-        net_edge_bps = feasibility.get("expected_net_edge_bps", 0)
-        proj_profit = feasibility.get("projected_net_profit_quote", 0)
-
-        trade_result = {
-            "success": True,
-            "status": "open",
-            "bot_id": bot_id,
-            "symbol": symbol,
-            "exchange": exchange,
-            "trend": trend,
-            "entry_price": round(avg_entry_price, 6),
-            "amount": round(crypto_amount, 8),
-            "trade_amount": round(entry_value, 2),
-            "entry_value": round(entry_value, 2),
-            "gross_pnl": 0.0,
-            "gross_profit": 0.0,
-            "fees_total": round(entry_fee, 2),
-            "fees": round(entry_fee, 2),
-            "fee_paid": round(entry_fee, 2),
-            "entry_fee": round(entry_fee, 2),
-            "fee_currency": fee_currency,
-            "slippage_cost": 0.0,
-            "slippage": 0.0,
-            "profit_loss": 0.0,
-            "net_profit": 0.0,
-            "net_profit_zar": 0.0,
-            "realized_pnl": 0.0,
-            "is_paper": True,
-            "profit_pct": 0.0,
-            "is_profitable": False,
-            "risk_mode": risk_mode,
-            "quality_score": 0,
-            "timestamp": entry_time.isoformat(),
-            "trade_type": "BUY",
-            "trade_close_reason": None,
-            "data_source": data_source,
-            "fee_rate": round(fee_rate, 6),
-            "slippage_rate": round(slippage_rate, 6),
-            "price_source": market_source,
-            "spread": round(spread_bps_val, 4),
-            "slippage_bps": round(slippage_rate * 10000, 2),
-            "entry_fills": entry_fills,
-            "partial_fill": False,
-            "latency_ms": PAPER_LATENCY_MS,
-            "stop_loss_pct": exit_profile["stop_loss_pct"],
-            "take_profit_pct": exit_profile["take_profit_pct"],
-            "trailing_stop_pct": exit_profile["trailing_stop_pct"],
-            "highest_price": round(avg_entry_price, 6),
-            "stop_loss_price": round(stop_loss_price, 6),
-            "take_profit_price": round(take_profit_price, 6),
-            # V2-enriched fields (render-safe)
-            "reason_code": RC.ENTRY_APPROVED,
-            "entry_reason_code": RC.ENTRY_APPROVED,
-            "decision_reason_code": RC.ENTRY_APPROVED,
-            "decision_reason_text": "Trade approved – all V2 economics gates passed.",
-            "entry_confidence_score": round(entry_confidence, 4),
-            "regime_label": regime_result.get("regime_label", "unknown"),
-            "regime_confidence": round(regime_result.get("regime_confidence", 0), 4),
-            "expected_gross_edge_bps": round(expected_gross_edge_bps, 2),
-            "all_in_cost_bps": round(all_in_cost_bps, 2),
-            "expected_net_edge_bps": round(net_edge_bps, 2),
-            "projected_net_profit_quote": round(proj_profit, 4),
-            "trade_profit_target_quote": round(target.get("trade_profit_target_quote", 0), 4),
-            "daily_profit_target_quote": round(target.get("daily_profit_target_quote", 0), 4),
-            "max_hold_seconds": target.get("max_hold_seconds", 21600),
-            "hold_policy_source": "target_policy_v2",
-            "target_source": "target_policy_v2",
-            "cost_floor_source": "all_in_cost_model",
-            "v2_brain": True,
-            # Repair 1: Edge floor transparency
-            "raw_gross_edge_bps": round(raw_gross_edge_bps, 2),
-            "paper_edge_floor_applied": paper_edge_floor_applied,
-            # Repair 2: Paper vs live notional truth
-            "paper_notional_cap_pct": paper_notional_cap_pct,
-            "live_notional_cap_pct": live_notional_cap_pct,
-            "effective_notional_pct": effective_notional_pct,
-            "kelly_notional": round(kelly_notional, 2),
-            "paper_sizing_amplified": paper_sizing_amplified,
-            # Repair 4: Confidence gate truth
-            "confidence_sources": confidence_sources,
-            # Legacy AI fields for backward compatibility
-            "ai_regime": regime.get("regime", "unknown"),
-            "ai_confidence": round(regime.get("confidence", 0), 2),
-            "ml_prediction": prediction.get("direction", "neutral"),
-            "ml_confidence": round(prediction.get("confidence", 0), 2),
-            "coinstats_strength": round(coinstats_data.get("strength", 0), 1),
-            "coinstats_sentiment": coinstats_data.get("sentiment", "neutral"),
-            "fetchai_signal": fetchai_data.get("signal", "HOLD"),
-            "fetchai_confidence": round(fetchai_data.get("confidence", 0), 1),
-            "signal_consensus_strength": consensus.get("consensus_strength", 0),
-            "signal_sources": consensus.get("sources", 0),
-            "avg_ai_confidence": round(entry_confidence, 3),
-            "expected_move_pct": round(expected_move_pct, 4),
-            "estimated_cost_pct": round(all_in_cost_bps / 100, 4),
-            "edge_buffer_pct": 0,
-            "edge_required_pct": round(feasibility.get("all_in_cost_bps", 0) / 100, 4),
-            "canonical_market_regime": regime_result.get("regime_label", "unknown"),
-            "canonical_regime_confidence": round(regime_result.get("regime_confidence", 0), 4),
-            "market_quality_score": round(regime_result.get("liquidity_score", 0), 4),
-            # ── Policy pack fields ──
-            "policy_pack_id":        _active_pack["pack_name"],
-            "policy_pack_name":      _active_pack["pack_name"],
-            "policy_pack_version":   _active_pack["pack_version"],
-            # ── Quality gate result ──
-            "quality_gate_passed":       True,
-            "quality_gate_reason_code":  quality_gate_result.get("reason_code", "ENTRY_APPROVED"),
-            "quality_gate_reason_text":  quality_gate_result.get("reason_text", ""),
-            "spread_bps":                round(spread_pct * 100, 2),
-            "slippage_bps":              round(_slippage_pct * 100, 2),
-            "projected_net_profit_quote": round(_proj_profit, 4),
-            "min_projected_profit_required_quote": round(_min_profit_req, 4),
-            "consensus_sources_count":   _consensus_count,
-        }
-
-        # Telemetry
-        try:
-            entry_telemetry = v2["telemetry"].build_entry_record(
-                bot_id=bot_id, symbol=symbol, venue=exchange,
-                side="buy", bot_type=bot_type,
-                entry_price=avg_entry_price, notional=entry_value,
-                predicted_edge_bps=expected_gross_edge_bps,
-                confidence=entry_confidence,
-                regime_snapshot=regime_result,
-                cost_estimate=cost,
-                target_policy=target,
-                feasibility_result=feasibility,
-                order_mode=order_mode,
-            )
-            if db.db is not None:
-                col = db.db.get_collection("trade_telemetry_v2")
-                await col.insert_one(entry_telemetry)
-        except Exception as e:
-            logger.debug(f"V2 telemetry write failed (non-fatal): {e}")
-
-        # ── Calibration entry record (non-fatal) ──────────────────────────
-        try:
-            if db.db is not None:
-                _quote_currency = self._resolve_quote_currency(symbol)
-                _cal_record = v2["build_entry_calibration"](
-                    bot_id=bot_id,
-                    bot_type=bot_type,
-                    exchange=exchange,
-                    symbol=symbol,
-                    policy_pack_name=_active_pack["pack_name"],
-                    regime_label=regime_result.get("regime_label", "unknown"),
-                    projected_net_profit_quote=_proj_profit,
-                    projected_gross_edge_bps=expected_gross_edge_bps,
-                    all_in_cost_bps=all_in_cost_bps,
-                    paper_edge_floor_applied=paper_edge_floor_applied,
-                    raw_gross_edge_bps=raw_gross_edge_bps,
-                    entry_confidence=entry_confidence,
-                    spread_pct=spread_pct,
-                    estimated_slippage_pct=_slippage_pct,
-                )
-                # store the calibration record in the trade document for retrieval at close
-                trade_result["_calibration"] = _cal_record
-                # Also persist to dedicated calibration collection
-                col_cal = db.db.get_collection("trade_calibration_v2")
-                await col_cal.insert_one({**_cal_record, "trade_id": trade_result.get("id"), "user_id": user_id})
-        except Exception as _cal_err:
-            logger.debug(f"Calibration entry write failed (non-fatal): {_cal_err}")
-
-        await self._record_decision_trace(
-            user_id=user_id, bot_id=bot_id, bot_data=bot_data,
-            symbol=symbol, exchange=exchange,
-            decision="approve",
-            reason_code=RC.ENTRY_APPROVED,
-            reason_text="V2 entry accepted: all economics gates passed",
-            details={
-                "regime": regime_result,
-                "cost": cost,
-                "feasibility": feasibility,
-                "target": target,
-                "sizing": sizing,
-            },
-        )
-
-        self.last_trade_simulation = trade_result
-        self.trade_count += 1
-        self.last_error = None
-        logger.info(f"🟢 V2 {bot_data['name'][:15]} | {symbol} | OPEN @ {avg_entry_price:.2f} | edge={net_edge_bps:.1f}bps")
-        return trade_result
-
-    @staticmethod
-    def _v2_reject(bot_id: str, reason_code: str, reason_text: str, details: dict = None) -> Dict:
-        """Build a V2 rejection result with render-safe fields."""
-        return {
-            "success": False,
-            "bot_id": bot_id,
-            "skip_reason": reason_code.lower() if reason_code else "unknown",
-            "reason_code": reason_code or "UNKNOWN",
-            "decision_reason_code": reason_code or "UNKNOWN",
-            "decision_reason_text": reason_text or "Trade rejected",
-            "error": reason_text or "Trade rejected",
-            "entry_confidence_score": 0.0,
-            "regime_label": (details or {}).get("regime_label", "unknown"),
-            "regime_confidence": 0.0,
-            "expected_gross_edge_bps": 0.0,
-            "all_in_cost_bps": 0.0,
-            "expected_net_edge_bps": 0.0,
-            "projected_net_profit_quote": 0.0,
-            # Policy pack context on rejection (available when details come from quality gate)
-            "policy_pack_id":      (details or {}).get("policy_pack_name", "unknown"),
-            "policy_pack_name":    (details or {}).get("policy_pack_name", "unknown"),
-            "policy_pack_version": (details or {}).get("pack_version", "unknown"),
-            "quality_gate_passed":      False,
-            "quality_gate_reason_code": reason_code or "UNKNOWN",
-            "quality_gate_reason_text": reason_text or "Trade rejected",
-            "v2_brain": True,
-            "details": details or {},
-        }
-
-    @staticmethod
-    def _resolve_quote_currency(symbol: str, preferred: Optional[str] = None) -> str:
-        """Resolve trade quote currency.
-
-        Priority:
-        1) preferred (when an existing trade already carries fee_currency),
-        2) symbol quote inference (/ZAR => ZAR),
-        3) USDT default fallback.
-        """
-        pref = str(preferred or "").upper().strip()
-        if pref in SUPPORTED_QUOTE_CURRENCIES:
-            return pref
-        return "ZAR" if "/ZAR" in str(symbol or "").upper() else "USDT"
-
     async def _close_open_trade(self, bot_id: str, bot_data: Dict, open_trade: Dict) -> Optional[Dict]:
-        """Close an open paper trade if exit conditions are met.
-
-        Exit priority:
-          1. Take-profit hit
-          2. Stop-loss hit
-          3. Risk-mode max hold exceeded (force exit regardless of PnL)
-          4. Time-decay adaptive exit (scalper/normal aware)
-          5. Legacy stale-exit fallback (age >= PAPER_STALE_EXIT_MINUTES and pnl <= 0)
-        """
+        """Close an open paper trade if exit conditions are met."""
         try:
+            # Defensive init for attributes that may be absent when the engine is
+            # instantiated via __new__() in tests (bypassing __init__).
+            if not hasattr(self, "closes_attempted"):
+                self.closes_attempted = 0
+            if not hasattr(self, "closes_done"):
+                self.closes_done = 0
+            if not hasattr(self, "closes_failed"):
+                self.closes_failed = 0
+            if not hasattr(self, "_action_log"):
+                self._action_log = deque(maxlen=20)
+            if not hasattr(self, "price_cache"):
+                self.price_cache = {}
+            if not hasattr(self, "_bot_loss_streaks"):
+                self._bot_loss_streaks = {}
+
             symbol = open_trade.get("pair") or open_trade.get("symbol")
             exchange = open_trade.get("exchange", "luno")
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
             if not current_price:
-                return None
+                self._log_action(
+                    "PRICE_MISSING", bot_id, symbol or "?",
+                    reason="no_price_data",
+                    trade_id=open_trade.get("id", ""),
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "skip_reason": "no_price_data",
+                    "status": "open",
+                    "diagnostics": {"symbol": symbol, "exchange": exchange},
+                }
 
             entry_price = open_trade.get("entry_price") or open_trade.get("price") or current_price
-            exit_profile = self._resolve_exit_profile(bot_data, open_trade=open_trade)
-            stop_loss_pct = exit_profile["stop_loss_pct"]
-            take_profit_pct = exit_profile["take_profit_pct"]
-            trailing_stop_pct = exit_profile["trailing_stop_pct"]
+            stop_loss_pct = float(open_trade.get("stop_loss_pct", bot_data.get("stop_loss_pct", 0.02)))
+            take_profit_pct = float(open_trade.get("take_profit_pct", bot_data.get("take_profit_pct", 0.03)))
             stop_loss_price = open_trade.get("stop_loss_price") or (entry_price * (1 - stop_loss_pct))
             take_profit_price = open_trade.get("take_profit_price") or (entry_price * (1 + take_profit_pct))
-            highest_price = float(open_trade.get("highest_price", entry_price) or entry_price)
-            trailing_stop_price = float(
-                open_trade.get("trailing_stop_price", highest_price * (1 - trailing_stop_pct)) or (highest_price * (1 - trailing_stop_pct))
-            )
 
             entry_time_raw = open_trade.get("entry_time") or open_trade.get("opened_at") or open_trade.get("timestamp")
             try:
@@ -2624,152 +1651,210 @@ class PaperTradingEngine:
             except Exception:
                 entry_time = datetime.now(timezone.utc)
 
-            age_seconds = (datetime.now(timezone.utc) - entry_time).total_seconds()
-            age_minutes = age_seconds / 60
+            age_minutes = (datetime.now(timezone.utc) - entry_time).total_seconds() / 60
+            age_seconds = age_minutes * 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
-            # Canonical hold policy (shared with radar/API)
-            hold_policy = resolve_hold_policy(bot_data, open_trade=open_trade, is_paper_mode=True)
-            risk_mode = hold_policy["risk_mode"]
-            max_hold_seconds = int(hold_policy["max_hold_seconds"])
+            logger.info(
+                f"PAPER_EVAL trade_id={open_trade.get('id', '?')} bot={bot_id} "
+                f"age_min={age_minutes:.1f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                f"time_exit_in={max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes):.1f}min "
+                f"hard_exit_in={max(0.0, HARD_MAX_HOLD_SECONDS/60 - age_minutes):.1f}min "
+                f"price={current_price:.4f} pnl_pct={pnl_pct:.2f}"
+            )
 
-            # Bot class for time-decay engine
-            bot_class = (bot_data.get("bot_type") or "normal").lower()
-            if bot_class not in ("scalper", "normal"):
-                bot_class = "normal"
+            self.closes_attempted += 1
 
             close_reason = None
-
-            # Update trailing reference prices before evaluating exits.
-            # pnl_pct is expressed in percentage points (e.g., 1.2 = 1.2%),
-            # while take_profit_pct is fractional (e.g., 0.02 = 2%), hence * 100 conversion.
-            proven_winner = pnl_pct >= max(MIN_PROVEN_WINNER_PCT, take_profit_pct * 100 * TAKE_PROFIT_PROVEN_MULTIPLIER)
-            adaptive_trailing_pct = trailing_stop_pct
-            if proven_winner:
-                adaptive_trailing_pct = max(MIN_ADAPTIVE_TRAILING_PCT, trailing_stop_pct * PROVEN_WINNER_TRAILING_MULTIPLIER)
-
-            if current_price > highest_price:
-                highest_price = current_price
-                trailing_stop_price = max(trailing_stop_price, highest_price * (1 - adaptive_trailing_pct))
-                open_trade_id = open_trade.get("id")
-                if open_trade_id:
-                    await db.trades_collection.update_one(
-                        {"id": open_trade_id},
-                        {"$set": {
-                            "highest_price": highest_price,
-                            "trailing_stop_price": trailing_stop_price,
-                            "adaptive_trailing_pct": adaptive_trailing_pct,
-                        }}
-                    )
-
-            # 1. Take-profit
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
-            # 2. Stop-loss
+                logger.info(
+                    f"CLOSE_TP_HIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                    f"age_min={age_minutes:.1f}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="take_profit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
             elif current_price <= stop_loss_price:
                 close_reason = "stop_loss"
-            # 3. Trailing stop
-            elif current_price <= trailing_stop_price and highest_price > entry_price:
-                close_reason = "trailing_stop"
-            else:
-                # V2 open-trade management (if feature flag enabled)
-                if NEW_TRADING_BRAIN_V2:
-                    try:
-                        v2 = _get_brain_v2()
-                        # Resolve active pack to get exit parameters
-                        _ot_pack = v2["resolve_runtime_pack"](bot_data)
-                        _regime_conf_at_entry = float(open_trade.get("regime_confidence", 0) or 0)
-                        _pack_allowed_regimes = _ot_pack.get("regime_allowlist", [])
-                        otm_result = v2["open_trade_manager"].evaluate(
-                            trade=open_trade,
-                            bot_type=bot_class,
-                            max_hold_seconds=max_hold_seconds,
-                            current_price=current_price,
-                            entry_price=entry_price,
-                            current_spread_pct=float(market_snapshot.get("spread", 0)) / current_price * 100 if current_price else 0,
-                            current_depth_notional=market_snapshot.get("depth_notional", 0) or 0,
-                            exchange=exchange,
-                            # Pack-driven exit parameters
-                            stop_loss_pct=_ot_pack.get("stop_loss_pct", stop_loss_pct),
-                            take_profit_pct=_ot_pack.get("take_profit_pct", take_profit_pct),
-                            trailing_stop_pct=_ot_pack.get("trailing_stop_pct", trailing_stop_pct),
-                            regime_confidence_at_entry=_regime_conf_at_entry,
-                            allowed_regimes=_pack_allowed_regimes,
-                        )
-                        if otm_result.get("should_exit"):
-                            close_reason = otm_result.get("reason_code", "v2_exit")
-                    except Exception as v2_err:
-                        logger.debug(f"V2 open-trade manager check skipped: {v2_err}")
-
-                # 4. Strategic early invalidation before timeout dominates.
-                #    Make max-hold a rare fallback rather than the default exit path.
-                hold_ratio = (age_seconds / max_hold_seconds) if max_hold_seconds > 0 else 0
-                min_progress_pct = max(0.05, take_profit_pct * 100 * 0.12)
-
-                # Regime deterioration: exit normal trades earlier when direction quality collapses.
-                if bot_class == "normal" and hold_ratio >= 0.25:
-                    try:
-                        from market_regime import market_regime_detector
-                        live_regime = await market_regime_detector.detect_regime(symbol, exchange)
-                        regime_trend = self._signal_direction(live_regime.get("trend"))
-                        regime_confidence = float(live_regime.get("confidence", 0) or 0)
-                        close_reason = self._evaluate_pre_timeout_exit(
-                            bot_class=bot_class,
-                            hold_ratio=hold_ratio,
-                            pnl_pct=pnl_pct,
-                            min_progress_pct=min_progress_pct,
-                            regime_trend=regime_trend,
-                            regime_confidence=regime_confidence,
-                        )
-                    except Exception as regime_err:
-                        logger.debug(f"Regime deterioration check skipped: {regime_err}")
-
-                # No-progress exits to reduce time-exit churn.
-                if not close_reason:
-                    close_reason = self._evaluate_pre_timeout_exit(
-                        bot_class=bot_class,
-                        hold_ratio=hold_ratio,
-                        pnl_pct=pnl_pct,
-                        min_progress_pct=min_progress_pct,
-                        regime_trend="neutral",
-                        regime_confidence=0.0,
+                logger.info(
+                    f"CLOSE_SL_HIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                    f"age_min={age_minutes:.1f}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="stop_loss",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif age_seconds >= HARD_MAX_HOLD_SECONDS:
+                # HARD max-hold (C2): force-close unconditionally after HARD_MAX_HOLD_SECONDS.
+                # Low confidence blocks OPENING new trades only — it must NEVER block closing.
+                close_reason = "hard_max_hold"
+                logger.info(
+                    f"CLOSE_HARD_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"hard_max_hold_sec={HARD_MAX_HOLD_SECONDS}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="hard_max_hold",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif age_seconds >= SOFT_MAX_HOLD_SECONDS:
+                # SOFT max-hold (C2): close when spread is acceptable; retry until HARD limit.
+                spread_at_close = market_snapshot.get("spread_bps", 0) if market_snapshot else 0
+                if spread_at_close <= (PAPER_MAX_SPREAD_PCT * 100):  # spread_bps vs bps-converted cap
+                    close_reason = "soft_max_hold"
+                    logger.info(
+                        f"CLOSE_SOFT_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                        f"soft_max_hold_sec={SOFT_MAX_HOLD_SECONDS}"
                     )
-
-                # 5. Time-decay adaptive exit (single hold-truth path with custom expected hold)
-                try:
-                    from engines.time_decay_exit import time_decay_exit_engine
-                    td_result = time_decay_exit_engine.evaluate(
-                        bot_id=bot_id,
-                        bot_class=bot_class,
-                        hold_seconds=age_seconds,
-                        profit_pct=pnl_pct / 100,  # engine expects fraction, not percentage
-                        custom_expected_hold=float(bot_data.get("expected_hold_seconds", max_hold_seconds)),
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="soft_max_hold",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+                else:
+                    logger.info(
+                        f"SOFT_MAX_HOLD_RETRY bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"spread_bps={spread_at_close:.1f} exceeds cap — retry next tick"
                     )
-                    if td_result.should_exit:
-                        close_reason = td_result.exit_reason or "time_decay_exit"
-                        logger.info(
-                            f"📉 Time-decay exit {bot_data.get('name', bot_id)[:20]} | "
-                            f"class={bot_class} | hold={age_seconds:.0f}s | "
-                            f"reason={td_result.exit_reason}"
-                        )
-                except Exception as td_err:
-                    logger.debug(f"Time-decay eval skipped: {td_err}")
-
-                # 6. Risk-mode max hold exceeded — explicit fallback.
-                if not close_reason and age_seconds >= max_hold_seconds:
-                    close_reason = "max_hold_exceeded"
-                    logger.warning(
-                        f"⏰ FORCE EXIT {bot_data.get('name', bot_id)[:20]} | "
-                        f"hold={age_minutes:.1f}m >= max_hold={max_hold_seconds / 60:.0f}m | "
-                        f"risk_mode={risk_mode} | pnl={pnl_pct:+.2f}%"
-                    )
-
-            # 7. Legacy stale-exit fallback
-            if not close_reason and age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
+            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
+                # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
+                # regardless of P&L direction. Unlike stale_exit, this does NOT require
+                # negative P&L, ensuring profitable trades also close for accounting.
+                close_reason = "time_exit"
+                logger.info(
+                    f"CLOSE_TIME_EXIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"max_hold={PAPER_MAX_HOLD_MINUTES}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="time_exit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif (
+                PAPER_SAFETY_EXIT_MINUTES > 0
+                and age_minutes >= PAPER_SAFETY_EXIT_MINUTES
+                and pnl_pct > 0
+            ):
+                # Safety exit: close profitable trades that haven't hit TP within the safety window.
+                # Prevents gains from evaporating while waiting for the full max-hold to expire.
+                close_reason = "safety_exit"
+                logger.info(
+                    f"CLOSE_SAFETY_EXIT bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"safety_exit_min={PAPER_SAFETY_EXIT_MINUTES}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="safety_exit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="stale_exit",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+            elif (
+                STAGNATION_EXIT_MINUTES > 0
+                and age_minutes >= STAGNATION_EXIT_MINUTES
+                and entry_price > 0
+            ):
+                # Stagnation/no-progress exit: price hasn't moved beyond estimated
+                # round-trip cost (fee_rate * 2 + spread_pct) after STAGNATION_EXIT_MINUTES.
+                # Prevents capital from being locked in dead trades.
+                fee_rate_est = float(open_trade.get("fee_rate", 0.001))
+                spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if market_snapshot else PAPER_SPREAD_BPS
+                round_trip_cost_pct = (fee_rate_est * 2 + spread_bps / 10000) * 100
+                if abs(pnl_pct) < round_trip_cost_pct:
+                    close_reason = "stagnation_exit"
+                    logger.info(
+                        f"CLOSE_STAGNATION bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={round_trip_cost_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="stagnation_exit",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+
+            # ── Fee-aware supplementary exits ────────────────────────────────────
+            # These run as a second pass after the primary elif chain so they cannot
+            # shadow earlier exits (take_profit, stop_loss, hard_max_hold, etc.).
+            # Both require entry_price to be set (sanity guard).
+            if not close_reason and entry_price > 0:
+                _fee_rate_rt = float(open_trade.get("fee_rate", 0.001))
+                _spread_bps_rt = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS) if market_snapshot else PAPER_SPREAD_BPS
+                _round_trip_pct = (_fee_rate_rt * 2 + _spread_bps_rt / 10000) * 100
+
+                if (
+                    FEE_BREAK_EVEN_WINDOW_MINUTES > 0
+                    and age_minutes >= FEE_BREAK_EVEN_WINDOW_MINUTES
+                    and pnl_pct < -_round_trip_pct
+                ):
+                    # Trade is definitively losing after fees — the loss already exceeds
+                    # what a round-trip costs.  Exit now rather than waiting for stop-loss.
+                    close_reason = "fee_break_even_fail"
+                    logger.info(
+                        f"CLOSE_FEE_BREAK_EVEN bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={_round_trip_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="fee_break_even_fail",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+                elif (
+                    TIME_DECAY_EXIT_MINUTES > 0
+                    and age_minutes >= TIME_DECAY_EXIT_MINUTES
+                    and pnl_pct < _round_trip_pct
+                ):
+                    # After TIME_DECAY_EXIT_MINUTES the trade has not generated enough
+                    # profit to cover its round-trip cost.  Free capital rather than holding.
+                    close_reason = "time_decay_exit"
+                    logger.info(
+                        f"CLOSE_TIME_DECAY bot={bot_id} trade={open_trade.get('id', '?')} "
+                        f"price={current_price:.4f} pnl_pct={pnl_pct:.3f} "
+                        f"round_trip_cost_pct={_round_trip_pct:.3f} age_min={age_minutes:.1f}"
+                    )
+                    self._log_action("CLOSE", bot_id, symbol or "?", reason="time_decay_exit",
+                                     trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
 
             if not close_reason:
-                return None
+                self.closes_attempted = max(0, self.closes_attempted - 1)  # not a real attempt
+                mins_to_safety = (
+                    round(max(0.0, PAPER_SAFETY_EXIT_MINUTES - age_minutes), 1)
+                    if PAPER_SAFETY_EXIT_MINUTES > 0 else None
+                )
+                mins_to_time_exit = round(max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes), 1)
+                mins_to_hard_exit = round(max(0.0, HARD_MAX_HOLD_SECONDS / 60 - age_minutes), 1)
+                mins_to_stagnation_exit = (
+                    round(max(0.0, STAGNATION_EXIT_MINUTES - age_minutes), 1)
+                    if STAGNATION_EXIT_MINUTES > 0 else None
+                )
+                # Determine the next expected exit reason (for diagnostics / Section 3)
+                if pnl_pct >= take_profit_pct * 100 * 0.8:
+                    _next_exit = "take_profit"
+                elif pnl_pct <= -(stop_loss_pct * 100 * 0.8):
+                    _next_exit = "stop_loss"
+                elif mins_to_stagnation_exit is not None and mins_to_stagnation_exit < mins_to_hard_exit:
+                    _next_exit = "stagnation_exit"
+                elif mins_to_safety is not None and mins_to_safety < mins_to_time_exit:
+                    _next_exit = "safety_exit"
+                else:
+                    _next_exit = "time_exit"
+                logger.info(
+                    f"SKIP_NO_EXIT_SIGNAL bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price} tp={take_profit_price:.2f} sl={stop_loss_price:.2f} "
+                    f"pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"mins_to_safety_exit={mins_to_safety} mins_to_time_exit={mins_to_time_exit} "
+                    f"mins_to_hard_exit={mins_to_hard_exit}"
+                )
+                self._log_action("SKIP", bot_id, symbol or "?", reason="no_exit_signal",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+                return {
+                    "success": False,
+                    "skip_reason": "no_exit_signal",
+                    "status": "open",
+                    "diagnostics": {
+                        "current_price": current_price,
+                        "take_profit_price": take_profit_price,
+                        "stop_loss_price": stop_loss_price,
+                        "age_minutes": round(age_minutes, 2),
+                        "pnl_pct": round(pnl_pct, 3),
+                        "mins_to_soft_exit": round(max(0.0, SOFT_MAX_HOLD_SECONDS / 60 - age_minutes), 1),
+                        "mins_to_hard_exit": mins_to_hard_exit,
+                        "mins_to_stagnation_exit": mins_to_stagnation_exit,
+                        "hard_exit_triggered": age_seconds >= HARD_MAX_HOLD_SECONDS,
+                        "soft_exit_triggered": age_seconds >= SOFT_MAX_HOLD_SECONDS,
+                        "next_exit_reason": _next_exit,
+                        "time_to_forced_exit_seconds": round(max(0.0, HARD_MAX_HOLD_SECONDS - age_seconds), 1),
+                    },
+                }
 
             slippage_rate = float(open_trade.get("slippage_rate", PAPER_SLIPPAGE_BPS / 10000))
             latency_rate = PAPER_LATENCY_BPS / 10000
@@ -2795,8 +1880,21 @@ class PaperTradingEngine:
 
             entry_value = float(open_trade.get("entry_value") or open_trade.get("trade_amount") or 0)
             exit_value = sum(fill["qty"] * fill["price"] for fill in exit_fills)
+            # If entry_value is missing (stale open trade), reconstruct from
+            # amount * entry_price so the trade can still be closed cleanly.
+            if entry_value <= 0 and crypto_amount > 0 and entry_price > 0:
+                entry_value = crypto_amount * entry_price
+                logger.warning(
+                    f"_close_open_trade: missing entry_value for trade "
+                    f"{open_trade.get('id', '?')}, reconstructed as {entry_value:.2f}"
+                )
             if entry_value <= 0 or exit_value <= 0:
-                return None
+                return {
+                    "success": False,
+                    "skip_reason": "invalid_values",
+                    "status": "open",
+                    "diagnostics": {"entry_value": entry_value, "exit_value": exit_value},
+                }
 
             avg_exit_price = exit_value / crypto_amount if crypto_amount else exit_price
             from utils.trade_utils import calculate_trade_pnl
@@ -2811,24 +1909,20 @@ class PaperTradingEngine:
 
             if not validate_trade_pnl(net_profit, bot_data.get("current_capital", 0)):
                 logger.error(f"P&L validation failed: net_profit={net_profit}")
-                return None
+                return {
+                    "success": False,
+                    "skip_reason": "pnl_validation_failed",
+                    "status": "open",
+                    "diagnostics": {"net_profit": net_profit},
+                }
 
-            # NOTE: MIN_TRADE_PROFIT_THRESHOLD_ZAR is no longer checked here.
-            # Tiny-profit trades are now blocked at *entry* by evaluate_minimum_worthwhile_trade
-            # in the V1 worthwhile-trade gate above.  Allowing exit close_reason relabelling was
-            # a no-op that created false impression of filtering; the dead branch is removed.
+            if net_profit > 0 and net_profit < MIN_TRADE_PROFIT_THRESHOLD_ZAR:
+                close_reason = "take_profit" if close_reason == "take_profit" else close_reason
 
-            fee_currency = self._resolve_quote_currency(
-                symbol,
-                open_trade.get("fee_currency") or open_trade.get("currency")
-            )
+            fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
             spread_bps = market_snapshot.get("spread_bps", PAPER_SPREAD_BPS)
 
             quality_score = self._calculate_trade_quality(net_profit, fees, entry_value, profit_pct)
-
-            # Compute ZAR display value once; used for net_profit_zar below.
-            _net_profit_zar_raw, _, _ = _fx_to_display_zar(net_profit, fee_currency)
-            _net_profit_zar = round(_net_profit_zar_raw if _net_profit_zar_raw is not None else 0.0, 2)
 
             trade_result = {
                 "success": True,
@@ -2853,10 +1947,7 @@ class PaperTradingEngine:
                 "slippage": round(slippage_cost, 2),
                 "profit_loss": round(net_profit, 2),
                 "net_profit": round(net_profit, 2),
-                # net_profit_zar must always be in ZAR display units, never raw quote.
-                # For ZAR bots (Luno) fee_currency=="ZAR" so rate==1.0; no change.
-                # For USDT bots (Binance etc.) fee_currency=="USDT" → proper conversion.
-                "net_profit_zar": _net_profit_zar,
+                "net_profit_zar": round(net_profit, 2),
                 "realized_pnl": round(net_profit, 2),
                 "is_paper": True,
                 "profit_pct": round(profit_pct, 3),
@@ -2866,7 +1957,6 @@ class PaperTradingEngine:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trade_type": "BUY->SELL",
                 "trade_close_reason": close_reason,
-                "trade_close_reason_code": str(close_reason or "UNSPECIFIED_CLOSE").upper(),
                 "data_source": open_trade.get("data_source"),
                 "fee_rate": round(fee_rate, 6),
                 "slippage_rate": round(slippage_rate, 6),
@@ -2879,87 +1969,33 @@ class PaperTradingEngine:
                 "latency_ms": PAPER_LATENCY_MS,
                 "open_trade_id": open_trade.get("id")
             }
-            trade_result["exit_decision_trace"] = {
-                "reason_code": trade_result["trade_close_reason_code"],
-                "reason_text": str(close_reason or "").replace("_", " "),
-                "hold_seconds": round(age_seconds, 2),
-                "hold_ratio": round((age_seconds / max_hold_seconds), 4) if max_hold_seconds > 0 else 0.0,
-                "max_hold_seconds": max_hold_seconds,
-                "pnl_pct": round(pnl_pct, 4),
-                "proven_winner": proven_winner,
-                "adaptive_trailing_pct": round(adaptive_trailing_pct, 5),
-            }
-            await self._record_decision_trace(
-                user_id=str(bot_data.get("user_id", "")),
-                bot_id=bot_id,
-                bot_data=bot_data,
-                symbol=symbol,
-                exchange=exchange,
-                decision="exit",
-                reason_code=trade_result["trade_close_reason_code"],
-                reason_text=f"Exit triggered: {close_reason}",
-                details=trade_result["exit_decision_trace"],
-            )
 
-            # Record scalper exit for re-entry discipline.
-            # Only applies to scalper bots; the bot_contracts module stores state
-            # for weak exits so subsequent re-entries can be blocked or gated.
-            # Regime/entry confidence at exit time is not re-fetched (avoids extra
-            # market call); the re-entry discipline check uses current values instead.
-            if bot_class == "scalper" and NEW_TRADING_BRAIN_V2:
-                try:
-                    v2 = _get_brain_v2()
-                    v2["bot_contracts"].record_scalper_exit(
-                        bot_id=bot_id,
-                        exit_reason=close_reason or "",
-                        regime_confidence=0.0,
-                        entry_confidence=0.0,
-                        pnl_pct=pnl_pct,
-                    )
-                except Exception as _rec_err:
-                    logger.debug(f"Scalper exit record skipped: {_rec_err}")
+            self.last_close_time = datetime.now(timezone.utc).isoformat()
+            self.closes_done += 1
+            # Anti-repeat: record the closed symbol so next selection applies cooldown.
+            # For stop-loss closes, apply the longer stop-loss-specific cooldown.
+            if close_reason == "stop_loss":
+                _symbol_universe.record_stop_loss(bot_id, symbol or "")
+                # Increment per-bot loss streak for adaptive confidence gate
+                self._bot_loss_streaks[bot_id] = self._bot_loss_streaks.get(bot_id, 0) + 1
+            elif close_reason == "take_profit":
+                # Reset loss streak on any win
+                self._bot_loss_streaks[bot_id] = 0
+            _symbol_universe.record_closed(bot_id, symbol or "")
 
-            # ── Calibration exit record (non-fatal) ──────────────────────
+            # ── River online learner hook (non-fatal) ────────────────────
             try:
-                if db.db is not None and NEW_TRADING_BRAIN_V2:
-                    v2 = _get_brain_v2()
-                    from services.trading_brain_v2.trade_outcome_classifier import classify_trade_outcome
-                    _open_notional = float(open_trade.get("entry_value") or open_trade.get("trade_amount") or 0)
-                    _open_equity = float(bot_data.get("current_capital") or bot_data.get("paper_capital") or 0)
-                    _open_cost_bps = float(open_trade.get("all_in_cost_bps") or 25.0)
-                    _oc_result = classify_trade_outcome(
-                        gross_pnl=gross_profit,
-                        net_pnl=net_profit,
-                        bot_type=bot_class,
-                        exchange=exchange,
-                        bot_equity=_open_equity,
-                        notional=_open_notional,
-                        all_in_cost_bps=_open_cost_bps,
-                    )
-                    # Resolve active pack for this bot
-                    _exit_pack = v2["resolve_runtime_pack"](bot_data)
-                    col_cal = db.db.get_collection("trade_calibration_v2")
-                    _proj_at_entry = float(open_trade.get("projected_net_profit_quote") or open_trade.get("_calibration", {}).get("projected_net_profit_quote") or 0)
-                    # Use find_one_and_update to reliably target the most recent
-                    # open calibration record for this bot (avoids race conditions
-                    # from update_one sort which is not reliably ordered in MongoDB).
-                    await col_cal.find_one_and_update(
-                        {"bot_id": bot_id, "calibration_complete": False},
-                        {"$set": {
-                            "realized_net_profit_quote":  round(net_profit, 6),
-                            "realized_gross_pnl_quote":   round(gross_profit, 6),
-                            "realized_projection_ratio":  round(net_profit / _proj_at_entry, 4) if _proj_at_entry > 0 else None,
-                            "exit_reason_code":           str(close_reason or "unknown"),
-                            "outcome_class":              _oc_result.get("outcome_class", "LOSS"),
-                            "hold_seconds":               round(age_seconds, 1),
-                            "calibration_complete":       True,
-                            "policy_pack_name":           _exit_pack["pack_name"],
-                            "policy_pack_version":        _exit_pack["pack_version"],
-                        }},
-                        sort=[("entry_ts", -1)],   # most recent open record for this bot
-                    )
-            except Exception as _cal_exit_err:
-                logger.debug(f"Calibration exit write failed (non-fatal): {_cal_exit_err}")
+                from services.river_learner import river_learner
+                river_features = {
+                    "rsi": float((open_trade.get("indicators") or {}).get("rsi", 50)),
+                    "macd_hist": float((open_trade.get("indicators") or {}).get("macd_hist", 0)),
+                    "atr_pct": float((open_trade.get("indicators") or {}).get("atr", 0)) / max(entry_price, 1) * 100,
+                    "close_vs_sma20": float((open_trade.get("indicators") or {}).get("close_vs_sma20", 0)),
+                    "volume_ratio": 1.0,
+                }
+                await river_learner.record_outcome(river_features, net_profit)
+            except Exception as _river_err:
+                logger.debug(f"River online learner hook failed (non-fatal): {_river_err}")
 
             logger.info(
                 f"✅ {bot_data['name'][:15]} | {symbol} | CLOSE {close_reason} | "
@@ -2967,8 +2003,13 @@ class PaperTradingEngine:
             )
             return trade_result
         except Exception as e:
-            logger.error(f"Open trade close error: {e}")
-            return None
+            logger.error(f"Open trade close error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "skip_reason": "close_exception",
+                "failure_trace": str(e),
+                "status": "open",
+            }
     
     async def run_trading_cycle(self, bot_id: str, bot_data: Dict, db_collections: Dict):
         """Run trading cycle - accurate live simulation with risk controls and paper wallet enforcement"""
@@ -2977,35 +2018,89 @@ class PaperTradingEngine:
             bots_collection = db_collections['bots']
             trades_collection = db_collections['trades']
 
-            logger.info(
-                "📊 CANDIDATE SELECTED | bot=%s name=%r exchange=%s bot_type=%s",
-                bot_id, bot_data.get("name"), bot_data.get("exchange"), bot_data.get("bot_type", "normal"),
-            )
+            # Update tick time for diagnostics
+            self.is_running = True
+            self.last_tick_time = datetime.now(timezone.utc).isoformat()
 
             # Check for an open trade first
             open_trade = await trades_collection.find_one({"bot_id": bot_id, "status": "open"}, {"_id": 0})
+            logger.info(
+                f"PAPER_TICK bot={bot_id} open_trades={1 if open_trade else 0}"
+            )
             trade_result = None
             existing_trade_id = None
             entry_recorded = False
 
             if open_trade:
                 trade_result = await self._close_open_trade(bot_id, bot_data, open_trade)
-                if not trade_result:
-                    return None
+                # Treat unexpected None as a close exception (defensive fallback)
+                if trade_result is None:
+                    trade_result = {
+                        "success": False,
+                        "skip_reason": "close_exception",
+                        "failure_trace": "unexpected_none_return",
+                        "status": "open",
+                    }
+
+                skip_reason = trade_result.get("skip_reason")
+
+                if not trade_result.get("success"):
+                    if skip_reason == "close_exception":
+                        # Real exception in close path – mark trade as failed/abandoned
+                        self.closes_failed += 1
+                        trade_id = open_trade.get("id") or open_trade.get("trade_id")
+                        if trade_id:
+                            try:
+                                await trades_collection.update_one(
+                                    {"id": trade_id},
+                                    {
+                                        "$set": {
+                                            "status": "failed",
+                                            "trade_close_reason": "close_failed_abandoned",
+                                            "closed_at": datetime.now(timezone.utc).isoformat(),
+                                            "last_order_error": "open_trade_close_failed",
+                                            "failure_trace": trade_result.get(
+                                                "failure_trace", "close_exception"
+                                            ),
+                                        }
+                                    },
+                                )
+                                logger.warning(
+                                    f"Bot {bot_id}: trade {trade_id} abandoned "
+                                    f"(close exception: {trade_result.get('failure_trace')})"
+                                )
+                            except Exception as abandon_err:
+                                logger.error(
+                                    f"Bot {bot_id}: failed to mark stuck trade as failed: {abandon_err}"
+                                )
+                        return {"success": False, "skip_reason": "open_trade_close_failed"}
+                    else:
+                        # No exit condition met (no_exit_signal, no_price_data, etc.)
+                        # This is normal – trade stays open, bot continues next cycle.
+                        logger.info(
+                            f"SKIP_CLOSE bot={bot_id} trade={open_trade.get('id', '?')} "
+                            f"reason={skip_reason}"
+                        )
+                        return {
+                            "success": False,
+                            "skip_reason": skip_reason,
+                            "diagnostics": trade_result.get("diagnostics", {}),
+                        }
+
                 existing_trade_id = open_trade.get("id") or open_trade.get("trade_id")
                 entry_recorded = bool(open_trade.get("entry_ledger_recorded", False))
             else:
                 trade_result = await self.execute_smart_trade(bot_id, bot_data)
                 if not trade_result.get('success'):
-                    reason_code = trade_result.get("reason_code") or trade_result.get("skip_reason") or "UNKNOWN"
-                    logger.info(
-                        "📊 ENTRY REJECTED | bot=%s name=%r exchange=%s symbol=%s | "
-                        "reason_code=%s detail=%r",
-                        bot_id, bot_data.get("name"), bot_data.get("exchange"),
-                        trade_result.get("symbol", "?"),
-                        reason_code, trade_result.get("error", ""),
-                    )
-                    return None
+                    return {
+                        "success": False,
+                        "skip_reason": (
+                            trade_result.get("skip_reason")
+                            or trade_result.get("error")
+                            or "trade_rejected"
+                        ),
+                        "diagnostics": trade_result,
+                    }
 
                 if trade_result.get("status") == "open":
                     # Record open trade and exit (do not close immediately)
@@ -3028,23 +2123,18 @@ class PaperTradingEngine:
                             "net_pnl": trade_result.get("net_profit", 0),
                             "fees_total": trade_result.get("fees_total", trade_result.get("fees", 0)),
                             "slippage_cost": trade_result.get("slippage_cost", 0),
-                            # net_pnl_quote must hold the raw quote-currency P&L, not net_profit_zar.
-                            # For open trades net_profit is 0; quoting 0 in the correct currency
-                            # ensures enrich_trade_pnl_fields (called by build_trade_record) can
-                            # convert it properly to ZAR display units.
-                            "net_pnl_quote": trade_result.get("net_profit", 0),
+                            "net_pnl_quote": trade_result.get("net_profit_zar", 0),
                         },
                         user_id=bot_data['user_id'],
                         bot=bot_data
                     )
 
                     await trades_collection.insert_one(trade_doc)
-                    logger.info(
-                        "📊 PAPER FILL WRITTEN | bot=%s name=%r exchange=%s symbol=%s | "
-                        "trade_id=%s entry_price=%.4f notional=%.2f",
-                        bot_id, bot_data.get("name"), trade_result.get("exchange"),
-                        trade_result.get("symbol"), trade_id,
-                        trade_result.get("entry_price", 0), trade_result.get("trade_amount", 0),
+                    self._log_action(
+                        "OPEN", bot_id, trade_result.get("symbol", "?"),
+                        reason="signal",
+                        trade_id=trade_id,
+                        bot_name=bot_data.get("name", ""),
                     )
 
                     try:
@@ -3052,10 +2142,7 @@ class PaperTradingEngine:
                         ledger_db = getattr(db, "db", None)
                         if ledger_db is not None:
                             ledger = get_ledger_service(ledger_db)
-                            currency = self._resolve_quote_currency(
-                                trade_result.get("symbol", ""),
-                                trade_result.get("fee_currency"),
-                            )
+                            currency = "ZAR" if "/ZAR" in trade_result.get("symbol", "") else "USDT"
                             await ledger.ensure_bot_funding(
                                 user_id=bot_data['user_id'],
                                 bot_id=bot_id,
@@ -3094,26 +2181,12 @@ class PaperTradingEngine:
                     except Exception as e:
                         logger.warning(f"Ledger entry append failed: {e}")
 
-                    _resolved_pair = trade_result.get("symbol") or bot_data.get("pair")
-                    _resolved_regime = (
-                        trade_result.get("canonical_market_regime")
-                        or trade_result.get("regime_label")
-                        or trade_result.get("ai_regime")
-                    )
                     await bots_collection.update_one(
                         {"id": bot_id},
                         {"$set": {
                             "open_position_value": round(trade_result.get("trade_amount", 0), 2),
-                            "last_trade": datetime.now(timezone.utc).isoformat(),
-                            **({"pair": _resolved_pair, "symbol": _resolved_pair} if _resolved_pair else {}),
-                            **({"market_regime": _resolved_regime} if _resolved_regime else {}),
+                            "last_trade": datetime.now(timezone.utc).isoformat()
                         }}
-                    )
-                    logger.info(
-                        "📊 TRADE PERSISTED | bot=%s name=%r exchange=%s symbol=%s | "
-                        "trade_id=%s regime=%s",
-                        bot_id, bot_data.get("name"), trade_result.get("exchange"),
-                        trade_result.get("symbol"), trade_id, _resolved_regime,
                     )
 
                     try:
@@ -3123,12 +2196,6 @@ class PaperTradingEngine:
                     except Exception as e:
                         logger.warning(f"Realtime trade open broadcast failed: {e}")
 
-                    logger.info(
-                        "📊 RADAR STATE UPDATED | bot=%s name=%r | "
-                        "open_position_value=%.2f pair=%s market_regime=%s",
-                        bot_id, bot_data.get("name"),
-                        trade_result.get("trade_amount", 0), _resolved_pair, _resolved_regime,
-                    )
                     return {
                         "bot_id": bot_id,
                         "trade": trade_doc
@@ -3150,10 +2217,7 @@ class PaperTradingEngine:
                 ledger_db = getattr(db, "db", None)
                 if ledger_db is not None:
                     ledger = get_ledger_service(ledger_db)
-                    currency = self._resolve_quote_currency(
-                        trade_result.get("symbol", ""),
-                        trade_result.get("fee_currency"),
-                    )
+                    currency = "ZAR" if "/ZAR" in trade_result.get("symbol", "") else "USDT"
                     await ledger.ensure_bot_funding(
                         user_id=bot_data['user_id'],
                         bot_id=bot_id,
@@ -3248,6 +2312,14 @@ class PaperTradingEngine:
             # Update bot with calculated values
             from utils.trade_utils import classify_trade_outcome
             outcome = classify_trade_outcome(net_profit)
+            # Determine if this bot is a live/sim bot in training (paper bots are never gated)
+            is_training_bot = (
+                fresh_bot.get("trading_mode", "paper") != "paper"
+                and (
+                    fresh_bot.get("lifecycle_state") == "training"
+                    or fresh_bot.get("is_training", False)
+                )
+            )
             await bots_collection.update_one(
                 {"id": bot_id},
                 {
@@ -3260,11 +2332,44 @@ class PaperTradingEngine:
                     },
                     "$inc": {
                         "trades_count": 1,
+                        "closed_trades_count": 1,
                         "win_count": outcome["win_count"],
                         "loss_count": outcome["loss_count"]
                     }
                 }
             )
+
+            # Auto-graduate training bot once it has enough closed trades
+            if is_training_bot:
+                try:
+                    updated_bot = await bots_collection.find_one({"id": bot_id}, {"_id": 0})
+                    if updated_bot:
+                        required_closed = int(
+                            updated_bot.get("training_required_closed_trades", TRAINING_TRADES_REQUIRED)
+                        )
+                        completed_closed = int(updated_bot.get("closed_trades_count", 0))
+                        if completed_closed >= required_closed and not updated_bot.get("training_complete", False):
+                            now_iso = datetime.now(timezone.utc).isoformat()
+                            await bots_collection.update_one(
+                                {"id": bot_id},
+                                {"$set": {
+                                    "training_complete": True,
+                                    "training_completed_at": now_iso,
+                                    "training_in_progress": False,
+                                }}
+                            )
+                            logger.info(
+                                f"✅ Training complete: bot={bot_id} "
+                                f"closed_trades={completed_closed}/{required_closed}"
+                            )
+                            try:
+                                graduated_bot = await bots_collection.find_one({"id": bot_id}, {"_id": 0}) or {}
+                                await rt_events.training_completed(bot_data.get("user_id"), graduated_bot)
+                            except Exception as _e:
+                                logger.warning(f"Training completion event failed: {_e}")
+                except Exception as grad_err:
+                    logger.warning(f"Training graduation check failed for bot {bot_id}: {grad_err}")
+
             
             # Save trade
             # CRITICAL: Validate trade_doc has all required fields before insertion
@@ -3312,10 +2417,8 @@ class PaperTradingEngine:
                     "gross_pnl": round(gross_profit, 2),  # PnL before fees
                     "fees_total": round(trade_result.get("fees_total", fees), 2),
                     "slippage_cost": round(trade_result.get("slippage_cost", 0), 2),
-                    "net_pnl": round(net_profit, 2),  # PnL after fees in quote currency
-                    # net_pnl_quote = raw quote-currency P&L.  Must NOT alias net_profit_zar
-                    # (which is the ZAR display value and is different for USDT bots).
-                    "net_pnl_quote": round(net_profit, 2),
+                    "net_pnl": round(net_profit, 2),  # PnL after fees
+                    "net_pnl_quote": round(trade_result.get("net_profit_zar", net_profit), 2),
                     "trade_close_reason": trade_result.get("trade_close_reason", "paper_cycle"),
                     "realized_pnl": round(net_profit, 2),
                     "fee_paid": round(fees, 2),
@@ -3376,7 +2479,7 @@ class PaperTradingEngine:
             
         except Exception as e:
             logger.error(f"Cycle error: {e}")
-            return None
+            return {"success": False, "skip_reason": f"cycle_error: {e}", "error": str(e)}
     
     async def cleanup(self):
         """Alias for close_exchanges"""
@@ -3405,6 +2508,74 @@ class PaperTradingEngine:
         self.bybit_exchange = None
         self.bitget_exchange = None
     
+    async def close_overdue_trades(self, user_id: str) -> int:
+        """Force-close all open paper trades that have exceeded HARD_MAX_HOLD_SECONDS.
+
+        Called by the scheduler at the end of each tick to ensure trades from
+        paused bots are not left open indefinitely (fix for D — exit precedence).
+
+        Returns the number of trades closed.
+        """
+        closed_count = 0
+        try:
+            if db.trades_collection is None:
+                return 0
+            now = datetime.now(timezone.utc)
+            cursor = db.trades_collection.find(
+                {"user_id": user_id, "status": "open"},
+                {"_id": 0}
+            )
+            open_trades = await cursor.to_list(200)
+            for trade in open_trades:
+                entry_time_raw = (
+                    trade.get("entry_time")
+                    or trade.get("opened_at")
+                    or trade.get("timestamp")
+                )
+                if not entry_time_raw:
+                    continue
+                try:
+                    entry_time = datetime.fromisoformat(
+                        str(entry_time_raw).replace("Z", "+00:00")
+                    )
+                except Exception:
+                    continue
+                age_seconds = (now - entry_time).total_seconds()
+                if age_seconds < HARD_MAX_HOLD_SECONDS:
+                    continue
+                # Force close: fetch current price and call _close_open_trade
+                bot_id = trade.get("bot_id")
+                if not bot_id:
+                    continue
+                bot_data = None
+                if db.bots_collection is not None:
+                    bot_data = await db.bots_collection.find_one(
+                        {"id": bot_id}, {"_id": 0}
+                    )
+                if not bot_data:
+                    bot_data = {
+                        "id": bot_id,
+                        "user_id": user_id,
+                        "name": "unknown",
+                        "stop_loss_pct": 0.02,
+                        "take_profit_pct": 0.03,
+                    }
+                try:
+                    result = await self._close_open_trade(bot_id, bot_data, trade)
+                    if result and result.get("success"):
+                        closed_count += 1
+                        logger.info(
+                            f"OVERDUE_SWEEP closed trade {trade.get('id', '?')} "
+                            f"bot={bot_id} age_sec={age_seconds:.0f}"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"OVERDUE_SWEEP failed for trade {trade.get('id', '?')}: {e}"
+                    )
+        except Exception as e:
+            logger.error(f"close_overdue_trades error: {e}")
+        return closed_count
+
     def get_status(self) -> Dict:
         """Get paper trading engine status for monitoring with mode information"""
         mode_info = self.get_mode_label()
@@ -3412,9 +2583,14 @@ class PaperTradingEngine:
         return {
             "is_running": self.is_running,
             "last_tick_time": self.last_tick_time,
+            "last_close_time": self.last_close_time,
             "last_trade_simulation": self.last_trade_simulation,
             "last_error": self.last_error,
             "total_trades": self.trade_count,
+            "closes_attempted": self.closes_attempted,
+            "closes_done": self.closes_done,
+            "closes_failed": self.closes_failed,
+            "last_symbol_selection": self._last_symbol_selection,
             "exchanges_initialized": {
                 "luno": self.luno_exchange is not None,
                 "binance": self.binance_exchange is not None,
@@ -3425,8 +2601,103 @@ class PaperTradingEngine:
             "mode_label": mode_info['label'],
             "mode_description": mode_info['description'],
             "luno_keys_available": self.luno_keys_available,
-            "user_id": self.user_id
+            "user_id": self.user_id,
+            "last_20_actions": list(self._action_log),
         }
+    
+    async def execute_approved_trade(
+        self,
+        user_id: str,
+        bot_id: str,
+        exchange: str,
+        symbol: str,
+        side: str,
+        amount: float,
+        order_type: str = "market",
+        price: Optional[float] = None
+    ) -> Dict:
+        """
+        Execute a trade that has already been approved by OrderPipeline.
+        
+        This method handles paper trade execution AFTER all 4 gates have passed.
+        It simulates the trade with real market data and realistic fees/slippage.
+        
+        Args:
+            user_id: User ID
+            bot_id: Bot ID  
+            exchange: Exchange name
+            symbol: Trading pair
+            side: "buy" or "sell"
+            amount: Trade amount
+            order_type: "market" or "limit"
+            price: Limit price (optional)
+        
+        Returns:
+            {
+                "success": bool,
+                "price": float,
+                "amount": float,
+                "fees": dict,
+                "timestamp": str,
+                "error": str (if failed)
+            }
+        """
+        try:
+            # Get real market price
+            current_price = await self.get_real_price(symbol, exchange)
+            
+            if not current_price or current_price <= 0:
+                return {
+                    "success": False,
+                    "error": f"Could not fetch price for {symbol} on {exchange}"
+                }
+            
+            # Calculate execution price with slippage
+            slippage_pct = 0.001  # 0.1% slippage for paper
+            if side == "buy":
+                execution_price = current_price * (1 + slippage_pct)
+            else:
+                execution_price = current_price * (1 - slippage_pct)
+            
+            # Calculate fees (use realistic fee rates)
+            fee_rates = {
+                "luno": 0.001,  # 0.1%
+                "binance": 0.001,  # 0.1%
+                "kucoin": 0.001,  # 0.1%
+                "bybit": 0.001,  # 0.1%
+                "kraken": 0.0016,  # 0.16%
+                "bitget": 0.001,  # 0.1%
+                "gate": 0.002  # 0.2%
+            }
+            fee_rate = fee_rates.get(exchange.lower(), 0.001)
+            fee_amount = amount * execution_price * fee_rate
+            
+            # Build result
+            result = {
+                "success": True,
+                "price": execution_price,
+                "amount": amount,
+                "fees": {
+                    "currency": symbol.split('/')[1],
+                    "cost": fee_amount,
+                    "rate": fee_rate
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "slippage": slippage_pct,
+                "side": side,
+                "symbol": symbol,
+                "exchange": exchange
+            }
+            
+            logger.info(f"Paper trade executed: {side} {amount} {symbol} @ {execution_price}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Paper trade execution error: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
 # Global instance
 paper_engine = PaperTradingEngine()

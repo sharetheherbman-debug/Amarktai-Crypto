@@ -33,7 +33,7 @@ Based on analysis of `frontend/src/pages/Dashboard.js`, the following endpoints 
 - ✅ `PUT /api/bots/{bot_id}` - Update bot
 - ✅ `DELETE /api/bots/{bot_id}` - Delete bot
 - ✅ `POST /api/bots/uagent` - Create uAgent bot
-- ✅ `POST /api/bots/flokx` - Create Flokx bot
+- ✅ `POST /api/bots/coinstats` - Create Flokx bot
 - ✅ `POST /api/bots/evolve` - Trigger bot evolution
 - ✅ `GET /api/bots/eligible-for-promotion` - Check promotion eligibility
 - ✅ `POST /api/bots/confirm-live-switch` - Confirm live trading switch
@@ -86,7 +86,7 @@ Based on analysis of `frontend/src/pages/Dashboard.js`, the following endpoints 
 
 #### Advanced Features (Components)
 - ⚠️ `GET /api/advanced/whale/summary` - Whale flow data (needs verification)
-- ❌ `GET /api/flokx/alerts` - Flokx alerts (may not exist)
+- ❌ `GET /api/coinstats/alerts` - Flokx alerts (may not exist)
 
 ### Endpoints Called by Components
 
@@ -188,7 +188,7 @@ async def get_current_user_profile(user_id: str = Depends(get_current_user)):
 
 #### 3.3 Flokx Alerts Endpoint May Not Exist
 **Problem:**  
-Dashboard calls `GET /api/flokx/alerts` but this endpoint may not be implemented.
+Dashboard calls `GET /api/coinstats/alerts` but this endpoint may not be implemented.
 
 **Fix Required:**
 - Verify if endpoint exists in any router
@@ -328,7 +328,7 @@ Current graphs section needs enhancement with better information architecture.
 ### 5.1 Must Fix
 - [ ] Fix `/api/auth/me` to handle both `id` and `_id` (ObjectId)
 - [ ] Add admin permission checks to admin endpoints
-- [ ] Implement `/api/flokx/alerts` stub if missing
+- [ ] Implement `/api/coinstats/alerts` stub if missing
 - [ ] Verify `/api/advanced/whale/summary` works or stub it
 - [ ] Enable SSE by default (`ENABLE_REALTIME=true`)
 

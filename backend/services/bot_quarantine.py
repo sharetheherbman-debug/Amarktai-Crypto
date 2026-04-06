@@ -203,11 +203,20 @@ class BotQuarantineService:
                 bot_id = bot["id"]
                 user_id = bot["user_id"]
                 
-                logger.warning(f"🗑️ Deleting bot {bot_id[:8]} after 4 quarantine failures")
+                logger.warning(f"🗑️ Soft-deleting bot {bot_id[:8]} after 4 quarantine failures")
                 
-                # Delete bot and its trades
-                await db.bots_collection.delete_one({"id": bot_id})
-                await db.trades_collection.delete_many({"bot_id": bot_id})
+                # Soft-delete: keep record in DB but exclude from all active queries
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {"$set": {
+                        "status": "deleted",
+                        "deleted": True,
+                        "is_deleted": True,
+                        "deleted_at": datetime.now(timezone.utc).isoformat(),
+                        "deleted_by": "quarantine_service",
+                        "paused_by_system": True,
+                    }}
+                )
                 
                 # Auto-generate replacement bot
                 logger.info(f"🤖 Auto-generating replacement bot for user {user_id[:8]}")

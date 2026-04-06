@@ -1,47 +1,24 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import ErrorBoundary from './components/ErrorBoundary';
-import realtimeClient from './lib/realtime';
+import ConnectionStatus from './components/ConnectionStatus';
 import '@/App.css';
-import '@/styles/particles.css';
 
 function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
   return token ? children : <Navigate to="/login" replace />;
 }
 
-/**
- * Global auth:unauthorized listener — redirects to /login on 401.
- * Tears down realtime connections and clears stale auth state.
- */
-function AuthListener() {
-  const navigate = useNavigate();
-  useEffect(() => {
-    const handler = () => {
-      realtimeClient.disconnect();
-      localStorage.removeItem('token');
-      navigate('/login', { replace: true });
-    };
-    window.addEventListener('auth:unauthorized', handler);
-    return () => window.removeEventListener('auth:unauthorized', handler);
-  }, [navigate]);
-  return null;
-}
-
 function App() {
   return (
     <div className="App">
+      <ConnectionStatus />
       <Toaster position="top-right" richColors />
-      <div className="particles-bg" aria-hidden="true">
-        <span className="particles-dots" />
-      </div>
       <BrowserRouter>
-        <AuthListener />
         <div className="app-shell">
           <Routes>
             <Route path="/" element={<Landing />} />

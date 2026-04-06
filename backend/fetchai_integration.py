@@ -2,15 +2,16 @@
 Fetch.ai Integration
 - Fetch market signals and predictions from Fetch.ai network
 - Provide AI-powered trading insights
-- When no API key is configured, returns a deterministic neutral/unavailable
-  signal so that no random fabricated data flows into trading decisions.
 """
 
 import asyncio
 import aiohttp
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from logger_config import logger
 import database as db
+
+# Rate-limit "key not configured" warnings to once per 10 minutes
+_WARN_INTERVAL = timedelta(minutes=10)
 
 
 class FetchAIIntegration:
@@ -18,12 +19,13 @@ class FetchAIIntegration:
         self.api_key = None
         self.api_url = "https://api.fetch.ai/v1"
         self.cache = {}
-
+        self._last_missing_key_warn: datetime | None = None
+    
     def set_credentials(self, api_key: str):
         """Set Fetch.ai API credentials"""
         self.api_key = api_key
         logger.info("Fetch.ai credentials configured")
-
+    
     async def test_connection(self, api_key: str) -> bool:
         """Test Fetch.ai API connection"""
         try:
@@ -32,6 +34,7 @@ class FetchAIIntegration:
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
                 }
+                
                 async with session.get(
                     f"{self.api_url}/health",
                     headers=headers,
@@ -41,25 +44,23 @@ class FetchAIIntegration:
         except Exception as e:
             logger.error(f"Fetch.ai connection test failed: {e}")
             return False
-
+    
     async def fetch_market_signals(self, pair: str = "BTC/USD") -> dict:
-        """Fetch AI-powered market signals from Fetch.ai.
-
-        When no API key is configured or the API call fails, returns a
-        deterministic UNAVAILABLE response with confidence=0 so that
-        the trading brain can detect the absence of this signal source
-        and adjust weights accordingly — no random fabricated signals.
-        """
+        """Fetch AI-powered market signals from Fetch.ai"""
         if not self.api_key:
-            logger.debug("Fetch.ai API key not configured — returning unavailable signal")
-            return self._unavailable_signal(pair, reason="no_api_key")
-
+            now = datetime.now(timezone.utc)
+            if self._last_missing_key_warn is None or (now - self._last_missing_key_warn) >= _WARN_INTERVAL:
+                logger.warning("Fetch.ai API key not configured — signals unavailable (this warning appears at most once per 10 min)")
+                self._last_missing_key_warn = now
+            return self._unavailable_signal(pair)
+        
         try:
             async with aiohttp.ClientSession() as session:
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 }
+                
                 async with session.get(
                     f"{self.api_url}/signals/market",
                     params={"pair": pair},
@@ -72,56 +73,48 @@ class FetchAIIntegration:
                         return data
                     else:
                         logger.error(f"Fetch.ai API error: {response.status}")
-                        return self._unavailable_signal(pair, reason=f"api_error_{response.status}")
-
+                        return self._unavailable_signal(pair)
+        
         except Exception as e:
             logger.error(f"Fetch.ai fetch failed: {e}")
-            return self._unavailable_signal(pair, reason="fetch_exception")
+            return self._unavailable_signal(pair)
+    
+    def _unavailable_signal(self, pair: str) -> dict:
+        """Return a neutral, clearly-marked unavailable signal.
 
-    @staticmethod
-    def _unavailable_signal(pair: str, reason: str = "unavailable") -> dict:
-        """Return a deterministic, zero-confidence unavailable signal.
-
-        Replaces the former _mock_signals() which returned random data that
-        could fabricate high-confidence BUY/SELL signals and override real
-        trend analysis in the trading brain. A confidence of 0 tells the
-        signal aggregator this source is absent so weights are redistributed
-        to available sources.
+        NEVER returns random values — callers must check ``is_simulated=True``
+        and zero-weight this signal in live trading decisions.
         """
         return {
             "pair": pair,
             "signal": "HOLD",
-            "strength": "NONE",
-            "confidence": 0,
-            "price_target": None,
-            "stop_loss": None,
-            "timeframe": None,
-            "indicators": {},
-            "ai_confidence": 0,
-            "market_sentiment": "neutral",
-            "available": False,
-            "unavailable_reason": reason,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "strength": "UNAVAILABLE",
+            "confidence": 0.0,
+            "is_simulated": True,
             "source": "unavailable",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-
+    
     async def get_trading_recommendation(self, pair: str, risk_level: str = "moderate") -> dict:
         """Get AI-powered trading recommendation"""
         signals = await self.fetch_market_signals(pair)
-
+        
+        # When signals are unavailable, all price levels are None — callers must
+        # check is_simulated before using entry_price / stop_loss / take_profit.
+        is_unavailable = signals.get("is_simulated", False)
         recommendation = {
             "pair": pair,
             "action": signals.get("signal", "HOLD"),
             "confidence": signals.get("confidence", 0),
-            "entry_price": signals.get("price_target"),
-            "stop_loss": signals.get("stop_loss"),
-            "take_profit": signals.get("price_target"),
+            "entry_price": signals.get("price_target") if not is_unavailable else None,
+            "stop_loss": signals.get("stop_loss") if not is_unavailable else None,
+            "take_profit": signals.get("price_target") if not is_unavailable else None,
             "risk_reward_ratio": None,
-            "timeframe": signals.get("timeframe"),
-            "available": signals.get("available", True),
+            "is_simulated": is_unavailable,
+            "timeframe": signals.get("timeframe", "4h"),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-
+        
         return recommendation
 
 
