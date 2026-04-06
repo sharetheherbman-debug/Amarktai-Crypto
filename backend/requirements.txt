@@ -156,7 +156,9 @@ prometheus-client==0.21.1
 # fallback for all required indicators.
 
 # Gradient-boosted tree model for price-direction prediction
-xgboost>=2.0.0
+# xgboost-cpu: CPU-only build — identical API but without the nvidia-nccl-cu12
+# hard dependency (293 MB CUDA library) that ships with the default xgboost wheel.
+xgboost-cpu>=2.1.4
 
 # Online/streaming learning — model updates without full retraining
 river>=0.21.0
