@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/health", tags=["Health"])
 _router_status = {"mounted": [], "failed": []}
 _startup_time = None
 _bind_ok = False
-_startup_warnings: list = []  # Non-fatal startup errors (config/DB degraded-mode entries)
+_startup_warnings: list[str] = []  # Non-fatal startup errors (config/DB degraded-mode entries)
 
 
 def set_startup_time(timestamp: datetime):
@@ -352,9 +352,16 @@ async def health_ping() -> dict:
         else:
             db_status = "disconnected"
         
-        # Build response
+        # Build response — determine overall status
+        if db_status == "connected" and not _startup_warnings:
+            overall_status = "healthy"
+        elif db_status == "connected":
+            overall_status = "degraded"  # DB up but non-fatal startup warnings exist
+        else:
+            overall_status = "unhealthy"  # DB not connected
+
         response = {
-            "status": "healthy" if (db_status == "connected" and not _startup_warnings) else "degraded" if db_status == "connected" else "unhealthy",
+            "status": overall_status,
             "db": db_status,
             "timestamp": current_time.isoformat(),
             "build_hash": get_build_hash(),
