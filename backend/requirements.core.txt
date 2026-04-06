@@ -62,8 +62,8 @@ joblib==1.5.3
 statsmodels==0.14.4
 
 # ── Trading ML ───────────────────────────────────────────────────────────────
-# Gradient-boosted tree model
-xgboost==2.1.4
+# Gradient-boosted tree model (CPU-only build — no CUDA/nvidia deps)
+xgboost-cpu==2.1.4
 
 # Online/streaming learning
 river==0.21.2
