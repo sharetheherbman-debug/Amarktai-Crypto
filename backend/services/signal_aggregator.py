@@ -265,8 +265,12 @@ class SignalAggregator:
                     sent_score = float(agg.score)
                     sent_dir = _direction_from_score(sent_score)
                     availability["sentiment"] = True
+                else:
+                    logger.debug("Sentiment returned None for %s — weight redistributed", symbol)
             except Exception:
                 logger.debug("Sentiment failed for %s", symbol, exc_info=True)
+        else:
+            logger.debug("Sentiment engine not available for %s — weight redistributed", symbol)
 
         # -- 5. Order Flow (optional, sync) ------------------------------
         of_score = 0.0
@@ -278,8 +282,12 @@ class SignalAggregator:
                     of_score = float(of_result.score)
                     of_dir = _direction_from_score(of_score)
                     availability["order_flow"] = True
+                else:
+                    logger.debug("Order flow returned None for %s — weight redistributed", symbol)
             except Exception:
                 logger.debug("Order flow failed for %s", symbol, exc_info=True)
+        else:
+            logger.debug("Order flow engine not available for %s — weight redistributed", symbol)
 
         # -- 6. Fear & Greed (contrarian macro) --------------------------
         fg_score = 0.0
