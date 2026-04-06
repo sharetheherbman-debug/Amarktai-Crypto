@@ -108,10 +108,21 @@ async def lifespan(app: FastAPI):
         startup_self_check()
         logger.info("✅ Configuration validation passed")
     except Exception as config_error:
-        logger.error(f"❌ FATAL: Configuration validation failed: {config_error}", exc_info=True)
+        # Log loudly but do NOT raise — a raise here causes uvicorn to exit with
+        # status 3 (LifespanStartupFailed), which prevents health endpoints from
+        # ever responding.  The degraded state is reported via /api/health instead.
+        logger.critical(
+            f"⚠️ Configuration validation failed (server starting in degraded mode): "
+            f"{config_error}",
+            exc_info=True,
+        )
         import sys
-        print(f"FATAL ERROR: Configuration validation failed: {config_error}", file=sys.stderr)
-        raise  # Fail fast on configuration errors
+        print(f"WARNING: Configuration validation failed: {config_error}", file=sys.stderr)
+        try:
+            from routes.health import set_startup_warning
+            set_startup_warning(f"Config validation: {config_error}")
+        except Exception:
+            pass
     
     # =========================================================================
     # STEP 1: Connect to database FIRST (before any other services)
@@ -173,11 +184,21 @@ async def lifespan(app: FastAPI):
             logger.warning(f"⚠️ Key encryption migration failed (non-fatal): {migration_error}")
 
     except Exception as e:
-        logger.error(f"❌ FATAL: Database connection failed: {e}", exc_info=True)
-        # Log to stderr as well for systemd
+        # Log loudly but do NOT raise — a raise here causes uvicorn to exit with
+        # status 3 (LifespanStartupFailed), preventing health endpoints from
+        # responding.  Motor (AsyncIOMotorClient) will retry connections on
+        # subsequent operations; the health endpoint reports the degraded state.
+        logger.critical(
+            f"⚠️ Database connection failed (server starting in degraded mode): {e}",
+            exc_info=True,
+        )
         import sys
-        print(f"FATAL ERROR: Database connection failed: {e}", file=sys.stderr)
-        raise  # Cannot proceed without database
+        print(f"WARNING: Database connection failed: {e}", file=sys.stderr)
+        try:
+            from routes.health import set_startup_warning
+            set_startup_warning(f"Database connection: {e}")
+        except Exception:
+            pass
     
     # =========================================================================
     # STEP 2: Use lifecycle manager for subsystem management
@@ -986,9 +1007,12 @@ async def get_promotion_status(bot_id: str, user_id: str = Depends(get_current_u
 async def health_check():
     """Production health check endpoint"""
     try:
-        # Check database connectivity
-        await db.client.admin.command('ping')
-        db_status = "connected"
+        # Guard against db.client being None when startup DB connection failed
+        if db.client is not None:
+            await db.client.admin.command('ping')
+            db_status = "connected"
+        else:
+            db_status = "disconnected"
     except Exception as e:
         db_status = f"error: {str(e)}"
     

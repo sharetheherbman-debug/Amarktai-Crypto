@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/health", tags=["Health"])
 _router_status = {"mounted": [], "failed": []}
 _startup_time = None
 _bind_ok = False
+_startup_warnings: list = []  # Non-fatal startup errors (config/DB degraded-mode entries)
 
 
 def set_startup_time(timestamp: datetime):
@@ -31,6 +32,17 @@ def set_bind_ok(status: bool = True):
     """Called by server.py after successful socket bind."""
     global _bind_ok
     _bind_ok = status
+
+
+def set_startup_warning(message: str):
+    """Called by server.py when a non-fatal startup error occurs.
+
+    These warnings are surfaced in /api/health and /api/health/ping so operators
+    can detect degraded-mode startup without reading raw logs.
+    """
+    global _startup_warnings
+    _startup_warnings.append(message)
+    logger.warning(f"Startup warning recorded: {message}")
 
 
 # Module-level build info cache (computed once at import time)
@@ -342,20 +354,24 @@ async def health_ping() -> dict:
         
         # Build response
         response = {
-            "status": "healthy" if db_status == "connected" else "unhealthy",
+            "status": "healthy" if (db_status == "connected" and not _startup_warnings) else "degraded" if db_status == "connected" else "unhealthy",
             "db": db_status,
             "timestamp": current_time.isoformat(),
             "build_hash": get_build_hash(),
             "build_branch": get_build_branch(),
             "bind_ok": _bind_ok,
         }
+
+        # Include any non-fatal startup warnings (config/DB degraded-mode entries)
+        if _startup_warnings:
+            response["startup_warnings"] = _startup_warnings
         
         # Add uptime if available
         if uptime_seconds is not None:
             response["uptime_seconds"] = round(uptime_seconds, 2)
             response["uptime_formatted"] = format_uptime(uptime_seconds)
         
-        # Return 503 if unhealthy
+        # Return 503 if unhealthy (DB not connected)
         if db_status != "connected":
             raise HTTPException(
                 status_code=503,
