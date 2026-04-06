@@ -357,7 +357,9 @@ def startup_self_check() -> None:
         if not value or value == 'your-secret-key-change-in-production':
             errors.append(f"❌ Missing or invalid required env key: {key}")
 
-    # Check 1b: Admin password must not be a placeholder or the old hardcoded default
+    # Check 1b: Admin password must not be a placeholder or the old hardcoded default.
+    # Comparison uses .lower() so mixed-case values like 'Ashmor12@' also match the
+    # lowercase blocklist entry 'ashmor12@'.
     admin_password = os.getenv("ADMIN_PASSWORD", "")
     _admin_placeholders = {
         "change-me-secure-password",

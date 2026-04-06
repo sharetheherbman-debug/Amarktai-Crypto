@@ -227,7 +227,7 @@ class RiskEngine:
 
     async def _check_drawdown_limit(self, user_id: str, current_equity: float, risk_mode: str) -> tuple[bool, str]:
         if current_equity <= 0:
-            return False, ""
+            return False, "Drawdown check skipped: current equity is zero or negative"
 
         # Load cached value; on first call after restart, fetch from MongoDB.
         if user_id not in self.user_peak_equity:
