@@ -214,14 +214,15 @@ backend/requirements.production.lock.txt
 ```
 
 This file pins every package including trading/ML packages (xgboost, river,
-optuna, aioredis, web3) with no version ranges. Dev tools
+optuna, redis, web3) with no version ranges. Dev tools
 (pytest, black, flake8, mypy) are excluded.
 
 > **Note:** `pandas-ta` was removed from all requirements files because
-> version `0.3.14b0` is no longer published on PyPI, and newer releases
-> (`0.4.x`) require `numpy>=2.2.6` which conflicts with `langchain-chroma`.
-> `ml_predictor.py` contains a full manual fallback for all technical
-> indicators (RSI, MACD, ATR, Bollinger Bands, VWAP, SMA).
+> version `0.3.14b0` is no longer published on PyPI. `ml_predictor.py`
+> contains a full manual fallback for all technical indicators
+> (RSI, MACD, ATR, Bollinger Bands, VWAP, SMA).
+> `langchain`/`chromadb` are not installed in production; they are optional
+> and guarded by `try/except` in `engines/reflexion_loop.py`.
 
 ### ⚠️ Critical: numpy constraint
 

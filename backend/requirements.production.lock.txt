@@ -6,10 +6,10 @@
 # All packages are pinned to exact versions. Dev-only packages (pytest, black,
 # flake8, mypy, isort, etc.) are excluded.
 #
-# ── CRITICAL NUMPY CONSTRAINT ─────────────────────────────────────────────────
-# numpy is pinned to ==1.26.4 (numpy 1.x). DO NOT upgrade to numpy 2.x.
-# Reason: langchain-chroma==0.1.4 requires numpy<2.0.0. If numpy is >=2.0,
-# pip raises ResolutionImpossible when langchain-chroma is in the same env.
+# ── NUMPY NOTE ────────────────────────────────────────────────────────────────
+# numpy is pinned to ==1.26.4. langchain/chromadb are NOT installed in
+# production (reflexion_loop.py guards them with try/except). The numpy<2.0
+# constraint previously required by langchain-chroma no longer applies.
 # pandas-ta has been removed: 0.3.14b0 is no longer on PyPI and newer
 # releases (0.4.x) require numpy>=2.2.6. ml_predictor.py contains a full
 # manual fallback for all technical indicators (RSI, MACD, ATR, BB, VWAP, SMA).
@@ -102,7 +102,7 @@ fastuuid==0.14.0
 web3==6.15.1
 
 # ── Real-time / SSE / Redis ───────────────────────────────────────────────
-aioredis==2.0.1
+redis==5.0.8
 sse-starlette==3.0.3
 
 # ── Payments ─────────────────────────────────────────────────────────────
@@ -116,9 +116,8 @@ s3transfer==0.15.0
 s5cmd==0.2.0
 
 # ── Data Science / ML core ────────────────────────────────────────────────
-# numpy==1.26.4 is the final patch release of the 1.26.x series.
-# numpy jumped directly from 1.26.4 to 2.0.0 – there is no 1.26.5 or later 1.x.
-# This is intentionally pinned to 1.x to satisfy langchain-chroma==0.1.4 (<2.0).
+# numpy==1.26.4 is pinned for stability. No hard upper bound applies since
+# langchain-chroma is not installed in production.
 numpy==1.26.4
 pandas==2.3.3
 scipy==1.14.1
@@ -138,8 +137,8 @@ hurst==0.0.5
 
 # ── Technical indicators ──────────────────────────────────────────────────
 # pandas-ta removed: 0.3.14b0 is no longer published on PyPI (only 0.4.x
-# remain, which require numpy>=2.2.6 – incompatible with langchain-chroma).
-# ml_predictor.py has a full manual fallback for RSI/MACD/ATR/BB/VWAP/SMA.
+# remain, which require numpy>=2.2.6). ml_predictor.py has a full manual
+# fallback for RSI/MACD/ATR/BB/VWAP/SMA.
 
 # ── Hyperparameter optimisation ───────────────────────────────────────────
 optuna==3.6.0
@@ -154,32 +153,6 @@ regex==2025.11.3
 tqdm==4.67.1
 filelock==3.20.0
 fsspec==2025.10.0
-
-# ── LangChain / Vector DB ─────────────────────────────────────────────────
-langchain==0.3.13
-langchain-chroma==0.1.4
-langchain-core==0.3.63
-langchain-openai==0.2.14
-langchain-text-splitters==0.3.8
-langsmith==0.2.11
-chromadb==0.5.23
-chroma-hnswlib==0.7.6
-flatbuffers==25.12.19
-mmh3==5.2.0
-onnxruntime==1.23.2
-orjson==3.11.5
-overrides==7.7.0
-posthog==7.4.2
-PyPika==0.48.9
-SQLAlchemy==2.0.45
-greenlet==3.3.0
-durationpy==0.10
-coloredlogs==15.0.1
-humanfriendly==10.0
-kubernetes==33.1.0
-mpmath==1.3.0
-sympy==1.14.0
-websocket-client==1.9.0
 
 # ── AI API clients ────────────────────────────────────────────────────────
 openai==1.99.9

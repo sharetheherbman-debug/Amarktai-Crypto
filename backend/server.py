@@ -755,30 +755,6 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     if not is_valid:
         raise HTTPException(status_code=400, detail=get_reason_message(reason_code))
     
-    # Check bot cap for this exchange
-    current_bot_count = await db.bots_collection.count_documents({
-        "user_id": user_id,
-        "exchange": exchange,
-        "status": {"$ne": "deleted"}  # Don't count deleted bots
-    })
-    
-    total_bots_requested = safe_count + risky_count + aggressive_count
-    exchange_cap = get_max_bots_for_exchange(exchange)
-    
-    # Check if adding these bots would exceed the cap
-    can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id)
-    if not can_create:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"{get_reason_message(reason_code)}. Current: {current_bot_count}, Requested: {total_bots_requested}, Cap: {exchange_cap}"
-        )
-    
-    bots_to_create = []
-    bot_number = await db.bots_collection.count_documents({"user_id": user_id}) + 1
-    
-    for i in range(safe_count):
-        bots_to_create.append({
-
     # Canonical capital conversion — mirrors bot_validator.validate_bot_creation logic.
     # quote_capital = capital in the exchange's native quote currency.
     # For Luno: quote_capital == capital_per_bot (ZAR, no conversion).
@@ -809,19 +785,16 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         record = {
             'id': str(uuid4()),
             'user_id': user_id,
-            'name': f'Safe-Bot-{bot_number + i}',
+            'name': name,
             'initial_capital': capital_per_bot,
             'current_capital': capital_per_bot,
             'total_profit': 0.0,
-            'risk_mode': BotRiskMode.SAFE,
+            'risk_mode': risk_mode,
             'trading_mode': 'paper',
             'exchange': exchange,
             'status': 'active',
             'trades_count': 0,
             'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_trade': None
-        })
-    
             'last_trade': None,
             'bot_type': bot_type,
             'strategy_preset': 'scalping' if bot_type == 'scalper' else 'adaptive',
@@ -841,42 +814,10 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     bot_number += safe_count
     
     for i in range(risky_count):
-        bots_to_create.append({
-            'id': str(uuid4()),
-            'user_id': user_id,
-            'name': f'Balanced-Bot-{bot_number + i}',
-            'initial_capital': capital_per_bot,
-            'current_capital': capital_per_bot,
-            'total_profit': 0.0,
-            'risk_mode': BotRiskMode.BALANCED,
-            'trading_mode': 'paper',
-            'exchange': exchange,
-            'status': 'active',
-            'trades_count': 0,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_trade': None
-        })
-    
         bots_to_create.append(_make_bot_record(f'Balanced-{name_prefix}-{bot_number + i}', BotRiskMode.BALANCED))
     bot_number += risky_count
     
     for i in range(aggressive_count):
-        bots_to_create.append({
-            'id': str(uuid4()),
-            'user_id': user_id,
-            'name': f'Aggressive-Bot-{bot_number + i}',
-            'initial_capital': capital_per_bot,
-            'current_capital': capital_per_bot,
-            'total_profit': 0.0,
-            'risk_mode': BotRiskMode.AGGRESSIVE,
-            'trading_mode': 'paper',
-            'exchange': exchange,
-            'status': 'active',
-            'trades_count': 0,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_trade': None
-        })
-    
         bots_to_create.append(_make_bot_record(f'Aggressive-{name_prefix}-{bot_number + i}', BotRiskMode.AGGRESSIVE))
 
     if bots_to_create:

@@ -11,29 +11,6 @@ Architecture:
 - Thread-safe via asyncio lock
 """
 
-import asyncio
-import logging
-import os
-from datetime import datetime, timezone
-from typing import Dict, Optional
-River Online Learner — per-user Hoeffding Tree that updates after every trade.
-
-The River library (https://riverml.xyz) supports true online ML: each sample
-updates the model in O(1) time so the model continuously adapts to the current
-market without waiting for nightly retraining.
-
-Architecture
------------
-* One LogisticRegression + StandardScaler pipeline per user, keyed by user_id.
-* record_outcome(user_id, features, net_profit) — called after every trade close.
-  Labels: net_profit > 0  → 1 (win), else → 0 (loss).
-* predict_edge(user_id, features) → float [0, 1] — probability the next trade wins.
-  Returns 0.5 (neutral) if there are fewer than MIN_SAMPLES observations.
-* Persists each model to disk under RIVER_MODEL_DIR so it survives server restarts.
-
-All methods are non-fatal: any exception is logged and swallowed so that
-an online-learning failure never blocks a trade.
-"""
 from __future__ import annotations
 
 import logging
@@ -56,85 +33,6 @@ except ImportError:
 RIVER_FEATURES = [
     "rsi", "macd_hist", "atr_pct", "close_vs_sma20", "volume_ratio"
 ]
-
-
-class RiverLearner:
-    """Singleton online learner backed by river."""
-
-    def __init__(self):
-        self.active = HAS_RIVER and os.getenv("ENABLE_RIVER_LEARNING", "true").lower() == "true"
-        self._lock = asyncio.Lock()
-        self._model = None
-        self._scaler = None
-        self._metric = None
-        self._samples_seen = 0
-        self._last_update: Optional[str] = None
-
-        if self.active:
-            self._build_pipeline()
-            logger.info("🌊 River online learner initialised")
-        else:
-            logger.info("🌊 River online learner disabled (ENABLE_RIVER_LEARNING or river missing)")
-
-    def _build_pipeline(self):
-        """Construct a fresh river pipeline."""
-        self._scaler = preprocessing.StandardScaler()
-        self._model = compose.Pipeline(
-            self._scaler,
-            linear_model.LogisticRegression()  # uses default SGD optimizer
-        )
-        self._metric = river_metrics.Accuracy()
-        self._samples_seen = 0
-    from river import linear_model, preprocessing, compose, metrics as river_metrics
-    _RIVER_AVAILABLE = True
-except ImportError:
-    _RIVER_AVAILABLE = False
-    logger.warning(
-        "river library not installed – RiverLearner will use neutral predictions. "
-        "Install with: pip install river>=0.21.0"
-    )
-
-# Minimum number of labelled samples before we trust the model's prediction.
-MIN_SAMPLES: int = 20
-
-# Directory where per-user model files are persisted.
-RIVER_MODEL_DIR = Path(
-    os.getenv("RIVER_MODEL_DIR", str(Path(__file__).resolve().parent.parent / "models" / "river"))
-)
-
-
-def _make_pipeline():
-    """Create a fresh River pipeline: StandardScaler → LogisticRegression."""
-    return compose.Pipeline(
-        preprocessing.StandardScaler(),
-        linear_model.LogisticRegression(),
-    )
-
-
-class _UserModel:
-    """Wraps a River pipeline and tracks how many samples it has seen."""
-
-    def __init__(self) -> None:
-        self.pipeline = _make_pipeline()
-        self.n_samples: int = 0
-        self.accuracy = river_metrics.Accuracy() if _RIVER_AVAILABLE else None
-
-    def learn(self, x: Dict[str, float], y: int) -> None:
-        pred = self.pipeline.predict_one(x)
-        self.pipeline.learn_one(x, y)
-        if self.accuracy is not None and pred is not None:
-            self.accuracy.update(y, pred)
-        self.n_samples += 1
-
-    def predict(self, x: Dict[str, float]) -> float:
-        """Return win probability in [0, 1]."""
-        if self.n_samples < MIN_SAMPLES:
-            return 0.5
-        try:
-            prob = self.pipeline.predict_proba_one(x)
-            return float(prob.get(1, 0.5))
-        except Exception:
-            return 0.5
 
 
 class RiverLearner:

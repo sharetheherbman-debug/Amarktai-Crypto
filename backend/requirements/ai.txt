@@ -2,9 +2,8 @@
 # Install with: pip install -r base.txt -r ai.txt
 
 # Core Data Science
-# CONSTRAINT: langchain-chroma==0.1.4 requires numpy<2.0.
 # pandas-ta removed (0.3.14b0 delisted; 0.4.x needs numpy>=2.2.6).
-numpy>=1.26.0,<2.0
+numpy>=1.26.4
 scipy==1.14.1
 pandas==2.3.3
 
@@ -23,11 +22,12 @@ huggingface_hub>=0.23.2,<1.0
 tiktoken==0.12.0
 regex==2025.11.3
 
-# LangChain & Vector DB
-langchain==0.3.13
-langchain-chroma==0.1.4
-langchain-openai==0.2.14
-chromadb==0.5.23
+# LangChain and Vector DB (optional – guarded by try/except in reflexion_loop.py)
+# Not installed in production. Install manually if episodic memory is needed.
+# langchain==0.3.13
+# langchain-chroma==0.1.4
+# langchain-openai==0.2.14
+# chromadb==0.5.23
 
 # AI API Clients
 openai==1.99.9
