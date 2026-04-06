@@ -357,17 +357,18 @@ def startup_self_check() -> None:
         if not value or value == 'your-secret-key-change-in-production':
             errors.append(f"❌ Missing or invalid required env key: {key}")
 
-    # Check 1b: Admin password must not be the placeholder value
+    # Check 1b: Admin password must not be a placeholder or the old hardcoded default
     admin_password = os.getenv("ADMIN_PASSWORD", "")
     _admin_placeholders = {
         "change-me-secure-password",
+        "change_me_strong_unique_admin_password",  # template placeholder
         "changeme",
         "admin",
         "password",
+        "ashmor12@",  # old hardcoded default — must never be used in production
         "",
     }
-    environment = os.getenv("ENVIRONMENT", "development").lower()
-    if environment == "production" and admin_password.lower() in _admin_placeholders:
+    if admin_password.lower() in _admin_placeholders:
         errors.append(
             "❌ ADMIN_PASSWORD is a placeholder value. "
             "Set a strong password before running in production."

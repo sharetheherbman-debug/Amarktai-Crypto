@@ -18,6 +18,15 @@ JWT_SECRET=GENERATE_ME_openssl_rand_hex_32
 # Replace GENERATE_ME with actual generated value
 AMARKTAI_FERNET_KEY=GENERATE_ME_python_fernet_key
 
+# Admin panel password — REQUIRED.  Must be strong and unique.
+# If this variable is absent or set to a placeholder the server will refuse admin logins.
+# Example: ADMIN_PASSWORD=MyStr0ng&UniqueP@ssw0rd2026
+ADMIN_PASSWORD=CHANGE_ME_strong_unique_admin_password
+
+# Deployment environment — MUST be "production" on the live VPS.
+# This activates startup validation that rejects placeholder values.
+ENVIRONMENT=production
+
 # ============================================================================
 # DATABASE CONFIGURATION
 # ============================================================================

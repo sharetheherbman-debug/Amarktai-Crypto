@@ -13,6 +13,12 @@ FIXED_FRACTIONAL_RISK_MAX = float(os.getenv("FIXED_FRACTIONAL_RISK_MAX", "0.02")
 FIXED_FRACTIONAL_RISK_DEFAULT = float(os.getenv("FIXED_FRACTIONAL_RISK_DEFAULT", "0.015"))
 DAILY_MAX_LOSS_PCT = float(os.getenv("DAILY_MAX_LOSS_PCT", "0.03"))
 
+# Minimum trade notional in ZAR.  Default is 50 — small enough for all
+# supported pairs but large enough to cover round-trip fees + slippage on Luno
+# (0.4% × 2 × R50 = R0.40 in fees alone; R10 would net essentially zero).
+# Override with MIN_TRADE_NOTIONAL_ZAR env var if needed.
+MIN_TRADE_NOTIONAL_ZAR = float(os.getenv("MIN_TRADE_NOTIONAL_ZAR", "50"))
+
 MAX_DRAWDOWN_BY_MODE = {
     "safe": float(os.getenv("MAX_DRAWDOWN_SAFE", "0.08")),
     "balanced": float(os.getenv("MAX_DRAWDOWN_BALANCED", "0.12")),
@@ -20,13 +26,22 @@ MAX_DRAWDOWN_BY_MODE = {
     "aggressive": float(os.getenv("MAX_DRAWDOWN_AGGRESSIVE", "0.20")),
 }
 
+# MongoDB collection name used to persist per-user peak-equity records so
+# the drawdown circuit breaker survives service restarts.
+_PEAK_EQUITY_COLLECTION = "risk_peak_equity"
+
+
 class RiskEngine:
     def __init__(self):
-        self.user_daily_loss = {}  # {user_id: loss_today}
-        self.user_peak_equity = {}  # {user_id: peak_equity}
+        self.user_daily_loss = {}  # {user_id: loss_today} — rehydrated from DB each call
+        self.user_peak_equity = {}  # {user_id: peak_equity} — in-memory cache, persisted to MongoDB
         self.last_reset = datetime.now(timezone.utc).date()
-    
-    async def check_trade_risk(self, user_id: str, bot_id: str, exchange: str, 
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    async def check_trade_risk(self, user_id: str, bot_id: str, exchange: str,
                                proposed_notional: float, risk_mode: str,
                                entry_price: Optional[float] = None,
                                stop_loss_price: Optional[float] = None) -> tuple[bool, str]:
@@ -45,7 +60,8 @@ class RiskEngine:
         if total_equity <= 0:
             return False, "No capital available"
         
-        # 1. Check daily loss limit
+        # 1. Check daily loss limit — always recalculate from closed trades so the
+        #    limit is correct even after a service restart mid-day.
         await self._check_daily_loss(user_id, total_equity)
         daily_loss = self.user_daily_loss.get(user_id, 0)
         max_daily_loss = total_equity * DAILY_MAX_LOSS_PCT
@@ -55,7 +71,7 @@ class RiskEngine:
             return False, f"Protection mode: Daily loss limit reached (R{max_daily_loss:.2f})"
 
         # 2. Check global drawdown limit by risk mode/profile
-        drawdown_breached, drawdown_reason = self._check_drawdown_limit(
+        drawdown_breached, drawdown_reason = await self._check_drawdown_limit(
             user_id=user_id,
             current_equity=total_equity,
             risk_mode=risk_mode,
@@ -122,10 +138,9 @@ class RiskEngine:
             if exchange_equity_zar > max_exchange_exposure:
                 return False, f"Too much exposure on {exchange.upper()} (max 60% of equity)"
         
-        # 6. Minimum trade notional (avoid tiny wins)
-        min_notional = 10  # R10 minimum (lowered for testing)
-        if proposed_notional < min_notional:
-            return False, f"Trade too small (min R{min_notional})"
+        # 6. Minimum trade notional — configurable via MIN_TRADE_NOTIONAL_ZAR env var
+        if proposed_notional < MIN_TRADE_NOTIONAL_ZAR:
+            return False, f"Trade too small (min R{MIN_TRADE_NOTIONAL_ZAR:.0f})"
         
         return True, "Risk check passed"
 
@@ -172,13 +187,59 @@ class RiskEngine:
         max_notional = risk_amount / stop_distance_fraction
         return max(0.0, min(max_notional, bot_capital))
 
-    def _check_drawdown_limit(self, user_id: str, current_equity: float, risk_mode: str) -> tuple[bool, str]:
+    # ------------------------------------------------------------------
+    # Drawdown — persisted to MongoDB so restarts don't reset the high-water mark
+    # ------------------------------------------------------------------
+
+    async def _load_peak_equity(self, user_id: str) -> Optional[float]:
+        """Load persisted peak equity from MongoDB."""
+        try:
+            collection = getattr(db, _PEAK_EQUITY_COLLECTION, None)
+            if collection is None:
+                # Fallback: access by attribute name via db.db handle
+                if db.db is not None:
+                    collection = db.db[_PEAK_EQUITY_COLLECTION]
+                else:
+                    return None
+            doc = await collection.find_one({"user_id": user_id}, {"_id": 0, "peak_equity": 1})
+            if doc:
+                return float(doc["peak_equity"])
+        except Exception as e:
+            logger.debug("Could not load peak equity for %s: %s", user_id, e)
+        return None
+
+    async def _save_peak_equity(self, user_id: str, peak_equity: float) -> None:
+        """Persist peak equity to MongoDB."""
+        try:
+            collection = getattr(db, _PEAK_EQUITY_COLLECTION, None)
+            if collection is None:
+                if db.db is not None:
+                    collection = db.db[_PEAK_EQUITY_COLLECTION]
+                else:
+                    return
+            await collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"peak_equity": peak_equity, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning("Could not persist peak equity for %s: %s", user_id, e)
+
+    async def _check_drawdown_limit(self, user_id: str, current_equity: float, risk_mode: str) -> tuple[bool, str]:
         if current_equity <= 0:
             return False, ""
-        peak_equity = self.user_peak_equity.get(user_id, current_equity)
+
+        # Load cached value; on first call after restart, fetch from MongoDB.
+        if user_id not in self.user_peak_equity:
+            persisted = await self._load_peak_equity(user_id)
+            self.user_peak_equity[user_id] = persisted if persisted is not None else current_equity
+
+        peak_equity = self.user_peak_equity[user_id]
         if current_equity > peak_equity:
             peak_equity = current_equity
-        self.user_peak_equity[user_id] = peak_equity
+            self.user_peak_equity[user_id] = peak_equity
+            await self._save_peak_equity(user_id, peak_equity)
+
         raw_drawdown = (peak_equity - current_equity) / peak_equity
         drawdown = max(0.0, min(1.0, raw_drawdown))
         limit = MAX_DRAWDOWN_BY_MODE.get(str(risk_mode or "").lower(), MAX_DRAWDOWN_BY_MODE["balanced"])
@@ -188,28 +249,34 @@ class RiskEngine:
                 f"({drawdown*100:.2f}% >= {limit*100:.2f}%)"
             )
         return False, ""
-    
+
+    # ------------------------------------------------------------------
+    # Daily loss — always recalculated from closed-trade history so the
+    # counter is correct even after a service restart mid-day.
+    # ------------------------------------------------------------------
+
     async def _check_daily_loss(self, user_id: str, total_equity: float):
-        """Calculate today's realized loss using REALIZED net PnL only"""
+        """Calculate today's realized loss using REALIZED net PnL only."""
         today = datetime.now(timezone.utc).date()
-        
-        # Reset if new day
+
+        # Reset in-memory cache if the calendar day has rolled over.
         if today > self.last_reset:
             self.user_daily_loss.clear()
             self.last_reset = today
-        
-        # Calculate today's REALIZED loss from closed trades only
+
+        # Always recompute from the database so a mid-day restart picks up the
+        # correct cumulative loss rather than starting fresh from zero.
         today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
         trades_today = await db.trades_collection.find({
             "user_id": user_id,
             "status": "closed",  # Only closed (realized) trades
             "timestamp": {"$gte": today_start.isoformat()}
         }, {"_id": 0, "net_pnl": 1, "profit_loss": 1}).to_list(1000)
-        
+
         # Use canonical field normalization: net_pnl → fallback profit_loss
         total_pnl = sum(t.get("net_pnl", t.get("profit_loss", 0)) for t in trades_today)
         self.user_daily_loss[user_id] = total_pnl if total_pnl < 0 else 0
-    
+
     async def record_trade_result(self, user_id: str, profit_loss: float):
         """Record trade result for risk tracking"""
         current_loss = self.user_daily_loss.get(user_id, 0)
