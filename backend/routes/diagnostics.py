@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 import logging
+import os
 
 from auth import get_current_user
 from websocket_manager import manager
@@ -3010,8 +3011,24 @@ async def learning_readiness():
 
 
 @router.get("/self-learning")
-async def get_self_learning_recommendations(request: Request):
+async def get_self_learning_recommendations(user_id: str = Depends(get_current_user)):
     """Self-learning pack recommendations using daily_evaluator."""
+    from pathlib import Path
+    import json as _json
+
+    # Resolve XGBoost model metadata
+    model_dir = Path(__file__).resolve().parent.parent / "models"
+    model_path = model_dir / "xgb_predictor.json"
+    meta_path = model_dir / "xgb_predictor_meta.json"
+
+    xgb_ready = model_path.exists()
+    xgb_meta: dict = {}
+    if meta_path.exists():
+        try:
+            xgb_meta = _json.loads(meta_path.read_text())
+        except Exception:
+            pass
+
     try:
         from services.river_learner import river_learner
         river_diag = river_learner.get_diagnostics()
@@ -3025,15 +3042,26 @@ async def get_self_learning_recommendations(request: Request):
     except ImportError:
         pass
 
-    last_run_doc = await db.learning_runs_collection.find_one(
-        {"user_id": user_id},
-        sort=[("completed_at", -1)],
-    )
+    last_run_doc = None
+    try:
+        if db.learning_runs_collection is not None:
+            last_run_doc = await db.learning_runs_collection.find_one(
+                {"user_id": user_id},
+                sort=[("completed_at", -1)],
+            )
+    except Exception:
+        pass
+
     last_retrain = xgb_meta.get("trained_at")
 
-    trade_count = await db.trades_collection.count_documents(
-        {"user_id": user_id, "status": "closed"}
-    )
+    trade_count = 0
+    try:
+        trade_count = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "closed"}
+        )
+    except Exception:
+        pass
+
     min_retrain_trades = int(os.getenv("XGB_MIN_RETRAIN_TRADES", "50"))
 
     return {
