@@ -12,7 +12,6 @@ from config import (
     EXCHANGE_DAILY_TRADE_LIMITS
 )
 from logger_config import logger
-import random
 
 
 class TradeLimiter:
@@ -78,7 +77,8 @@ class TradeLimiter:
                     last_trade = last_trade.replace(tzinfo=timezone.utc)
                 
                 # Random cooldown with jitter (min_cooldown + 0-5 minutes)
-                cooldown = random.randint(min_cooldown, min_cooldown + 5)
+                import secrets as _sec
+                cooldown = min_cooldown + _sec.randbelow(6)  # 0..5 inclusive, same range
                 next_allowed = last_trade + timedelta(minutes=cooldown)
                 
                 # Compare with timezone-aware now

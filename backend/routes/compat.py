@@ -173,9 +173,14 @@ async def compat_ledger_summary(user_id: str = Depends(get_current_user)):
         except:
             pass
         
-        # Fallback: calculate from bots
+        # Fallback: calculate from non-deleted bots only.
+        # Exclude soft-deleted bots so a post-start-fresh call returns 0.
         bots = await db.bots_collection.find(
-            {"user_id": user_id},
+            {
+                "user_id": user_id,
+                "status": {"$ne": "deleted"},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0, "initial_capital": 1, "current_capital": 1, "total_profit": 1}
         ).to_list(1000)
         

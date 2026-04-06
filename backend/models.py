@@ -24,15 +24,6 @@ class BotStatus(str, Enum):
     PAUSED = "paused"
     STOPPED = "stopped"
 
-class BotType(str, Enum):
-    NORMAL = "normal"
-    SCALPER = "scalper"
-    UAGENT = "uagent"
-
-class ScalperProfitRouting(str, Enum):
-    SCALPER_GROWTH = "SCALPER_GROWTH"
-    RETURN_TO_MAIN = "RETURN_TO_MAIN"
-
 # User Models
 class UserCreate(BaseModel):
     first_name: str
@@ -83,7 +74,7 @@ class User(BaseModel):
 
 # API Keys Models
 class APIKeyCreate(BaseModel):
-    provider: str  # openai, luno, binance, kucoin, fetchai, coinstats, huggingface
+    provider: str  # openai, luno, binance, kucoin, fetchai
     api_key: str
     api_secret: Optional[str] = None
     passphrase: Optional[str] = None
@@ -109,20 +100,8 @@ class BotCreate(BaseModel):
     risk_mode: BotRiskMode
     trading_mode: TradingMode = TradingMode.PAPER
     initial_capital: float = 0
-    capital: Optional[float] = None  # Backward-compat alias for initial_capital; initial_capital takes precedence
     strategy_preset: Optional[str] = None
-    bot_type: BotType = BotType.NORMAL  # normal or scalper
-    profit_routing: ScalperProfitRouting = ScalperProfitRouting.RETURN_TO_MAIN  # scalper profit routing
-
-    @model_validator(mode='after')
-    def consolidate_capital_fields(self):
-        """If 'capital' is provided and 'initial_capital' was not explicitly set (still 0),
-        use 'capital' as the canonical capital value. This preserves backward compatibility
-        for callers that send 'capital' instead of 'initial_capital'."""
-        if self.capital is not None and self.initial_capital == 0:
-            self.initial_capital = float(self.capital)
-        return self
-
+    
     @model_validator(mode='after')
     def validate_platform(self):
         """Ensure platform/exchange is valid and normalize"""
@@ -158,8 +137,6 @@ class Bot(BaseModel):
     risk_mode: BotRiskMode
     trading_mode: TradingMode
     status: BotStatus = BotStatus.ACTIVE
-    bot_type: BotType = BotType.NORMAL  # normal or scalper
-    profit_routing: ScalperProfitRouting = ScalperProfitRouting.RETURN_TO_MAIN
     initial_capital: float
     current_capital: float
     total_profit: float = 0

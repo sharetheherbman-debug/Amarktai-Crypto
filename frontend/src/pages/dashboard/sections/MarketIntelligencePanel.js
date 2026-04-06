@@ -1,289 +1,168 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { MARKET_DATA_PROVIDERS, INTELLIGENCE_ENRICHERS, PLATFORM_CONFIG } from '../../../constants/platforms';
-import { get } from '../../../lib/apiClient';
+import React, { useState, useEffect } from 'react';
+import apiClient from '@/lib/apiClient';
 
 /**
- * MarketIntelligencePanel — compact market intelligence status card.
+ * Market Intelligence Panel
  *
- * Main dashboard view: single status summary card with key metrics.
- * Provider detail rows are collapsed behind a "View details" toggle to
- * reduce visual noise and eliminate the old repetitive provider grids.
+ * Displays automatic CoinStats-based market intelligence.
+ * No manual input required — intelligence updates on a background schedule.
+ * Shows fetch_status and block_reason if data is unavailable.
  */
-
-const STATUS_STYLES = {
-  healthy: { label: '● Healthy', dot: '#10b981', bg: 'rgba(16,185,129,0.15)', color: '#10b981', border: 'rgba(16,185,129,0.3)' },
-  degraded: { label: '⚠ Degraded', dot: '#f59e0b', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
-  down: { label: '✗ Down', dot: '#ef4444', bg: 'rgba(239,68,68,0.15)', color: '#ef4444', border: 'rgba(239,68,68,0.3)' },
-  unconfigured: { label: '○ Not configured', dot: '#475569', bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
-  // Public fallback reachable but no user key configured — never show as "Healthy"
-  public_fallback: { label: '○ Public fallback', dot: '#6366f1', bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', border: 'rgba(99,102,241,0.25)' },
-};
-
-const glass = (extra = {}) => ({
-  background: 'rgba(15,23,42,0.75)',
-  backdropFilter: 'blur(14px)',
-  border: '1px solid rgba(99,102,241,0.22)',
-  borderRadius: 14,
-  ...extra,
-});
-
-const StatusChip = ({ status }) => {
-  const s = STATUS_STYLES[status] || STATUS_STYLES.unconfigured;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '3px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-      background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-    }}>
-      {s.label}
-    </span>
-  );
-};
-
-const ProviderDetailRow = ({ config, providerHealth }) => {
-  const health = providerHealth?.[config?.id] || {};
-  const status = health.status || 'unconfigured';
-  const s = STATUS_STYLES[status] || STATUS_STYLES.unconfigured;
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '10px 14px', borderRadius: 8,
-      background: 'rgba(15,23,42,0.55)',
-      border: '1px solid rgba(51,65,85,0.4)',
-    }}>
-      <span style={{ fontSize: 20, width: 26, textAlign: 'center' }}>{config?.icon || '📦'}</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, color: '#e2e8f0', fontSize: 14 }}>{config?.displayName || config?.id}</span>
-          {config?.priority && (
-            <span style={{ fontSize: 11, color: '#a5b4fc', background: 'rgba(99,102,241,0.18)', padding: '1px 7px', borderRadius: 5, fontWeight: 700 }}>
-              P{config.priority}
-            </span>
-          )}
-          <StatusChip status={status} />
-        </div>
-        {status === 'public_fallback' && (
-          <div style={{ fontSize: 11, color: '#a5b4fc', marginTop: 3 }}>
-            Reachable via public endpoint — no user key configured
-          </div>
-        )}
-        {health.last_tested && (
-          <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-            Checked: {new Date(health.last_tested).toLocaleString()}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const CollapsibleGroup = ({ title, icon, children, defaultOpen = false }) => {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)',
-          borderRadius: 9, padding: '10px 14px', cursor: 'pointer', color: '#a5b4fc',
-          fontSize: 14, fontWeight: 700,
-        }}
-      >
-        <span>{icon} {title}</span>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>{open ? '▲ collapse' : '▼ expand'}</span>
-      </button>
-      {open && <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>}
-    </div>
-  );
-};
-
 const MarketIntelligencePanel = () => {
-  const [providerHealth, setProviderHealth] = useState({});
-  const [intelligence, setIntelligence] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [latest, setLatest] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const fetchHealth = useCallback(async () => {
-    setLoading(true);
+  const fetchIntelligence = async () => {
     try {
-      const statusRes = await get('/keys/status');
-      const statusMap = statusRes?.status_map || {};
-      let diagnostics = {};
-      try { diagnostics = await get('/diagnostics/provider-health'); } catch { /* no-op */ }
-      const healthMap = diagnostics?.provider_health || {};
-      let intelligencePayload = diagnostics?.intelligence || {};
-      if (!Object.keys(intelligencePayload?.prices || {}).length) {
-        try {
-          const marketPrices = await get('/market/prices');
-          const normalizedPrices = {};
-          Object.entries(marketPrices?.prices || {}).forEach(([sym, p]) => {
-            normalizedPrices[sym] = { price: p?.price, provider: p?.source || p?.provider || 'market_api' };
-          });
-          intelligencePayload = { ...intelligencePayload, prices: normalizedPrices };
-        } catch { /* fallback unavailable */ }
-      }
-      setIntelligence(intelligencePayload);
-
-      const allIds = [...MARKET_DATA_PROVIDERS, ...INTELLIGENCE_ENRICHERS];
-      const merged = {};
-      for (const id of allIds) {
-        const keyStatus = statusMap[id]?.status;
-        const mi = healthMap?.[id];
-        // Determine whether the user has configured a key for this provider
-        const userHasKey = keyStatus && keyStatus !== 'not_configured';
-        let status = 'unconfigured';
-        if (keyStatus === 'configured_valid' || keyStatus === 'test_ok') {
-          // User configured a valid, tested key — the only case for "Healthy"
-          status = 'healthy';
-        } else if (keyStatus === 'configured_invalid' || keyStatus === 'test_failed') {
-          status = 'down';
-        } else if (keyStatus === 'configured_untested' || keyStatus === 'saved_untested') {
-          status = 'degraded';
-        } else if (!userHasKey && (mi?.healthy || mi?.status === 'healthy' || mi?.status === 'degraded')) {
-          // MI can reach it via public endpoint but user has NOT configured a key.
-          // Never show "Healthy" — show "Public fallback" instead.
-          status = 'public_fallback';
-        }
-        merged[id] = {
-          status,
-          last_tested: statusMap[id]?.last_tested_at || mi?.last_tested,
-          using_public_fallback: !userHasKey && (mi?.healthy || mi?.status === 'healthy'),
-        };
-      }
-      setProviderHealth(merged);
+      const [statusRes, latestRes] = await Promise.all([
+        apiClient.get('/intelligence/status'),
+        apiClient.get('/intelligence/latest'),
+      ]);
+      setStatus(statusRes.data);
+      setLatest(latestRes.data);
     } catch (err) {
-      console.error('Failed to fetch provider health', err);
+      console.error('MarketIntelligencePanel: fetch error', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    fetchHealth();
-    const interval = setInterval(fetchHealth, 60000);
+    fetchIntelligence();
+    const interval = setInterval(fetchIntelligence, 60000); // refresh every 60 s
     return () => clearInterval(interval);
-  }, [fetchHealth]);
+  }, []);
 
-  const healthyMarketCount = MARKET_DATA_PROVIDERS.filter(id => providerHealth[id]?.status === 'healthy').length;
-  const healthyEnricherCount = INTELLIGENCE_ENRICHERS.filter(id => providerHealth[id]?.status === 'healthy').length;
-  const publicFallbackCount = [...MARKET_DATA_PROVIDERS, ...INTELLIGENCE_ENRICHERS].filter(id => providerHealth[id]?.status === 'public_fallback').length;
-  // Overall status: healthy only when at least one user-configured source is healthy
-  const overallStatus = healthyMarketCount > 0 ? 'healthy' : publicFallbackCount > 0 ? 'public_fallback' : 'degraded';
-  const priceRows = Object.entries(intelligence?.prices || {});
-  const whaleSignals = intelligence?.whale_signals || [];
-  const dominantRegime = intelligence?.regime || intelligence?.market_regime;
-  const lastRefresh = intelligence?.timestamp || intelligence?.fetched_at;
+  const moodColors = {
+    positive: 'var(--success, #10b981)',
+    negative: 'var(--error, #ef4444)',
+    neutral: 'var(--warning, #f59e0b)',
+  };
+
+  const moodEmojis = { positive: '📈', negative: '📉', neutral: '➡️' };
+  const mood = latest?.mood || 'neutral';
+  const fetchStatus = latest?.fetch_status || status?.fetch_status || 'pending';
+  const blockReason = latest?.block_reason || status?.block_reason;
+  const hasRealData = fetchStatus === 'ok' && latest?.what_happened && !blockReason;
+
+  const panelStyle = {
+    padding: '16px',
+    background: 'var(--glass, rgba(255,255,255,0.05))',
+    border: '1px solid var(--line, rgba(255,255,255,0.1))',
+    borderRadius: '10px',
+    marginBottom: '12px',
+  };
+
+  const labelStyle = { fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '4px' };
+  const valueStyle = { fontSize: '0.95rem', color: 'var(--text)', lineHeight: '1.5' };
+
+  if (loading) {
+    return (
+      <div style={panelStyle}>
+        <div style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
+          ⏳ Loading market intelligence…
+        </div>
+      </div>
+    );
+  }
+
+  // Determine status label for footer
+  const getStatusLabel = () => {
+    if (fetchStatus === 'key_missing') return '⚠️ CoinStats API key not configured';
+    if (fetchStatus === 'rate_limited') return '⚠️ CoinStats rate-limited';
+    if (fetchStatus === 'invalid_key') return '⚠️ CoinStats API key rejected (401)';
+    if (fetchStatus === 'error' && blockReason) return `⚠️ ${blockReason}`;
+    if (fetchStatus === 'no_articles') return '⏳ Awaiting CoinStats data';
+    if (fetchStatus === 'pending' || !status?.last_run_at) return '⏳ Fetching first update…';
+    if (status?.last_run_at) return `Updated: ${new Date(status.last_run_at).toLocaleString()}`;
+    return '⏳ Waiting for first fetch…';
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-      {/* ── Compact Summary Card ─────────────────────────────────────── */}
-      <div style={glass({ padding: '20px 22px' })}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-          <span style={{ fontSize: 30 }}>🧠</span>
-          <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#e2e8f0', letterSpacing: '-0.3px' }}>
-              Market Intelligence
-            </h3>
-            <p style={{ margin: '3px 0 0', fontSize: 13, color: '#94a3b8' }}>
-              Live normalized output from configured providers
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {loading && <span style={{ fontSize: 13, color: '#94a3b8' }}>⟳</span>}
-            <StatusChip status={overallStatus} />
-          </div>
+    <div style={panelStyle}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text)' }}>
+          🧠 Market Intelligence
         </div>
-
-        {/* Key metrics row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
-          {[
-            { label: 'Market Sources', value: `${healthyMarketCount} / ${MARKET_DATA_PROVIDERS.length}`, color: healthyMarketCount > 0 ? '#10b981' : '#ef4444' },
-            { label: 'Intelligence Enrichers', value: `${healthyEnricherCount} / ${INTELLIGENCE_ENRICHERS.length}`, color: '#a5b4fc' },
-            { label: 'Price Symbols', value: priceRows.length || '—', color: '#e2e8f0' },
-            { label: 'Whale Signals', value: whaleSignals.length || '—', color: '#e2e8f0' },
-          ].map(({ label, value, color }) => (
-            <div key={label} style={{ background: 'rgba(30,41,59,0.55)', borderRadius: 10, padding: '12px 14px' }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Additional context row */}
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: '#94a3b8' }}>
-          {dominantRegime && (
-            <span>🌡 Regime: <strong style={{ color: '#e2e8f0' }}>{dominantRegime}</strong></span>
-          )}
-          {lastRefresh && (
-            <span>🕐 Last refresh: <strong style={{ color: '#e2e8f0' }}>{new Date(lastRefresh).toLocaleTimeString()}</strong></span>
-          )}
-          {healthyMarketCount === 0 && publicFallbackCount === 0 && (
-            <span style={{ color: '#f59e0b' }}>⚠ No market sources configured — add a CoinDesk / CryptoCompare key in API Setup</span>
-          )}
-          {healthyMarketCount === 0 && publicFallbackCount > 0 && (
-            <span style={{ color: '#a5b4fc' }}>ℹ Public fallback active — no user key configured</span>
-          )}
+        <div style={{ fontSize: '0.78rem', color: hasRealData ? 'var(--success)' : 'var(--muted)' }}>
+          {hasRealData ? '● Live' : '○ Pending'} · Source: {status?.source || 'CoinStats'}
         </div>
       </div>
 
-      {/* ── Live Price Output (condensed) ────────────────────────────── */}
-      {priceRows.length > 0 && (
-        <div style={glass({ padding: '16px 18px' })}>
-          <h4 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700, color: '#a5b4fc' }}>🗞️ Live Prices</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
-            {priceRows.slice(0, 9).map(([symbol, payload]) => (
-              <div key={symbol} style={{ background: 'rgba(30,41,59,0.6)', borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>{symbol}</div>
-                <div style={{ fontSize: 18, color: '#e2e8f0', fontWeight: 800, marginTop: 2 }}>
-                  {payload?.price != null ? Number(payload.price).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
-                </div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>via {payload?.provider || 'unknown'}</div>
-              </div>
-            ))}
-          </div>
-          {whaleSignals.length > 0 && (
-            <div style={{ marginTop: 12, fontSize: 13, color: '#94a3b8' }}>
-              🐋 Whale activity: {whaleSignals.slice(0, 3).map(s => `${s.coin || s.symbol}: ${s.signal || s.direction || 'detected'}`).join(' • ')}
-            </div>
-          )}
+      {/* What it does */}
+      <div style={{ ...labelStyle, marginBottom: '10px', fontStyle: 'italic' }}>
+        {status?.what_it_does || 'Automatically monitors CoinStats headlines and classifies market mood.'}
+      </div>
+
+      {/* Block reason banner — only show when data isn't fresh */}
+      {!hasRealData && blockReason && (
+        <div style={{
+          padding: '8px 12px',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: '6px',
+          fontSize: '0.82rem',
+          color: '#ef4444',
+          marginBottom: '10px',
+        }}>
+          {fetchStatus === 'key_missing' ? '🔑' : '⚠️'} {blockReason}
         </div>
       )}
 
-      {/* ── Collapsible Provider Detail (admin-style) ─────────────────── */}
-      <div style={glass({ padding: '14px 18px' })}>
-        <button
-          onClick={() => setShowDetail(o => !o)}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-            color: '#94a3b8', fontSize: 14, fontWeight: 600,
-          }}
-        >
-          <span>⚙ Provider details</span>
-          <span style={{ fontSize: 12 }}>{showDetail ? '▲ hide' : '▼ show'}</span>
-        </button>
+      {/* Fetching state */}
+      {!hasRealData && !blockReason && (
+        <div style={{ ...valueStyle, color: 'var(--muted)', marginBottom: '10px' }}>
+          ⏳ Fetching market data from CoinStats…
+        </div>
+      )}
 
-        {showDetail && (
-          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <CollapsibleGroup title="Core Market Data" icon="📈" defaultOpen>
-              {MARKET_DATA_PROVIDERS.map(id => (
-                <ProviderDetailRow key={id} config={PLATFORM_CONFIG[id]} providerHealth={providerHealth} />
-              ))}
-            </CollapsibleGroup>
-            <CollapsibleGroup title="Intelligence Enrichers" icon="🔍">
-              {INTELLIGENCE_ENRICHERS.map(id => (
-                <ProviderDetailRow key={id} config={PLATFORM_CONFIG[id]} providerHealth={providerHealth} />
-              ))}
-            </CollapsibleGroup>
+      {/* Mood — only show when we have real data */}
+      {hasRealData && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={labelStyle}>Market Mood</div>
+          <div style={{ ...valueStyle, color: moodColors[mood], fontWeight: 600 }}>
+            {moodEmojis[mood]} {mood.charAt(0).toUpperCase() + mood.slice(1)}
           </div>
+        </div>
+      )}
+
+      {/* Latest brief */}
+      {hasRealData && latest?.what_happened && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={labelStyle}>Latest Headline</div>
+          <div style={valueStyle}>{latest.what_happened}</div>
+        </div>
+      )}
+
+      {/* Top risk */}
+      {hasRealData && latest?.top_risk && latest.top_risk !== 'none' && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={labelStyle}>Risk Signal</div>
+          <div style={{ ...valueStyle, color: 'var(--warning, #f59e0b)' }}>
+            ⚠️ {latest.top_risk}
+          </div>
+        </div>
+      )}
+
+      {/* What AmarktAI Crypto is doing */}
+      {hasRealData && latest?.what_amarktai_is_doing && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={labelStyle}>Platform Response</div>
+          <div style={valueStyle}>{latest.what_amarktai_is_doing}</div>
+        </div>
+      )}
+
+      {/* Footer: last updated */}
+      <div style={{ marginTop: '12px', fontSize: '0.75rem', color: 'var(--muted)', display: 'flex', justifyContent: 'space-between' }}>
+        <span>{getStatusLabel()}</span>
+        {status?.next_run_in_seconds != null && hasRealData && (
+          <span>Next run in ~{Math.ceil(status.next_run_in_seconds / 60)} min</span>
         )}
       </div>
-
     </div>
   );
 };
 
 export default MarketIntelligencePanel;
-

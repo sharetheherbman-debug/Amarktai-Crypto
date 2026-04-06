@@ -34,31 +34,15 @@ class TradingEngineProduction:
                 logger.debug(f"Bot {bot.get('name')} cannot trade: {reason}")
                 return False
             
-            trading_mode = bot.get("trading_mode", "paper")
+            from paper_trading_engine import paper_engine
 
-            if trading_mode == "live":
-                from engines.trading_engine_live import live_trading_engine
-                result = await live_trading_engine.execute_trade(
-                    bot_id,
-                    bot,
-                    bot.get("pair", ""),
-                    bot.get("signal_side", "buy"),
-                    bot.get("trade_amount", 0),
-                    paper_mode=False,
-                )
-                success = result.get("success", False)
-            elif trading_mode == "paper":
-                from paper_trading_engine import paper_engine
-                success = await paper_engine.run_trading_cycle(
-                    bot_id,
-                    bot,
-                    {"bots": db.bots_collection, "trades": db.trades_collection}
-                )
-            else:
-                logger.error(f"Bot {bot.get('name')} has unknown trading_mode='{trading_mode}' — skipping")
-                return False
+            result = await paper_engine.run_trading_cycle(
+                bot_id,
+                bot,
+                {"bots": db.bots_collection, "trades": db.trades_collection}
+            )
 
-            if success:
+            if result and result.get("trade"):
                 await trade_limiter.record_trade(bot_id)
                 return True
             return False

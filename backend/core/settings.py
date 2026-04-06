@@ -204,9 +204,23 @@ class SystemSettings:
     """
     
     def __init__(self):
-        # Database
-        self.MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-        self.DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+        # Database – resolve from MONGO_URI first (may embed DB name), then MONGO_URL + DB_NAME
+        # This mirrors database._parse_mongo_config() so both modules agree.
+        _mongo_uri = os.getenv('MONGO_URI', '').strip()
+        if _mongo_uri:
+            try:
+                from urllib.parse import urlparse as _urlparse
+                _parsed = _urlparse(_mongo_uri)
+                _path_db = _parsed.path.lstrip('/').split('?')[0].strip()
+                self.MONGO_URL = _mongo_uri
+                self.DB_NAME = _path_db if _path_db else os.getenv('DB_NAME', 'amarktai')
+            except Exception:
+                self.MONGO_URL = _mongo_uri
+                self.DB_NAME = os.getenv('DB_NAME', 'amarktai')
+        else:
+            self.MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
+            self.DB_NAME = os.getenv('DB_NAME', 'amarktai')
+
         
         # Security
         self.JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -228,6 +242,7 @@ class SystemSettings:
         
         # Optional Integrations
         self.FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')
+        self.FLOKX_API_KEY = os.getenv('FLOKX_API_KEY', '')
         
         # Trading Limits
         self.MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))
@@ -345,7 +360,16 @@ def startup_self_check() -> None:
     Called on application startup to validate configuration
     """
     errors = []
-    
+
+    # Log effective DB identity (redacted, no passwords)
+    try:
+        from urllib.parse import urlparse as _urlparse
+        _parsed = _urlparse(settings.MONGO_URL)
+        _safe_host = f"{_parsed.hostname or 'unknown'}:{_parsed.port or 27017}"
+    except Exception:
+        _safe_host = "unknown"
+    print(f"🗄️  Effective MongoDB: host={_safe_host} db={settings.DB_NAME}", flush=True)
+
     # Check 1: Required environment keys
     required_keys = {
         'MONGO_URL': settings.MONGO_URL,
@@ -353,25 +377,23 @@ def startup_self_check() -> None:
         'ENCRYPTION_KEY': settings.active_encryption_key,
     }
     
+    _WEAK_SECRETS = {"your-secret-key", "secret", "change-me", "changeme",
+                     "your-secret-key-change-in-production"}
+    environment = os.getenv("ENVIRONMENT", "").lower()
     for key, value in required_keys.items():
-        if not value or value == 'your-secret-key-change-in-production':
-            errors.append(f"❌ Missing or invalid required env key: {key}")
-
-    # Check 1b: Admin password must not be the placeholder value
-    admin_password = os.getenv("ADMIN_PASSWORD", "")
-    _admin_placeholders = {
-        "change-me-secure-password",
-        "changeme",
-        "admin",
-        "password",
-        "",
-    }
-    environment = os.getenv("ENVIRONMENT", "development").lower()
-    if environment == "production" and admin_password.lower() in _admin_placeholders:
-        errors.append(
-            "❌ ADMIN_PASSWORD is a placeholder value. "
-            "Set a strong password before running in production."
-        )
+        if not value:
+            errors.append(f"❌ Missing required env key: {key}")
+        elif key == 'JWT_SECRET' and (len(value) < 32 or value in _WEAK_SECRETS):
+            msg = (
+                f"❌ JWT_SECRET is too weak (length {len(value)} < 32) or uses a known default. "
+                "Set a strong random secret of at least 32 characters."
+            )
+            if environment == "production":
+                errors.append(msg)
+            else:
+                print(f"⚠️  Warning: {msg}")
+        elif key != 'JWT_SECRET' and value in _WEAK_SECRETS:
+            errors.append(f"❌ {key} is using a known-insecure default value")
     
     # Check 2: Exchange limits consistency
     for exchange in SUPPORTED_EXCHANGES:

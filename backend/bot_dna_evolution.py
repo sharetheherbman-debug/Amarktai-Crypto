@@ -9,11 +9,41 @@ Bot DNA Evolution System
 
 import asyncio
 import random
+import os
+import secrets as _secrets
 from datetime import datetime, timezone
 from logger_config import logger
 import database as db
 from performance_ranker import performance_ranker
 import config
+
+_DNA_SEED = os.getenv("BOT_DNA_SEED", "").strip()
+try:
+    _rng = random.Random(int(_DNA_SEED)) if _DNA_SEED else None
+except ValueError:
+    logger.warning(f"BOT_DNA_SEED='{_DNA_SEED}' is not a valid integer — ignoring seed, using secrets")
+    _rng = None
+
+
+def _choice(seq):
+    """Use seeded RNG if BOT_DNA_SEED set, otherwise use secrets.choice."""
+    if _rng is not None:
+        return _rng.choice(list(seq))
+    return _secrets.choice(list(seq))
+
+
+def _random() -> float:
+    """Use seeded RNG if BOT_DNA_SEED set, otherwise use secrets-based float."""
+    if _rng is not None:
+        return _rng.random()
+    return _secrets.randbelow(10000) / 10000.0
+
+
+def _uniform(a: float, b: float) -> float:
+    """Uniform float in [a, b)."""
+    if _rng is not None:
+        return _rng.uniform(a, b)
+    return a + (b - a) * (_secrets.randbelow(10000) / 10000.0)
 
 
 class BotDNAEvolution:
@@ -52,7 +82,7 @@ class BotDNAEvolution:
             
             for weak_bot in weak_bots:
                 # Select two elite parents (prefer different exchanges for diversity)
-                parent1 = random.choice(elite_bots)
+                parent1 = _choice(elite_bots)
                 parent2 = self._select_diverse_parent(elite_bots, parent1)
                 
                 # Create child DNA
@@ -92,10 +122,10 @@ class BotDNAEvolution:
         # Try to find a parent from a different exchange
         different_exchange = [b for b in elite_bots if b.get('exchange') != parent1.get('exchange')]
         
-        if different_exchange and random.random() < 0.7:  # 70% chance to prefer diversity
-            return random.choice(different_exchange)
+        if different_exchange and _random() < 0.7:  # 70% chance to prefer diversity
+            return _choice(different_exchange)
         else:
-            return random.choice(elite_bots)
+            return _choice(elite_bots)
     
     def _ensure_diversity(self, dna: dict, evolved_pairs: set, evolved_exchanges: set, all_bots: list) -> dict:
         """Ensure genetic diversity by avoiding over-concentration on single pair/exchange"""
@@ -113,7 +143,7 @@ class BotDNAEvolution:
             under_represented = [ex for ex in available_exchanges 
                                if exchange_counts.get(ex, 0) < len(all_bots) * 0.3]
             if under_represented:
-                dna['exchange'] = random.choice(under_represented)
+                dna['exchange'] = _choice(under_represented)
                 logger.info(f"Diversity: Switched exchange to {dna['exchange']}")
         
         return dna
@@ -123,7 +153,7 @@ class BotDNAEvolution:
         dna = {}
         
         # Risk mode (50/50 chance from each parent)
-        dna['risk_mode'] = random.choice([parent1.get('risk_mode'), parent2.get('risk_mode')])
+        dna['risk_mode'] = _choice([parent1.get('risk_mode'), parent2.get('risk_mode')])
         
         # Trading pair (favor parent1 if better performing)
         dna['trading_pair'] = parent1.get('trading_pair', 'BTC/ZAR')
@@ -140,21 +170,21 @@ class BotDNAEvolution:
     
     def _mutate(self, dna: dict) -> dict:
         """Apply random mutations to DNA"""
-        if random.random() < self.mutation_rate:
+        if _random() < self.mutation_rate:
             # Mutate risk mode
             risk_modes = ['safe', 'balanced', 'risky']
-            dna['risk_mode'] = random.choice(risk_modes)
+            dna['risk_mode'] = _choice(risk_modes)
             logger.info(f"Mutation: risk_mode -> {dna['risk_mode']}")
         
-        if random.random() < self.mutation_rate:
+        if _random() < self.mutation_rate:
             # Mutate trading pair
             pairs = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
-            dna['trading_pair'] = random.choice(pairs)
+            dna['trading_pair'] = _choice(pairs)
             logger.info(f"Mutation: trading_pair -> {dna['trading_pair']}")
         
-        if random.random() < self.mutation_rate:
+        if _random() < self.mutation_rate:
             # Mutate capital (±20%)
-            factor = random.uniform(0.8, 1.2)
+            factor = _uniform(0.8, 1.2)
             dna['initial_capital'] = dna['initial_capital'] * factor
             logger.info(f"Mutation: capital -> R{dna['initial_capital']:.2f}")
         

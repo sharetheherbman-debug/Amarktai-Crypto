@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Amarktai Crypto Production Smoke Test
+Amarktai Network Production Smoke Test
 
 Tests critical functionality:
 - Authentication (login)
@@ -267,14 +267,119 @@ class SmokeTest:
         if response.status_code != 200:
             raise Exception(f"Status code {response.status_code}")
         
-        log("✓ System limits accessible")
+        log(f"✓ System limits accessible")
+        return True
+
+    def test_market_intelligence_status(self):
+        """Test market intelligence status returns last_run_at and refresh_interval_seconds."""
+        response = requests.get(
+            f"{API_BASE}/api/intelligence/status",
+            headers=self._headers(),
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"Status code {response.status_code}: {response.text}")
+
+        data = response.json()
+        required = ["running", "source", "refresh_interval_seconds", "last_error"]
+        missing = [f for f in required if f not in data]
+        if missing:
+            raise Exception(f"Intelligence status missing fields: {missing}")
+
+        if data.get("source") != "CoinStats":
+            raise Exception(f"Expected source=CoinStats, got {data.get('source')}")
+
+        log(
+            f"✓ Intelligence status: running={data.get('running')}, "
+            f"interval={data.get('refresh_interval_seconds')}s, "
+            f"last_error={data.get('last_error')}"
+        )
+        return True
+
+    def test_bots_lifecycle_state(self):
+        """Test that bots/status returns lifecycle_state for each bot."""
+        response = requests.get(
+            f"{API_BASE}/api/bots/status",
+            headers=self._headers(),
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"Status code {response.status_code}: {response.text}")
+
+        data = response.json()
+        bots = data.get("bots", [])
+
+        if bots:
+            for bot in bots[:3]:
+                if "lifecycle_state" not in bot:
+                    raise Exception(
+                        f"Bot {bot.get('id')} missing lifecycle_state field"
+                    )
+            log(f"✓ Bots lifecycle_state present: {bots[0].get('lifecycle_state')}")
+        else:
+            log("✓ No bots to check (lifecycle_state test skipped)")
+        return True
+
+    def test_paper_trade_open_close(self):
+        """Verify paper trades endpoint is accessible and returns correct structure."""
+        response = requests.get(
+            f"{API_BASE}/api/trades?trading_mode=paper&status=closed&limit=5",
+            headers=self._headers(),
+            timeout=10
+        )
+
+        if response.status_code == 404:
+            log("⚠️ Trades endpoint returned 404 — checking alternative path")
+            response = requests.get(
+                f"{API_BASE}/api/paper/trades?status=closed&limit=5",
+                headers=self._headers(),
+                timeout=10
+            )
+
+        if response.status_code not in (200, 404):
+            raise Exception(f"Trades endpoint error: {response.status_code}")
+
+        if response.status_code == 200:
+            data = response.json()
+            trades = data if isinstance(data, list) else data.get("trades", [])
+            log(f"✓ Closed paper trades accessible: {len(trades)} found")
+        else:
+            log("⚠️ Trades endpoint not found — paper trades may need seeding")
+        return True
+
+    def test_wallet_hub_structure(self):
+        """Test wallet hub returns exchange balances with required fields."""
+        response = requests.get(
+            f"{API_BASE}/api/wallet/hub",
+            headers=self._headers(),
+            timeout=10
+        )
+
+        if response.status_code == 404:
+            log("⚠️ /api/wallet/hub not found — checking /api/wallet/summary")
+            response = requests.get(
+                f"{API_BASE}/api/wallet/summary",
+                headers=self._headers(),
+                timeout=10
+            )
+
+        if response.status_code not in (200, 404):
+            raise Exception(f"Wallet hub error: {response.status_code}")
+
+        if response.status_code == 200:
+            data = response.json()
+            log(f"✓ Wallet hub accessible: {list(data.keys())[:5]}")
+        else:
+            log("⚠️ Wallet hub endpoint not found")
         return True
 
 
 def main():
     """Run all smoke tests"""
     log("=" * 60, BLUE)
-    log("Amarktai Crypto Production Smoke Test", BLUE)
+    log("Amarktai Network Production Smoke Test", BLUE)
     log("=" * 60, BLUE)
     log(f"API Base: {API_BASE}")
     log(f"Test User: {TEST_EMAIL}")
@@ -290,8 +395,12 @@ def main():
     test("API Key List", smoke.test_api_key_list)
     test("Dashboard Overview", smoke.test_dashboard_overview)
     test("Bots Status", smoke.test_bots_status)
+    test("Bots Lifecycle State", smoke.test_bots_lifecycle_state)
     test("Risk Daily Loss Lock", smoke.test_risk_daily_loss_lock)
     test("No max_orders_per_day Errors", smoke.test_no_max_orders_error_in_logs)
+    test("Market Intelligence Status", smoke.test_market_intelligence_status)
+    test("Paper Trade Open/Close", smoke.test_paper_trade_open_close)
+    test("Wallet Hub Structure", smoke.test_wallet_hub_structure)
     
     # Summary
     log("=" * 60, BLUE)

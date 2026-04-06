@@ -1,11 +1,12 @@
 """
-Metrics API - Trade cadence and countdown metrics
+Metrics API - Trade cadence, countdown metrics, and system performance metrics
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 import logging
+import time
 
 from auth import get_current_user
 import database as db
@@ -13,6 +14,11 @@ import database as db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/metrics", tags=["Metrics"])
+
+# Cache for system metrics (avoid hammering DB + CoinStats)
+_system_metrics_cache: Optional[dict] = None
+_system_metrics_cache_at: float = 0.0
+_SYSTEM_METRICS_TTL = 90  # seconds
 
 
 @router.get("/trade-cadence")
@@ -168,3 +174,111 @@ def _format_interval(seconds: float) -> str:
         days = int(seconds / 86400)
         hours = int((seconds % 86400) / 3600)
         return f"{days}d {hours}h" if hours > 0 else f"{days}d"
+
+
+@router.get("/system")
+async def get_system_metrics(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/metrics/system
+
+    Returns real-time trading performance metrics + CoinStats market intelligence.
+
+    Trading section:
+      - net_pnl: Total realised profit/loss (ZAR)
+      - win_rate: Percentage of winning closed trades
+      - trade_count: Total number of closed trades
+      - last_trade_at: ISO timestamp of most recent trade
+      - max_drawdown_pct: Worst peak-to-trough drawdown across all bots
+
+    Market intelligence section (from CoinStats, cached 90 s):
+      - mood: positive | negative | neutral
+      - brief: Top headline or summary
+      - top_risk: Detected risk category (or "none")
+      - source: Always "CoinStats"
+      - last_updated: ISO timestamp of last intelligence fetch
+    """
+    global _system_metrics_cache, _system_metrics_cache_at
+
+    now = datetime.now(timezone.utc)
+
+    # ── Trading metrics (always fresh from DB) ────────────────────────────
+    trading = {}
+    try:
+        closed_trades = await db.trades_collection.find(
+            {"user_id": user_id, "status": "closed"},
+            {"_id": 0, "net_pnl": 1, "profit_loss": 1, "timestamp": 1}
+        ).sort("timestamp", -1).to_list(1000)
+
+        trade_count = len(closed_trades)
+        pnl_values = [
+            float(t.get("net_pnl", t.get("profit_loss", 0)) or 0)
+            for t in closed_trades
+        ]
+        net_pnl = round(sum(pnl_values), 2)
+        wins = sum(1 for v in pnl_values if v >= 0)
+        win_rate = round((wins / trade_count * 100), 1) if trade_count > 0 else 0.0
+
+        last_trade_at = None
+        if closed_trades:
+            last_trade_at = closed_trades[0].get("timestamp")
+
+        # Max drawdown: worst cumulative loss trough
+        max_drawdown_pct = 0.0
+        if pnl_values:
+            peak = 0.0
+            trough_pct = 0.0
+            running = 0.0
+            for v in reversed(pnl_values):  # oldest first
+                running += v
+                if running > peak:
+                    peak = running
+                elif peak > 0:
+                    dd = (peak - running) / peak * 100
+                    if dd > trough_pct:
+                        trough_pct = dd
+            max_drawdown_pct = round(trough_pct, 2)
+
+        trading = {
+            "net_pnl": net_pnl,
+            "win_rate": win_rate,
+            "trade_count": trade_count,
+            "last_trade_at": last_trade_at,
+            "max_drawdown_pct": max_drawdown_pct,
+        }
+    except Exception as e:
+        logger.error(f"System metrics: trading fetch error: {e}")
+        trading = {
+            "net_pnl": None, "win_rate": None,
+            "trade_count": None, "last_trade_at": None,
+            "max_drawdown_pct": None, "error": str(e)
+        }
+
+    # ── Market intelligence (CoinStats, cached) ───────────────────────────
+    age = time.monotonic() - _system_metrics_cache_at
+    if _system_metrics_cache is None or age > _SYSTEM_METRICS_TTL:
+        try:
+            from services.market_intelligence_service import get_latest_intelligence
+            brief = await get_latest_intelligence()
+            _system_metrics_cache = {
+                "mood": brief.get("mood", "neutral"),
+                "brief": brief.get("what_happened", "No data yet"),
+                "top_risk": brief.get("top_risk", "none"),
+                "confidence": brief.get("confidence", "Unknown"),
+                "source": brief.get("source", "CoinStats"),
+                "last_updated": brief.get("updated_at"),
+            }
+            _system_metrics_cache_at = time.monotonic()
+        except Exception as e:
+            logger.error(f"System metrics: intelligence fetch error: {e}")
+            if _system_metrics_cache is None:
+                _system_metrics_cache = {
+                    "mood": "neutral", "brief": "Market intelligence unavailable",
+                    "top_risk": "none", "confidence": "Unknown",
+                    "source": "CoinStats", "last_updated": None,
+                }
+
+    return {
+        "trading": trading,
+        "market_intelligence": _system_metrics_cache,
+        "timestamp": now.isoformat(),
+    }

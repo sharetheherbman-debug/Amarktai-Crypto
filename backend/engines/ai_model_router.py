@@ -10,38 +10,74 @@ from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import logging
 import os
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception,
+    before_sleep_log,
+)
+import logging as _logging
 
 logger = logging.getLogger(__name__)
 
-import openai
+
+# Cache openai error classes at module level (graceful fallback if openai not installed)
+try:
+    from openai import RateLimitError as _OAIRateLimitError
+    from openai import APIStatusError as _OAIAPIStatusError
+    from openai import APITimeoutError as _OAIAPITimeoutError
+    from openai import APIConnectionError as _OAIAPIConnectionError
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OAIRateLimitError = _OAIAPIStatusError = _OAIAPITimeoutError = _OAIAPIConnectionError = None  # type: ignore
+    _OPENAI_AVAILABLE = False
+
+
+def _is_retryable_openai_error(exc: Exception) -> bool:
+    """Return True for transient OpenAI errors (429/5xx/timeout). False for auth/bad request."""
+    if not _OPENAI_AVAILABLE:
+        return False
+    if isinstance(exc, (_OAIRateLimitError, _OAIAPITimeoutError, _OAIAPIConnectionError)):
+        return True
+    if isinstance(exc, _OAIAPIStatusError):
+        return exc.status_code in (500, 502, 503, 504)
+    return False
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=30, jitter=2),
+    retry=retry_if_exception(_is_retryable_openai_error),
+    before_sleep=before_sleep_log(logger, _logging.WARNING),
+    reraise=True,
+)
+async def _call_openai_with_retry(client, model: str, messages, max_tokens: int, temperature: float):
+    """Call OpenAI with automatic retry on transient errors."""
+    return await client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
 
 class AIModelRouter:
     def __init__(self):
         self.models = {
             'fast': 'gpt-4o',           # Fast responses, good quality
-            'balanced': 'gpt-5.1',      # Best balance of speed and intelligence
-            'deep': 'gpt-5.1',          # Deep reasoning (same as balanced for now)
-            'fallback': 'gpt-4o'        # Fallback if primary fails
+            'balanced': 'gpt-4o',       # Best available model
+            'deep': 'gpt-4o',           # Deep reasoning
+            'fallback': 'gpt-4o-mini'   # Lightweight fallback
         }
         
-        # Initialize clients
-        self.openai_client = None
-        
-        # Get API keys from environment
-        self.openai_key = os.environ.get('OPENAI_API_KEY')
-        
-        if self.openai_key:
-            try:
-                openai.api_key = self.openai_key
-                self.openai_client = openai
-                logger.info("✅ OpenAI client initialized")
-            except Exception as e:
-                logger.error(f"Failed to init OpenAI client: {e}")
+        # Note: OpenAI client is now created per-request via resolver
     
     async def chat_completion(self, messages: List[Dict], 
                              mode: str = 'balanced',
                              max_tokens: int = 1000,
-                             temperature: float = 0.7) -> Dict:
+                             temperature: float = 0.7,
+                             user_id: str = None) -> Dict:
         """
         Get chat completion from appropriate model
         
@@ -50,23 +86,24 @@ class AIModelRouter:
             mode: 'fast', 'balanced', 'deep', 'fallback'
             max_tokens: Max tokens in response
             temperature: Randomness (0-1)
+            user_id: User ID for key resolution (optional)
         
         Returns:
             {"content": str, "model": str, "tokens": int}
         """
         try:
+            from services.openai_key_resolver import get_openai_client
+
             model = self.models.get(mode, self.models['balanced'])
-            
-            if self.openai_client:
+
+            client, source = await get_openai_client(user_id)
+            if client:
+                logger.info(f"OpenAI client resolved source={source} for AI router")
                 try:
-                    response = await asyncio.to_thread(
-                        self.openai_client.ChatCompletion.create,
-                        model=model,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature
+                    response = await _call_openai_with_retry(
+                        client, model, messages, max_tokens, temperature
                     )
-                    
+
                     return {
                         "content": response.choices[0].message.content,
                         "model": model,
@@ -76,8 +113,9 @@ class AIModelRouter:
                 except Exception as e:
                     logger.error(f"OpenAI client failed: {e}")
                     raise
-            
-            # No client available
+
+            # No key available
+            logger.warning(f"OpenAI client resolved source={source} - AI unavailable")
             return {
                 "content": "AI service unavailable - no API keys configured",
                 "model": "none",
@@ -85,7 +123,7 @@ class AIModelRouter:
                 "source": "none",
                 "error": "No AI client available"
             }
-            
+
         except Exception as e:
             logger.error(f"Chat completion error: {e}")
             return {

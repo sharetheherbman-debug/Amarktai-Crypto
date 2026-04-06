@@ -41,7 +41,7 @@ async def get_health_indicators():
         # 2. Database Health
         try:
             db_start = time.time()
-            await db.command('ping')
+            await db.client.admin.command('ping')
             db_time = (time.time() - db_start) * 1000  # Convert to ms
             
             db_health = {

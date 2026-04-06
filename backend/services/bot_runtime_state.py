@@ -83,6 +83,40 @@ class BotRuntimeStateStore:
             )
             return payload
 
+    async def record_tick(self, bot_id: str, user_id: str) -> None:
+        """Record that the scheduler evaluated this bot in the current tick.
+
+        Writes ``last_tick_at`` and ``updated_at`` so that diagnostics
+        endpoints always reflect the most recent scheduler activity, even
+        when no trade was opened or closed.
+
+        This is intentionally fire-and-forget (best-effort): a failure
+        must not interrupt the trading loop.
+        """
+        collection = self._collection()
+        if collection is None:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            await collection.update_one(
+                {"bot_id": bot_id},
+                {
+                    "$set": {
+                        "last_tick_at": now,
+                        "updated_at": now,
+                        "user_id": user_id,
+                    },
+                    "$setOnInsert": {
+                        "bot_id": bot_id,
+                        "created_at": now,
+                        "state": "active",
+                    },
+                },
+                upsert=True,
+            )
+        except Exception as e:
+            logger.debug("record_tick failed for bot %s: %s", bot_id, e)
+
     async def ensure_state(self, bot: Dict) -> Dict:
         bot_id = bot.get("id")
         user_id = bot.get("user_id")

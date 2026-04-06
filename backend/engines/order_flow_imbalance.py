@@ -334,13 +334,20 @@ class OrderFlowImbalanceCalculator:
         n_ticks: int = 100
     ) -> None:
         """
-        Simulate market data for testing
-        
-        Args:
-            symbol: Trading pair
-            base_price: Starting price
-            n_ticks: Number of snapshots to generate
+        Simulate market data for testing.
+
+        This method is intentionally only for local testing.
+        It will NOT run when ENABLE_LIVE_TRADING=true.
         """
+        import os
+        if os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true":
+            logger.warning(
+                "OFI simulate_market_data() called while ENABLE_LIVE_TRADING=true — "
+                "skipping simulation to prevent fake signals affecting live orders. "
+                "Wire real CCXT order book data instead."
+            )
+            return
+
         import random
         
         price = base_price

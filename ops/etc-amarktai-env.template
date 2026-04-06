@@ -10,6 +10,8 @@
 # JWT secret for token signing (MUST be changed in production!)
 # Generate with: openssl rand -hex 32
 # Replace GENERATE_ME with actual generated value
+# MINIMUM LENGTH: 32 characters.  Short secrets cause a WARNING on startup
+# and weaken token security.  The VPS MUST have a proper 64-char hex secret.
 JWT_SECRET=GENERATE_ME_openssl_rand_hex_32
 
 # API Key Encryption Key (for encrypting exchange API keys in database)

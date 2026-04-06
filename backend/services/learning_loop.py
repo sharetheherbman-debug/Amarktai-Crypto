@@ -1,6 +1,7 @@
 """
 Nightly Learning Loop Scheduler (guarded by ENABLE_LEARNING_LOOP).
 Performs bounded parameter reweighting and stores audit data.
+Integrated with RL Agent for adaptive parameter optimization.
 """
 
 import asyncio
@@ -11,8 +12,15 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 import database as db
+from services.rl_agent import get_rl_agent
 
 logger = logging.getLogger(__name__)
+
+# Strategy tuner import (non-blocking — missing dep never breaks the loop)
+try:
+    from services.strategy_tuner import strategy_tuner as _strategy_tuner
+except Exception:  # pragma: no cover
+    _strategy_tuner = None  # type: ignore
 
 
 class LearningLoop:
@@ -64,6 +72,20 @@ class LearningLoop:
             for user in users:
                 await self._run_for_user(user.get("id"), dry_run=dry_run)
             self.last_run = datetime.now(timezone.utc)
+            
+            # Persist RL agent state after all users processed
+            try:
+                rl_agent = get_rl_agent()
+                rl_state = rl_agent.save_state()
+                await db.db.rl_agent_state.replace_one(
+                    {"_id": "global"},
+                    {"_id": "global", **rl_state},
+                    upsert=True
+                )
+                logger.info(f"📚 RL Agent state persisted: {rl_agent.episodes} episodes")
+            except Exception as e:
+                logger.warning(f"RL state persistence failed: {e}")
+            
             logger.info("📚 Learning loop complete")
 
             # ── XGBoost retraining (non-fatal) ────────────────────────────
@@ -104,7 +126,13 @@ class LearningLoop:
 
         trades = await db.trades_collection.find(
             {"user_id": user_id, "status": "closed"},
-            {"_id": 0, "profit_loss": 1, "net_pnl": 1, "gross_pnl": 1, "fees_total": 1, "slippage_cost": 1, "timestamp": 1}
+            {
+                "_id": 0,
+                "profit_loss": 1, "net_pnl": 1, "gross_pnl": 1,
+                "fees_total": 1, "slippage_cost": 1, "timestamp": 1,
+                # Entry values used to compute round-trip cost percentage accurately
+                "trade_amount": 1, "entry_value": 1,
+            }
         ).sort("timestamp", -1).limit(trade_limit).to_list(trade_limit)
 
         window_start = window_end - timedelta(days=1)
@@ -124,6 +152,28 @@ class LearningLoop:
         profit_factor = (sum(wins) / abs(sum(losses))) if losses else float("inf")
         fees_total = sum(t.get("fees_total", 0) for t in trades)
         slippage_total = sum(t.get("slippage_cost", 0) for t in trades)
+
+        # Compute expectancy (primary metric — replaces win-rate as optimisation target).
+        # round_trip_cost_pct = total_costs / total_turnover (accurate, not relative to PnL).
+        total_turnover = sum(
+            t.get("trade_amount", t.get("entry_value", 0)) for t in trades
+        )
+        if total_turnover > 0:
+            round_trip_cost_pct = (fees_total + slippage_total) / total_turnover
+        else:
+            round_trip_cost_pct = 0.003  # fallback 0.3 % when trade values unavailable
+        avg_trade_value = (total_turnover / total_trades) if total_trades else 1000.0
+        try:
+            from services.strategy_tuner import compute_expectancy
+            expectancy_zar = compute_expectancy(
+                wins=wins,
+                losses=losses,
+                round_trip_cost_pct=round_trip_cost_pct,
+                trade_value_zar=avg_trade_value,
+            )
+        except Exception:
+            expectancy_zar = (net_pnl / total_trades) if total_trades else 0.0
+
         drawdown_current = None
         drawdown_max = None
         try:
@@ -150,12 +200,93 @@ class LearningLoop:
             "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else None,
             "fees_total": round(fees_total, 2),
             "slippage_total": round(slippage_total, 2),
+            "expectancy_zar": round(expectancy_zar, 4),
             "drawdown_current": drawdown_current,
             "drawdown_max": drawdown_max,
             "timestamp": window_end.isoformat()
         }
 
         await db.learning_metrics_collection.insert_one(metrics_doc)
+
+        # ========== RL Agent Integration ==========
+        # Update RL agent with performance metrics and get recommendations
+        rl_agent = get_rl_agent()
+        
+        # Calculate reward signal from performance
+        reward = rl_agent.calculate_reward(
+            profit=net_pnl,
+            sharpe_ratio=None,  # Calculate Sharpe if needed
+            max_drawdown=drawdown_max,
+            win_rate=win_rate,
+            trades_count=total_trades
+        )
+        
+        # Create state representation
+        state = {
+            'profit': net_pnl,
+            'win_rate': win_rate,
+            'sharpe': 0.0,  # Calculate Sharpe if needed
+            'trades': total_trades
+        }
+        
+        # Update RL policy with experience
+        # Get previous state from last run if available
+        try:
+            last_run = await db.learning_runs_collection.find_one(
+                {"user_id": user_id, "status": {"$in": ["applied", "skipped"]}},
+                sort=[("completed_at", -1)]
+            )
+            if last_run:
+                prev_metrics = last_run.get("metrics", {})
+                prev_state = {
+                    'profit': prev_metrics.get('net_pnl', 0),
+                    'win_rate': prev_metrics.get('win_rate', 50),
+                    'sharpe': 0.0,
+                    'trades': prev_metrics.get('total_trades', 0)
+                }
+                prev_params = last_run.get("previous_params", {})
+                
+                # Select action based on previous state
+                action = rl_agent.select_action(prev_state)
+                
+                # Update policy with experience
+                rl_agent.update_policy(prev_state, action, reward, state)
+                rl_agent.episodes += 1
+                
+                logger.info(f"📚 RL Agent updated: episode {rl_agent.episodes}, reward {reward:.2f}")
+        except Exception as e:
+            logger.warning(f"RL policy update skipped: {e}")
+        
+        # Get RL recommendations for parameter adjustments
+        rl_recommendations = []
+        try:
+            current_params = {
+                'stop_loss_pct': stop_loss * 100,  # Convert to percentage
+                'take_profit_pct': 10.0,  # Default if not set
+                'position_size_multiplier': trade_size,
+                'risk_per_trade_pct': 2.0,  # Default if not set
+                'cooldown_minutes': cooldown * 60  # Convert multiplier to minutes estimate
+            }
+            
+            performance_metrics = {
+                'total_profit': net_pnl,
+                'win_rate': win_rate,
+                'sharpe_ratio': None,
+                'max_drawdown': drawdown_max or 0,
+                'trades_count': total_trades
+            }
+            
+            rl_recommendations = rl_agent.generate_recommendations(
+                current_params,
+                performance_metrics
+            )
+            
+            if rl_recommendations:
+                logger.info(f"📚 RL generated {len(rl_recommendations)} recommendations for user {user_id}")
+        except Exception as e:
+            logger.warning(f"RL recommendations generation skipped: {e}")
+        
+        # ========== End RL Agent Integration ==========
 
         min_trades_required = max(int(os.getenv("LEARNING_MIN_TRADES", "50")), 50)
         if total_trades < min_trades_required:
@@ -182,15 +313,22 @@ class LearningLoop:
         trade_size = float(learning_params.get("trade_size_multiplier", 1.0))
         cooldown = float(learning_params.get("cooldown_multiplier", 1.0))
         stop_loss = float(learning_params.get("stop_loss_pct", 0.02))
+        # Additional bounded knobs (Section 5)
+        max_hold_minutes = float(learning_params.get("max_hold_minutes", 120.0))
+        safety_exit_minutes = float(learning_params.get("safety_exit_minutes", 60.0))
+        position_size_multiplier = float(learning_params.get("position_size_multiplier", 1.0))
         previous_params = {
             "trade_size_multiplier": trade_size,
             "cooldown_multiplier": cooldown,
-            "stop_loss_pct": stop_loss
+            "stop_loss_pct": stop_loss,
+            "max_hold_minutes": max_hold_minutes,
+            "safety_exit_minutes": safety_exit_minutes,
+            "position_size_multiplier": position_size_multiplier,
         }
 
         max_risk = float(os.getenv("LEARNING_MAX_RISK_MULTIPLIER", "1.1"))
         min_risk = float(os.getenv("LEARNING_MIN_RISK_MULTIPLIER", "0.8"))
-        max_change_pct = float(os.getenv("LEARNING_MAX_CHANGE_PCT", "0.10"))
+        max_change_pct = float(os.getenv("LEARNING_MAX_CHANGE_PCT", "0.05"))
 
         changes: List[Dict] = []
 
@@ -231,6 +369,42 @@ class LearningLoop:
                         "expected_impact": "Cap downside per trade"
                     })
                     stop_loss = new_stop
+
+                # Reduce max_hold and safety_exit to close losers faster
+                new_max_hold = clamp(max_hold_minutes * (1 - max_change_pct), 15.0, 240.0)
+                if new_max_hold != max_hold_minutes:
+                    changes.append({
+                        "parameter": "max_hold_minutes",
+                        "old": max_hold_minutes,
+                        "new": new_max_hold,
+                        "reason": "Reduce hold time to limit losing exposure",
+                        "expected_impact": "Closes losers earlier"
+                    })
+                    max_hold_minutes = new_max_hold
+
+                new_safety_exit = clamp(safety_exit_minutes * (1 - max_change_pct), 10.0, 120.0)
+                if new_safety_exit != safety_exit_minutes:
+                    changes.append({
+                        "parameter": "safety_exit_minutes",
+                        "old": safety_exit_minutes,
+                        "new": new_safety_exit,
+                        "reason": "Take profits sooner in adverse conditions",
+                        "expected_impact": "Lock in smaller gains rather than waiting"
+                    })
+                    safety_exit_minutes = new_safety_exit
+
+                # Reduce position size multiplier slightly
+                new_pos_mult = clamp(position_size_multiplier * (1 - max_change_pct), 0.5, 1.5)
+                if new_pos_mult != position_size_multiplier:
+                    changes.append({
+                        "parameter": "position_size_multiplier",
+                        "old": position_size_multiplier,
+                        "new": new_pos_mult,
+                        "reason": "Reduce exposure after poor performance",
+                        "expected_impact": "Smaller positions limit drawdown"
+                    })
+                    position_size_multiplier = new_pos_mult
+
             elif win_rate > 55 and net_pnl > 0 and profit_factor > 1.1:
                 new_trade_size = clamp(trade_size * (1 + max_change_pct), min_risk, max_risk)
                 if new_trade_size != trade_size:
@@ -242,6 +416,30 @@ class LearningLoop:
                         "expected_impact": "Slightly increase position sizing"
                     })
                     trade_size = new_trade_size
+
+                # Modestly extend hold time if performance is good
+                new_max_hold = clamp(max_hold_minutes * (1 + max_change_pct), 15.0, 240.0)
+                if new_max_hold != max_hold_minutes:
+                    changes.append({
+                        "parameter": "max_hold_minutes",
+                        "old": max_hold_minutes,
+                        "new": new_max_hold,
+                        "reason": "Extend hold time after strong performance",
+                        "expected_impact": "Allow winners to run longer"
+                    })
+                    max_hold_minutes = new_max_hold
+
+                # Modestly increase position size multiplier
+                new_pos_mult = clamp(position_size_multiplier * (1 + max_change_pct), 0.5, 1.5)
+                if new_pos_mult != position_size_multiplier:
+                    changes.append({
+                        "parameter": "position_size_multiplier",
+                        "old": position_size_multiplier,
+                        "new": new_pos_mult,
+                        "reason": "Scale up after strong performance",
+                        "expected_impact": "Higher absolute profit on winners"
+                    })
+                    position_size_multiplier = new_pos_mult
 
         last_run = await db.learning_runs_collection.find_one(
             {"user_id": user_id},
@@ -256,15 +454,90 @@ class LearningLoop:
             rollback_threshold = 0.9
         rollback = last_net_pnl is not None and net_pnl < last_net_pnl * rollback_threshold
 
-        improvement_ok = net_pnl >= 0 and win_rate >= 50 and (profit_factor >= 1.05 or profit_factor == float("inf"))
+        # Improvement check uses EXPECTANCY (not win-rate) as the primary signal.
+        # A strategy improves when per-trade expectancy is positive and the period
+        # net PnL is at least as good as the prior run.  Win-rate alone is NOT
+        # sufficient — a high win-rate with tiny wins and large losses is not an
+        # improvement.
+        try:
+            min_expectancy = float(os.getenv("MIN_EXPECTANCY_ZAR", "0"))
+        except ValueError:
+            min_expectancy = 0.0
+        improvement_ok = (
+            expectancy_zar > min_expectancy
+            and profit_factor >= 1.05
+        )
         if last_net_pnl is not None:
             improvement_ok = improvement_ok and net_pnl >= last_net_pnl * 1.01
+
+        # ========== Strategy Tuner (UCB1) ==========
+        # Reward signal = EXPECTANCY per trade (ZAR), not win-rate.
+        tuner_changes: List[Dict] = []
+        if _strategy_tuner is not None and total_trades >= 3 and not dry_run:
+            try:
+                # Use expectancy as the UCB reward signal
+                tuner_reward = expectancy_zar
+
+                # Fetch unique (exchange, risk_mode) combinations from recent bots
+                bots = await db.bots_collection.find(
+                    {"user_id": user_id, "status": {"$ne": "deleted"}},
+                    {"_id": 0, "exchange": 1, "risk_mode": 1}
+                ).to_list(200)
+                seen_combos: set = set()
+                for bot in bots:
+                    exch = bot.get("exchange", "luno")
+                    rmode = bot.get("risk_mode", "balanced")
+                    key = (exch, rmode)
+                    if key in seen_combos:
+                        continue
+                    seen_combos.add(key)
+
+                    # Load persisted state if available
+                    try:
+                        saved = await db.strategy_params_collection.find_one(
+                            {"user_id": user_id, "exchange": exch, "risk_mode": rmode},
+                            {"_id": 0}
+                        )
+                        if saved:
+                            _strategy_tuner.load_state(saved)
+                    except Exception:
+                        pass
+
+                    arm_changes = _strategy_tuner.update(
+                        user_id=user_id,
+                        exchange=exch,
+                        risk_mode=rmode,
+                        reward=tuner_reward,
+                    )
+                    tuner_changes.extend(arm_changes)
+
+                    # Persist updated state
+                    try:
+                        state_doc = _strategy_tuner.serialize_state(user_id, exch, rmode)
+                        await db.strategy_params_collection.replace_one(
+                            {"user_id": user_id, "exchange": exch, "risk_mode": rmode},
+                            state_doc,
+                            upsert=True,
+                        )
+                    except Exception as e:
+                        logger.warning(f"strategy_tuner: persist failed ({exch}/{rmode}): {e}")
+
+                if tuner_changes:
+                    logger.info(
+                        f"📚 StrategyTuner: {len(tuner_changes)} UCB1 adjustments "
+                        f"for user {user_id[:8]}"
+                    )
+                    changes.extend(tuner_changes)
+            except Exception as e:
+                logger.warning(f"strategy_tuner integration failed: {e}")
+        # ========== End Strategy Tuner ==========
 
         sanity_check = {
             "net_pnl": round(net_pnl, 2),
             "win_rate": round(win_rate, 2),
+            "expectancy_zar": round(expectancy_zar, 4),
             "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else None,
-            "passes": improvement_ok
+            "passes": improvement_ok,
         }
 
         summary_lines = []
@@ -280,7 +553,10 @@ class LearningLoop:
         applied_params = {
             "trade_size_multiplier": trade_size,
             "cooldown_multiplier": cooldown,
-            "stop_loss_pct": stop_loss
+            "stop_loss_pct": stop_loss,
+            "max_hold_minutes": max_hold_minutes,
+            "safety_exit_minutes": safety_exit_minutes,
+            "position_size_multiplier": position_size_multiplier,
         }
 
         if rollback:
@@ -302,6 +578,9 @@ class LearningLoop:
                         "trade_size_multiplier": trade_size,
                         "cooldown_multiplier": cooldown,
                         "stop_loss_pct": stop_loss,
+                        "max_hold_minutes": max_hold_minutes,
+                        "safety_exit_minutes": safety_exit_minutes,
+                        "position_size_multiplier": position_size_multiplier,
                         "updated_at": window_end.isoformat()
                     }
                 }},
@@ -358,6 +637,23 @@ class LearningLoop:
                 {"user_id": user_id, "status": {"$ne": "deleted"}},
                 {"$set": {"strategy_version_id": strategy_version_id}}
             )
+
+        # Persist learned parameters directly to bot documents
+        if changes and improvement_ok and not dry_run and not rollback:
+            try:
+                await db.bots_collection.update_many(
+                    {"user_id": user_id, "status": {"$ne": "deleted"}},
+                    {"$set": {
+                        "learned_trade_size_multiplier": trade_size,
+                        "learned_cooldown_multiplier": cooldown,
+                        "learned_stop_loss_pct": stop_loss,
+                        "last_learning_run_id": run_id,
+                        "last_learning_applied_at": window_end.isoformat(),
+                    }},
+                )
+                logger.info(f"Learning: persisted params to bot docs for user {user_id[:8]}")
+            except Exception as persist_err:
+                logger.warning(f"Learning: failed to persist params to bots: {persist_err}")
 
         report_letter = (
             "Learning summary:\n"

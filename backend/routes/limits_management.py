@@ -31,8 +31,8 @@ async def get_limits_config(user_id: str = Depends(get_current_user)):
     try:
         config = {
             "trade_limits": {
-                "max_trades_per_bot_daily": int(os.getenv("MAX_TRADES_PER_BOT_DAILY", "50")),
-                "max_trades_per_user_daily": int(os.getenv("MAX_TRADES_PER_USER_DAILY", "500")),
+                "max_trades_per_bot_daily": int(os.getenv("MAX_TRADES_PER_BOT_DAILY", "400")),
+                "max_trades_per_user_daily": int(os.getenv("MAX_TRADES_PER_USER_DAILY", "3000")),
                 "burst_limit_orders": int(os.getenv("BURST_LIMIT_ORDERS_PER_EXCHANGE", "10")),
                 "burst_limit_window_seconds": int(os.getenv("BURST_LIMIT_WINDOW_SECONDS", "10"))
             },

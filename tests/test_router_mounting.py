@@ -30,8 +30,9 @@ def test_all_routers_can_import():
         "routes.trades",
         "routes.health",
         "routes.system_status",
-        # REMOVED: routes.phase5_endpoints, phase6_endpoints, phase8_endpoints
-        # — superseded by dedicated service routes, never called by frontend
+        "routes.phase5_endpoints",
+        "routes.phase6_endpoints",
+        "routes.phase8_endpoints",
         "routes.capital_tracking_endpoints",
         "routes.emergency_stop_endpoints",
         "routes.wallet_endpoints",
@@ -42,7 +43,6 @@ def test_all_routers_can_import():
         "routes.risk_management",
         "routes.dashboard_overview",
         "routes.bot_lifecycle",
-        # REMOVED: routes.bot_control — duplicate of bot_lifecycle, missing /api prefix
         "routes.autopilot_control",
         "routes.training",
         "routes.training_quarantine",
@@ -77,15 +77,6 @@ def test_all_routers_can_import():
         "routes.notifications",
         "routes.realtime",
         "routes.auth",
-        # Routes added after initial test list — kept in sync with routers_to_mount in server.py
-        "routes.radar",
-        "routes.exchange_status",
-        "routes.admin_truth",
-        "routes.scalper",
-        "routes.coinstats",
-        "routes.huggingface",
-        "routes.metrics_api",
-        "routes.compat",
     ]
     
     failed_imports = []

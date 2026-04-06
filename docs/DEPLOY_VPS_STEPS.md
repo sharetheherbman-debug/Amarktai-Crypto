@@ -78,7 +78,7 @@ ENABLE_SCHEDULERS=0
 # Optional API Keys (can be set per-user in dashboard)
 OPENAI_API_KEY=
 FETCHAI_API_KEY=
-FLOKX_API_KEY=
+COINSTATS_API_KEY=
 EOF
 ```
 

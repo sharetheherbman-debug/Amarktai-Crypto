@@ -4,6 +4,19 @@ import { formatTimestamp } from '../lib/dateUtils.js';
 import realtimeClient from '../lib/realtime';
 
 /**
+ * Helper function to get token from localStorage
+ * Returns null if no token exists
+ */
+const getToken = () => {
+  try {
+    return localStorage.getItem('token') || null;
+  } catch (error) {
+    console.error('Error reading token:', error);
+    return null;
+  }
+};
+
+/**
  * Normalize live price responses into a pair->price map.
  *
  * Accepts either array responses from /api/prices/live or
@@ -37,7 +50,16 @@ export const normalizeLivePrices = (data, fallback = null) => {
   return fallback;
 };
 
-export const getBotStatus = (bot) => bot?.status || bot?.state || 'unknown';
+/**
+ * Resolve the canonical display status for a bot.
+ * Priority: lifecycle_state (training/training_failed) > status > state > 'unknown'
+ * This ensures bots in training show "training" even when DB status = "active".
+ */
+export const getBotStatus = (bot) => {
+  const lc = bot?.lifecycle_state;
+  if (lc === 'training' || lc === 'training_failed') return lc;
+  return bot?.status || bot?.state || 'unknown';
+};
 
 /**
  * Custom hook for managing dashboard data fetching and state
@@ -214,21 +236,34 @@ export const useDashboardData = (token) => {
   }, [loadBots, loadMetrics, loadSystemModes, loadRecentTrades, loadCountdown, loadLivePrices, loadSystemStatus]);
 
   useEffect(() => {
-    if (!token) return;
+    // Guard: Only run if token exists
+    const currentToken = getToken();
+    if (!currentToken || !token) {
+      return undefined;
+    }
+
     const intervalMs = 4000;
     loadLivePrices();
     loadMetrics();
     loadSystemStatus();
     const interval = setInterval(() => {
-      loadLivePrices();
-      loadMetrics();
-      loadSystemStatus();
+      // Double-check token still exists before each poll
+      if (getToken()) {
+        loadLivePrices();
+        loadMetrics();
+        loadSystemStatus();
+      }
     }, intervalMs);
     return () => clearInterval(interval);
   }, [token, loadLivePrices, loadMetrics, loadSystemStatus]);
 
   useEffect(() => {
-    if (!token) return;
+    // Guard: Only connect realtime if token exists
+    const currentToken = getToken();
+    if (!currentToken || !token) {
+      return undefined;
+    }
+
     realtimeClient.connect(token);
     const refreshTradeTruth = () => {
       loadRecentTrades();

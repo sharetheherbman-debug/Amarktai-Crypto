@@ -2,10 +2,6 @@
 Config package
 Re-exports constants from ../config.py for backward compatibility with imports like:
     from config import PAPER_TRAINING_DAYS
-
-CANONICAL ENV VARIABLE NAMES (Pass 1 Go-Live Recovery):
-  Trading gates:  PAPER_TRADING (1/0), LIVE_TRADING (1/0), AUTOPILOT_ENABLED (1/0)
-  Legacy aliases: ENABLE_PAPER_TRADING, ENABLE_LIVE_TRADING, ENABLE_AUTOPILOT
 """
 
 # These constants are duplicated here to avoid circular import issues
@@ -20,41 +16,15 @@ try:
 except ImportError:
     pass  # dotenv not available, use environment variables directly
 
-# ---------------------------------------------------------------------------
-# Helper — import from canonical source utils/env_utils.py
-# ---------------------------------------------------------------------------
-try:
-    from utils.env_utils import env_bool as _env_bool
-except ImportError:
-    # Fallback if utils not importable (e.g. standalone config import)
-    def _env_bool(name: str, default: bool = False) -> bool:
-        value = os.getenv(name)
-        if value is None:
-            return default
-        return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
-
-# ---------------------------------------------------------------------------
-# CANONICAL trading-gate variables  (1 / 0 style via _env_bool)
-# ---------------------------------------------------------------------------
-PAPER_TRADING = _env_bool('PAPER_TRADING', False) or _env_bool('ENABLE_PAPER_TRADING', False)
-LIVE_TRADING = _env_bool('LIVE_TRADING', False) or _env_bool('ENABLE_LIVE_TRADING', False)
-# AUTOPILOT_ENABLED defaults to True so that users who enable autopilot in the UI
-# are not silently blocked by a missing env var.
-# Explicit override: set AUTOPILOT_ENABLED=0 or AUTOPILOT_ENABLED=false to disable globally.
-# Precedence: AUTOPILOT_ENABLED (canonical) → ENABLE_AUTOPILOT (legacy) → default True
-_autopilot_env = os.getenv('AUTOPILOT_ENABLED')
-_autopilot_legacy = os.getenv('ENABLE_AUTOPILOT')
-if _autopilot_env is not None:
-    AUTOPILOT_ENABLED = _autopilot_env.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
-elif _autopilot_legacy is not None:
-    AUTOPILOT_ENABLED = _autopilot_legacy.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
-else:
-    AUTOPILOT_ENABLED = True  # Default: enabled when not explicitly set
-
-# Backward-compatible aliases
-ENABLE_PAPER_TRADING = PAPER_TRADING
-ENABLE_LIVE_TRADING = LIVE_TRADING
-ENABLE_AUTOPILOT = AUTOPILOT_ENABLED
+# Email (SMTP) – must mirror backend/config.py
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+SMTP_USER = os.getenv('SMTP_USER', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+FROM_EMAIL = os.getenv('FROM_EMAIL', SMTP_USER)
+FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Network')
+EMAIL_CONFIRMATION_TIMEOUT_HOURS = int(os.getenv('EMAIL_CONFIRMATION_TIMEOUT_HOURS', '24'))
+REQUIRE_EMAIL_CONFIRMATION = os.getenv('REQUIRE_EMAIL_CONFIRMATION', 'true').lower() == 'true'
 
 # Paper -> Live promotion criteria (most commonly imported)
 PAPER_TRAINING_DAYS = int(os.getenv('PAPER_TRAINING_DAYS', '7'))  # Must be 7 days minimum
@@ -76,45 +46,45 @@ EXCHANGE_BOT_LIMITS = {
 
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 75,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_LUNO', '999999')),
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BINANCE', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KUCOIN', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': 150,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BYBIT', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'kraken': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_KRAKEN', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 500
     },
     'bitget': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_BITGET', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     },
     'gate': {
-        'max_trades_per_bot_per_day': 120,
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_GATE', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }
 }
 
-# Global limits
-MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))  # Per-bot daily trade cap
-MAX_TRADES_PER_USER_PER_DAY = 3000
+# Global limits — no artificial per-bot/user daily cap. Risk locks (Bodyguard, daily loss) remain.
+MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '999999'))
+MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '999999'))
 MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0
 
 # Paper trading anti-churn protections
@@ -125,6 +95,120 @@ PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35%
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
 PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'true').lower() == 'true'
 PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
+# Time-exit fires unconditionally at this age regardless of P&L.
+# Ensures profitable trades still close for overnight win/loss accounting.
+PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
+# Safety exit fires when a trade is profitable and has been open this long.
+# Prevents profitable trades from lingering past half max-hold without a signal.
+# Default 60 min; set to 0 to disable.
+PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
+# Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
+# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 10 min.
+STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '10'))
+# Fee break-even exit: close when the trade has been open at least this long AND
+# the unrealised PnL is definitively below -round_trip_cost_pct (the loss already
+# exceeds what fees/spread would cost even at breakeven).  Default: 10 min.
+FEE_BREAK_EVEN_WINDOW_MINUTES = int(os.getenv('FEE_BREAK_EVEN_WINDOW_MINUTES', '10'))
+# Time-decay exit: close when the trade has been open at least this long AND
+# the unrealised PnL is still below +round_trip_cost_pct (has not yet generated
+# enough profit to cover costs).  Fires after soft_max_hold so it catches trades
+# that could not exit at soft due to wide spread.  Default: 20 min.
+TIME_DECAY_EXIT_MINUTES = int(os.getenv('TIME_DECAY_EXIT_MINUTES', '20'))
+# Stop-loss cooldown: after a stop-loss on a symbol, block that symbol for this
+# many minutes before the bot can re-open it.  Longer than the regular cooldown.
+# Default: 30 min.
+STOP_LOSS_COOLDOWN_MINUTES = int(os.getenv('STOP_LOSS_COOLDOWN_MINUTES', '30'))
+# Adaptive entry threshold — losing streak guardrails:
+# LOSING_STREAK_THRESHOLD : consecutive stop-losses before confidence bar is raised.
+# LOSING_STREAK_SIGNAL_BOOST : extra avg_confidence required per active loss streak.
+# E.g. normal threshold = 0.65; after 3 losses, threshold = 0.65 + 0.10 = 0.75.
+LOSING_STREAK_THRESHOLD = int(os.getenv('LOSING_STREAK_THRESHOLD', '3'))
+LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10'))
+# Base average-confidence threshold for entry. Raised by LOSING_STREAK_SIGNAL_BOOST
+# after a losing streak. Default: 0.65 (65%).
+BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.65'))
+# Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
+# cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
+# PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
+# Default: 8100 (135 minutes = 2h 15min).
+SOFT_MAX_HOLD_SECONDS = int(os.getenv('SOFT_MAX_HOLD_SECONDS', '8100'))
+# Hard max-hold (seconds): force-close unconditionally — even on low confidence.
+# Low confidence may block OPENING new trades but must never block CLOSING.
+# Fires after SOFT_MAX_HOLD_SECONDS as an absolute last resort.
+# Default: 8700 (145 minutes = 2h 25min).
+HARD_MAX_HOLD_SECONDS = int(os.getenv('HARD_MAX_HOLD_SECONDS', '8700'))
+# Symbol rotation anti-repeat: cooldown window (minutes) before the same symbol
+# can be re-selected for a new trade on the same bot.  Default: 15 min.
+SYMBOL_COOLDOWN_MINUTES = int(os.getenv('SYMBOL_COOLDOWN_MINUTES', '15'))
+# Symbol rotation anti-repeat: last N closed/open symbols tracked per bot.
+SYMBOL_COOLDOWN_HISTORY = int(os.getenv('SYMBOL_COOLDOWN_HISTORY', '3'))
+# Portfolio guard: max new opens on the same symbol per user in this window (minutes).
+PORTFOLIO_GUARD_WINDOW_MINUTES = int(os.getenv('PORTFOLIO_GUARD_WINDOW_MINUTES', '10'))
+# Portfolio guard: max concurrent open trades on the same symbol per user.
+PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '1'))
+# Training-mode max hold: closes training trades sooner to speed up the learn loop.
+# Default 45 min; recorded as close_reason=training_timeout.
+TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))
+# Number of successfully closed trades required to complete training.
+# Default 5; bot auto-graduates once closed_trades_count reaches this value.
+TRAINING_TRADES_REQUIRED = int(os.getenv('TRAINING_TRADES_REQUIRED', '5'))
+
+# ── Expectancy / Drawdown guards ────────────────────────────────────────────
+# Maximum drawdown (as a fraction of peak equity) before bots stand down.
+# When realised drawdown >= MAX_DRAWDOWN_PCT, no new trades are opened.
+# Default: 0.10 (10 %).  Set 0 to disable.
+MAX_DRAWDOWN_PCT = float(os.getenv('MAX_DRAWDOWN_PCT', '0.10'))
+# Minimum estimated expectancy (ZAR per trade) required to open a trade.
+# Expectancy = (win_rate * avg_win) - (loss_rate * avg_loss) - round_trip_cost
+# 0 means "expectancy must be strictly positive". Set negative to disable.
+MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
+
+# ── Safety buffer & regime playbooks ────────────────────────────────────────
+# Base safety buffer added on top of fees+spread+slippage in the edge gate.
+# Default 0.10 %.  In wide-spread / low-liquidity regimes this is multiplied
+# by SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER so bots are more selective.
+SAFETY_BUFFER_PCT = float(os.getenv('SAFETY_BUFFER_PCT', '0.10'))
+# Multiplier applied to SAFETY_BUFFER_PCT when spread > PAPER_MAX_SPREAD_PCT * 0.6
+# (i.e. spread is "wide but still below the hard cutoff").  Default: 2.0.
+SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER = float(os.getenv('SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER', '2.0'))
+
+# ── Per-risk-mode adaptive defaults ─────────────────────────────────────────
+# Bots use these defaults when no custom bot-level override is set.
+# Targets are NOT hard-coded outcomes; they tune behaviour (risk / selectivity
+# / frequency) within the drawdown and expectancy guardrails above.
+RISK_MODE_CONFIG: dict = {
+    "safe": {
+        "max_hold_minutes": int(os.getenv('SAFE_MAX_HOLD_MINUTES', '60')),
+        "safety_exit_minutes": int(os.getenv('SAFE_SAFETY_EXIT_MINUTES', '30')),
+        "take_profit_pct": float(os.getenv('SAFE_TAKE_PROFIT_PCT', '0.015')),
+        "stop_loss_pct": float(os.getenv('SAFE_STOP_LOSS_PCT', '0.010')),
+        "position_size_pct": float(os.getenv('SAFE_POSITION_SIZE_PCT', '0.20')),
+        "min_confidence": float(os.getenv('SAFE_MIN_CONFIDENCE', '0.65')),
+        "safety_buffer_pct": float(os.getenv('SAFE_SAFETY_BUFFER_PCT', '0.15')),
+        # Adaptive target: aim ~3-4% daily on R1000 initial budget
+        "daily_target_pct": float(os.getenv('SAFE_DAILY_TARGET_PCT', '0.03')),
+    },
+    "balanced": {
+        "max_hold_minutes": int(os.getenv('BALANCED_MAX_HOLD_MINUTES', '90')),
+        "safety_exit_minutes": int(os.getenv('BALANCED_SAFETY_EXIT_MINUTES', '45')),
+        "take_profit_pct": float(os.getenv('BALANCED_TAKE_PROFIT_PCT', '0.025')),
+        "stop_loss_pct": float(os.getenv('BALANCED_STOP_LOSS_PCT', '0.015')),
+        "position_size_pct": float(os.getenv('BALANCED_POSITION_SIZE_PCT', '0.30')),
+        "min_confidence": float(os.getenv('BALANCED_MIN_CONFIDENCE', '0.60')),
+        "safety_buffer_pct": float(os.getenv('BALANCED_SAFETY_BUFFER_PCT', '0.10')),
+        "daily_target_pct": float(os.getenv('BALANCED_DAILY_TARGET_PCT', '0.05')),
+    },
+    "aggressive": {
+        "max_hold_minutes": int(os.getenv('AGGRESSIVE_MAX_HOLD_MINUTES', '120')),
+        "safety_exit_minutes": int(os.getenv('AGGRESSIVE_SAFETY_EXIT_MINUTES', '60')),
+        "take_profit_pct": float(os.getenv('AGGRESSIVE_TAKE_PROFIT_PCT', '0.04')),
+        "stop_loss_pct": float(os.getenv('AGGRESSIVE_STOP_LOSS_PCT', '0.025')),
+        "position_size_pct": float(os.getenv('AGGRESSIVE_POSITION_SIZE_PCT', '0.45')),
+        "min_confidence": float(os.getenv('AGGRESSIVE_MIN_CONFIDENCE', '0.55')),
+        "safety_buffer_pct": float(os.getenv('AGGRESSIVE_SAFETY_BUFFER_PCT', '0.08')),
+        "daily_target_pct": float(os.getenv('AGGRESSIVE_DAILY_TARGET_PCT', '0.08')),
+    },
+}
 
 # Default paper trading pair whitelist (can be overridden per bot)
 PAPER_PAIR_WHITELIST = {
@@ -149,6 +233,8 @@ EXCHANGE_DAILY_TRADE_LIMITS = {
 # Autopilot settings (configurable via env vars)
 # Bot Spawning Logic - SEPARATED THRESHOLDS for clarity
 BOT_SPAWN_PROFIT_THRESHOLD_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_THRESHOLD_ZAR', '1000'))  # Spawn new bot when profit reaches this
+AUTO_SPAWN_COOLDOWN_MINUTES = int(os.getenv('AUTO_SPAWN_COOLDOWN_MINUTES', '60'))
+AUTO_SPAWN_MAX_PER_DAY = int(os.getenv('AUTO_SPAWN_MAX_PER_DAY', '2'))
 NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '500'))  # Capital to give new bot
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))  # Lower threshold
 NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
@@ -158,9 +244,8 @@ EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  #
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% threshold
 
 # Autopilot growth + reinvest controls
-# Default: enabled — can be disabled via env var ENABLE_AUTOPILOT_GROWTH=false
-ENABLE_AUTOPILOT_GROWTH = os.getenv('ENABLE_AUTOPILOT_GROWTH', 'true').lower() == 'true'
-ENABLE_AUTOPILOT_REINVEST = os.getenv('ENABLE_AUTOPILOT_REINVEST', 'true').lower() == 'true'
+ENABLE_AUTOPILOT_GROWTH = os.getenv('ENABLE_AUTOPILOT_GROWTH', 'false').lower() == 'true'
+ENABLE_AUTOPILOT_REINVEST = os.getenv('ENABLE_AUTOPILOT_REINVEST', 'false').lower() == 'true'
 AUTOPILOT_PROFIT_MILESTONE_ZAR = float(os.getenv('AUTOPILOT_PROFIT_MILESTONE_ZAR', '1000'))
 AUTOPILOT_REINVEST_MIN_ZAR = float(os.getenv('AUTOPILOT_REINVEST_MIN_ZAR', '100'))
 AUTOPILOT_MAX_BOTS_PER_PLATFORM = int(os.getenv('AUTOPILOT_MAX_BOTS_PER_PLATFORM', '0'))
@@ -188,9 +273,11 @@ AI_MODELS = {
     'chatops': 'gpt-4o'
 }
 
-# Feature flags — ENABLE_PAPER_TRADING, ENABLE_LIVE_TRADING, ENABLE_AUTOPILOT
-# already resolved above as canonical aliases.
+# Feature flags
 ENABLE_TRADING = os.getenv('ENABLE_TRADING', 'true').lower() == 'true'  # Enable for paper trading
+ENABLE_PAPER_TRADING = os.getenv('ENABLE_PAPER_TRADING', 'true').lower() == 'true'  # Paper trading safe
+ENABLE_LIVE_TRADING = os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true'  # Live OFF by default
+ENABLE_AUTOPILOT = os.getenv('ENABLE_AUTOPILOT', 'true').lower() == 'true'  # Autonomous management
 ENABLE_BODYGUARD = os.getenv('ENABLE_BODYGUARD', 'true').lower() == 'true'  # AI protection
 ENABLE_REALTIME = os.getenv('ENABLE_REALTIME', 'true').lower() == 'true'  # SSE/WS events
 ENABLE_SELF_LEARNING = os.getenv('ENABLE_SELF_LEARNING', 'true').lower() == 'true'
@@ -200,13 +287,12 @@ ENABLE_UAGENTS = os.getenv('ENABLE_UAGENTS', 'false').lower() == 'true'
 PAYMENT_AGENT_ENABLED = os.getenv('PAYMENT_AGENT_ENABLED', 'false').lower() == 'true'
 ENABLE_REALTIME_TRANSFERS = os.getenv('ENABLE_REALTIME_TRANSFERS', 'false').lower() == 'true'  # Real-time wallet transfers
 ENABLE_SCHEDULERS = os.getenv('ENABLE_SCHEDULERS', 'true').lower() == 'true'  # Background jobs
-
-# Trading Brain V2 – economics-first engine redesign
 NEW_TRADING_BRAIN_V2 = os.getenv('NEW_TRADING_BRAIN_V2', 'true').lower() == 'true'
 
 # Live Trading Gate Requirements
 REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 'true'
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'
+AUTO_PROMOTE_LIVE = os.getenv('AUTO_PROMOTE_LIVE', 'false').lower() == 'true'  # Auto-promote eligible bots from paper to live daily
 
 # Supported Exchanges for Paper Trading
 # Import from canonical source: backend/config/platforms.py
@@ -214,30 +300,52 @@ from config.platforms import SUPPORTED_PLATFORMS
 PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 7 exchanges supported
 
 __all__ = [
+    'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'FROM_EMAIL', 'FROM_NAME',
+    'EMAIL_CONFIRMATION_TIMEOUT_HOURS', 'REQUIRE_EMAIL_CONFIRMATION',
     'PAPER_TRAINING_DAYS', 'PAPER_STARTING_CAPITAL_ZAR', 'MIN_WIN_RATE', 'MIN_PROFIT_PERCENT', 'MIN_TRADES_FOR_PROMOTION',
     'EXCHANGE_BOT_LIMITS', 'EXCHANGE_TRADE_LIMITS',
     'MAX_TRADES_PER_BOT_PER_DAY', 'MAX_TRADES_PER_USER_PER_DAY', 'MIN_TRADE_PROFIT_THRESHOLD_ZAR',
     'EDGE_BUFFER_PCT', 'EDGE_GATE_PAPER', 'EDGE_GATE_LIVE', 'PAPER_MAX_SPREAD_PCT',
     'PAPER_MIN_ORDERBOOK_NOTIONAL', 'PAPER_PAIR_WHITELIST', 'PAPER_PAIR_WHITELIST_ENABLED',
     'PAPER_STALE_EXIT_MINUTES',
+    'PAPER_MAX_HOLD_MINUTES',
+    'PAPER_SAFETY_EXIT_MINUTES',
+    'STAGNATION_EXIT_MINUTES',
+    'FEE_BREAK_EVEN_WINDOW_MINUTES',
+    'TIME_DECAY_EXIT_MINUTES',
+    'STOP_LOSS_COOLDOWN_MINUTES',
+    'LOSING_STREAK_THRESHOLD',
+    'LOSING_STREAK_SIGNAL_BOOST',
+    'BASE_CONFIDENCE_THRESHOLD',
+    'SOFT_MAX_HOLD_SECONDS',
+    'HARD_MAX_HOLD_SECONDS',
+    'SYMBOL_COOLDOWN_MINUTES',
+    'SYMBOL_COOLDOWN_HISTORY',
+    'PORTFOLIO_GUARD_WINDOW_MINUTES',
+    'PORTFOLIO_GUARD_MAX_SAME_SYMBOL',
+    'TRAINING_MAX_HOLD_MINUTES',
+    'TRAINING_TRADES_REQUIRED',
+    'MAX_DRAWDOWN_PCT',
+    'MIN_EXPECTANCY_ZAR',
+    'SAFETY_BUFFER_PCT',
+    'SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER',
+    'RISK_MODE_CONFIG',
     'EXCHANGE_DAILY_TRADE_LIMITS',
-    'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',
+    'BOT_SPAWN_PROFIT_THRESHOLD_ZAR', 'AUTO_SPAWN_COOLDOWN_MINUTES', 'AUTO_SPAWN_MAX_PER_DAY',
+    'NEW_BOT_SEED_CAPITAL_ZAR', 'REINVEST_THRESHOLD_ZAR',
     'NEW_BOT_CAPITAL', 'MAX_TOTAL_BOTS', 'TOP_PERFORMERS_COUNT',
     'EVOLUTION_MUTATION_RATE', 'QUARANTINE_THRESHOLD',
     'AI_MODELS',
     'STOP_LOSS_SAFE', 'STOP_LOSS_BALANCED', 'STOP_LOSS_AGGRESSIVE',
     'MAX_HOURLY_LOSS_PERCENT', 'MAX_DAILY_LOSS_PERCENT', 'MAX_DRAWDOWN_PERCENT',
     'MIN_POSITION_SIZE_PERCENT', 'MAX_POSITION_SIZE_PERCENT', 'MAX_ERRORS_PER_HOUR',
-    # Canonical trading gate names
-    'PAPER_TRADING', 'LIVE_TRADING', 'AUTOPILOT_ENABLED',
-    # Legacy aliases (resolve to same values)
     'ENABLE_TRADING', 'ENABLE_PAPER_TRADING', 'ENABLE_LIVE_TRADING', 'ENABLE_AUTOPILOT',
     'ENABLE_BODYGUARD', 'ENABLE_REALTIME', 'ENABLE_REALTIME_TRANSFERS', 'ENABLE_SCHEDULERS',
     'ENABLE_SELF_LEARNING', 'ENABLE_SELF_HEALING',
     'ENABLE_CCXT', 'ENABLE_UAGENTS', 'PAYMENT_AGENT_ENABLED',
     'ENABLE_AUTOPILOT_GROWTH', 'ENABLE_AUTOPILOT_REINVEST',
+    'NEW_TRADING_BRAIN_V2',
     'AUTOPILOT_PROFIT_MILESTONE_ZAR', 'AUTOPILOT_REINVEST_MIN_ZAR',
     'AUTOPILOT_MAX_BOTS_PER_PLATFORM',
-    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'PAPER_SUPPORTED_EXCHANGES',
-    'NEW_TRADING_BRAIN_V2',
+    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'AUTO_PROMOTE_LIVE', 'PAPER_SUPPORTED_EXCHANGES'
 ]

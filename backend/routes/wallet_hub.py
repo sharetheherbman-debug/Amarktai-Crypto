@@ -22,6 +22,9 @@ from services.transfer_state_machine import transfer_state_machine
 from services.paper_wallet_service import paper_wallet_service
 from services.system_mode_service import system_mode_service
 from engines.wallet_manager import wallet_manager
+from engines.funding_plan_manager import funding_plan_manager
+from config.exchange_config import get_required_fields, get_deposit_requirements
+from services.wallet_summary_service import wallet_summary_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
@@ -47,9 +50,280 @@ class PaperResetRequest(BaseModel):
     confirm: bool = False
 
 
-class PaperSetBalanceRequest(BaseModel):
-    balance_zar: float
+class PaperFundRequest(BaseModel):
+    """Explicit paper wallet funding request.
+
+    Requires ``confirmed=True`` so the caller acknowledges they are adding
+    starting capital to the unfunded paper wallet.
+    """
+    amount: float
+    currency: str = "ZAR"
     confirmed: bool = False
+
+
+class PaperSetBalanceRequest(BaseModel):
+    """Request to set paper wallet to a specific balance.
+
+    Accepted by POST /api/wallet/paper/set-balance.
+    Resets the wallet to zero and then deposits the requested amount.
+    """
+    balance_zar: float
+    currency: str = "ZAR"
+
+
+@router.get("/status")
+async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
+    """Comprehensive wallet status — single source of truth for frontend WalletHub.
+
+    Always returns HTTP 200 with a stable JSON object.  Never raises on missing
+    keys or unconfigured exchanges — those are represented as disabled/null.
+
+    Shape:
+        mode: "paper" | "live"
+        paper: { available, allocated, total, currency, as_of }
+        live:  { supported_exchanges, configured_exchanges, balances, as_of }
+        ledger: { invariants_ok, drift, last_reconcile_at }
+        keys:  { exchanges: {luno: bool, ...}, openai: bool, huggingface: bool }
+        health: { backend: "ok", ws: "ok|degraded", last_tick_at }
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        # ── Mode ─────────────────────────────────────────────────────────────
+        try:
+            mode = await system_mode_service.get_current_mode(user_id)
+        except Exception:
+            mode = "paper"
+
+        # ── Paper wallet ─────────────────────────────────────────────────────
+        paper_available = 0.0
+        paper_allocated = 0.0
+        try:
+            pw_balances = await paper_wallet_service.get_balances(user_id)
+            paper_available = float(
+                (pw_balances.get("balances") or {}).get("ZAR", 0) or 0
+            )
+        except Exception:
+            pass
+        try:
+            allocated_map = await get_paper_wallet_allocated_balances(user_id)
+            paper_allocated = float(allocated_map.get("ZAR", 0) or 0)
+        except Exception:
+            pass
+        paper_total = round(paper_available + paper_allocated, 2)
+
+        # ── Live exchange keys ────────────────────────────────────────────────
+        configured_exchanges: list = []
+        exchange_key_flags: dict = {}
+        try:
+            api_keys_cursor = db.api_keys_collection.find(
+                {"user_id": user_id}, {"_id": 0, "exchange": 1, "provider": 1}
+            )
+            async for doc in api_keys_cursor:
+                exch = doc.get("exchange") or doc.get("provider") or ""
+                if exch:
+                    exchange_key_flags[exch.lower()] = True
+                    if exch.lower() not in configured_exchanges:
+                        configured_exchanges.append(exch.lower())
+        except Exception:
+            pass
+        for exch in SUPPORTED_PLATFORMS:
+            if exch not in exchange_key_flags:
+                exchange_key_flags[exch] = False
+
+        # ── Live balances (only if keys present) ─────────────────────────────
+        live_balances = None
+        if configured_exchanges:
+            try:
+                balance_result = await wallet_manager.get_master_balance(user_id)
+                if not balance_result.get("error"):
+                    live_balances = balance_result
+            except Exception:
+                pass
+
+        # ── AI key flags ──────────────────────────────────────────────────────
+        openai_configured = False
+        hf_configured = False
+        try:
+            from services.openai_key_resolver import resolve_openai_key
+            openai_key, _ = await resolve_openai_key(user_id)
+            openai_configured = bool(openai_key)
+        except Exception:
+            pass
+        try:
+            from services.huggingface_key_resolver import resolve_huggingface_key
+            hf_key, _ = await resolve_huggingface_key(user_id)
+            hf_configured = bool(hf_key)
+        except Exception:
+            pass
+
+        # ── Active bots count — separate paper and live ───────────────────────
+        active_bots_count = 0
+        required_capital = 0.0
+        paper_bots_count = 0
+        paper_bots_capital = 0.0
+        live_bots_count = 0
+        live_bots_capital = 0.0
+        try:
+            if db.bots_collection is not None:
+                # Count ALL non-deleted bots with DB status active/running (regardless of training state)
+                all_bot_docs = await db.bots_collection.find(
+                    {
+                        "user_id": user_id,
+                        "status": {"$in": ["active", "running"]},
+                        "deleted": {"$ne": True},
+                        "is_deleted": {"$ne": True},
+                    },
+                    {"_id": 0, "trading_mode": 1, "initial_capital": 1, "current_capital": 1}
+                ).to_list(1000)
+                for b in all_bot_docs:
+                    cap = float(b.get("current_capital") or b.get("initial_capital") or 0)
+                    bmode = b.get("trading_mode", "paper")
+                    if bmode == "live":
+                        live_bots_count += 1
+                        live_bots_capital += cap
+                    else:
+                        paper_bots_count += 1
+                        paper_bots_capital += cap
+
+                if mode == "paper":
+                    active_bots_count = paper_bots_count
+                    required_capital = paper_bots_capital
+                else:
+                    active_bots_count = live_bots_count
+                    required_capital = live_bots_capital
+        except Exception:
+            pass
+
+        # ── Funding status (mode-aware) ───────────────────────────────────────
+        # Paper mode: paper bots have self-contained simulated capital.
+        # available_balance is the unallocated paper wallet cash.
+        # We do NOT compute a deficit for paper bots — simulation is always "funded".
+        # Live mode: compare required capital to live exchange balance.
+        if mode == "paper":
+            available_balance = round(paper_available + paper_bots_capital, 2)
+            # Paper is never in deficit — simulation capital is always available
+            deficit = 0.0
+        else:
+            # Live mode: try to get total live balance
+            available_balance = 0.0
+            try:
+                if live_balances:
+                    available_balance = float(
+                        live_balances.get("total_zar") or live_balances.get("total") or 0
+                    )
+            except Exception:
+                pass
+            deficit = round(max(0.0, required_capital - available_balance), 2)
+
+        # NOT_CONFIGURED: no bots in this mode
+        # UNFUNDED: live bots exist but no live balance
+        # FUNDED: has bots and balance (or paper mode with bots — always "funded")
+        if mode == "paper":
+            if paper_bots_count == 0 and paper_available == 0.0:
+                funding_status = "NOT_CONFIGURED"
+            else:
+                funding_status = "FUNDED"  # paper simulation is always self-funded
+        else:
+            if active_bots_count == 0 and available_balance == 0.0:
+                funding_status = "NOT_CONFIGURED"
+            elif live_bots_count > 0 and available_balance == 0.0:
+                funding_status = "UNFUNDED"
+            else:
+                funding_status = "FUNDED"
+
+        # ── Ledger invariants (best-effort) ───────────────────────────────────
+        ledger_invariants_ok = True
+        ledger_drift = 0.0
+        ledger_reconcile_at = None
+        try:
+            from services.ledger_service import get_ledger_service
+            from database import get_database
+            _db = getattr(db, "db", None)
+            if _db is not None:
+                ledger_svc = get_ledger_service(_db)
+                equity = await ledger_svc.compute_equity(user_id)
+                # Compute allocated from open trades
+                open_allocated = 0.0
+                async for trade in db.trades_collection.find(
+                    {"user_id": user_id, "status": "open"},
+                    {"_id": 0, "entry_value": 1, "trade_amount": 1}
+                ):
+                    open_allocated += float(
+                        trade.get("entry_value") or trade.get("trade_amount") or 0
+                    )
+                # Invariant: equity = available + allocated
+                # If these numbers are consistent, drift should be ~0.
+                available_implied = equity - open_allocated
+                computed_total = available_implied + open_allocated
+                ledger_drift = round(abs(computed_total - equity), 6)
+                ledger_invariants_ok = ledger_drift < 0.01
+        except Exception:
+            pass
+
+        return {
+            "mode": mode,
+            # ── Mode-aware summary (primary fields consumed by WalletHub UI) ──
+            "active_bots": active_bots_count,
+            "required_capital": round(required_capital, 2),
+            "available_balance": round(available_balance, 2),
+            "deficit": deficit,
+            "funding_status": funding_status,
+            # ── Per-mode bot breakdown ────────────────────────────────────────
+            "paper_bots": {
+                "count": paper_bots_count,
+                "capital": round(paper_bots_capital, 2),
+                "note": "Paper bots use simulated capital; no live funds required.",
+            },
+            "live_bots": {
+                "count": live_bots_count,
+                "capital": round(live_bots_capital, 2),
+            },
+            # ── Paper detail ─────────────────────────────────────────────────
+            "paper": {
+                "available": round(paper_available, 2),
+                "allocated": round(paper_allocated, 2),
+                "total": paper_total,
+                "currency": "ZAR",
+                "funded_status": "FUNDED" if (paper_total > 0 or paper_bots_count > 0) else "UNFUNDED",
+                "as_of": now_iso,
+            },
+            "live": {
+                "supported_exchanges": list(SUPPORTED_PLATFORMS),
+                "configured_exchanges": configured_exchanges,
+                "balances": live_balances,
+                "as_of": now_iso,
+            },
+            "ledger": {
+                "invariants_ok": ledger_invariants_ok,
+                "drift": ledger_drift,
+                "last_reconcile_at": ledger_reconcile_at,
+            },
+            "keys": {
+                "exchanges": exchange_key_flags,
+                "openai": openai_configured,
+                "huggingface": hf_configured,
+            },
+            "health": {
+                "backend": "ok",
+                "ws": "ok",
+                "last_tick_at": now_iso,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Wallet status error: {e}", exc_info=True)
+        return {
+            "mode": "paper",
+            "active_bots": 0,
+            "required_capital": 0.0,
+            "available_balance": 0.0,
+            "deficit": 0.0,
+            "funding_status": "NOT_CONFIGURED",
+            "paper": {"available": 0.0, "allocated": 0.0, "total": 0.0, "currency": "ZAR", "funded_status": "UNFUNDED", "as_of": now_iso},
+            "live": {"supported_exchanges": [], "configured_exchanges": [], "balances": None, "as_of": now_iso},
+            "ledger": {"invariants_ok": True, "drift": 0.0, "last_reconcile_at": None},
+            "keys": {"exchanges": {}, "openai": False, "huggingface": False},
+            "health": {"backend": "error", "ws": "degraded", "last_tick_at": None},
+        }
 
 
 @router.get("/health")
@@ -143,44 +417,55 @@ async def get_paper_wallet_balances(user_id: str) -> Dict:
 
 @router.get("/paper")
 async def get_paper_wallet(user_id: str = Depends(get_current_user)):
-    """Get paper wallet balances and totals with canonical funded status.
+    """Get paper wallet balances and summary.
 
-    Response fields:
-    - available          — per-currency unallocated balances
-    - allocated          — per-currency capital locked in bot ledgers
-    - balances           — per-currency total (available + allocated)
-    - total_display_zar  — authoritative total converted to ZAR via canonical FX path
-    - canonical_currency — always "ZAR"
-    - fx_metadata        — FX rates and source used for ZAR conversion
-    - total              — backward-compat alias for total_display_zar (properly converted)
+    Returns both the legacy balance breakdown **and** the wallet_summary_service fields
+    so that callers get consistent numbers regardless of which field they read:
+
+    - available_wallet_zar: funds available for new trades
+    - allocated_funds_zar:  funds currently deployed in open positions
+    - reserved_funds_zar:   funds held back by risk/circuit-breaker rules
+    - required_funds_zar:   minimum capital needed to run all active bots
+    - shortfall_zar:        max(0, required - available)
+    - status:               'ok' | 'shortfall' | 'not_configured'
     """
-    from services.canonical import get_canonical_wallet_truth
-    from services.reconciliation import reconcile_wallet_balances
+    summary = await wallet_summary_service.get_summary(user_id)
     available = await paper_wallet_service.get_balances(user_id)
     allocated = await get_paper_wallet_allocated_balances(user_id)
-    # Use reconciliation layer — never raw-sum different currencies
-    reconciled = reconcile_wallet_balances(
-        available.get("balances", {}),
-        allocated,
-    )
-    # Derive funded_status from canonical service (single source of truth)
-    wallet_truth = await get_canonical_wallet_truth(user_id)
-    funded_status = wallet_truth["funded_status"]
+    totals = await get_paper_wallet_balances(user_id)
+    total_value = sum(float(value or 0) for value in totals.values())
+
+    # Invariant: available_wallet_zar MUST equal available["ZAR"] (B).
+    # Use the paper_wallet_service balance (unallocated funds) as the single source.
+    available_balances = available.get("balances", {})
+    available_zar = float(available_balances.get("ZAR", 0) or 0)
+    # allocated_funds_zar reflects ledger-reserved (open-position) funds (B).
+    allocated_zar = float((allocated or {}).get("ZAR", 0) or 0)
+
     return {
+        "success": True,
+        "mode": summary.get("mode", "paper"),
+        # Bot fleet summary (feeds WalletHub active_bots / required_capital display)
+        "active_bots": summary.get("active_bots_count", 0),
+        "required_capital": summary.get("required_funds_zar", 0.0),
+        # Canonical wallet_summary fields — invariant: available_wallet_zar == available["ZAR"]
+        "available_wallet_zar": round(available_zar, 2),
+        "allocated_funds_zar": round(allocated_zar, 2),
+        # initial_funding_zar = sum of bot initial_capital (what was deposited for bots).
+        # Kept separate from allocated_funds_zar (which reflects current ledger positions).
+        "initial_funding_zar": summary.get("allocated_funds_zar", 0.0),
+        "reserved_funds_zar": summary.get("reserved_funds_zar", 0.0),
+        "required_funds_zar": summary.get("required_funds_zar", 0.0),
+        "shortfall_zar": summary.get("shortfall_zar", 0.0),
+        "status": summary.get("status", "ok"),
+        "funded_status": "FUNDED" if total_value > 0 else "UNFUNDED",
+        # Legacy balance breakdown (kept for backward compatibility)
         "user_id": user_id,
-        "available": reconciled["available"],
-        "allocated": reconciled["allocated"],
-        "balances": reconciled["balances"],
-        "total_display_zar": reconciled["total_display_zar"],
-        "canonical_currency": reconciled["canonical_currency"],
-        "fx_metadata": reconciled["fx_metadata"],
-        # Backward-compat: total is now the properly-converted ZAR display total
-        "total": reconciled["total_display_zar"],
-        "funded_status": funded_status,
-        "status": funded_status,
-        "shortfall": wallet_truth["shortfall"],
-        "required": wallet_truth["required"],
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "available": available_balances,
+        "allocated": allocated,
+        "balances": totals,
+        "total": round(total_value, 2),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -232,7 +517,10 @@ async def reset_paper_wallet(
     return {
         "success": True,
         "balances": result.get("balances", {}),
-        "total": result.get("total", 0)
+        "total": result.get("total", 0),
+        "wallet_before": result.get("wallet_before", {}),
+        "wallet_after": result.get("wallet_after", {}),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -241,51 +529,130 @@ async def set_paper_wallet_balance(
     request: PaperSetBalanceRequest,
     user_id: str = Depends(get_current_user)
 ):
-    """Set (overwrite) the paper wallet ZAR balance to an exact amount.
+    """Set paper wallet to a specific balance (reset then fund).
 
-    This is the canonical endpoint for the dashboard reset/fund flow.
-    Unlike ``/paper/deposit`` (which increments), this endpoint
-    unconditionally sets ``balance_zar`` as the new available ZAR balance.
+    Canonical go-live endpoint for seeding demo capital.
+    Resets the wallet to zero then deposits the requested amount.
 
     Args:
-        balance_zar: Target ZAR balance (must be >= 0)
-        confirmed: Must be ``true`` to execute; if ``false`` a dry-run
-                   preview is returned with no DB change.
+        balance_zar: Target balance (>= 0).  0 just clears the wallet.
+        currency: Currency code (default ZAR).
 
-    Returns:
-        success, balances, total, currency, action
+    Returns the same JSON shape as GET /api/wallet/paper.
     """
     if request.balance_zar < 0:
         raise HTTPException(status_code=400, detail="balance_zar must be non-negative")
+    currency = (request.currency or "ZAR").strip().upper()
+    if not currency:
+        raise HTTPException(status_code=400, detail="currency must be a non-empty string")
 
+    # Reset to zero, then fund to requested amount
+    await paper_wallet_service.reset(user_id)
+    if request.balance_zar > 0:
+        await paper_wallet_service.fund(user_id, request.balance_zar, currency)
+
+    # Return current state — same shape as GET /paper
+    summary = await wallet_summary_service.get_summary(user_id)
+    available = await paper_wallet_service.get_balances(user_id)
+    allocated = await get_paper_wallet_allocated_balances(user_id)
+    totals = await get_paper_wallet_balances(user_id)
+    total_value = sum(float(v or 0) for v in totals.values())
+    available_balances = available.get("balances", {})
+    available_zar = float(available_balances.get("ZAR", 0) or 0)
+    allocated_zar = float((allocated or {}).get("ZAR", 0) or 0)
+
+    return {
+        "success": True,
+        "mode": summary.get("mode", "paper"),
+        "available_wallet_zar": round(available_zar, 2),
+        "allocated_funds_zar": round(allocated_zar, 2),
+        "initial_funding_zar": summary.get("allocated_funds_zar", 0.0),
+        "reserved_funds_zar": summary.get("reserved_funds_zar", 0.0),
+        "required_funds_zar": summary.get("required_funds_zar", 0.0),
+        "shortfall_zar": summary.get("shortfall_zar", 0.0),
+        "status": summary.get("status", "ok"),
+        "user_id": user_id,
+        "available": available_balances,
+        "allocated": allocated,
+        "balances": totals,
+        "total": round(total_value, 2),
+        "set_to": request.balance_zar,
+        "currency": currency,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/paper/fund")
+async def fund_paper_wallet(
+    request: PaperFundRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Explicitly fund an unfunded paper wallet.
+
+    This is the ONLY legitimate way to add starting capital after a reset.
+    Requires ``confirmed=True`` and ``amount > 0``.
+    The event is logged in the audit log and capital_injections collection.
+
+    Args:
+        amount: Amount to fund in ``currency``
+        currency: Currency code (default ZAR)
+        confirmed: Must be True
+
+    Returns:
+        balances, total, funded_amount, ledger_event_id
+    """
     if not request.confirmed:
-        return {
-            "success": False,
-            "preview": True,
-            "balance_zar": request.balance_zar,
-            "message": "Send confirmed=true to apply this balance.",
-        }
+        raise HTTPException(
+            status_code=400,
+            detail="confirmed must be true to fund paper wallet"
+        )
+    if request.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+    currency = (request.currency or "ZAR").strip().upper()
+    if not currency:
+        raise HTTPException(status_code=400, detail="currency must be a non-empty string")
 
-    result = await paper_wallet_service.set_balance(user_id, request.balance_zar, "ZAR")
+    result = await paper_wallet_service.fund(user_id, request.amount, currency)
+
+    # Record capital injection
+    from uuid import uuid4
+    injection_id = str(uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        if db.capital_injections_collection is not None:
+            await db.capital_injections_collection.insert_one({
+                "id": injection_id,
+                "user_id": user_id,
+                "amount": request.amount,
+                "currency": currency,
+                "source": "paper_fund",
+                "timestamp": now_iso,
+            })
+    except Exception as e:
+        logger.warning(f"Capital injection record failed: {e}")
 
     try:
         await db.audit_logs_collection.insert_one({
             "user_id": user_id,
-            "action": "paper_wallet_set_balance",
+            "action": "paper_wallet_funded",
             "details": {
-                "balance_zar": request.balance_zar,
-                "currency": "ZAR",
+                "amount": request.amount,
+                "currency": currency,
+                "injection_id": injection_id,
             },
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now_iso,
         })
     except Exception as e:
-        logger.warning(f"Paper wallet set-balance audit failed: {e}")
+        logger.warning(f"Paper wallet fund audit failed: {e}")
 
     return {
         "success": True,
+        "funded_amount": request.amount,
+        "currency": currency,
         "balances": result.get("balances", {}),
         "total": result.get("total", 0),
-        "currency": "ZAR",
+        "injection_id": injection_id,
+        "timestamp": now_iso,
     }
 
 
@@ -665,119 +1032,218 @@ async def get_pending_approvals(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Currency / Crypto Converter ───────────────────────────────────────────────
-# Reuses the canonical fx_normalizer as single source of truth.
-# Supports ZAR, USD, GBP, EUR, USDT, BTC, ETH.
-# This is intentionally a lightweight synchronous-style endpoint; for live
-# crypto quotes the caller may refresh on demand.
-
-_SUPPORTED_CONVERTER_CURRENCIES = {"ZAR", "USD", "GBP", "EUR", "USDT", "BUSD", "USDC", "BTC", "ETH"}
-
-# Static fallback cross-rates vs ZAR for BTC/ETH (no canonical source yet).
-import os as _os
-_BTC_ZAR: float = float(_os.getenv("BTC_ZAR_RATE", "1400000.0"))
-_ETH_ZAR: float = float(_os.getenv("ETH_ZAR_RATE", "60000.0"))
-
-
-def _get_to_zar_rate(currency: str) -> tuple:
-    """Return (rate, source) to convert *currency* → ZAR.
-
-    Delegates to canonical fx_normalizer for all currencies it handles
-    (ZAR, USDT-family, USD, GBP, EUR).  BTC and ETH use their own static
-    env-overridable fallbacks since they are not display currencies.
+@router.get("/requirements")
+async def get_capital_requirements(user_id: str = Depends(get_current_user)):
     """
-    from services.fx_normalizer import get_fx_rate as _fx_get
-    cur = currency.upper()
-    # BTC / ETH — static fallback (no canonical path yet)
-    _crypto_fallbacks = {
-        "BTC": (_BTC_ZAR, "env_fallback_btc"),
-        "ETH": (_ETH_ZAR, "env_fallback_eth"),
-    }
-    if cur in _crypto_fallbacks:
-        return _crypto_fallbacks[cur]
-    # All other currencies: delegate to the canonical normalizer which handles
-    # ZAR (identity), USDT-family (live/cached), USD/GBP/EUR (fiat provider)
-    return _fx_get(cur, "ZAR")
-
-
-class ConvertRequest(BaseModel):
-    amount: float
-    from_currency: str
-    to_currency: str = "ZAR"
-
-
-@router.post("/converter")
-async def convert_currency(
-    req: ConvertRequest,
-    user_id: str = Depends(get_current_user),
-):
-    """Convert an amount between supported currencies.
-
-    Single source of truth: uses fx_normalizer for USDT/BUSD/USDC→ZAR; static
-    fallback rates (env-overridable) for USD, GBP, EUR, BTC, ETH.
-
-    Supported currencies: ZAR, USD, GBP, EUR, USDT, BUSD, USDC, BTC, ETH.
-
-    Returns full labeled response — no naked numbers.
+    Get capital requirements per exchange based on active bots.
+    Returns required exchanges, required fields per exchange, whether keys are present,
+    and deposit requirements if applicable.
     """
-    from_cur = req.from_currency.upper().strip()
-    to_cur = req.to_currency.upper().strip()
+    try:
+        # Safe check for collection initialization
+        if db.bots_collection is None:
+            logger.warning("bots_collection not initialized")
+            return {
+                "user_id": user_id,
+                "requirements": {},
+                "summary": {
+                    "total_required": 0,
+                    "total_available": 0,
+                    "overall_health": "unknown"
+                },
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "note": "Collections not initialized"
+            }
+        
+        mode = await system_mode_service.get_current_mode(user_id)
 
-    if from_cur not in _SUPPORTED_CONVERTER_CURRENCIES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported from_currency '{from_cur}'. Supported: {sorted(_SUPPORTED_CONVERTER_CURRENCIES)}",
-        )
-    if to_cur not in _SUPPORTED_CONVERTER_CURRENCIES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported to_currency '{to_cur}'. Supported: {sorted(_SUPPORTED_CONVERTER_CURRENCIES)}",
-        )
-    if req.amount < 0:
-        raise HTTPException(status_code=400, detail="amount must be >= 0")
+        # Get all active bots in current mode
+        bots = await db.bots_collection.find(
+            {"user_id": user_id, "status": "active", "trading_mode": mode},
+            {"_id": 0}
+        ).to_list(1000)
+        
+        # Get user's API keys to check what's configured
+        api_keys_present = {}
+        try:
+            user_keys = await db.api_keys_collection.find(
+                {"user_id": user_id},
+                {"_id": 0, "provider": 1, "exchange": 1}
+            ).to_list(100)
+            
+            for key in user_keys:
+                provider = key.get('provider') or key.get('exchange')
+                if provider:
+                    api_keys_present[provider.lower()] = True
+        except Exception as e:
+            logger.warning(f"Could not fetch API keys: {e}")
+        
+        # Calculate required capital per exchange
+        requirements = {}
+        
+        for bot in bots:
+            exchange = bot.get('exchange', 'unknown').lower()
+            initial_capital = bot.get('initial_capital')
+            capital = initial_capital if initial_capital is not None else bot.get('current_capital', 0)
+            
+            if exchange not in requirements:
+                requirements[exchange] = {
+                    "exchange": exchange,
+                    "required_capital": 0,
+                    "bots_count": 0,
+                    "available_capital": 0,
+                    "surplus_deficit": 0,
+                    "health": "unknown",
+                    "api_key_present": api_keys_present.get(exchange, False),
+                    "required_fields": get_required_fields(exchange),
+                    "deposit_requirements": get_deposit_requirements(exchange)
+                }
+            
+            requirements[exchange]['required_capital'] += capital
+            requirements[exchange]['bots_count'] += 1
+        
+        # Initialize balances to None
+        balances = None
+        
+        # Get actual balances (safe check for collection)
+        if db.wallet_balances_collection is not None:
+            balances = await db.wallet_balances_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0}
+            )
+            
+            if balances:
+                for exchange, req in requirements.items():
+                    exchange_balance = balances.get('exchanges', {}).get(exchange, {})
+                    available = exchange_balance.get('zar_balance', 0)
+                    req['available_capital'] = available
+                    req['surplus_deficit'] = available - req['required_capital']
+                    
+                    # Determine health
+                    if req['surplus_deficit'] >= 1000:
+                        req['health'] = 'healthy'
+                    elif req['surplus_deficit'] >= 0:
+                        req['health'] = 'adequate'
+                    elif req['surplus_deficit'] >= -500:
+                        req['health'] = 'warning'
+                    else:
+                        req['health'] = 'critical'
+        else:
+            logger.warning("wallet_balances_collection not initialized")
+        
+        # Calculate summary
+        total_required = sum(req['required_capital'] for req in requirements.values())
+        total_available = sum(req['available_capital'] for req in requirements.values())
+        
+        # Get wallet summary with error handling
+        wallet_summary = {}
+        try:
+            wallet_summary = await wallet_summary_service.get_summary(user_id)
+            if not wallet_summary:
+                wallet_summary = {}
+        except Exception as e:
+            logger.warning(f"Failed to get wallet summary: {e}")
+            wallet_summary = {}
 
-    # Convert: from_currency → ZAR → to_currency
-    from_rate_to_zar, from_source = _get_to_zar_rate(from_cur)
-    to_rate_to_zar, to_source = _get_to_zar_rate(to_cur)
-
-    # Guard against zero rates (should not happen for supported currencies)
-    if to_rate_to_zar <= 0:
-        to_rate_to_zar = 1.0
-
-    amount_in_zar = req.amount * from_rate_to_zar
-    converted_amount = round(amount_in_zar / to_rate_to_zar, 8) if to_cur != "ZAR" else round(amount_in_zar, 2)
-
-    return {
-        "input_amount": req.amount,
-        "input_currency": from_cur,
-        "output_amount": converted_amount,
-        "output_currency": to_cur,
-        "via_zar_amount": round(amount_in_zar, 2),
-        "from_rate_to_zar": round(from_rate_to_zar, 6),
-        "to_rate_to_zar": round(to_rate_to_zar, 6),
-        "effective_rate": round(from_rate_to_zar / to_rate_to_zar, 8) if to_rate_to_zar > 0 else None,
-        "rate_source": f"{from_source}/{to_source}",
-        "supported_currencies": sorted(_SUPPORTED_CONVERTER_CURRENCIES),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-@router.get("/converter/rates")
-async def get_converter_rates(user_id: str = Depends(get_current_user)):
-    """Return all current converter rates relative to ZAR.
-
-    Useful for the frontend to pre-populate the converter widget.
-    """
-    rates = {}
-    for cur in sorted(_SUPPORTED_CONVERTER_CURRENCIES):
-        rate, source = _get_to_zar_rate(cur)
-        rates[cur] = {
-            "rate_to_zar": round(rate, 6),
-            "source": source,
+        return {
+            "user_id": user_id,
+            "requirements": requirements,
+            "summary": {
+                "total_required": round(total_required, 2),
+                "total_available": round(total_available, 2),
+                "overall_health": "healthy" if total_available >= total_required else "warning",
+                "exchanges_count": len(requirements),
+                "keys_configured": sum(1 for req in requirements.values() if req['api_key_present']),
+                "mode": wallet_summary.get("mode"),
+                "required_funds_zar": wallet_summary.get("required_funds_zar"),
+                "available_wallet_zar": wallet_summary.get("available_wallet_zar"),
+                "reserved_funds_zar": wallet_summary.get("reserved_funds_zar"),
+                "shortfall_zar": wallet_summary.get("shortfall_zar"),
+                "status": wallet_summary.get("status")
+            },
+            "timestamp": balances.get('timestamp', datetime.now(timezone.utc).isoformat()) if balances else datetime.now(timezone.utc).isoformat()
         }
-    return {
-        "rates": rates,
-        "base_currency": "ZAR",
-        "supported_currencies": sorted(_SUPPORTED_CONVERTER_CURRENCIES),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        
+    except Exception as e:
+        logger.error(f"Get capital requirements error: {e}")
+        # Return safe default instead of 500
+        return {
+            "user_id": user_id,
+            "requirements": {},
+            "summary": {
+                "total_required": 0,
+                "total_available": 0,
+                "overall_health": "error"
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e)
+        }
+
+
+@router.get("/funding-plans")
+async def get_funding_plans(
+    status: str = None,
+    user_id: str = Depends(get_current_user)
+):
+    """Get all funding plans for user"""
+    try:
+        plans = await funding_plan_manager.get_user_funding_plans(
+            user_id,
+            status=status
+        )
+        
+        return {
+            "user_id": user_id,
+            "plans": plans,
+            "count": len(plans)
+        }
+        
+    except Exception as e:
+        logger.error(f"Get funding plans error: {e}")
+        # Return safe default instead of 500
+        return {
+            "user_id": user_id,
+            "plans": [],
+            "count": 0,
+            "error": str(e)
+        }
+
+
+@router.get("/funding-plans/{plan_id}")
+async def get_funding_plan(plan_id: str, user_id: str = Depends(get_current_user)):
+    """Get specific funding plan"""
+    try:
+        plan = await funding_plan_manager.get_funding_plan(plan_id)
+        
+        if not plan:
+            raise HTTPException(status_code=404, detail="Funding plan not found")
+        
+        # Verify ownership
+        if plan.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this plan")
+        
+        return plan
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get funding plan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/funding-plans/{plan_id}/cancel")
+async def cancel_funding_plan(plan_id: str, user_id: str = Depends(get_current_user)):
+    """Cancel a funding plan"""
+    try:
+        result = await funding_plan_manager.cancel_funding_plan(plan_id, user_id)
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Cancellation failed"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cancel funding plan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

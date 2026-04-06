@@ -53,7 +53,7 @@ def env_str(key: str, default: str = '') -> str:
 
 # Database Configuration
 MONGO_URL = env_str('MONGO_URL', 'mongodb://localhost:27017')
-DB_NAME = env_str('DB_NAME', 'amarktai_trading')
+DB_NAME = env_str('DB_NAME', 'amarktai')
 
 # Feature Flags
 ENABLE_TRADING = env_bool('ENABLE_TRADING', False)

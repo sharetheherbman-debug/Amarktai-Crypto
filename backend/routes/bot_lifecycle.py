@@ -10,39 +10,22 @@ from typing import Optional, Dict, TypedDict
 import logging
 import os
 
-from auth import get_current_user, get_optional_user
+from auth import get_current_user
 import database as db
 from websocket_manager import manager
 from realtime_events import rt_events
 from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
-from services.risk_lock_service import risk_lock_service
-from services.canonical_metrics import get_canonical_metrics_snapshot
-from services.canonical import get_canonical_bot_activity, get_latest_bot_decisions
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
 from utils.datetime_helpers import remaining_seconds
-from utils.bot_state import normalize_bot_state
-# Canonical trading-gate flags — use config module (supports all env-var aliases)
-from config import PAPER_TRADING as _cfg_paper_trading, LIVE_TRADING as _cfg_live_trading
-from services.truth_normalizer import normalize_bot_trade_truth
-from services.fx_normalizer import get_quote_currency, get_fx_rate
+from utils.env_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Bot Lifecycle"])
 bots_collection = db.bots_collection
 ALL_EXCHANGES = list(SUPPORTED_EXCHANGES)
-
-
-def _paper_trading_enabled() -> bool:
-    """Return True when paper trading is enabled (canonical config check)."""
-    return _cfg_paper_trading or os.getenv('PAPER_TRADING') == '1' or os.getenv('ENABLE_PAPER_TRADING', 'true').lower() == 'true'
-
-
-def _live_trading_enabled() -> bool:
-    """Return True when live trading is enabled (canonical config check)."""
-    return _cfg_live_trading or os.getenv('LIVE_TRADING') == '1' or os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true'
 
 class BlockDetail(TypedDict, total=False):
     code: str
@@ -99,7 +82,6 @@ def _bots_status_payload(
     bots: Optional[list] = None,
     exchange_counts: Optional[Dict[str, int]] = None,
     all_exchanges: Optional[list] = None,
-    activity: Optional[Dict] = None,
     success: bool = True,
     error: Optional[str] = None,
 ) -> Dict:
@@ -107,25 +89,18 @@ def _bots_status_payload(
     bots = [] if bots is None else bots
     exchange_counts = {} if exchange_counts is None else exchange_counts
     all_exchanges = [] if all_exchanges is None else all_exchanges
-    activity = activity or {}
-    active_from_activity = activity.get("active_bot_records", activity.get("active"))
-    if active_from_activity is None:
-        active_from_activity = sum(
-            1
-            for bot in bots
-            if bot.get("state") == "active" or bot.get("status") == "active"
-        )
-    active_bots = int(active_from_activity or 0)
-    runnable_bots = int(activity.get("runnable_active_bots", activity.get("runnable", active_bots)) or 0)
+    active_bots = sum(
+        1
+        for bot in bots
+        if bot.get("state") == "active" or bot.get("status") == "active"
+    )
     return {
         "success": success,
         "active_bots": active_bots,
-        "runnable_bots": runnable_bots,
         "bots": bots,
         "platforms": exchange_counts,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total": len(bots),
-        "activity": activity,
         "exchange_counts": exchange_counts,
         "all_exchanges": all_exchanges,
         **({"error": error} if error else {}),
@@ -147,28 +122,11 @@ def _blocked_response(action: str, bot: Optional[Dict], blocker: Dict) -> JSONRe
 
 
 async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
-    # Use the canonical risk lock service to check daily loss lock status.
-    # is_locked_today() already handles stale-lock detection (returns False if
-    # day_key != today UTC). If the lock is stale, the background midnight job
-    # will clear it; the inline guard in the service returns False immediately so
-    # the bot is not blocked.
-    try:
-        is_locked, lock_reason = await risk_lock_service.is_locked_today(user_id)
-    except Exception as _rls_err:
-        logger.warning(f"[BotBlockers] risk_lock_service.is_locked_today failed: {_rls_err}")
-        # Fallback: read the field directly from the DB so we never silently allow a locked user
-        user = await db.users_collection.find_one({"id": user_id}, {"_id": 0, "daily_loss_lock_active": 1, "daily_loss_day_key": 1, "daily_loss_locked_reason": 1})
-        from datetime import datetime, timezone
-        today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        raw_active = bool(user.get("daily_loss_lock_active", False)) if user else False
-        raw_day_key = (user or {}).get("daily_loss_day_key", "")
-        is_locked = raw_active and raw_day_key == today_key
-        lock_reason = (user or {}).get("daily_loss_locked_reason", "Daily loss lock is active") if is_locked else None
-
-    if is_locked:
+    user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+    if user and user.get("daily_loss_lock_active", False):
         return _build_block_detail(
             "daily_loss_lock",
-            lock_reason or "Daily loss lock is active",
+            user.get("daily_loss_locked_reason", "Daily loss lock is active"),
             "Reset the daily loss lock or contact admin",
         )
 
@@ -192,11 +150,13 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
         )
 
     if bot.get("status") in ["training", "training_failed"] or bot.get("training_in_progress"):
-        return _build_block_detail(
-            "training",
-            bot.get("training_failed_reason", "Training in progress"),
-            "Complete training before resuming trading",
-        )
+        # Paper bots are never blocked by training — they trade freely from the first tick.
+        if bot.get("trading_mode", "paper") != "paper":
+            return _build_block_detail(
+                "training",
+                bot.get("training_failed_reason", "Training in progress"),
+                "Complete training before resuming trading",
+            )
 
     if bot.get("paused_by_bodyguard"):
         try:
@@ -217,13 +177,13 @@ async def _check_bot_blockers(bot: Dict, user_id: str) -> Optional[Dict]:
 
 @router.get("/status")
 async def get_bots_status(
-    user_id: Optional[str] = Depends(get_optional_user),
+    user_id: str = Depends(get_current_user),
     meta: Optional[int] = 0,
 ):
     """Get bot status list with states for bot management
     
-    Returns all bots with detailed status including training states
-    Unauthenticated requests receive empty defaults.
+    Returns all bots with detailed status including training states.
+    Requires authentication; unauthenticated requests receive 401.
     
     Args:
         user_id: Current user ID (from auth)
@@ -239,13 +199,8 @@ async def get_bots_status(
             content={"detail": "Bots collection unavailable"},
         )
     exchange_counts = {exchange: 0 for exchange in all_exchanges}
-    if not user_id:
-        if meta:
-            return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
-        return _bots_status_payload([], exchange_counts, all_exchanges)
 
     try:
-        activity = await get_canonical_bot_activity(user_id)
         bots = await collection.find(
             {
                 "user_id": user_id,
@@ -260,32 +215,12 @@ async def get_bots_status(
         if not bots:
             if meta:
                 return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
-            return _bots_status_payload([], exchange_counts, all_exchanges, activity=activity)
+            return _bots_status_payload([], exchange_counts, all_exchanges)
 
         runtime_states = {
             state.get("bot_id"): state
             for state in await bot_runtime_state.list_states(user_id)
         }
-        decision_map = await get_latest_bot_decisions(user_id, [str(bot.get("id")) for bot in bots if bot.get("id")])
-        canonical_snapshot = await get_canonical_metrics_snapshot(user_id, bots=bots)
-        canonical_by_bot = canonical_snapshot.get("by_bot_id", {})
-
-        # Bulk-fetch open trades for all bots in one query so truth_normalizer can
-        # resolve symbol/regime/confidence from trade canonical fields without an
-        # N+1 DB round-trip per bot.
-        bot_ids_all = [str(bot.get("id")) for bot in bots if bot.get("id")]
-        try:
-            _raw_open_trades = await db.trades_collection.find(
-                {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
-                {"_id": 0},
-            ).sort("timestamp", -1).to_list(max(len(bot_ids_all), 100))
-        except Exception:
-            _raw_open_trades = []
-        open_trade_by_bot: dict = {}
-        for _t in _raw_open_trades:
-            _bid = str(_t.get("bot_id", ""))
-            if _bid and _bid not in open_trade_by_bot:
-                open_trade_by_bot[_bid] = _t
         
         # Enrich each bot with detailed state
         enriched_bots = []
@@ -294,36 +229,65 @@ async def get_bots_status(
             runtime_state = runtime_states.get(bot.get("id"))
             if runtime_state and runtime_state.get("state") in {"active", "paused", "stopped"}:
                 status = runtime_state.get("state")
-            decision_overlay = decision_map.get(str(bot.get("id")), {})
-            decision_fallback = {
-                key: value
-                for key, value in decision_overlay.items()
-                if key not in bot or bot.get(key) in (None, "", [])
-            }
-            normalized_bot = normalize_bot_state({**bot, **decision_fallback, "status": status})
-
-            # Merge open-trade canonical truth so symbol/regime/confidence
-            # are consistent with what radar and trades endpoints show.
-            _open_trade_for_bot = open_trade_by_bot.get(str(bot.get("id")), None)
-            _truth = normalize_bot_trade_truth(normalized_bot, _open_trade_for_bot)
             
             # Map status to standard states
-            if status == 'active':
-                state = 'active'
+            # Paper bots are never gated by training — they trade freely from the first tick.
+            is_paper = bot.get('trading_mode', 'paper') == 'paper'
+            training_complete = bot.get('training_complete', True if is_paper else False)
+            training_in_progress = bot.get('training_in_progress', False)
+
+            if status in ('training', ) or (training_in_progress and not is_paper):
+                state = 'training'
+            elif status == 'training_failed' or (bot.get('training_failed') and not is_paper):
+                state = 'training_failed'
+            elif status == 'active' and not training_complete and not is_paper:
+                # Live bots only: marked active but training is not complete — show as training
+                state = 'training'
+            elif status == 'active':
+                # paused_by_user / paused_by_system flags take precedence even when
+                # runtime_state has overridden status to "active" — a bot cannot be
+                # simultaneously active and paused (fix for A).
+                if bot.get('paused_by_user') or bot.get('paused_by_system'):
+                    if (training_complete or is_paper) and bot.get('paused_by_user'):
+                        state = 'paused_ready'
+                    else:
+                        state = 'paused'
+                else:
+                    state = 'active'
             elif status == 'paused':
                 # Check if ready to activate (paused_ready)
-                if bot.get('training_complete') and bot.get('paused_by_user'):
+                if (training_complete or is_paper) and bot.get('paused_by_user'):
                     state = 'paused_ready'
                 else:
                     state = 'paused'
             elif status == 'stopped':
                 state = 'stopped'
-            elif status == 'training' or bot.get('training_in_progress'):
-                state = 'training'
-            elif status == 'training_failed' or bot.get('training_failed'):
-                state = 'training_failed'
             else:
                 state = status
+
+            # Compute training progress fields (paper bots always show complete)
+            required_closed = int(bot.get('training_required_closed_trades', bot.get('min_trades_required', 5)))
+            completed_closed = int(bot.get('closed_trades_count', bot.get('trades_count', 0)))
+            training_progress = {
+                "closed_trades_completed": completed_closed,
+                "required": required_closed,
+                "percent": round(min(100, (completed_closed / required_closed * 100)) if required_closed > 0 else 0, 1),
+            } if (not training_complete and not is_paper) else None
+
+            # Determine plain-English training block reason (paper bots have none)
+            if state == 'training' and not is_paper:
+                if not training_complete and status == 'active':
+                    training_block_reason = (
+                        f"Bot needs {required_closed} closed trades to complete training "
+                        f"({completed_closed}/{required_closed} done). "
+                        "It will trade freely once training is complete."
+                    )
+                elif status == 'training_failed':
+                    training_block_reason = bot.get('training_failed_reason') or "Training failed — check bot configuration."
+                else:
+                    training_block_reason = bot.get('training_failed_reason') or "Training in progress — collecting closed trades."
+            else:
+                training_block_reason = None
 
             pause_reason = bot.get('pause_reason') or bot.get('paused_reason')
             if runtime_state and runtime_state.get("reason"):
@@ -340,19 +304,19 @@ async def get_bots_status(
                 pause_next_action = 'Wait for retraining to complete'
                 quarantine_release_at = bot.get('retraining_until') or bot.get('quarantine_until')
                 quarantine_remaining_seconds = remaining_seconds(quarantine_release_at)
-            elif status in ['training', 'training_failed'] or bot.get('training_in_progress'):
+            elif (state in ('training', 'training_failed') or training_in_progress) and not is_paper:
                 pause_reason_code = 'training'
-                pause_reason_message = bot.get('training_failed_reason') or 'Training in progress'
-                pause_next_action = 'Complete training before resuming'
-            elif normalized_bot.get('paused_by_bodyguard'):
+                pause_reason_message = training_block_reason or bot.get('training_failed_reason') or 'Training in progress'
+                pause_next_action = 'Training completes automatically after enough closed trades'
+            elif bot.get('paused_by_bodyguard'):
                 pause_reason_code = 'bodyguard_lock'
                 pause_reason_message = pause_reason or 'Paused by bodyguard drawdown protection'
                 pause_next_action = 'Wait for drawdown recovery or reset bodyguard lock'
-            elif normalized_bot.get('paused_by_system'):
+            elif bot.get('paused_by_system'):
                 pause_reason_code = 'system_pause'
                 pause_reason_message = pause_reason or 'Paused by system'
                 pause_next_action = 'Review system status and resume when cleared'
-            elif normalized_bot.get('paused_by_user'):
+            elif bot.get('paused_by_user'):
                 pause_reason_code = 'manual_pause'
                 pause_reason_message = pause_reason or 'Paused by user'
                 pause_next_action = 'Resume bot when ready'
@@ -361,69 +325,14 @@ async def get_bots_status(
                 pause_reason_message = pause_reason or 'Bot paused'
                 pause_next_action = 'Resume bot'
             
-            canonical = canonical_by_bot.get(str(bot.get("id")), {})
-            # ── CRITICAL FIX (BLOCKER 1): use native-quote fields from canonical snapshot ──
-            # canonical["capital_initial"] is in ZAR/display currency (e.g. 1000 ZAR).
-            # canonical["capital_initial_quote"] is in native quote currency (e.g. 52.63 USDT).
-            # We must use the native quote field here so downstream calculations
-            # (total_equity_display = quote * fx_rate) produce correct ZAR-equivalent
-            # amounts instead of a 19× inflated R19 000 value.
-            base_initial_capital = float(
-                canonical.get("capital_initial_quote",
-                    bot.get("initial_capital", bot.get("starting_capital", 0))) or 0)
-            base_current_capital = float(
-                canonical.get("capital_current_quote",
-                    bot.get("current_capital", bot.get("allocated_capital", base_initial_capital))) or 0)
-            base_open_position = float(canonical.get("open_position_value_quote",
-                canonical.get("open_position_value", bot.get("open_position_value", 0))) or 0)
-            available_capital = float(canonical.get("capital_available_quote",
-                canonical.get("capital_available", max(0.0, base_current_capital - base_open_position))))
-            total_trades = int(canonical.get("trade_count", bot.get("trades_count", 0)) or 0)
-            win_count = int(canonical.get("winning_trades", bot.get("win_count", 0)) or 0)
-            loss_count = int(canonical.get("losing_trades", bot.get("loss_count", 0)) or 0)
-            realized_pnl = float(bot.get("total_profit", 0) or 0)
-            win_rate = float(canonical.get("win_rate_pct", bot.get("win_rate", 0)) or 0)
-            roi = float(canonical.get("roi_pct", 0) or 0)
-
-            # ── Canonical capital truth model ──
-            # Derive canonical_base_capital_zar for display so the user can always see
-            # their original R-denominated economic base regardless of exchange.
-            # Rules:
-            #   1. If the bot stored canonical_base_capital_zar at creation → use it directly.
-            #   2. For ZAR bots (Luno) with no stored canonical field → current_capital IS the ZAR base.
-            #   3. For USDT bots without the canonical field (old bots) → derive from stored capital×fx_rate.
-            _bot_quote_currency = get_quote_currency(
-                bot.get('exchange', ''),
-                bot.get('pair') or bot.get('symbol', ''),
-            )
-            _fx_rate_canonical, _ = get_fx_rate(_bot_quote_currency, "ZAR")
-            # Prefer the explicitly stored canonical field (set at creation for new bots)
-            _stored_base_zar = bot.get("canonical_base_capital_zar")
-            if _stored_base_zar and float(_stored_base_zar or 0) > 0:
-                _canonical_base_zar = round(float(_stored_base_zar), 2)
-            else:
-                # Compute on-the-fly: for ZAR bots rate is 1.0, for USDT bots multiply
-                _canonical_base_zar = round(base_initial_capital * _fx_rate_canonical, 2)
-            # total_equity_quote: current equity in native quote currency
-            _total_equity_quote = round(base_current_capital + base_open_position, 2)
-            # total_equity_display: ZAR equivalent of current equity (for display only)
-            _total_equity_display = round(_total_equity_quote * _fx_rate_canonical, 2)
-            # profit_display: realized P&L in ZAR
-            _profit_display = round(realized_pnl * _fx_rate_canonical, 2)
-            # fx_rate_at_creation stored on bot (may differ from current rate)
-            _fx_rate_at_creation = float(bot.get("fx_rate_at_creation") or _fx_rate_canonical)
-
             enriched_bot = {
                 "id": bot.get('id'),
                 "name": bot.get('name'),
                 "exchange": bot.get('exchange', 'unknown'),
                 "state": state,
+                "lifecycle_state": state,  # Canonical lifecycle state
+                "display_state": state,  # Single canonical display state for frontend
                 "status": status,  # Keep original for compatibility
-                # --- Bot classification (critical for fleet tab routing) ---
-                "bot_type": bot.get('bot_type', 'normal'),
-                "profit_routing": bot.get('profit_routing', 'RETURN_TO_MAIN'),
-                "strategy_preset": bot.get('strategy_preset'),
-                "user_id": bot.get('user_id'),
                 "paused_reason": pause_reason,  # Canonical field (support legacy)
                 "paused_reason_code": pause_reason_code,
                 "paused_reason_message": pause_reason_message,
@@ -437,122 +346,33 @@ async def get_bots_status(
                 "quarantine_release_at": quarantine_release_at,
                 "quarantine_remaining_seconds": quarantine_remaining_seconds,
                 "training_state": bot.get('training_state'),
+                "training_progress": training_progress,
+                "training_block_reason": training_block_reason,
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
-                "initial_capital": round(base_initial_capital, 2),
-                "current_capital": round(base_current_capital, 2),
-                "allocated_capital": round(base_current_capital, 2),
-                "available_capital": round(available_capital, 2),
-                "open_position_value": round(base_open_position, 2),
-                # ── Canonical capital truth fields (problem statement §PHASE1) ──
-                # canonical_base_capital_zar: the original ZAR economic base the user
-                #   chose when creating this bot. Always R-denominated regardless of exchange.
-                # quote_capital / quote_currency: trading capital in native quote currency.
-                # total_equity_quote: current equity in quote currency.
-                # total_equity_display: ZAR-equivalent of current equity (display only).
-                # profit_display: realized P&L in ZAR (display only).
-                # fx_rate_used: rate applied for ZAR↔quote conversions.
-                "canonical_base_capital_zar": _canonical_base_zar,
-                "quote_capital": round(base_initial_capital, 2),
-                "quote_currency": _bot_quote_currency,
-                "display_currency": "ZAR",
-                "fx_rate_used": round(_fx_rate_canonical, 4),
-                "fx_rate_at_creation": round(_fx_rate_at_creation, 4),
-                "total_equity_quote": _total_equity_quote,
-                "total_equity_display": _total_equity_display,
-                "profit_quote": round(realized_pnl, 2),
-                "profit_display": _profit_display,
-                "total_profit": round(realized_pnl, 2),
-                "profit": round(realized_pnl, 2),
-                "trades_count": total_trades,
-                "total_trades": total_trades,
-                "win_count": win_count,
-                "loss_count": loss_count,
-                "win_rate": round(win_rate, 2),
-                "roi": round(roi, 2),
-                "capital": {
-                    "initial": round(base_initial_capital, 2),
-                    "current": round(base_current_capital, 2),
-                    "allocated": round(base_current_capital, 2),
-                    "available": round(available_capital, 2),
-                    "open_position_value": round(base_open_position, 2),
-                },
-                "capital_summary": canonical.get("capital_summary", {
-                    "canonical_base_capital_zar": _canonical_base_zar,
-                    "initial_capital": round(base_initial_capital, 2),
-                    "quote_currency": _bot_quote_currency,
-                    "allocated_capital": round(base_current_capital, 2),
-                    "available_capital": round(available_capital, 2),
-                    "open_position_value": round(base_open_position, 2),
-                    "total_equity_quote": _total_equity_quote,
-                    "total_equity_display": _total_equity_display,
-                    "realized_profit": round(realized_pnl, 2),
-                    "profit_display": _profit_display,
-                    "unrealized_profit": 0.0,
-                    "fx_rate_used": round(_fx_rate_canonical, 4),
-                    "semantics": {
-                        "canonical_base_capital_zar": "Original ZAR economic base the user entered at creation.",
-                        "initial_capital": "Starting capital in native quote currency (ZAR for Luno, USDT for USDT exchanges).",
-                        "quote_currency": "Native trading currency for this bot.",
-                        "allocated_capital": "Capital currently assigned to this bot for trading (in quote currency).",
-                        "available_capital": "Uncommitted capital available for new entries (in quote currency).",
-                        "open_position_value": "Current value of capital in open positions (in quote currency).",
-                        "total_equity_quote": "Total equity in quote currency (available + open).",
-                        "total_equity_display": "Total equity converted to ZAR for display (never inflated by currency confusion).",
-                        "realized_profit": "Closed-trade profit/loss in quote currency.",
-                        "profit_display": "Closed-trade profit/loss in ZAR (display).",
-                        "fx_rate_used": "Exchange rate used to convert quote currency to ZAR display.",
-                    },
-                }),
-                "performance": {
-                    "profit_realized": round(realized_pnl, 2),
-                    "roi_pct": round(roi, 2),
-                    "trade_count": total_trades,
-                    "winning_trades": win_count,
-                    "losing_trades": loss_count,
-                    "win_rate_pct": round(win_rate, 2),
-                },
-                "last_trade": bot.get('last_trade'),
-                "training_complete": bot.get('training_complete', False),
+                "current_capital": bot.get('current_capital', 0),
+                "total_profit": bot.get('total_profit', 0),
+                "trades_count": bot.get('trades_count', 0),
+                "training_complete": training_complete,
                 "training_failed_reason": bot.get('training_failed_reason'),
-                "training_in_progress": bot.get('training_in_progress', False),
+                "training_in_progress": training_in_progress,
                 "paper_start_date": bot.get('paper_start_date'),
-                "active": status == 'active',
-                "paused": status == 'paused',
+                "active": state == 'active',
+                "paused": state == 'paused' or state == 'paused_ready',
                 "in_quarantine": status == 'quarantined',
-                "in_training": status in ['training', 'training_failed'] or bot.get('training_in_progress'),
-                "eligible_to_trade": normalized_bot.get("eligible_to_trade", False),
-                "not_eligible_reasons": normalized_bot.get("not_eligible_reasons", []),
-                "activity_state": normalized_bot.get("activity_state", "active_record"),
-                "runnable": normalized_bot.get("runnable", False),
-                "activity_reason_code": normalized_bot.get("activity_reason_code"),
-                "decision_reason_code": _truth.get("decision_reason_code") or normalized_bot.get("decision_reason_code", normalized_bot.get("last_decision_reason_code")),
-                "entry_reason_code": _truth.get("entry_reason_code") or normalized_bot.get("entry_reason_code", normalized_bot.get("last_entry_reason_code")),
-                "entry_confidence_score": _truth.get("entry_confidence_score") or normalized_bot.get("entry_confidence_score", normalized_bot.get("last_entry_confidence_score")),
-                "expectancy_net_edge_pct": _truth.get("expectancy_net_edge_pct") or normalized_bot.get("expectancy_net_edge_pct"),
-                "market_regime": _truth.get("market_regime") or normalized_bot.get("market_regime", normalized_bot.get("canonical_market_regime", "unknown")),
-                "regime_confidence": _truth.get("regime_confidence") or normalized_bot.get("canonical_regime_confidence", normalized_bot.get("regime_confidence", normalized_bot.get("confidence_score", 0))),
-                # ── Decision telemetry — explicit edge fields ──
-                # These come from the last trade evaluation via truth_normalizer.
-                # Useful for all bots; especially important for scalper detail views.
-                "expected_gross_edge_bps": round(_truth.get("expected_gross_edge_bps", 0.0) or 0.0, 4),
-                "all_in_cost_bps": round(_truth.get("all_in_cost_bps", 0.0) or 0.0, 4),
-                "expected_net_edge_bps": round(_truth.get("expected_net_edge_bps", 0.0) or 0.0, 4),
-                # ── Funding input truth (as entered by user at creation) ──
-                "funding_input_amount": bot.get("funding_input_amount"),
-                "funding_input_currency": str(bot.get("funding_input_currency") or "ZAR").upper(),
-                # symbol from truth (resolves trade.pair first, falls back to bot.pair)
-                "symbol": _truth.get("symbol") or bot.get("pair") or bot.get("symbol"),
-                "has_open_position": _truth.get("has_open_position", False),
+                "in_training": state in ('training', 'training_failed'),
                 "created_at": bot.get('created_at'),
                 "started_at": bot.get('started_at'),
                 "stopped_at": bot.get('stopped_at'),
-                # ── Canonical display currency contract ──
-                "quote_currency": get_quote_currency(
-                    bot.get('exchange', ''),
-                    bot.get('pair') or bot.get('symbol', ''),
-                ),
-                "display_currency": "ZAR",
+                # Per-bot diagnostics: populated by trading engine on each tick/decision
+                "last_tick_at": bot.get('last_tick_at') or bot.get('last_trade'),
+                "last_decision_at": bot.get('last_decision_at'),
+                "last_decision_reason": bot.get('last_decision_reason') or training_block_reason,
+                "last_market_price": bot.get('last_market_price'),
+                "last_strategy_signal": bot.get('last_strategy_signal'),
+                "last_order_attempt_at": bot.get('last_order_attempt_at'),
+                "last_order_error": bot.get('last_order_error'),
+                "last_trade_simulated_at": bot.get('last_trade_simulated_at') or bot.get('last_trade'),
             }
             enriched_bots.append(enriched_bot)
         
@@ -564,7 +384,7 @@ async def get_bots_status(
                 exchange_counts[exchange] += 1
         if meta:
             return {"exchange_counts": exchange_counts, "all_exchanges": all_exchanges}
-        return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges, activity=activity)
+        return _bots_status_payload(enriched_bots, exchange_counts, all_exchanges)
         
     except Exception:
         logger.exception("Get bots status error for user %s", user_id)
@@ -574,7 +394,6 @@ async def get_bots_status(
             [],
             exchange_counts,
             all_exchanges,
-            activity={"total_bot_records": 0, "active_bot_records": 0, "runnable_active_bots": 0, "paused_bots": 0, "bots_with_open_positions": 0, "blocked_bots": 0, "non_runnable_reasons": {}},
             success=False,
             error="Unable to load bot status",
         )
@@ -653,8 +472,8 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         # 2. Check trading mode is enabled (Paper or Live)
         # Validate that the bot's trading mode (paper/live) is enabled in environment config
         # This prevents starting bots in modes that are disabled system-wide
-        paper_trading_enabled = _paper_trading_enabled()
-        live_trading_enabled = _live_trading_enabled()
+        paper_trading_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+        live_trading_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
         
         if trading_mode == 'paper' and not paper_trading_enabled:
             return _blocked_response(
@@ -758,6 +577,13 @@ async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
         )
         await audit_logger.log_bot_action("started", user_id, bot_id, bot.get("name", "bot"))
         
+        # Emit lifecycle event
+        try:
+            from routes.events import emit_event
+            await emit_event(user_id, "bot_started", "info", f"Bot '{bot['name']}' started on {bot.get('exchange', 'exchange')} in {bot.get('trading_mode', 'paper')} mode", meta={"bot_id": bot_id})
+        except Exception:
+            pass
+        
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service
         await realtime_service.broadcast_overview_update(user_id, f"Bot started: {bot['name']}")
@@ -851,6 +677,13 @@ async def stop_bot(bot_id: str, data: Optional[Dict] = None, user_id: str = Depe
             reason
         )
         await audit_logger.log_bot_action("stopped", user_id, bot_id, bot.get("name", "bot"), {"reason": reason})
+        
+        # Emit lifecycle event
+        try:
+            from routes.events import emit_event
+            await emit_event(user_id, "bot_stopped", "info", f"Bot '{bot['name']}' stopped — {reason}", meta={"bot_id": bot_id})
+        except Exception:
+            pass
         
         # Also broadcast overview and platform stats updates
         from services.realtime_service import realtime_service
@@ -1015,8 +848,9 @@ async def resume_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             return _blocked_response("resume", bot, blocker)
 
         trading_mode = bot.get('trading_mode', 'paper')
-        paper_trading_enabled = _paper_trading_enabled()
-        live_trading_enabled = _live_trading_enabled()
+        # Use env_bool for proper parsing of truthy values (1, true, yes, on)
+        paper_trading_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+        live_trading_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
         modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
             return _blocked_response(
@@ -1171,8 +1005,9 @@ async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             )
 
         trading_mode = bot.get('trading_mode', 'paper')
-        paper_trading_enabled = _paper_trading_enabled()
-        live_trading_enabled = _live_trading_enabled()
+        # Use env_bool for proper parsing of truthy values (1, true, yes, on)
+        paper_trading_enabled = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
+        live_trading_enabled = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
         modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0})
         if trading_mode == 'paper' and modes and not modes.get('paperTrading', True):
             return _blocked_response(
@@ -1251,18 +1086,8 @@ async def restart_bot(bot_id: str, user_id: str = Depends(get_current_user)):
             }
         )
 
-        # Sync runtime state — critical to prevent scheduler from re-pausing the bot
-        await bot_runtime_state.set_state(
-            bot_id=bot_id,
-            user_id=user_id,
-            state="active",
-            reason=None,
-            source="api"
-        )
-
         updated_bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
         await rt_events.bot_resumed(user_id, updated_bot)
-        await audit_logger.log_bot_action("restarted", user_id, bot_id, bot.get("name", "bot"))
         logger.info(f"✅ Bot {bot.get('name')} restarted by user {user_id[:8]}")
 
         return _action_payload(
@@ -1405,7 +1230,8 @@ async def get_bot_detailed_status(bot_id: str, user_id: str = Depends(get_curren
         
         return {
             "bot": bot,
-            "status": {
+            "status": bot.get('status', 'unknown'),
+            "status_detail": {
                 "current_status": bot.get('status', 'unknown'),
                 "is_active": bot.get('status') == 'active',
                 "is_paused": bot.get('status') == 'paused',
@@ -1606,12 +1432,6 @@ async def toggle_bot_trading(bot_id: str, data: Dict, user_id: str = Depends(get
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
-# NOTE: PUT/PATCH /{bot_id} is the canonical update endpoint for bots.
-# It is defined in server.py (api_router) and includes live-trading gate
-# enforcement.  Do NOT add a duplicate here — the server's route collision
-# detector will refuse to start if both exist.
-
 @router.delete("/{bot_id}")
 async def delete_bot(
     bot_id: str,
@@ -1660,11 +1480,6 @@ async def delete_bot(
         )
 
         await bot_runtime_state.remove(bot_id)
-        try:
-            from engines.trade_staggerer import trade_staggerer
-            await trade_staggerer.clear_bot(bot_id)
-        except Exception as e:
-            logger.warning(f"Failed to clear scheduler queue/runtime for bot {bot_id}: {e}")
 
         try:
             from services.paper_wallet_ledger import paper_wallet_ledger
@@ -1675,8 +1490,8 @@ async def delete_bot(
         # Broadcast realtime events
         from services.realtime_service import realtime_service
         
-        # Bot deleted event
-        await rt_events.bot_deleted(user_id, bot_name)
+        # Bot deleted event (include bot_id so frontend can immediately remove it)
+        await rt_events.bot_deleted(user_id, bot_name, bot_id=bot_id)
         await audit_logger.log_bot_action("deleted", user_id, bot_id, bot_name)
         
         # Update overview, profits, and platform stats
@@ -1744,104 +1559,189 @@ async def get_bot_diagnostics(bot_id: str, user_id: str = Depends(get_current_us
             "can_trade": False,
             "reasons": [],
             "gates": {},
+            "performance": {},
+            "circuit_breaker": {},
             "limits": {},
             "bodyguard": {},
             "api_keys": {},
             "recent_activity": {}
         }
-        
+
         # Check trading gates
         trading_mode = bot.get('trading_mode', 'paper')
         system_mode = user.get('system_mode') if user else 'testing'
         emergency_stop = user.get('emergency_stop', False) if user else False
-        
+
         diagnostics['gates'] = {
             "trading_mode": trading_mode,
             "system_mode": system_mode,
             "emergency_stop": emergency_stop,
             "autopilot_enabled": user.get('autopilot_enabled', True) if user else True
         }
-        
+
         # Status checks
         if bot.get('status') != 'active':
             diagnostics['reasons'].append(f"Bot status is '{bot.get('status')}', not 'active'")
-        
+
         if emergency_stop:
             diagnostics['reasons'].append("Emergency stop is enabled")
-        
+
         if bot.get('paused_by_bodyguard'):
             diagnostics['reasons'].append(f"Paused by bodyguard: {bot.get('pause_reason', 'Unknown reason')}")
-        
+
         if bot.get('paused_by_system'):
             diagnostics['reasons'].append(f"Paused by system: {bot.get('pause_reason', 'Unknown reason')}")
-        
+
+        last_order_error = bot.get('last_order_error')
+        if last_order_error:
+            diagnostics['reasons'].append(f"Last order error: {last_order_error}")
+
+        # ------------------------------------------------------------------
+        # Performance / drawdown / circuit-breaker diagnostics
+        # ------------------------------------------------------------------
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        current_capital = float(bot.get('current_capital') or 0)
+        equity_peak = float(bot.get('equity_peak') or current_capital)
+        if equity_peak <= 0:
+            equity_peak = current_capital
+
+        # Drawdown from equity_peak
+        if equity_peak > 0:
+            computed_drawdown_pct = max(0.0, (equity_peak - current_capital) / equity_peak * 100)
+        else:
+            computed_drawdown_pct = 0.0
+
+        # Daily baseline circuit breaker check
+        stored_baseline_date = bot.get('daily_baseline_date')
+        stored_baseline = float(bot.get('daily_capital_baseline') or 0)
+        circuit_breaker_loss_pct = float(bot.get('circuit_breaker_loss_pct', 0.10))
+        max_drawdown_pct_limit = float(bot.get('max_drawdown_pct', 0.15))
+
+        if (
+            not stored_baseline_date
+            or stored_baseline_date != today_str
+            or stored_baseline <= 0
+        ):
+            # Baseline is stale — would be initialized on next tick
+            daily_pnl_pct = 0.0
+            baseline_status = "stale_will_init_on_next_tick"
+        else:
+            if stored_baseline > 0:
+                daily_pnl_pct = (current_capital - stored_baseline) / stored_baseline
+            else:
+                daily_pnl_pct = 0.0
+            baseline_status = "current"
+
+        cb_would_trip = daily_pnl_pct < -circuit_breaker_loss_pct
+        dd_would_trip = (computed_drawdown_pct / 100) > max_drawdown_pct_limit
+
+        diagnostics['performance'] = {
+            "current_equity": round(current_capital, 2),
+            "equity_peak": round(equity_peak, 2),
+            "computed_drawdown_pct": round(computed_drawdown_pct, 2),
+            "daily_capital_baseline": round(stored_baseline, 2),
+            "daily_baseline_date": stored_baseline_date,
+            "baseline_status": baseline_status,
+            "daily_pnl_pct": round(daily_pnl_pct * 100, 2),
+        }
+
+        diagnostics['circuit_breaker'] = {
+            "daily_loss_limit_pct": round(circuit_breaker_loss_pct * 100, 2),
+            "max_drawdown_limit_pct": round(max_drawdown_pct_limit * 100, 2),
+            "would_trip_daily_loss": cb_would_trip,
+            "would_trip_max_drawdown": dd_would_trip,
+            "last_order_error": last_order_error,
+            "next_action": (
+                "Reset daily baseline via paper reset or wait for new day"
+                if cb_would_trip else
+                f"Reset drawdown baseline via /api/admin/bots/{bot_id}/reset-locks"
+                if dd_would_trip else
+                "No circuit breaker issues"
+            ),
+        }
+
+        if cb_would_trip:
+            diagnostics['reasons'].append(
+                f"Circuit breaker: daily loss {daily_pnl_pct*100:.1f}% exceeds limit "
+                f"{circuit_breaker_loss_pct*100:.0f}%. "
+                "Next action: reset daily baseline via paper reset."
+            )
+        if dd_would_trip:
+            diagnostics['reasons'].append(
+                f"Max drawdown {computed_drawdown_pct:.1f}% exceeds limit "
+                f"{max_drawdown_pct_limit*100:.0f}%. "
+                "Next action: reset drawdown baseline via admin reset-locks."
+            )
+
         # Check trade limits
         exchange = bot.get('exchange', 'binance')
         from engines.trade_budget_manager import trade_budget_manager
-        
+
         daily_budget = await trade_budget_manager.calculate_bot_daily_budget(bot_id, exchange)
         remaining = await trade_budget_manager.get_bot_remaining_budget(bot_id, exchange)
         can_trade_budget, budget_reason = await trade_budget_manager.can_execute_trade(bot_id, exchange)
-        
+
         diagnostics['limits'] = {
             "daily_budget": daily_budget,
             "remaining_today": remaining,
             "can_trade": can_trade_budget,
             "reason": budget_reason
         }
-        
+
         if not can_trade_budget:
             diagnostics['reasons'].append(f"Trade limit: {budget_reason}")
-        
+
         # Check bodyguard metrics
         from services.bodyguard_service import bodyguard_service
         bodyguard_status = await bodyguard_service.get_bot_drawdown_status(bot_id)
-        
+
         if bodyguard_status:
             diagnostics['bodyguard'] = bodyguard_status
-            
+
             if bodyguard_status.get('paused_by_bodyguard'):
                 diagnostics['reasons'].append(f"Bodyguard paused: {bodyguard_status.get('pause_reason', 'Drawdown exceeded')}")
-        
+
         # Check API keys
         api_key = await db.api_keys_collection.find_one({
             "user_id": user_id,
             "provider": exchange
         }, {"_id": 0})
-        
+
         diagnostics['api_keys'] = {
             "has_keys": api_key is not None,
             "connected": api_key.get('connected', False) if api_key else False,
             "provider": exchange
         }
-        
+
         if trading_mode == 'live' and not api_key:
             diagnostics['reasons'].append(f"No API keys configured for {exchange}")
-        
+
         # Recent activity
         last_trade_time = bot.get('last_trade_time') or bot.get('last_trade')
         diagnostics['recent_activity'] = {
             "last_trade_time": last_trade_time,
             "trades_count": bot.get('trades_count', 0),
-            "current_capital": bot.get('current_capital', 0),
+            "current_capital": current_capital,
             "total_profit": bot.get('total_profit', 0),
             "win_rate": bot.get('win_rate', 0)
         }
-        
+
         # Determine if bot can trade
         diagnostics['can_trade'] = (
             bot.get('status') == 'active' and
             not emergency_stop and
             not bot.get('paused_by_bodyguard') and
             not bot.get('paused_by_system') and
-            can_trade_budget
+            can_trade_budget and
+            not cb_would_trip and
+            not dd_would_trip
         )
-        
+
         if diagnostics['can_trade']:
             diagnostics['reasons'] = ["Bot is ready to trade"]
-        
+
         diagnostics['timestamp'] = datetime.now(timezone.utc).isoformat()
-        
+
         return diagnostics
         
     except HTTPException:
@@ -1932,3 +1832,190 @@ async def get_all_bots_diagnostics(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.exception("Get all bots diagnostics error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Seed 5 Luno Paper Bots (Gbot1..Gbot5)
+# ============================================================================
+
+_GBOT_DEFINITIONS = [
+    {"name": "Gbot1", "risk_mode": "safe"},
+    {"name": "Gbot2", "risk_mode": "safe"},
+    {"name": "Gbot3", "risk_mode": "balanced"},
+    {"name": "Gbot4", "risk_mode": "balanced"},
+    {"name": "Gbot5", "risk_mode": "aggressive"},
+]
+
+
+@router.post("/seed-luno-paper")
+async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
+    """
+    Seed 5 standard Luno paper-trading bots (Gbot1..Gbot5).
+
+    - Paper mode only; returns 400 if live trading is active.
+    - Idempotent: skips bots that already exist (same name + exchange + trading_mode).
+    - Enforces MAX 5 bots: returns 409 if user already has >5 non-deleted luno paper bots.
+    - Allocates capital per bot via paper_wallet_ledger (creates ledger entries).
+    - Returns a JSON summary with bot IDs and created/existing status.
+    """
+    from uuid import uuid4
+    from services.paper_wallet_service import paper_wallet_service
+    from services.paper_wallet_ledger import paper_wallet_ledger
+    from config import PAPER_STARTING_CAPITAL_ZAR
+
+    try:
+        # Guard: paper mode only
+        from routes.system_mode import get_system_mode
+        mode = await get_system_mode(user_id)
+        if mode.get("liveTrading"):
+            raise HTTPException(
+                status_code=400,
+                detail="Seeding paper bots is only allowed when live trading is OFF."
+            )
+
+        _luno_paper_filter = {
+            "user_id": user_id,
+            "exchange": "luno",
+            "trading_mode": "paper",
+            "deleted_at": {"$exists": False},
+        }
+
+        # Guard: enforce MAX 5 bots
+        total_existing_count = await db.bots_collection.count_documents(_luno_paper_filter)
+        if total_existing_count > 5:
+            existing_bots = await db.bots_collection.find(
+                _luno_paper_filter,
+                {"_id": 0, "id": 1, "name": 1, "status": 1},
+            ).to_list(None)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "bot_limit_exceeded",
+                    "message": (
+                        f"User already has {total_existing_count} Luno paper bots "
+                        f"(max 5). No new bots created."
+                    ),
+                    "count": total_existing_count,
+                    "bots": existing_bots,
+                },
+            )
+
+        # Determine per-bot capital (1/5 of available paper wallet)
+        wallet = await paper_wallet_service.get_balances(user_id)
+        available_zar = float(wallet.get("balances", {}).get("ZAR", 0))
+        starting = float(PAPER_STARTING_CAPITAL_ZAR)
+
+        # If the paper wallet is unfunded (balance is 0), auto-initialise it with
+        # PAPER_STARTING_CAPITAL_ZAR.  This mirrors what the dashboard does when the
+        # user clicks "Add Funds" for the first time, ensuring the seed endpoint works
+        # out-of-the-box in the same way the UI does.
+        if available_zar == 0 and starting > 0:
+            try:
+                await paper_wallet_service.fund(user_id, starting, "ZAR")
+                available_zar = starting
+            except Exception as _fund_err:
+                logger.warning(f"Auto-fund paper wallet failed for user {user_id}: {_fund_err}")
+
+        # Each bot gets 1/5 of available funds (min 500 ZAR, max starting/5)
+        per_bot_capital = max(500.0, min(available_zar / 5.0, starting / 5.0))
+
+        results = []
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        for bot_def in _GBOT_DEFINITIONS:
+            name = bot_def["name"]
+            risk_mode = bot_def["risk_mode"]
+
+            # Check if already exists (non-deleted)
+            existing_doc = await db.bots_collection.find_one(
+                {
+                    "user_id": user_id,
+                    "name": name,
+                    "exchange": "luno",
+                    "trading_mode": "paper",
+                    "deleted_at": {"$exists": False},
+                },
+                {"_id": 0, "id": 1, "name": 1, "status": 1},
+            )
+            if existing_doc:
+                results.append(
+                    {"name": name, "bot_id": existing_doc["id"], "status": "existing"}
+                )
+                continue
+
+            bot_id = str(uuid4())
+
+            # Reserve funds AND create ledger entry via paper_wallet_ledger
+            reserved, reserve_msg = await paper_wallet_ledger.reserve_funds(
+                user_id, bot_id, per_bot_capital, "ZAR"
+            )
+            if not reserved:
+                results.append(
+                    {"name": name, "bot_id": None, "status": "skipped", "reason": reserve_msg}
+                )
+                continue
+
+            bot_doc = {
+                "id": bot_id,
+                "user_id": user_id,
+                "name": name,
+                "status": "active",
+                "exchange": "luno",
+                "pair": "BTC/ZAR",
+                "risk_mode": risk_mode,
+                "initial_capital": per_bot_capital,
+                "starting_capital": per_bot_capital,
+                "current_capital": per_bot_capital,
+                "peak_capital": per_bot_capital,
+                "allocated_capital": per_bot_capital,
+                "mode": "paper",
+                "trading_mode": "paper",
+                "trades_count": 0,
+                "daily_trade_count": 0,
+                "last_trade_time": None,
+                "win_count": 0,
+                "loss_count": 0,
+                "total_profit": 0,
+                "created_at": now_iso,
+                "paper_start_date": now_iso,
+                "paper_end_eligible_at": (
+                    datetime.now(timezone.utc) + timedelta(days=7)
+                ).isoformat(),
+                "learning_complete": False,
+                # Paper bots are never gated by training — they trade freely immediately.
+                "training_complete": True,
+                "training_in_progress": False,
+                "seeded": True,
+                "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
+            }
+
+            await db.bots_collection.insert_one(bot_doc)
+            logger.info(
+                f"Seeded Luno paper bot: {name} id={bot_id} capital={per_bot_capital} "
+                f"risk={risk_mode} user={user_id[:8]}"
+            )
+            results.append(
+                {"name": name, "bot_id": bot_id, "status": "created", "capital": per_bot_capital}
+            )
+
+        created = [r for r in results if r["status"] == "created"]
+        existing = [r for r in results if r["status"] == "existing"]
+        skipped = [r for r in results if r["status"] == "skipped"]
+
+        return {
+            "success": True,
+            "created": len(created),
+            "existing": len(existing),
+            "skipped": len(skipped),
+            "bots": results,
+            "timestamp": now_iso,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Seed Luno paper bots error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+

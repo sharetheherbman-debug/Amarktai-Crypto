@@ -2,12 +2,56 @@
 
 **Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 7 major exchanges.
 
-> 📚 **Companion Docs:** [DEPLOY.md](DEPLOY.md) | [VERIFICATION.md](VERIFICATION.md) | [ACCEPTANCE_TESTS.md](ACCEPTANCE_TESTS.md)
+> 📚 **Documentation:** All documentation is now centralized in the [`docs/`](docs/) folder. See [`docs/INDEX.md`](docs/INDEX.md) for a complete index.
 
 [![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
 [![Real-time](https://img.shields.io/badge/realtime-WebSocket%20%2B%20SSE-blue)]()
 [![Platforms](https://img.shields.io/badge/platforms-7%20exchanges-orange)]()
 [![ToS Safe](https://img.shields.io/badge/ToS-compliant-success)]()
+
+---
+
+## ✅ **Go-Live Gate**
+
+Before going live, run the verification gate script to confirm all critical API endpoints are reachable and return non-404:
+
+```bash
+EMAIL=user@example.com PASSWORD=secret bash scripts/go_live_gate.sh
+```
+
+Optional — override the API base URL (defaults to `http://localhost:8000`):
+
+```bash
+BASE_URL=https://amarktai.online EMAIL=user@example.com PASSWORD=secret bash scripts/go_live_gate.sh
+```
+
+The script:
+1. Logs in using `EMAIL` + `PASSWORD` environment variables to obtain a JWT.
+2. Calls each of these endpoints and reports **PASS** / **FAIL** per endpoint:
+   - `GET  /api/health/ping`
+   - `GET  /api/system/mode`
+   - `GET  /api/bots/status`
+   - `GET  /api/trades/recent?limit=10`
+   - `GET  /api/fetchai/status`
+   - `POST /api/admin/unlock`
+   - `POST /api/ai/chat/greeting`
+3. Exits **0** (all PASS) or **non-zero** (any FAIL).
+
+This script is the single definition of "the system works". It must return all PASS before go-live.
+
+---
+
+## 📚 **Documentation**
+
+**All documentation is centralized in the [`docs/`](docs/) folder.**
+
+### Quick Links
+- **[Complete Documentation Index](docs/INDEX.md)** - Single source of truth for all docs
+- **[Quick Start Guide](docs/QUICK_START.md)** - Get started quickly
+- **[Installation Guide](docs/INSTALL.md)** - Complete installation instructions
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Production deployment
+- **[API Contract](docs/API_CONTRACT.md)** - API endpoints and contracts
+- **[Architecture Map](docs/ARCHITECTURE_MAP.md)** - System architecture
 
 ---
 
@@ -22,7 +66,7 @@
 
 ### Production Deployment
 - **Installation Guide**: [`docs/INSTALL.md`](docs/INSTALL.md)
-- **Deliverables & Status**: [`docs/DELIVERABLES.md`](docs/DELIVERABLES.md)
+- **Deployment Checklist**: [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md)
 - **Systemd Service**: [`docs/examples/amarktai.service`](docs/examples/amarktai.service)
 - **Nginx Config**: [`docs/examples/nginx.conf`](docs/examples/nginx.conf)
 
@@ -35,8 +79,6 @@
   - LetsEncrypt: `/etc/letsencrypt/live` and `/etc/letsencrypt/archive` should remain `root:root` (private keys `600`).
 - **Nightly learning timer**: install `docs/examples/amarktai-nightly-learning.service` and `.timer`.
   - Enable with `sudo systemctl enable --now amarktai-nightly-learning.timer`
-
----
 
 ## ✨ **Key Features - Production-Ready**
 
@@ -773,3 +815,94 @@ See LICENSE file for details.
 - [✅ Verification Script](deployment/verify.sh)
 - [🌐 Nginx Config](deployment/nginx-amarktai.conf)
 - [⚙️ Systemd Service](deployment/amarktai-api.service)
+
+---
+
+## 🚀 Go-Live Proof Commands
+
+```bash
+# 1. Login and get token
+TOKEN=$(curl -s -X POST http://YOUR_VPS:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"yourpassword"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# 2. Check wallet endpoints
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/wallet/paper
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/wallet/status
+
+# 3. Enable paper+autonomous mode
+curl -s -X POST http://YOUR_VPS:8000/api/system/mode \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"paper_trading":true,"live_trading":false,"autonomous":true}'
+
+# 4. Fund paper wallet to 30000 ZAR
+curl -s -X POST http://YOUR_VPS:8000/api/wallet/paper/set-balance \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"balance_zar":30000}'
+
+# 5. Seed 5 Luno paper bots
+curl -s -X POST http://YOUR_VPS:8000/api/bots/seed-luno-paper \
+  -H "Authorization: Bearer $TOKEN"
+
+# 6. Verify bots exist
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/bots/status
+
+# 7. Reset paper runtime (user-safe)
+curl -s -X POST http://YOUR_VPS:8000/api/user/paper-start-fresh \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"confirmation_phrase":"START FRESH","scope":"paper_only","also_reset_risk_locks":true}'
+
+# 8. Run full evidence pack
+BASE_URL=http://YOUR_VPS:8000 AMK_EMAIL=admin@example.com AMK_PASSWORD=yourpassword \
+  bash scripts/go_live_evidence_pack.sh
+```
+
+---
+
+## Phase 2: Training Completion & OpenAPI
+
+### Training Forced-Close
+
+New bots start in **training** mode and must accumulate `TRAINING_TRADES_REQUIRED` (default **5**) closed
+trades before `training_complete` is set to `true` and the bot graduates to active.
+
+To guarantee trades actually close during training, the engine enforces two deterministic time-exits:
+
+| Config variable | Default | Behaviour |
+|---|---|---|
+| `TRAINING_MAX_HOLD_MINUTES` | 45 min | Training bot trade closed with `trade_close_reason=training_timeout` |
+| `PAPER_MAX_HOLD_MINUTES` | 120 min | Any paper trade closed with `trade_close_reason=time_exit` |
+| `PAPER_SAFETY_EXIT_MINUTES` | 60 min | Profitable paper trade closed early with `trade_close_reason=safety_exit` |
+| `TRAINING_TRADES_REQUIRED` | 5 | Closed-trade count needed to graduate from training |
+
+Each time a trade closes, `closed_trades_count` on the bot document is incremented.
+`GET /api/bots/status` exposes `training_progress.closed_trades_completed` and
+`training_progress.required` so the UI can show real progress (e.g. **3/5 – 60%**).
+
+### OpenAPI path
+
+The backend serves its OpenAPI schema at **`/api/openapi.json`** (not `/openapi.json`).
+A redirect exists at `/openapi.json → /api/openapi.json` (HTTP 307) for convenience.
+
+```bash
+# Fetch the OpenAPI schema
+curl http://YOUR_VPS:8000/api/openapi.json | python3 -m json.tool | head -20
+
+# Confirm redirect
+curl -v http://YOUR_VPS:8000/openapi.json 2>&1 | grep -E "< HTTP|location"
+```
+
+### How to verify training fixes
+
+```bash
+# 1. Start a new bot and watch its closed_trades_count grow
+curl -H "Authorization: Bearer $TOKEN" http://YOUR_VPS:8000/api/bots/status \
+  | python3 -c "import sys,json; bots=json.load(sys.stdin)['bots']; \
+    [print(b['name'], b.get('training_progress')) for b in bots]"
+
+# 2. Run tests locally
+python -m pytest tests/test_training_completion.py -v
+```

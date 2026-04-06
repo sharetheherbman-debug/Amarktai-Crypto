@@ -209,12 +209,24 @@ class BalanceSyncService:
                 exchange = result.get("exchange", "unknown")
                 
                 if result.get("success"):
-                    exchanges[exchange] = {
-                        "balances": result.get("balances", {}),
-                        "timestamp": result.get("timestamp"),
-                        "status": "success"
-                    }
-                    successful_syncs += 1
+                    balances = result.get("balances", {})
+                    if balances:
+                        # Real data: exchange has non-zero currency balances
+                        exchanges[exchange] = {
+                            "balances": balances,
+                            "timestamp": result.get("timestamp"),
+                            "status": "success"
+                        }
+                        successful_syncs += 1
+                    else:
+                        # API call succeeded but account is empty – mark as no_data
+                        # so graphs and counters are not misled by empty snapshots.
+                        exchanges[exchange] = {
+                            "balances": {},
+                            "timestamp": result.get("timestamp"),
+                            "status": "no_data"
+                        }
+                        # Do NOT increment successful_syncs for empty accounts
                 else:
                     exchanges[exchange] = {
                         "error": result.get("error", "Unknown error"),
@@ -247,28 +259,46 @@ class BalanceSyncService:
     
     async def store_balance_snapshot(self, user_id: str, balance_data: Dict) -> bool:
         """
-        Store balance snapshot in database
-        
+        Store balance snapshot in database.
+
+        Skips writing if all exchanges are no_data or failed (i.e. successful_syncs == 0
+        and no exchange has a non-empty balances dict) to prevent misleading "success"
+        snapshots for fresh accounts.
+
         Args:
             user_id: User ID
             balance_data: Balance data to store
-            
+
         Returns:
-            True if stored successfully, False otherwise
+            True if stored, False if skipped or on error.
         """
         try:
+            exchanges = balance_data.get("exchanges", {})
+            successful_syncs = balance_data.get("successful_syncs", 0)
+
+            # Do not write a snapshot when there is no real data at all.
+            has_real_data = successful_syncs > 0 or any(
+                ex_data.get("balances") for ex_data in exchanges.values()
+            )
+            if not has_real_data:
+                logger.debug(
+                    f"Skipping empty balance snapshot for user {user_id[:8]} "
+                    f"(no real balances, successful_syncs={successful_syncs})"
+                )
+                return False
+
             snapshot = {
                 "user_id": user_id,
-                "exchanges": balance_data.get("exchanges", {}),
+                "exchanges": exchanges,
                 "timestamp": balance_data.get("timestamp"),
-                "successful_syncs": balance_data.get("successful_syncs", 0),
-                "failed_syncs": balance_data.get("failed_syncs", 0)
+                "successful_syncs": successful_syncs,
+                "failed_syncs": balance_data.get("failed_syncs", 0),
             }
-            
+
             await db.balance_snapshots_collection.insert_one(snapshot)
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Store balance snapshot error: {e}")
             return False

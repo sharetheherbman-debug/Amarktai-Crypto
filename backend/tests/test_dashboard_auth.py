@@ -125,8 +125,6 @@ async def test_portfolio_summary_endpoint(client, test_user_token):
     assert response.status_code == 200
 
 
-
-
 @pytest.mark.asyncio
 async def test_whale_summary_endpoint(client, test_user_token):
     """Test /api/advanced/whale/summary endpoint"""

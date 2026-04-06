@@ -1,490 +1,467 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
-import { get, notifyError } from '../../../lib/apiClient';
-import { useRealtimeEvent } from '../../../hooks/useRealtime';
+import apiClient from '@/lib/apiClient';
 
-const REFRESH_MS = 30000;
+/**
+ * Growth Engine Section
+ *
+ * Per-user, paper-trading-only growth automation.
+ * All features are off by default. Every action goes through existing
+ * bot lifecycle / ledger / risk gates — no standalone trading engine.
+ *
+ * Safety:
+ * - Everything off by default.
+ * - Leverage toggle shown but labeled "Not active in this release".
+ * - Big warning banner at top.
+ * - Blocked reasons shown in plain English.
+ */
 
-// Human-readable labels for backend reason codes
-const REASON_LABELS = {
-  AUTOPILOT_GROWTH_DISABLED:    'Growth Engine is disabled (ENABLE_AUTOPILOT_GROWTH env var)',
-  AUTOPILOT_REINVEST_DISABLED:  'Reinvest Engine is disabled (ENABLE_AUTOPILOT_REINVEST env var)',
-  AUTOPILOT_DISABLED:           'Autopilot is globally disabled',
-  TRADING_MODE_DISABLED:        'No trading mode is enabled (ENABLE_PAPER_TRADING / ENABLE_LIVE_TRADING)',
-  AUTOPILOT_OFF_FOR_USER:       'Autopilot is turned off in your profile',
-  DAILY_LOSS_LOCK_ACTIVE:       'Daily loss limit reached — unlock via Risk panel',
-  AUTOPILOT_MODE_DISABLED:      'System mode is not set to Autopilot',
-  EMERGENCY_STOP_ACTIVE:        'Emergency stop is active',
-  BODYGUARD_LOCK_ACTIVE:        'AI Bodyguard has paused one or more bots',
-  MAX_BOTS_REACHED:             'Maximum bots for this platform already reached',
-  API_KEYS_MISSING:             'No API keys configured for this exchange',
-  API_KEYS_INVALID:             'API keys exist but failed validation — re-test in API Setup',
-  INSUFFICIENT_AVAILABLE_FUNDS: 'Insufficient funds — check available vs reserved capital below',
-  PROFIT_BELOW_THRESHOLD:       'Profit has not yet reached the milestone threshold',
-};
-
-function safeNum(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function fmtZAR(v, digits = 2, fallback = 'R 0.00') {
-  if (v == null) return fallback;
-  const n = safeNum(v);
-  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-}
-
-// Inline style helpers reused across sub-components (keeps visual language consistent
-// with other dashboard sections that also use const-style inline helpers)
-const S = {
-  badge: (active) => ({
-    display: 'inline-flex', alignItems: 'center', gap: '5px',
-    padding: '3px 10px', borderRadius: '20px',
-    background: active ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.15)',
-    border: `1px solid ${active ? 'var(--success)' : 'var(--muted)'}`,
-    color: active ? 'var(--success)' : 'var(--muted)',
-    fontSize: '0.78rem', fontWeight: 600,
-  }),
-  dot: (active) => ({
-    width: 7, height: 7, borderRadius: '50%',
-    background: active ? 'var(--success)' : 'var(--muted)',
-    display: 'inline-block',
-  }),
-  tab: (active) => ({
-    padding: '9px 20px',
-    background: active ? 'linear-gradient(135deg, var(--accent2), #60a5fa)' : 'var(--glass)',
-    border: `2px solid ${active ? 'var(--accent2)' : 'var(--line)'}`,
-    borderRadius: '8px',
-    color: active ? '#fff' : 'var(--text)',
-    cursor: 'pointer', fontSize: '0.9rem',
-    fontWeight: active ? 700 : 500,
-    transition: 'all 0.2s',
-    boxShadow: active ? '0 4px 12px rgba(74,144,226,0.3)' : 'none',
-  }),
-  statBox: {
-    flex: 1, background: 'rgba(255,255,255,0.04)',
-    borderRadius: '8px', padding: '10px', textAlign: 'center',
+const FEATURE_DESCRIPTIONS = {
+  profit_recycling: {
+    label: '💰 Profit Recycling',
+    description: 'Spawns a new bot funded only from realized profits above a threshold. Uses existing bot spawner — no manual capital required.',
+    fields: [
+      { key: 'profit_recycle_threshold_r', label: 'Min profit before recycling (ZAR)', type: 'number', min: 10, max: 10000 },
+      { key: 'profit_recycle_max_per_day', label: 'Max new bots per day', type: 'number', min: 1, max: 5 },
+    ],
   },
-  reasonItem: {
-    display: 'flex', alignItems: 'flex-start', gap: '8px',
-    padding: '6px 0',
-    borderBottom: '1px solid rgba(255,255,255,0.05)',
-    fontSize: '0.83rem', color: 'var(--muted)',
+  capital_redistribution: {
+    label: '🔄 Capital Redistribution',
+    description: 'Gradually shifts capital from worst-performing bots to top performers. All moves go through the ledger — nothing is bypassed.',
+    fields: [
+      { key: 'capital_shift_max_pct', label: 'Max capital shift per tick (%)', type: 'number', min: 1, max: 50 },
+    ],
+  },
+  strategy_specialization: {
+    label: '🧠 Strategy Specialization',
+    description: 'Assigns bots to regime-appropriate strategy profiles (trend, range, breakout, micro-scalp) based on CoinStats intelligence. Reversible.',
+    fields: [],
+  },
+  trade_frequency_tuning: {
+    label: '⚡ Trade Frequency Tuning',
+    description: 'Adjusts bot cooldown and concurrency within strict safe bounds. Auto-reverts if any lock activates.',
+    fields: [],
+  },
+  dynamic_risk_budgeting: {
+    label: '📊 Dynamic Risk Budgeting',
+    description: 'Scales risk budget relative to equity highs and drawdowns. Never disables Bodyguard or daily loss locks.',
+    fields: [
+      { key: 'risk_budget_scale_factor', label: 'Risk budget multiplier', type: 'number', min: 0.5, max: 2.0, step: 0.1 },
+    ],
+  },
+  capital_aggression: {
+    label: '🚀 Capital Aggression Mode',
+    description: 'Temporarily increases capital allocation after a streak of profitable days with low drawdown. Auto-reverts after the configured period.',
+    fields: [
+      { key: 'aggression_min_green_days', label: 'Minimum green days required', type: 'number', min: 3, max: 30 },
+      { key: 'aggression_max_drawdown_pct', label: 'Max drawdown to allow aggression (%)', type: 'number', min: 1, max: 15 },
+    ],
+  },
+  exchange_filtering: {
+    label: '🏦 Exchange Performance Filtering',
+    description: 'Scores each exchange on performance metrics and gradually shifts allocations to better-performing ones. Ledger-first.',
+    fields: [],
+  },
+  bot_cap_ramp: {
+    label: '📈 Bot Cap Ramp',
+    description: 'Increases the maximum bot cap only when funded from profits. Never increases beyond the configured hard limit.',
+    fields: [
+      { key: 'bot_cap_max', label: 'Max bot cap', type: 'number', min: 1, max: 30 },
+    ],
   },
 };
 
-function StatusBadge({ active, label }) {
-  return (
-    <span style={S.badge(active)}>
-      <span style={S.dot(active)} />
-      {label}
-    </span>
-  );
-}
+const cardStyle = {
+  padding: '16px',
+  background: 'var(--panel)',
+  border: '1px solid var(--line)',
+  borderRadius: '10px',
+  marginBottom: '12px',
+};
 
-/** Panel shown when an engine is disabled — lists every reason clearly. */
-function DisabledPanel({ title, reasons }) {
-  const labelledReasons = (reasons || []).map(r => REASON_LABELS[r] || r);
-  return (
-    <div style={{
-      background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)',
-      borderRadius: '10px', padding: '16px', marginBottom: '16px',
-    }}>
-      <div style={{ fontWeight: 700, color: '#ef4444', fontSize: '0.88rem', marginBottom: '10px' }}>
-        ⛔ {title} is currently disabled
-      </div>
-      {labelledReasons.length === 0 ? (
-        <p style={{ color: 'var(--muted)', fontSize: '0.82rem', margin: 0 }}>
-          Enable the feature flag on the server to activate this engine.
-        </p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {labelledReasons.map((r, i) => (
-            <li key={i} style={S.reasonItem}>
-              <span style={{ color: '#ef4444', flexShrink: 0 }}>•</span>
-              {r}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+const ToggleSwitch = ({ checked, onChange, disabled }) => (
+  <button
+    onClick={() => !disabled && onChange(!checked)}
+    disabled={disabled}
+    style={{
+      width: '44px', height: '24px', borderRadius: '12px',
+      border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+      background: checked ? 'var(--success, #10b981)' : 'var(--muted, #64748b)',
+      position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+      opacity: disabled ? 0.5 : 1,
+    }}
+    title={disabled ? 'Enable the master Growth Engine switch first' : (checked ? 'Enabled — click to disable' : 'Disabled — click to enable')}
+  >
+    <span style={{
+      position: 'absolute', top: '3px',
+      left: checked ? '22px' : '3px',
+      width: '18px', height: '18px', borderRadius: '50%',
+      background: '#fff', transition: 'left 0.2s',
+    }} />
+  </button>
+);
 
-function PlatformGrowthCard({ platform, data, threshold }) {
-  const profit = safeNum(data?.realized_profit_zar);
-  const nextThreshold = safeNum(data?.next_threshold_zar ?? (safeNum(data?.next_milestone) * safeNum(threshold)));
-  const progress = nextThreshold > 0 ? Math.min((profit / nextThreshold) * 100, 100) : 0;
-  const spawned = safeNum(data?.milestones_spawned ?? data?.total_spawned);
-  const eligible = data?.eligible;
-  const blocked = (data?.blocked_reasons || []).filter(r => r !== 'PROFIT_BELOW_THRESHOLD');
+export default function GrowthEngineSection() {
+  const [settings, setSettings] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [decisions, setDecisions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState(null);
+  const [runResult, setRunResult] = useState(null);
 
-  return (
-    <div style={{
-      background: 'var(--glass)', border: '1px solid var(--line)',
-      borderRadius: '12px', padding: '18px',
-      display: 'flex', flexDirection: 'column', gap: '12px',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text)' }}>
-          {platform.charAt(0).toUpperCase() + platform.slice(1)}
-        </span>
-        <StatusBadge active={eligible} label={eligible ? 'Eligible' : blocked.length > 0 ? 'Blocked' : 'Accumulating'} />
-      </div>
-
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-          <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Progress to next milestone</span>
-          <span style={{ color: 'var(--accent2)', fontSize: '0.8rem', fontWeight: 600 }}>{progress.toFixed(1)}%</span>
-        </div>
-        <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '6px', height: '6px', overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', borderRadius: '6px', width: `${progress}%`,
-            background: eligible
-              ? 'linear-gradient(90deg, var(--success), #34d399)'
-              : 'linear-gradient(90deg, var(--accent2), #60a5fa)',
-            transition: 'width 0.4s ease',
-          }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
-          <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{fmtZAR(profit)} realized</span>
-          <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>Target: {fmtZAR(nextThreshold)}</span>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <div style={S.statBox}>
-          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text)' }}>{spawned}</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px' }}>Bots Spawned</div>
-        </div>
-        <div style={S.statBox}>
-          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text)' }}>{fmtZAR(threshold, 0)}</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px' }}>Threshold</div>
-        </div>
-      </div>
-
-      {blocked.length > 0 && (
-        <div style={{ fontSize: '0.78rem', color: '#f59e0b' }}>
-          ⚠ {blocked.map(r => REASON_LABELS[r] || r).join(' • ')}
-        </div>
-      )}
-
-      {/* Capital breakdown when funds are insufficient */}
-      {blocked.includes('INSUFFICIENT_AVAILABLE_FUNDS') && (
-        <div style={{
-          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
-          borderRadius: '8px', padding: '10px', fontSize: '0.75rem',
-        }}>
-          <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: '4px' }}>Capital Breakdown</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
-            <span>Min required</span>
-            <span>{fmtZAR(safeNum(data?.min_capital_required ?? data?.spawn_minimum))}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
-            <span>Available</span>
-            <span>{fmtZAR(safeNum(data?.available_capital))}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted)' }}>
-            <span>Reserved</span>
-            <span>{fmtZAR(safeNum(data?.reserved_capital))}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ReinvestPlatformCard({ platform, data }) {
-  const lastAmount = safeNum(data?.last_reinvest_amount);
-  const totalReinvested = safeNum(data?.total_reinvested_zar);
-  const lastDate = data?.last_reinvest_date;
-
-  return (
-    <div style={{
-      background: 'var(--glass)', border: '1px solid var(--line)',
-      borderRadius: '12px', padding: '18px',
-      display: 'flex', flexDirection: 'column', gap: '10px',
-    }}>
-      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>
-        {platform.charAt(0).toUpperCase() + platform.slice(1)}
-      </div>
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <div style={S.statBox}>
-          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent2)' }}>{fmtZAR(totalReinvested)}</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px' }}>Total Reinvested</div>
-        </div>
-        <div style={S.statBox}>
-          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)' }}>{fmtZAR(lastAmount)}</div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: '2px' }}>Last Reinvest</div>
-        </div>
-      </div>
-      {lastDate && (
-        <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-          Last run: {new Date(lastDate).toLocaleString()}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotReinvestStatus }) {
-  const [growthData, setGrowthData] = useState(autopilotGrowthStatus || null);
-  const [reinvestData, setReinvestData] = useState(autopilotReinvestStatus || null);
-  const [loading, setLoading] = useState(!autopilotGrowthStatus);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [activeTab, setActiveTab] = useState('growth');
-
-  const fetchData = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const [gRes, rRes] = await Promise.all([
-        get('/autopilot/growth/status'),
-        get('/autopilot/reinvest/status'),
+      const [settingsRes, statusRes, decisionsRes] = await Promise.all([
+        apiClient.get('/growth/settings'),
+        apiClient.get('/growth/status'),
+        apiClient.get('/growth/decisions?limit=10'),
       ]);
-      setGrowthData(gRes);
-      setReinvestData(rRes);
-      setLastUpdated(new Date());
+      setSettings(settingsRes.data.settings);
+      setStatus(statusRes.data);
+      setDecisions(decisionsRes.data.decisions || []);
+      setError(null);
     } catch (err) {
-      notifyError(err);
+      setError(err.response?.data?.detail || err.message || 'Failed to load Growth Engine data');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, REFRESH_MS);
+    fetchAll();
+    const interval = setInterval(fetchAll, 8000); // poll every 8s
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchAll]);
 
-  useEffect(() => { if (autopilotGrowthStatus) setGrowthData(autopilotGrowthStatus); }, [autopilotGrowthStatus]);
-  useEffect(() => { if (autopilotReinvestStatus) setReinvestData(autopilotReinvestStatus); }, [autopilotReinvestStatus]);
-
-  useRealtimeEvent('system_health', fetchData);
-
-  const platforms = growthData?.platforms ? Object.keys(growthData.platforms) : [];
-  const reinvestPlatforms = reinvestData?.platforms ? Object.keys(reinvestData.platforms) : [];
-  const growthEnabled = growthData?.enabled;
-  const reinvestEnabled = reinvestData?.enabled;
-  const threshold = growthData?.profit_threshold_zar ?? 0;
-  const minReinvest = reinvestData?.min_reinvest_zar ?? 0;
-
-  // Collect global blocking reasons from the first platform's response (feature-level reasons
-  // like AUTOPILOT_GROWTH_DISABLED apply to all platforms, not just one)
-  const globalGrowthBlockers = platforms.length > 0
-    ? (growthData.platforms[platforms[0]]?.blocked_reasons || [])
-        .filter(r => ['AUTOPILOT_GROWTH_DISABLED','AUTOPILOT_DISABLED','TRADING_MODE_DISABLED',
-                      'AUTOPILOT_OFF_FOR_USER','DAILY_LOSS_LOCK_ACTIVE','AUTOPILOT_MODE_DISABLED',
-                      'EMERGENCY_STOP_ACTIVE','BODYGUARD_LOCK_ACTIVE'].includes(r))
-    : (growthEnabled === false ? ['AUTOPILOT_GROWTH_DISABLED'] : []);
-
-  // Aggregate stats across all platforms
-  const aggregateStats = useMemo(() => {
-    if (!growthData?.platforms) return { totalSpawned: 0, eligiblePlatforms: 0, blockedPlatforms: 0 };
-    const entries = Object.values(growthData.platforms);
-    return {
-      totalSpawned: entries.reduce((s, p) => s + safeNum(p?.milestones_spawned ?? p?.total_spawned), 0),
-      eligiblePlatforms: entries.filter(p => p?.eligible).length,
-      blockedPlatforms: entries.filter(p => !p?.eligible && (p?.blocked_reasons || []).some(r => r !== 'PROFIT_BELOW_THRESHOLD')).length,
-    };
-  }, [growthData]);
-
-  // Determine overall growth engine operational status
-  const growthStatus = useMemo(() => {
-    if (!growthEnabled) return 'disabled';
-    if (globalGrowthBlockers.length > 0) return 'blocked';
-    if (aggregateStats.eligiblePlatforms > 0) return 'ready';
-    return 'accumulating';
-  }, [growthEnabled, globalGrowthBlockers, aggregateStats]);
-
-  const STATUS_BADGE = {
-    disabled: { label: 'Disabled', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.3)' },
-    blocked:  { label: 'Blocked', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)' },
-    ready:    { label: 'Ready to Spawn', color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.3)' },
-    accumulating: { label: 'Active — Accumulating', color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)' },
+  const updateSetting = async (key, value) => {
+    if (!settings) return;
+    const updated = { ...settings, [key]: value };
+    setSettings(updated);
+    setSaving(true);
+    try {
+      const res = await apiClient.put('/growth/settings', { [key]: value });
+      setSettings(res.data.settings);
+    } catch (err) {
+      setError('Failed to save setting: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const handleRunOnce = async () => {
+    if (!window.confirm(
+      '⚠️ Run Growth Engine tick now?\n\n' +
+      'This will execute one analysis tick and propose actions based on your enabled features. ' +
+      'Proposed actions require manual review. No trades are placed automatically.\n\n' +
+      'Proceed?'
+    )) return;
+    setRunning(true);
+    setRunResult(null);
+    try {
+      const res = await apiClient.post('/growth/run-once', { confirm: true });
+      setRunResult(res.data.decision);
+      await fetchAll();
+    } catch (err) {
+      setError('Run failed: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="section active">
+        <div className="card">
+          <SectionHeader title="📈 Growth Engine" subtitle="Automated growth features for paper trading" />
+          <div style={{ color: 'var(--muted)', padding: '20px 0' }}>Loading Growth Engine…</div>
+        </div>
+      </section>
+    );
+  }
+
+  const masterEnabled = settings?.enabled || false;
 
   return (
     <section className="section active">
       <div className="card">
         <SectionHeader
-          title="🌱 Growth Engine"
-          subtitle="Tracks realized profit milestones and autonomously spawns new bots."
+          title="📈 Growth Engine"
+          subtitle="Safe, automated growth features — paper trading only. All features off by default."
         />
 
-        {/* ── Three Primary Blocks ── */}
-        <div className="growth-primary-grid" style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '16px', marginBottom: '24px',
+        {/* Warning Banner */}
+        <div style={{
+          padding: '14px 18px',
+          background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(217,119,6,0.08) 100%)',
+          border: '1px solid rgba(245,158,11,0.4)',
+          borderRadius: '10px',
+          marginBottom: '20px',
+          display: 'flex', gap: '12px', alignItems: 'flex-start',
         }}>
-          {/* Growth Engine status */}
-          {(() => {
-            const sd = STATUS_BADGE[growthStatus] || STATUS_BADGE.accumulating;
-            return (
-              <div style={{
-                background: sd.bg, border: `1px solid ${sd.border}`,
-                borderRadius: '12px', padding: '20px',
-                display: 'flex', flexDirection: 'column', gap: '8px',
-              }}>
-                <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Growth Engine</span>
-                <span style={{ fontWeight: 700, fontSize: '1.1rem', color: sd.color }}>● {sd.label}</span>
-                <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-                  Reinvest: {reinvestEnabled ? '● Active' : '○ Disabled'}
-                </span>
-              </div>
-            );
-          })()}
-          {/* Bots spawned */}
-          <div style={{
-            background: 'rgba(96,130,182,0.12)', border: '1px solid rgba(96,130,182,0.25)',
-            borderRadius: '12px', padding: '20px',
-            display: 'flex', flexDirection: 'column', gap: '8px',
-          }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Bots Spawned</span>
-            <span style={{ fontWeight: 800, fontSize: '1.6rem', color: 'var(--text)' }}>{aggregateStats.totalSpawned}</span>
-            <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-              {aggregateStats.eligiblePlatforms} eligible platform{aggregateStats.eligiblePlatforms !== 1 ? 's' : ''}
-            </span>
+          <span style={{ fontSize: '1.3rem' }}>⚠️</span>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--warning, #f59e0b)', marginBottom: '4px' }}>
+              Higher Risk Features
+            </div>
+            <div style={{ fontSize: '0.88rem', color: 'var(--text)', lineHeight: '1.5' }}>
+              These features can increase drawdown and capital exposure.
+              Enable only if you understand the risk. All actions go through existing
+              safety gates (Bodyguard, daily loss locks, emergency stop).
+              <strong> Nothing executes without your toggles being on.</strong>
+            </div>
           </div>
-          {/* Milestone threshold */}
-          <div style={{
-            background: 'rgba(96,130,182,0.12)', border: '1px solid rgba(96,130,182,0.25)',
-            borderRadius: '12px', padding: '20px',
-            display: 'flex', flexDirection: 'column', gap: '8px',
-          }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Milestone Threshold</span>
-            <span style={{ fontWeight: 800, fontSize: '1.6rem', color: 'var(--accent2)' }}>{fmtZAR(threshold)}</span>
-            {lastUpdated && (
-              <span style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>
-                ↻ {lastUpdated.toLocaleTimeString()}
-              </span>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{ padding: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: '8px', color: '#ef4444', marginBottom: '16px', fontSize: '0.88rem' }}>
+            {error}
+          </div>
+        )}
+
+        {/* Master Switch + Status */}
+        <div style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text)', marginBottom: '4px' }}>
+              Master Switch
+            </div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+              {masterEnabled ? '✅ Growth Engine is ACTIVE' : '⭕ Growth Engine is OFF — no features will run'}
+            </div>
+          </div>
+          <ToggleSwitch
+            checked={masterEnabled}
+            onChange={(v) => updateSetting('enabled', v)}
+            disabled={saving}
+          />
+        </div>
+
+        {/* Status Block */}
+        {status && (
+          <div style={{ ...cardStyle, background: 'var(--glass)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px' }}>Last Tick</div>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
+                  {status.last_tick ? new Date(status.last_tick).toLocaleString() : 'Never'}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px' }}>Market Regime</div>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text)', textTransform: 'capitalize' }}>
+                  {status.current_regime && status.current_regime !== 'unknown' ? status.current_regime : 'Neutral'}
+                  {' '}({((status.confidence || 0) * 100).toFixed(0)}% confidence
+                  {(status.confidence || 0) === 0 ? ' — awaiting data' : ''})
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px' }}>Active Features</div>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
+                  {status.active_features?.length || 0} of {Object.keys(FEATURE_DESCRIPTIONS).length}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '2px' }}>Guardrails</div>
+                <div style={{ fontSize: '0.88rem', color: status.blocked ? '#ef4444' : 'var(--success)' }}>
+                  {status.blocked ? '🔒 Blocked' : '✅ Clear'}
+                </div>
+              </div>
+            </div>
+            {status.blocked_reasons?.length > 0 && (
+              <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(239,68,68,0.08)', borderRadius: '6px', fontSize: '0.82rem', color: '#ef4444' }}>
+                {/* Deduplicated — backend may merge guardrail + state reasons */}
+                {[...new Set(status.blocked_reasons)].map((r, i) => <div key={i}>🔒 {r}</div>)}
+              </div>
+            )}
+            {/* Structured guardrail checks — show when available */}
+            {status.guardrails?.checks && Object.keys(status.guardrails.checks).length > 0 && (
+              <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {Object.entries(status.guardrails.checks).map(([k, v]) => (
+                  <span key={k} style={{
+                    fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px',
+                    background: v ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                    color: v ? 'var(--success)' : '#ef4444',
+                    border: `1px solid ${v ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  }}>
+                    {v ? '✓' : '✗'} {k.replace(/_ok$/, '').replace(/_/g, ' ')}
+                  </span>
+                ))}
+              </div>
+            )}
+            {status.last_actions?.length > 0 && (
+              <div style={{ marginTop: '10px', fontSize: '0.82rem', color: 'var(--muted)' }}>
+                Last: {status.last_actions.slice(0, 3).join(' · ')}
+              </div>
             )}
           </div>
+        )}
+
+        {/* Feature Cards */}
+        <div style={{ marginTop: '20px', marginBottom: '8px', fontWeight: 700, color: 'var(--text)' }}>
+          Feature Toggles
         </div>
-
-        {/* ── Tabs ── */}
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button style={S.tab(activeTab === 'growth')} onClick={() => setActiveTab('growth')}>
-            📈 Bot Spawning
-          </button>
-          <button style={S.tab(activeTab === 'reinvest')} onClick={() => setActiveTab('reinvest')}>
-            🔄 Profit Reinvest
-          </button>
-        </div>
-
-        {loading ? (
-          <div style={{ color: 'var(--muted)', padding: '32px', textAlign: 'center' }}>
-            Loading growth engine data…
-          </div>
-        ) : (
-          <>
-            {activeTab === 'growth' && (
-              <div>
-                {/* Disabled state */}
-                {!growthEnabled && (
-                  <DisabledPanel title="Growth Engine" reasons={globalGrowthBlockers} />
-                )}
-
-                {/* Blocked state — engine enabled but guardrails blocking */}
-                {growthEnabled && globalGrowthBlockers.length > 0 && (
-                  <div style={{
-                    background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.3)',
-                    borderRadius: '10px', padding: '14px 16px', marginBottom: '16px',
-                  }}>
-                    <div style={{ fontWeight: 700, color: '#f59e0b', fontSize: '0.88rem', marginBottom: '8px' }}>
-                      ⚠ Growth Engine blocked — resolve these before auto-spawning can trigger:
-                    </div>
-                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                      {globalGrowthBlockers.map((r, i) => (
-                        <li key={i} style={{ fontSize: '0.82rem', color: 'var(--muted)', padding: '3px 0' }}>
-                          • {REASON_LABELS[r] || r}
-                        </li>
+        {Object.entries(FEATURE_DESCRIPTIONS).map(([key, meta]) => {
+          const isOn = settings?.[key] || false;
+          return (
+            <div key={key} style={{ ...cardStyle, border: isOn && masterEnabled ? '1px solid var(--success, #10b981)' : '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>{meta.label}</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.5' }}>{meta.description}</div>
+                  {/* Sub-fields */}
+                  {isOn && meta.fields.length > 0 && (
+                    <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                      {meta.fields.map(field => (
+                        <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <label style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{field.label}</label>
+                          <input
+                            type="number"
+                            value={settings?.[field.key] ?? ''}
+                            min={field.min}
+                            max={field.max}
+                            step={field.step || 1}
+                            onChange={(e) => updateSetting(field.key, parseFloat(e.target.value))}
+                            disabled={saving}
+                            style={{
+                              width: '120px', padding: '4px 8px',
+                              background: 'var(--panel)', border: '1px solid var(--line)',
+                              borderRadius: '4px', color: 'var(--text)', fontSize: '0.88rem',
+                            }}
+                          />
+                        </div>
                       ))}
-                    </ul>
-                    <div style={{ marginTop: '8px', fontSize: '0.78rem', color: 'var(--muted)' }}>
-                      ℹ Enable Autopilot in System Mode and ensure your paper wallet has funds to unblock.
                     </div>
-                  </div>
-                )}
-
-                {/* How it works */}
-                <div style={{
-                  background: 'rgba(96,165,250,0.05)', border: '1px solid rgba(96,165,250,0.15)',
-                  borderRadius: '10px', padding: '12px 14px', marginBottom: '16px',
-                  fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.6',
-                }}>
-                  <strong style={{ color: 'var(--text)', display: 'block', marginBottom: '4px' }}>How it works</strong>
-                  Each exchange tracks its own realized profit independently.
-                  When profit crosses the milestone threshold ({fmtZAR(threshold)}),
-                  a new bot is automatically seeded on that exchange.
-                  Each subsequent milestone triggers another spawn.
+                  )}
                 </div>
+                <ToggleSwitch
+                  checked={isOn}
+                  onChange={(v) => updateSetting(key, v)}
+                  disabled={saving || (!masterEnabled && !isOn)}
+                />
+              </div>
+            </div>
+          );
+        })}
 
-                {platforms.length === 0 ? (
-                  <div style={{ color: 'var(--muted)', padding: '24px', textAlign: 'center' }}>
-                    No platform data available yet.
+        {/* Leverage */}
+        {(() => {
+          const leverageOn = settings?.leverage_enabled || false;
+          const multiplier = settings?.leverage_multiplier ?? 1.0;
+          const mode = status?.mode || 'paper';
+          const liveBlockedReason = status?.enabled_toggles?.leverage_enabled === false && mode === 'live'
+            ? null : null; // resolved server-side per exchange
+          return (
+            <div style={{ ...cardStyle, border: leverageOn && masterEnabled ? '1px solid rgba(245,158,11,0.6)' : '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>
+                    📊 Leverage (Position Sizing Multiplier)
                   </div>
-                ) : (
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                    gap: '14px',
-                  }}>
-                    {platforms.map(platform => (
-                      <PlatformGrowthCard
-                        key={platform}
-                        platform={platform}
-                        data={growthData.platforms[platform]}
-                        threshold={threshold}
+                  <div style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.5' }}>
+                    Scales position sizes by a multiplier (1.0–2.0x). Auto-reverts to 1.0x if any safety lock activates.
+                    In live mode, only works on exchanges that support margin/futures.
+                  </div>
+                  {leverageOn && (
+                    <div style={{ marginTop: '10px' }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px', display: 'block' }}>
+                        Multiplier: <strong style={{ color: 'var(--warning, #f59e0b)' }}>{parseFloat(multiplier).toFixed(1)}x</strong>
+                      </label>
+                      <input
+                        type="range"
+                        min="1.0"
+                        max="2.0"
+                        step="0.1"
+                        value={multiplier}
+                        onChange={(e) => updateSetting('leverage_multiplier', parseFloat(e.target.value))}
+                        disabled={saving || !masterEnabled}
+                        style={{ width: '180px', accentColor: 'var(--warning, #f59e0b)' }}
                       />
-                    ))}
-                  </div>
-                )}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>
+                        1.0x = no leverage &nbsp;·&nbsp; 2.0x = double position size
+                      </div>
+                      {mode === 'live' && (
+                        <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--warning, #f59e0b)' }}>
+                          ⚠ Live mode: availability depends on your exchange. Check last run result for capability status.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <ToggleSwitch
+                  checked={leverageOn}
+                  onChange={(v) => updateSetting('leverage_enabled', v)}
+                  disabled={saving || (!masterEnabled && !leverageOn)}
+                />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Run Once Button */}
+        <div style={{ marginTop: '20px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <button
+            onClick={handleRunOnce}
+            disabled={running || !masterEnabled}
+            style={{
+              padding: '10px 20px',
+              background: masterEnabled ? 'var(--accent)' : 'var(--muted)',
+              color: '#fff', border: 'none', borderRadius: '8px',
+              fontWeight: 600, cursor: masterEnabled && !running ? 'pointer' : 'not-allowed',
+              fontSize: '0.9rem',
+            }}
+            title={masterEnabled ? 'Manually trigger one Growth Engine analysis tick' : 'Enable the master switch first'}
+          >
+            {running ? '⏳ Running…' : '▶ Run Once (Paper Only)'}
+          </button>
+          {saving && <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Saving…</span>}
+        </div>
+
+        {/* Run Once Result */}
+        {runResult && (
+          <div style={{ ...cardStyle, marginTop: '12px', border: '1px solid var(--accent)' }}>
+            <div style={{ fontWeight: 700, marginBottom: '8px', color: 'var(--text)' }}>
+              Last Run Result — {new Date(runResult.timestamp).toLocaleString()}
+            </div>
+            <div style={{ fontSize: '0.88rem', color: 'var(--text)', marginBottom: '8px' }}>{runResult.summary}</div>
+            {/* Only show blocked_reasons here if not already shown in status block above */}
+            {runResult.blocked_reasons?.length > 0 && !status?.blocked && (
+              <div style={{ color: '#ef4444', fontSize: '0.82rem' }}>
+                🔒 Blocked: {[...new Set(runResult.blocked_reasons)].join('; ')}
               </div>
             )}
-
-            {activeTab === 'reinvest' && (
-              <div>
-                {!reinvestEnabled && (
-                  <DisabledPanel
-                    title="Reinvest Engine"
-                    reasons={['AUTOPILOT_REINVEST_DISABLED']}
-                  />
-                )}
-
-                {/* How it works */}
-                <div style={{
-                  background: 'rgba(96,165,250,0.05)', border: '1px solid rgba(96,165,250,0.15)',
-                  borderRadius: '10px', padding: '12px 14px', marginBottom: '16px',
-                  fontSize: '0.82rem', color: 'var(--muted)', lineHeight: '1.6',
-                }}>
-                  <strong style={{ color: 'var(--text)', display: 'block', marginBottom: '4px' }}>How it works</strong>
-                  Daily reinvestment runs once per day. When realized profit on an exchange
-                  exceeds the minimum ({fmtZAR(minReinvest)}) and bots are near their capital cap,
-                  profits are redistributed as additional capital to active bots.
-                </div>
-
-                {reinvestPlatforms.length === 0 ? (
-                  <div style={{ color: 'var(--muted)', padding: '24px', textAlign: 'center' }}>
-                    No reinvest data available yet. Profits will appear here once closed trades are recorded.
+            {runResult.actions_proposed?.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px' }}>Proposed Actions:</div>
+                {runResult.actions_proposed.map((a, i) => (
+                  <div key={i} style={{ fontSize: '0.82rem', color: 'var(--text)', padding: '4px 0' }}>
+                    • <strong>{a.feature}</strong>: {a.skipped ? `Skipped — ${a.reason}` : a.description || JSON.stringify(a)}
                   </div>
-                ) : (
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                    gap: '14px',
-                  }}>
-                    {reinvestPlatforms.map(platform => (
-                      <ReinvestPlatformCard
-                        key={platform}
-                        platform={platform}
-                        data={reinvestData.platforms[platform]}
-                      />
-                    ))}
-                  </div>
-                )}
+                ))}
               </div>
             )}
-          </>
+          </div>
+        )}
+
+        {/* Recent Decisions */}
+        {decisions.length > 0 && (
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ fontWeight: 700, marginBottom: '12px', color: 'var(--text)' }}>
+              Recent Decisions
+            </div>
+            {decisions.map((d, i) => (
+              <div key={i} style={{ ...cardStyle, background: 'var(--glass)', marginBottom: '8px', fontSize: '0.82rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--muted)' }}>{new Date(d.timestamp).toLocaleString()}</span>
+                  <span style={{ color: d.blocked_reasons?.length ? '#ef4444' : 'var(--success)' }}>
+                    {d.blocked_reasons?.length ? '🔒 Blocked' : d.actions_taken?.length ? '✅ Actions' : '⭕ No action'}
+                  </span>
+                </div>
+                <div style={{ color: 'var(--text)' }}>{d.summary}</div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </section>

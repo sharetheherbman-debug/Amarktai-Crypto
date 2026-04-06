@@ -1,207 +1,24 @@
 """
 Risk Management System - Stop Loss, Take Profit, Trailing Stop
 Critical safety features for live trading
-
-Risk Rule Precedence (highest → lowest):
-  1. Emergency Stop   — global kill-switch, overrides everything
-  2. Circuit Breaker  — rapid successive losses trigger cooldown
-  3. Daily Loss Lock  — cumulative daily loss exceeds threshold
-  4. Bodyguard Lock   — per-bot protective pause
-  5. Training Gate    — 7-day paper training requirement
-
-Dynamic thresholds are computed as percentages of current equity
-(configured via DAILY_LOSS_LIMIT and MAX_DRAW_DOWN env vars).
 """
 import asyncio
-import os
 from datetime import datetime, timezone
 import database as db
 from logger_config import logger
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
-
-# Default risk parameters in percentage points (later converted with /100 in price math)
-# Tuned to realistic scalping defaults and configurable via env.
-DEFAULT_STOP_LOSS_PCT = float(os.getenv("DEFAULT_STOP_LOSS_PCT", "0.5"))      # 0.5 percentage points
-DEFAULT_TAKE_PROFIT_PCT = float(os.getenv("DEFAULT_TAKE_PROFIT_PCT", "0.8"))  # 0.8 percentage points
-DEFAULT_TRAILING_STOP_PCT = float(os.getenv("DEFAULT_TRAILING_STOP_PCT", "0.4"))  # 0.4 percentage points
-
-# Dynamic thresholds from environment (fractions of equity)
-DAILY_LOSS_LIMIT = float(os.getenv("DAILY_LOSS_LIMIT", "0.03"))   # 3%
-MAX_DRAW_DOWN = float(os.getenv("MAX_DRAW_DOWN", "0.10"))          # 10%
-
-# Risk lock precedence (index 0 = highest priority)
-RISK_LOCK_PRECEDENCE = [
-    "emergency_stop",
-    "circuit_breaker",
-    "daily_loss_lock",
-    "bodyguard_lock",
-    "training_gate",
-]
-
-
-class RiskLockState:
-    """
-    Tracks which risk locks are active.  Enforces precedence so that
-    higher-priority locks are evaluated first and cannot be overridden
-    by lower-priority unlocks.
-    """
-
-    def __init__(self):
-        self._locks: Dict[str, bool] = {name: False for name in RISK_LOCK_PRECEDENCE}
-        self._lock_reasons: Dict[str, str] = {}
-
-    def engage(self, lock_name: str, reason: str = "") -> None:
-        if lock_name in self._locks:
-            self._locks[lock_name] = True
-            self._lock_reasons[lock_name] = reason
-            logger.warning("🔒 Risk lock ENGAGED: %s — %s", lock_name, reason)
-
-    def release(self, lock_name: str) -> None:
-        if lock_name in self._locks:
-            self._locks[lock_name] = False
-            self._lock_reasons.pop(lock_name, None)
-            logger.info("🔓 Risk lock RELEASED: %s", lock_name)
-
-    def is_locked(self) -> bool:
-        """Return True if any lock is active."""
-        return any(self._locks.values())
-
-    def highest_active_lock(self) -> Optional[str]:
-        """Return the name of the highest-priority active lock, or None."""
-        for name in RISK_LOCK_PRECEDENCE:
-            if self._locks.get(name):
-                return name
-        return None
-
-    def get_state(self) -> Dict:
-        return {
-            "locked": self.is_locked(),
-            "highest_lock": self.highest_active_lock(),
-            "locks": dict(self._locks),
-            "reasons": dict(self._lock_reasons),
-        }
-
-
-class QuarantineManager:
-    """Manages quarantined bots that triggered hard stops."""
-
-    def __init__(self):
-        self._quarantined: Dict[str, Dict] = {}  # bot_id → info
-
-    def quarantine(self, bot_id: str, reason: str) -> None:
-        self._quarantined[bot_id] = {
-            "reason": reason,
-            "quarantined_at": datetime.now(timezone.utc).isoformat(),
-        }
-        logger.warning("🚫 Bot %s quarantined: %s", bot_id, reason)
-
-    def release(self, bot_id: str) -> bool:
-        if bot_id in self._quarantined:
-            del self._quarantined[bot_id]
-            logger.info("✅ Bot %s released from quarantine", bot_id)
-            return True
-        return False
-
-    def is_quarantined(self, bot_id: str) -> bool:
-        return bot_id in self._quarantined
-
-    def get_all(self) -> Dict[str, Dict]:
-        return dict(self._quarantined)
-
-
-class DailyLossTracker:
-    """Tracks cumulative daily loss per user for dynamic threshold enforcement."""
-
-    def __init__(self):
-        self._daily_losses: Dict[str, Dict] = {}  # user_id → {date, loss}
-
-    def _today(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    def record_loss(self, user_id: str, loss_amount: float) -> None:
-        today = self._today()
-        entry = self._daily_losses.get(user_id, {})
-        if entry.get("date") != today:
-            entry = {"date": today, "loss": 0.0}
-        entry["loss"] += abs(loss_amount)
-        self._daily_losses[user_id] = entry
-
-    def get_daily_loss(self, user_id: str) -> float:
-        entry = self._daily_losses.get(user_id, {})
-        if entry.get("date") != self._today():
-            return 0.0
-        return entry.get("loss", 0.0)
-
-    def check_limit(self, user_id: str, equity: float) -> bool:
-        """Return True if daily loss exceeds the dynamic threshold."""
-        if equity <= 0:
-            return False
-        loss = self.get_daily_loss(user_id)
-        return (loss / equity) >= DAILY_LOSS_LIMIT
-
-    def reset(self, user_id: str) -> None:
-        self._daily_losses.pop(user_id, None)
-
+# Default risk parameters
+DEFAULT_STOP_LOSS_PCT = 2.0  # 2% stop loss
+DEFAULT_TAKE_PROFIT_PCT = 5.0  # 5% take profit
+DEFAULT_TRAILING_STOP_PCT = 3.0  # 3% trailing stop
 
 class RiskManagement:
     def __init__(self):
         self.active_positions = {}  # Track entry prices and stops
         self.is_running = False
         self.task = None
-        self.lock_state = RiskLockState()
-        self.quarantine = QuarantineManager()
-        self.daily_loss_tracker = DailyLossTracker()
     
-    # ------------------------------------------------------------------
-    # Risk-lock precedence check
-    # ------------------------------------------------------------------
-
-    def check_risk_locks(self, bot_id: str) -> Optional[Dict]:
-        """
-        Evaluate risk locks in precedence order.
-        Returns a dict describing the blocking lock, or None if clear.
-
-        Precedence: Emergency Stop → Circuit Breaker → Daily Loss Lock
-                    → Bodyguard Lock → Training Gate
-        """
-        if self.quarantine.is_quarantined(bot_id):
-            return {
-                "blocked": True,
-                "lock": "quarantine",
-                "reason": self.quarantine.get_all().get(bot_id, {}).get("reason", "Bot quarantined"),
-            }
-
-        lock = self.lock_state.highest_active_lock()
-        if lock:
-            return {
-                "blocked": True,
-                "lock": lock,
-                "reason": self.lock_state._lock_reasons.get(lock, lock),
-            }
-        return None
-
-    # ------------------------------------------------------------------
-    # Dynamic threshold helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def compute_drawdown(current_equity: float, peak_equity: float) -> float:
-        """Return drawdown as a positive fraction clamped to [0.0, 1.0]."""
-        if peak_equity <= 0:
-            return 0.0
-        raw = (peak_equity - current_equity) / peak_equity
-        return max(0.0, min(1.0, raw))
-
-    def check_max_drawdown(self, current_equity: float, peak_equity: float) -> bool:
-        """Return True if drawdown exceeds MAX_DRAW_DOWN threshold."""
-        dd = self.compute_drawdown(current_equity, peak_equity)
-        return dd >= MAX_DRAW_DOWN
-
-    # ------------------------------------------------------------------
-    # Position management (preserved from original)
-    # ------------------------------------------------------------------
-
     async def set_position(self, bot_id: str, entry_price: float, 
                           stop_loss_pct: float = None, 
                           take_profit_pct: float = None,
@@ -330,12 +147,6 @@ class RiskManagement:
                 pnl_amount = 0
                 pnl_pct = 0
             
-            # Track daily losses
-            if pnl_amount < 0:
-                self.daily_loss_tracker.record_loss(
-                    bot.get("user_id", ""), abs(pnl_amount)
-                )
-
             # Update bot capital
             new_capital = bot.get('current_capital', 0) + pnl_amount
             new_total_profit = bot.get('total_profit', 0) + pnl_amount
@@ -383,10 +194,6 @@ class RiskManagement:
             
             await db.trades_collection.insert_one(trade)
             
-            # Quarantine bot on hard stop-loss
-            if reason == "stop_loss":
-                self.quarantine.quarantine(bot_id, f"Hard stop-loss at {pnl_pct:.2f}%")
-
             # Send real-time notification
             try:
                 from realtime_events import rt_events
@@ -419,34 +226,32 @@ class RiskManagement:
                 
                 # Check each active position
                 for bot_id in list(self.active_positions.keys()):
-                    # Skip quarantined bots
-                    if self.quarantine.is_quarantined(bot_id):
-                        await self.close_position(bot_id)
-                        continue
-
                     bot = await db.bots_collection.find_one({"id": bot_id}, {"_id": 0})
                     if not bot or bot.get('status') != 'active':
                         await self.close_position(bot_id)
                         continue
                     
-                    # Get current real price from the market snapshot service
+                    # Get current price from CCXT or DB snapshot
                     position = self.active_positions[bot_id]
-                    symbol = position.get('symbol', '')
-                    exchange_id = position.get('exchange', 'luno')
-                    current_price: Optional[float] = None
-                    try:
-                        from paper_trading_engine import paper_engine
-                        snapshot = await paper_engine.get_market_snapshot(symbol, exchange_id)
-                        current_price = snapshot.get("mid")
-                    except Exception as _price_err:
-                        logger.warning(f"Could not fetch live price for {symbol} on {exchange_id}: {_price_err}")
+                    current_price = None
 
-                    if current_price is None or current_price <= 0:
-                        logger.warning(
-                            f"Skipping position check for bot {bot_id}: "
-                            f"price unavailable for {symbol}"
-                        )
-                        continue
+                    # Try to fetch live price from CCXT (async-safe via to_thread)
+                    try:
+                        import ccxt
+                        exchange_name = bot.get('exchange', 'binance').lower()
+                        pair = position.get('symbol', bot.get('trading_pair', 'BTC/USDT'))
+                        exchange_cls = getattr(ccxt, exchange_name, None)
+                        if exchange_cls:
+                            ex = exchange_cls({'enableRateLimit': True})
+                            ticker = await asyncio.to_thread(ex.fetch_ticker, pair)
+                            current_price = ticker.get('last') or ticker.get('close')
+                    except Exception as price_err:
+                        logger.debug(f"CCXT price fetch failed for risk monitor ({bot_id}): {price_err}")
+
+                    if current_price is None:
+                        # Use last known price from DB (stored in bot doc)
+                        current_price = bot.get('last_price') or position['entry_price']
+                        logger.debug(f"Risk monitor using cached/entry price for {bot_id}: {current_price}")
                     
                     # Check if exit triggered
                     exit_signal = await self.check_position(bot_id, current_price)

@@ -387,12 +387,22 @@ class OnChainWhaleMonitor:
     
     async def simulate_whale_activity(self, coin: str = 'BTC', n_transactions: int = 20) -> None:
         """
-        Simulate whale transactions for testing
-        
+        Simulate whale transactions for testing (paper/dev mode only).
+
+        This method is intentionally disabled when ENABLE_LIVE_TRADING=true to prevent
+        fabricated on-chain signals from influencing real trading decisions.
+
         Args:
             coin: Cryptocurrency
             n_transactions: Number of transactions to simulate
         """
+        import os
+        if os.getenv('ENABLE_LIVE_TRADING', 'false').lower() == 'true':
+            logger.warning(
+                "simulate_whale_activity() is disabled in live trading mode — "
+                "skipping to prevent synthetic signals from affecting real orders."
+            )
+            return
         import random
         
         exchanges = list(self.exchange_addresses.keys())

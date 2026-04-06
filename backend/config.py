@@ -20,7 +20,7 @@ load_dotenv()
 
 # Database
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb://localhost:27017')
-DB_NAME = os.getenv('DB_NAME', 'amarktai_trading')
+DB_NAME = os.getenv('MONGO_DB', os.getenv('DB_NAME', 'amarktai_trading'))
 
 # Security
 JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -40,7 +40,7 @@ SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
 SMTP_USER = os.getenv('SMTP_USER', '')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
 FROM_EMAIL = os.getenv('FROM_EMAIL', SMTP_USER)
-FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Crypto')
+FROM_NAME = os.getenv('FROM_NAME', 'Amarktai Network')
 
 # Optional Integrations
 FETCHAI_API_KEY = os.getenv('FETCHAI_API_KEY', '')
@@ -87,6 +87,7 @@ NEW_TRADING_BRAIN_V2 = os.getenv('NEW_TRADING_BRAIN_V2', 'true').lower() == 'tru
 # NOTE: PAPER_TRAINING_DAYS is defined below in "Paper → Live promotion criteria" section (line ~117)
 REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 'true'  # Must have funded wallet
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'  # Must have exchange API keys
+AUTO_PROMOTE_LIVE = os.getenv('AUTO_PROMOTE_LIVE', 'false').lower() == 'true'  # Auto-promote eligible bots from paper to live daily
 
 # Supported Exchanges for Paper Trading (PRODUCTION)
 # Import from canonical source: backend/config/platforms.py
@@ -115,46 +116,47 @@ EXCHANGE_BOT_LIMITS = {
     'gate': 10
 }
 
-# Trading limits - Per exchange (Safety caps per upgrade guide)
-# NOTE: These are SAFETY CAPS to protect exchanges and user accounts.
-# ACTUAL ENFORCED LIMITS are in exchange_limits.py (50 per bot per day).
-# The rate_limiter.py uses exchange_limits.py as the authoritative source.
+# Trading limits - Per exchange (Safety caps)
+# These match the values in exchange_limits.py (the authoritative source for exchange API limits).
+# max_trades_per_bot_per_day is set very high to avoid artificial throttles.
+# Risk locks (Bodyguard, daily loss lock, emergency stop) still prevent over-trading.
+# Override per exchange via MAX_TRADES_PER_BOT_DAILY_<EXCHANGE> env vars.
 EXCHANGE_TRADE_LIMITS = {
     'luno': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 400,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 15,
         'max_api_calls_per_minute': 60
     },
     'binance': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 500,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 1200
     },
     'kucoin': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 1000,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bybit': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 1000,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 600
     },
     'bitget': {
-        'max_trades_per_bot_per_day': 50,  # Enforced by exchange_limits.py
-        'max_trades_per_exchange_per_day': 800,  # Safety cap per upgrade guide
+        'max_trades_per_bot_per_day': 999999,
+        'max_trades_per_exchange_per_day': 999999,
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
     }
 }
 
-# Global limits
-MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '1000'))  # Per-bot daily trade cap
-MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '3000'))  # Total across all bots
+# Global limits — set very high to avoid artificial throttles; risk locks (Bodyguard, daily loss) remain.
+MAX_TRADES_PER_BOT_PER_DAY = int(os.getenv('MAX_TRADES_PER_BOT_PER_DAY', '999999'))  # No artificial per-bot daily cap
+MAX_TRADES_PER_USER_PER_DAY = int(os.getenv('MAX_TRADES_PER_USER_PER_DAY', '999999'))  # No artificial per-user daily cap
 MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0  # Minimum net profit target (ignore 30c wins)
 
 # Paper trading anti-churn protections

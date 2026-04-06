@@ -7,6 +7,7 @@ from typing import Dict, List
 import logging
 
 import database as db
+from config import PAPER_STARTING_CAPITAL_ZAR
 from utils.bot_state import normalize_bot_state
 from services.system_mode_service import system_mode_service
 
@@ -64,21 +65,34 @@ class WalletSummaryService:
 
     async def _get_paper_balance(self, user_id: str) -> float:
         from services.paper_wallet_ledger import paper_wallet_ledger
+        from services.paper_wallet_service import paper_wallet_service
 
+        # Prefer the canonical paper_wallet_ledger (per-bot reserved balance)
         balance = await paper_wallet_ledger.get_user_balance(user_id)
         if balance is not None:
             await self._sync_paper_wallet_balance(user_id, balance)
             return balance
 
-        # Paper wallet ledger returned None (likely a transient error or no
-        # wallet exists yet).  Do NOT auto-seed with PAPER_STARTING_CAPITAL_ZAR
-        # — that would silently recreate 30000 after a paper reset.
-        # The caller will receive 0 and the user must fund explicitly.
-        logger.warning(
-            "Paper wallet ledger returned None for user %s — reporting 0 "
-            "(wallet may need explicit funding)",
-            user_id[:8],
-        )
+        # Fall back to the direct wallet document (what paper_wallet_service writes)
+        try:
+            result = await paper_wallet_service.get_balances(user_id)
+            available = result.get("total", None)
+            if available is not None:
+                await self._sync_paper_wallet_balance(user_id, float(available))
+                return float(available)
+        except Exception as e:
+            logger.debug("paper_wallet_service.get_balances fallback failed: %s", e)
+
+        # Wallet does not exist yet – return 0 (UNFUNDED).
+        # Do NOT auto-create with PAPER_STARTING_CAPITAL_ZAR; the user must
+        # explicitly fund the wallet.
+        if user_id not in self._warned_missing_wallets:
+            logger.info(
+                "Paper wallet not yet funded for user %s. Returning 0.",
+                user_id[:8],
+            )
+            self._warned_missing_wallets.add(user_id)
+
         return 0.0
 
     async def _get_live_balance(self, user_id: str) -> float:
@@ -118,24 +132,15 @@ class WalletSummaryService:
             if b.get("active")
             and (b.get("trading_mode") or b.get("mode") or "paper") == mode
         ]
+        non_deleted = [b for b in normalized if not b.get("is_deleted")]
 
         required_funds = sum(
             float(b.get("initial_capital") or 1000) for b in active_bots
         )
-
-        # allocated_funds only counts bots that are genuinely capital-reserving:
-        # active or training bots with a positive capital figure.  Paused /
-        # stopped / deleted bots are excluded so a dirty or reset-survivor bot
-        # cannot inflate the allocated total.
-        capital_reserving_statuses = {"active", "training"}
         allocated_funds = sum(
-            float(b.get("allocated_capital") or b.get("initial_capital") or 0)
-            for b in normalized
-            if not b.get("is_deleted")
-            and b.get("status") in capital_reserving_statuses
-            and float(b.get("allocated_capital") or b.get("initial_capital") or 0) > 0
+            float(b.get("allocated_capital") or b.get("initial_capital") or 1000)
+            for b in non_deleted
         )
-
         reserved_funds = 0.0
         if db.wallet_balances_collection is not None:
             reserved_docs = await db.wallet_balances_collection.find(

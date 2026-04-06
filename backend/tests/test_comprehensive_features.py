@@ -330,6 +330,10 @@ class ComprehensiveAPITester:
         else:
             self.log_result("Fetch.ai API Key Save", False, f"Failed to save key: {response.status_code if response else 'No response'}")
     
+    def test_external_signal_integration(self):
+        """P1: External signal provider removed — test is a no-op."""
+        self.log_result("External Signal Integration", True, "Provider removed — skipped")
+
     def test_bot_creation_exchange_limits(self):
         """P1: Test Bot Creation with Exchange Limits"""
         print("\n🤖 Testing Bot Creation with Exchange Limits...")

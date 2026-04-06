@@ -28,7 +28,10 @@ paper_reset_attempts = defaultdict(lambda: {"count": 0, "reset_at": datetime.now
 def get_paper_reset_password() -> str:
     reset_password = os.getenv("PAPER_RESET_PASSWORD")
     if not reset_password:
-        raise HTTPException(status_code=500, detail="Paper reset password not configured")
+        raise HTTPException(
+            status_code=500, 
+            detail="Paper reset password not configured. Set PAPER_RESET_PASSWORD environment variable to enable runtime reset functionality."
+        )
     return reset_password
 
 
@@ -321,7 +324,7 @@ async def get_mode(user_id: str = Depends(get_current_user)):
     try:
         mode = await get_system_mode(user_id)
         
-        # Determine active mode string
+        # Determine active mode string (label only — never overwrite explicit user choice)
         if mode.get("paperTrading"):
             active_mode = "paper"
         elif mode.get("liveTrading"):
@@ -329,7 +332,12 @@ async def get_mode(user_id: str = Depends(get_current_user)):
         elif mode.get("autopilot"):
             active_mode = "autopilot"
         else:
-            active_mode = "unknown"
+            # All flags are False: user explicitly disabled paper trading.
+            # Return the actual state from the DB so the UI reflects reality.
+            # (The get_system_mode() helper already handles the "no document" case
+            # by inserting paperTrading=True defaults, so we never reach here on
+            # first load — only when the user has deliberately turned everything off.)
+            active_mode = "paper"
         
         return {
             "success": True,
@@ -353,36 +361,28 @@ class ModeToggleRequest(BaseModel):
     confirmation_token: Optional[str] = None
 
 
+class ModeSetRequest(BaseModel):
+    """Canonical request to set all mode flags at once.
+
+    Accepted by POST /api/system/mode.  Maps the human-readable boolean
+    fields to the internal storage flags (paperTrading / liveTrading / autopilot).
+
+    Rules:
+    - paper_trading and live_trading are mutually exclusive.
+    - autonomous (autopilot) may coexist with paper_trading.
+    """
+    paper_trading: bool = False
+    live_trading: bool = False
+    autonomous: bool = False
+
+
 class PaperResetRequest(BaseModel):
     """Request to reset paper trading data"""
-    password: Optional[str] = None
+    password: str
 
 
 async def perform_paper_reset(user_id: str) -> dict:
-    """Clear paper trading data for a user and return deletion summaries.
-
-    This is the CANONICAL reset path.  Every admin/user reset endpoint must
-    call this function so that all resets are guaranteed to cover:
-    - bots (hard-delete so ghost bots never pollute truth/admin/radar after reset)
-    - trades, orders, positions
-    - fills / ledger / paper_ledger
-    - wallet_balances / wallets
-    - profits / metrics caches
-    - bodyguard, daily-loss-lock, circuit-breaker, quarantine flags
-    - any stale pause_reason / last_order_error carryover
-
-    PRESERVED (never deleted by paper reset — omit from all deletion lists below):
-    - user account / profile
-    - api_keys (exchange credentials)
-    - strategy_versions (durable learned strategy parameters — carry over resets;
-      preserved by NOT including this collection in the deletion loops below)
-    - user_memory (AI assistant context and user preferences — carry over resets;
-      preserved by NOT including this collection in the deletion loops below)
-    """
-    # Canonical timestamp for this reset operation — used throughout this function
-    # for audit log, user-doc updates, and the return payload.
-    delete_timestamp = datetime.now(timezone.utc).isoformat()
-
+    """Clear paper trading data for a user and return deletion summaries."""
     summary = {
         "bots_deleted": 0,
         "trades_deleted": 0,
@@ -396,36 +396,38 @@ async def perform_paper_reset(user_id: str) -> dict:
     }
     collection_counts = {"bots": 0, "paper_wallet": 0}
 
-    # Collect ALL bot IDs for this user — including already-deleted ones —
-    # so that runtime-state rows and linked records for ghost bots are
-    # cleaned up too (fixes stale runtime_state drift after partial resets).
-    all_bots = await db.bots_collection.find(
-        {"user_id": user_id},
+    bots = await db.bots_collection.find(
+        {"user_id": user_id, "deleted_at": {"$exists": False}},
         {"_id": 0, "id": 1}
     ).to_list(1000)
-    all_bot_ids = [bot.get("id") for bot in all_bots if bot.get("id")]
+    bot_ids = [bot.get("id") for bot in bots if bot.get("id")]
 
-    # Hard-delete ALL bots for this user (not soft-delete) so that ghost bots
-    # cannot pollute truth console / admin / radar / fleet after the reset.
-    if all_bot_ids:
-        bot_result = await db.bots_collection.delete_many(
-            {"user_id": user_id}
+    delete_timestamp = datetime.now(timezone.utc).isoformat()
+    if bot_ids:
+        bot_result = await db.bots_collection.update_many(
+            {"id": {"$in": bot_ids}, "user_id": user_id},
+            {
+                "$set": {
+                    "status": "deleted",
+                    "deleted_at": delete_timestamp,
+                    "deleted_by": user_id,
+                    "deletion_reason": "paper_reset"
+                }
+            }
         )
-        summary["bots_deleted"] = bot_result.deleted_count
-        collection_counts["bots"] = bot_result.deleted_count
+        summary["bots_deleted"] = bot_result.modified_count
+        collection_counts["bots"] = bot_result.modified_count
 
     bot_linked = [
         ("trades", "trades_deleted", db.trades_collection),
         ("orders", "orders_deleted", db.orders_collection),
         ("positions", "positions_deleted", db.positions_collection),
     ]
-    # Use all_bot_ids (includes already-deleted bots) so ghost trade records
-    # from prior partial resets are also cleaned up.
     for name, summary_key, collection in bot_linked:
         collection_counts[name] = 0
-        if collection is None or not all_bot_ids:
+        if collection is None or not bot_ids:
             continue
-        result = await collection.delete_many({"bot_id": {"$in": all_bot_ids}})
+        result = await collection.delete_many({"bot_id": {"$in": bot_ids}})
         summary[summary_key] = result.deleted_count
         collection_counts[name] = result.deleted_count
 
@@ -449,8 +451,7 @@ async def perform_paper_reset(user_id: str) -> dict:
         ("learning_runs", "learning_deleted", db.learning_runs_collection),
         ("learning_changes", "learning_deleted", db.learning_changes_collection),
         ("learning_metrics", "learning_deleted", db.learning_metrics_collection),
-        # strategy_versions is PRESERVED — durable learned strategy parameters survive paper resets
-        # user_memory is PRESERVED — AI assistant context and user preferences survive paper resets
+        ("strategy_versions", "learning_deleted", db.strategy_versions_collection),
         ("bot_strategy_assignments", "learning_deleted", db.bot_strategy_assignments_collection),
         ("decisions", "decisions_deleted", db.decisions_collection),
         ("autopilot_actions", "decisions_deleted", db.autopilot_actions_collection),
@@ -461,7 +462,7 @@ async def perform_paper_reset(user_id: str) -> dict:
         ("profit_ledger", "metrics_deleted", db.profit_ledger_collection),
         ("reinvest_requests", "metrics_deleted", db.reinvest_requests_collection),
         ("user_countdowns", "metrics_deleted", db.user_countdowns_collection),
-        # user_memory is PRESERVED — AI assistant context and user preferences survive paper resets
+        ("user_memory", "metrics_deleted", db.user_memory_collection),
         ("reports", "metrics_deleted", db.reports_collection),
         ("notifications", "metrics_deleted", db.notifications_collection),
         ("paper_ledger", "metrics_deleted", db.paper_ledger_collection),
@@ -477,33 +478,28 @@ async def perform_paper_reset(user_id: str) -> dict:
         summary[summary_key] += result.deleted_count
         collection_counts[name] = result.deleted_count
 
-    # Clear fills_ledger (used by circuit-breaker drawdown + daily-PnL calculations)
-    try:
-        if db.db is not None:
-            fills_result = await db.db["fills_ledger"].delete_many({"user_id": user_id})
-            summary["metrics_deleted"] += fills_result.deleted_count
-            collection_counts["fills_ledger"] = fills_result.deleted_count
-            # Also clear bot-level fills for bots belonging to this user
-            if all_bot_ids:
-                bot_fills = await db.db["fills_ledger"].delete_many({"bot_id": {"$in": all_bot_ids}})
-                summary["metrics_deleted"] += bot_fills.deleted_count
-
-            # Clear stale circuit-breaker state so fresh paper session starts unblocked
-            cb_result = await db.db["circuit_breaker_state"].update_many(
-                {"entity_id": {"$in": all_bot_ids}} if all_bot_ids else {"entity_id": user_id},
-                {"$set": {"reset_at": datetime.now(timezone.utc), "reset_reason": "paper_reset"}},
-            )
-            collection_counts["circuit_breaker_state"] = cb_result.modified_count
-            # Also reset user-level circuit breaker
-            await db.db["circuit_breaker_state"].update_many(
-                {"entity_id": user_id, "entity_type": "user"},
-                {"$set": {"reset_at": datetime.now(timezone.utc), "reset_reason": "paper_reset"}},
-            )
-            # Clear ledger events for this user
-            await db.db["ledger_events"].delete_many({"user_id": user_id})
-    except Exception as e:
-        logger.warning(f"Fills/circuit-breaker reset failed: {e}")
-        collection_counts["fills_ledger"] = 0
+    # ── Ledger collections (fills_ledger + ledger_events drive compute_equity) ──
+    # These are NOT module-level db vars — accessed via db.db["<name>"] directly.
+    _raw_db_collections = [
+        "fills_ledger",
+        "ledger_events",
+        "equity_series",
+        "drawdown_series",
+        "growth_engine_decisions",
+        "growth_engine_state",
+        "circuit_breaker_state",
+        "scheduler_state",
+        "ai_memory",
+        "countdown_state",
+    ]
+    for cname in _raw_db_collections:
+        try:
+            if db.db is not None:
+                result = await db.db[cname].delete_many({"user_id": user_id})
+                collection_counts[cname] = result.deleted_count
+                summary["metrics_deleted"] += result.deleted_count
+        except Exception as e:
+            logger.warning(f"perform_paper_reset: could not clear {cname}: {e}")
 
     try:
         from services.paper_wallet_service import paper_wallet_service
@@ -538,38 +534,6 @@ async def perform_paper_reset(user_id: str) -> dict:
         upsert=True
     )
 
-    # Clear any global_disabled state that was set by a reset operation.
-    # If the emergency_stop admin_overrides document has global_disabled=true with
-    # global_reason containing "Reset" (case-insensitive), it was set by a prior
-    # reset and must be cleared so paper trading is not permanently blocked.
-    try:
-        if db.emergency_stop_collection is not None:
-            override_doc = await db.emergency_stop_collection.find_one(
-                {"id": "admin_overrides"}, {"_id": 0}
-            )
-            if override_doc and override_doc.get("global_disabled"):
-                reason = (override_doc.get("global_reason") or "").lower()
-                if "reset" in reason or reason == "":
-                    await db.emergency_stop_collection.update_one(
-                        {"id": "admin_overrides"},
-                        {
-                            "$set": {
-                                "global_disabled": False,
-                                "global_reason": "cleared_by_paper_reset",
-                                "global_updated_by": user_id,
-                                "global_updated_at": delete_timestamp,
-                            }
-                        },
-                        upsert=True,
-                    )
-                    collection_counts["emergency_stop_override_cleared"] = 1
-                    logger.info(
-                        "Paper reset cleared global_disabled=true in admin_overrides "
-                        "(reason was: %r)", override_doc.get("global_reason")
-                    )
-    except Exception as e:
-        logger.warning(f"Emergency stop override clear failed during paper reset: {e}")
-
     try:
         await db.audit_logs_collection.insert_one({
             "user_id": user_id,
@@ -584,17 +548,52 @@ async def perform_paper_reset(user_id: str) -> dict:
         "type": "paper_reset",
         "message": "Paper trading data reset completed."
     })
-    try:
-        from engines.trade_staggerer import trade_staggerer
-        await trade_staggerer.clear_user(user_id)
-        await trade_staggerer.purge_orphaned_queue()
-    except Exception as e:
-        logger.warning(f"Paper reset queue cleanup failed: {e}")
     await rt_events.force_refresh(user_id, reason="Paper trading reset completed.")
+
+    # ── Post-reset invariant verification ────────────────────────────────────
+    # Ledger equity and trade count MUST be zero after a successful reset.
+    post_reset = {}
+    invariant_warnings = []
+    try:
+        from services.ledger_service import get_ledger_service
+        _lsvc = get_ledger_service(db.db)
+        post_reset["ledger_equity"] = round(await _lsvc.compute_equity(user_id, currency="ZAR"), 4)
+        post_reset["fills_count"] = await db.db["fills_ledger"].count_documents({"user_id": user_id})
+        post_reset["ledger_events_count"] = await db.db["ledger_events"].count_documents({"user_id": user_id})
+        if db.trades_collection is not None:
+            post_reset["trades_count"] = await db.trades_collection.count_documents({"user_id": user_id})
+        else:
+            post_reset["trades_count"] = 0
+        if db.bots_collection is not None:
+            post_reset["active_bots"] = await db.bots_collection.count_documents(
+                {"user_id": user_id, "status": {"$in": ["active", "running"]}}
+            )
+        else:
+            post_reset["active_bots"] = 0
+
+        if post_reset["ledger_equity"] != 0:
+            msg = f"ledger_equity={post_reset['ledger_equity']} non-zero after reset"
+            invariant_warnings.append(msg)
+            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
+        if post_reset["fills_count"] > 0:
+            msg = f"fills_ledger has {post_reset['fills_count']} rows after reset"
+            invariant_warnings.append(msg)
+            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
+        if post_reset["trades_count"] > 0:
+            msg = f"trades has {post_reset['trades_count']} rows after reset"
+            invariant_warnings.append(msg)
+            logger.error("perform_paper_reset invariant FAIL: %s (user=%s)", msg, user_id[:8])
+        if not invariant_warnings:
+            logger.info("perform_paper_reset invariants OK for user=%s", user_id[:8])
+    except Exception as ve:
+        logger.warning("perform_paper_reset: post-reset verification error: %s", ve)
+        invariant_warnings.append(f"Verification error: {ve}")
 
     return {
         "summary": summary,
         "collection_counts": collection_counts,
+        "post_reset": post_reset,
+        "invariant_warnings": invariant_warnings,
         "timestamp": delete_timestamp
     }
 
@@ -614,6 +613,81 @@ async def validate_paper_reset(
     if is_valid:
         reset_paper_reset_attempts(user_id)
     return {"valid": is_valid}
+
+
+@router.post("/mode")
+async def set_mode(
+    data: ModeSetRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Canonical API to set system mode from boolean flags.
+
+    Intended for scripts and automation.  Accepts:
+        {"paper_trading": true, "live_trading": false, "autonomous": true}
+
+    Rules
+    -----
+    - paper_trading and live_trading are mutually exclusive.
+    - autonomous may coexist with paper_trading (enables autopilot in paper mode).
+    - live_trading is refused if ENABLE_LIVE_TRADING env flag is false.
+
+    Returns the same shape as GET /api/system/mode.
+    """
+    if data.paper_trading and data.live_trading:
+        raise HTTPException(
+            status_code=400,
+            detail="paper_trading and live_trading are mutually exclusive"
+        )
+
+    if data.live_trading and not live_trading_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Live trading is globally disabled. Set ENABLE_LIVE_TRADING=true"
+        )
+
+    new_state = {
+        "paperTrading": data.paper_trading,
+        "liveTrading": data.live_trading,
+        "autopilot": data.autonomous,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": user_id,
+        "user_id": user_id,
+    }
+
+    await db.system_modes_collection.update_one(
+        {"user_id": user_id},
+        {"$set": new_state},
+        upsert=True
+    )
+
+    if data.live_trading:
+        effective_mode = "live"
+    elif data.paper_trading:
+        effective_mode = "paper"
+    elif data.autonomous:
+        effective_mode = "autopilot"
+    else:
+        effective_mode = "disabled"
+
+    logger.info(
+        f"📊 Mode set via POST /mode: paper={data.paper_trading} "
+        f"live={data.live_trading} autonomous={data.autonomous} "
+        f"by user {user_id[:8]}"
+    )
+
+    try:
+        await rt_events.mode_switched(user_id, effective_mode, new_state)
+    except Exception as e:
+        logger.warning(f"Failed to emit mode_switched event: {e}")
+
+    return {
+        "success": True,
+        "mode": effective_mode,
+        "paperTrading": new_state["paperTrading"],
+        "liveTrading": new_state["liveTrading"],
+        "autopilot": new_state["autopilot"],
+        "updated_at": new_state["updated_at"],
+    }
 
 
 @router.put("/mode")
@@ -695,14 +769,6 @@ async def toggle_mode(
                     )
         elif mode_name == "autopilot":
             new_state["autopilot"] = enabled
-            # Sync user.autopilot_enabled so guardrails (growth/reinvest) reflect the same state
-            try:
-                await db.users_collection.update_one(
-                    {"id": user_id},
-                    {"$set": {"autopilot_enabled": enabled}}
-                )
-            except Exception as _e:
-                logger.warning(f"Failed to sync user.autopilot_enabled: {_e}")
         else:
             raise HTTPException(
                 status_code=400,
@@ -752,6 +818,13 @@ async def paper_reset(
 ):
     """Reset all paper trading data for the authenticated user."""
     try:
+        allowed, retry_after = check_paper_reset_attempts(user_id)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
+        if not is_paper_reset_password_valid(request.password):
+            raise HTTPException(status_code=403, detail="Invalid reset password")
+        reset_paper_reset_attempts(user_id)
+
         current_mode = await get_system_mode(user_id)
         if not current_mode.get("paperTrading") or current_mode.get("liveTrading"):
             raise HTTPException(

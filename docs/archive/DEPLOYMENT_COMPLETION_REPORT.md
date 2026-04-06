@@ -54,7 +54,7 @@ This PR implements a comprehensive stability and realtime upgrade for the Amarkt
 
 **Features Implemented:**
 1. **Provider Registry** - Defines all 8 providers:
-   - AI: openai, flokx, fetchai
+   - AI: openai, coinstats, fetchai
    - Exchanges: luno, binance, kucoin, ovex, valr
 
 2. **Unified API Endpoints:**

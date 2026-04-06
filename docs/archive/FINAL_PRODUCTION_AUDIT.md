@@ -385,7 +385,7 @@ done
 
 **Files Verified**:
 - `backend/fetchai_integration.py`
-- `backend/flokx_integration.py`
+- `backend/coinstats_integration.py`
 
 **Status**: ✅ COMPLETE
 
@@ -415,7 +415,7 @@ done
 # Verify modules importable
 python3 -c "
 from backend.fetchai_integration import FetchAIIntegration
-from backend.flokx_integration import FLOKxIntegration
+from backend.coinstats_integration import CoinStatsIntegration
 print('Both integrations OK')
 "
 ```
@@ -907,7 +907,7 @@ API Keys:
 
 Integrations:
 - backend/fetchai_integration.py
-- backend/flokx_integration.py
+- backend/coinstats_integration.py
 
 Wallet:
 - backend/routes/wallet_endpoints.py

@@ -83,10 +83,27 @@ class BotManager:
             currency = "ZAR" if exchange.lower() == "luno" else "USDT"
             available = await paper_wallet_service.get_available_balance(user_id, currency)
             if available < capital:
-                return {
-                    "success": False,
-                    "message": f"❌ Insufficient paper wallet funds ({currency}). Available: R{available:.2f}, Required: R{capital:.2f}"
-                }
+                if currency != "ZAR":
+                    # Paper mode: non-ZAR bots can convert from ZAR using the paper
+                    # FX rate (see paper_wallet_service.reserve_funds).  Check the
+                    # ZAR balance here so we do not block valid paper starts.
+                    zar_available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+                    if zar_available < capital:
+                        return {
+                            "success": False,
+                            "message": (
+                                f"❌ Insufficient paper wallet funds. "
+                                f"Available: {zar_available:.2f} ZAR (or {available:.2f} USDT), "
+                                f"Required: {capital:.2f} ZAR equivalent"
+                            ),
+                        }
+                    # Sufficient ZAR — reservation will convert ZAR → USDT automatically.
+                    available = zar_available
+                else:
+                    return {
+                        "success": False,
+                        "message": f"❌ Insufficient paper wallet funds ({currency}). Available: R{available:.2f}, Required: R{capital:.2f}"
+                    }
             
             # Determine trading pair
             pair = "BTC/ZAR" if exchange.lower() == 'luno' else "BTC/USDT"
@@ -115,7 +132,8 @@ class BotManager:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "paper_start_date": datetime.now(timezone.utc).isoformat(),
                 "paper_end_eligible_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-                "learning_complete": False
+                "learning_complete": False,
+                "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
             }
             
             await db.bots_collection.insert_one(bot)

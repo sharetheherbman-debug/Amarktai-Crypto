@@ -42,9 +42,8 @@ function buildApiBase() {
 export const API_BASE = buildApiBase();
 
 // Runtime guard: detect and warn about double /api/api/ paths
-if (process.env.NODE_ENV === 'development') {
-  console.log(`[API Config] Base URL: ${API_BASE}`);
-}
+// Always log base URL (not just in development) so production logs confirm correct config
+console.log(`[API Config] Base URL: ${API_BASE}`);
 
 /**
  * Safe API URL builder - prevents /api/api/ double paths

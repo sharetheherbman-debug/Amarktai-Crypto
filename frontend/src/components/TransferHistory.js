@@ -170,7 +170,7 @@ const TransferHistory = () => {
                     fontWeight: '600',
                     marginBottom: '8px'
                   }}>
-                    {getStateIcon(transfer.state)} {transfer.state.replace('_', ' ').toUpperCase()}
+                    {getStateIcon(transfer.state)} {String(transfer.state ?? '').replace('_', ' ').toUpperCase()}
                   </div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
                     {new Date(transfer.created_at).toLocaleString()}

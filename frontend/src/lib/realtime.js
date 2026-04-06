@@ -4,9 +4,15 @@
  * Handles WebSocket connections with JWT authentication and polling fallback.
  * Provides event bus for: trades, bots, balances, decisions, metrics, whale,
  * alerts, system_health, wallet, ai_tasks
+ * 
+ * Features:
+ * - Exponential backoff with jitter for reconnects
+ * - Circuit breaker integration
+ * - Automatic fallback: WebSocket → SSE → Polling
  */
 
 import { wsUrl, API_BASE } from './api';
+import { circuitBreaker } from './circuitBreaker';
 
 class RealtimeClient {
   constructor() {
@@ -25,7 +31,6 @@ class RealtimeClient {
     this.pingInterval = null;
     this.pongTimeout = null;
     this.rtt = null;
-    this._reconnectTimer = null;
   }
 
   /**
@@ -100,7 +105,7 @@ class RealtimeClient {
    * Handle incoming WebSocket message
    */
   handleMessage(message) {
-    const { type, data, ts } = message;
+    const { type, data, ts, ...rest } = message;
 
     if (!type) {
       console.warn('⚠️  Message without type:', message);
@@ -127,8 +132,21 @@ class RealtimeClient {
     // Update last update timestamp
     this.lastUpdate[type] = ts || new Date().toISOString();
 
+    // When the backend sends a flat payload (no 'data' wrapper), pass the
+    // remaining fields so listeners receive a useful object instead of undefined.
+    const payload = data !== undefined ? data : (Object.keys(rest).length > 0 ? rest : undefined);
+
     // Emit to listeners
-    this.emit(type, data);
+    this.emit(type, payload);
+
+    // Alias backend event names to the canonical frontend names expected by
+    // components (e.g. LiveTradesPanel listens on 'trades', not 'trade_executed').
+    if (type === 'trade_executed') {
+      this.emit('trades', payload);
+    }
+    if (type === 'balance_updated') {
+      this.emit('balances', payload);
+    }
   }
 
   /**
@@ -175,12 +193,21 @@ class RealtimeClient {
   }
 
   /**
-   * Schedule reconnection with exponential backoff
+   * Schedule reconnection with exponential backoff + jitter
    */
   scheduleReconnect() {
-    // Do not reconnect if token was cleared (logged out)
+    // Don't reconnect if no token
     if (!this.token) {
-      console.log('🔌 Skipping reconnect — not authenticated');
+      console.log('⏸️  No token available - skipping reconnect');
+      return;
+    }
+
+    // Check circuit breaker state
+    const cbState = circuitBreaker.getState();
+    if (cbState.isDown) {
+      console.log('⏸️  Circuit breaker is OPEN - pausing WebSocket reconnect');
+      // Check again after circuit breaker timeout
+      setTimeout(() => this.scheduleReconnect(), 5000);
       return;
     }
 
@@ -191,17 +218,15 @@ class RealtimeClient {
     }
 
     this.reconnectAttempts++;
-    const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
-      this.maxReconnectDelay
-    );
-
-    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
-    this._reconnectTimer = setTimeout(() => {
-      this._reconnectTimer = null;
-      // Re-check auth before actually reconnecting
-      if (!this.token) return;
+    // Exponential backoff with jitter
+    const baseDelay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const jitter = Math.random() * 5000; // 0-5 seconds of random jitter
+    const delay = Math.min(baseDelay + jitter, this.maxReconnectDelay);
+
+    console.log(`🔄 Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    
+    setTimeout(() => {
       this.connectWebSocket();
     }, delay);
   }
@@ -210,6 +235,12 @@ class RealtimeClient {
    * Start SSE (Server-Sent Events) fallback
    */
   startSSE() {
+    // Don't start SSE if no token
+    if (!this.token) {
+      console.log('⏸️  No token available - skipping SSE');
+      return;
+    }
+
     if (this.connectionMode === 'sse') {
       return; // Already using SSE
     }
@@ -267,6 +298,12 @@ class RealtimeClient {
    * Start polling fallback
    */
   startPolling() {
+    // Don't start polling if no token
+    if (!this.token) {
+      console.log('⏸️  No token available - skipping polling');
+      return;
+    }
+
     if (this.connectionMode === 'polling') {
       return; // Already polling
     }
@@ -276,13 +313,12 @@ class RealtimeClient {
     this.emit('connection', { status: 'connected', mode: 'polling' });
 
     // Poll different endpoints at different intervals
-    // Use API_BASE so paths work with any deployment config (no double /api/)
     const pollingConfig = [
-      { type: 'trades', endpoint: `${API_BASE}/trades/recent?limit=50`, interval: 5000 },
-      { type: 'bots', endpoint: `${API_BASE}/bots`, interval: 10000 },
-      { type: 'balances', endpoint: `${API_BASE}/wallet/balances`, interval: 15000 },
-      { type: 'metrics', endpoint: `${API_BASE}/portfolio/summary`, interval: 10000 },
-      { type: 'system_health', endpoint: `${API_BASE}/system/health`, interval: 30000 },
+      { type: 'trades', endpoint: '/api/trades/recent?limit=50', interval: 5000 },
+      { type: 'bots', endpoint: '/api/bots', interval: 10000 },
+      { type: 'balances', endpoint: '/api/wallet/balances', interval: 15000 },
+      { type: 'metrics', endpoint: '/api/portfolio/summary', interval: 10000 },
+      { type: 'system_health', endpoint: '/api/system/health', interval: 30000 },
     ];
 
     pollingConfig.forEach(({ type, endpoint, interval }) => {
@@ -368,31 +404,22 @@ class RealtimeClient {
   }
 
   /**
-   * Disconnect and clear all connections + timers
+   * Disconnect
    */
   disconnect() {
     console.log('🔌 Disconnecting...');
     
-    // Cancel any pending reconnect
-    if (this._reconnectTimer) {
-      clearTimeout(this._reconnectTimer);
-      this._reconnectTimer = null;
-    }
-    
-    this.token = null;
     this.stopPing();
     this.stopSSE();
     this.stopPolling();
     
     if (this.ws) {
-      this.ws.onclose = null; // prevent onclose from triggering reconnect
       this.ws.close();
       this.ws = null;
     }
     
     this.connected = false;
     this.connectionMode = 'disconnected';
-    this.reconnectAttempts = 0;
     this.listeners.clear();
     this.lastUpdate = {};
   }

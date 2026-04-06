@@ -7,24 +7,44 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   const [requirements, setRequirements] = useState(null);
   const [fundingPlans, setFundingPlans] = useState([]);
   const [paperWallet, setPaperWallet] = useState(null);
+  const [walletStatus, setWalletStatus] = useState(null); // New: comprehensive wallet status
   const [paperDepositAmount, setPaperDepositAmount] = useState('');
   const [paperDepositCurrency, setPaperDepositCurrency] = useState('ZAR');
   const [paperActionLoading, setPaperActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [keysStatus, setKeysStatus] = useState({});
   const lastUpdate = useLastUpdate('wallet');
 
   useEffect(() => {
     loadWalletData();
   }, [platformFilter]);
 
+  // Load API keys status
+  useEffect(() => {
+    const loadKeysStatus = async () => {
+      try {
+        const data = await get('/keys/status');
+        const statusMap = data?.status_map || {};
+        setKeysStatus(statusMap);
+      } catch (err) {
+        console.error('Keys status fetch error:', err);
+      }
+    };
+    loadKeysStatus();
+  }, []);
+
   const loadWalletData = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Load balances, requirements, and funding plans in parallel with safe defaults
-      const [balancesData, requirementsData, plansData, paperWalletData] = await Promise.all([
+      // Load comprehensive wallet status (new endpoint) plus existing data in parallel
+      const [statusData, balancesData, requirementsData, plansData, paperWalletData] = await Promise.all([
+        get('/wallet/status').catch(err => {
+          console.error('Wallet status fetch error:', err);
+          return null; // Safe default
+        }),
         get('/wallet/balances').catch(err => {
           console.error('Balance fetch error:', err);
           return { master_wallet: {}, last_updated: null }; // Safe default
@@ -43,6 +63,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         })
       ]);
 
+      setWalletStatus(statusData);
       setBalances(balancesData || {});
       setRequirements(requirementsData || {});
       setFundingPlans(plansData.plans || []);
@@ -55,6 +76,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
       setLoading(false);
       
       // Initialize to safe defaults even on error
+      setWalletStatus(null);
       setBalances({});
       setRequirements({});
       setFundingPlans([]);
@@ -142,6 +164,16 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
     }
   };
 
+  // Compute values needed for rendering
+  const masterWallet = balances?.master_wallet || {};
+  const exchanges = requirements?.requirements || {};
+  
+  // Check if Luno key is valid - only show prompt if no valid Luno key
+  const lunoStatus = keysStatus?.luno?.status || keysStatus?.luno || 'not_configured';
+  const hasValidLunoKey = lunoStatus === 'configured_valid' || lunoStatus === 'test_ok';
+  const showKeysPrompt = !hasValidLunoKey && !loading;
+
+  // Render loading state
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
@@ -151,11 +183,28 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
     );
   }
 
+  // Render error state with detailed information
   if (error) {
+    // Parse error to determine type
+    const statusCode = error.match(/\((\d{3})\)/)?.[1];
+    let errorTitle = 'Backend Error Fetching Balances';
+    let errorHint = 'Please check your connection and try again.';
+    
+    if (statusCode === '401' || statusCode === '403') {
+      errorTitle = 'Login Required';
+      errorHint = 'Please log in again to access wallet data.';
+    } else if (statusCode === '404') {
+      errorTitle = 'Endpoint Not Found';
+      errorHint = 'The wallet service endpoint is not available.';
+    } else if (statusCode === '500') {
+      errorTitle = 'Temporarily Unavailable';
+      errorHint = 'The wallet service is experiencing issues. We\'re working on it.';
+    }
+
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
         <div style={{ fontSize: '2rem', marginBottom: '20px', color: '#e74c3c' }}>⚠️</div>
-        <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>Backend Error Fetching Balances</p>
+        <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>{errorTitle}</p>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px' }}>{error}</p>
         <div style={{
           padding: '12px',
@@ -173,6 +222,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
             <li>No exchange API keys configured yet</li>
             <li>Backend wallet service not responding</li>
             <li>Database connection issue</li>
+            <li>{errorHint}</li>
           </ul>
         </div>
         <button onClick={loadWalletData} style={{ 
@@ -190,12 +240,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
       </div>
     );
   }
-
-  // Check if user has any keys saved
-  const masterWallet = balances?.master_wallet || {};
-  const exchanges = requirements?.requirements || {};
-  const hasAnyKeys = Object.keys(exchanges).length > 0;
-  const showKeysPrompt = !hasAnyKeys && !loading;
 
   return (
     <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -235,7 +279,93 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         </div>
       )}
 
-      {/* Master Luno Wallet */}
+      {/* Required Funding Status - New comprehensive display */}
+      {walletStatus && (
+        <div style={{
+          background: 'var(--glass)',
+          borderRadius: '16px',
+          padding: '20px',
+          marginBottom: '24px',
+          color: 'var(--text)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem' }}>💼 Funding Status</h3>
+            <div style={{
+              padding: '6px 12px',
+              background: walletStatus.funding_status === 'FUNDED' ? 'rgba(34, 197, 94, 0.15)' :
+                          walletStatus.funding_status === 'UNFUNDED' ? 'rgba(239, 68, 68, 0.15)' :
+                          'rgba(156, 163, 175, 0.15)',
+              border: `1px solid ${walletStatus.funding_status === 'FUNDED' ? 'rgba(34, 197, 94, 0.4)' :
+                                   walletStatus.funding_status === 'UNFUNDED' ? 'rgba(239, 68, 68, 0.4)' :
+                                   'rgba(156, 163, 175, 0.4)'}`,
+              borderRadius: '6px',
+              fontSize: '0.85rem',
+              color: walletStatus.funding_status === 'FUNDED' ? 'var(--success)' :
+                     walletStatus.funding_status === 'UNFUNDED' ? 'var(--error)' :
+                     'var(--muted)',
+              fontWeight: 600
+            }}>
+              {walletStatus.funding_status === 'FUNDED' ? '✅ Funded' :
+               walletStatus.funding_status === 'UNFUNDED' ? '⚠️ Unfunded' :
+               '❓ Not Configured'}
+            </div>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Mode</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                {walletStatus.mode === 'paper' ? '📝 Paper' : '🔴 Live'}
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Required Capital</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                R{(walletStatus.required_capital || walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            
+            {(walletStatus.available_balance !== undefined || walletStatus.live_status === 'ok') && (
+              <div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Available</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                  R{(walletStatus.available_balance ?? walletStatus.live_balances?.total_zar ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            )}
+
+            {walletStatus.deficit !== undefined && walletStatus.deficit > 0 && walletStatus.mode !== 'paper' && (
+              <div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Deficit</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--error)' }}>
+                  R{walletStatus.deficit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            )}
+            {walletStatus.mode === 'paper' && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', gridColumn: '1 / -1', padding: '6px 0', borderTop: '1px solid var(--line)', marginTop: '4px' }}>
+                📝 Paper mode — simulated capital. No real funds required or at risk.
+              </div>
+            )}
+            
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                {walletStatus.active_bots ?? walletStatus.required_funding?.bot_count ?? 0}
+                {walletStatus.mode === 'paper' && walletStatus.paper_bots?.count > 0 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)', marginLeft: '6px' }}>
+                    ({walletStatus.paper_bots.count} paper)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{
         background: 'var(--glass)',
         borderRadius: '16px',
@@ -245,7 +375,26 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         border: '1px solid var(--line)',
         boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
       }}>
-        <h2 style={{ marginBottom: '20px', fontSize: '1.5rem' }}>🏦 Master Luno Wallet</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>🏦 Master Luno Wallet</h2>
+          {hasValidLunoKey && (
+            <div style={{ 
+              padding: '6px 12px', 
+              background: 'rgba(34, 197, 94, 0.15)', 
+              border: '1px solid rgba(34, 197, 94, 0.4)',
+              borderRadius: '6px',
+              fontSize: '0.85rem',
+              color: 'var(--success)'
+            }}>
+              ✅ Luno Key: Valid
+              {keysStatus?.luno?.last_tested_at && (
+                <span style={{ marginLeft: '8px', opacity: 0.8 }}>
+                  • Last checked: {new Date(keysStatus.luno.last_tested_at).toLocaleString('en-US')}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Total Balance (ZAR)</div>
@@ -458,7 +607,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
                 marginBottom: '15px'
               }}>
                 <h3 style={{ fontSize: '1.2rem', color: 'var(--text)', margin: 0 }}>
-                  {exchange.toUpperCase()}
+                  {String(exchange ?? '').toUpperCase()}
                 </h3>
                 <div style={{ fontSize: '1.5rem' }}>{healthIcon}</div>
               </div>

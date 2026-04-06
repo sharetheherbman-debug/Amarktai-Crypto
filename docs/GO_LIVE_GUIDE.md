@@ -113,8 +113,8 @@ SMTP_USER=
 SMTP_PASSWORD=
 FROM_EMAIL=
 
-# FLOKx & Fetch.ai (market intelligence)
-FLOKX_API_KEY=
+# CoinStats & Fetch.ai (market intelligence)
+COINSTATS_API_KEY=
 FETCHAI_API_KEY=
 ```
 

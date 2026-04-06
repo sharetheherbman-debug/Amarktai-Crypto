@@ -8,13 +8,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from datetime import datetime, timezone
 from typing import Optional, List
 import logging
+import os
 
 from auth import get_current_user
 from services.accounting import accounting_service
 import database as db
 from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp, build_trade_record
-from services.fx_normalizer import get_quote_currency
-from services.reconciliation import enrich_trade_pnl_fields
 
 logger = logging.getLogger(__name__)
 
@@ -67,35 +66,70 @@ async def get_trade_metrics(
 @router.get("/recent")
 async def get_recent_trades(
     limit: int = Query(50, ge=1, le=500),
-    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
+    since: Optional[str] = Query(None, description="ISO timestamp cursor – return only trades opened after this time"),
+    status: Optional[str] = Query(None, description="Filter by trade status (open/closed/failed/all)"),
     user_id: str = Depends(get_current_user)
 ):
     """
-    Get recent trades with date+time metrics
-    Frontend calls this endpoint to display trade history
-    
+    Get recent trades with date+time metrics.
+
+    Stable, deterministic feed:
+    - sorted by ``opened_at`` desc (falls back to ``timestamp`` then ``created_at``)
+    - optional ``since`` cursor for monotonic polling (no flicker)
+    - optional ``status`` filter
+
     Args:
         limit: Maximum number of trades to return (1-500)
-        bot_type: Optional filter by bot type (normal or scalper)
+        since: ISO 8601 timestamp – only return trades with opened_at > since
+        status: Filter by status; "all" or omitted returns all statuses
         user_id: Current authenticated user
-        
+
     Returns:
-        List of trades with full timestamps and metrics
+        List of trades with full timestamps and metrics, newest first.
     """
     try:
-        match_query = {"user_id": user_id}
-        if bot_type:
-            matching_bots = await db.bots_collection.find(
-                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
-                {"_id": 0, "id": 1}
-            ).to_list(200)
-            bot_ids = [b["id"] for b in matching_bots]
-            match_query["bot_id"] = {"$in": bot_ids}
+        match_filter: dict = {"user_id": user_id}
+
+        # Apply status filter (default excludes nothing – return all)
+        if status and status != "all":
+            match_filter["status"] = status
+
+        # Apply since cursor.  We must filter on the same field the pipeline
+        # uses for sorting (_sort_ts = opened_at ?? timestamp ?? created_at).
+        # Matching on a single consistent field prevents the ambiguity of
+        # "$or" across two fields with different semantics.
+        since_dt = None
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+                # Build the filter using the pipeline's own sort-key expression so
+                # inclusion and ordering are always consistent.
+                match_filter["$expr"] = {
+                    "$gt": [
+                        {
+                            "$ifNull": [
+                                "$opened_at",
+                                {"$ifNull": ["$timestamp", "$created_at"]}
+                            ]
+                        },
+                        since,
+                    ]
+                }
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid since timestamp: {since}")
 
         pipeline = [
-            {"$match": match_query},
-            {"$addFields": {"_sort_ts": {"$ifNull": ["$timestamp", "$created_at"]}}},
-            {"$sort": {"_sort_ts": -1}},
+            {"$match": match_filter},
+            # Compute a stable sort key preferring opened_at then timestamp then created_at
+            {"$addFields": {
+                "_sort_ts": {
+                    "$ifNull": [
+                        "$opened_at",
+                        {"$ifNull": ["$timestamp", "$created_at"]}
+                    ]
+                }
+            }},
+            {"$sort": {"_sort_ts": -1, "_id": -1}},  # secondary sort by _id prevents ties flickering
             {"$limit": limit},
             {"$project": {"_id": 0, "_sort_ts": 0}},
         ]
@@ -109,7 +143,7 @@ async def get_recent_trades(
                 {"_id": 0, "id": 1, "name": 1, "exchange": 1, "pair": 1, "trading_mode": 1}
             ).to_list(1000)
             bot_names = {b.get("id"): b for b in bots}
-        
+
         normalized_trades = []
         # Ensure all trades have proper date+time fields
         for trade in trades:
@@ -121,12 +155,22 @@ async def get_recent_trades(
             normalized["time"] = dt.strftime("%H:%M:%S")
             normalized_trades.append(normalized)
 
+        # Cursor for next poll – the newest opened_at in this batch
+        next_cursor = None
+        if normalized_trades:
+            first = normalized_trades[0]
+            next_cursor = first.get("opened_at") or first.get("timestamp") or first.get("created_at")
+
         return {
             "success": True,
             "trades": normalized_trades,
             "total": len(normalized_trades),
             "count": len(normalized_trades),
             "limit": limit,
+            "since": since,
+            "next_cursor": next_cursor,
+            "max_hold_minutes": int(os.getenv("PAPER_MAX_HOLD_MINUTES", "120")),
+            "safety_exit_minutes": int(os.getenv("PAPER_SAFETY_EXIT_MINUTES", "60")),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
@@ -137,31 +181,18 @@ async def get_recent_trades(
 
 @router.get("/stats")
 async def get_trade_stats(
-    bot_type: Optional[str] = Query(None, regex="^(normal|scalper)$"),
     user_id: str = Depends(get_current_user)
 ):
     """
     Get trade statistics summary
     
-    Args:
-        bot_type: Optional filter by bot type (normal or scalper)
-    
     Returns:
         Summary statistics for all user trades
     """
     try:
-        query = {"user_id": user_id}
-        if bot_type:
-            matching_bots = await db.bots_collection.find(
-                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
-                {"_id": 0, "id": 1}
-            ).to_list(200)
-            bot_ids = [b["id"] for b in matching_bots]
-            query["bot_id"] = {"$in": bot_ids}
-
         # Get all trades
         trades = await db.trades_collection.find(
-            query,
+            {"user_id": user_id},
             {"_id": 0}
         ).to_list(10000)
         
@@ -263,104 +294,47 @@ async def get_live_trades(
             except:
                 timestamp = datetime.now(timezone.utc).isoformat()
             
-            # Determine native quote currency for this trade so the frontend
-            # can display prices/P&L with the correct symbol ($ for USDT, R for ZAR).
-            _trade_exchange = trade.get('exchange', 'unknown')
-            _trade_symbol = trade.get('symbol') or trade.get('pair', '')
-            _trade_quote_currency = (
-                trade.get('quote_currency')
-                or trade.get('fee_currency')
-                or get_quote_currency(_trade_exchange, _trade_symbol)
-            )
-            # Choose currency symbol for default _display fields.
-            # Mirror the frontend CURRENCY_SYMBOLS mapping so both sides use the same symbols.
-            _CURRENCY_SYMBOL_MAP = {"ZAR": "R", "USD": "$", "USDT": "$", "USDC": "$", "BUSD": "$", "TUSD": "$"}
-            _cur_sym = _CURRENCY_SYMBOL_MAP.get(_trade_quote_currency.upper(), _trade_quote_currency.upper() + "\u00A0")
-
-            # Enrich the stored trade with canonical P&L display fields.
-            # enrich_trade_pnl_fields adds realized_pnl_zar (genuine ZAR-converted P&L)
-            # so that net_profit_zar is never a raw copy of the USDT quote value.
-            _enriched = enrich_trade_pnl_fields(dict(trade))
-            _net_profit_raw = trade.get('net_pnl', trade.get('net_profit', trade.get('profit_loss', 0)))
-            # realized_pnl_zar is always a float (set by enrich_trade_pnl_fields via to_display_zar).
-            # Fall back to the raw profit value only when the enrichment returns None.
-            _net_profit_zar_raw = _enriched.get('realized_pnl_zar')
-            _net_profit_zar = _net_profit_zar_raw if _net_profit_zar_raw is not None else float(_net_profit_raw or 0)
-
             # Build enriched trade object
             enriched_trade = {
                 # Bot info
                 "bot_id": trade.get('bot_id'),
                 "bot_name": bot_names.get(trade.get('bot_id'), 'Unknown'),
-                "exchange": _trade_exchange,
-
+                "exchange": trade.get('exchange', 'unknown'),
+                
                 # Trade details
-                "symbol": _trade_symbol or 'UNKNOWN',
+                "symbol": trade.get('symbol') or trade.get('pair', 'UNKNOWN'),
                 "side": trade.get('side', 'buy'),
-                # Size field — multiple aliases for frontend compatibility
                 "quantity": trade.get('amount', 0),
-                "qty": trade.get('qty', trade.get('amount', 0)),
-                "size": trade.get('qty', trade.get('amount', 0)),
-
+                
                 # Prices
                 "entry_price": trade.get('entry_price') or trade.get('price', 0),
                 "exit_price": trade.get('exit_price') or trade.get('price', 0),
-                "price": trade.get('entry_price') or trade.get('price', 0),
-
+                
                 # P&L breakdown (from accounting service - consistent!)
                 "gross_profit_loss": trade.get('gross_pnl', 0),
-                "gross_pnl": trade.get('gross_pnl', 0),
-                "fee_total": trade.get('fee_amount', trade.get('fees_total', trade.get('fees', 0))),
-                "fees": trade.get('fees_total', trade.get('fee_amount', trade.get('fees', 0))),
-                "fee": trade.get('fees_total', trade.get('fee_amount', trade.get('fees', 0))),
-                "net_profit_loss": _net_profit_raw,
-                "net_pnl": _net_profit_raw,
-                "net_profit": _net_profit_raw,
-                "profit_loss": _net_profit_raw,
-                # net_profit_zar — ZAR-converted P&L for display.
-                # For ZAR trades (Luno): equals net_profit (rate 1.0).
-                # For USDT trades (Binance etc.): net_profit × fx_rate (e.g. ×19).
-                # Must NEVER be a raw copy of the USDT quote value.
-                "net_profit_zar": _net_profit_zar,
-                "realized_pnl_quote": _enriched.get('realized_pnl_quote', _net_profit_raw),
-                "realized_pnl_zar": _net_profit_zar,
-                "fx_rate_used": _enriched.get('fx_rate_used'),
-                "fx_source": _enriched.get('fx_source'),
-                # Slippage
-                "slippage": trade.get('slippage_cost', trade.get('slippage', 0)),
-                "slippage_cost": trade.get('slippage_cost', trade.get('slippage', 0)),
-
-                # Currency — canonical quote currency for this trade.
-                # Frontend uses this field (not the exchange name) to pick the
-                # correct symbol: "ZAR" → "R", "USDT" → "$"/"USDT".
-                "quote_currency": _trade_quote_currency,
-
-                # Display labels use the correct currency symbol
-                "net_pnl_display": trade.get('net_pnl_display', f"{_cur_sym}{_net_profit_raw:.2f}"),
-                "gross_pnl_display": trade.get('gross_pnl_display', f"{_cur_sym}{trade.get('gross_pnl', 0):.2f}"),
-                "fee_display": trade.get('fee_display', f"{_cur_sym}{trade.get('fee_amount', trade.get('fees', 0)):.2f}"),
-
+                "fee_total": trade.get('fee_amount', 0),
+                "net_profit_loss": trade.get('net_pnl', 0),
+                
+                # Display labels
+                "net_pnl_display": trade.get('net_pnl_display', f"R{trade.get('net_pnl', 0):.2f}"),
+                "gross_pnl_display": trade.get('gross_pnl_display', f"R{trade.get('gross_pnl', 0):.2f}"),
+                "fee_display": trade.get('fee_display', f"R{trade.get('fee_amount', 0):.2f}"),
+                
                 # Strategy/signal
                 "strategy_tag": trade.get('strategy_tag') or trade.get('trend', 'unknown'),
                 "signal_reason": trade.get('signal_reason') or trade.get('ai_regime', 'unknown'),
-
+                
                 # Metadata
-                "id": trade.get('id') or trade.get('trade_id'),
                 "timestamp": timestamp,
                 "trading_mode": trade.get('trading_mode', 'paper'),
-                "mode": trade.get('trading_mode', 'paper'),
                 "status": trade.get('status', 'closed'),
-                # Classify as profitable: check if PnL > 0 (treat exactly-zero as not profitable)
-                "is_profitable": (
-                    (_net_profit_raw if _net_profit_raw is not None else 0) > 0
-                ),
-
+                
                 # Additional context
                 "data_source": "accounting_service",
                 "quality_score": trade.get('quality_score', 0),
                 "ai_confidence": trade.get('ai_confidence', 0)
             }
-
+            
             enriched_trades.append(enriched_trade)
         
         return {
@@ -374,4 +348,65 @@ async def get_live_trades(
         
     except Exception as e:
         logger.error(f"Get live trades error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/activity")
+async def get_trading_activity(user_id: str = Depends(get_current_user)):
+    """
+    Trading activity summary – lightweight probe for paper trading proof.
+
+    Returns:
+        active_bots: number of bots with status='active'
+        queued_trades: trades with status='pending'
+        last_trade_at: ISO timestamp of most recent trade (any status)
+        last_fill_at:  ISO timestamp of most recent filled/closed trade
+        last_tick_at:  ISO timestamp read from bot_runtime_state if available
+    """
+    try:
+        active_bots = await db.bots_collection.count_documents(
+            {"user_id": user_id, "status": "active", "deleted_at": {"$exists": False}}
+        )
+        queued_trades = await db.trades_collection.count_documents(
+            {"user_id": user_id, "status": "pending"}
+        )
+
+        last_trade_doc = await db.trades_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "timestamp": 1},
+            sort=[("timestamp", -1)],
+        )
+        last_trade_at = (last_trade_doc or {}).get("timestamp")
+
+        last_fill_doc = await db.trades_collection.find_one(
+            {"user_id": user_id, "status": {"$in": ["filled", "closed", "completed"]}},
+            {"_id": 0, "timestamp": 1},
+            sort=[("timestamp", -1)],
+        )
+        last_fill_at = (last_fill_doc or {}).get("timestamp")
+
+        # Best-effort: read last_tick_at from bot_runtime_state
+        last_tick_at = None
+        try:
+            tick_doc = await db.bot_runtime_state_collection.find_one(
+                {"user_id": user_id},
+                {"_id": 0, "updated_at": 1},
+                sort=[("updated_at", -1)],
+            )
+            last_tick_at = (tick_doc or {}).get("updated_at")
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "active_bots": active_bots,
+            "queued_trades": queued_trades,
+            "last_trade_at": last_trade_at,
+            "last_fill_at": last_fill_at,
+            "last_tick_at": last_tick_at,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Trading activity error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

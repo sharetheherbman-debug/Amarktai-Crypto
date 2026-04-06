@@ -2,99 +2,11 @@
 Bot state helpers for consistent status flags across endpoints.
 """
 
-from typing import Dict, List, Tuple
-
-
-# Canonical bot states
-BOT_STATE_ACTIVE = "active"
-BOT_STATE_PAUSED = "paused"
-BOT_STATE_TRAINING = "training"
-BOT_STATE_QUARANTINE = "quarantine"
-BOT_STATE_STOPPED = "stopped"
-
-
-def resolve_activity_state(bot: Dict) -> Dict:
-    """Resolve canonical user-facing bot activity state and runnable reason."""
-    status = str(bot.get("status", "unknown")).lower()
-    if status in {"training", "training_failed"} or bot.get("training_in_progress"):
-        return {"activity_state": "training", "runnable": False, "reason_code": "training"}
-    if status in {"quarantined", "quarantine"} or bot.get("quarantine_until") or bot.get("retraining_until"):
-        return {"activity_state": "quarantined", "runnable": False, "reason_code": "quarantine"}
-    if bot.get("paused_by_bodyguard") and status != "active":
-        return {"activity_state": "bodyguard_locked", "runnable": False, "reason_code": "bodyguard_lock"}
-    if bot.get("paused_by_system") and status != "active":
-        return {"activity_state": "paused_by_system", "runnable": False, "reason_code": "system_pause"}
-    if bot.get("paused_by_user") and status != "active":
-        return {"activity_state": "paused_by_user", "runnable": False, "reason_code": "manual_pause"}
-    if status == "active":
-        if bot.get("eligible_to_trade"):
-            return {"activity_state": "runnable", "runnable": True, "reason_code": "runnable"}
-        reasons = bot.get("not_eligible_reasons") or []
-        return {
-            "activity_state": "blocked",
-            "runnable": False,
-            "reason_code": reasons[0] if reasons else "blocked",
-        }
-    if status in {"stopped", "inactive"}:
-        return {"activity_state": "blocked", "runnable": False, "reason_code": "bot_stopped"}
-    return {"activity_state": "active_record", "runnable": False, "reason_code": "unknown"}
-
-
-def _has_trading_mode(bot: Dict) -> bool:
-    """Return True if the bot has any trading mode configured."""
-    return bool(
-        bot.get("trading_mode")
-        or bot.get("mode")
-        or bot.get("is_paper")
-        or bot.get("is_live")
-    )
-
-
-def _compute_eligible_to_trade(
-    bot: Dict, active: bool, paused: bool, stopped: bool, deleted: bool
-) -> Tuple[bool, List[str]]:
-    """Compute eligible_to_trade boolean and reasons list.
-
-    A bot is eligible to trade when:
-    - It is active (not paused, stopped, deleted, or quarantined)
-    - It is not locked by daily-loss lock
-    - It is not in a retraining/quarantine period
-    - It has a valid trading_mode
-
-    Returns:
-        (eligible: bool, reasons: List[str])
-    """
-    reasons: List[str] = []
-
-    if deleted:
-        reasons.append("bot_deleted")
-    if stopped:
-        reasons.append("bot_stopped")
-    if paused:
-        reasons.append("bot_paused")
-    if bot.get("quarantine_until") or bot.get("retraining_until"):
-        reasons.append("bot_quarantined")
-    if bot.get("daily_loss_lock_active"):
-        reasons.append("daily_loss_lock")
-    if bot.get("circuit_breaker_active"):
-        reasons.append("circuit_breaker_active")
-    if not _has_trading_mode(bot):
-        reasons.append("no_trading_mode")
-    eligible = active and not reasons
-    return eligible, reasons
+from typing import Dict
 
 
 def normalize_bot_state(bot: Dict) -> Dict:
-    """Return bot payload with consistent flags for status and deletion.
-
-    The canonical bot ``status`` field is the single source of truth for
-    whether a bot is active, paused, or stopped.  The ``paused_by_system``
-    and ``paused_by_user`` flags are supplementary metadata explaining *why*
-    the bot was paused — they must NOT override an ``active`` status, because
-    the resume/restart endpoints clear these flags at the same time as they set
-    ``status = 'active'``.  Treating them as independent pause triggers was
-    causing bots to appear ineligible even after a successful resume.
-    """
+    """Return bot payload with consistent flags for status and deletion."""
     status = bot.get("status", "unknown")
     deleted = bool(
         status == "deleted"
@@ -102,10 +14,7 @@ def normalize_bot_state(bot: Dict) -> Dict:
         or bot.get("is_deleted")
         or bot.get("deleted_at")
     )
-    # A bot is paused only when its canonical status is "paused".
-    # paused_by_system / paused_by_user are metadata fields — they do NOT
-    # independently mark a bot as paused if its status is "active".
-    paused = bool(status == "paused")
+    paused = bool(status == "paused" or bot.get("paused_by_system") or bot.get("paused_by_user"))
     stopped = bool(status == "stopped")
     active = bool(status == "active" and not paused and not stopped and not deleted)
 
@@ -127,22 +36,15 @@ def normalize_bot_state(bot: Dict) -> Dict:
         else:
             lifecycle_stage = status
 
-    eligible, not_eligible_reasons = _compute_eligible_to_trade(
-        {**bot, "trading_mode": trading_mode},
-        active, paused, stopped, deleted,
-    )
-    activity = resolve_activity_state({
-        **bot,
-        "status": status,
-        "eligible_to_trade": eligible,
-        "not_eligible_reasons": not_eligible_reasons,
-    })
-    activity_reason_code = activity.get("reason_code")
-    activity_runnable = bool(activity.get("runnable"))
-    if not activity_runnable and eligible:
-        eligible = False
-        if activity_reason_code and activity_reason_code not in not_eligible_reasons:
-            not_eligible_reasons = [*not_eligible_reasons, activity_reason_code]
+    # Canonical display_state: reflects training override
+    training_in_progress = bool(bot.get("training_in_progress") or bot.get("status") == "training")
+    training_complete = bool(bot.get("training_complete"))
+    if training_in_progress or (active and not training_complete and bot.get("training_required_closed_trades") is not None):
+        display_state = "training"
+    elif lifecycle_stage == "deleted":
+        display_state = "stopped"
+    else:
+        display_state = lifecycle_stage or "unknown"
 
     return {
         **bot,
@@ -152,13 +54,9 @@ def normalize_bot_state(bot: Dict) -> Dict:
         "stopped": stopped,
         "active": active,
         "lifecycle_stage": lifecycle_stage,
+        "display_state": display_state,
         "mode": trading_mode,
         "trading_mode": trading_mode or bot.get("trading_mode"),
-        "eligible_to_trade": eligible,
-        "not_eligible_reasons": not_eligible_reasons,
-        "activity_state": activity.get("activity_state"),
-        "runnable": activity_runnable and eligible,
-        "activity_reason_code": activity_reason_code,
     }
 
 

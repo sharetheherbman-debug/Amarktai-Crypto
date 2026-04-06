@@ -4,7 +4,7 @@ Handles profit milestone tracking and autonomous bot spawning per platform.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 import logging
 
@@ -107,7 +107,23 @@ class AutopilotGrowthService:
             logger.info(f"Milestone {next_milestone} already recorded for {self.user_id} on {platform}")
             return None
 
-        spawn_capital = float(config.NEW_BOT_CAPITAL)
+        # Calculate spawn capital proportional to excess profit
+        # Allocate 30% of profit above threshold, with minimum of NEW_BOT_CAPITAL
+        base_capital = float(config.NEW_BOT_CAPITAL)
+        excess_profit = profit - target_profit
+        
+        if excess_profit > 0:
+            # Allocate 30% of excess profit to new bot
+            proportional_capital = excess_profit * 0.30
+            spawn_capital = max(base_capital, proportional_capital)
+            # Cap at 3x the base capital to avoid too large allocations
+            spawn_capital = min(spawn_capital, base_capital * 3.0)
+        else:
+            spawn_capital = base_capital
+        
+        spawn_capital = round(spawn_capital, 2)
+        logger.info(f"Spawning bot on {platform} with capital ZAR {spawn_capital:.2f} (base: {base_capital}, profit: {profit:.2f}, threshold: {target_profit:.2f})")
+        
         spawn_result = await bot_spawner.spawn_bot(self.user_id, {
             "exchange": platform,
             "risk_mode": "safe",
@@ -266,6 +282,30 @@ class AutopilotGrowthService:
         })
         if bots_current >= _platform_bot_limit(platform):
             reasons.append("MAX_BOTS_REACHED")
+
+        # Check cooldown period - no spawns within AUTO_SPAWN_COOLDOWN_MINUTES
+        if config.AUTO_SPAWN_COOLDOWN_MINUTES > 0:
+            cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=config.AUTO_SPAWN_COOLDOWN_MINUTES)
+            recent_spawn = await self.milestones.find_one({
+                "user_id": self.user_id,
+                "platform": platform,
+                "status": "spawned",
+                "triggered_at": {"$gte": cutoff_time.isoformat()}
+            })
+            if recent_spawn:
+                reasons.append("COOLDOWN_ACTIVE")
+
+        # Check daily spawn limit - no more than AUTO_SPAWN_MAX_PER_DAY per day
+        if config.AUTO_SPAWN_MAX_PER_DAY > 0:
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_spawns = await self.milestones.count_documents({
+                "user_id": self.user_id,
+                "platform": platform,
+                "status": "spawned",
+                "triggered_at": {"$gte": today_start.isoformat()}
+            })
+            if today_spawns >= config.AUTO_SPAWN_MAX_PER_DAY:
+                reasons.append("MAX_SPAWNS_REACHED")
 
         key_doc = await self.db.api_keys.find_one(
             {"user_id": str(self.user_id), "provider": platform},

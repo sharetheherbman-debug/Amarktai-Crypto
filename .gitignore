@@ -106,3 +106,23 @@ __pycache__/
 
 # Audit artifacts
 artifacts/
+
+# Media files removed for stability (PART G)
+*.mp4
+*.mov
+*.avi
+*.webm
+logo*.png
+logo*.jpg
+logo*.jpeg
+logo*.webp
+Final-Logo*.png
+Final-Logo*.jpg
+final-logo*.png
+final-logo*.jpg
+Overview.jpg
+overview.jpg
+*/assets/poster.jpg
+*/assets/background.jpg
+poster.jpg
+background.jpg

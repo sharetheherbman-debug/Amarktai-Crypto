@@ -1,519 +1,445 @@
-# Amarktai Network - Production Deployment Guide
+# Amarktai Network - Deployment Guide
 
-This guide covers deploying the Amarktai Network application to production.
+## Overview
 
-## System Requirements
+This guide covers deploying and maintaining Amarktai Network on Ubuntu 24.04 with FastAPI/Uvicorn, systemd, nginx reverse proxy, MongoDB, and Redis.
 
-- Ubuntu 20.04+ or similar Linux distribution
-- Python 3.8+
-- Node.js 16+
-- MongoDB 4.4+
-- Nginx (for reverse proxy and static file serving)
-- systemd (for process management)
+## Supported Exchanges
 
-## Pre-Deployment Checklist
+**EXACTLY 7 EXCHANGES (IMMUTABLE):**
+- luno
+- binance
+- kucoin
+- bybit
+- kraken
+- bitget
+- gate
 
-Before deploying, ensure:
+⚠️ **VALR and OVEX are NOT supported** and have been removed from all production codepaths.
 
-1. ✅ MongoDB is running and accessible
-2. ✅ Firewall allows ports 80/443 (HTTP/HTTPS)
-3. ✅ SSL certificates are configured (Let's Encrypt recommended)
-4. ✅ Environment variables are configured
-5. ✅ Backend dependencies are installed
-6. ✅ Frontend is built
+---
 
-## Directory Structure
+## Required Environment Variables
 
-Production directory structure:
-```
-/var/amarktai/app/
-├── backend/           # Backend Python application
-│   ├── server.py      # FastAPI application
-│   ├── routes/        # API routes
-│   ├── scripts/       # Utility scripts
-│   │   └── doctor.sh  # Health check script
-│   └── ...
-├── frontend/          # Frontend React application
-│   ├── build/         # Production build
-│   └── ...
-└── .env               # Environment configuration
-```
+Create `/etc/amarktai/amarktai.env` with the following variables:
 
-## 1. Environment Configuration
-
-Create `/var/amarktai/app/.env` with the following variables:
+### Core Configuration (REQUIRED)
 
 ```bash
 # Database
-MONGODB_URL=mongodb://localhost:27017/amarktai
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=amarktai_trading
 
-# JWT Authentication (REQUIRED - change from default!)
-JWT_SECRET=your-very-long-random-secret-key-minimum-32-characters-change-this-in-production
-JWT_ALGORITHM=HS256
+# Security (MUST CHANGE IN PRODUCTION)
+JWT_SECRET=your-secret-key-change-in-production
+ENCRYPTION_KEY=your-fernet-key-here  # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+AMARKTAI_FERNET_KEY=your-fernet-key-here  # Same as ENCRYPTION_KEY
 
-# Admin Password (for admin panel access)
-ADMIN_PASSWORD=your-secure-admin-password-change-this
-
-# Feature Flags
-ENABLE_TRADING=true
-ENABLE_AUTOPILOT=false
-ENABLE_SCHEDULERS=true
-ENABLE_CCXT=true
-ENABLE_REALTIME=true
-
-# API Keys (optional - can be set per-user in UI)
-OPENAI_API_KEY=sk-...
-LUNO_API_KEY=...
-LUNO_API_SECRET=...
-
-# Application Settings
-WORKDIR=/var/amarktai/app/backend
-LOG_LEVEL=INFO
+# Server
+HOST=127.0.0.1
+PORT=8000
+ENVIRONMENT=production
+LOG_LEVEL=info
+LOG_FILE=/var/log/amarktai/backend.log
 ```
 
-**IMPORTANT**: Change `JWT_SECRET` and `ADMIN_PASSWORD` from defaults!
-
-## 2. Backend Setup
-
-### Install Dependencies
+### Trading Mode Toggles
 
 ```bash
-cd /var/amarktai/app/backend
-python3 -m venv venv
-source venv/bin/activate
+# Trading Modes
+ENABLE_PAPER_TRADING=true    # Paper trading in sandbox mode
+ENABLE_LIVE_TRADING=false    # Live trading with real funds (requires validated keys)
+ENABLE_AUTOPILOT=false       # Autonomous bot spawning and management
+ENABLE_TRADING=true          # Master trading switch
+```
+
+### Optional Services
+
+```bash
+# AI Chat (Optional but recommended)
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
+
+# Email Alerts (Optional)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+FROM_EMAIL=alerts@amarktai.online
+FROM_NAME=Amarktai Network
+
+# Optional Integrations
+FETCHAI_API_KEY=
+COINSTATS_API_KEY=
+
+# Redis (Optional - for WebSocket pub/sub)
+REDIS_URL=redis://localhost:6379
+```
+
+### Trading Limits
+
+```bash
+# Bot Capacity (Total: 65 bots across 7 exchanges)
+MAX_TOTAL_BOTS=65
+BOT_SPAWN_PROFIT_ZAR=1000
+NEW_BOT_SEED_CAPITAL_ZAR=500
+
+# Risk Management
+STOP_LOSS_SAFE=0.05
+STOP_LOSS_BALANCED=0.10
+STOP_LOSS_AGGRESSIVE=0.15
+MAX_DAILY_LOSS_PERCENT=0.15
+MAX_DRAWDOWN_PERCENT=0.25
+```
+
+---
+
+## Clean Deployment
+
+Use the provided deployment script for safe, repeatable deployments:
+
+```bash
+cd /var/amarktai/app/Amarktai-Network---Deployment
+sudo ./scripts/deploy_clean.sh
+```
+
+### What `deploy_clean.sh` Does
+
+1. **Git Operations**
+   - Fetches latest code from `origin/main`
+   - Resets to clean state (`git reset --hard`)
+   - Removes untracked files (`git clean -fd`)
+
+2. **Backend Deployment**
+   - Creates/refreshes Python venv
+   - Installs dependencies from `requirements.txt`
+   - Runs Python syntax checks
+
+3. **Frontend Deployment**
+   - Runs `npm ci` for clean dependency install
+   - Builds production assets with `npm run build`
+
+4. **Service Restart**
+   - Restarts `amarktai-api` systemd service
+   - Reloads nginx configuration
+
+5. **Health Checks**
+   - Tests internal endpoint: `http://127.0.0.1:8000/api/health/ping`
+   - Tests external endpoint: `https://www.amarktai.online/api/health/ping`
+   - Displays last 150 journal lines on failure
+
+---
+
+## Manual Deployment Steps
+
+If you need to deploy manually:
+
+### 1. Update Code
+
+```bash
+cd /var/amarktai/app/Amarktai-Network---Deployment
+git fetch --all --prune
+git reset --hard origin/main
+git clean -fd
+```
+
+### 2. Backend
+
+```bash
+cd backend
+source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# Run smoke checks
+python -m py_compile server.py
+python -m py_compile database.py
 ```
 
-### Run Pre-Flight Health Check
-
-Before starting the backend, run the doctor script:
+### 3. Frontend
 
 ```bash
-cd /var/amarktai/app/backend
-./scripts/doctor.sh
-```
-
-This will check:
-- Python syntax (compile check)
-- Required dependencies
-- Environment variables
-- Database connectivity
-- Server startup and health endpoints
-
-If the doctor script passes, proceed to systemd setup.
-
-### Create systemd Service
-
-Create `/etc/systemd/system/amarktai-backend.service`:
-
-```ini
-[Unit]
-Description=Amarktai Network Backend API
-After=network.target mongodb.service
-Wants=mongodb.service
-
-[Service]
-Type=simple
-User=amarktai
-Group=amarktai
-WorkingDirectory=/var/amarktai/app/backend
-Environment="PATH=/var/amarktai/app/backend/venv/bin"
-Environment="WORKDIR=/var/amarktai/app/backend"
-EnvironmentFile=/var/amarktai/app/.env
-
-# Start command
-ExecStart=/var/amarktai/app/backend/venv/bin/uvicorn server:app \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --workers 2 \
-    --log-level info
-
-# Restart policy
-Restart=always
-RestartSec=10s
-StartLimitInterval=300
-StartLimitBurst=5
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=amarktai-backend
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Enable and Start Service
-
-```bash
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Enable service (start on boot)
-sudo systemctl enable amarktai-backend
-
-# Start service
-sudo systemctl start amarktai-backend
-
-# Check status
-sudo systemctl status amarktai-backend
-
-# View logs
-sudo journalctl -u amarktai-backend -f
-```
-
-### Verify Backend Health
-
-```bash
-# Check ping endpoint
-curl http://localhost:8000/api/health/ping
-
-# Check readiness endpoint
-curl http://localhost:8000/api/health/ready
-
-# Check preflight endpoint
-curl http://localhost:8000/api/health/preflight
-```
-
-Expected response from `/api/health/ready`:
-```json
-{
-  "status": "ready",
-  "ready": true,
-  "db": "connected",
-  "collections": ["users", "bots", "trades", "api_keys"],
-  "timestamp": "2024-01-28T10:00:00Z"
-}
-```
-
-## 3. Frontend Setup
-
-### Build Production Frontend
-
-```bash
-cd /var/amarktai/app/frontend
-npm install
+cd ../frontend
+npm ci
 npm run build
 ```
 
-This creates an optimized production build in `frontend/build/`.
-
-## 4. Nginx Configuration
-
-### Main Site Configuration
-
-Create `/etc/nginx/sites-available/amarktai`:
-
-```nginx
-# Upstream backend API
-upstream amarktai_backend {
-    server 127.0.0.1:8000 fail_timeout=0;
-}
-
-# HTTP -> HTTPS redirect
-server {
-    listen 80;
-    server_name amarktai.online www.amarktai.online;
-    return 301 https://$server_name$request_uri;
-}
-
-# HTTPS server
-server {
-    listen 443 ssl http2;
-    server_name amarktai.online www.amarktai.online;
-
-    # SSL configuration (Let's Encrypt)
-    ssl_certificate /etc/letsencrypt/live/amarktai.online/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/amarktai.online/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-
-    # Root directory for static files
-    root /var/amarktai/app/frontend/build;
-    index index.html;
-
-    # Logs
-    access_log /var/log/nginx/amarktai-access.log;
-    error_log /var/log/nginx/amarktai-error.log;
-
-    # Permissions (recommended)
-    # - Keep /var/log/nginx owned by root:adm (files 640)
-    # - Keep /etc/letsencrypt/live owned by root:root (private keys 600)
-    # These settings restrict log and private key access to privileged users only,
-    # preventing accidental exposure while keeping nginx (root master) functional.
-
-    # API proxy (backend)
-    location /api/ {
-        proxy_pass http://amarktai_backend;
-        proxy_http_version 1.1;
-        
-        # WebSocket support (REQUIRED for /api/ws)
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        # Standard proxy headers
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Timeouts (important for SSE and WebSocket)
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 300s;  # 5 minutes for long-polling/SSE
-        
-        # Disable buffering for SSE
-        proxy_buffering off;
-        proxy_cache off;
-        
-        # Add CORS headers if needed
-        add_header Access-Control-Allow-Origin * always;
-        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
-    }
-
-    # Static files (React app)
-    location / {
-        try_files $uri $uri/ /index.html;
-        
-        # Cache static assets
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-    }
-
-    # Health check endpoint (no auth required)
-    location /health {
-        proxy_pass http://amarktai_backend/api/health/ping;
-        access_log off;
-    }
-}
-```
-
-### Enable Site
+### 4. Restart Services
 
 ```bash
-# Create symlink
-sudo ln -s /etc/nginx/sites-available/amarktai /etc/nginx/sites-enabled/
-
-# Test configuration
-sudo nginx -t
-
-# Reload nginx
+sudo systemctl restart amarktai-api
 sudo systemctl reload nginx
 ```
 
-## 5. Post-Deployment Verification
-
-### Run Smoke Tests
+### 5. Verify
 
 ```bash
-cd /var/amarktai/app
+# Check service status
+sudo systemctl status amarktai-api
+
+# Test internal endpoint
+curl http://127.0.0.1:8000/api/health/ping
+
+# Test external endpoint
+curl -k https://www.amarktai.online/api/health/ping
+```
+
+---
+
+## API Key Management
+
+### How API Key Status Works
+
+API keys have the following status lifecycle:
+
+1. **not_configured** - No key exists for this provider
+2. **saved_untested** - Key saved but never tested
+3. **test_ok** - Key tested successfully, ready to use
+4. **test_failed** - Last test failed (key invalid or expired)
+
+### Status Transitions
+
+```
+User saves key → saved_untested
+User tests key (success) → test_ok
+User tests key (failure) → test_failed
+User updates key → saved_untested (resets test status)
+```
+
+### Required Fields by Provider
+
+**Exchange APIs (all 7):**
+- luno: `api_key`, `api_secret`
+- binance: `api_key`, `api_secret`
+- kucoin: `api_key`, `api_secret`, `passphrase`
+- bybit: `api_key`, `api_secret`
+- kraken: `api_key`, `api_secret`
+- bitget: `api_key`, `api_secret`
+- gate: `api_key`, `api_secret`
+
+**AI APIs:**
+- openai: `api_key`
+- fetchai: `api_key`
+- coinstats: `api_key`
+
+### API Key Repair
+
+If API keys have schema issues (missing `id` fields), run the repair script:
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/repair_api_keys.py
+```
+
+This script runs automatically on startup but can be executed manually for troubleshooting.
+
+---
+
+## Boot-Safe Server Entrypoint
+
+Two ways to start the server:
+
+### Option 1: Direct Uvicorn (systemd default)
+
+```bash
+ExecStart=/path/to/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000
+```
+
+### Option 2: Boot-Safe Entrypoint (recommended for debugging)
+
+```bash
+ExecStart=/path/to/.venv/bin/python run_server.py
+```
+
+The `run_server.py` entrypoint provides:
+- Safe import handling with better error messages
+- Environment variable validation
+- Python version checks
+- Clearer startup logs
+
+---
+
+## Troubleshooting
+
+### Service Won't Start
+
+1. **Check logs:**
+   ```bash
+   sudo journalctl -u amarktai-api -n 150 --no-pager
+   tail -f /var/log/amarktai/backend.log
+   ```
+
+2. **Verify environment variables:**
+   ```bash
+   sudo cat /etc/amarktai/amarktai.env
+   ```
+
+3. **Check MongoDB:**
+   ```bash
+   sudo systemctl status mongod
+   mongo --eval "db.adminCommand('ping')"
+   ```
+
+4. **Test Python imports:**
+   ```bash
+   cd /var/amarktai/app/Amarktai-Network---Deployment/backend
+   source .venv/bin/activate
+   python -c "import server"
+   ```
+
+### Nginx 502 Bad Gateway
+
+1. **Check if backend is running:**
+   ```bash
+   curl http://127.0.0.1:8000/api/health/ping
+   ```
+
+2. **Check nginx error logs:**
+   ```bash
+   sudo tail -f /var/log/nginx/error.log
+   ```
+
+3. **Verify upstream configuration:**
+   ```bash
+   sudo nginx -t
+   ```
+
+### API Keys Not Working
+
+1. **Check encryption key:**
+   ```bash
+   # Verify ENCRYPTION_KEY or AMARKTAI_FERNET_KEY is set
+   grep ENCRYPTION_KEY /etc/amarktai/amarktai.env
+   ```
+
+2. **Run repair script:**
+   ```bash
+   cd backend
+   source .venv/bin/activate
+   python scripts/repair_api_keys.py
+   ```
+
+3. **Check API key status:**
+   ```bash
+   # Use the dashboard or API
+   curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/keys/list
+   ```
+
+---
+
+## Smoke Tests
+
+Run comprehensive smoke tests after deployment:
+
+```bash
+cd /var/amarktai/app/Amarktai-Network---Deployment
 ./scripts/smoke.sh
 ```
 
-The smoke test will:
-1. Test login endpoint
-2. Test /api/auth/me
-3. Test /api/bots
-4. Test /api/portfolio/summary
-5. Test SSE connection for 5 seconds
-6. Optionally test WebSocket handshake
+Tests include:
+- Health check endpoint
+- OpenAPI schema
+- Providers list (verifies all 10 providers: 3 AI + 7 exchanges)
+- Authentication flow
+- API keys endpoints
+- System modes endpoint
+- (Optional) AI chat with valid OpenAI key
 
-### Manual Verification
+---
 
-1. **Health Endpoints**:
-   ```bash
-   curl https://amarktai.online/api/health/ping
-   curl https://amarktai.online/api/health/ready
-   ```
+## Security Checklist
 
-2. **Authentication**:
-   ```bash
-   # Login
-   curl -X POST https://amarktai.online/api/auth/login \
-     -H "Content-Type: application/json" \
-     -d '{"email":"user@example.com","password":"yourpass"}'
-   
-   # Get current user (requires token from login)
-   curl https://amarktai.online/api/auth/me \
-     -H "Authorization: Bearer YOUR_TOKEN"
-   ```
+Before going live:
 
-3. **Dashboard**: Open https://amarktai.online in browser
-   - Should load without console errors
-   - Login should work
-   - Dashboard should display properly
+- [ ] Change `JWT_SECRET` from default
+- [ ] Generate and set `ENCRYPTION_KEY` / `AMARKTAI_FERNET_KEY`
+- [ ] Restrict MongoDB access (bind to localhost or use authentication)
+- [ ] Enable UFW firewall
+- [ ] Set up SSL/TLS certificates (Let's Encrypt)
+- [ ] Review and set trading limits
+- [ ] Enable 2FA for admin accounts
+- [ ] Set up email alerts
+- [ ] Review and adjust systemd resource limits
 
-4. **WebSocket/SSE**: Check browser console for:
-   ```
-   ✅ SSE connected: [object EventSource]
-   or
-   ✅ WebSocket connected
-   ```
+---
 
-## 6. Monitoring and Maintenance
+## Monitoring
 
-### View Logs
+### Check Service Health
 
 ```bash
-# Backend logs (systemd)
-sudo journalctl -u amarktai-backend -f
+# Service status
+sudo systemctl status amarktai-api
+
+# Recent logs
+sudo journalctl -u amarktai-api -n 100
+
+# Follow logs in real-time
+sudo journalctl -u amarktai-api -f
+```
+
+### Application Logs
+
+```bash
+# Backend logs
+tail -f /var/log/amarktai/backend.log
 
 # Nginx access logs
-sudo tail -f /var/log/nginx/amarktai-access.log
+sudo tail -f /var/log/nginx/access.log
 
 # Nginx error logs
-sudo tail -f /var/log/nginx/amarktai-error.log
+sudo tail -f /var/log/nginx/error.log
 ```
 
-### Restart Services
+### System Resources
 
 ```bash
-# Restart backend only
-sudo systemctl restart amarktai-backend
+# Memory usage
+systemctl show amarktai-api --property=MemoryCurrent
 
-# Restart nginx only
-sudo systemctl restart nginx
-
-# Full restart
-sudo systemctl restart amarktai-backend nginx
+# CPU usage
+systemctl show amarktai-api --property=CPUUsageNSec
 ```
 
-### Update Application
+---
 
-```bash
-# 1. Pull latest code
-cd /var/amarktai/app
-git pull origin main
-
-# 2. Update backend dependencies (if needed)
-cd backend
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 3. Rebuild frontend
-cd ../frontend
-npm install
-npm run build
-
-# 4. Run doctor script
-cd ../backend
-./scripts/doctor.sh
-
-# 5. Restart services
-sudo systemctl restart amarktai-backend
-sudo systemctl reload nginx
-
-# 6. Verify
-curl https://amarktai.online/api/health/ready
-```
-
-## 7. Troubleshooting
-
-### Backend Won't Start (502 Bad Gateway)
-
-1. Check systemd status:
-   ```bash
-   sudo systemctl status amarktai-backend
-   ```
-
-2. Check logs for errors:
-   ```bash
-   sudo journalctl -u amarktai-backend -n 100
-   ```
-
-3. Common issues:
-   - MongoDB not running: `sudo systemctl status mongodb`
-   - JWT_SECRET not set: Check `.env` file
-   - Port 8000 already in use: `sudo lsof -i :8000`
-   - Import errors: Re-run `pip install -r requirements.txt`
-
-### WebSocket Connection Fails
-
-1. Check nginx has WebSocket headers configured (see nginx config above)
-2. Check browser console for error message
-3. Verify backend WebSocket endpoint: `curl http://localhost:8000/api/ws`
-4. Check nginx error logs: `sudo tail -f /var/log/nginx/amarktai-error.log`
-
-### Dashboard Shows Console Errors
-
-1. Open browser DevTools (F12)
-2. Check Console tab for specific errors
-3. Common issues:
-   - 401 Unauthorized: Token expired, re-login
-   - 404 Not Found: API endpoint doesn't exist, check version
-   - CORS errors: Check nginx CORS headers
-
-### Database Connection Issues
-
-1. Check MongoDB status:
-   ```bash
-   sudo systemctl status mongodb
-   ```
-
-2. Test connection:
-   ```bash
-   mongo amarktai --eval "db.stats()"
-   ```
-
-3. Check MongoDB logs:
-   ```bash
-   sudo tail -f /var/log/mongodb/mongodb.log
-   ```
-
-## 8. Security Hardening
-
-1. **Change default credentials**: Update `JWT_SECRET` and `ADMIN_PASSWORD` in `.env`
-2. **Enable firewall**:
-   ```bash
-   sudo ufw allow 80/tcp
-   sudo ufw allow 443/tcp
-   sudo ufw allow 22/tcp
-   sudo ufw enable
-   ```
-3. **SSL/TLS**: Use Let's Encrypt for free SSL certificates
-4. **Rate limiting**: Configure nginx rate limiting (see nginx docs)
-5. **Database security**: Configure MongoDB authentication
-6. **Regular updates**: Keep system packages updated
-
-## 9. Backup and Recovery
+## Backup and Recovery
 
 ### Database Backup
 
 ```bash
 # Backup MongoDB
-mongodump --db amarktai --out /backup/mongo/$(date +%Y%m%d)
+mongodump --db amarktai_trading --out /backup/mongo/$(date +%Y%m%d)
 
 # Restore MongoDB
-mongorestore --db amarktai /backup/mongo/20240128/amarktai
+mongorestore --db amarktai_trading /backup/mongo/20240206/amarktai_trading
 ```
 
-### Application Backup
+### Configuration Backup
 
 ```bash
-# Backup application code and config
-tar -czf /backup/app/amarktai-$(date +%Y%m%d).tar.gz /var/amarktai/app
+# Backup environment file
+sudo cp /etc/amarktai/amarktai.env /backup/amarktai.env.$(date +%Y%m%d)
+
+# Backup nginx config
+sudo cp /etc/nginx/sites-available/amarktai /backup/nginx-amarktai.$(date +%Y%m%d)
+
+# Backup systemd service
+sudo cp /etc/systemd/system/amarktai-api.service /backup/amarktai-api.service.$(date +%Y%m%d)
 ```
+
+---
 
 ## Support
 
 For issues or questions:
-- Check logs first (systemd, nginx, browser console)
-- Run doctor script: `./backend/scripts/doctor.sh`
-- Run smoke tests: `./scripts/smoke.sh`
-- Review this guide for common troubleshooting steps
+1. Check logs first: `journalctl -u amarktai-api -n 150`
+2. Run smoke tests: `./scripts/smoke.sh`
+3. Review this deployment guide
+4. Check GitHub Issues: https://github.com/sharetheherbman-debug/Amarktai-Network---Deployment/issues
 
 ---
 
-**Last Updated**: 2024-01-28
-**Version**: 1.0.6
+**Last Updated:** 2024-02-06  
+**Version:** Go-Live Stabilization Release

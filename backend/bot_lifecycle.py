@@ -24,8 +24,13 @@ class BotLifecycleManager:
         self.max_drawdown = 0.15  # 15%
     
     async def check_promotions(self):
-        """Check all bots ready for promotion from paper to live"""
+        """
+        Check all bots ready for promotion from paper to live.
+        Only promotes if AUTO_PROMOTE_LIVE=true, otherwise marks as eligible.
+        """
         try:
+            from config import AUTO_PROMOTE_LIVE, ENABLE_LIVE_TRADING
+            
             # Get all user-created bots still in paper mode
             paper_bots = await db.bots_collection.find({
                 "origin": "user",
@@ -33,21 +38,39 @@ class BotLifecycleManager:
                 "status": "active"
             }, {"_id": 0}).to_list(1000)
             
-            promotions = []
+            eligible_bots = []
+            promoted_count = 0
+            
             for bot in paper_bots:
                 if await self._should_promote(bot):
-                    promotions.append(bot)
+                    eligible_bots.append(bot)
+                    
+                    # Mark as eligible
+                    await db.bots_collection.update_one(
+                        {"id": bot["id"]},
+                        {"$set": {
+                            "eligible_for_live": True,
+                            "eligible_since": datetime.now(timezone.utc).isoformat()
+                        }}
+                    )
+                    
+                    # Auto-promote if enabled
+                    if AUTO_PROMOTE_LIVE and ENABLE_LIVE_TRADING:
+                        await self._promote_bot(bot)
+                        promoted_count += 1
+                        logger.info(f"✅ Auto-promoted bot '{bot['name']}' to live trading")
+                    else:
+                        logger.info(f"📋 Bot '{bot['name']}' is eligible for live promotion (AUTO_PROMOTE_LIVE={AUTO_PROMOTE_LIVE})")
             
-            # Promote eligible bots
-            for bot in promotions:
-                await self._promote_bot(bot)
-                logger.info(f"✅ Promoted bot '{bot['name']}' to live trading")
-            
-            return len(promotions)
+            return {
+                "eligible_count": len(eligible_bots),
+                "promoted_count": promoted_count,
+                "auto_promote_enabled": AUTO_PROMOTE_LIVE
+            }
             
         except Exception as e:
             logger.error(f"Bot promotion check failed: {e}")
-            return 0
+            return {"eligible_count": 0, "promoted_count": 0, "error": str(e)}
     
     async def _should_promote(self, bot: dict) -> bool:
         """Check if bot meets promotion criteria"""
@@ -109,10 +132,35 @@ class BotLifecycleManager:
                 logger.info(f"Bot {bot['name']}: Profit factor too low ({profit_factor:.2f} < 1.2)")
                 return False
             
-            # Compute trade quality: combination of win_rate, profit_factor, and drawdown
-            avg_quality = round(min(10.0, (win_rate * 5) + (min(profit_factor, 2) * 2.5) + ((1 - drawdown) * 2.5)), 1)
-
-            logger.info(f"Bot {bot['name']}: ✅ Eligible for promotion (win_rate={win_rate:.1%}, quality={avg_quality:.1f}/10, pf={profit_factor:.2f})")
+            # 7. Check circuit breaker status (must not be tripped)
+            circuit_breaker = await db.circuit_breaker_state.find_one({
+                "entity_type": "bot",
+                "entity_id": bot['id'],
+                "tripped": True,
+                "$or": [
+                    {"reset_at": None},
+                    {"reset_at": {"$exists": False}}
+                ]
+            })
+            
+            if circuit_breaker:
+                logger.info(f"Bot {bot['name']}: Circuit breaker is tripped - {circuit_breaker.get('trigger_reason')}")
+                return False
+            
+            # 8. Validate live API keys (if required)
+            from config import REQUIRE_API_KEYS_FOR_LIVE
+            if REQUIRE_API_KEYS_FOR_LIVE:
+                # Check if user has API keys for this exchange
+                api_keys = await db.api_keys_collection.find_one({
+                    "user_id": bot['user_id'],
+                    "exchange": bot['exchange']
+                })
+                
+                if not api_keys or not api_keys.get('api_key') or not api_keys.get('secret'):
+                    logger.info(f"Bot {bot['name']}: Missing API keys for {bot['exchange']}")
+                    return False
+            
+            logger.info(f"Bot {bot['name']}: ✅ Eligible for promotion (win_rate={win_rate:.1%}, pf={profit_factor:.2f})")
             return True
             
         except Exception as e:
@@ -152,10 +200,27 @@ class BotLifecycleManager:
                             "total_profit": 0.0,
                             "trades_count": 0,
                             "paper_performance": paper_performance,
-                            "live_started_at": datetime.now(timezone.utc).isoformat()
+                            "live_started_at": datetime.now(timezone.utc).isoformat(),
+                            "eligible_for_live": False  # Clear eligibility flag
                         }
                     }
                 )
+                
+                # Broadcast promotion to realtime events
+                try:
+                    from realtime_events import manager
+                    await manager.send_message(bot['user_id'], {
+                        "type": "bot_promoted",
+                        "bot_id": bot['id'],
+                        "bot_name": bot['name'],
+                        "from_mode": "paper",
+                        "to_mode": "live",
+                        "paper_performance": paper_performance,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast promotion event: {e}")
+                
                 logger.info(f"Bot '{bot['name']}' promoted to LIVE trading - Capital reset to R{initial_capital}")
             else:
                 logger.info(f"Bot '{bot['name']}' eligible but user not in live mode")
@@ -185,35 +250,8 @@ class BotLifecycleManager:
             if initial_capital > 0:
                 exchange = (bot.get("exchange") or "").lower()
                 pair = bot.get("pair", "")
-                is_zar_exchange = (exchange == "luno" or "/ZAR" in pair)
-                currency = "ZAR" if is_zar_exchange else "USDT"
-
-                if is_zar_exchange:
-                    # ZAR exchange: direct ZAR reservation from user wallet + ZAR ledger entry
-                    success, msg = await paper_wallet_ledger.reserve_funds(
-                        user_id, bot_id, initial_capital, "ZAR"
-                    )
-                else:
-                    # USDT exchange (Binance, KuCoin, etc.) in paper mode:
-                    # The user's paper wallet is ZAR-denominated.  Deduct the ZAR economic
-                    # base from the user wallet but create the per-bot ledger entry in USDT
-                    # so that trade sizing (which uses quote currency) remains correct.
-                    # fx_rate_at_creation is ZAR per 1 USDT (e.g. 19.0 → 1 USDT = R19).
-                    # Therefore: zar_base = usdt_amount × (ZAR/USDT rate).
-                    canonical_zar = float(bot.get("canonical_base_capital_zar") or 0)
-                    fx_rate = float(bot.get("fx_rate_at_creation") or 1.0)
-                    if canonical_zar <= 0 and fx_rate > 0:
-                        # Derive ZAR base from USDT amount: e.g. 52.63 USDT × 19 = R1000
-                        canonical_zar = initial_capital * fx_rate
-                    if canonical_zar <= 0:
-                        canonical_zar = initial_capital  # last-resort fallback
-
-                    success, msg = await paper_wallet_ledger.reserve_funds(
-                        user_id, bot_id, initial_capital, "USDT",
-                        wallet_amount=canonical_zar,
-                        wallet_currency="ZAR",
-                    )
-
+                currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
+                success, msg = await paper_wallet_ledger.reserve_funds(user_id, bot_id, initial_capital, currency)
                 if not success:
                     logger.warning(f"Failed to reserve paper funds for bot {bot_id}: {msg}")
                     return False, msg

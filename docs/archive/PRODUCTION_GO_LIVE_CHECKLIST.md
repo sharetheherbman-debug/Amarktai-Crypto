@@ -42,7 +42,7 @@ REQUIRE_API_KEYS_FOR_LIVE=true   # Must have exchange keys for live
 # Optional - AI Integrations
 OPENAI_API_KEY=<your-openai-key>
 FETCHAI_API_KEY=<optional>
-FLOKX_API_KEY=<optional>
+COINSTATS_API_KEY=<optional>
 ```
 
 ### 3. Database Setup

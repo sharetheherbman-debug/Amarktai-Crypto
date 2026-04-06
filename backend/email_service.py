@@ -19,7 +19,7 @@ class EmailService:
         self.smtp_user = os.getenv('SMTP_USER', '')
         self.smtp_password = os.getenv('SMTP_PASSWORD', '')
         self.from_email = os.getenv('FROM_EMAIL', self.smtp_user)
-        self.from_name = os.getenv('FROM_NAME', 'Amarktai Crypto')
+        self.from_name = os.getenv('FROM_NAME', 'Amarktai Network')
         
         # Validate configuration on startup
         self.enabled = self._validate_config()
@@ -84,7 +84,7 @@ class EmailService:
     
     async def send_daily_report(self, user_email: str, report_data: dict) -> bool:
         """Send daily performance report"""
-        subject = f"Amarktai Crypto Daily Report - {report_data.get('date', 'Today')}"
+        subject = f"Amarktai Network Daily Report - {report_data.get('date', 'Today')}"
         
         body = f"""
 Daily Trading Report
@@ -106,14 +106,14 @@ Top Performers:
 {report_data.get('top_performers', 'N/A')}
 
 ---
-Amarktai Crypto (part of Amarktai Network)
+Amarktai Network (part of Amarktai Network)
         """
         
         return await self.send_email(user_email, subject, body)
     
     async def send_luno_deposit_required(self, user_email: str, required_amount: float = None) -> bool:
         """Send Luno deposit requirement email"""
-        subject = "Luno Deposit Required for Live Trading - Amarktai Crypto"
+        subject = "Luno Deposit Required for Live Trading - Amarktai Network"
         
         amount_text = f"R{required_amount:,.2f}" if required_amount else "sufficient funds"
         
@@ -127,7 +127,7 @@ To enable live trading, please deposit {amount_text} to your Luno account:
 1. Log in to your Luno account at https://www.luno.com
 2. Navigate to Wallet > Deposit
 3. Deposit funds via bank transfer or card
-4. Once funds are available, return to Amarktai Crypto and enable live trading
+4. Once funds are available, return to Amarktai Network and enable live trading
 
 Your account has been automatically reverted to paper trading mode until funds are available.
 
@@ -139,7 +139,7 @@ Why Luno?
 Need help? Contact us at amarktainetwork@gmail.com
 
 ---
-Amarktai Crypto (part of Amarktai Network)
+Amarktai Network (part of Amarktai Network)
 Trading System
         """
         
@@ -148,7 +148,7 @@ Trading System
     
     async def send_live_mode_reverted(self, user_email: str, reason: str) -> bool:
         """Send notification that live mode was reverted to paper"""
-        subject = "Live Trading Automatically Disabled - Amarktai Crypto"
+        subject = "Live Trading Automatically Disabled - Amarktai Network"
         
         body = f"""
 Hello,
@@ -168,7 +168,7 @@ Action Required:
 If you need assistance, please contact us at amarktainetwork@gmail.com
 
 ---
-Amarktai Crypto (part of Amarktai Network)
+Amarktai Network (part of Amarktai Network)
 Trading System
         """
         

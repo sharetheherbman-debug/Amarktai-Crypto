@@ -25,7 +25,7 @@ test_results = {
     "warnings": []
 }
 
-def test_result(name, status, details=""):
+def _record_audit_result(name, status, details=""):
     """Record test result"""
     if status == "pass":
         test_results["passed"].append(name)
@@ -50,17 +50,17 @@ print("-" * 80)
 # Test 1: Database connection
 try:
     import database
-    test_result("Database Module", "pass", "database.py imported successfully")
+    _record_audit_result("Database Module", "pass", "database.py imported successfully")
 except Exception as e:
-    test_result("Database Module", "fail", f"Error: {e}")
+    _record_audit_result("Database Module", "fail", f"Error: {e}")
 
 # Test 2: Configuration
 try:
     import config
     exchanges = len(getattr(config, 'EXCHANGE_BOT_LIMITS', {}))
-    test_result("Configuration", "pass", f"{exchanges} exchanges configured")
+    _record_audit_result("Configuration", "pass", f"{exchanges} exchanges configured")
 except Exception as e:
-    test_result("Configuration", "fail", f"Error: {e}")
+    _record_audit_result("Configuration", "fail", f"Error: {e}")
 
 # Test 3: Models
 try:
@@ -68,11 +68,11 @@ try:
     has_transfer_job = hasattr(models, 'TransferJob')
     has_transfer_state = hasattr(models, 'TransferState')
     if has_transfer_job and has_transfer_state:
-        test_result("Models", "pass", "TransferJob and TransferState defined")
+        _record_audit_result("Models", "pass", "TransferJob and TransferState defined")
     else:
-        test_result("Models", "warn", "Some models missing")
+        _record_audit_result("Models", "warn", "Some models missing")
 except Exception as e:
-    test_result("Models", "fail", f"Error: {e}")
+    _record_audit_result("Models", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 2: AI FEATURES
@@ -90,11 +90,11 @@ try:
     if has_class and has_instance:
         brain = ai_super_brain.ai_super_brain
         methods = [m for m in dir(brain) if not m.startswith('_') and callable(getattr(brain, m))]
-        test_result("AI Super Brain", "pass", f"{len(methods)} methods available: {', '.join(methods[:5])}")
+        _record_audit_result("AI Super Brain", "pass", f"{len(methods)} methods available: {', '.join(methods[:5])}")
     else:
-        test_result("AI Super Brain", "warn", "Module exists but instance not found")
+        _record_audit_result("AI Super Brain", "warn", "Module exists but instance not found")
 except Exception as e:
-    test_result("AI Super Brain", "fail", f"Error: {e}")
+    _record_audit_result("AI Super Brain", "fail", f"Error: {e}")
 
 # Test 5: Self-Learning
 try:
@@ -102,16 +102,16 @@ try:
     has_class = hasattr(self_learning, 'SelfLearning') or 'SelfLearning' in dir(self_learning)
     
     if has_class:
-        test_result("Self-Learning Module", "pass", "Module and class found")
+        _record_audit_result("Self-Learning Module", "pass", "Module and class found")
     else:
         # Check if it's a function-based module
         functions = [f for f in dir(self_learning) if not f.startswith('_') and callable(getattr(self_learning, f))]
         if functions:
-            test_result("Self-Learning Module", "pass", f"Function-based module with {len(functions)} functions")
+            _record_audit_result("Self-Learning Module", "pass", f"Function-based module with {len(functions)} functions")
         else:
-            test_result("Self-Learning Module", "warn", "Module exists but no classes/functions found")
+            _record_audit_result("Self-Learning Module", "warn", "Module exists but no classes/functions found")
 except Exception as e:
-    test_result("Self-Learning Module", "fail", f"Error: {e}")
+    _record_audit_result("Self-Learning Module", "fail", f"Error: {e}")
 
 # Test 6: Self-Healing
 try:
@@ -119,22 +119,22 @@ try:
     has_class = hasattr(self_healing, 'SelfHealing') or 'SelfHealing' in dir(self_healing)
     
     if has_class:
-        test_result("Self-Healing Module", "pass", "Module and class found")
+        _record_audit_result("Self-Healing Module", "pass", "Module and class found")
     else:
         functions = [f for f in dir(self_healing) if not f.startswith('_') and callable(getattr(self_healing, f))]
         if functions:
-            test_result("Self-Healing Module", "pass", f"Function-based module with {len(functions)} functions")
+            _record_audit_result("Self-Healing Module", "pass", f"Function-based module with {len(functions)} functions")
         else:
-            test_result("Self-Healing Module", "warn", "Module exists but no classes/functions found")
+            _record_audit_result("Self-Healing Module", "warn", "Module exists but no classes/functions found")
 except Exception as e:
-    test_result("Self-Healing Module", "fail", f"Error: {e}")
+    _record_audit_result("Self-Healing Module", "fail", f"Error: {e}")
 
 # Test 7: AI Command Router
 try:
     from services import ai_command_router
-    test_result("AI Command Router", "pass", "Service imported successfully")
+    _record_audit_result("AI Command Router", "pass", "Service imported successfully")
 except Exception as e:
-    test_result("AI Command Router", "fail", f"Error: {e}")
+    _record_audit_result("AI Command Router", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 3: TRADING FEATURES
@@ -146,42 +146,43 @@ print("-" * 80)
 # Test 8: Paper Trading
 try:
     from engines import paper_trading
-    test_result("Paper Trading Engine", "pass", "Engine available")
+    _record_audit_result("Paper Trading Engine", "pass", "Engine available")
 except Exception as e:
-    test_result("Paper Trading Engine", "fail", f"Error: {e}")
+    _record_audit_result("Paper Trading Engine", "fail", f"Error: {e}")
 
 # Test 9: Order Pipeline
 try:
     from services import order_pipeline
-    test_result("Order Pipeline", "pass", "Service available")
+    _record_audit_result("Order Pipeline", "pass", "Service available")
 except Exception as e:
-    test_result("Order Pipeline", "fail", f"Error: {e}")
+    _record_audit_result("Order Pipeline", "fail", f"Error: {e}")
 
 # Test 10: Live Trading Gate
 try:
     from services import live_gate_service
-    test_result("Live Trading Gate", "pass", "Service available")
+    _record_audit_result("Live Trading Gate", "pass", "Service available")
 except Exception as e:
-    test_result("Live Trading Gate", "fail", f"Error: {e}")
+    _record_audit_result("Live Trading Gate", "fail", f"Error: {e}")
 
 # Test 11: Daily Reinvestment
 try:
     from services import daily_reinvestment
     has_run_func = hasattr(daily_reinvestment, 'run_daily_reinvestment') or \
-                   hasattr(daily_reinvestment, 'daily_reinvestment')
+                   hasattr(daily_reinvestment, 'daily_reinvestment') or \
+                   hasattr(daily_reinvestment, 'run_daily_cycle')
     if has_run_func:
-        test_result("Daily Reinvestment", "pass", "Service with reinvestment logic")
+        _record_audit_result("Daily Reinvestment", "pass", "Service with reinvestment logic")
     else:
-        test_result("Daily Reinvestment", "warn", "Service exists but no reinvestment function found")
+        _record_audit_result("Daily Reinvestment", "warn", "Service exists but no reinvestment function found")
 except Exception as e:
-    test_result("Daily Reinvestment", "fail", f"Error: {e}")
+    _record_audit_result("Daily Reinvestment", "fail", f"Error: {e}")
 
 # Test 12: Bot Lifecycle
 try:
     from services import lifecycle
-    test_result("Bot Lifecycle", "pass", "Service available")
+    _record_audit_result("Bot Lifecycle", "pass", "Service available")
 except Exception as e:
-    test_result("Bot Lifecycle", "fail", f"Error: {e}")
+    _record_audit_result("Bot Lifecycle", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 4: WALLET FEATURES
@@ -197,29 +198,29 @@ try:
     if has_class:
         machine = transfer_state_machine.TransferStateMachine()
         methods = [m for m in dir(machine) if not m.startswith('_')]
-        test_result("Transfer State Machine", "pass", f"{len(methods)} methods including request_transfer")
+        _record_audit_result("Transfer State Machine", "pass", f"{len(methods)} methods including request_transfer")
     else:
-        test_result("Transfer State Machine", "warn", "Module exists but class not found")
+        _record_audit_result("Transfer State Machine", "warn", "Module exists but class not found")
 except Exception as e:
-    test_result("Transfer State Machine", "fail", f"Error: {e}")
+    _record_audit_result("Transfer State Machine", "fail", f"Error: {e}")
 
 # Test 14: Address Whitelist
 try:
     from services import address_whitelist
     has_class = hasattr(address_whitelist, 'AddressWhitelistService')
     if has_class:
-        test_result("Address Whitelist", "pass", "Service with validation")
+        _record_audit_result("Address Whitelist", "pass", "Service with validation")
     else:
-        test_result("Address Whitelist", "warn", "Module exists but service class not found")
+        _record_audit_result("Address Whitelist", "warn", "Module exists but service class not found")
 except Exception as e:
-    test_result("Address Whitelist", "fail", f"Error: {e}")
+    _record_audit_result("Address Whitelist", "fail", f"Error: {e}")
 
 # Test 15: Wallet Transfers Service
 try:
     from services import wallet_transfers_service
-    test_result("Wallet Transfers Service", "pass", "Service available")
+    _record_audit_result("Wallet Transfers Service", "pass", "Service available")
 except Exception as e:
-    test_result("Wallet Transfers Service", "fail", f"Error: {e}")
+    _record_audit_result("Wallet Transfers Service", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 5: SAFETY & MONITORING
@@ -231,37 +232,37 @@ print("-" * 80)
 # Test 16: Emergency Stop
 try:
     from routes import emergency_stop_endpoints
-    test_result("Emergency Stop", "pass", "Endpoints available")
+    _record_audit_result("Emergency Stop", "pass", "Endpoints available")
 except Exception as e:
-    test_result("Emergency Stop", "fail", f"Error: {e}")
+    _record_audit_result("Emergency Stop", "fail", f"Error: {e}")
 
 # Test 17: System Gate
 try:
     from services import system_gate
-    test_result("System Gate", "pass", "Gate service available")
+    _record_audit_result("System Gate", "pass", "Gate service available")
 except Exception as e:
-    test_result("System Gate", "fail", f"Error: {e}")
+    _record_audit_result("System Gate", "fail", f"Error: {e}")
 
 # Test 18: Bodyguard Service
 try:
     from services import bodyguard_service
-    test_result("Bodyguard Service", "pass", "AI protection available")
+    _record_audit_result("Bodyguard Service", "pass", "AI protection available")
 except Exception as e:
-    test_result("Bodyguard Service", "fail", f"Error: {e}")
+    _record_audit_result("Bodyguard Service", "fail", f"Error: {e}")
 
 # Test 19: Execution Quality
 try:
     from routes import execution_quality
-    test_result("Execution Quality Monitor", "pass", "Monitoring available")
+    _record_audit_result("Execution Quality Monitor", "pass", "Monitoring available")
 except Exception as e:
-    test_result("Execution Quality Monitor", "fail", f"Error: {e}")
+    _record_audit_result("Execution Quality Monitor", "fail", f"Error: {e}")
 
 # Test 20: Market Regime
 try:
     from engines import market_regime
-    test_result("Market Regime Detection", "pass", "Regime detection available")
+    _record_audit_result("Market Regime Detection", "pass", "Regime detection available")
 except Exception as e:
-    test_result("Market Regime Detection", "fail", f"Error: {e}")
+    _record_audit_result("Market Regime Detection", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 6: REAL-TIME FEATURES
@@ -275,25 +276,25 @@ try:
     from services import realtime_service
     has_class = hasattr(realtime_service, 'RealtimeService')
     if has_class:
-        test_result("Realtime Service", "pass", "SSE/WebSocket service available")
+        _record_audit_result("Realtime Service", "pass", "SSE/WebSocket service available")
     else:
-        test_result("Realtime Service", "warn", "Module exists but service class not found")
+        _record_audit_result("Realtime Service", "warn", "Module exists but service class not found")
 except Exception as e:
-    test_result("Realtime Service", "fail", f"Error: {e}")
+    _record_audit_result("Realtime Service", "fail", f"Error: {e}")
 
 # Test 22: Realtime Endpoints
 try:
     from routes import realtime
-    test_result("Realtime Endpoints", "pass", "Endpoints available")
+    _record_audit_result("Realtime Endpoints", "pass", "Endpoints available")
 except Exception as e:
-    test_result("Realtime Endpoints", "fail", f"Error: {e}")
+    _record_audit_result("Realtime Endpoints", "fail", f"Error: {e}")
 
 # Test 23: WebSocket
 try:
     from routes import websocket
-    test_result("WebSocket Support", "pass", "WebSocket routes available")
+    _record_audit_result("WebSocket Support", "pass", "WebSocket routes available")
 except Exception as e:
-    test_result("WebSocket Support", "fail", f"Error: {e}")
+    _record_audit_result("WebSocket Support", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 7: EMAIL & NOTIFICATIONS
@@ -305,9 +306,9 @@ print("-" * 80)
 # Test 24: Email Service
 try:
     from services import email_service
-    test_result("Email Service (Original)", "pass", "Basic email service")
+    _record_audit_result("Email Service (Original)", "pass", "Basic email service")
 except Exception as e:
-    test_result("Email Service (Original)", "fail", f"Error: {e}")
+    _record_audit_result("Email Service (Original)", "fail", f"Error: {e}")
 
 # Test 25: Enhanced Email Service
 try:
@@ -317,11 +318,11 @@ try:
     has_sender = hasattr(email_service_enhanced, 'AsyncSMTPSender')
     
     if has_enhanced and has_templates and has_sender:
-        test_result("Enhanced Email Service", "pass", "Async SMTP with templates")
+        _record_audit_result("Enhanced Email Service", "pass", "Async SMTP with templates")
     else:
-        test_result("Enhanced Email Service", "warn", "Module exists but some components missing")
+        _record_audit_result("Enhanced Email Service", "warn", "Module exists but some components missing")
 except Exception as e:
-    test_result("Enhanced Email Service", "fail", f"Error: {e}")
+    _record_audit_result("Enhanced Email Service", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 8: DIAGNOSTICS
@@ -333,16 +334,16 @@ print("-" * 80)
 # Test 26: Diagnostics Routes
 try:
     from routes import diagnostics
-    test_result("Diagnostics Endpoints", "pass", "Comprehensive diagnostics available")
+    _record_audit_result("Diagnostics Endpoints", "pass", "Comprehensive diagnostics available")
 except Exception as e:
-    test_result("Diagnostics Endpoints", "fail", f"Error: {e}")
+    _record_audit_result("Diagnostics Endpoints", "fail", f"Error: {e}")
 
 # Test 27: System Health
 try:
     import system_health
-    test_result("System Health Module", "pass", "Health monitoring available")
+    _record_audit_result("System Health Module", "pass", "Health monitoring available")
 except Exception as e:
-    test_result("System Health Module", "fail", f"Error: {e}")
+    _record_audit_result("System Health Module", "fail", f"Error: {e}")
 
 # ============================================================================
 # PHASE 9: FRONTEND INTEGRATION
@@ -368,10 +369,10 @@ if os.path.exists(frontend_path):
         if os.path.exists(os.path.join(frontend_path, component)):
             existing_components.append(component)
     
-    test_result("Frontend Components", "pass", 
+    _record_audit_result("Frontend Components", "pass", 
                 f"{len(existing_components)}/{len(frontend_components)} components found: {', '.join(existing_components)}")
 else:
-    test_result("Frontend Components", "warn", "Frontend path not found")
+    _record_audit_result("Frontend Components", "warn", "Frontend path not found")
 
 # ============================================================================
 # PHASE 10: INTEGRATION POINTS
@@ -384,9 +385,9 @@ print("-" * 80)
 try:
     import server
     # Check if server has router registration
-    test_result("Server Router Registration", "pass", "Server module configured")
+    _record_audit_result("Server Router Registration", "pass", "Server module configured")
 except Exception as e:
-    test_result("Server Router Registration", "fail", f"Error: {e}")
+    _record_audit_result("Server Router Registration", "fail", f"Error: {e}")
 
 # Test 30: API Endpoints Count
 try:
@@ -404,9 +405,9 @@ try:
         "emergency_stop": "Multiple"
     }
     
-    test_result("API Endpoint Coverage", "pass", "All major endpoint modules imported")
+    _record_audit_result("API Endpoint Coverage", "pass", "All major endpoint modules imported")
 except Exception as e:
-    test_result("API Endpoint Coverage", "warn", f"Some endpoint modules missing: {e}")
+    _record_audit_result("API Endpoint Coverage", "warn", f"Some endpoint modules missing: {e}")
 
 # ============================================================================
 # FINAL RESULTS
@@ -475,6 +476,13 @@ print("=" * 80)
 
 # Exit with appropriate code
 if test_results['failed']:
-    sys.exit(1)
+    audit_failed = True
 else:
-    sys.exit(0)
+    audit_failed = False
+
+
+def test_comprehensive_audit_no_failures():
+    """Pytest-compatible test: assert that the comprehensive audit found no failures."""
+    assert not audit_failed, (
+        f"Comprehensive audit failed. Failed checks: {test_results['failed']}"
+    )

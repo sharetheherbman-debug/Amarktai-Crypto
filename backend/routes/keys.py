@@ -1,6 +1,6 @@
 """
 Canonical API Keys Router - Unified key management with provider registry
-Handles all 11 providers: openai, fetchai, coinstats, huggingface, luno, binance, kucoin, bybit, kraken, bitget, gate
+Handles all 11 providers: openai, coinstats, fetchai, huggingface, luno, binance, kucoin, bybit, kraken, bitget, gate
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -34,11 +34,11 @@ def normalize_status(status: str) -> str:
     normalizes them to canonical values (configured_untested, configured_valid, configured_invalid)
     for consistent API responses.
     """
-    # Map legacy/intuitive statuses to canonical long-form values
+    # Map legacy statuses to canonical ones
     legacy_mapping = {
-        "saved_untested": "configured_untested",
-        "test_ok": "configured_valid",
-        "test_failed": "configured_invalid",
+        "saved_untested": ProviderStatus.CONFIGURED_UNTESTED.value,
+        "test_ok": ProviderStatus.CONFIGURED_VALID.value,
+        "test_failed": ProviderStatus.CONFIGURED_INVALID.value,
     }
     
     # Return normalized status or original if already canonical
@@ -275,19 +275,8 @@ async def save_key(
         # Normalize provider ID to lowercase and validate
         provider_id = data.provider.lower().strip()
         
-        # Strict normalization to the 7 exchanges + AI providers + market data + enrichers + legacy
-        VALID_PROVIDERS = [
-            # Exchanges
-            'luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate',
-            # AI providers
-            'openai', 'fetchai', 'huggingface',
-            # Market data providers
-            'coindesk', 'cryptocompare', 'coingecko', 'coinranking',
-            # Intelligence enrichers
-            'glassnode', 'etherscan', 'whale_alert', 'lunarcrush', 'cryptopanic',
-            # Legacy (deprecated, fallback-only)
-            'coinstats',
-        ]
+        # Strict normalization to the 7 supported exchange IDs + AI providers
+        VALID_PROVIDERS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'openai', 'coinstats', 'fetchai', 'huggingface']
         
         if provider_id not in VALID_PROVIDERS:
             raise HTTPException(

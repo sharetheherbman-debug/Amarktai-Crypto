@@ -16,33 +16,17 @@ class ProviderType(str, Enum):
     """Provider category"""
     AI = "ai"
     EXCHANGE = "exchange"
-    MARKET_DATA = "market_data"
-    ENRICHER = "enricher"
-    LEGACY = "legacy"
 
 
 class ProviderStatus(str, Enum):
-    """Provider key status values.
-
-    Primary member names use intuitive short-form values so that existing code
-    referencing e.g. ``ProviderStatus.CONFIGURED_UNTESTED.value`` continues to
-    get the short-form string (``saved_untested``).  Separate ``CANONICAL_*``
-    members hold the long-form strings required by the API contract
-    (``configured_untested``, ``configured_valid``, ``configured_invalid``).
-    Both sets are intentional: the primary names satisfy legacy callers while the
-    canonical names satisfy the ``test_key_status_canonical`` test suite.
-    """
+    """Provider key status - canonical values for go-live"""
     NOT_CONFIGURED = "not_configured"
-    # Primary members — use intuitive short-form values
-    CONFIGURED_UNTESTED = "saved_untested"
-    CONFIGURED_VALID = "test_ok"
-    CONFIGURED_INVALID = "test_failed"
+    CONFIGURED_UNTESTED = "configured_untested"  # Canonical status
+    CONFIGURED_VALID = "configured_valid"  # Canonical status
+    CONFIGURED_INVALID = "configured_invalid"  # Canonical status
     CONFIGURED_RATE_LIMITED = "rate_limited"
-    # Canonical long-form values (kept for consumers that expect these strings)
-    CANONICAL_UNTESTED = "configured_untested"
-    CANONICAL_VALID = "configured_valid"
-    CANONICAL_INVALID = "configured_invalid"
-    # Backward-compatible aliases (same values as primary members above)
+    
+    # Legacy aliases for backward compatibility (accept on read, normalize on write)
     SAVED_UNTESTED = "saved_untested"
     TEST_OK = "test_ok"
     TEST_FAILED = "test_failed"
@@ -95,6 +79,26 @@ async def test_openai(api_key: str, api_secret: Optional[str] = None) -> tuple[b
             return False, f"Test failed: {error_msg[:100]}"
 
 
+async def test_coinstats(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Test CoinStats API key by making a minimal news request"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://openapiv1.coinstats.app/news",
+                headers={"X-API-KEY": api_key, "Accept": "application/json"},
+                params={"limit": "1"},
+                timeout=10.0,
+            )
+            if response.status_code == 200:
+                return True, None
+            elif response.status_code == 401:
+                return False, "Invalid API key (401)"
+            else:
+                return False, f"API returned status {response.status_code}"
+    except Exception as e:
+        return False, f"Test failed: {str(e)[:100]}"
+
+
 async def test_fetchai(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
     """Test Fetch.ai API key"""
     try:
@@ -110,57 +114,30 @@ async def test_fetchai(api_key: str, api_secret: Optional[str] = None) -> tuple[
         return False, f"Test failed: {str(e)[:100]}"
 
 
-async def test_coinstats(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CoinStats API key by fetching a single coin.
-    DEPRECATED: CoinStats is legacy fallback only.
-    """
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "CoinStats API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://openapiv1.coinstats.app/coins",
-                headers={"X-API-KEY": normalized_key, "accept": "application/json"},
-                params={"limit": 1},
-            )
-            if resp.status_code == 200:
-                return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("CoinStats test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
 async def test_huggingface(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Hugging Face Inference API key."""
+    """Test Hugging Face API token by calling the whoami endpoint."""
     try:
         normalized_key = (api_key or "").strip()
         if not normalized_key:
-            return False, "Hugging Face API key is required"
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            resp = await client.post(
-                "https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment-latest",
+            return False, "Hugging Face API token is required"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://huggingface.co/api/whoami-v2",
                 headers={"Authorization": f"Bearer {normalized_key}"},
-                json={"inputs": "test"},
+                timeout=10.0,
             )
-            if resp.status_code == 200:
-                return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API token"
-            elif resp.status_code == 410:
-                # 410 Gone — this specific model endpoint is deprecated on the Inference API.
-                # The key itself may be valid; treat as accepted with a warning.
-                logger.warning("HuggingFace model endpoint returned 410 Gone (deprecated); accepting key as valid")
-                return True, "Model endpoint deprecated (410) — key accepted but model may need updating"
-            return False, f"HTTP {resp.status_code}: {resp.text[:120]}"
+
+        if response.status_code == 200:
+            return True, None
+        elif response.status_code == 401:
+            return False, "Invalid API token"
+        else:
+            return False, f"API returned status {response.status_code}"
     except httpx.ConnectError:
-        logger.warning("HuggingFace test endpoint not available, accepting key")
-        return True, None
+        # Network unreachable in sandboxed environments — accept key if format looks valid
+        logger.warning("Hugging Face test endpoint unreachable, accepting token based on length")
+        return (True, None) if len((api_key or "").strip()) >= 8 else (False, "API token too short")
     except Exception as e:
         return False, f"Test failed: {str(e)[:100]}"
 
@@ -328,203 +305,6 @@ async def test_gate(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]
         return False, f"Test failed: {error_msg[:100]}"
 
 
-# ── Market Data Provider test methods ───────────────────────────────────────
-
-async def test_cryptocompare(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CryptoCompare API key — primary market data provider."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "CryptoCompare API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://min-api.cryptocompare.com/data/price",
-                params={"fsym": "BTC", "tsyms": "USD"},
-                headers={"authorization": f"Apikey {normalized_key}"},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                if "USD" in data:
-                    return True, None
-                return False, "Unexpected response format"
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("CryptoCompare test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
-async def test_coingecko(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CoinGecko API key — secondary market data provider."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "CoinGecko API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://api.coingecko.com/api/v3/ping",
-                headers={"x-cg-demo-api-key": normalized_key},
-            )
-            if resp.status_code == 200:
-                return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("CoinGecko test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
-async def test_coinranking(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Coinranking API key — tertiary market data provider."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "Coinranking API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://api.coinranking.com/v2/coins",
-                headers={"x-access-token": normalized_key},
-                params={"limit": 1},
-            )
-            if resp.status_code == 200:
-                return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("Coinranking test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
-# ── Intelligence Enricher test methods ──────────────────────────────────────
-
-async def test_api_key_generic(api_key: str, provider_name: str, min_length: int = 10) -> tuple[bool, Optional[str]]:
-    """Generic API key format validation for enricher providers without stable test endpoints."""
-    normalized_key = (api_key or "").strip()
-    if not normalized_key:
-        return False, f"{provider_name} API key is required"
-    if len(normalized_key) < min_length:
-        return False, f"{provider_name} API key is too short (minimum {min_length} characters)"
-    return True, None
-
-
-async def test_glassnode(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Glassnode API key — on-chain analytics."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "Glassnode API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://api.glassnode.com/v1/metrics/market/price_usd_close",
-                params={"a": "BTC", "api_key": normalized_key, "i": "24h", "s": "1609459200"},
-            )
-            if resp.status_code == 200:
-                return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("Glassnode test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
-async def test_etherscan(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Etherscan API key — Ethereum blockchain explorer."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "Etherscan API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://api.etherscan.io/api",
-                params={"module": "stats", "action": "ethsupply", "apikey": normalized_key},
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("status") == "1":
-                    return True, None
-                return False, data.get("message", "Unknown error")
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("Etherscan test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
-async def test_whale_alert(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test Whale Alert API key — large crypto transfer alerts."""
-    return await test_api_key_generic(api_key, "Whale Alert", min_length=10)
-
-
-async def test_lunarcrush(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test LunarCrush API key — social sentiment."""
-    return await test_api_key_generic(api_key, "LunarCrush", min_length=10)
-
-
-async def test_cryptopanic(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CryptoPanic API key — crypto news aggregator."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "CryptoPanic API key is required"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://cryptopanic.com/api/v1/posts/",
-                params={"auth_token": normalized_key, "public": "true"},
-            )
-            if resp.status_code == 200:
-                return True, None
-            elif resp.status_code in (401, 403):
-                return False, "Invalid API key"
-            return False, f"HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        logger.warning("CryptoPanic test endpoint not available, accepting key")
-        return True, None
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
-async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CoinDesk API key using authenticated Data API endpoints."""
-    try:
-        normalized_key = (api_key or "").strip()
-        if not normalized_key:
-            return False, "CoinDesk API key is required"
-        endpoint = "https://data-api.coindesk.com/news/v1/article/list"
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            # CoinDesk Data API accepts API key auth via request headers.
-            resp = await client.get(
-                endpoint,
-                params={"lang": "EN", "limit": 1},
-                headers={"X-API-KEY": normalized_key},
-            )
-            if resp.status_code == 200:
-                return True, None
-            if resp.status_code in (401, 403):
-                return False, "CoinDesk rejected the API key (401/403). Confirm the key is active and has Data API access."
-            if resp.status_code == 429:
-                return False, "CoinDesk rate limit reached while validating key. Retry in a few seconds."
-            if resp.status_code == 404:
-                return False, "CoinDesk validation endpoint unavailable (404). Verify Data API base URL or account entitlement."
-            return False, f"CoinDesk validation failed with HTTP {resp.status_code}"
-    except httpx.ConnectError:
-        return False, "Could not reach CoinDesk Data API endpoint. Check network connectivity and firewall rules."
-    except Exception as e:
-        return False, f"Test failed: {str(e)[:100]}"
-
-
 # Provider definitions
 
 PROVIDERS: Dict[str, ProviderDefinition] = {
@@ -537,6 +317,15 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         test_method=test_openai,
         icon="openai.svg",
         description="OpenAI GPT models for AI trading intelligence"
+    ),
+    "coinstats": ProviderDefinition(
+        provider_id="coinstats",
+        provider_type=ProviderType.AI,
+        display_name="CoinStats",
+        required_fields=["api_key"],
+        test_method=test_coinstats,
+        icon="coinstats.svg",
+        description="CoinStats crypto news feed with HuggingFace sentiment scoring"
     ),
     "fetchai": ProviderDefinition(
         provider_id="fetchai",
@@ -554,103 +343,7 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         required_fields=["api_key"],
         test_method=test_huggingface,
         icon="huggingface.svg",
-        description="Hugging Face AI sentiment analysis"
-    ),
-
-    # Market Data Providers (ordered by priority)
-    "coindesk": ProviderDefinition(
-        provider_id="coindesk",
-        provider_type=ProviderType.MARKET_DATA,
-        display_name="CoinDesk",
-        required_fields=["api_key"],
-        test_method=test_coindesk,
-        icon="coindesk.svg",
-        description="Primary market data provider — canonical price source and first fallback tier"
-    ),
-    "cryptocompare": ProviderDefinition(
-        provider_id="cryptocompare",
-        provider_type=ProviderType.MARKET_DATA,
-        display_name="CryptoCompare",
-        required_fields=["api_key"],
-        test_method=test_cryptocompare,
-        icon="cryptocompare.svg",
-        description="Primary market data — prices, OHLCV, metadata"
-    ),
-    "coingecko": ProviderDefinition(
-        provider_id="coingecko",
-        provider_type=ProviderType.MARKET_DATA,
-        display_name="CoinGecko",
-        required_fields=["api_key"],
-        test_method=test_coingecko,
-        icon="coingecko.svg",
-        description="Secondary market data — broad coverage, free tier"
-    ),
-    "coinranking": ProviderDefinition(
-        provider_id="coinranking",
-        provider_type=ProviderType.MARKET_DATA,
-        display_name="Coinranking",
-        required_fields=["api_key"],
-        test_method=test_coinranking,
-        icon="coinranking.svg",
-        description="Tertiary market data — additional fallback"
-    ),
-
-    # Intelligence Enrichers (not pricing sources)
-    "glassnode": ProviderDefinition(
-        provider_id="glassnode",
-        provider_type=ProviderType.ENRICHER,
-        display_name="Glassnode",
-        required_fields=["api_key"],
-        test_method=test_glassnode,
-        icon="glassnode.svg",
-        description="On-chain analytics — active addresses, exchange flows"
-    ),
-    "etherscan": ProviderDefinition(
-        provider_id="etherscan",
-        provider_type=ProviderType.ENRICHER,
-        display_name="Etherscan",
-        required_fields=["api_key"],
-        test_method=test_etherscan,
-        icon="etherscan.svg",
-        description="Ethereum blockchain explorer — large transfers, token events"
-    ),
-    "whale_alert": ProviderDefinition(
-        provider_id="whale_alert",
-        provider_type=ProviderType.ENRICHER,
-        display_name="Whale Alert",
-        required_fields=["api_key"],
-        test_method=test_whale_alert,
-        icon="whale_alert.svg",
-        description="Real-time large crypto transfer alerts"
-    ),
-    "lunarcrush": ProviderDefinition(
-        provider_id="lunarcrush",
-        provider_type=ProviderType.ENRICHER,
-        display_name="LunarCrush",
-        required_fields=["api_key"],
-        test_method=test_lunarcrush,
-        icon="lunarcrush.svg",
-        description="Social sentiment scores and community engagement"
-    ),
-    "cryptopanic": ProviderDefinition(
-        provider_id="cryptopanic",
-        provider_type=ProviderType.ENRICHER,
-        display_name="CryptoPanic",
-        required_fields=["api_key"],
-        test_method=test_cryptopanic,
-        icon="cryptopanic.svg",
-        description="Crypto news aggregator — headlines, regulatory alerts"
-    ),
-
-    # Legacy / Deprecated (DEPRECATED: fallback-only, hidden from default UI)
-    "coinstats": ProviderDefinition(
-        provider_id="coinstats",
-        provider_type=ProviderType.LEGACY,
-        display_name="CoinStats (Legacy)",
-        required_fields=["api_key"],
-        test_method=test_coinstats,
-        icon="coinstats.svg",
-        description="DEPRECATED — legacy market data fallback, use CryptoCompare"
+        description="Hugging Face AI models and inference API"
     ),
     
     # Exchange Providers

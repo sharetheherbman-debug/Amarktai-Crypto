@@ -179,7 +179,7 @@ const WalletOverview = () => {
                   {exchange === 'luno' && '🏦'}
                 </span>
                 <span style={{ color: 'var(--text)', fontWeight: '600' }}>
-                  {exchange.toUpperCase()}
+                  {String(exchange ?? '').toUpperCase()}
                 </span>
                 <span style={{ color: data.health === 'healthy' ? 'var(--success)' : data.health === 'critical' ? 'var(--error)' : 'var(--muted)' }}>
                   {data.health === 'healthy' && '✅'}
