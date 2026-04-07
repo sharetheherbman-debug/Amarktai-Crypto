@@ -27,12 +27,11 @@ import ProfitsSection from './dashboard/sections/ProfitsSection';
 import CountdownSection from './dashboard/sections/CountdownSection';
 import WalletHubSection from './dashboard/sections/WalletHubSection';
 import ApiSetupSection from './dashboard/sections/ApiSetupSection';
-import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
 import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
 import BotOperationsCenter from './dashboard/sections/BotOperationsCenter';
-import { NAV } from '../constants/dashboardNav';
+import { NAV, NAV_LABELS } from '../constants/dashboardNav';
 
 ChartJS.register(
   CategoryScale,
@@ -456,42 +455,6 @@ export default function Dashboard() {
 
   const renderApiSetup = renderAPIKeys;
 
-  const renderBots = () => (
-    <BotManagementSection
-      autoSpawnStatus={autoSpawnStatus}
-      autopilotReinvestStatus={autopilotReinvestStatus}
-      botDetailTab={botDetailTab}
-      botManagementTab={botManagementTab}
-      botStatusFilter={botStatusFilter}
-      bots={bots}
-      formatDate={formatDate}
-      handleCreateBot={handleCreateBot}
-      handleCreateUAgent={handleCreateUAgent}
-      handleDeleteBot={handleDeleteBot}
-      handleResumeBot={handleResumeBot}
-      handleStartBot={handleStartBot}
-      handleToggleBotMode={handleToggleBotMode}
-      platformFilter={platformFilter}
-      selectedBotDetailId={selectedBotDetailId}
-      setBotDetailTab={setBotDetailTab}
-      setBotManagementTab={setBotManagementTab}
-      setBotStatusFilter={setBotStatusFilter}
-      setPlatformFilter={setPlatformFilter}
-      setSelectedBotDetailId={setSelectedBotDetailId}
-      botSetup={botSetup}
-      setBotSetup={setBotSetup}
-      activeBotTab={activeBotTab}
-      setActiveBotTab={setActiveBotTab}
-      editingBotId={editingBotId}
-      setEditingBotId={setEditingBotId}
-      editingBotName={editingBotName}
-      setEditingBotName={setEditingBotName}
-      handleBotSetup={handleBotSetup}
-      botControlLoading={botControlLoading}
-      handleRenameBotSubmit={handleRenameBotSubmit}
-    />
-  );
-
   const renderFetchAI = () => (
     <FetchAISection />
   );
@@ -503,24 +466,24 @@ export default function Dashboard() {
         <aside className="sidebar">
           <div
             className="logo"
-            onClick={() => showSection('overview')}
+            onClick={() => showSection(NAV.OVERVIEW)}
             style={{ cursor: 'pointer', width: '120px', height: '50px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.1rem', margin: '12px auto' }}
           >
             Amarkt<span style={{ color: '#60a5fa' }}>AI</span> Crypto
           </div>
           <nav className="nav" key={`nav-${showAdmin}`}>
-            <a href="#" className={activeSection === 'welcome' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('welcome'); }}>🚀 Welcome</a>
-            <a href="#" className={activeSection === 'api' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('api'); }}>🔑 API Setup</a>
-            <a href="#" className={activeSection === 'bots' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('bots'); }}>🤖 Bot Management</a>
-            <a href="#" className={activeSection === 'system' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('system'); }}>🎮 System Mode</a>
-            <a href="#" className={activeSection === 'graphs' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('graphs'); }}>💹 Profits & Performance</a>
-            <a href="#" className={activeSection === 'trades' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('trades'); }}>📊 Live Trades</a>
-            <a href="#" className={activeSection === 'countdown' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('countdown'); }}>⏱️ Countdown</a>
-            <a href="#" className={activeSection === 'growth' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('growth'); }}>📈 Growth Engine</a>
-            <a href="#" className={activeSection === 'wallet' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('wallet'); }}>💰 Wallet Hub</a>
-            <a href="#" className={activeSection === 'profile' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('profile'); }}>👤 Profile</a>
+            <a href="#" className={activeSection === NAV.WELCOME ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WELCOME); }}>{NAV_LABELS[NAV.WELCOME]}</a>
+            <a href="#" className={activeSection === NAV.API_SETUP ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.API_SETUP); }}>{NAV_LABELS[NAV.API_SETUP]}</a>
+            <a href="#" className={activeSection === NAV.BOT_OPS ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.BOT_OPS); }}>{NAV_LABELS[NAV.BOT_OPS]}</a>
+            <a href="#" className={activeSection === NAV.SYSTEM_MODE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.SYSTEM_MODE); }}>{NAV_LABELS[NAV.SYSTEM_MODE]}</a>
+            <a href="#" className={activeSection === NAV.PROFITS_PERFORMANCE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFITS_PERFORMANCE); }}>{NAV_LABELS[NAV.PROFITS_PERFORMANCE]}</a>
+            <a href="#" className={activeSection === NAV.LIVE_TRADES ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.LIVE_TRADES); }}>{NAV_LABELS[NAV.LIVE_TRADES]}</a>
+            <a href="#" className={activeSection === NAV.COUNTDOWN ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.COUNTDOWN); }}>{NAV_LABELS[NAV.COUNTDOWN]}</a>
+            <a href="#" className={activeSection === NAV.GROWTH_ENGINE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.GROWTH_ENGINE); }}>{NAV_LABELS[NAV.GROWTH_ENGINE]}</a>
+            <a href="#" className={activeSection === NAV.WALLET_HUB ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WALLET_HUB); }}>{NAV_LABELS[NAV.WALLET_HUB]}</a>
+            <a href="#" className={activeSection === NAV.PROFILE ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.PROFILE); }}>{NAV_LABELS[NAV.PROFILE]}</a>
             {showAdmin && (
-              <a href="#" className={activeSection === 'admin' ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection('admin'); }}>🔧 Admin</a>
+              <a href="#" className={activeSection === NAV.HIDDEN_ADMIN ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.HIDDEN_ADMIN); }}>{NAV_LABELS[NAV.HIDDEN_ADMIN]}</a>
             )}
           </nav>
         </aside>
@@ -552,7 +515,7 @@ export default function Dashboard() {
       {/* Mobile Topbar */}
       {isMobile && (
         <div className="mobile-topbar">
-          <button className="mobile-logo-btn" onClick={() => showSection('overview')}>
+          <button className="mobile-logo-btn" onClick={() => showSection(NAV.OVERVIEW)}>
             <div
               className="mobile-logo"
               style={{ width: '80px', height: '32px', background: '#1e293b', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '0.9rem' }}
@@ -561,7 +524,7 @@ export default function Dashboard() {
             </div>
           </button>
           <div className="mobile-btns">
-            <button className="mobile-btn" onClick={() => showSection('welcome')}>Welcome</button>
+            <button className="mobile-btn" onClick={() => showSection(NAV.WELCOME)}>Welcome</button>
             <button className="mobile-btn" onClick={handleLogout}>Logout</button>
           </div>
         </div>
@@ -569,24 +532,19 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="main"> 
-        {activeSection === 'welcome' && (
+        {activeSection === NAV.WELCOME && (
           <ErrorBoundary title="Welcome section error" message="Unable to load Welcome section.">
             {renderWelcome()}
           </ErrorBoundary>
         )}
-        {activeSection === 'overview' && (
+        {activeSection === NAV.OVERVIEW && (
           <ErrorBoundary title="Overview section error" message="Unable to load Overview section.">
             {renderOverview()}
           </ErrorBoundary>
         )}
-        {activeSection === 'api' && (
+        {activeSection === NAV.API_SETUP && (
           <ErrorBoundary title="API Setup section error" message="Unable to load API Setup section.">
             {renderApiSetup()}
-          </ErrorBoundary>
-        )}
-        {activeSection === 'bots' && (
-          <ErrorBoundary title="Bot Management section error" message="Unable to load Bot Management section.">
-            {renderBots()}
           </ErrorBoundary>
         )}
         {activeSection === NAV.BOT_OPS && (
@@ -597,15 +555,12 @@ export default function Dashboard() {
               botManagementTab={botManagementTab}
               handleBulkCreateBots={handleBulkCreateBots}
               handleCreateBot={handleCreateBot}
-              handleCreateScalperBot={handleCreateScalperBot}
               handleCreateUAgent={handleCreateUAgent}
               setBotManagementTab={setBotManagementTab}
               formatDate={formatDate}
               handleDeleteBot={handleDeleteBot}
               handleResumeBot={handleResumeBot}
               handleStartBot={handleStartBot}
-              handlePauseBot={handlePauseBot}
-              handleRestartBot={handleRestartBot}
               handleToggleBotMode={handleToggleBotMode}
               botControlLoading={botControlLoading}
               selectedBotDetailId={selectedBotDetailId}
@@ -624,17 +579,17 @@ export default function Dashboard() {
             />
           </ErrorBoundary>
         )}
-        {activeSection === 'system' && (
+        {activeSection === NAV.SYSTEM_MODE && (
           <ErrorBoundary title="System Mode section error" message="Unable to load System Mode section.">
             {renderSystemMode()}
           </ErrorBoundary>
         )}
-        {activeSection === 'graphs' && (
+        {activeSection === NAV.PROFITS_PERFORMANCE && (
           <ErrorBoundary title="Profits section error" message="Unable to load Profits section.">
             {renderProfitGraphs()}
           </ErrorBoundary>
         )}
-        {activeSection === 'trades' && (
+        {activeSection === NAV.LIVE_TRADES && (
           <ErrorBoundary title="Live Trades section error" message="Unable to load Live Trades section.">
             {renderLiveTradeFeed()}
           </ErrorBoundary>
@@ -644,27 +599,27 @@ export default function Dashboard() {
             {renderFetchAI()}
           </ErrorBoundary>
         )}
-        {activeSection === 'countdown' && (
+        {activeSection === NAV.COUNTDOWN && (
           <ErrorBoundary title="Countdown section error" message="Unable to load Countdown section.">
             {renderCountdown()}
           </ErrorBoundary>
         )}
-        {activeSection === 'growth' && (
+        {activeSection === NAV.GROWTH_ENGINE && (
           <ErrorBoundary title="Growth Engine section error" message="Unable to load Growth Engine section.">
             {renderGrowthEngine()}
           </ErrorBoundary>
         )}
-        {activeSection === 'wallet' && (
+        {activeSection === NAV.WALLET_HUB && (
           <ErrorBoundary title="Wallet Hub section error" message="Unable to load Wallet Hub section.">
             {renderWalletHub()}
           </ErrorBoundary>
         )}
-        {activeSection === 'profile' && (
+        {activeSection === NAV.PROFILE && (
           <ErrorBoundary title="Profile section error" message="Unable to load Profile section.">
             {renderProfile()}
           </ErrorBoundary>
         )}
-        {activeSection === 'admin' && showAdmin && (
+        {activeSection === NAV.HIDDEN_ADMIN && showAdmin && (
           <ErrorBoundary title="Admin section error" message="Unable to load Admin section.">
             {renderAdmin()}
           </ErrorBoundary>
