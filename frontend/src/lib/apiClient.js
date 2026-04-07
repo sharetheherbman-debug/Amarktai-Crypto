@@ -90,6 +90,10 @@ apiClient.interceptors.response.use(
     }
 
     // Handle 401 Unauthorized — token expired or force-logout
+    // Suppress redirect when the browser is already on a public route
+    const isPublicRoute = (path) =>
+      path.includes('/login') || path.includes('/register');
+
     if (error.response?.status === 401) {
       const detail = error.response?.data?.detail;
       const isForceLogout = detail === 'FORCE_LOGOUT';
@@ -103,8 +107,8 @@ apiClient.interceptors.response.use(
       // Clear token
       localStorage.removeItem('token');
 
-      // Only redirect if not already on login page
-      if (!window.location.pathname.includes('/login')) {
+      // Only redirect if not already on a public route
+      if (!isPublicRoute(window.location.pathname)) {
         const reason = isForceLogout ? 'force_logout' : 'session_expired';
         console.log(`🔀 Redirecting to login (reason: ${reason})...`);
         // Emit event for React Router to handle — carry reason so UI can show correct message
@@ -112,7 +116,7 @@ apiClient.interceptors.response.use(
 
         // Fallback: direct redirect after a short delay to allow event handling
         setTimeout(() => {
-          if (!window.location.pathname.includes('/login')) {
+          if (!isPublicRoute(window.location.pathname)) {
             window.location.href = '/login';
           }
         }, 100);

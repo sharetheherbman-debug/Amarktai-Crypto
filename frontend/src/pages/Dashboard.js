@@ -28,7 +28,6 @@ import CountdownSection from './dashboard/sections/CountdownSection';
 import WalletHubSection from './dashboard/sections/WalletHubSection';
 import ApiSetupSection from './dashboard/sections/ApiSetupSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
-import FetchAISection from './dashboard/sections/FetchAISection';
 import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
 import BotOperationsCenter from './dashboard/sections/BotOperationsCenter';
 import { NAV, NAV_LABELS } from '../constants/dashboardNav';
@@ -455,10 +454,6 @@ export default function Dashboard() {
 
   const renderApiSetup = renderAPIKeys;
 
-  const renderFetchAI = () => (
-    <FetchAISection />
-  );
-
   return (
     <div className="app">
       {/* Sidebar - Desktop */}
@@ -592,11 +587,6 @@ export default function Dashboard() {
         {activeSection === NAV.LIVE_TRADES && (
           <ErrorBoundary title="Live Trades section error" message="Unable to load Live Trades section.">
             {renderLiveTradeFeed()}
-          </ErrorBoundary>
-        )}
-        {activeSection === 'fetchai' && (
-          <ErrorBoundary title="Fetch.ai section error" message="Unable to load Fetch.ai section.">
-            {renderFetchAI()}
           </ErrorBoundary>
         )}
         {activeSection === NAV.COUNTDOWN && (
