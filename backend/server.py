@@ -2931,21 +2931,26 @@ async def diagnostics_chat(user_id: str = Depends(get_current_user)):
 
 
 @api_router.get("/diagnostics/go-live")
-async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin_user: bool = Depends(is_admin)):
+async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
     """Go-live diagnostics endpoint - comprehensive system status (admin only)
-    
+
     Returns PASS/FAIL report for production readiness:
     - Health check
-    - Database connectivity  
+    - Database connectivity
     - Build hash
     - System mode flags
     - Risk locks
     - API keys status (openai + 7 exchanges)
     - Chat diagnostic summary
     - Bots scheduler state
+    - Paper wallet funding status
+    - Active bots count
+    - Recent trades count
     - Realtime health
     """
-    if not is_admin_user:
+    # is_admin is called directly (not as a Depends) to avoid FastAPI treating
+    # its `user_id` parameter as a required query-string field.
+    if not await is_admin(user_id):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
@@ -3026,17 +3031,80 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user), is_admin
         except Exception as e:
             report["checks"]["scheduler"] = {"status": "WARN", "error": str(e)}
         
-        # 8. Realtime health (WebSocket)
+        # 8. Realtime health (WebSocket + SSE)
         try:
             from websocket_manager import manager as ws_manager
             active_connections = len(ws_manager.active_connections) if hasattr(ws_manager, 'active_connections') else 0
             report["checks"]["realtime"] = {
                 "status": "PASS",
-                "active_connections": active_connections
+                "active_connections": active_connections,
+                # SSE is permanently implemented at /api/realtime/events (StreamingResponse)
+                "sse_supported": True,
+                "ws_supported": True,
             }
         except Exception as e:
             report["checks"]["realtime"] = {"status": "WARN", "error": str(e)}
-        
+
+        # 9. Paper wallet funding status
+        try:
+            from services.paper_wallet_service import paper_wallet_service
+            wallet_status = await paper_wallet_service.get_wallet_status(user_id)
+            available_zar = float(wallet_status.get("available_zar", 0.0))
+            # Base the funded flag on available ZAR so it is always consistent
+            # with the value shown in the message (avoids a scenario where other
+            # currency balances make `funded=True` while available_zar is 0).
+            funded = available_zar > 0
+            report["checks"]["paper_wallet"] = {
+                "status": "PASS" if funded else "WARN",
+                "funded": funded,
+                "available_wallet_zar": round(available_zar, 2),
+                "message": (
+                    f"Paper wallet funded with R{available_zar:.2f} ZAR"
+                    if funded
+                    else "Paper wallet is unfunded. POST /api/wallet/paper/fund or /api/wallet/paper/set-balance to add capital."
+                ),
+            }
+        except Exception as e:
+            report["checks"]["paper_wallet"] = {"status": "WARN", "error": str(e)}
+
+        # 10. Active bots count
+        try:
+            active_bots = await db.bots_collection.count_documents(
+                {"user_id": user_id, "status": "active"}
+            )
+            total_bots = await db.bots_collection.count_documents(
+                {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}}
+            )
+            report["checks"]["bots"] = {
+                "status": "PASS" if active_bots > 0 else "WARN",
+                "active_bots": active_bots,
+                "total_bots": total_bots,
+                "message": (
+                    f"{active_bots} active bot(s)"
+                    if active_bots > 0
+                    else "No active bots. Create and start a bot via POST /api/bots to begin paper trading."
+                ),
+            }
+        except Exception as e:
+            report["checks"]["bots"] = {"status": "WARN", "error": str(e)}
+
+        # 11. Recent trades
+        try:
+            recent_trade_count = await db.trades_collection.count_documents(
+                {"user_id": user_id, "is_paper": True}
+            )
+            report["checks"]["trades"] = {
+                "status": "PASS" if recent_trade_count > 0 else "WARN",
+                "paper_trades": recent_trade_count,
+                "message": (
+                    f"{recent_trade_count} paper trade(s) recorded"
+                    if recent_trade_count > 0
+                    else "No paper trades yet. Start a bot and wait for a trading signal."
+                ),
+            }
+        except Exception as e:
+            report["checks"]["trades"] = {"status": "WARN", "error": str(e)}
+
         # Determine overall status
         failed_checks = [k for k, v in report["checks"].items() if v.get("status") == "FAIL"]
         if failed_checks:
