@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Annotated, Optional, List
 import logging
 import logging.config
 import os
@@ -2871,7 +2871,7 @@ async def get_prometheus_metrics(request: Request):
 # ============================================================================
 
 @api_router.get("/diagnostics/chat")
-async def diagnostics_chat(user_id: str = Depends(get_current_user)):
+async def diagnostics_chat(user_id: Annotated[str, Depends(get_current_user)]):
     """Chat diagnostics endpoint - shows OpenAI key status and configuration
     
     Returns:
@@ -2931,7 +2931,7 @@ async def diagnostics_chat(user_id: str = Depends(get_current_user)):
 
 
 @api_router.get("/diagnostics/go-live")
-async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
+async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]):
     """Go-live diagnostics endpoint - comprehensive system status (admin only)
 
     Returns PASS/FAIL report for production readiness:

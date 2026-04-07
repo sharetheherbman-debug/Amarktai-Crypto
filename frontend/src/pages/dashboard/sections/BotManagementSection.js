@@ -428,8 +428,6 @@ export default function BotManagementSection({
             Training & Quarantine
           </button>
           <button
-            className={`bot-tab ${botManagementTab === 'spawn' ? 'active' : ''}`}
-            onClick={() => setBotManagementTab('spawn')}
             className={`bot-tab ${botManagementTab === 'bulk' ? 'active' : ''}`}
             onClick={() => setBotManagementTab('bulk')}
           >
@@ -698,8 +696,6 @@ export default function BotManagementSection({
           <TrainingQuarantineSection />
         )}
 
-        {botManagementTab === 'spawn' && (
-          <div style={{display: 'grid', gap: '16px'}}>
         {/* ── Tab 3: Bulk Create ─────────────────────────────── */}
         {botManagementTab === 'bulk' && (
           <div>

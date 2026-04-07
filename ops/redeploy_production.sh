@@ -274,7 +274,7 @@ head "STEP 10 – Rebuild frontend"
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 info "Installing npm dependencies (ci)..."
 cd "$FRONTEND_DIR"
-sudo -u www-data npm ci --legacy-peer-deps --prefer-offline --quiet
+sudo -u www-data npm ci --legacy-peer-deps --prefer-offline --quiet --include=dev
 
 info "Building frontend..."
 sudo -u www-data bash -c "

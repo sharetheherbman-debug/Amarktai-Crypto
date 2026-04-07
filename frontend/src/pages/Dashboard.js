@@ -585,6 +585,8 @@ export default function Dashboard() {
         {activeSection === 'bots' && (
           <ErrorBoundary title="Bot Management section error" message="Unable to load Bot Management section.">
             {renderBots()}
+          </ErrorBoundary>
+        )}
         {activeSection === NAV.BOT_OPS && (
           <ErrorBoundary title="Bot Operations error" message="Unable to load Bot Operations section.">
             <BotOperationsCenter
