@@ -31,6 +31,8 @@ import BotManagementSection from './dashboard/sections/BotManagementSection';
 import MetricsWithTabsSection from './dashboard/sections/MetricsWithTabsSection';
 import FetchAISection from './dashboard/sections/FetchAISection';
 import GrowthEngineSection from './dashboard/sections/GrowthEngineSection';
+import BotOperationsCenter from './dashboard/sections/BotOperationsCenter';
+import { NAV } from '../constants/dashboardNav';
 
 ChartJS.register(
   CategoryScale,
