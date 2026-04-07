@@ -711,32 +711,34 @@ async def get_realtime_status(user_id: str = Depends(get_current_user)):
         uptime_seconds: How long realtime system has been up
     """
     try:
-        import os
         from websocket_manager import manager
         from realtime_events import rt_events
-        
+
         # Get WebSocket connection info
         user_connections = len(manager.active_connections.get(user_id, []))
         total_connections = sum(len(conns) for conns in manager.active_connections.values())
-        
+
         # Get last event info (if tracking exists)
         last_event = getattr(manager, "last_event", None) or getattr(rt_events, "last_event", None)
-        
-        # Check SSE support
-        sse_supported = hasattr(manager, 'send_sse') or os.path.exists('/api/realtime/events')
-        
+
+        # SSE is permanently implemented at GET /api/realtime/events (StreamingResponse).
+        # The previous os.path.exists('/api/realtime/events') check was incorrect — that
+        # is an HTTP path, not a filesystem path, so it always returned False.
+        sse_supported = True
+
         return {
             "success": True,
             "ws_connected": user_connections,
             "ws_total_connections": total_connections,
             "sse_supported": sse_supported,
+            "sse_endpoint": "/api/realtime/events",
             "last_event_type": last_event.get('type') if last_event else None,
             "last_event_time": last_event.get('timestamp') if last_event else None,
             "connection_count": total_connections,
             "manager_type": type(manager).__name__,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
-        
+
     except Exception as e:
         logger.error(f"Realtime status error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
