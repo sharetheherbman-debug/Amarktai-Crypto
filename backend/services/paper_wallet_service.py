@@ -72,7 +72,7 @@ class PaperWalletService:
         # paper-trading is immediately usable after deploy / first login.
         # The admin can still reset or adjust via /api/wallet/paper/reset or
         # /api/wallet/paper/set-balance.
-        initial_capital = PAPER_STARTING_CAPITAL_ZAR if PAPER_STARTING_CAPITAL_ZAR > 0 else 0.0
+        initial_capital = max(0.0, PAPER_STARTING_CAPITAL_ZAR)
         wallet = {
             "user_id": user_id,
             "type": "paper",

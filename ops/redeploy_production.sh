@@ -274,6 +274,10 @@ head "STEP 10 – Rebuild frontend"
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 info "Installing npm dependencies (ci)..."
 cd "$FRONTEND_DIR"
+# --include=dev is required because react-scripts' build step depends on
+# eslint (via eslint-config-react-app), which lives in devDependencies.
+# Without it, NODE_ENV=production causes npm ci to skip devDeps and the
+# build fails with "Cannot find module 'eslint/package.json'".
 sudo -u www-data npm ci --legacy-peer-deps --prefer-offline --quiet --include=dev
 
 info "Building frontend..."
