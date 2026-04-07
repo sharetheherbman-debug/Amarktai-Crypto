@@ -721,9 +721,9 @@ async def get_realtime_status(user_id: str = Depends(get_current_user)):
         # Get last event info (if tracking exists)
         last_event = getattr(manager, "last_event", None) or getattr(rt_events, "last_event", None)
 
-        # SSE is permanently implemented at GET /api/realtime/events (StreamingResponse).
-        # The previous os.path.exists('/api/realtime/events') check was incorrect — that
-        # is an HTTP path, not a filesystem path, so it always returned False.
+        # SSE is implemented at GET /api/realtime/events via StreamingResponse.
+        # The previous os.path.exists() check was incorrect: it checked the
+        # filesystem, not the HTTP route, so it always returned False.
         sse_supported = True
 
         return {

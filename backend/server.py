@@ -3049,8 +3049,11 @@ async def diagnostics_go_live(user_id: str = Depends(get_current_user)):
         try:
             from services.paper_wallet_service import paper_wallet_service
             wallet_status = await paper_wallet_service.get_wallet_status(user_id)
-            available_zar = wallet_status.get("available_zar", 0.0)
-            funded = wallet_status.get("funded", False)
+            available_zar = float(wallet_status.get("available_zar", 0.0))
+            # Base the funded flag on available ZAR so it is always consistent
+            # with the value shown in the message (avoids a scenario where other
+            # currency balances make `funded=True` while available_zar is 0).
+            funded = available_zar > 0
             report["checks"]["paper_wallet"] = {
                 "status": "PASS" if funded else "WARN",
                 "funded": funded,
