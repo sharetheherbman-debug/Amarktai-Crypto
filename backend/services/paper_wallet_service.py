@@ -68,16 +68,24 @@ class PaperWalletService:
         if wallet:
             return wallet
 
-        # Create an UNFUNDED wallet.  Balance starts at 0; the user must
-        # explicitly fund it via the fund() / deposit() methods.
+        # Auto-fund new paper wallets with PAPER_STARTING_CAPITAL_ZAR so that
+        # paper-trading is immediately usable after deploy / first login.
+        # The admin can still reset or adjust via /api/wallet/paper/reset or
+        # /api/wallet/paper/set-balance.
+        initial_capital = max(0.0, PAPER_STARTING_CAPITAL_ZAR)
         wallet = {
             "user_id": user_id,
             "type": "paper",
-            "balances": {"ZAR": 0.0},
+            "balances": {"ZAR": initial_capital},
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
         await self.collection.insert_one(wallet)
+        if initial_capital > 0:
+            logger.info(
+                "Paper wallet auto-funded with R%.2f ZAR for user %s",
+                initial_capital, user_id[:8],
+            )
         return wallet
 
     async def get_balances(self, user_id: str) -> Dict:
