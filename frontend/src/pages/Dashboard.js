@@ -462,9 +462,12 @@ export default function Dashboard() {
           <div
             className="logo"
             onClick={() => showSection(NAV.OVERVIEW)}
-            style={{ cursor: 'pointer', width: '120px', height: '50px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.1rem', margin: '12px auto' }}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: '12px auto' }}
           >
-            Amarkt<span style={{ color: '#60a5fa' }}>AI</span> Crypto
+            <img src="/assets/ai/ai-orb.svg" alt="" style={{ width: '36px', height: '36px' }} />
+            <span style={{ color: '#f8fbff', fontWeight: '700', fontSize: '1rem' }}>
+              Amarkt<span style={{ color: '#3b82f6' }}>AI</span>
+            </span>
           </div>
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === NAV.WELCOME ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WELCOME); }}>{NAV_LABELS[NAV.WELCOME]}</a>
@@ -513,9 +516,12 @@ export default function Dashboard() {
           <button className="mobile-logo-btn" onClick={() => showSection(NAV.OVERVIEW)}>
             <div
               className="mobile-logo"
-              style={{ width: '80px', height: '32px', background: '#1e293b', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '0.9rem' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              Amarkt<span style={{ color: '#60a5fa' }}>AI</span> Crypto
+              <img src="/assets/ai/ai-orb.svg" alt="" style={{ width: '28px', height: '28px' }} />
+              <span style={{ color: '#f8fbff', fontWeight: '700', fontSize: '0.9rem' }}>
+                Amarkt<span style={{ color: '#3b82f6' }}>AI</span>
+              </span>
             </div>
           </button>
           <div className="mobile-btns">

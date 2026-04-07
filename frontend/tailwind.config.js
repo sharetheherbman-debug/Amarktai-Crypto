@@ -32,11 +32,11 @@ module.exports = {
   				foreground: 'hsl(var(--secondary-foreground))'
   			},
   			muted: {
-  				DEFAULT: 'hsl(var(--muted))',
+  				DEFAULT: 'hsl(var(--tw-muted))',
   				foreground: 'hsl(var(--muted-foreground))'
   			},
   			accent: {
-  				DEFAULT: 'hsl(var(--accent))',
+  				DEFAULT: 'hsl(var(--tw-accent))',
   				foreground: 'hsl(var(--accent-foreground))'
   			},
   			destructive: {
