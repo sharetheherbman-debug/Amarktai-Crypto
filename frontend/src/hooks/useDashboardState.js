@@ -8,6 +8,7 @@ import { formatTimestamp } from '../utils/time.js';
 import { useRealtimeEvent } from './useRealtime';
 import { getAllExchanges, getActiveExchanges, getExchangeById, FEATURE_FLAGS } from '../config/exchanges';
 import { SUPPORTED_PLATFORMS, PLATFORM_CONFIG, getPlatformDisplayName, getPlatformIcon } from '../constants/platforms';
+import { NAV } from '../constants/dashboardNav';
 
 /**
  * Helper function to get token from localStorage
@@ -1743,7 +1744,7 @@ export default function useDashboardState(navigate) {
             
             // Auto-switch to admin section
             setTimeout(() => {
-              setActiveSection('admin');
+              setActiveSection(NAV.HIDDEN_ADMIN);
               console.log('Admin section activated, showAdmin:', true);
             }, 100);
             
@@ -1760,13 +1761,13 @@ export default function useDashboardState(navigate) {
             }
           } else if (adminAction === 'hide') {
             console.log('🔒 HIDING ADMIN - Setting state to FALSE');
-            const currentlyInAdmin = activeSection === 'admin';
+            const currentlyInAdmin = activeSection === NAV.HIDDEN_ADMIN;
             
               setShowAdmin(false);
               
               // If currently viewing admin, switch to welcome
             if (currentlyInAdmin) {
-              setActiveSection('welcome');
+              setActiveSection(NAV.WELCOME);
             }
             
             // Success feedback message
@@ -1953,7 +1954,7 @@ export default function useDashboardState(navigate) {
   const showSection = (section) => {
     if (section === 'spawn') {
       setBotManagementTab('spawn');
-      setActiveSection('bots');
+      setActiveSection(NAV.BOT_OPS);
       return;
     }
     setActiveSection(section);
@@ -2315,7 +2316,7 @@ export default function useDashboardState(navigate) {
       const createdCount = res.data.bots?.length || res.data.created || botSetup.count;
       showNotification(`✅ Created ${createdCount} bots successfully!`, 'success');
       await refreshBotState();
-      showSection('bots');
+      showSection(NAV.BOT_OPS);
     } catch (err) {
       const detail = err.response?.data?.detail;
       const errorMsg = typeof detail === 'object' ? detail.message || JSON.stringify(detail) : detail || 'Failed to create bots';
