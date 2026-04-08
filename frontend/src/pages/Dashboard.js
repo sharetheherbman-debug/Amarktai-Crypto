@@ -130,6 +130,8 @@ export default function Dashboard() {
     handleResetPassword,
     handleResumeAllBots,
     handleResumeBot,
+    handlePauseBot,
+    handleRestartBot,
     handleRiskProfileChange,
     handleSendMessage,
     handleStartBot,
@@ -556,6 +558,8 @@ export default function Dashboard() {
               handleDeleteBot={handleDeleteBot}
               handleResumeBot={handleResumeBot}
               handleStartBot={handleStartBot}
+              handlePauseBot={handlePauseBot}
+              handleRestartBot={handleRestartBot}
               handleToggleBotMode={handleToggleBotMode}
               botControlLoading={botControlLoading}
               selectedBotDetailId={selectedBotDetailId}
