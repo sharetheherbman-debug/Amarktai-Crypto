@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react';
 import SectionHeader from '@/ui/components/SectionHeader';
 import GlassCard from '@/ui/components/GlassCard';
-import apiClient from '@/lib/apiClient';
 
 const NOT_AVAILABLE = 'Not available';
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -56,11 +54,22 @@ export default function OverviewSection({
   livePrices,
   metrics,
   modeLabel,
+  notableEvent,
   overviewData,
   riskStatus,
   systemModes,
 }) {
-  const aiKeyConfigured = aiStatus?.key_configured;
+  const aiProviders = aiStatus?.providers || {};
+  const aiCapabilities = aiStatus?.capabilities || {};
+  const aiProviderIds = Object.keys(aiProviders);
+  const aiCapabilityIds = Object.keys(aiCapabilities);
+  const aiUsableProviders = aiProviderIds.filter((id) => aiProviders[id]?.usable).length;
+  const aiAvailableCapabilities = aiCapabilityIds.filter((id) => aiCapabilities[id]?.available).length;
+  const aiDegraded = Boolean(aiStatus?.degraded_mode);
+  const aiKeyConfigured = aiStatus?.key_configured
+    ?? aiProviders?.openai?.configured
+    ?? aiProviders?.openai?.usable
+    ?? false;
   const formatOverviewDate = (value) => {
     const formatted = formatDate(value);
     return formatted;
@@ -70,9 +79,9 @@ export default function OverviewSection({
     return reasonText === NOT_AVAILABLE ? fallback : reasonText;
   };
   const pricePairs = [
-    { label: 'BTC/ZAR', key: 'BTC/ZAR' },
-    { label: 'ETH/ZAR', key: 'ETH/ZAR' },
-    { label: 'XRP/ZAR', key: 'XRP/ZAR' }
+    { label: 'XBTZAR', key: 'BTC/ZAR' },
+    { label: 'ETHZAR', key: 'ETH/ZAR' },
+    { label: 'XRPZAR', key: 'XRP/ZAR' }
   ];
   const formatLivePrice = (value) => {
     const numeric = Number(value);
@@ -90,30 +99,34 @@ export default function OverviewSection({
   };
   const autonomyItems = [
     { label: 'Autopilot', value: systemModes.autopilot },
-    { label: 'Scheduler', value: autonomyStatus?.subsystems?.trading_scheduler?.status || autonomyStatus?.scheduler || autonomyStatus?.scheduler_status },
-    { label: 'Self-Healing', value: autonomyStatus?.subsystems?.self_heal?.status || autonomyStatus?.self_healing || (riskStatus?.bodyguard_lock?.active ? 'active' : undefined) },
-    { label: 'Learning', value: autonomyStatus?.subsystems?.learning_loop?.status || learningStatus?.status || learningStatus?.mode || (learningStatus?.active ? 'active' : undefined) }
+    {
+      label: 'Scheduler',
+      value: autonomyStatus?.subsystems?.trading_scheduler?.running
+        ?? autonomyStatus?.scheduler
+        ?? autonomyStatus?.scheduler_status,
+    },
+    {
+      label: 'Self-Healing',
+      value: autonomyStatus?.self_healing_detail?.health_state
+        ?? autonomyStatus?.subsystems?.self_heal?.status,
+    },
+    {
+      label: 'Learning',
+      value: autonomyStatus?.subsystems?.learning_loop?.running
+        ?? learningStatus?.status
+        ?? learningStatus?.mode
+        ?? learningStatus?.active,
+    },
+    {
+      label: 'Self-Heal Last Result',
+      value: autonomyStatus?.self_healing_detail?.last_result
+        ?? autonomyStatus?.subsystems?.self_heal?.last_error_message
+        ?? NOT_AVAILABLE,
+    },
   ];
-
-  // Events feed — fetch from /api/events/recent every 30 seconds
-  const [recentEvents, setRecentEvents] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    const fetchEvents = async () => {
-      try {
-        const res = await apiClient.get('/events/recent?limit=6');
-        if (!cancelled) setRecentEvents(res.data?.events || []);
-      } catch { /* silent */ }
-    };
-    fetchEvents();
-    const interval = setInterval(fetchEvents, 30000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, []);
-
-  const latestEvent = recentEvents[0];
-  const lastEventTitle = latestEvent?.message || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
-  const lastEventTime = latestEvent?.ts ? new Date(latestEvent.ts).toLocaleString() : formatOverviewDate(overviewData.lastTradeTime);
-  const severityColor = { info: 'var(--accent)', warning: 'var(--warning, #f59e0b)', error: 'var(--error)' };
+  const lastEventTitle = notableEvent?.title || (riskStatus?.emergency_stop?.active ? 'Emergency stop engaged' : 'System stable');
+  const lastEventDetail = notableEvent?.detail || (riskStatus?.daily_loss_lock?.active ? 'Daily loss lock active' : 'No critical alerts');
+  const lastEventTime = formatOverviewDate(notableEvent?.timestamp || overviewData.lastTradeTime);
 
   return (
     <section className="section active">
@@ -284,50 +297,13 @@ export default function OverviewSection({
 
         <div className="overview-grid">
           <div className="overview-left-col">
-            <div className="overview-image-card" style={{
-              position: 'relative',
-              overflow: 'hidden',
-              borderRadius: '8px',
-              height: '100%',
-              minHeight: '400px',
-              background: '#0f172a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
+            <div className="overview-image-card">
               <img
                 src="/assets/overview.jpg"
-                alt="Trading Overview"
-                onError={(e) => { e.target.style.display = 'none'; }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  borderRadius: '8px',
-                }}
+                alt="Amarktai Crypto Overview"
+                className="overview-image-asset"
               />
             </div>
-            
-            {/* Last Notable Event - driven by /api/events/recent */}
-            <GlassCard className="overview-card" style={{marginTop: '16px'}}>
-              <div className="overview-card-header" style={{padding: '16px'}}>
-                <h3>Last Notable Event</h3>
-                <span className="overview-card-meta">{lastEventTime}</span>
-              </div>
-              <div className="overview-event" style={{ padding: '0 16px 12px 16px' }}>
-                <strong style={{display: 'block', marginBottom: '8px', lineHeight: '1.4'}}>{lastEventTitle}</strong>
-                {recentEvents.length > 1 && (
-                  <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {recentEvents.slice(1, 6).map((ev, i) => (
-                      <div key={i} style={{ fontSize: '0.78rem', color: 'var(--muted)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: severityColor[ev.severity] || 'var(--muted)', marginTop: '4px', flexShrink: 0 }} />
-                        <span style={{ lineHeight: '1.4' }}>{ev.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </GlassCard>
           </div>
           <div className="overview-right-col">
             <GlassCard className="overview-card">
@@ -357,14 +333,7 @@ export default function OverviewSection({
             <GlassCard className="overview-card">
               <div className="overview-card-header">
                 <h3>Autonomy Status</h3>
-                <span className="overview-card-meta">
-                  {aiKeyConfigured ? 'AI Connected' : 'AI Key Not Set'}
-                  {' · '}
-                  {autonomyStatus?.subsystems
-                    ? (Object.values(autonomyStatus.subsystems).some(s => s?.running) ? 'Systems Running' : 'Systems Idle')
-                    : 'Status Unavailable'
-                  }
-                </span>
+                <span className="overview-card-meta">{aiKeyConfigured ? 'AI Connected' : 'AI Offline'}</span>
               </div>
               <div className="overview-status-list">
                 {autonomyItems.map(item => (
@@ -373,6 +342,34 @@ export default function OverviewSection({
                     <strong>{formatStatusValue(item.value)}</strong>
                   </div>
                 ))}
+              </div>
+            </GlassCard>
+
+            <GlassCard className="overview-card">
+              <div className="overview-card-header">
+                <h3>AI Capability</h3>
+                <span className="overview-card-meta">{aiDegraded ? 'Degraded' : 'Healthy'}</span>
+              </div>
+              <div className="overview-status-list">
+                <div className="overview-status-row">
+                  <span>Providers Usable</span>
+                  <strong>{aiUsableProviders}/{aiProviderIds.length || 0}</strong>
+                </div>
+                <div className="overview-status-row">
+                  <span>Features Available</span>
+                  <strong>{aiAvailableCapabilities}/{aiCapabilityIds.length || 0}</strong>
+                </div>
+              </div>
+            </GlassCard>
+
+            <GlassCard className="overview-card">
+              <div className="overview-card-header">
+                <h3>Last Notable Event</h3>
+                <span className="overview-card-meta">{lastEventTime}</span>
+              </div>
+              <div className="overview-event">
+                <strong>{lastEventTitle}</strong>
+                <p>{lastEventDetail}</p>
               </div>
             </GlassCard>
           </div>
