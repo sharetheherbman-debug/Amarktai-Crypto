@@ -262,13 +262,13 @@ export default function BotFleetSection({
 
   /* derive unique platforms from bots */
   const platforms = useMemo(() => {
-    const set = new Set(bots.map((b) => (b.exchange || '').toLowerCase()).filter(Boolean));
+    const set = new Set((bots || []).map((b) => (b.exchange || '').toLowerCase()).filter(Boolean));
     return ['all', ...Array.from(set).sort()];
   }, [bots]);
 
   /* filtered bots — always exclude deleted/ghost bots regardless of filter */
   const filteredBots = useMemo(() => {
-    return bots.filter((bot) => {
+    return (bots || []).filter((bot) => {
       const st = getBotStatus(bot);
       // Exclude deleted/ghost bots from all fleet views
       if (st === 'deleted' || bot.deleted_at || bot.deleted === true || bot.is_deleted === true) return false;
@@ -291,7 +291,7 @@ export default function BotFleetSection({
 
   /* per-tab bot counts shown as tab badges */
   const tabCounts = useMemo(() => {
-    const nonDeleted = bots.filter((b) => {
+    const nonDeleted = (bots || []).filter((b) => {
       const st = getBotStatus(b);
       return st !== 'deleted' && !b.deleted_at && b.deleted !== true && b.is_deleted !== true;
     });
@@ -304,7 +304,7 @@ export default function BotFleetSection({
 
   const selectedBot = useMemo(() => {
     if (!selectedBotDetailId) return null;
-    return bots.find((b) => b.id === selectedBotDetailId) || null;
+    return (bots || []).find((b) => b.id === selectedBotDetailId) || null;
   }, [bots, selectedBotDetailId]);
 
   /* callbacks */

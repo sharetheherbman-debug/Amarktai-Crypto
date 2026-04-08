@@ -275,7 +275,7 @@ export default function BotManagementSection({
     return true;
   };
 
-  const filteredBots = bots.filter(bot =>
+  const filteredBots = (bots || []).filter(bot =>
     (platformFilter === 'all' || bot.exchange === platformFilter) && matchesStatusFilter(bot)
   );
 

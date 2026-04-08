@@ -130,6 +130,8 @@ export default function Dashboard() {
     handleResetPassword,
     handleResumeAllBots,
     handleResumeBot,
+    handlePauseBot,
+    handleRestartBot,
     handleRiskProfileChange,
     handleSendMessage,
     handleStartBot,
@@ -462,12 +464,9 @@ export default function Dashboard() {
           <div
             className="logo"
             onClick={() => showSection(NAV.OVERVIEW)}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: '12px auto' }}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '18px auto 12px' }}
           >
-            <img src="/assets/logo.png" alt="Amarktai Crypto" className="logo sidebar-logo" style={{ width: '36px', height: '36px' }} />
-            <span style={{ color: '#f8fbff', fontWeight: '700', fontSize: '1rem' }}>
-              Amarkt<span style={{ color: '#3b82f6' }}>AI</span>
-            </span>
+            <img src="/assets/logo.png" alt="Amarktai Crypto" className="sidebar-logo" style={{ width: '64px', height: '64px' }} />
           </div>
           <nav className="nav" key={`nav-${showAdmin}`}>
             <a href="#" className={activeSection === NAV.WELCOME ? 'active' : ''} onClick={(e) => { e.preventDefault(); showSection(NAV.WELCOME); }}>{NAV_LABELS[NAV.WELCOME]}</a>
@@ -516,12 +515,9 @@ export default function Dashboard() {
           <button className="mobile-logo-btn" onClick={() => showSection(NAV.OVERVIEW)}>
             <div
               className="mobile-logo"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ display: 'flex', alignItems: 'center' }}
             >
-              <img src="/assets/logo.png" alt="Amarktai Crypto" style={{ width: '28px', height: '28px' }} />
-              <span style={{ color: '#f8fbff', fontWeight: '700', fontSize: '0.9rem' }}>
-                Amarkt<span style={{ color: '#3b82f6' }}>AI</span>
-              </span>
+              <img src="/assets/logo.png" alt="Amarktai Crypto" style={{ width: '48px', height: '48px' }} />
             </div>
           </button>
           <div className="mobile-btns">
@@ -562,6 +558,8 @@ export default function Dashboard() {
               handleDeleteBot={handleDeleteBot}
               handleResumeBot={handleResumeBot}
               handleStartBot={handleStartBot}
+              handlePauseBot={handlePauseBot}
+              handleRestartBot={handleRestartBot}
               handleToggleBotMode={handleToggleBotMode}
               botControlLoading={botControlLoading}
               selectedBotDetailId={selectedBotDetailId}
