@@ -294,10 +294,17 @@ export default function OverviewSection({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#334155',
-              fontSize: '0.9rem'
             }}>
-              Trading Overview
+              <img
+                src="/assets/overview.jpg"
+                alt="Trading Overview"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  borderRadius: '8px',
+                }}
+              />
             </div>
             
             {/* Last Notable Event - driven by /api/events/recent */}

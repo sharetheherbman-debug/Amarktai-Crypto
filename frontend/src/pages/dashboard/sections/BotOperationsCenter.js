@@ -31,7 +31,6 @@ export default function BotOperationsCenter({
   botManagementTab,
   handleBulkCreateBots,
   handleCreateBot,
-  handleCreateScalperBot,
   handleCreateUAgent,
   setBotManagementTab,
   formatDate,
@@ -151,12 +150,31 @@ export default function BotOperationsCenter({
       {opsTab === OPS_TAB.CREATE && (
         <BotManagementSection
           axiosConfig={axiosConfig}
+          bots={bots || []}
           botManagementTab={botManagementTab}
           handleBulkCreateBots={handleBulkCreateBots}
           handleCreateBot={handleCreateBot}
-          handleCreateScalperBot={handleCreateScalperBot}
           handleCreateUAgent={handleCreateUAgent}
           setBotManagementTab={setBotManagementTab}
+          formatDate={formatDate}
+          handleDeleteBot={handleDeleteBot}
+          handleResumeBot={handleResumeBot}
+          handleStartBot={handleStartBot}
+          handleToggleBotMode={handleToggleBotMode}
+          botControlLoading={botControlLoading}
+          selectedBotDetailId={selectedBotDetailId}
+          setSelectedBotDetailId={setSelectedBotDetailId}
+          botDetailTab={botDetailTab}
+          setBotDetailTab={setBotDetailTab}
+          botStatusFilter={botStatusFilter}
+          setBotStatusFilter={setBotStatusFilter}
+          platformFilter={platformFilter}
+          setPlatformFilter={setPlatformFilter}
+          editingBotId={editingBotId}
+          setEditingBotId={setEditingBotId}
+          editingBotName={editingBotName}
+          setEditingBotName={setEditingBotName}
+          handleRenameBotSubmit={handleRenameBotSubmit}
           embedded={true}
         />
       )}

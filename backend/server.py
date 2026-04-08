@@ -679,6 +679,59 @@ async def create_bot(bot: BotCreate, user_id: str = Depends(get_current_user)):
     return result
 
 
+@api_router.post("/bots/uagent")
+async def create_uagent_bot(
+    request: Request,
+    user_id: str = Depends(get_current_user)
+):
+    """Create a uAgent bot from uploaded strategy file.
+    
+    Accepts multipart/form-data with: name, strategy, type, file (optional).
+    Creates a bot record with bot_type='uagent'.
+    """
+    from uuid import uuid4
+    
+    form = await request.form()
+    name = form.get("name", "").strip()
+    strategy = form.get("strategy", "adaptive")
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="Bot name is required")
+    
+    bot_id = str(uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    bot_doc = {
+        "id": bot_id,
+        "user_id": user_id,
+        "name": name,
+        "bot_type": "uagent",
+        "strategy_preset": strategy,
+        "exchange": "luno",
+        "trading_mode": "paper",
+        "risk_mode": "balanced",
+        "status": "active",
+        "initial_capital": 0,
+        "current_capital": 0,
+        "total_profit": 0.0,
+        "trades_count": 0,
+        "created_at": now,
+        "created_by": "user",
+    }
+    
+    await db.bots_collection.insert_one(bot_doc)
+    bot_doc.pop("_id", None)
+    
+    # Real-time notification
+    from realtime_events import rt_events
+    await rt_events.bot_created(user_id, bot_doc)
+    await rt_events.force_refresh(user_id, f"uAgent '{name}' deployed successfully")
+    
+    logger.info(f"✅ uAgent bot created: {name} for user {user_id[:8]}")
+    
+    return {"success": True, "bot": bot_doc, "message": f"uAgent '{name}' deployed successfully"}
+
+
 @api_router.post("/bots/spawn")
 async def spawn_bot_now(
     payload: dict = Body(default={}),
