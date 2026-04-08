@@ -464,7 +464,7 @@ export default function Dashboard() {
             onClick={() => showSection(NAV.OVERVIEW)}
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', margin: '12px auto' }}
           >
-            <img src="/assets/ai/ai-orb.svg" alt="" style={{ width: '36px', height: '36px' }} />
+            <img src="/assets/logo.png" alt="Amarktai Crypto" className="logo sidebar-logo" style={{ width: '36px', height: '36px' }} />
             <span style={{ color: '#f8fbff', fontWeight: '700', fontSize: '1rem' }}>
               Amarkt<span style={{ color: '#3b82f6' }}>AI</span>
             </span>
@@ -518,7 +518,7 @@ export default function Dashboard() {
               className="mobile-logo"
               style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              <img src="/assets/ai/ai-orb.svg" alt="" style={{ width: '28px', height: '28px' }} />
+              <img src="/assets/logo.png" alt="Amarktai Crypto" style={{ width: '28px', height: '28px' }} />
               <span style={{ color: '#f8fbff', fontWeight: '700', fontSize: '0.9rem' }}>
                 Amarkt<span style={{ color: '#3b82f6' }}>AI</span>
               </span>

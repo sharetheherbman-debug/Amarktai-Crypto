@@ -30,7 +30,7 @@ export default function Features() {
         ))}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <img src="/assets/ai/ai-orb.svg" alt="" style={{ width: 160, opacity: 0.7 }} />
+        <img src="/assets/logo.png" alt="" style={{ width: 160, opacity: 0.7 }} />
       </div>
     </PublicPageLayout>
   );
