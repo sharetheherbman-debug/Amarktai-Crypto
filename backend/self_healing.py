@@ -33,6 +33,28 @@ class SelfHealingSystem:
         """Stop self-healing monitor"""
         self.is_running = False
         logger.info("Self-healing system stopped")
+
+    def get_status(self):
+        """Return current self-healing system status dict.
+
+        The shape must match what ``routes.autonomy_control`` unpacks
+        (keys: state, enabled, monitored_systems, last_action,
+        last_result, last_reason_code, last_check, last_error).
+        """
+        return {
+            "state": "running" if self.is_running else "stopped",
+            "enabled": True,
+            "monitored_systems": ["database", "memory", "disk"],
+            "last_action": None,
+            "last_result": None,
+            "last_reason_code": None,
+            "last_check": (
+                datetime.now(timezone.utc).isoformat()
+                if self.is_running
+                else None
+            ),
+            "last_error": None,
+        }
     
     async def _monitor_health(self):
         """Monitor system health every 30 seconds"""

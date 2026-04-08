@@ -8,9 +8,11 @@ export default function Landing() {
   return (
     <AuthLayout>
       <div className="auth-content bright-glass-panel">
-        <div className="auth-logo-placeholder" style={{ width: '120px', height: '60px', background: '#1e293b', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: '700', fontSize: '1.2rem' }}>
-          Amarkt<span style={{ color: '#60a5fa' }}>AI</span>
-        </div>
+        <img
+          src="/assets/ai/ai-orb.svg"
+          alt="AmarktAI"
+          className="auth-logo landing-logo-lg"
+        />
         <div className="landing-header">
           <p className="landing-welcome">Welcome to</p>
           <h1 className="auth-title landing-brand">

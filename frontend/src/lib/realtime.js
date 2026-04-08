@@ -414,6 +414,7 @@ class RealtimeClient {
     this.stopPolling();
     
     if (this.ws) {
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }
