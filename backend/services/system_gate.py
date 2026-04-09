@@ -22,8 +22,8 @@ class SystemGateService:
     
     def __init__(self):
         # Read environment flags
-        self.trading_enabled = env_bool("ENABLE_TRADING", False)
-        self.autopilot_enabled = env_bool("ENABLE_AUTOPILOT", False)
+        self.trading_enabled = env_bool("ENABLE_TRADING", True)
+        self.autopilot_enabled = env_bool("ENABLE_AUTOPILOT", True)
         self.ccxt_enabled = env_bool("ENABLE_CCXT", True)
         
         logger.info(f"System Gate initialized: Trading={self.trading_enabled}, Autopilot={self.autopilot_enabled}")

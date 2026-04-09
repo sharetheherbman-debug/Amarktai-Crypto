@@ -107,6 +107,19 @@ function BulkCreateForm({ botType, handleBulkCreateBots }) {
   const totalCapital = total * capitalPerBot;
   const isValid = total >= 1 && total <= 30 && capitalPerBot >= 1000;
 
+  // Shared dark-mode style for all form inputs and selects in the bulk form
+  const bulkFieldStyle = {
+    width: '100%',
+    padding: '9px 12px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.15)',
+    background: 'rgba(15,23,42,0.85)',
+    color: '#f1f5f9',
+    fontSize: '0.9rem',
+    outline: 'none',
+    boxSizing: 'border-box',
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!handleBulkCreateBots) return;
@@ -132,13 +145,13 @@ function BulkCreateForm({ botType, handleBulkCreateBots }) {
       }}>
         {/* Exchange */}
         <div>
-          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem' }}>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Exchange Platform
           </label>
           <select
             value={exchange}
             onChange={e => setExchange(e.target.value)}
-            style={{ width: '100%' }}
+            style={bulkFieldStyle}
           >
             {getAllExchanges().map(ex => (
               <option key={ex.id} value={ex.id} disabled={ex.comingSoon}>
@@ -150,7 +163,7 @@ function BulkCreateForm({ botType, handleBulkCreateBots }) {
 
         {/* Capital per bot */}
         <div>
-          <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem' }}>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Capital per Bot (ZAR, min R1,000)
           </label>
           <input
@@ -160,20 +173,20 @@ function BulkCreateForm({ botType, handleBulkCreateBots }) {
             value={capitalPerBot}
             onChange={e => setCapitalPerBot(Math.max(1000, parseInt(e.target.value) || 1000))}
             required
-            style={{ width: '100%' }}
+            style={bulkFieldStyle}
           />
         </div>
 
         {/* Profit routing (scalper only) */}
         {isScalper && (
           <div>
-            <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem' }}>
+            <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Profit Routing
             </label>
             <select
               value={profitRouting}
               onChange={e => setProfitRouting(e.target.value)}
-              style={{ width: '100%' }}
+              style={bulkFieldStyle}
             >
               <option value="RETURN_TO_MAIN">Return to Main — profits → main capital</option>
               <option value="SCALPER_GROWTH">Scalper Growth — profits reinvested in scalpers</option>
@@ -223,7 +236,26 @@ function BulkCreateForm({ botType, handleBulkCreateBots }) {
         &nbsp;·&nbsp; All bots start in <strong>PAPER mode</strong>
       </div>
 
-      <button type="submit" disabled={!isValid} style={{ opacity: isValid ? 1 : 0.5 }}>
+      <button
+        type="submit"
+        disabled={!isValid}
+        style={{
+          width: '100%',
+          padding: '11px 20px',
+          background: isValid
+            ? 'linear-gradient(135deg, rgba(99,130,200,0.9), rgba(74,144,226,0.9))'
+            : 'rgba(255,255,255,0.06)',
+          border: isValid ? '1px solid rgba(99,130,200,0.5)' : '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '8px',
+          color: isValid ? '#fff' : 'var(--muted)',
+          fontWeight: 700,
+          fontSize: '0.95rem',
+          cursor: isValid ? 'pointer' : 'not-allowed',
+          opacity: isValid ? 1 : 0.55,
+          transition: 'all 0.2s',
+          letterSpacing: '0.02em',
+        }}
+      >
         📦 Create {total} {isScalper ? 'Scalper' : ''} Bot{total !== 1 ? 's' : ''} on {exchange.charAt(0).toUpperCase() + exchange.slice(1)}
       </button>
     </form>
