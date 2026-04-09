@@ -50,7 +50,7 @@ _ZAR_QUOTE_CURRENCIES = {"ZAR"}
 _USDT_QUOTE_CURRENCIES = {"USDT", "BUSD", "USDC", "TUSD", "USD"}
 
 # ── Canonical exchange → quote currency map (single authoritative definition) ─
-# All 7 supported venues. Update here only — no duplicate mappings elsewhere.
+# All 8 supported venues. Update here only — no duplicate mappings elsewhere.
 EXCHANGE_QUOTE_MAP: dict[str, str] = {
     "luno": "ZAR",     # ZAR-native South African venue
     "binance": "USDT",
@@ -59,6 +59,7 @@ EXCHANGE_QUOTE_MAP: dict[str, str] = {
     "kraken": "USDT",
     "bitget": "USDT",
     "gate": "USDT",
+    "coinbase": "USDT",
 }
 
 # ── Runtime rate cache (set by market intelligence or live price feeds) ───────

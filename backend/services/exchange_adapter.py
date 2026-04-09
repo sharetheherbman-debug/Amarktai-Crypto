@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Canonical exchange identifiers
 SUPPORTED_EXCHANGES = [
-    "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate"
+    "luno", "binance", "kucoin", "bybit", "kraken", "bitget", "gate", "coinbase"
 ]
 
 # Mapping from our canonical name to CCXT exchange class name
@@ -28,40 +28,44 @@ CCXT_CLASS_MAP = {
     "bybit": "bybit",
     "kraken": "kraken",
     "bitget": "bitget",
-    "gate": "gateio",  # Gate.io uses 'gateio' in CCXT
+    "gate": "gateio",     # Gate.io uses 'gateio' in CCXT
+    "coinbase": "coinbase",  # Coinbase Advanced Trade
 }
 
 # Default fee rates by exchange (maker/taker in percent)
 DEFAULT_FEES: Dict[str, Dict[str, float]] = {
-    "luno":    {"maker": 0.0, "taker": 0.10},
-    "binance": {"maker": 0.10, "taker": 0.10},
-    "kucoin":  {"maker": 0.10, "taker": 0.10},
-    "bybit":   {"maker": 0.10, "taker": 0.10},
-    "kraken":  {"maker": 0.16, "taker": 0.26},
-    "bitget":  {"maker": 0.10, "taker": 0.10},
-    "gate":    {"maker": 0.20, "taker": 0.20},
+    "luno":     {"maker": 0.0,  "taker": 0.10},
+    "binance":  {"maker": 0.10, "taker": 0.10},
+    "kucoin":   {"maker": 0.10, "taker": 0.10},
+    "bybit":    {"maker": 0.10, "taker": 0.10},
+    "kraken":   {"maker": 0.16, "taker": 0.26},
+    "bitget":   {"maker": 0.10, "taker": 0.10},
+    "gate":     {"maker": 0.20, "taker": 0.20},
+    "coinbase": {"maker": 0.40, "taker": 0.60},
 }
 
 # Default quote currencies
 DEFAULT_QUOTE: Dict[str, str] = {
-    "luno":    "ZAR",
-    "binance": "USDT",
-    "kucoin":  "USDT",
-    "bybit":   "USDT",
-    "kraken":  "USDT",
-    "bitget":  "USDT",
-    "gate":    "USDT",
+    "luno":     "ZAR",
+    "binance":  "USDT",
+    "kucoin":   "USDT",
+    "bybit":    "USDT",
+    "kraken":   "USDT",
+    "bitget":   "USDT",
+    "gate":     "USDT",
+    "coinbase": "USDT",
 }
 
 # Default viable pairs per exchange for paper trading
 DEFAULT_PAIRS: Dict[str, List[str]] = {
-    "luno":    ["BTC/ZAR", "ETH/ZAR"],
-    "binance": ["BTC/USDT", "ETH/USDT"],
-    "kucoin":  ["BTC/USDT", "ETH/USDT"],
-    "bybit":   ["BTC/USDT", "ETH/USDT"],
-    "kraken":  ["BTC/USDT", "ETH/USDT"],
-    "bitget":  ["BTC/USDT", "ETH/USDT"],
-    "gate":    ["BTC/USDT", "ETH/USDT"],
+    "luno":     ["BTC/ZAR", "ETH/ZAR"],
+    "binance":  ["BTC/USDT", "ETH/USDT"],
+    "kucoin":   ["BTC/USDT", "ETH/USDT"],
+    "bybit":    ["BTC/USDT", "ETH/USDT"],
+    "kraken":   ["BTC/USDT", "ETH/USDT"],
+    "bitget":   ["BTC/USDT", "ETH/USDT"],
+    "gate":     ["BTC/USDT", "ETH/USDT"],
+    "coinbase": ["BTC/USDT", "ETH/USDT"],
 }
 
 

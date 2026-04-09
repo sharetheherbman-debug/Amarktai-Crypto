@@ -305,6 +305,48 @@ async def test_gate(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]
         return False, f"Test failed: {error_msg[:100]}"
 
 
+async def test_coinbase(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
+    """Test Coinbase Advanced Trade credentials via CCXT coinbase driver."""
+    try:
+        exchange = ccxt.coinbase({
+            'apiKey': api_key,
+            'secret': api_secret,
+            'enableRateLimit': True,
+        })
+        balance = await exchange.fetch_balance()
+        await exchange.close()
+        return True, None
+    except ccxt.AuthenticationError:
+        return False, "Invalid API key or secret"
+    except ccxt.PermissionDenied:
+        return False, "API key lacks required permissions (enable 'view' scope)"
+    except Exception as e:
+        error_msg = str(e)
+        return False, f"Test failed: {error_msg[:100]}"
+
+
+async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    """Test CoinDesk Data API v2 key."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://data-api.coindesk.com/v1/asset/summary",
+                headers={"Authorization": f"Bearer {api_key}"},
+                params={"market": "cadli", "base_asset": "BTC"},
+                timeout=10.0,
+            )
+            if response.status_code in (200, 206):
+                return True, None
+            elif response.status_code == 401:
+                return False, "Invalid API key (401 Unauthorized)"
+            elif response.status_code == 403:
+                return False, "API key does not have access to this endpoint (403)"
+            else:
+                return False, f"API returned status {response.status_code}"
+    except Exception as e:
+        return False, f"Test failed: {str(e)[:100]}"
+
+
 # Provider definitions
 
 PROVIDERS: Dict[str, ProviderDefinition] = {
@@ -409,6 +451,25 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         test_method=test_gate,
         icon="gateio.svg",
         description="Gate.io global cryptocurrency exchange"
+    ),
+    "coinbase": ProviderDefinition(
+        provider_id="coinbase",
+        provider_type=ProviderType.EXCHANGE,
+        display_name="Coinbase",
+        required_fields=["api_key", "api_secret"],
+        test_method=test_coinbase,
+        icon="coinbase.svg",
+        description="Coinbase Advanced Trade — US-based cryptocurrency exchange"
+    ),
+    # Market Data Providers (AI category — no exchange order execution)
+    "coindesk": ProviderDefinition(
+        provider_id="coindesk",
+        provider_type=ProviderType.AI,
+        display_name="CoinDesk",
+        required_fields=["api_key"],
+        test_method=test_coindesk,
+        icon="coindesk.svg",
+        description="CoinDesk Data API v2 — crypto prices and market data"
     ),
 }
 

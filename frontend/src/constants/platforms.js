@@ -3,11 +3,11 @@
  * Defines the 7 supported exchanges + 3 AI providers for the entire system
  */
 
-// Supported exchanges (in display order) - EXACTLY 7 EXCHANGES
-export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate'];
+// Supported exchanges (in display order) - EXACTLY 9 EXCHANGES
+export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'coinbase'];
 
-// Supported AI providers - EXACTLY 4 PROVIDERS (OpenAI, CoinStats, Fetch.ai, HuggingFace)
-export const SUPPORTED_AI_PROVIDERS = ['openai', 'coinstats', 'fetchai', 'huggingface'];
+// Supported AI / market-data providers - 5 PROVIDERS (OpenAI, CoinStats, Fetch.ai, HuggingFace, CoinDesk)
+export const SUPPORTED_AI_PROVIDERS = ['openai', 'coinstats', 'fetchai', 'huggingface', 'coindesk'];
 
 // All supported providers (exchanges + AI)
 export const ALL_PROVIDERS = [...SUPPORTED_PLATFORMS, ...SUPPORTED_AI_PROVIDERS];
@@ -112,6 +112,20 @@ export const PLATFORM_CONFIG = {
     supportsLive: true,
     requiredKeyFields: ['api_key', 'api_secret']
   },
+  coinbase: {
+    id: 'coinbase',
+    name: 'Coinbase',
+    displayName: 'Coinbase',
+    icon: '🔵',
+    color: '#0052FF',
+    maxBots: 10,
+    region: 'US / Global',
+    requiresPassphrase: false,
+    enabled: true,
+    supportsPaper: true,
+    supportsLive: true,
+    requiredKeyFields: ['api_key', 'api_secret']
+  },
   // AI Providers
   openai: {
     id: 'openai',
@@ -152,11 +166,21 @@ export const PLATFORM_CONFIG = {
     type: 'ai_provider',
     enabled: true,
     requiredKeyFields: ['api_key']
+  },
+  coindesk: {
+    id: 'coindesk',
+    name: 'CoinDesk',
+    displayName: 'CoinDesk',
+    icon: '📊',
+    color: '#FF5C35',
+    type: 'ai_provider',
+    enabled: true,
+    requiredKeyFields: ['api_key']
   }
 };
 
 // Total bot capacity
-export const TOTAL_BOT_CAPACITY = Object.values(PLATFORM_CONFIG).reduce((sum, p) => sum + p.maxBots, 0);  // 65
+export const TOTAL_BOT_CAPACITY = Object.values(PLATFORM_CONFIG).reduce((sum, p) => sum + (p.maxBots || 0), 0);
 
 /**
  * Get configuration for a specific platform

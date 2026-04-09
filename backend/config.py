@@ -113,7 +113,8 @@ EXCHANGE_BOT_LIMITS = {
     'bybit': 10,
     'kraken': 10,
     'bitget': 10,
-    'gate': 10
+    'gate': 10,
+    'coinbase': 10,
 }
 
 # Trading limits - Per exchange (Safety caps)
@@ -176,7 +177,8 @@ PAPER_PAIR_WHITELIST = {
     "bybit": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "BNB/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT"],
     "kraken": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT"],
     "bitget": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "BNB/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT"],
-    "gate": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT"]
+    "gate": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT"],
+    "coinbase": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT"],
 }
 
 # Per-exchange trade limits (optional overrides)
@@ -187,6 +189,7 @@ BYBIT_MAX_TRADES_PER_DAY = int(os.getenv('BYBIT_MAX_TRADES_PER_DAY', '100000'))
 KRAKEN_MAX_TRADES_PER_DAY = int(os.getenv('KRAKEN_MAX_TRADES_PER_DAY', '50000'))
 BITGET_MAX_TRADES_PER_DAY = int(os.getenv('BITGET_MAX_TRADES_PER_DAY', '80000'))
 GATEIO_MAX_TRADES_PER_DAY = int(os.getenv('GATEIO_MAX_TRADES_PER_DAY', '80000'))
+COINBASE_MAX_TRADES_PER_DAY = int(os.getenv('COINBASE_MAX_TRADES_PER_DAY', '40000'))
 
 # Map exchange names to their trade limits
 EXCHANGE_DAILY_TRADE_LIMITS = {
@@ -198,6 +201,7 @@ EXCHANGE_DAILY_TRADE_LIMITS = {
     'bitget': BITGET_MAX_TRADES_PER_DAY,
     'gateio': GATEIO_MAX_TRADES_PER_DAY,
     'gate': GATEIO_MAX_TRADES_PER_DAY,  # Alias
+    'coinbase': COINBASE_MAX_TRADES_PER_DAY,
 }
 
 # Paper → Live promotion criteria

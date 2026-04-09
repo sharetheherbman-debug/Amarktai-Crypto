@@ -13,7 +13,7 @@ load_dotenv()
 
 
 # ============================================================================
-# SUPPORTED EXCHANGES - EXACTLY 7 PLATFORMS (IMMUTABLE)
+# SUPPORTED EXCHANGES - 8 PLATFORMS
 # ============================================================================
 SUPPORTED_EXCHANGES: List[str] = [
     'luno',
@@ -22,7 +22,8 @@ SUPPORTED_EXCHANGES: List[str] = [
     'bybit',
     'kraken',
     'bitget',
-    'gate'
+    'gate',
+    'coinbase',
 ]
 
 # Frozen set for fast lookup
@@ -40,11 +41,12 @@ class ExchangeLimits:
         "bybit": 10,
         "kraken": 10,
         "bitget": 10,
-        "gate": 10
+        "gate": 10,
+        "coinbase": 10,
     }
     
     # Total global bot limit
-    MAX_BOTS_GLOBAL: int = 65  # Sum of all allocations
+    MAX_BOTS_GLOBAL: int = 75  # Sum of all allocations
     
     # Per-exchange trading limits
     EXCHANGE_LIMITS: Dict[str, Dict] = {
@@ -124,6 +126,17 @@ class ExchangeLimits:
             "max_orders_per_10_seconds": 10,
             "fee_maker": 0.002,
             "fee_taker": 0.002,
+        },
+        "coinbase": {
+            "max_bots": 10,
+            "trades_per_bot_day": 400,
+            "total_trades_day": 4000,
+            "max_orders_per_day": 4000,
+            "max_orders_per_bot_per_day": 400,
+            "max_orders_per_minute": 30,
+            "max_orders_per_10_seconds": 5,
+            "fee_maker": 0.004,
+            "fee_taker": 0.006,
         },
     }
     
@@ -262,7 +275,7 @@ class SystemSettings:
         self.BOT_SPAWN_PROFIT_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_ZAR', '1000'))
         self.NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '500'))
         self.REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '300'))
-        self.MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))
+        self.MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '75'))
         self.TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '3'))
         self.EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))
         self.QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))

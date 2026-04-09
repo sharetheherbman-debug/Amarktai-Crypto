@@ -1,6 +1,6 @@
 """
 Canonical API Keys Router - Unified key management with provider registry
-Handles all 11 providers: openai, coinstats, fetchai, huggingface, luno, binance, kucoin, bybit, kraken, bitget, gate
+Handles all providers: openai, coinstats, fetchai, huggingface, coindesk, luno, binance, kucoin, bybit, kraken, bitget, gate, coinbase
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -275,8 +275,8 @@ async def save_key(
         # Normalize provider ID to lowercase and validate
         provider_id = data.provider.lower().strip()
         
-        # Strict normalization to the 7 supported exchange IDs + AI providers
-        VALID_PROVIDERS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'openai', 'coinstats', 'fetchai', 'huggingface']
+        # Derive valid providers from the registry (single source of truth)
+        VALID_PROVIDERS = list_providers_ids()
         
         if provider_id not in VALID_PROVIDERS:
             raise HTTPException(
