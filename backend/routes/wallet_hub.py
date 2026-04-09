@@ -1247,3 +1247,85 @@ async def cancel_funding_plan(plan_id: str, user_id: str = Depends(get_current_u
     except Exception as e:
         logger.error(f"Cancel funding plan error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/converter")
+async def currency_converter(data: dict, user_id: str = Depends(get_current_user)):
+    """Convert an amount between any two supported currencies using live FX rates.
+
+    Supported: ZAR, USD, GBP, EUR, USDT, BUSD, USDC, BTC, ETH
+
+    Request body:
+        amount        - Positive numeric amount to convert
+        from_currency - Source currency code (e.g. 'ZAR', 'USDT', 'BTC')
+        to_currency   - Target currency code
+
+    Returns:
+        input_amount, input_currency, output_amount, output_currency,
+        effective_rate, rate_source, via_zar_amount (if cross-rate)
+    """
+    try:
+        from services.fx_normalizer import get_fx_rate
+
+        SUPPORTED = {"ZAR", "USD", "GBP", "EUR", "USDT", "BUSD", "USDC", "BTC", "ETH"}
+
+        amount = data.get("amount")
+        from_cur = str(data.get("from_currency", "")).upper().strip()
+        to_cur = str(data.get("to_currency", "")).upper().strip()
+
+        # Validate amount
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid amount — must be a number")
+        if amount < 0:
+            raise HTTPException(status_code=400, detail="Amount must be non-negative")
+
+        # Validate currencies
+        if from_cur not in SUPPORTED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported from_currency '{from_cur}'. Supported: {', '.join(sorted(SUPPORTED))}"
+            )
+        if to_cur not in SUPPORTED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported to_currency '{to_cur}'. Supported: {', '.join(sorted(SUPPORTED))}"
+            )
+
+        # Identity conversion
+        if from_cur == to_cur:
+            return {
+                "input_amount": amount,
+                "input_currency": from_cur,
+                "output_amount": amount,
+                "output_currency": to_cur,
+                "effective_rate": 1.0,
+                "rate_source": "identity",
+                "via_zar_amount": None,
+            }
+
+        rate, source = get_fx_rate(from_cur, to_cur)
+        output_amount = amount * rate
+
+        # Compute via-ZAR intermediate for cross-rates (helps frontend show breakdown)
+        via_zar = None
+        if from_cur != "ZAR" and to_cur != "ZAR":
+            zar_rate, _ = get_fx_rate(from_cur, "ZAR")
+            via_zar = round(amount * zar_rate, 6)
+
+        return {
+            "input_amount": amount,
+            "input_currency": from_cur,
+            "output_amount": round(output_amount, 8),
+            "output_currency": to_cur,
+            "effective_rate": round(rate, 8),
+            "rate_source": source,
+            "via_zar_amount": via_zar,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Currency converter error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

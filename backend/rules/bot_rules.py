@@ -168,7 +168,7 @@ def check_bot_cap_limit(exchange: str, current_bot_count: int,
 
     max_bots = get_max_bots_for_exchange(exchange, bot_type=bot_type)
 
-    if current_bot_count >= max_bots:
+    if current_bot_count > max_bots:
         logger.info(
             "Bot cap exceeded for user %s on %s (%s): %d/%d",
             user_id or 'unknown', exchange, bot_type, current_bot_count, max_bots,

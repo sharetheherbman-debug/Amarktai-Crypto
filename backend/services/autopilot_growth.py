@@ -307,16 +307,19 @@ class AutopilotGrowthService:
             if today_spawns >= config.AUTO_SPAWN_MAX_PER_DAY:
                 reasons.append("MAX_SPAWNS_REACHED")
 
-        key_doc = await self.db.api_keys.find_one(
-            {"user_id": str(self.user_id), "provider": platform},
-            {"_id": 0, "status": 1, "last_test_ok": 1, "valid": 1}
-        )
-        if not key_doc:
-            reasons.append("API_KEYS_MISSING")
-        else:
-            status = _normalize_key_status(key_doc.get("status"))
-            if status != ProviderStatus.CONFIGURED_VALID.value and not key_doc.get("last_test_ok") and not key_doc.get("valid"):
-                reasons.append("API_KEYS_INVALID")
+        # API keys are only required for live trading; paper mode runs without exchange keys
+        is_paper_mode = config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING
+        if not is_paper_mode:
+            key_doc = await self.db.api_keys.find_one(
+                {"user_id": str(self.user_id), "provider": platform},
+                {"_id": 0, "status": 1, "last_test_ok": 1, "valid": 1}
+            )
+            if not key_doc:
+                reasons.append("API_KEYS_MISSING")
+            else:
+                status = _normalize_key_status(key_doc.get("status"))
+                if status != ProviderStatus.CONFIGURED_VALID.value and not key_doc.get("last_test_ok") and not key_doc.get("valid"):
+                    reasons.append("API_KEYS_INVALID")
 
         spawn_capital = float(config.NEW_BOT_CAPITAL)
         has_funds, _available = await reserved_funds_service.check_available_funds(
