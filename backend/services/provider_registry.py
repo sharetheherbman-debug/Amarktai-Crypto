@@ -326,13 +326,18 @@ async def test_coinbase(api_key: str, api_secret: str) -> tuple[bool, Optional[s
 
 
 async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
-    """Test CoinDesk Data API v2 key."""
+    """Test CoinDesk Data API v2 key.
+
+    Uses the /v1/index/cc/v2/latest/tick endpoint which requires a valid API key.
+    The market=cadli (CoinDesk Asset Data & Liquidity Index) is the standard
+    CoinDesk Data API v2 composite index market identifier.
+    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://data-api.coindesk.com/v1/asset/summary",
+                "https://data-api.coindesk.com/v1/index/cc/v2/latest/tick",
                 headers={"Authorization": f"Bearer {api_key}"},
-                params={"market": "cadli", "base_asset": "BTC"},
+                params={"market": "CCCAGG", "instruments": "BTC-USD", "limit": "1"},
                 timeout=10.0,
             )
             if response.status_code in (200, 206):

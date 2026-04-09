@@ -3,7 +3,7 @@
  * Defines the 7 supported exchanges + 3 AI providers for the entire system
  */
 
-// Supported exchanges (in display order) - EXACTLY 9 EXCHANGES
+// Supported exchanges (in display order) - 8 EXCHANGES
 export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'coinbase'];
 
 // Supported AI / market-data providers - 5 PROVIDERS (OpenAI, CoinStats, Fetch.ai, HuggingFace, CoinDesk)
