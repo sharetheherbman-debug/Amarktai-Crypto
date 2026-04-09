@@ -684,13 +684,6 @@ export default function useDashboardState(navigate) {
   }, [isPaperResetMode]);
 
   useEffect(() => {
-    if (!token) return undefined;
-    loadLivePrices();
-    const priceInterval = setInterval(loadLivePrices, 5000);
-    return () => clearInterval(priceInterval);
-  }, [token, loadLivePrices]);
-
-  useEffect(() => {
     if (!isPaperResetMode) {
       setPaperResetPassword('');
       setPaperResetValid(false);
@@ -1521,7 +1514,7 @@ export default function useDashboardState(navigate) {
 
   const loadAiStatus = async () => {
     try {
-      const res = await axios.get(`${API}/ai/capability-status`, axiosConfig);
+      const res = await axios.get(`${API}/ai/status`, axiosConfig);
       setAiStatus(res.data);
     } catch (err) {
       console.error('AI status fetch error:', err);
