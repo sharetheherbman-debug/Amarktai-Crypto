@@ -1278,8 +1278,8 @@ async def currency_converter(data: dict, user_id: str = Depends(get_current_user
             amount = float(amount)
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Invalid amount — must be a number")
-        if amount < 0:
-            raise HTTPException(status_code=400, detail="Amount must be non-negative")
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be positive")
 
         # Validate currencies
         if from_cur not in SUPPORTED:

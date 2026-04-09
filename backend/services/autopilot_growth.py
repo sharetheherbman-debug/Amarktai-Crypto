@@ -308,8 +308,8 @@ class AutopilotGrowthService:
                 reasons.append("MAX_SPAWNS_REACHED")
 
         # API keys are only required for live trading; paper mode runs without exchange keys
-        is_paper_mode = config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING
-        if not is_paper_mode:
+        skip_api_key_check = config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING
+        if not skip_api_key_check:
             key_doc = await self.db.api_keys.find_one(
                 {"user_id": str(self.user_id), "provider": platform},
                 {"_id": 0, "status": 1, "last_test_ok": 1, "valid": 1}
