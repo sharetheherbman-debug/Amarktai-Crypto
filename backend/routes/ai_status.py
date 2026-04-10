@@ -56,7 +56,8 @@ async def get_ai_status(user_id: str = Depends(get_current_user)):
             "status": "error",
             "configured": False,
             "key_source": "unknown",
-            "message": "Unable to check AI configuration status"
+            "message": "Unable to check AI configuration status",
+            "error": str(e)
         }
 
 
