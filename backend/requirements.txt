@@ -67,8 +67,11 @@ motor==3.3.1
 multidict==6.7.0
 mypy==1.18.2
 mypy_extensions==1.1.0
-# pandas-ta removed: 0.3.14b0 is no longer on PyPI (0.4.x requires numpy>=2.2.6).
-# ml_predictor.py uses manual fallback for indicators instead.
+# pandas-ta: available on PyPI (0.4.71b0) but requires numpy>=2.2.6 and
+# pandas>=3.0 which conflicts with our pinned pandas==2.3.3.  Install it
+# manually in an environment that supports those versions; ml_predictor.py
+# includes a full manual fallback (RSI/MACD/ATR/BBands/VWAP/SMA) that is
+# used automatically when pandas-ta is absent.
 numpy>=1.26.4
 oauthlib==3.3.1
 openai==1.99.9
@@ -151,9 +154,10 @@ prometheus-client==0.21.1
 # AI Trading Intelligence — ML + Technical Analysis + Optimisation
 # ============================================================================
 # Technical indicators (RSI, MACD, ATR, Bollinger, VWAP, ADX, etc.)
-# pandas-ta removed: 0.3.14b0 is no longer published on PyPI. Newer releases
-# (0.4.x) require numpy>=2.2.6. ml_predictor.py provides a full manual
-# fallback for all required indicators.
+# pandas-ta 0.4.71b0 is available on PyPI but requires numpy>=2.2.6 and
+# pandas>=3.0, which conflicts with our pinned pandas version.  ml_predictor.py
+# provides a full manual fallback for all required indicators, with an
+# automatic try/import for pandas-ta when it is present.
 
 # Gradient-boosted tree model for price-direction prediction
 # xgboost-cpu: CPU-only build — identical API but without the nvidia-nccl-cu12

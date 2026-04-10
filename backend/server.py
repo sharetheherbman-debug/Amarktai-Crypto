@@ -3389,6 +3389,12 @@ routers_to_mount = [
     ("routes.coinstats", "CoinStats"),  # CoinStats connectivity test
     ("routes.intelligence", "Market Intelligence"),  # Automatic CoinStats intelligence pipeline
     ("routes.growth_engine", "Growth Engine"),  # Per-user safe growth automation
+    # RESTORED — previously unregistered, causing 404s on active dashboard features
+    ("routes.radar", "Bot & Exchange Radar"),            # /api/radar/snapshot — BotRadarSection
+    ("routes.admin_truth", "Admin Truth Console"),       # /api/admin/truth/summary — TruthConsoleSection
+    ("routes.scalper", "Scalper Bot Config"),            # /api/scalper/caps,summary — ScalperBotsPanel
+    ("routes.exchange_status", "Exchange Status"),       # /api/exchanges/status — ExchangeStatusSection
+    ("routes.self_healing_endpoints", "Self-Healing"),   # /api/self-healing/status — autonomy dashboard
 ]
 
 # Mount realtime router only if enabled via feature flag

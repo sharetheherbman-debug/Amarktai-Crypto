@@ -17,16 +17,14 @@ class TestConfigurationValidation:
     """Test configuration validation and consistency"""
     
     def test_supported_exchanges_exactly_seven(self):
-        """Verify exactly 7 exchanges are supported"""
-        assert len(SUPPORTED_EXCHANGES) == 7, "Must support exactly 7 exchanges"
-        expected = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+        """Verify all expected exchanges are supported"""
+        expected = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'coinbase']
         assert SUPPORTED_EXCHANGES == expected, f"Expected {expected}, got {SUPPORTED_EXCHANGES}"
     
     def test_bot_allocation_matches_capacity(self):
         """Verify bot allocation sums to total capacity"""
         total = sum(ExchangeLimits.BOT_ALLOCATION.values())
-        assert total == 65, f"Bot allocation sum ({total}) should equal 65"
-        assert total == settings.MAX_TOTAL_BOTS, "Bot allocation must match MAX_TOTAL_BOTS"
+        assert total == ExchangeLimits.MAX_BOTS_GLOBAL, f"Bot allocation sum ({total}) must match MAX_BOTS_GLOBAL ({ExchangeLimits.MAX_BOTS_GLOBAL})"
     
     def test_exchange_limits_consistency(self):
         """Verify each exchange has consistent limits"""

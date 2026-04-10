@@ -9,8 +9,8 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Supported exchanges (7 only)
-SUPPORTED_EXCHANGES = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+# Supported exchanges (8 platforms)
+SUPPORTED_EXCHANGES = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'coinbase']
 
 # Bot capacity rules per exchange — NORMAL bots only
 # Scalper bots have their own separate caps below.
@@ -21,7 +21,8 @@ BOT_CAPS = {
     'bybit': 10,
     'kraken': 10,
     'bitget': 10,
-    'gate': 10
+    'gate': 10,
+    'coinbase': 10,
 }
 
 # Scalper-specific caps per exchange (do NOT share slots with normal bots)
@@ -33,6 +34,7 @@ SCALPER_CAPS = {
     'kraken': 5,
     'bitget': 5,
     'gate': 5,
+    'coinbase': 5,
 }
 
 # Profit thresholds for auto-growth (per exchange, in ZAR)

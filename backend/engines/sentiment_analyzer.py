@@ -140,12 +140,13 @@ class SentimentAnalyzer:
 
                     # FinBERT labels: positive / negative / neutral
                     # SST-2 labels: POSITIVE / NEGATIVE
-                    # Transform to [-1.0, 1.0]: confidence maps to signal strength
+                    # Transform to [-1.0, 1.0]: confidence maps to signal strength.
+                    # Clamp to 0 so a 3-class model (FinBERT) with confidence < 0.5
+                    # on the winning class never inverts the sign.
                     if label == "POSITIVE":
-                        # Map [0.5, 1.0] confidence to [0.0, 1.0] sentiment score
-                        return round((confidence - 0.5) * 2.0, 3)
+                        return round(max(0.0, (confidence - 0.5) * 2.0), 3)
                     elif label == "NEGATIVE":
-                        return round(-((confidence - 0.5) * 2.0), 3)
+                        return round(min(0.0, -((confidence - 0.5) * 2.0)), 3)
                     else:
                         # NEUTRAL or unknown label
                         return 0.0

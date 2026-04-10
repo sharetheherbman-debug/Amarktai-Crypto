@@ -33,7 +33,7 @@ MIN_WIN_RATE = 0.52  # 52%
 MIN_PROFIT_PERCENT = 0.03  # 3%
 MIN_TRADES_FOR_PROMOTION = 25
 
-# Exchange limits (7 canonical exchanges)
+# Exchange limits (8 canonical exchanges)
 EXCHANGE_BOT_LIMITS = {
     'luno': 5,
     'binance': 10,
@@ -41,7 +41,8 @@ EXCHANGE_BOT_LIMITS = {
     'bybit': 10,
     'kraken': 10,
     'bitget': 10,
-    'gate': 10
+    'gate': 10,
+    'coinbase': 10,
 }
 
 EXCHANGE_TRADE_LIMITS = {
@@ -79,7 +80,12 @@ EXCHANGE_TRADE_LIMITS = {
         'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_GATE', '999999')),
         'min_cooldown_minutes': 10,
         'max_api_calls_per_minute': 400
-    }
+    },
+    'coinbase': {
+        'max_trades_per_bot_per_day': int(os.getenv('MAX_TRADES_PER_BOT_DAILY_COINBASE', '999999')),
+        'min_cooldown_minutes': 15,
+        'max_api_calls_per_minute': 30
+    },
 }
 
 # Global limits — no artificial per-bot/user daily cap. Risk locks (Bodyguard, daily loss) remain.
@@ -218,7 +224,8 @@ PAPER_PAIR_WHITELIST = {
     "bybit": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
     "kraken": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
     "bitget": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "gate": ["BTC/USDT", "ETH/USDT", "XRP/USDT"]
+    "gate": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
+    "coinbase": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT"],
 }
 EXCHANGE_DAILY_TRADE_LIMITS = {
     'luno': int(os.getenv('LUNO_MAX_TRADES_PER_DAY', '20000')),
@@ -227,7 +234,8 @@ EXCHANGE_DAILY_TRADE_LIMITS = {
     'bybit': int(os.getenv('BYBIT_MAX_TRADES_PER_DAY', '100000')),
     'kraken': int(os.getenv('KRAKEN_MAX_TRADES_PER_DAY', '50000')),
     'bitget': int(os.getenv('BITGET_MAX_TRADES_PER_DAY', '80000')),
-    'gate': int(os.getenv('GATEIO_MAX_TRADES_PER_DAY', '80000'))
+    'gate': int(os.getenv('GATEIO_MAX_TRADES_PER_DAY', '80000')),
+    'coinbase': int(os.getenv('COINBASE_MAX_TRADES_PER_DAY', '40000')),
 }
 
 # Autopilot settings (configurable via env vars)

@@ -5,7 +5,7 @@
  * Including bot caps and feature flags
  */
 
-// Supported exchanges - EXACTLY 7 PLATFORMS
+// Supported exchanges - 8 PLATFORMS
 export const EXCHANGES = {
   LUNO: {
     id: 'luno',
@@ -92,6 +92,19 @@ export const EXCHANGES = {
     maxBots: 10,
     region: 'Global',
     icon: '⚪',
+    requiresSecret: true,
+    requiresPassphrase: false,
+    supported: true,
+    quoteCurrency: 'USDT',
+    fundingCurrency: 'USDT',
+  },
+  COINBASE: {
+    id: 'coinbase',
+    name: 'Coinbase',
+    displayName: 'Coinbase',
+    maxBots: 10,
+    region: 'US / Global',
+    icon: '🔵',
     requiresSecret: true,
     requiresPassphrase: false,
     supported: true,

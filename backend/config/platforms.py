@@ -6,8 +6,8 @@ All platform-related logic MUST reference this module
 
 from typing import Dict, List, Optional
 
-# All supported platforms (canonical list) - EXACTLY 7 PLATFORMS
-SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+# All supported platforms (canonical list) - 8 PLATFORMS
+SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'coinbase']
 
 # Platform configuration with complete metadata
 PLATFORM_CONFIG: Dict[str, Dict] = {
@@ -122,6 +122,22 @@ PLATFORM_CONFIG: Dict[str, Dict] = {
         'required_key_fields': ['api_key', 'api_secret'],
         'ccxt_id': 'gateio',  # CCXT uses 'gateio' as the exchange ID
         'description': 'Global cryptocurrency exchange'
+    },
+    'coinbase': {
+        'id': 'coinbase',
+        'name': 'Coinbase',
+        'display_name': 'Coinbase',
+        'icon': '🔵',
+        'color': '#0052FF',
+        'max_bots': 10,
+        'region': 'US / Global',
+        'requires_passphrase': False,
+        'enabled': True,
+        'supports_paper': True,
+        'supports_live': True,
+        'required_key_fields': ['api_key', 'api_secret'],
+        'ccxt_id': 'coinbase',  # Coinbase Advanced Trade via CCXT
+        'description': 'Coinbase Advanced Trade — US-based cryptocurrency exchange'
     }
 }
 
