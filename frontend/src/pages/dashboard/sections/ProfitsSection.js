@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale, LinearScale, PointElement, LineElement,
+  Title, Tooltip, Legend, Filler
+} from 'chart.js';
 import SectionHeader from '@/ui/components/SectionHeader';
 import StatCard from '@/ui/components/StatCard';
 import ErrorBoundary from '../../../components/ErrorBoundary';
 import apiClient from '@/lib/apiClient';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
 const NOT_AVAILABLE = 'Not available';
 const safeToFixed = (value, digits = 2, fallback = '0.00') => {
@@ -21,6 +28,89 @@ const formatZAR = (value, digits = 2, fallback = NOT_AVAILABLE) => {
   const formatted = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
   return `${num < 0 ? '-R' : 'R'}${formatted}`;
 };
+
+// ─── Premium chart helpers ────────────────────────────────────────────────────
+/**
+ * Build a Chart.js gradient fill using the canvas context.
+ * Returns a CanvasGradient when ctx is available, falls back to a static rgba string.
+ */
+function buildGradient(ctx, colorStopTop, colorStopBottom) {
+  if (!ctx) return colorStopBottom;
+  try {
+    const gradient = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+    gradient.addColorStop(0, colorStopTop);
+    gradient.addColorStop(1, colorStopBottom);
+    return gradient;
+  } catch {
+    return colorStopBottom;
+  }
+}
+
+/** Shared premium Chart.js options factory — dark-mode, no flicker, polished */
+function premiumChartOptions({
+  accentColor = '#22c55e',
+  tooltipLabel = null,
+  yTickCallback = null,
+  yMin = undefined,
+  yMax = undefined,
+  beginAtZero = true,
+} = {}) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 700, easing: 'easeInOutQuart' },
+    interaction: { intersect: false, mode: 'index' },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        enabled: true,
+        backgroundColor: 'rgba(8, 10, 22, 0.97)',
+        titleColor: accentColor,
+        bodyColor: '#e2e8f0',
+        borderColor: accentColor,
+        borderWidth: 1,
+        padding: { x: 14, y: 10 },
+        cornerRadius: 10,
+        titleFont: { size: 13, weight: '700', family: 'inherit' },
+        bodyFont: { size: 12, family: 'inherit' },
+        displayColors: false,
+        callbacks: tooltipLabel ? { label: tooltipLabel } : undefined,
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero,
+        min: yMin,
+        max: yMax,
+        ticks: {
+          color: '#64748b',
+          font: { size: 11, family: 'inherit' },
+          padding: 10,
+          maxTicksLimit: 6,
+          callback: yTickCallback || ((v) => 'R' + safeToFixed(v, 0, '0')),
+        },
+        grid: {
+          color: 'rgba(148, 163, 184, 0.07)',
+          lineWidth: 1,
+          drawBorder: false,
+        },
+        border: { display: false, dash: [3, 3] },
+      },
+      x: {
+        ticks: {
+          color: '#64748b',
+          font: { size: 10, family: 'inherit' },
+          padding: 4,
+          maxRotation: 30,
+          minRotation: 0,
+        },
+        grid: { display: false },
+        border: { display: false },
+      },
+    },
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const ProfitsSection = ({
   drawdownData,
@@ -68,80 +158,35 @@ const ProfitsSection = ({
   const maxDrawdown = drawdownData?.max_drawdown_pct ?? drawdownData?.max_drawdown;
   const feesValue = profitData?.fees ?? profitData?.total_fees ?? null;
 
+  // Profit history chart — segment coloring (green up / red down)
   const chartData = {
     labels: profitData?.labels || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     datasets: [{
       label: 'Profit (ZAR)',
       data: profitData?.values || [0, 0, 0, 0, 0, 0, 0],
       borderColor: '#22c55e',
-      backgroundColor: 'rgba(34, 197, 94, 0.15)',
+      backgroundColor: (ctx) => {
+        const c = ctx.chart.ctx;
+        return buildGradient(c, 'rgba(34, 197, 94, 0.22)', 'rgba(34, 197, 94, 0.01)');
+      },
       fill: true,
-      tension: 0.4,
-      pointRadius: 4,
-      pointHoverRadius: 8,
+      tension: 0.45,
+      pointRadius: 3,
+      pointHoverRadius: 7,
       pointBackgroundColor: '#22c55e',
-      pointBorderColor: 'rgba(34, 197, 94, 0.6)',
+      pointBorderColor: '#0a0c16',
       pointBorderWidth: 2,
-      borderWidth: 2.5,
-      segment: { borderColor: ctx => ctx.p0.parsed.y > ctx.p1.parsed.y ? '#ef4444' : '#22c55e' }
-    }]
+      borderWidth: 2,
+      segment: {
+        borderColor: ctx => ctx.p0.parsed.y > ctx.p1.parsed.y ? '#ef4444' : '#22c55e',
+      },
+    }],
   };
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 800 },
-    plugins: {
-      legend: {
-        display: false
-      },
-      tooltip: {
-        backgroundColor: 'rgba(10, 12, 20, 0.97)',
-        titleColor: 'var(--success)',
-        bodyColor: '#ffffff',
-        borderColor: 'rgba(34, 197, 94, 0.5)',
-        borderWidth: 1,
-        padding: 14,
-        cornerRadius: 8,
-        titleFont: { size: 14, weight: 'bold' },
-        bodyFont: { size: 13 },
-        displayColors: false
-      }
-    },
-    scales: {
-      y: {
-        beginAtZero: true,
-        ticks: {
-          color: 'var(--muted)',
-          font: { size: 11, family: 'inherit' },
-          padding: 8,
-          callback: function(value) {
-            return 'R' + value;
-          }
-        },
-        grid: {
-          color: 'rgba(255, 255, 255, 0.06)',
-          drawBorder: false
-        },
-        border: { display: false, dash: [4, 4] }
-      },
-      x: {
-        ticks: {
-          color: 'var(--muted)',
-          font: { size: 11, family: 'inherit' },
-          padding: 4
-        },
-        grid: {
-          display: false
-        },
-        border: { display: false }
-      }
-    },
-    interaction: {
-      intersect: false,
-      mode: 'index'
-    }
-  };
+  const chartOptions = premiumChartOptions({
+    accentColor: '#22c55e',
+    tooltipLabel: ctx => `Profit: R${safeToFixed(ctx.parsed.y, 2)}`,
+  });
 
   return (
     <section className="section active">
@@ -397,10 +442,10 @@ const ProfitsSection = ({
               minHeight: '350px', 
               height: '350px',
               padding: '20px',
-              background: 'linear-gradient(135deg, rgba(0, 0, 42, 0.4) 0%, rgba(0, 0, 20, 0.6) 100%)',
-              borderRadius: '10px',
-              border: '1px solid rgba(16, 185, 129, 0.2)',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+              background: 'linear-gradient(160deg, rgba(5, 12, 30, 0.7) 0%, rgba(2, 6, 18, 0.85) 100%)',
+              borderRadius: '12px',
+              border: '1px solid rgba(34, 197, 94, 0.15)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
               display: 'flex',
               flexDirection: 'column'
             }}>
@@ -507,10 +552,10 @@ const ProfitsSection = ({
                   minHeight: '350px', 
                   height: '350px',
                   padding: '20px',
-                  background: 'linear-gradient(135deg, rgba(0, 0, 42, 0.4) 0%, rgba(0, 0, 20, 0.6) 100%)',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(16, 185, 129, 0.2)',
-                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                  background: 'linear-gradient(160deg, rgba(5, 12, 30, 0.7) 0%, rgba(2, 6, 18, 0.85) 100%)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(16, 185, 129, 0.18)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
                   display: 'flex',
                   flexDirection: 'column'
                 }}>
@@ -521,52 +566,23 @@ const ProfitsSection = ({
                         datasets: [{
                           label: 'Equity (ZAR)',
                           data: equityData.equity_curve.map(p => p.equity),
-                          borderColor: 'var(--success)',
-                          backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                          borderColor: '#10b981',
+                          backgroundColor: (ctx) => buildGradient(ctx.chart.ctx, 'rgba(16,185,129,0.25)', 'rgba(16,185,129,0.02)'),
                           fill: true,
-                          tension: 0.4,
-                          pointRadius: 3,
+                          tension: 0.45,
+                          pointRadius: 2,
                           pointHoverRadius: 6,
-                          pointBackgroundColor: 'var(--success)',
-                          pointBorderColor: '#ffffff',
-                          pointBorderWidth: 2
+                          pointBackgroundColor: '#10b981',
+                          pointBorderColor: '#0a0c16',
+                          pointBorderWidth: 2,
+                          borderWidth: 2,
                         }]
                       }}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                          legend: { display: false },
-                          tooltip: {
-                            backgroundColor: 'rgba(0, 0, 42, 0.95)',
-                            titleColor: 'var(--success)',
-                            bodyColor: '#ffffff',
-                            borderColor: 'var(--success)',
-                            borderWidth: 2,
-                            padding: 12,
-                            titleFont: { size: 14, weight: 'bold' },
-                            bodyFont: { size: 13 },
-                            callbacks: {
-                              label: (context) => `Equity: R${safeToFixed(context.parsed.y, 2)}`
-                            }
-                          }
-                        },
-                        scales: {
-                          y: {
-                            beginAtZero: false,
-                            ticks: { 
-                              color: '#8b8b8b',
-                              font: { size: 11 },
-                              callback: (value) => 'R' + safeToFixed(value, 0, '0')
-                            },
-                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
-                          },
-                          x: {
-                            ticks: { color: '#8b8b8b', font: { size: 10 }, maxRotation: 45, minRotation: 45 },
-                            grid: { display: false }
-                          }
-                        }
-                      }}
+                      options={premiumChartOptions({
+                        accentColor: '#10b981',
+                        beginAtZero: false,
+                        tooltipLabel: ctx => `Equity: R${safeToFixed(ctx.parsed.y, 2)}`,
+                      })}
                     />
                   )}
                 </div>
@@ -678,10 +694,10 @@ const ProfitsSection = ({
                   minHeight: '350px', 
                   height: '350px',
                   padding: '20px',
-                  background: 'linear-gradient(135deg, rgba(0, 0, 42, 0.4) 0%, rgba(0, 0, 20, 0.6) 100%)',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                  background: 'linear-gradient(160deg, rgba(30, 5, 8, 0.7) 0%, rgba(18, 2, 4, 0.85) 100%)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(239, 68, 68, 0.18)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
                   display: 'flex',
                   flexDirection: 'column'
                 }}>
@@ -693,52 +709,24 @@ const ProfitsSection = ({
                           label: 'Drawdown %',
                           data: drawdownData.drawdown_curve.map(p => -p.drawdown_pct),
                           borderColor: '#ef4444',
-                          backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                          backgroundColor: (ctx) => buildGradient(ctx.chart.ctx, 'rgba(239,68,68,0.22)', 'rgba(239,68,68,0.02)'),
                           fill: true,
-                          tension: 0.4,
-                          pointRadius: 3,
+                          tension: 0.45,
+                          pointRadius: 2,
                           pointHoverRadius: 6,
                           pointBackgroundColor: '#ef4444',
-                          pointBorderColor: '#ffffff',
-                          pointBorderWidth: 2
+                          pointBorderColor: '#0a0c16',
+                          pointBorderWidth: 2,
+                          borderWidth: 2,
                         }]
                       }}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                          legend: { display: false },
-                          tooltip: {
-                            backgroundColor: 'rgba(0, 0, 42, 0.95)',
-                            titleColor: '#ef4444',
-                            bodyColor: '#ffffff',
-                            borderColor: '#ef4444',
-                            borderWidth: 2,
-                            padding: 12,
-                            titleFont: { size: 14, weight: 'bold' },
-                            bodyFont: { size: 13 },
-                            callbacks: {
-                              label: (context) => `Drawdown: ${safeToFixed(Math.abs(context.parsed.y), 2)}%`
-                            }
-                          }
-                        },
-                        scales: {
-                          y: {
-                            reverse: false,
-                            max: 0,
-                            ticks: { 
-                              color: '#8b8b8b',
-                              font: { size: 11 },
-                              callback: (value) => safeToFixed(Math.abs(value), 1, '0.0') + '%'
-                            },
-                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }
-                          },
-                          x: {
-                            ticks: { color: '#8b8b8b', font: { size: 10 }, maxRotation: 45, minRotation: 45 },
-                            grid: { display: false }
-                          }
-                        }
-                      }}
+                      options={premiumChartOptions({
+                        accentColor: '#ef4444',
+                        beginAtZero: false,
+                        yMax: 0,
+                        yTickCallback: v => safeToFixed(Math.abs(v), 1, '0.0') + '%',
+                        tooltipLabel: ctx => `Drawdown: ${safeToFixed(Math.abs(ctx.parsed.y), 2)}%`,
+                      })}
                     />
                   ) : (
                     <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--muted)'}}>
@@ -907,10 +895,10 @@ const ProfitsSection = ({
                 {/* Win/Loss Breakdown */}
                 <div style={{
                   padding: '20px',
-                  background: 'linear-gradient(135deg, rgba(0, 0, 42, 0.4) 0%, rgba(0, 0, 20, 0.6) 100%)',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(139, 92, 246, 0.2)',
-                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                  background: 'linear-gradient(160deg, rgba(10, 5, 30, 0.7) 0%, rgba(5, 2, 18, 0.85) 100%)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(139, 92, 246, 0.18)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
                 }}>
                   <h4 style={{margin: '0 0 16px 0', fontSize: '1rem', color: 'var(--text)'}}>Trade Distribution</h4>
                   <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px'}}>
