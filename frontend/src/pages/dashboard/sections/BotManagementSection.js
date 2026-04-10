@@ -527,7 +527,6 @@ export default function BotManagementSection({
                               <option
                                 key={exchange.id}
                                 value={exchange.id}
-                                disabled={false}
                               >
                                 {exchange.icon} {exchange.displayName}
                               </option>
