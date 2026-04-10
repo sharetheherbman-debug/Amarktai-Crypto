@@ -305,7 +305,7 @@ AUTO_PROMOTE_LIVE = os.getenv('AUTO_PROMOTE_LIVE', 'false').lower() == 'true'  #
 # Supported Exchanges for Paper Trading
 # Import from canonical source: backend/config/platforms.py
 from config.platforms import SUPPORTED_PLATFORMS
-PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 7 exchanges supported
+PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 8 exchanges supported
 
 __all__ = [
     'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'FROM_EMAIL', 'FROM_NAME',

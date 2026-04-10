@@ -154,7 +154,7 @@ function BulkCreateForm({ botType, handleBulkCreateBots }) {
             style={bulkFieldStyle}
           >
             {getAllExchanges().map(ex => (
-              <option key={ex.id} value={ex.id} disabled={ex.comingSoon}>
+              <option key={ex.id} value={ex.id}>
                 {ex.icon} {ex.displayName}
               </option>
             ))}
@@ -527,7 +527,6 @@ export default function BotManagementSection({
                               <option
                                 key={exchange.id}
                                 value={exchange.id}
-                                disabled={exchange.comingSoon}
                               >
                                 {exchange.icon} {exchange.displayName}
                               </option>

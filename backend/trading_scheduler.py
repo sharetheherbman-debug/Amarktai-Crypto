@@ -9,7 +9,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from paper_trading_engine import paper_engine
-from engines.trading_engine_live import live_trading_engine
+from engines.trading_engine_live import live_trading_engine  # Handles real CCXT exchange orders (live mode)
 from engines.trade_staggerer import trade_staggerer
 import database as db
 from websocket_manager import manager

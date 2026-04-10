@@ -170,13 +170,12 @@ class LifecycleManager:
                 instance_name="trading_scheduler",
                 enabled_flag="enable_trading"  # Requires both trading and schedulers
             ),
-            # Production Trading Engine
-            SubsystemDefinition(
-                name="Production Trading Engine",
-                module_path="engines.trading_engine_production",
-                instance_name="trading_engine",
-                enabled_flag="enable_trading"
-            ),
+            # NOTE: TradingEngineProduction loop intentionally NOT started here.
+            # trading_scheduler (above) is the sole authoritative scheduler — it handles
+            # both paper and live bots at a 10-second staggered cadence with full gate/risk
+            # checks. Starting trading_engine_production alongside it caused duplicate
+            # paper-trade execution on every tick. Shutdown still calls trading_engine.stop()
+            # via server.py for safety; that is a no-op if the loop was never started.
             # NOTE: Production Autopilot removed - using unified autopilot_engine.py instead
             # Risk Management
             SubsystemDefinition(

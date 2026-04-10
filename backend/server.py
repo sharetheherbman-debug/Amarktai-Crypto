@@ -2803,13 +2803,19 @@ async def admin_emergency_stop(user_id: str = Depends(get_current_user)):
         except Exception as e:
             logger.warning(f"Could not cancel pending orders: {e}")
         
-        # 5. Stop production trading engines
+        # 5. Stop trading engines (scheduler is the authoritative engine)
         try:
+            from trading_scheduler import trading_scheduler
+            trading_scheduler.stop()
+            logger.info("✅ Trading scheduler stopped")
+        except Exception as e:
+            logger.warning(f"Could not stop trading scheduler: {e}")
+        try:
+            # Also stop production engine if somehow still running (no-op if not started)
             from engines.trading_engine_production import trading_engine
             trading_engine.stop()
-            logger.info("✅ Production trading engine stopped")
-        except Exception as e:
-            logger.warning(f"Could not stop trading engine: {e}")
+        except Exception:
+            pass
         
         try:
             from autopilot_engine import autopilot
@@ -3395,6 +3401,8 @@ routers_to_mount = [
     ("routes.scalper", "Scalper Bot Config"),            # /api/scalper/caps,summary — ScalperBotsPanel
     ("routes.exchange_status", "Exchange Status"),       # /api/exchanges/status — ExchangeStatusSection
     ("routes.self_healing_endpoints", "Self-Healing"),   # /api/self-healing/status — autonomy dashboard
+    ("routes.fx_rates", "FX Rates"),                    # /api/fx/rates,refresh,health
+    ("routes.backtesting", "Backtesting"),              # /api/backtest/run,optimize,history
 ]
 
 # Mount realtime router only if enabled via feature flag
