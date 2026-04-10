@@ -92,7 +92,7 @@ def _bots_status_payload(
     active_bots = sum(
         1
         for bot in bots
-        if bot.get("state") == "active" or bot.get("status") == "active"
+        if bot.get("state") in ("active", "running") or bot.get("status") in ("active", "running")
     )
     return {
         "success": success,

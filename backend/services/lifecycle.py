@@ -43,10 +43,10 @@ class LifecycleManager:
     def _load_feature_flags(self):
         """Load all feature flags from environment"""
         self.feature_flags = {
-            'enable_trading': env_bool('ENABLE_TRADING', False),
-            'enable_autopilot': env_bool('ENABLE_AUTOPILOT', False),
+            'enable_trading': env_bool('ENABLE_TRADING', True),
+            'enable_autopilot': env_bool('ENABLE_AUTOPILOT', True),
             'enable_ccxt': env_bool('ENABLE_CCXT', True),
-            'enable_schedulers': env_bool('ENABLE_SCHEDULERS', False),
+            'enable_schedulers': env_bool('ENABLE_SCHEDULERS', True),
             'disable_ai_bodyguard': env_bool('DISABLE_AI_BODYGUARD', False),
             'enable_realtime': env_bool('ENABLE_REALTIME', True),
             'enable_learning_loop': env_bool('ENABLE_LEARNING_LOOP', False),

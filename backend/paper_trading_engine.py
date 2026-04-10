@@ -1089,12 +1089,9 @@ class PaperTradingEngine:
             if _ml_pred is None:
                 from ml_predictor import ml_predictor as _ml_pred
             prediction = await _ml_pred.predict_price(symbol, timeframe="1h")
-            
+
             # External signal provider removed — use unavailable stub
             ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
-            # 3. AI INTELLIGENCE: Get ML prediction + aggregated signals
-            from ml_predictor import ml_predictor
-            prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
 
             # 3b. SIGNAL AGGREGATION: Combine ML, alpha fusion, sentiment, order flow
             try:

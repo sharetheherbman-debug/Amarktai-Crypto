@@ -26,8 +26,8 @@ def check_trading_mode_enabled() -> Tuple[bool, str]:
     Returns:
         Tuple[bool, str]: (is_enabled, reason_or_mode)
     """
-    paper_trading = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', False)
-    live_trading = env_bool('LIVE_TRADING', False)
+    paper_trading = env_bool('PAPER_TRADING', False) or env_bool('ENABLE_PAPER_TRADING', True)
+    live_trading = env_bool('LIVE_TRADING', False) or env_bool('ENABLE_LIVE_TRADING', False)
     
     if not paper_trading and not live_trading:
         return False, "No trading mode enabled. Set PAPER_TRADING=1 or LIVE_TRADING=1"
@@ -49,7 +49,7 @@ def check_autopilot_gates() -> Tuple[bool, str]:
     Returns:
         Tuple[bool, str]: (can_run, error_message)
     """
-    autopilot_enabled = env_bool('AUTOPILOT_ENABLED', False)
+    autopilot_enabled = env_bool('AUTOPILOT_ENABLED', False) or env_bool('ENABLE_AUTOPILOT', True)
     
     if not autopilot_enabled:
         return False, "Autopilot disabled. Set AUTOPILOT_ENABLED=1 to enable"

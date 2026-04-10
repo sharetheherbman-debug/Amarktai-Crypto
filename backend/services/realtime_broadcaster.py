@@ -25,6 +25,11 @@ class RealtimeBroadcaster:
         )
         self.overview_service = OverviewService()
 
+    @property
+    def is_running(self) -> bool:
+        """Return True if the broadcaster loop is active."""
+        return self._running
+
     async def start(self):
         if self._task:
             return

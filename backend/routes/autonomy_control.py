@@ -21,6 +21,7 @@ from autopilot_engine import autopilot
 from trading_scheduler import trading_scheduler
 from self_healing import self_healing
 from websocket_manager import manager
+from services.realtime_broadcaster import realtime_broadcaster
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/autonomy", tags=["Autonomy"])
@@ -73,7 +74,7 @@ async def get_autonomy_status(user_id: str = Depends(get_current_user)):
     heartbeats = heartbeat_registry.snapshot()
     paused = autonomy_state.snapshot()
 
-    realtime_running = bool(manager.active_connections)
+    realtime_running = realtime_broadcaster.is_running
     autopilot_tick = autopilot.last_tick.get("timestamp") if autopilot.last_tick else None
     trading_tick = trading_scheduler.last_heartbeat.isoformat() if trading_scheduler.last_heartbeat else None
     learning_tick = learning_loop.last_run.isoformat() if learning_loop.last_run else None
