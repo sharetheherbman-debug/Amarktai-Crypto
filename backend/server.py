@@ -3395,6 +3395,8 @@ routers_to_mount = [
     ("routes.scalper", "Scalper Bot Config"),            # /api/scalper/caps,summary — ScalperBotsPanel
     ("routes.exchange_status", "Exchange Status"),       # /api/exchanges/status — ExchangeStatusSection
     ("routes.self_healing_endpoints", "Self-Healing"),   # /api/self-healing/status — autonomy dashboard
+    ("routes.fx_rates", "FX Rates"),                    # /api/fx/rates,refresh,health
+    ("routes.backtesting", "Backtesting"),              # /api/backtest/run,optimize,history
 ]
 
 # Mount realtime router only if enabled via feature flag

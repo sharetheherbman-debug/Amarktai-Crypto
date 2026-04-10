@@ -90,19 +90,22 @@ const ProfitsSection = ({
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    animation: { duration: 800 },
     plugins: {
       legend: {
         display: false
       },
       tooltip: {
-        backgroundColor: 'rgba(10, 12, 20, 0.95)',
+        backgroundColor: 'rgba(10, 12, 20, 0.97)',
         titleColor: 'var(--success)',
         bodyColor: '#ffffff',
-        borderColor: 'rgba(34, 197, 94, 0.6)',
+        borderColor: 'rgba(34, 197, 94, 0.5)',
         borderWidth: 1,
-        padding: 12,
+        padding: 14,
+        cornerRadius: 8,
         titleFont: { size: 14, weight: 'bold' },
-        bodyFont: { size: 13 }
+        bodyFont: { size: 13 },
+        displayColors: false
       }
     },
     scales: {
@@ -110,23 +113,25 @@ const ProfitsSection = ({
         beginAtZero: true,
         ticks: {
           color: 'var(--muted)',
-          font: { size: 11 },
+          font: { size: 11, family: 'inherit' },
+          padding: 8,
           callback: function(value) {
             return 'R' + value;
           }
         },
-        grid: { 
-          color: 'rgba(255, 255, 255, 0.05)',
+        grid: {
+          color: 'rgba(255, 255, 255, 0.06)',
           drawBorder: false
         },
-        border: { display: false }
+        border: { display: false, dash: [4, 4] }
       },
       x: {
         ticks: {
           color: 'var(--muted)',
-          font: { size: 11 }
+          font: { size: 11, family: 'inherit' },
+          padding: 4
         },
-        grid: { 
+        grid: {
           display: false
         },
         border: { display: false }

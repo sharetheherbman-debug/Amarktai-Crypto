@@ -92,7 +92,7 @@ AUTO_PROMOTE_LIVE = os.getenv('AUTO_PROMOTE_LIVE', 'false').lower() == 'true'  #
 # Supported Exchanges for Paper Trading (PRODUCTION)
 # Import from canonical source: backend/config/platforms.py
 from config.platforms import SUPPORTED_PLATFORMS
-PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 7 exchanges supported for paper trading
+PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 8 exchanges supported for paper trading
 
 # Safe mode: All trading disabled by default
 # Enable gradually:

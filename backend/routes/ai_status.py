@@ -59,3 +59,9 @@ async def get_ai_status(user_id: str = Depends(get_current_user)):
             "message": "Unable to check AI configuration status",
             "error": str(e)
         }
+
+
+@router.get("/api/ai/capability-status")
+async def get_ai_capability_status(user_id: str = Depends(get_current_user)):
+    """Alias for /status - returns AI capability status for dashboard compatibility."""
+    return await get_ai_status(user_id)

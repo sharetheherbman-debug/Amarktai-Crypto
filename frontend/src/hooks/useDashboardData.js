@@ -249,7 +249,7 @@ export const useDashboardData = (token) => {
     const interval = setInterval(() => {
       // Double-check token still exists before each poll
       if (getToken()) {
-        loadLivePrices();
+        // loadLivePrices intentionally omitted — polled by useDashboardState to avoid double-polling
         loadMetrics();
         loadSystemStatus();
       }

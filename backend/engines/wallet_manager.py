@@ -32,7 +32,7 @@ class WalletManager:
         self.master_exchange = 'luno'  # Luno is the master wallet
         # Import supported exchanges from canonical source
         from config.platforms import SUPPORTED_PLATFORMS
-        self.supported_exchanges = SUPPORTED_PLATFORMS  # All 7 exchanges
+        self.supported_exchanges = SUPPORTED_PLATFORMS  # All 8 exchanges
         
         # Track allocated funds per exchange
         self.exchange_allocations = {

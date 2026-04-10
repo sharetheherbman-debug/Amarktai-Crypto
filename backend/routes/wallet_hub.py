@@ -1,5 +1,5 @@
 """
-Wallet Hub for All 7 exchanges
+Wallet Hub for All 8 exchanges
 
 Provides unified wallet interface for:
 - Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io
