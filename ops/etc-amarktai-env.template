@@ -68,11 +68,12 @@ KUCOIN_MAX_TRADES_PER_DAY=100000
 # BOT SPAWNING
 # ============================================================================
 
-# Bot spawning profit threshold in ZAR (default: 300 — compound profits faster)
-BOT_SPAWN_PROFIT_ZAR=300
+# Bot spawning profit threshold in ZAR (lowered to 100 for faster early compounding)
+# Increase once the account is larger and you want to grow more conservatively.
+BOT_SPAWN_PROFIT_ZAR=100
 
-# Capital seeded to each newly spawned bot in ZAR (default: 200)
-NEW_BOT_SEED_CAPITAL_ZAR=200
+# Capital seeded to each newly spawned bot in ZAR (lowered to 100 for early compounding)
+NEW_BOT_SEED_CAPITAL_ZAR=100
 
 # Enable per-exchange profit threshold for bot spawning
 ENABLE_PER_EXCHANGE_BOT_SPAWN=true
@@ -121,14 +122,15 @@ ENABLE_SCHEDULERS=true
 # ============================================================================
 
 # Enable the nightly learning loop (triggers XGBoost retrain at 01:30 UTC).
-# Set to true once 50+ real trades have accumulated.
-ENABLE_LEARNING_LOOP=false
+# Enabled from day 1 — lower XGB_MIN_RETRAIN_TRADES so it starts learning sooner.
+ENABLE_LEARNING_LOOP=true
 
 # Enable River online learner (updates per-user model after every trade)
 ENABLE_SELF_LEARNING=true
 
 # Minimum number of closed trades required before XGBoost retrain runs
-XGB_MIN_RETRAIN_TRADES=50
+# Lowered to 10 so the model starts improving as early as possible.
+XGB_MIN_RETRAIN_TRADES=10
 
 # Number of Optuna hyperparameter tuning trials for XGBoost retrain
 XGB_OPTUNA_TRIALS=30
@@ -168,17 +170,48 @@ ENABLE_LEARNING_LOOP=true
 ENABLE_RIVER_LEARNING=true
 # Maximum daily loss before system pause (0.05 = 5%)
 MAX_DAILY_LOSS_PERCENT=0.05
-# Minimum closed trades before XGBoost retrain triggers
-XGB_MIN_RETRAIN_TRADES=50
+# Minimum closed trades before XGBoost retrain triggers (lowered for faster learning)
+XGB_MIN_RETRAIN_TRADES=10
 # Minimum holdout accuracy for model promotion
 XGB_MIN_ACCURACY=0.52
+
+# ============================================================================
+# FREE API KEYS — activate additional intelligence signals at no cost
+# ============================================================================
+# Each key below is obtainable in < 5 minutes with a free account.
+# The system gracefully degrades when keys are absent — add them to unlock
+# the full signal stack from day one.
+
+# CryptoCompare — activates news sentiment (100 K free calls/month).
+# Register at: https://min-api.cryptocompare.com/
+# Used by: engines/sentiment_analyzer.py (CRYPTONEWS_API_KEY)
+CRYPTONEWS_API_KEY=
+
+# HuggingFace — activates FinBERT financial NLP sentiment analysis.
+# Register at: https://huggingface.co/settings/tokens  (free tier: ~30 K/day)
+# Used by: services/huggingface_key_resolver.py (HUGGINGFACE_API_KEY or HF_API_KEY)
+HUGGINGFACE_API_KEY=
+
+# CoinStats — additional crypto news feed and portfolio data.
+# Register at: https://coinstats.app/developers/
+# Free tier works without key; key unlocks higher rate limits.
+# Used by: services/news_coinstats.py (COINSTATS_API_KEY)
+COINSTATS_API_KEY=
+
+# CoinGecko — price data and trending coins (free tier, no key required by default).
+# Set key to unlock higher rate limits (Pro plan).
+# COINGECKO_API_KEY=
+
+# Glassnode — on-chain data: exchange flows, SOPR, miner outflows (free tier).
+# Register at: https://glassnode.com/
+# Used by: engines/market_intelligence_engine.py (GLASSNODE_API_KEY)
+# GLASSNODE_API_KEY=
 
 # ============================================================================
 # DEPLOYMENT INSTRUCTIONS
 # ============================================================================
 
 # 1. Copy this file to /etc/amarktai/amarktai.env
-#    sudo mkdir -p /etc/amarktai
 #    sudo cp ops/etc-amarktai-env.template /etc/amarktai/amarktai.env
 #
 # 2. Set correct permissions (600)

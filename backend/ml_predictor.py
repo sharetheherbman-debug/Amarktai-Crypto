@@ -3,13 +3,286 @@ ML Price Predictor
 - Momentum-based price prediction using CCXT candle data
 - Falls back to a clear error payload when market data is unavailable
 - NEVER returns random/fabricated direction/confidence
+
+Public helpers (used by backtesting_engine.py and Hurst filter):
+    fetch_ohlcv(pair, timeframe, limit, exchange_id)  -> list of OHLCV candles
+    compute_indicators(ohlcv_or_df)                   -> pandas DataFrame with RSI/MACD/ATR/BBands
+    _rule_based_prediction(row)                       -> (direction, confidence, predicted_change_pct)
 """
 
 import asyncio
+import math
 import os
 from datetime import datetime, timezone
+from typing import List, Optional
+
 from logger_config import logger
 
+
+# ---------------------------------------------------------------------------
+# Public OHLCV + indicator helpers (backtesting engine + Hurst filter)
+# ---------------------------------------------------------------------------
+
+def fetch_ohlcv(
+    pair: str,
+    timeframe: str = "1h",
+    limit: int = 100,
+    exchange_id: str = "binance",
+) -> Optional[List]:
+    """Synchronous OHLCV fetch via CCXT public API (no keys required).
+
+    Returns a list of ``[timestamp, open, high, low, close, volume]`` candles,
+    or ``None`` when data is unavailable.  Designed for ``run_in_executor``.
+
+    Exchange priority:
+      1. ``ML_PREDICTOR_EXCHANGE`` env override
+      2. ``exchange_id`` argument
+      3. Fallback chain: binance → kucoin → bybit
+    """
+    try:
+        import ccxt  # type: ignore[import]
+    except ImportError:
+        raise RuntimeError("ccxt not installed — cannot fetch OHLCV")
+
+    ccxt_symbol = pair.replace("_", "/")
+    _override = os.getenv("ML_PREDICTOR_EXCHANGE", "").lower().strip()
+    _chain = ([_override] if _override else []) + [exchange_id, "binance", "kucoin", "bybit"]
+    # Deduplicate while preserving order
+    seen: set = set()
+    exchanges_ordered: List[str] = []
+    for name in _chain:
+        if name and name not in seen:
+            seen.add(name)
+            exchanges_ordered.append(name)
+
+    for name in exchanges_ordered:
+        try:
+            cls = getattr(ccxt, name, None)
+            if cls is None:
+                continue
+            exchange = cls({"enableRateLimit": True})
+            candles = exchange.fetch_ohlcv(ccxt_symbol, timeframe, limit=limit)
+            if candles and len(candles) >= 20:
+                logger.debug("fetch_ohlcv: %s candles for %s from %s", len(candles), ccxt_symbol, name)
+                return candles
+        except Exception as exc:
+            logger.debug("fetch_ohlcv: %s failed for %s: %s", name, ccxt_symbol, exc)
+            continue
+
+    return None
+
+
+def compute_indicators(ohlcv_or_df) -> "object":
+    """Compute RSI, MACD, ATR, Bollinger Bands, SMA20, VWAP, and volume_ratio.
+
+    Accepts either:
+    - A raw OHLCV list ``[[ts, open, high, low, close, volume], ...]``
+    - An existing pandas DataFrame with ``open, high, low, close, volume`` columns.
+
+    Returns a pandas DataFrame enriched with:
+      ``rsi``, ``macd``, ``macd_signal``, ``macd_hist``, ``atr``,
+      ``bb_upper``, ``bb_lower``, ``bb_mid``, ``sma20``, ``vwap``,
+      ``volume_ratio``, ``close_vs_sma20``
+
+    Primary path: pandas-ta (if installed, requires pandas>=3 + numpy>=2.2).
+    Fallback: pure numpy/pandas implementation — identical semantics, zero extra deps.
+    """
+    import pandas as pd  # noqa: PLC0415
+    import numpy as np   # noqa: PLC0415
+
+    # --- Normalise input -------------------------------------------------------
+    if not isinstance(ohlcv_or_df, pd.DataFrame):
+        df = pd.DataFrame(
+            ohlcv_or_df,
+            columns=["timestamp", "open", "high", "low", "close", "volume"],
+        )
+    else:
+        df = ohlcv_or_df.copy()
+
+    if df.empty or len(df) < 20:
+        return df
+
+    close = df["close"].astype(float)
+    high  = df["high"].astype(float)
+    low   = df["low"].astype(float)
+    volume = df["volume"].astype(float)
+
+    # --- Try pandas-ta (optional; gracefully skipped when not installed) -------
+    _pandas_ta_ok = False
+    try:
+        import pandas_ta as ta  # type: ignore[import]
+
+        _work = df.copy()
+        _work.ta.rsi(length=14, append=True)
+        _work.ta.macd(fast=12, slow=26, signal=9, append=True)
+        _work.ta.atr(length=14, append=True)
+        _work.ta.bbands(length=20, std=2, append=True)
+        _work.ta.sma(length=20, append=True)
+        try:
+            _work.ta.vwap(append=True)
+        except Exception:
+            pass  # VWAP requires intraday timestamps — skip silently
+
+        # Normalise column names produced by pandas-ta to canonical names
+        _rename = {}
+        for col in _work.columns:
+            lc = col.lower()
+            if lc.startswith("rsi_") and "rsi" not in _rename.values():
+                _rename[col] = "rsi"
+            elif "macdh" in lc and "macd_hist" not in _rename.values():
+                _rename[col] = "macd_hist"
+            elif "macds" in lc and "macd_signal" not in _rename.values():
+                _rename[col] = "macd_signal"
+            elif lc.startswith("macd_") and "macd" not in _rename.values():
+                _rename[col] = "macd"
+            elif (lc.startswith("atrr_") or lc.startswith("atr_")) and "atr" not in _rename.values():
+                _rename[col] = "atr"
+            elif "bbu_" in lc and "bb_upper" not in _rename.values():
+                _rename[col] = "bb_upper"
+            elif "bbl_" in lc and "bb_lower" not in _rename.values():
+                _rename[col] = "bb_lower"
+            elif "bbm_" in lc and "bb_mid" not in _rename.values():
+                _rename[col] = "bb_mid"
+            elif lc.startswith("sma_") and "sma20" not in _rename.values():
+                _rename[col] = "sma20"
+            elif lc.startswith("vwap") and "vwap" not in _rename.values():
+                _rename[col] = "vwap"
+        if _rename:
+            _work = _work.rename(columns=_rename)
+
+        # Only accept if the critical columns were produced
+        if "rsi" in _work.columns and "macd" in _work.columns:
+            df = _work
+            _pandas_ta_ok = True
+
+    except Exception:
+        pass  # Fall through to manual implementation
+
+    # --- Manual fallback (always correct; used when pandas-ta is absent) ------
+    if not _pandas_ta_ok:
+        # RSI(14) via Wilder EMA
+        delta = close.diff()
+        gain  = delta.clip(lower=0)
+        loss  = (-delta).clip(lower=0)
+        avg_gain = gain.ewm(com=13, adjust=False).mean()
+        avg_loss = loss.ewm(com=13, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, float("nan"))
+        df["rsi"] = 100.0 - (100.0 / (1.0 + rs))
+
+        # MACD(12, 26, 9)
+        ema12 = close.ewm(span=12, adjust=False).mean()
+        ema26 = close.ewm(span=26, adjust=False).mean()
+        df["macd"]        = ema12 - ema26
+        df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
+        df["macd_hist"]   = df["macd"] - df["macd_signal"]
+
+        # ATR(14) via Wilder EMA
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low  - prev_close).abs(),
+        ], axis=1).max(axis=1)
+        df["atr"] = tr.ewm(com=13, adjust=False).mean()
+
+        # Bollinger Bands(20, 2σ)
+        df["sma20"]    = close.rolling(20).mean()
+        _std           = close.rolling(20).std()
+        df["bb_upper"] = df["sma20"] + 2.0 * _std
+        df["bb_lower"] = df["sma20"] - 2.0 * _std
+        df["bb_mid"]   = df["sma20"]
+
+        # VWAP (session-level approximation over the whole series)
+        typical_price = (high + low + close) / 3.0
+        cum_vol = volume.cumsum()
+        df["vwap"] = (typical_price * volume).cumsum() / cum_vol.replace(0.0, float("nan"))
+
+    # --- Derived features (always computed) ------------------------------------
+    _sma20 = df["sma20"].replace(0.0, float("nan"))
+    df["close_vs_sma20"] = (close - _sma20) / _sma20
+
+    _vol_mean = volume.rolling(20).mean().replace(0.0, float("nan"))
+    df["volume_ratio"] = volume / _vol_mean
+
+    return df
+
+
+def _rule_based_prediction(row) -> tuple:
+    """Derive a trading signal from one row of indicator data.
+
+    Combines RSI, MACD histogram, and Bollinger Band position into a
+    consensus direction score.
+
+    Args:
+        row: A pandas Series (from ``DataFrame.iterrows``) or any object
+             supporting attribute access or dict-style ``get()``.
+
+    Returns:
+        ``(direction, confidence, predicted_change_pct)``
+        - ``direction``: ``"up"`` | ``"down"`` | ``"neutral"``
+        - ``confidence``: float in ``[0.0, 0.90]``
+        - ``predicted_change_pct``: estimated % move (±2 % range)
+    """
+    def _get(field: str, default: float) -> float:
+        try:
+            if hasattr(row, "get"):
+                v = row.get(field, default)
+            else:
+                v = getattr(row, field, default)
+            f = float(v)
+            return default if math.isnan(f) else f
+        except (TypeError, ValueError):
+            return default
+
+    close     = _get("close",     0.0)
+    rsi       = _get("rsi",      50.0)
+    macd_hist = _get("macd_hist",  0.0)
+    bb_upper  = _get("bb_upper",  close * 1.02)
+    bb_lower  = _get("bb_lower",  close * 0.98)
+
+    bb_range = bb_upper - bb_lower
+
+    # Bullish evidence
+    bullish = 0
+    if rsi < 40:
+        bullish += 2   # oversold
+    elif rsi < 50:
+        bullish += 1   # mildly bullish
+    if macd_hist > 0:
+        bullish += 2   # positive momentum
+    if bb_range > 0 and close < bb_lower + bb_range * 0.20:
+        bullish += 1   # near lower band (potential bounce)
+
+    # Bearish evidence
+    bearish = 0
+    if rsi > 60:
+        bearish += 2   # overbought
+    elif rsi > 50:
+        bearish += 1   # mildly bearish
+    if macd_hist < 0:
+        bearish += 2   # negative momentum
+    if bb_range > 0 and close > bb_lower + bb_range * 0.80:
+        bearish += 1   # near upper band (potential rejection)
+
+    net       = bullish - bearish
+    max_score = 5  # maximum possible net score
+
+    if net >= 2:
+        direction = "up"
+    elif net <= -2:
+        direction = "down"
+    else:
+        direction = "neutral"
+
+    confidence          = min(0.40 + abs(net) / max_score * 0.50, 0.90)
+    predicted_change_pct = round((net / max_score) * 2.0, 4)  # ±2 % range
+
+    return direction, round(confidence, 2), predicted_change_pct
+
+
+# ---------------------------------------------------------------------------
+# Legacy private helper (kept for existing callers in predict_price)
+# ---------------------------------------------------------------------------
 
 def _compute_momentum(closes: list) -> tuple:
     """

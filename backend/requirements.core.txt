@@ -69,8 +69,10 @@ xgboost-cpu==2.1.4
 river==0.21.2
 
 # Technical indicators
-# pandas-ta removed: 0.3.14b0 is no longer on PyPI. ml_predictor.py has
-# a manual fallback for RSI, MACD, ATR, Bollinger Bands, VWAP, SMA.
+# pandas-ta 0.4.71b0 is available on PyPI but requires numpy>=2.2.6 and
+# pandas>=3.0, which conflicts with our pinned versions.  ml_predictor.py
+# contains a full manual fallback (RSI/MACD/ATR/BBands/VWAP/SMA) that is
+# used automatically when pandas-ta is absent.
 
 # Hyperparameter optimisation
 optuna==3.6.0
