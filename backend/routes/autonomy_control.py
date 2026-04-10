@@ -74,7 +74,7 @@ async def get_autonomy_status(user_id: str = Depends(get_current_user)):
     heartbeats = heartbeat_registry.snapshot()
     paused = autonomy_state.snapshot()
 
-    realtime_running = realtime_broadcaster._running
+    realtime_running = realtime_broadcaster.is_running
     autopilot_tick = autopilot.last_tick.get("timestamp") if autopilot.last_tick else None
     trading_tick = trading_scheduler.last_heartbeat.isoformat() if trading_scheduler.last_heartbeat else None
     learning_tick = learning_loop.last_run.isoformat() if learning_loop.last_run else None
