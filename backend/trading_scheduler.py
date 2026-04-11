@@ -374,6 +374,7 @@ class TradingScheduler:
                                 {"id": bot_id},
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_decision_at": datetime.now(timezone.utc).isoformat(),
                                     "last_trade_simulated_at": datetime.now(timezone.utc).isoformat(),
                                     "last_order_error": None
                                 }}
@@ -399,6 +400,7 @@ class TradingScheduler:
                                 {"id": bot_id},
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_decision_at": datetime.now(timezone.utc).isoformat(),
                                     "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
                                     "last_order_error": reason_msg
                                 }}
@@ -407,7 +409,10 @@ class TradingScheduler:
                             # Tick happened but no trade (e.g. open position)
                             await db.bots_collection.update_one(
                                 {"id": bot_id},
-                                {"$set": {"last_tick_at": datetime.now(timezone.utc).isoformat()}}
+                                {"$set": {
+                                    "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                    "last_decision_at": datetime.now(timezone.utc).isoformat(),
+                                }}
                             )
                     else:
                         # LIVE TRADING - Use live_trading_engine
