@@ -1050,8 +1050,15 @@ class PaperTradingEngine:
             # 2. AI INTELLIGENCE: Check market regime
             _regime_detector = market_regime_detector
             if _regime_detector is None:
-                from market_regime import market_regime_detector as _regime_detector
-            regime = await _regime_detector.detect_regime(symbol, exchange)
+                try:
+                    from market_regime import market_regime_detector as _mrd_tmp
+                    _regime_detector = _mrd_tmp
+                except Exception:
+                    _regime_detector = None
+            if _regime_detector is not None:
+                regime = await _regime_detector.detect_regime(symbol, exchange)
+            else:
+                regime = {"trend": "neutral", "confidence": 0.0, "regime": "unknown", "is_simulated": True}
 
             # Regime playbook selection — determines entry/exit style for this tick.
             playbook_info = select_playbook(regime)
@@ -1085,10 +1092,20 @@ class PaperTradingEngine:
                 }
             
             # 3. AI INTELLIGENCE: Get ML prediction
-            _ml_pred = ml_predictor
-            if _ml_pred is None:
-                from ml_predictor import ml_predictor as _ml_pred
-            prediction = await _ml_pred.predict_price(symbol, timeframe="1h")
+            # Use module-global directly to avoid local-variable shadowing issues.
+            # If the singleton is None (import failed at startup), produce a neutral
+            # stub so the rest of the decision pipeline can continue.
+            if ml_predictor is not None:
+                prediction = await ml_predictor.predict_price(symbol, timeframe="1h")
+            else:
+                prediction = {
+                    "pair": symbol,
+                    "direction": "neutral",
+                    "confidence": 0.0,
+                    "predicted_change": 0.0,
+                    "is_simulated": True,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
 
             # External signal provider removed — use unavailable stub
             ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
@@ -1145,8 +1162,15 @@ class PaperTradingEngine:
             # 5. AI INTELLIGENCE: Get Fetch.ai signals (if available)
             _fetchai = fetchai
             if _fetchai is None:
-                from fetchai_integration import fetchai as _fetchai
-            fetchai_data = await _fetchai.fetch_market_signals(symbol)
+                try:
+                    from fetchai_integration import fetchai as _fai_tmp
+                    _fetchai = _fai_tmp
+                except Exception:
+                    _fetchai = None
+            if _fetchai is not None:
+                fetchai_data = await _fetchai.fetch_market_signals(symbol)
+            else:
+                fetchai_data = {"strength": 0.0, "confidence": 0, "signal": "HOLD", "is_simulated": True}
             
             # Analyze REAL trend (fallback if AI fails)
             trend = await self.analyze_trend(symbol, exchange)
