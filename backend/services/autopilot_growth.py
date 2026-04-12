@@ -175,10 +175,12 @@ class AutopilotGrowthService:
         }
 
     async def _get_platform_status(self, platform: str) -> Dict:
+        # Count only normal (non-scalper) bots — scalper bots have separate caps
         bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"}
+            "status": {"$ne": "deleted"},
+            "bot_type": {"$nin": ["scalper"]},
         })
         bots_max = _platform_bot_limit(platform)
         profit = await self.get_platform_realized_profit_zar(platform)
@@ -284,10 +286,13 @@ class AutopilotGrowthService:
         if bodyguard_count > 0:
             reasons.append("BODYGUARD_LOCK_ACTIVE")
 
+        # Count only normal (non-scalper) bots — scalper bots have separate caps and
+        # must not inflate the normal-bot count against the platform normal-bot limit.
         bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"}
+            "status": {"$ne": "deleted"},
+            "bot_type": {"$nin": ["scalper"]},
         })
         if bots_current >= _platform_bot_limit(platform):
             reasons.append("MAX_BOTS_REACHED")

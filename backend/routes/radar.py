@@ -521,6 +521,12 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
             }
             bot = normalize_bot_state({**raw_bot, **decision_fallback})
 
+            # Find open trade for this bot FIRST — needed for eligibility check below.
+            open_trade = await db.trades_collection.find_one(
+                {"bot_id": bot_id, "status": {"$in": ["open", "active", "pending"]}},
+                sort=[("timestamp", -1)],
+            )
+
             # Compute live eligibility when the DB field is absent or False.
             # eligible_to_trade is written by the paper engine during ticks, but
             # may be stale (e.g. immediately after bot creation or after a reset).
@@ -549,12 +555,6 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
                     if not _exchange_ok:
                         _live_reasons.append("exchange_not_configured")
                     bot["not_eligible_reasons"] = _live_reasons or ["eligibility_gate_blocked"]
-
-            # Find open trade for this bot
-            open_trade = await db.trades_collection.find_one(
-                {"bot_id": bot_id, "status": {"$in": ["open", "active", "pending"]}},
-                sort=[("timestamp", -1)],
-            )
 
             radar_entries.append(_compute_radar_entry(bot, open_trade, now))
 
