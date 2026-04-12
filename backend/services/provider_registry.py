@@ -166,54 +166,85 @@ async def test_luno(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]
 
 
 async def test_binance(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
-    """Test Binance Spot exchange credentials.
+    """Test Binance Spot credentials via direct HTTP to GET /api/v3/account.
 
-    Always uses the Spot API (api.binance.com).  We explicitly set
-    defaultType='spot' so CCXT never probes the futures endpoint
-    (fapi.binance.com) — a Spot-only key would fail that probe with a
-    false authentication error.
+    Uses the Binance Spot REST API directly (httpx, no CCXT) so we
+    never probe sapi/v1/margin/allPairs, fapi.binance.com, or any other
+    margin/futures surface.  Only the Spot account endpoint is contacted.
+
+    Returns distinct failure reasons:
+      - "Invalid API key"                      → bad key / bad signature
+      - "API key lacks Spot read permissions"  → key exists but no Spot perm
+      - "Binance Spot endpoint unreachable"    → network / DNS failure
+      - "Binance Spot validation failed: …"   → other HTTP/API errors
     """
+    import hmac
+    import hashlib
+    import time
+
     try:
-        exchange = ccxt.binance({
-            'apiKey': api_key,
-            'secret': api_secret,
-            'enableRateLimit': True,
-            # Force Spot endpoints only — never call fapi.binance.com
-            'options': {'defaultType': 'spot'},
-        })
+        timestamp = int(time.time() * 1000)
+        query_string = f"timestamp={timestamp}"
+        signature = hmac.new(
+            api_secret.encode("utf-8"),
+            query_string.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
-        # Fetch Spot balance to verify credentials
-        await exchange.fetch_balance()
-        await exchange.close()
-
-        return True, None
-    except ccxt.AuthenticationError:
-        return False, "Invalid API key or secret"
-    except ccxt.PermissionDenied:
-        return False, "API key lacks required permissions (enable read/spot permissions)"
-    except ccxt.NetworkError as e:
-        error_msg = str(e)
-        return False, f"Binance endpoint unreachable: {error_msg[:100]}"
-    except Exception as e:
-        error_msg = str(e)
-        # This branch should never trigger when defaultType='spot' is set,
-        # but log it as an unexpected state for debugging.
-        if "fapi" in error_msg.lower() or "futures" in error_msg.lower():
-            logger.warning(
-                "test_binance: unexpected futures-related error despite defaultType='spot': %s",
-                error_msg[:200],
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.binance.com/api/v3/account",
+                params={"timestamp": timestamp, "signature": signature},
+                headers={"X-MBX-APIKEY": api_key},
             )
-        return False, f"Test failed: {error_msg[:100]}"
+
+        if response.status_code == 200:
+            return True, None
+
+        # Parse the Binance JSON error body when possible
+        try:
+            data = response.json()
+        except Exception:
+            data = {}
+
+        code = data.get("code", 0)
+        msg = data.get("msg", "Unknown error")
+
+        if response.status_code in (400, 401):
+            # -2014: API-key format is invalid
+            if code == -2014:
+                return False, "API key format is invalid"
+            # -2015: Invalid API-key, IP, or permissions
+            if code == -2015:
+                return False, "Invalid API key, IP restriction, or missing permissions"
+            # -1022 / -2008: signature-related errors
+            if code in (-1022, -2008):
+                return False, "Invalid API key signature -- check your API secret"
+            return False, f"Binance Spot auth error (code {code}): {msg}"
+
+        if response.status_code == 403:
+            return False, "API key lacks Spot read permissions (enable 'Enable Reading' in Binance API key settings)"
+
+        return False, f"Binance Spot validation failed (HTTP {response.status_code}): {msg}"
+
+    except httpx.ConnectError:
+        return False, "Binance Spot endpoint unreachable"
+    except httpx.TimeoutException:
+        return False, "Binance Spot endpoint timed out"
+    except Exception as e:
+        return False, f"Binance Spot test failed: {str(e)[:100]}"
 
 
 async def test_kucoin(api_key: str, api_secret: str, passphrase: str = None) -> tuple[bool, Optional[str]]:
-    """Test KuCoin exchange credentials"""
+    """Test KuCoin exchange credentials (Spot account)"""
     try:
         exchange = ccxt.kucoin({
             'apiKey': api_key,
             'secret': api_secret,
             'password': passphrase,
-            'enableRateLimit': True
+            'enableRateLimit': True,
+            # Force Spot — KuCoin also has Futures on a separate domain
+            'options': {'defaultType': 'spot'},
         })
         
         # Test by fetching balance
@@ -231,12 +262,14 @@ async def test_kucoin(api_key: str, api_secret: str, passphrase: str = None) -> 
 
 
 async def test_bybit(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
-    """Test Bybit exchange credentials"""
+    """Test Bybit exchange credentials (Spot account)"""
     try:
         exchange = ccxt.bybit({
             'apiKey': api_key,
             'secret': api_secret,
-            'enableRateLimit': True
+            'enableRateLimit': True,
+            # Force Spot — Bybit also has perpetual/linear futures markets
+            'options': {'defaultType': 'spot'},
         })
         
         # Test by fetching balance
@@ -254,13 +287,15 @@ async def test_bybit(api_key: str, api_secret: str) -> tuple[bool, Optional[str]
 
 
 async def test_bitget(api_key: str, api_secret: str, passphrase: str = None) -> tuple[bool, Optional[str]]:
-    """Test Bitget exchange credentials"""
+    """Test Bitget exchange credentials (Spot account)"""
     try:
         exchange = ccxt.bitget({
             'apiKey': api_key,
             'secret': api_secret,
             'password': passphrase,
-            'enableRateLimit': True
+            'enableRateLimit': True,
+            # Force Spot — Bitget also has Futures/Swap markets
+            'options': {'defaultType': 'spot'},
         })
         
         # Test by fetching balance
@@ -301,12 +336,14 @@ async def test_kraken(api_key: str, api_secret: str) -> tuple[bool, Optional[str
 
 
 async def test_gate(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
-    """Test Gate.io exchange credentials"""
+    """Test Gate.io exchange credentials (Spot account)"""
     try:
         exchange = ccxt.gateio({  # CCXT uses 'gateio' as the ID
             'apiKey': api_key,
             'secret': api_secret,
-            'enableRateLimit': True
+            'enableRateLimit': True,
+            # Force Spot — Gate.io also has Futures/Perpetual markets
+            'options': {'defaultType': 'spot'},
         })
         
         # Test by fetching balance
@@ -346,19 +383,18 @@ async def test_coinbase(api_key: str, api_secret: str) -> tuple[bool, Optional[s
 async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
     """Test CoinDesk Data API v2 key.
 
-    Uses the /v1/index/cc/v2/latest/tick endpoint which requires a valid API key.
-    The market=cadli (CoinDesk Asset Data & Liquidity Index) is the standard
-    CoinDesk Data API v2 composite index market identifier.
+    Uses the /info/v1/version endpoint — a lightweight utility endpoint that:
+    - Requires a valid API key (returns 401 for invalid keys)
+    - Returns the current API version without consuming data quota
+    - Uses the correct X-API-KEY header (not Authorization: Bearer)
     """
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
-                "https://data-api.coindesk.com/v1/index/cc/v2/latest/tick",
-                headers={"Authorization": f"Bearer {api_key}"},
-                params={"market": "CCCAGG", "instruments": "BTC-USD", "limit": "1"},
-                timeout=10.0,
+                "https://data-api.coindesk.com/info/v1/version",
+                headers={"X-API-KEY": api_key},
             )
-            if response.status_code in (200, 206):
+            if response.status_code == 200:
                 return True, None
             elif response.status_code == 401:
                 return False, "Invalid API key (401 Unauthorized)"
@@ -366,6 +402,10 @@ async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple
                 return False, "API key does not have access to this endpoint (403)"
             else:
                 return False, f"API returned status {response.status_code}"
+    except httpx.ConnectError:
+        return False, "CoinDesk API endpoint unreachable"
+    except httpx.TimeoutException:
+        return False, "CoinDesk API endpoint timed out"
     except Exception as e:
         return False, f"Test failed: {str(e)[:100]}"
 

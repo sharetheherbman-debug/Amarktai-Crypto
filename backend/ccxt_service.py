@@ -24,11 +24,16 @@ class CCXTService:
             
             if passphrase:
                 config['password'] = passphrase
-            
-            if testnet:
+
+            # Binance: always use Spot endpoints by default so we never
+            # accidentally probe fapi.binance.com (futures) or
+            # sapi/v1/margin/* (margin) for Spot-only API keys.
+            if exchange_name.lower() == 'binance':
                 config['options'] = {'defaultType': 'spot'}
-                if exchange_name.lower() == 'binance':
+                if testnet:
                     config['options']['testnet'] = True
+            elif testnet:
+                config.setdefault('options', {})['defaultType'] = 'spot'
             
             exchange = exchange_class(config)
             return exchange
