@@ -383,19 +383,18 @@ async def test_coinbase(api_key: str, api_secret: str) -> tuple[bool, Optional[s
 async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple[bool, Optional[str]]:
     """Test CoinDesk Data API v2 key.
 
-    Uses the /v1/index/cc/v2/latest/tick endpoint which requires a valid API key.
-    The market=cadli (CoinDesk Asset Data & Liquidity Index) is the standard
-    CoinDesk Data API v2 composite index market identifier.
+    Uses the /info/v1/version endpoint — a lightweight utility endpoint that:
+    - Requires a valid API key (returns 401 for invalid keys)
+    - Returns the current API version without consuming data quota
+    - Uses the correct X-API-KEY header (not Authorization: Bearer)
     """
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
-                "https://data-api.coindesk.com/v1/index/cc/v2/latest/tick",
-                headers={"Authorization": f"Bearer {api_key}"},
-                params={"market": "CCCAGG", "instruments": "BTC-USD", "limit": "1"},
-                timeout=10.0,
+                "https://data-api.coindesk.com/info/v1/version",
+                headers={"X-API-KEY": api_key},
             )
-            if response.status_code in (200, 206):
+            if response.status_code == 200:
                 return True, None
             elif response.status_code == 401:
                 return False, "Invalid API key (401 Unauthorized)"
@@ -403,6 +402,10 @@ async def test_coindesk(api_key: str, api_secret: Optional[str] = None) -> tuple
                 return False, "API key does not have access to this endpoint (403)"
             else:
                 return False, f"API returned status {response.status_code}"
+    except httpx.ConnectError:
+        return False, "CoinDesk API endpoint unreachable"
+    except httpx.TimeoutException:
+        return False, "CoinDesk API endpoint timed out"
     except Exception as e:
         return False, f"Test failed: {str(e)[:100]}"
 
