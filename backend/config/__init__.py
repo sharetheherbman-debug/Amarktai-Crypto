@@ -132,9 +132,9 @@ STOP_LOSS_COOLDOWN_MINUTES = int(os.getenv('STOP_LOSS_COOLDOWN_MINUTES', '30'))
 LOSING_STREAK_THRESHOLD = int(os.getenv('LOSING_STREAK_THRESHOLD', '3'))
 LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10'))
 # Base average-confidence threshold for entry. Raised by LOSING_STREAK_SIGNAL_BOOST
-# after a losing streak. Lowered to 0.30 to allow trades when only the local
-# market-regime source is available (Fetch.ai / ML often return is_simulated=True).
-BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.30'))
+# after a losing streak. Set to 0.45 to require meaningful signal quality before entry;
+# avoids low-confidence trades that pass only because the local regime source is available.
+BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.45'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
@@ -173,9 +173,9 @@ MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
 
 # Minimum net edge percentage required AFTER round-trip costs before a trade is entered.
 # This is applied UNCONDITIONALLY (even when the ML signal is simulated / unavailable).
-# Set to 0.10% so that every trade must show at least 0.1% net edge.
-# Prevents guaranteed-loss entries where expectancy_estimate <= cost_estimate.
-MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.10'))
+# Set to 0.15% so that every trade must show at least 0.15% net edge above costs.
+# Prevents guaranteed-loss entries where expectancy_estimate barely exceeds cost_estimate.
+MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.15'))
 
 # ── Safety buffer & regime playbooks ────────────────────────────────────────
 # Base safety buffer added on top of fees+spread+slippage in the edge gate.
