@@ -35,6 +35,7 @@ EXPECTED RESULTS:
 
 import ccxt.async_support as ccxt
 import asyncio
+import json
 import os
 from collections import deque
 from datetime import datetime, timezone, timedelta
@@ -1160,10 +1161,10 @@ class PaperTradingEngine:
                                 _hurst_detail.get("reason", "Hurst regime mismatch"),
                                 _hurst_confidence,
                             )
-                            import json as _json
+
                             logger.info(
                                 "BLOCK_DETAIL %s",
-                                _json.dumps({
+                                json.dumps({
                                     "bot_id": bot_id,
                                     "reason": "hurst_regime_mismatch",
                                     "hurst": _hurst_detail.get("hurst"),
@@ -1252,24 +1253,25 @@ class PaperTradingEngine:
                         _fb_ohlcv = await asyncio.get_event_loop().run_in_executor(
                             None, _fb_fetch, symbol, "1h", 50, exchange
                         )
-                    if _fb_ohlcv and len(_fb_ohlcv) >= 14:
+                    if _fb_ohlcv and len(_fb_ohlcv) >= 15:
                         _fb_closes = [float(c[4]) for c in _fb_ohlcv]
-                        # RSI(14)
+                        # RSI(14): needs 15 elements to compute 14 differences
                         _gains, _losses = [], []
                         for i in range(1, 15):
                             d = _fb_closes[-i] - _fb_closes[-i - 1]
                             (_gains if d > 0 else _losses).append(abs(d))
-                        _avg_g = sum(_gains) / 14 if _gains else 0
-                        _avg_l = sum(_losses) / 14 if _losses else 1e-9
+                        _avg_g = sum(_gains) / len(_gains) if _gains else 0
+                        _avg_l = sum(_losses) / len(_losses) if _losses else 1e-9
                         _rs = _avg_g / _avg_l
                         _rsi = 100 - 100 / (1 + _rs)
                         # Short-term trend: last 5 vs prior 5 candles
                         _recent5 = sum(_fb_closes[-5:]) / 5
                         _prior5 = sum(_fb_closes[-10:-5]) / 5 if len(_fb_closes) >= 10 else _recent5
                         _trend_move = (_recent5 - _prior5) / max(_prior5, 1e-9) * 100
-                        # Volatility breakout: ATR(14) vs current candle range
+                        # Volatility breakout: ATR(14) vs current candle range (needs 15 candles)
                         _ranges = [abs(float(c[2]) - float(c[3])) for c in _fb_ohlcv[-15:]]
-                        _atr = sum(_ranges[1:]) / 14 if len(_ranges) >= 14 else sum(_ranges) / max(len(_ranges), 1)
+                        _atr_sum = sum(_ranges[:-1])  # prior 14 candles
+                        _atr = _atr_sum / 14 if len(_ranges) >= 15 else sum(_ranges) / max(len(_ranges), 1)
                         _last_range = abs(float(_fb_ohlcv[-1][2]) - float(_fb_ohlcv[-1][3]))
                         _vol_breakout = (_last_range / max(_atr, 1e-9)) - 1  # positive = breakout
 
@@ -1324,7 +1326,7 @@ class PaperTradingEngine:
             # This lets the bot collect learning data without taking guaranteed-loss trades.
             # When a real ML signal is available we enforce the stricter MINIMUM_EDGE_PCT.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
-            import json as _json_edge
+
             _hard_edge_blocked = (
                 expected_move_pct < estimated_cost_pct  # guaranteed loss even for simulated
                 if ml_is_simulated
@@ -1338,7 +1340,7 @@ class PaperTradingEngine:
                 )
                 logger.info(
                     "BLOCK_DETAIL %s",
-                    _json_edge.dumps({
+                    json.dumps({
                         "bot_id": bot_id,
                         "reason": "hard_edge_filter",
                         "edge": round(_net_edge_pct, 4),
@@ -1379,7 +1381,7 @@ class PaperTradingEngine:
                 )
                 logger.info(
                     "BLOCK_DETAIL %s",
-                    _json_edge.dumps({
+                    json.dumps({
                         "bot_id": bot_id,
                         "reason": "edge_gate",
                         "edge": round(_net_edge_pct, 4),
@@ -1430,10 +1432,10 @@ class PaperTradingEngine:
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
                     f"(expected_move={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}%)"
                 )
-                import json as _json_exp
+
                 logger.info(
                     "BLOCK_DETAIL %s",
-                    _json_exp.dumps({
+                    json.dumps({
                         "bot_id": bot_id,
                         "reason": "expectancy_gate",
                         "edge": round(estimated_expectancy_pct, 4),
@@ -1523,10 +1525,10 @@ class PaperTradingEngine:
                     f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak} "
                     f"regime={playbook_info['regime']} playbook={playbook}"
                 )
-                import json as _json_conf
+
                 logger.info(
                     "BLOCK_DETAIL %s",
-                    _json_conf.dumps({
+                    json.dumps({
                         "bot_id": bot_id,
                         "reason": "low_confidence",
                         "edge": round(_net_edge_pct, 4),
