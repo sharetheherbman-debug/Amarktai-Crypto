@@ -166,25 +166,40 @@ async def test_luno(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]
 
 
 async def test_binance(api_key: str, api_secret: str) -> tuple[bool, Optional[str]]:
-    """Test Binance exchange credentials"""
+    """Test Binance Spot exchange credentials.
+
+    Always uses the Spot API (api.binance.com).  We explicitly set
+    defaultType='spot' so CCXT never probes the futures endpoint
+    (fapi.binance.com) — a Spot-only key would fail that probe with a
+    false authentication error.
+    """
     try:
         exchange = ccxt.binance({
             'apiKey': api_key,
             'secret': api_secret,
-            'enableRateLimit': True
+            'enableRateLimit': True,
+            # Force Spot endpoints only — never call fapi.binance.com
+            'options': {'defaultType': 'spot'},
         })
-        
-        # Test by fetching account status
-        balance = await exchange.fetch_balance()
+
+        # Fetch Spot balance to verify credentials
+        await exchange.fetch_balance()
         await exchange.close()
-        
+
         return True, None
     except ccxt.AuthenticationError:
         return False, "Invalid API key or secret"
     except ccxt.PermissionDenied:
-        return False, "API key lacks required permissions (need reading permissions)"
+        return False, "API key lacks required permissions (enable read/spot permissions)"
+    except ccxt.NetworkError as e:
+        error_msg = str(e)
+        return False, f"Binance endpoint unreachable: {error_msg[:100]}"
     except Exception as e:
         error_msg = str(e)
+        # Catch any residual futures-related error so it never causes a
+        # false-negative for a valid Spot key.
+        if "fapi" in error_msg.lower() or "futures" in error_msg.lower():
+            return False, "Binance Spot key valid but futures access failed (platform uses Spot only)"
         return False, f"Test failed: {error_msg[:100]}"
 
 

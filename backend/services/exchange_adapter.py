@@ -119,6 +119,10 @@ class ExchangeAdapter:
                 params["secret"] = secret
             if passphrase:
                 params["password"] = passphrase
+            # Binance: force Spot endpoints so load_markets() never hits
+            # fapi.binance.com (futures), which would fail for Spot-only keys.
+            if exchange == "binance":
+                params["options"] = {"defaultType": "spot"}
 
             ex = exchange_class(params)
             try:
