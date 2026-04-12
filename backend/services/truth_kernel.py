@@ -69,15 +69,35 @@ SUBSYSTEMS = [
 
 
 async def compute_bot_eligibility(user_id: str, db) -> Dict[str, Any]:
-    """Canonical bot eligibility from the DB."""
+    """Canonical bot eligibility from the DB.
+
+    A bot is considered eligible_to_trade when:
+    - Its DB field ``eligible_to_trade`` is True (set by paper engine), OR
+    - The field is absent/False BUT the bot status is "active" and it has no
+      explicit blocked reasons — this covers newly created bots that have not
+      yet been evaluated by the scheduler (they will be on next tick).
+    """
     bots_raw = await db["bots"].find(
         {"user_id": user_id, "deleted": {"$ne": True}}
     ).to_list(length=500)
 
     bots = [normalize_bot_state(b) for b in bots_raw]
     total = len(bots)
-    eligible = [b for b in bots if b.get("eligible_to_trade")]
-    ineligible = [b for b in bots if not b.get("eligible_to_trade")]
+
+    eligible = []
+    ineligible = []
+    for b in bots:
+        explicit_eligible = b.get("eligible_to_trade")
+        if explicit_eligible:
+            eligible.append(b)
+        elif explicit_eligible is None or explicit_eligible == "":
+            # Field never written — treat active bots with no explicit block as eligible
+            if b.get("active") and not b.get("not_eligible_reasons"):
+                eligible.append(b)
+            else:
+                ineligible.append(b)
+        else:
+            ineligible.append(b)
 
     # Separate normal vs scalper counts
     normal_bots = [b for b in bots if b.get("bot_type", "normal") == "normal"]

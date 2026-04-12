@@ -14,6 +14,7 @@ from error_codes import ErrorCode, insufficient_funds_error
 from engines.wallet_manager import wallet_manager
 from services.paper_wallet_service import paper_wallet_service
 from services.fx_normalizer import resolve_capital_for_exchange
+from services.bot_filters import bot_not_deleted_filter
 from config.platforms import (
     is_valid_platform,
     get_max_bots,
@@ -245,12 +246,9 @@ class BotValidator:
 
         # Enforce bot-class caps (scalper and normal) per exchange + global.
         if bot_type == "scalper":
-            global_scalpers = await db.bots_collection.count_documents({
-                "user_id": user_id,
-                "bot_type": "scalper",
-                "status": {"$ne": "deleted"},
-                "deleted": {"$ne": True},
-            })
+            global_scalpers = await db.bots_collection.count_documents(
+                bot_not_deleted_filter({"user_id": user_id, "bot_type": "scalper"})
+            )
             if global_scalpers >= MAX_SCALPER_BOTS_GLOBAL:
                 return False, {
                     "code": "SCALPER_GLOBAL_CAP_REACHED",
@@ -259,13 +257,9 @@ class BotValidator:
                     "severity": "error",
                 }
 
-            exchange_scalpers = await db.bots_collection.count_documents({
-                "user_id": user_id,
-                "exchange": exchange,
-                "bot_type": "scalper",
-                "status": {"$ne": "deleted"},
-                "deleted": {"$ne": True},
-            })
+            exchange_scalpers = await db.bots_collection.count_documents(
+                bot_not_deleted_filter({"user_id": user_id, "exchange": exchange, "bot_type": "scalper"})
+            )
             scalper_cap = _safe_int_cap(get_scalper_cap(exchange), fallback=2)
             if exchange_scalpers >= scalper_cap:
                 return False, {
@@ -275,13 +269,13 @@ class BotValidator:
                     "severity": "error",
                 }
         elif bot_type == "normal":
-            exchange_normal = await db.bots_collection.count_documents({
-                "user_id": user_id,
-                "exchange": exchange,
-                "bot_type": "normal",  # count only normal bots — scalpers have separate caps
-                "status": {"$ne": "deleted"},
-                "deleted": {"$ne": True},
-            })
+            exchange_normal = await db.bots_collection.count_documents(
+                bot_not_deleted_filter({
+                    "user_id": user_id,
+                    "exchange": exchange,
+                    "bot_type": "normal",  # count only normal bots — scalpers have separate caps
+                })
+            )
             normal_cap = _safe_int_cap(get_normal_cap(exchange), fallback=get_max_bots(exchange))
             if exchange_normal >= normal_cap:
                 return False, {
