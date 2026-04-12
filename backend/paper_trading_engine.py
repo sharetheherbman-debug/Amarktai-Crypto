@@ -1127,24 +1127,59 @@ class PaperTradingEngine:
 
             # 3c. HURST EXPONENT FILTER: block entries when market memory doesn't
             # match bot strategy (random-walk for trend bots, trending for scalpers).
+            # RELAXED: allow trade even on regime mismatch when confidence >= 0.55
+            # (i.e. when the market is clearly trending/mean-reverting, just not
+            # aligned with the specific bot type — still a usable signal for learning).
+            _hurst_ohlcv_cache = None  # store for fallback signal below
             try:
                 from ml_predictor import fetch_ohlcv as _fetch_ohlcv_hurst
                 from services.hurst_filter import hurst_filter as _hf
                 _ohlcv_h = await asyncio.get_event_loop().run_in_executor(
                     None, _fetch_ohlcv_hurst, symbol, "1h", 100, exchange
                 )
+                _hurst_ohlcv_cache = _ohlcv_h  # reuse below for fallback signal
                 if _ohlcv_h is not None and len(_ohlcv_h) >= 50:
                     _close_h = [float(c[4]) for c in _ohlcv_h]
                     _bt_h = str(bot_data.get("bot_type") or "normal").lower()
                     _hurst_ok, _hurst_detail = _hf.should_enter(_close_h, _bt_h)
                     if not _hurst_ok:
-                        return {
-                            "success": False,
-                            "bot_id": bot_id,
-                            "skip_reason": "hurst_regime_mismatch",
-                            "error": _hurst_detail.get("reason", "Hurst regime mismatch"),
-                            "details": _hurst_detail,
-                        }
+                        _hurst_confidence = float(_hurst_detail.get("confidence", 0))
+                        if _hurst_confidence >= 0.55:
+                            # Regime mismatch but high confidence in market structure —
+                            # allow entry for data collection; annotate prediction.
+                            logger.info(
+                                "⚠️  HURST_OVERRIDE | %s | %s | "
+                                "regime_mismatch but confidence=%.3f >= 0.55 — allowing entry",
+                                bot_data.get("name", bot_id[:8]), symbol, _hurst_confidence,
+                            )
+                            _hurst_detail["override"] = "confidence_override"
+                        else:
+                            logger.info(
+                                "⏭️  SKIP_HURST | %s | %s | %s | confidence=%.3f",
+                                bot_data.get("name", bot_id[:8]), symbol,
+                                _hurst_detail.get("reason", "Hurst regime mismatch"),
+                                _hurst_confidence,
+                            )
+                            import json as _json
+                            logger.info(
+                                "BLOCK_DETAIL %s",
+                                _json.dumps({
+                                    "bot_id": bot_id,
+                                    "reason": "hurst_regime_mismatch",
+                                    "hurst": _hurst_detail.get("hurst"),
+                                    "regime": _hurst_detail.get("regime"),
+                                    "confidence": _hurst_confidence,
+                                    "symbol": symbol,
+                                    "exchange": exchange,
+                                }),
+                            )
+                            return {
+                                "success": False,
+                                "bot_id": bot_id,
+                                "skip_reason": "hurst_regime_mismatch",
+                                "error": _hurst_detail.get("reason", "Hurst regime mismatch"),
+                                "details": _hurst_detail,
+                            }
                     prediction["hurst"] = _hurst_detail
             except Exception as _hurst_err:
                 logger.debug("Hurst filter skipped (non-fatal): %s", _hurst_err)
@@ -1207,6 +1242,70 @@ class PaperTradingEngine:
             slippage_pct_roundtrip = slippage_rate * 2 * 100
             estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
 
+            # ── FALLBACK SIGNAL: derive minimal signal from OHLCV when expected_move_pct == 0 ──
+            # This prevents the hard edge filter from blocking every simulated-ML cycle.
+            if expected_move_pct == 0:
+                try:
+                    _fb_ohlcv = _hurst_ohlcv_cache  # reuse already-fetched data
+                    if _fb_ohlcv is None or len(_fb_ohlcv) < 14:
+                        from ml_predictor import fetch_ohlcv as _fb_fetch
+                        _fb_ohlcv = await asyncio.get_event_loop().run_in_executor(
+                            None, _fb_fetch, symbol, "1h", 50, exchange
+                        )
+                    if _fb_ohlcv and len(_fb_ohlcv) >= 14:
+                        _fb_closes = [float(c[4]) for c in _fb_ohlcv]
+                        # RSI(14)
+                        _gains, _losses = [], []
+                        for i in range(1, 15):
+                            d = _fb_closes[-i] - _fb_closes[-i - 1]
+                            (_gains if d > 0 else _losses).append(abs(d))
+                        _avg_g = sum(_gains) / 14 if _gains else 0
+                        _avg_l = sum(_losses) / 14 if _losses else 1e-9
+                        _rs = _avg_g / _avg_l
+                        _rsi = 100 - 100 / (1 + _rs)
+                        # Short-term trend: last 5 vs prior 5 candles
+                        _recent5 = sum(_fb_closes[-5:]) / 5
+                        _prior5 = sum(_fb_closes[-10:-5]) / 5 if len(_fb_closes) >= 10 else _recent5
+                        _trend_move = (_recent5 - _prior5) / max(_prior5, 1e-9) * 100
+                        # Volatility breakout: ATR(14) vs current candle range
+                        _ranges = [abs(float(c[2]) - float(c[3])) for c in _fb_ohlcv[-15:]]
+                        _atr = sum(_ranges[1:]) / 14 if len(_ranges) >= 14 else sum(_ranges) / max(len(_ranges), 1)
+                        _last_range = abs(float(_fb_ohlcv[-1][2]) - float(_fb_ohlcv[-1][3]))
+                        _vol_breakout = (_last_range / max(_atr, 1e-9)) - 1  # positive = breakout
+
+                        # Composite minimal signal:  weight RSI momentum + trend + vol
+                        _rsi_signal = abs(_rsi - 50) / 50  # 0 = neutral, 1 = extreme
+                        _fb_move = (
+                            _rsi_signal * 0.4
+                            + abs(_trend_move) * 0.4
+                            + max(_vol_breakout, 0) * 0.2
+                        )
+                        # Set direction from trend
+                        if _rsi < 40 or _trend_move < -0.3:
+                            _fb_dir = "down"
+                        elif _rsi > 60 or _trend_move > 0.3:
+                            _fb_dir = "up"
+                        else:
+                            _fb_dir = prediction.get("direction", "up")
+
+                        if _fb_move > 0:
+                            expected_move_pct = min(round(_fb_move, 4), 1.0)
+                            prediction["predicted_change"] = expected_move_pct if _fb_dir == "up" else -expected_move_pct
+                            prediction["direction"] = _fb_dir
+                            prediction["fallback_signal"] = {
+                                "rsi": round(_rsi, 2),
+                                "trend_move_pct": round(_trend_move, 4),
+                                "vol_breakout": round(_vol_breakout, 4),
+                                "composite": round(_fb_move, 4),
+                            }
+                            logger.info(
+                                "🔀  FALLBACK_SIGNAL | %s | %s | rsi=%.1f trend=%.4f%% vol=%.4f → move=%.4f%% dir=%s",
+                                bot_data.get("name", bot_id[:8]), symbol,
+                                _rsi, _trend_move, _vol_breakout, expected_move_pct, _fb_dir,
+                            )
+                except Exception as _fb_err:
+                    logger.debug("Fallback signal failed (non-fatal): %s", _fb_err)
+
             # Adaptive safety buffer per risk mode and spread quality
             _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
             _base_safety_buffer = float(_risk_mode_cfg.get("safety_buffer_pct", SAFETY_BUFFER_PCT))
@@ -1219,19 +1318,36 @@ class PaperTradingEngine:
 
             ml_is_simulated = prediction.get("is_simulated", False)
 
-            # ── HARD TRADE FILTER (Fix 1 & 2): unconditional net-edge check ────────
-            # Block any trade where net edge after costs does not exceed MINIMUM_EDGE_PCT.
-            # This applies even when ml_is_simulated=True — the root cause of entries
-            # with expectancy_estimate: -0.37 and cost_estimate: 0.37 (guaranteed loss).
-            # Covers two problem cases:
-            #   a) expected_move_pct <= estimated_cost_pct  (no positive edge at all)
-            #   b) net edge > 0 but <= MINIMUM_EDGE_PCT     (insufficient edge for costs+buffer)
+            # ── HARD TRADE FILTER: net-edge check ───────────────────────────────────
+            # When ml_is_simulated=True (no real ML signal yet) we apply a relaxed
+            # break-even rule: allow entry as long as expected_move_pct >= estimated_cost_pct.
+            # This lets the bot collect learning data without taking guaranteed-loss trades.
+            # When a real ML signal is available we enforce the stricter MINIMUM_EDGE_PCT.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
-            if _net_edge_pct <= MINIMUM_EDGE_PCT:
+            import json as _json_edge
+            _hard_edge_blocked = (
+                expected_move_pct < estimated_cost_pct  # guaranteed loss even for simulated
+                if ml_is_simulated
+                else _net_edge_pct <= MINIMUM_EDGE_PCT
+            )
+            if _hard_edge_blocked:
                 logger.info(
                     f"⏭️  SKIP_HARD_EDGE | {bot_data.get('name', bot_id[:8])} | "
-                    f"net_edge={_net_edge_pct:.4f}% <= min={MINIMUM_EDGE_PCT:.4f}% "
+                    f"net_edge={_net_edge_pct:.4f}% "
                     f"(expected={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}% ml_sim={ml_is_simulated})"
+                )
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    _json_edge.dumps({
+                        "bot_id": bot_id,
+                        "reason": "hard_edge_filter",
+                        "edge": round(_net_edge_pct, 4),
+                        "cost": round(estimated_cost_pct, 4),
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "regime": playbook_info["regime"],
+                        "confidence": round(regime.get("confidence", 0), 4),
+                        "ml_is_simulated": ml_is_simulated,
+                    }),
                 )
                 self._log_action(
                     "SKIP", bot_id, symbol or "?",
@@ -1260,6 +1376,18 @@ class PaperTradingEngine:
                 logger.info(
                     f"⏭️  SKIP_EDGE_GATE | {bot_data.get('name', bot_id[:8])} | "
                     f"expected={expected_move_pct:.4f}% required={edge_required_pct:.4f}%"
+                )
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    _json_edge.dumps({
+                        "bot_id": bot_id,
+                        "reason": "edge_gate",
+                        "edge": round(_net_edge_pct, 4),
+                        "cost": round(estimated_cost_pct, 4),
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "regime": playbook_info["regime"],
+                        "confidence": round(regime.get("confidence", 0), 4),
+                    }),
                 )
                 return {
                     "success": False,
@@ -1301,6 +1429,19 @@ class PaperTradingEngine:
                     f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
                     f"(expected_move={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}%)"
+                )
+                import json as _json_exp
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    _json_exp.dumps({
+                        "bot_id": bot_id,
+                        "reason": "expectancy_gate",
+                        "edge": round(estimated_expectancy_pct, 4),
+                        "cost": round(estimated_cost_pct, 4),
+                        "regime": playbook_info["regime"],
+                        "confidence": round(regime.get("confidence", 0), 4),
+                        "expectancy_zar": round(estimated_expectancy_zar, 4),
+                    }),
                 )
                 self._log_action(
                     "SKIP", bot_id, symbol or "?",
@@ -1381,6 +1522,21 @@ class PaperTradingEngine:
                     f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
                     f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak} "
                     f"regime={playbook_info['regime']} playbook={playbook}"
+                )
+                import json as _json_conf
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    _json_conf.dumps({
+                        "bot_id": bot_id,
+                        "reason": "low_confidence",
+                        "edge": round(_net_edge_pct, 4),
+                        "cost": round(estimated_cost_pct, 4),
+                        "regime": playbook_info["regime"],
+                        "confidence": round(avg_confidence, 4),
+                        "sources": confidence_sources,
+                        "min_sources": min_sources_required,
+                        "threshold": round(_conf_threshold, 4),
+                    }),
                 )
                 return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             

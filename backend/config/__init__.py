@@ -172,10 +172,10 @@ MAX_DRAWDOWN_PCT = float(os.getenv('MAX_DRAWDOWN_PCT', '0.10'))
 MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
 
 # Minimum net edge percentage required AFTER round-trip costs before a trade is entered.
-# This is applied UNCONDITIONALLY (even when the ML signal is simulated / unavailable).
-# Set to 0.15% so that every trade must show at least 0.15% net edge above costs.
-# Prevents guaranteed-loss entries where expectancy_estimate barely exceeds cost_estimate.
-MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.15'))
+# When ml_is_simulated=True the hard filter uses break-even (expected_move >= cost)
+# instead of this threshold so the bot can collect learning data.
+# Set to 0.02% (paper-trading learning phase — relaxed for data collection).
+MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.02'))
 
 # ── Safety buffer & regime playbooks ────────────────────────────────────────
 # Base safety buffer added on top of fees+spread+slippage in the edge gate.
