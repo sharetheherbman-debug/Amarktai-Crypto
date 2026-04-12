@@ -839,13 +839,17 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
 
     total_bots_requested = safe_count + risky_count + aggressive_count
 
-    # Check bot cap — normal and scalper bots have separate caps
-    current_bot_count = await db.bots_collection.count_documents({
-        "user_id": user_id,
-        "exchange": exchange,
-        "bot_type": bot_type,
-        "status": {"$ne": "deleted"}
-    })
+    # Check bot cap — normal and scalper bots have separate caps.
+    # Use canonical filter (excludes all deletion fields) so ghost bots that
+    # have been soft-deleted but may have missing deleted_at do not inflate counts.
+    from services.bot_filters import bot_not_deleted_filter as _bndf
+    current_bot_count = await db.bots_collection.count_documents(
+        _bndf({
+            "user_id": user_id,
+            "exchange": exchange,
+            "bot_type": bot_type,
+        })
+    )
 
     can_create, reason_code = check_bot_cap_limit(exchange, current_bot_count + total_bots_requested, user_id, bot_type=bot_type)
     if not can_create:
@@ -897,9 +901,31 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     if bots_to_create:
         try:
             from services.paper_wallet_service import paper_wallet_service
+            from config import PAPER_STARTING_CAPITAL_ZAR
             currency = "ZAR" if exchange == "luno" else "USDT"
             total_required = len(bots_to_create) * capital_per_bot
             available = await paper_wallet_service.get_available_balance(user_id, currency)
+            # Auto-fund the paper wallet the first time (post-reset or first login)
+            # when the balance is 0 and starting capital is configured.  This matches
+            # the behaviour of the seed-luno-paper endpoint so batch-create works
+            # out-of-the-box without requiring a separate fund step.
+            # Note: auto-fund is always in ZAR.  For USDT exchanges the paper wallet
+            # service's reserve_funds() auto-converts ZAR→USDT at the paper FX rate, so
+            # a ZAR-funded wallet covers all exchanges transparently.
+            if available <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
+                try:
+                    await paper_wallet_service.fund(user_id, float(PAPER_STARTING_CAPITAL_ZAR), "ZAR")
+                    # Re-read available after funding (USDT will be available via ZAR conversion)
+                    available = await paper_wallet_service.get_available_balance(user_id, currency)
+                    if available <= 0:
+                        # USDT balance still 0 — fall back to full ZAR amount as proxy
+                        available = float(PAPER_STARTING_CAPITAL_ZAR)
+                    logger.info(
+                        "batch-create: auto-funded paper wallet with R%.2f ZAR for user %s",
+                        PAPER_STARTING_CAPITAL_ZAR, user_id[:8],
+                    )
+                except Exception as _fund_err:
+                    logger.warning(f"batch-create: auto-fund paper wallet failed: {_fund_err}")
             if available < total_required:
                 raise HTTPException(
                     status_code=400,
@@ -3050,20 +3076,35 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
             report["checks"]["system_modes"] = {"status": "FAIL", "error": str(e)}
         
         # 5. API keys status
+        # For paper beta: only Luno key is required.  All other exchange keys
+        # (Binance, KuCoin, etc.) are optional — a configured_invalid or
+        # not_configured status for those exchanges does NOT block paper trading.
         try:
             from services.keys_service import keys_service
             keys_status = {}
-            
-            # Check OpenAI
+
+            # Check OpenAI (optional — does not block paper trading)
             openai_key = await keys_service.get_user_api_key(user_id, 'openai')
             keys_status['openai'] = openai_key.get('status') if openai_key else 'not_configured'
-            
-            # Check exchanges
-            for exchange in ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']:
+
+            # Check exchanges — report each with optional flag for non-Luno
+            _optional_exchanges = ['binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate']
+            for exchange in ['luno'] + _optional_exchanges:
                 exchange_key = await keys_service.get_user_api_key(user_id, exchange)
-                keys_status[exchange] = exchange_key.get('status') if exchange_key else 'not_configured'
-            
-            report["checks"]["api_keys"] = {"status": "INFO", "keys": keys_status}
+                raw_status = exchange_key.get('status') if exchange_key else 'not_configured'
+                if exchange in _optional_exchanges and raw_status in ('configured_invalid', 'not_configured'):
+                    keys_status[exchange] = f"{raw_status} (optional for paper beta)"
+                else:
+                    keys_status[exchange] = raw_status
+
+            # Determine overall api_keys status: only Luno matters for paper beta
+            luno_status = keys_status.get('luno', 'not_configured')
+            api_keys_ok = luno_status == 'configured'
+            report["checks"]["api_keys"] = {
+                "status": "PASS" if api_keys_ok else "WARN",
+                "keys": keys_status,
+                "note": "Only Luno key is required for paper beta. Other exchange keys are optional.",
+            }
         except Exception as e:
             report["checks"]["api_keys"] = {"status": "FAIL", "error": str(e)}
         
@@ -3144,23 +3185,38 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
         except Exception as e:
             report["checks"]["paper_wallet"] = {"status": "WARN", "error": str(e)}
 
-        # 10. Active bots count
+        # 10. Bot counts — use canonical service so these numbers are consistent
+        #     with the radar, truth console and all other surfaces.  Active bots
+        #     are those with status="active"; total is all non-deleted records
+        #     (active + paused + stopped + other operational states).
         try:
-            active_bots = await db.bots_collection.count_documents(
-                {"user_id": user_id, "status": "active"}
-            )
-            total_bots = await db.bots_collection.count_documents(
-                {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}}
-            )
+            from services.canonical import get_canonical_bot_activity
+            _bot_activity = await get_canonical_bot_activity(user_id)
+            active_bots = _bot_activity.get("active_bot_records", 0)
+            total_bots = _bot_activity.get("total_bot_records", 0)
+            paused_bots = _bot_activity.get("paused_bots", 0)
+            runnable_bots = _bot_activity.get("runnable_active_bots", 0)
+            blocked_reasons = _bot_activity.get("non_runnable_reasons", {})
+            if active_bots > 0:
+                _status_msg = (
+                    f"{active_bots} active bot(s) ({runnable_bots} eligible to trade)"
+                )
+            elif total_bots > 0:
+                _status_msg = (
+                    f"0 active bots — {total_bots} total non-deleted records "
+                    f"({paused_bots} paused). "
+                    "Run /api/user/paper-start-fresh to clean ghost bots, then POST /api/bots/batch-create."
+                )
+            else:
+                _status_msg = "No bots found. POST /api/bots/batch-create or /api/bots/seed-luno-paper to create starter bots."
             report["checks"]["bots"] = {
                 "status": "PASS" if active_bots > 0 else "WARN",
                 "active_bots": active_bots,
                 "total_bots": total_bots,
-                "message": (
-                    f"{active_bots} active bot(s)"
-                    if active_bots > 0
-                    else "No active bots. Create and start a bot via POST /api/bots to begin paper trading."
-                ),
+                "paused_bots": paused_bots,
+                "runnable_bots": runnable_bots,
+                "blocked_reasons": blocked_reasons,
+                "message": _status_msg,
             }
         except Exception as e:
             report["checks"]["bots"] = {"status": "WARN", "error": str(e)}

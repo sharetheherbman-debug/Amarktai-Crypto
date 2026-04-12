@@ -117,9 +117,12 @@ async def run(
     # ------------------------------------------------------------------
     bot_filter: dict
     if scope == "paper_only":
+        # Include bots explicitly set to "paper" AND bots whose trading_mode is
+        # missing/null (ghost bots from older code paths that never stamped the
+        # field).  Live bots always have trading_mode="live" so they are safe.
         bot_filter = {
             "user_id": user_id,
-            "trading_mode": "paper",
+            "trading_mode": {"$nin": ["live"]},
             "status": {"$ne": "deleted"},
         }
     else:
@@ -160,7 +163,7 @@ async def run(
     if scope == "paper_only":
         surviving_filter = {
             "user_id": user_id,
-            "trading_mode": "paper",
+            "trading_mode": {"$nin": ["live"]},
             "status": {"$ne": "deleted"},
         }
     else:

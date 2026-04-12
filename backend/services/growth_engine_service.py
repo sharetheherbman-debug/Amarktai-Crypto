@@ -315,13 +315,16 @@ async def _run_profit_recycling(user_id: str, settings: dict, regime: str) -> Op
         if net_pnl < threshold:
             return {"skipped": True, "reason": f"Net profit R{net_pnl:.2f} below threshold R{threshold:.2f}"}
 
-        # Check bot cap
+        # Check bot cap — count only operational (non-deleted) bots using the
+        # canonical filter so ghost/soft-deleted bots do not falsely inflate
+        # the count and block growth engine spawning.
         bot_cap = int(settings.get("bot_cap_max", 10))
+        from services.bot_filters import bot_not_deleted_filter as _bndf_ge
         existing_bots = await db.bots_collection.count_documents(
-            {"user_id": user_id, "status": {"$nin": ["stopped", "terminated"]}}
+            _bndf_ge({"user_id": user_id})
         )
         if existing_bots >= bot_cap:
-            return {"skipped": True, "reason": f"Bot cap reached ({bot_cap} active bots)"}
+            return {"skipped": True, "reason": f"Bot cap reached ({existing_bots}/{bot_cap} bots)"}
 
         # Spawn via existing engine (dry-run in this implementation — logs decision)
         # In production: call bot_spawner.spawn_bot(user_id, config)

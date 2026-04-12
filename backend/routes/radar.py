@@ -35,6 +35,7 @@ from services.target_policy import derive_targets
 from services.truth_normalizer import normalize_bot_trade_truth
 from services.fx_normalizer import get_quote_currency, to_display_zar, get_fx_rate
 from services.reconciliation import compute_equity_zar
+from config import PAPER_SUPPORTED_EXCHANGES
 
 logger = logging.getLogger(__name__)
 
@@ -314,13 +315,34 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
     if not open_trade and not entry["eligible_to_trade"]:
         reasons = entry.get("not_eligible_reasons") or []
         if not reasons:
-            fallback_reason = (
-                entry.get("activity_reason_code")
-                or entry.get("decision_reason_code")
-                or entry.get("entry_reason_code")
-                or "eligibility_gate_blocked"
-            )
-            reasons = [str(fallback_reason)]
+            # Derive a truthful reason from the bot's actual state instead of
+            # the generic "eligibility_gate_blocked" catch-all.  This makes the
+            # radar show actionable information when the scheduler hasn't yet
+            # evaluated the bot (e.g. immediately after batch-create).
+            bot_status = bot.get("status", "unknown")
+            pause_reason = bot.get("pause_reason") or bot.get("paused_reason")
+            if bot_status == "paused":
+                reasons = [str(pause_reason) if pause_reason else "bot_paused"]
+            elif bot_status == "stopped":
+                reasons = ["bot_stopped"]
+            elif bot_status == "quarantined":
+                reasons = ["bot_quarantined"]
+            elif bot_status not in ("active", "running"):
+                reasons = [f"bot_status_{bot_status}"]
+            elif bot.get("paused_by_system"):
+                reasons = [str(pause_reason) if pause_reason else "paused_by_system"]
+            elif bot.get("paused_by_user"):
+                reasons = [str(pause_reason) if pause_reason else "paused_by_user"]
+            else:
+                # Bot is active but eligible_to_trade is False — check stored
+                # reason codes before falling back to the generic code.
+                fallback_reason = (
+                    entry.get("activity_reason_code")
+                    or entry.get("decision_reason_code")
+                    or entry.get("entry_reason_code")
+                    or "eligibility_gate_blocked"
+                )
+                reasons = [str(fallback_reason)]
             entry["not_eligible_reasons"] = reasons
         human_reason = ", ".join(reasons) if reasons else "eligibility checks blocked this bot"
         entry["next_action_reason_text"] = f"Waiting: {human_reason}"
@@ -477,6 +499,17 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
         latest_decisions = await get_latest_bot_decisions(user_id, bot_ids)
 
         radar_entries: List[Dict] = []
+
+        # One-shot wallet check for this user — used to enrich live eligibility
+        # context without making per-bot async calls.
+        try:
+            from services.paper_wallet_service import paper_wallet_service as _pws
+            _wallet = await _pws.get_balances(user_id)
+            _wallet_funded = float(_wallet.get("total", 0) or 0) > 0
+        except Exception as _wallet_err:
+            logger.warning("radar_snapshot: wallet balance check failed for user %s: %s", user_id[:8], _wallet_err)
+            _wallet_funded = True  # assume funded on error so bots are not falsely blocked
+
         for raw_bot in bots:
             # Use the canonical string bot ID (not MongoDB _id) — trades are stored with bot.id
             bot_id = raw_bot.get("id") or str(raw_bot.get("_id", ""))
@@ -487,6 +520,35 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
                 if key not in raw_bot or raw_bot.get(key) in (None, "", [])
             }
             bot = normalize_bot_state({**raw_bot, **decision_fallback})
+
+            # Compute live eligibility when the DB field is absent or False.
+            # eligible_to_trade is written by the paper engine during ticks, but
+            # may be stale (e.g. immediately after bot creation or after a reset).
+            # We recompute it here so the radar always shows the current truth.
+            if not bot.get("eligible_to_trade") and not open_trade:
+                _bot_status = raw_bot.get("status", "unknown")
+                _exchange_ok = raw_bot.get("exchange", "").lower() in PAPER_SUPPORTED_EXCHANGES
+                _live_eligible = (
+                    _bot_status in ("active", "running")
+                    and _wallet_funded
+                    and _exchange_ok
+                )
+                if _live_eligible:
+                    bot["eligible_to_trade"] = True
+                    bot["not_eligible_reasons"] = []
+                elif not bot.get("not_eligible_reasons"):
+                    # Set truthful reason so the UI can show actionable information
+                    _live_reasons: List[str] = []
+                    if _bot_status not in ("active", "running"):
+                        _pause_reason = raw_bot.get("pause_reason") or raw_bot.get("paused_reason")
+                        _live_reasons.append(
+                            str(_pause_reason) if _pause_reason else f"bot_status_{_bot_status}"
+                        )
+                    if not _wallet_funded:
+                        _live_reasons.append("wallet_insufficient")
+                    if not _exchange_ok:
+                        _live_reasons.append("exchange_not_configured")
+                    bot["not_eligible_reasons"] = _live_reasons or ["eligibility_gate_blocked"]
 
             # Find open trade for this bot
             open_trade = await db.trades_collection.find_one(
