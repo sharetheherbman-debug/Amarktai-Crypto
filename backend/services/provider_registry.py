@@ -196,10 +196,13 @@ async def test_binance(api_key: str, api_secret: str) -> tuple[bool, Optional[st
         return False, f"Binance endpoint unreachable: {error_msg[:100]}"
     except Exception as e:
         error_msg = str(e)
-        # Catch any residual futures-related error so it never causes a
-        # false-negative for a valid Spot key.
+        # This branch should never trigger when defaultType='spot' is set,
+        # but log it as an unexpected state for debugging.
         if "fapi" in error_msg.lower() or "futures" in error_msg.lower():
-            return False, "Binance Spot key valid but futures access failed (platform uses Spot only)"
+            logger.warning(
+                "test_binance: unexpected futures-related error despite defaultType='spot': %s",
+                error_msg[:200],
+            )
         return False, f"Test failed: {error_msg[:100]}"
 
 
