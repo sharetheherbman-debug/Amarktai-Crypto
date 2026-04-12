@@ -3067,22 +3067,30 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
         except Exception as e:
             report["checks"]["api_keys"] = {"status": "FAIL", "error": str(e)}
         
-        # 6. Chat diagnostic
+        # 6. Chat diagnostic (OPTIONAL — AI/chat is not required for paper trading)
         try:
             chat_diag = await diagnostics_chat(user_id)
+            chat_available = chat_diag.get('chat_available', False)
             report["checks"]["chat"] = {
-                "status": "PASS" if chat_diag.get('chat_available') else "WARN",
+                # INFO: chat is optional; its absence does NOT block paper trading
+                "status": "PASS" if chat_available else "INFO",
                 "key_source": chat_diag.get('key_source_would_use'),
-                "available": chat_diag.get('chat_available')
+                "available": chat_available,
+                "optional": True,
+                "message": (
+                    "AI chat is available"
+                    if chat_available
+                    else "AI chat key not configured (optional — does not affect paper trading)"
+                ),
             }
         except Exception as e:
-            report["checks"]["chat"] = {"status": "FAIL", "error": str(e)}
+            report["checks"]["chat"] = {"status": "INFO", "error": str(e), "optional": True}
         
         # 7. Bots scheduler state
         try:
-            # Check if scheduler is running
+            # Check if scheduler is running — attribute is `is_running`, not `running`
             from trading_scheduler import trading_scheduler
-            scheduler_running = trading_scheduler.running if hasattr(trading_scheduler, 'running') else False
+            scheduler_running = getattr(trading_scheduler, "is_running", False)
             report["checks"]["scheduler"] = {
                 "status": "PASS" if scheduler_running else "WARN",
                 "running": scheduler_running
@@ -3105,20 +3113,30 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
             report["checks"]["realtime"] = {"status": "WARN", "error": str(e)}
 
         # 9. Paper wallet funding status
+        # Use available + allocated (ledger) funds — same truth as /api/wallet/paper.
+        # Funds deployed in open positions are in the ledger, not in unallocated balance.
         try:
             from services.paper_wallet_service import paper_wallet_service
+            from services.paper_wallet_ledger import paper_wallet_ledger as _pwl
             wallet_status = await paper_wallet_service.get_wallet_status(user_id)
             available_zar = float(wallet_status.get("available_zar", 0.0))
-            # Use the canonical `funded` flag from get_wallet_status (total > 0 across
-            # all currencies) so that USDT-funded wallets are not incorrectly reported
-            # as unfunded just because available_zar is zero.
-            funded = wallet_status.get("funded", False)
+            # get_user_balance() already aggregates available + ledger-allocated funds
+            try:
+                grand_total = await _pwl.get_user_balance(user_id)
+                if not isinstance(grand_total, (int, float)) or grand_total < 0:
+                    grand_total = max(0.0, float(wallet_status.get("total", 0.0)))
+            except Exception:
+                grand_total = max(0.0, float(wallet_status.get("total", 0.0)))
+            allocated_zar = max(0.0, grand_total - available_zar)
+            funded = grand_total > 0
             report["checks"]["paper_wallet"] = {
                 "status": "PASS" if funded else "WARN",
                 "funded": funded,
                 "available_wallet_zar": round(available_zar, 2),
+                "allocated_zar": round(allocated_zar, 2),
+                "total_zar": round(grand_total, 2),
                 "message": (
-                    f"Paper wallet funded with R{available_zar:.2f} ZAR"
+                    f"Paper wallet funded (available R{available_zar:.2f} + allocated R{allocated_zar:.2f} = R{grand_total:.2f} ZAR)"
                     if funded
                     else "Paper wallet is unfunded. POST /api/wallet/paper/fund or /api/wallet/paper/set-balance to add capital."
                 ),
