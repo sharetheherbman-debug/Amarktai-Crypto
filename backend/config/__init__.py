@@ -109,8 +109,9 @@ PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 # Default 60 min; set to 0 to disable.
 PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
-# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 10 min.
-STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '10'))
+# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 7 min.
+# (reduced from 10 to exit faster on no movement and reduce stagnation losses).
+STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '7'))
 # Fee break-even exit: close when the trade has been open at least this long AND
 # the unrealised PnL is definitively below -round_trip_cost_pct (the loss already
 # exceeds what fees/spread would cost even at breakeven).  Default: 10 min.
@@ -169,6 +170,12 @@ MAX_DRAWDOWN_PCT = float(os.getenv('MAX_DRAWDOWN_PCT', '0.10'))
 # Expectancy = (win_rate * avg_win) - (loss_rate * avg_loss) - round_trip_cost
 # 0 means "expectancy must be strictly positive". Set negative to disable.
 MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
+
+# Minimum net edge percentage required AFTER round-trip costs before a trade is entered.
+# This is applied UNCONDITIONALLY (even when the ML signal is simulated / unavailable).
+# Set to 0.10% so that every trade must show at least 0.1% net edge.
+# Prevents guaranteed-loss entries where expectancy_estimate <= cost_estimate.
+MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.10'))
 
 # ── Safety buffer & regime playbooks ────────────────────────────────────────
 # Base safety buffer added on top of fees+spread+slippage in the edge gate.
@@ -336,6 +343,7 @@ __all__ = [
     'TRAINING_TRADES_REQUIRED',
     'MAX_DRAWDOWN_PCT',
     'MIN_EXPECTANCY_ZAR',
+    'MINIMUM_EDGE_PCT',
     'SAFETY_BUFFER_PCT',
     'SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER',
     'RISK_MODE_CONFIG',

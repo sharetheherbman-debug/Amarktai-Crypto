@@ -75,6 +75,7 @@ from config import (
     TRAINING_MAX_HOLD_MINUTES,
     MAX_DRAWDOWN_PCT,
     MIN_EXPECTANCY_ZAR,
+    MINIMUM_EDGE_PCT,
     SAFETY_BUFFER_PCT,
     SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER,
     RISK_MODE_CONFIG,
@@ -1217,6 +1218,44 @@ class PaperTradingEngine:
             edge_required_pct = estimated_cost_pct + _effective_safety_buffer
 
             ml_is_simulated = prediction.get("is_simulated", False)
+
+            # ── HARD TRADE FILTER (Fix 1 & 2): unconditional net-edge check ────────
+            # Block any trade where net edge after costs does not exceed MINIMUM_EDGE_PCT.
+            # This applies even when ml_is_simulated=True — the root cause of entries
+            # with expectancy_estimate: -0.37 and cost_estimate: 0.37 (guaranteed loss).
+            # Covers two problem cases:
+            #   a) expected_move_pct <= estimated_cost_pct  (no positive edge at all)
+            #   b) net edge > 0 but <= MINIMUM_EDGE_PCT     (insufficient edge for costs+buffer)
+            _net_edge_pct = expected_move_pct - estimated_cost_pct
+            if _net_edge_pct <= MINIMUM_EDGE_PCT:
+                logger.info(
+                    f"⏭️  SKIP_HARD_EDGE | {bot_data.get('name', bot_id[:8])} | "
+                    f"net_edge={_net_edge_pct:.4f}% <= min={MINIMUM_EDGE_PCT:.4f}% "
+                    f"(expected={expected_move_pct:.4f}% cost={estimated_cost_pct:.4f}% ml_sim={ml_is_simulated})"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="hard_edge_filter",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "hard_edge_filter",
+                    "error": "Net edge after costs does not meet minimum threshold",
+                    "details": {
+                        "net_edge_pct": round(_net_edge_pct, 4),
+                        "minimum_edge_pct": MINIMUM_EDGE_PCT,
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "estimated_cost_pct": round(estimated_cost_pct, 4),
+                        "ml_is_simulated": ml_is_simulated,
+                        "exchange": exchange,
+                        "symbol": symbol,
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
+                    },
+                }
+
             if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
                 logger.info(
                     f"⏭️  SKIP_EDGE_GATE | {bot_data.get('name', bot_id[:8])} | "
@@ -1257,7 +1296,7 @@ class PaperTradingEngine:
             trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
             estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
             estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
-            if not ml_is_simulated and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+            if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
                 logger.info(
                     f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
@@ -1326,11 +1365,22 @@ class PaperTradingEngine:
                 _conf_threshold = BASE_CONFIDENCE_THRESHOLD + LOSING_STREAK_SIGNAL_BOOST
             else:
                 _conf_threshold = BASE_CONFIDENCE_THRESHOLD
+
+            # Fix 3/4: Consolidation/choppy regime — reduce trading frequency by requiring
+            # stronger signal confirmation.  Mean-reversion in a tight range without a
+            # breakout signal is coin-flip quality; demand at least 2 agreeing sources and
+            # a higher average confidence before entering.
+            _consolidation_regimes = ("consolidation", "choppy", "sideways", "SQUEEZE")
+            if playbook == "mean_reversion" and playbook_info["regime"] in _consolidation_regimes:
+                min_sources_required = max(min_sources_required, 2)
+                _conf_threshold = max(_conf_threshold, BASE_CONFIDENCE_THRESHOLD + 0.15)
+
             if confidence_sources < min_sources_required or avg_confidence < _conf_threshold:
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
                     f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
-                    f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak}"
+                    f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak} "
+                    f"regime={playbook_info['regime']} playbook={playbook}"
                 )
                 return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
             
