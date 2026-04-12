@@ -211,16 +211,19 @@ async def test_binance(api_key: str, api_secret: str) -> tuple[bool, Optional[st
         msg = data.get("msg", "Unknown error")
 
         if response.status_code in (400, 401):
-            # -2014 / -2015: API-key format invalid / invalid
+            # -2014: API-key format is invalid
+            if code == -2014:
+                return False, "API key format is invalid"
+            # -2015: Invalid API-key, IP, or permissions
+            if code == -2015:
+                return False, "Invalid API key, IP restriction, or missing permissions"
             # -1022 / -2008: signature-related errors
-            if code in (-2014, -2015):
-                return False, "Invalid API key"
             if code in (-1022, -2008):
-                return False, "Invalid API key signature — check your API secret"
+                return False, "Invalid API key signature -- check your API secret"
             return False, f"Binance Spot auth error (code {code}): {msg}"
 
         if response.status_code == 403:
-            return False, "API key lacks Spot read permissions (enable 'Read Info' in Binance key settings)"
+            return False, "API key lacks Spot read permissions (enable 'Enable Reading' in Binance API key settings)"
 
         return False, f"Binance Spot validation failed (HTTP {response.status_code}): {msg}"
 
