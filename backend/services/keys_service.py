@@ -115,7 +115,13 @@ class KeysService:
                 'secret': api_secret,
                 'enableRateLimit': True
             }
-            
+
+            # Binance: always use Spot endpoints — prevents CCXT from probing
+            # fapi.binance.com (futures) which causes a false-negative for
+            # Spot-only API keys.
+            if provider == 'binance':
+                config['options'] = {'defaultType': 'spot'}
+
             if passphrase and provider == 'kucoin':
                 config['password'] = passphrase
             
