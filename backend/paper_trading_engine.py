@@ -92,7 +92,7 @@ except ImportError:
 
 try:
     from ml_predictor import ml_predictor
-except ImportError:
+except Exception:
     ml_predictor = None  # type: ignore
 
 try:
@@ -1257,7 +1257,7 @@ class PaperTradingEngine:
             trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
             estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
             estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
-            if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+            if not ml_is_simulated and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
                 logger.info(
                     f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "

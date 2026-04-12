@@ -250,9 +250,6 @@ class AutopilotGrowthService:
         if not config.ENABLE_AUTOPILOT:
             reasons.append("AUTOPILOT_DISABLED")
 
-        if not config.ENABLE_TRADING or not (config.ENABLE_PAPER_TRADING or config.ENABLE_LIVE_TRADING):
-            reasons.append("TRADING_MODE_DISABLED")
-
         user = await self.db.users.find_one(
             {"id": self.user_id},
             {"_id": 0, "autopilot_enabled": 1, "daily_loss_lock_active": 1}
@@ -263,6 +260,18 @@ class AutopilotGrowthService:
             reasons.append("DAILY_LOSS_LOCK_ACTIVE")
 
         modes = await self.db.system_modes.find_one({"user_id": self.user_id}, {"_id": 0})
+        # Trading mode: accept either the static config flags OR the runtime per-user
+        # system_modes flags (paperTrading / liveTrading set via the dashboard toggle).
+        _paper_runtime = modes.get("paperTrading", False) if modes else False
+        _live_runtime = modes.get("liveTrading", False) if modes else False
+        _trading_enabled = (
+            (config.ENABLE_TRADING and (config.ENABLE_PAPER_TRADING or config.ENABLE_LIVE_TRADING))
+            or _paper_runtime
+            or _live_runtime
+        )
+        if not _trading_enabled:
+            reasons.append("TRADING_MODE_DISABLED")
+
         if modes and not modes.get("autopilot", False):
             reasons.append("AUTOPILOT_MODE_DISABLED")
         if modes and modes.get("emergencyStop", False):
@@ -307,8 +316,9 @@ class AutopilotGrowthService:
             if today_spawns >= config.AUTO_SPAWN_MAX_PER_DAY:
                 reasons.append("MAX_SPAWNS_REACHED")
 
-        # API keys are only required for live trading; paper mode runs without exchange keys
-        skip_api_key_check = config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING
+        # API keys are only required for live trading; paper mode runs without exchange keys.
+        # Use runtime flags first, then fall back to static config.
+        skip_api_key_check = (_paper_runtime and not _live_runtime) or (config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING)
         if not skip_api_key_check:
             key_doc = await self.db.api_keys.find_one(
                 {"user_id": str(self.user_id), "provider": platform},

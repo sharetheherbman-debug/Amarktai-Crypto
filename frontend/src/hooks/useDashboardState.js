@@ -2184,7 +2184,7 @@ export default function useDashboardState(navigate) {
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      await axios.post(`${API}/system/paper-reset`, {}, axiosConfig);
+      await axios.post(`${API}/system/paper-reset`, { password: paperResetPassword }, axiosConfig);
       toast.success('Paper session reset completed.');
       setPaperResetPassword('');
       setShowPaperResetModal(false);
