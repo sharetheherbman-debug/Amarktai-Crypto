@@ -381,20 +381,42 @@ export default function LiveTradesSection({
               ))}
             </div>
 
-            {(selectedTrade.reason || selectedTrade.decision_trace) && (
-              <div style={{
-                marginTop: '14px',
-                padding: '12px',
-                background: 'rgba(59, 130, 246, 0.06)',
-                border: '1px solid var(--line)',
-                borderRadius: '10px',
-              }}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Decision Trace</div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: '1.5' }}>
-                  {selectedTrade.reason || selectedTrade.decision_trace}
+            {(selectedTrade.reason != null || selectedTrade.decision_trace != null) && (() => {
+              const raw = selectedTrade.reason != null ? selectedTrade.reason : selectedTrade.decision_trace;
+              // Safely convert to renderable content — objects cause React error #31
+              const renderTrace = () => {
+                if (raw == null) return null;
+                if (typeof raw === 'string') return <span>{raw}</span>;
+                if (typeof raw !== 'object') return <span>{String(raw)}</span>;
+                // Object: render as key-value rows for readability
+                return (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                    <tbody>
+                      {Object.entries(raw).map(([k, v]) => (
+                        <tr key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <td style={{ padding: '3px 8px 3px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600 }}>{k}</td>
+                          <td style={{ padding: '3px 0', color: 'var(--text)', wordBreak: 'break-word' }}>
+                            {v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              };
+              return (
+                <div style={{
+                  marginTop: '14px',
+                  padding: '12px',
+                  background: 'rgba(59, 130, 246, 0.06)',
+                  border: '1px solid var(--line)',
+                  borderRadius: '10px',
+                }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Decision Trace</div>
+                  {renderTrace()}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>
