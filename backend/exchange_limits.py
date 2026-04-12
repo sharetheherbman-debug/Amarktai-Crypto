@@ -5,20 +5,23 @@ Exchange Rate Limits - Production Requirements
 
 REQUIREMENTS PER EXCHANGE (NORMAL BOTS):
 - Luno: 5 bots max, 400 trades/bot/day, 2,000 total/day
-- Binance: 10 bots max, 500 trades/bot/day, 5,000 total/day  
+- Binance: 10 bots max, 500 trades/bot/day, 5,000 total/day
 - KuCoin: 10 bots max, 1,000 trades/bot/day, 10,000 total/day
 - Bybit: 10 bots max, 800 trades/bot/day, 8,000 total/day
 - Kraken: 10 bots max, 800 trades/bot/day, 8,000 total/day
 - Bitget: 10 bots max, 800 trades/bot/day, 8,000 total/day
 - Gate.io: 10 bots max, 800 trades/bot/day, 8,000 total/day
+- Coinbase: 10 bots max, 600 trades/bot/day, 6,000 total/day
 
-GLOBAL LIMIT (NORMAL): 65 bots total across all 7 exchanges
+GLOBAL LIMIT (NORMAL): 75 bots total across all 8 exchanges (5 + 10×7)
 
 SCALPER BOTS (SEPARATE CATEGORY):
-- Luno: max 2 scalper bots
-- All other exchanges: max 5 scalper bots each
+- Luno: max 5 scalper bots
+- All other exchanges: max 10 scalper bots each
 - Scalpers are tracked independently from normal bots.
 - Scalper caps do NOT affect normal bot caps.
+
+GLOBAL LIMIT (SCALPER): 75 scalper bots total across all 8 exchanges (5 + 10×7)
 
 These limits ensure:
 - Safe operation within exchange API limits
@@ -29,7 +32,7 @@ These limits ensure:
 import os
 
 # ── Normal bot limits ───────────────────────────────────────────────────
-MAX_BOTS_GLOBAL = 65  # Normal bots only
+MAX_BOTS_GLOBAL = 75  # Normal bots only: 5 (luno) + 10*7 (others) = 75
 
 BOT_ALLOCATION = {
     "luno": 5,
@@ -38,20 +41,22 @@ BOT_ALLOCATION = {
     "bybit": 10,
     "kraken": 10,
     "bitget": 10,
-    "gate": 10
+    "gate": 10,
+    "coinbase": 10,
 }
 
 # ── Scalper bot limits (separate category) ──────────────────────────────
-MAX_SCALPER_BOTS_GLOBAL = 32  # 2 + 5*6
+MAX_SCALPER_BOTS_GLOBAL = 75  # 5 (luno) + 10*7 (others) = 75
 
 SCALPER_BOT_ALLOCATION = {
-    "luno": 2,
-    "binance": 5,
-    "kucoin": 5,
-    "bybit": 5,
-    "kraken": 5,
-    "bitget": 5,
-    "gate": 5,
+    "luno": 5,
+    "binance": 10,
+    "kucoin": 10,
+    "bybit": 10,
+    "kraken": 10,
+    "bitget": 10,
+    "gate": 10,
+    "coinbase": 10,
 }
 
 # ── Scalper EV gating thresholds ────────────────────────────────────────
@@ -149,6 +154,17 @@ EXCHANGE_LIMITS = {
         "max_orders_per_10_seconds": 10,
         "fee_maker": 0.002,  # 0.2%
         "fee_taker": 0.002,  # 0.2%
+    },
+    "coinbase": {
+        "max_bots": 10,
+        "trades_per_bot_day": 600,
+        "total_trades_day": 6000,  # 10 bots × 600
+        "max_orders_per_day": 6000,  # Alias for total_trades_day
+        "max_orders_per_bot_per_day": 600,  # Alias for trades_per_bot_day
+        "max_orders_per_minute": 30,
+        "max_orders_per_10_seconds": 5,
+        "fee_maker": 0.004,  # 0.4%
+        "fee_taker": 0.006,  # 0.6%
     },
 }
 

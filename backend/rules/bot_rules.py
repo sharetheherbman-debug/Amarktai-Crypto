@@ -27,14 +27,14 @@ BOT_CAPS = {
 
 # Scalper-specific caps per exchange (do NOT share slots with normal bots)
 SCALPER_CAPS = {
-    'luno': 2,      # Luno scalper max 2
-    'binance': 5,   # All other exchanges scalper max 5
-    'kucoin': 5,
-    'bybit': 5,
-    'kraken': 5,
-    'bitget': 5,
-    'gate': 5,
-    'coinbase': 5,
+    'luno': 5,      # Luno scalper max 5
+    'binance': 10,  # All other exchanges scalper max 10
+    'kucoin': 10,
+    'bybit': 10,
+    'kraken': 10,
+    'bitget': 10,
+    'gate': 10,
+    'coinbase': 10,
 }
 
 # Profit thresholds for auto-growth (per exchange, in ZAR)

@@ -50,7 +50,7 @@ DEFAULT_SETTINGS = {
     "profit_recycle_threshold_r": 100.0,   # Min profit (ZAR) before recycling
     "profit_recycle_max_per_day": 2,        # Max bots spawned per day
     "capital_shift_max_pct": 20.0,          # Max % to shift per tick
-    "bot_cap_max": 10,                      # Hard upper limit on bot count
+    "bot_cap_max": 75,                      # Hard upper limit on bot count (matches system max: 5+10×7)
     "aggression_min_green_days": 5,         # Days of profit required before aggression
     "aggression_max_drawdown_pct": 5.0,     # Max drawdown % to allow aggression
     "risk_budget_scale_factor": 1.0,        # Current risk budget multiplier (1.0 = unchanged)
