@@ -109,7 +109,7 @@ PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 # Default 60 min; set to 0 to disable.
 PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
-# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 7 min
+# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 7 min.
 # (reduced from 10 to exit faster on no movement and reduce stagnation losses).
 STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '7'))
 # Fee break-even exit: close when the trade has been open at least this long AND
