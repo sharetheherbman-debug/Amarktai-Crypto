@@ -1321,14 +1321,17 @@ class PaperTradingEngine:
             ml_is_simulated = prediction.get("is_simulated", False)
 
             # ── HARD TRADE FILTER: net-edge check ───────────────────────────────────
-            # When ml_is_simulated=True (no real ML signal yet) we apply a relaxed
-            # break-even rule: allow entry as long as expected_move_pct >= estimated_cost_pct.
-            # This lets the bot collect learning data without taking guaranteed-loss trades.
+            # When ml_is_simulated=True (no real ML signal yet) we operate in
+            # paper data-collection mode.  Only block entries that have ZERO
+            # directional signal (expected_move_pct == 0); any positive fallback
+            # signal is allowed through so the bot can accumulate training data.
+            # This deliberately accepts sub-fee-cost simulated trades: the goal is
+            # data, not profit, and cost accounting is still tracked in the ledger.
             # When a real ML signal is available we enforce the stricter MINIMUM_EDGE_PCT.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
 
             _hard_edge_blocked = (
-                expected_move_pct < estimated_cost_pct  # guaranteed loss even for simulated
+                expected_move_pct == 0  # paper data-collection: block zero-signal only
                 if ml_is_simulated
                 else _net_edge_pct <= MINIMUM_EDGE_PCT
             )
@@ -1426,7 +1429,10 @@ class PaperTradingEngine:
             trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
             estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
             estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
-            if estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+            # In simulated-ML mode the hard edge filter already guarantees expected_move_pct != 0.
+            # Skipping this gate prevents double-blocking data-collection paper trades where
+            # the fallback signal is positive but below the round-trip cost (by design).
+            if not ml_is_simulated and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
                 logger.info(
                     f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
@@ -1518,7 +1524,14 @@ class PaperTradingEngine:
                 min_sources_required = max(min_sources_required, 2)
                 _conf_threshold = max(_conf_threshold, BASE_CONFIDENCE_THRESHOLD + 0.15)
 
-            if confidence_sources < min_sources_required or avg_confidence < _conf_threshold:
+            # In simulated-ML data-collection mode the only available source is the
+            # local regime detector, whose confidence ramps up as price history grows.
+            # Bypassing the strict threshold here lets bots trade (and build training
+            # data) from the very first tick rather than waiting for the regime
+            # confidence ramp-up period.  We still require at least one regime
+            # source to have reported (confidence_sources >= 1).
+            _sim_bypass_confidence = ml_is_simulated and confidence_sources >= 1
+            if not _sim_bypass_confidence and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
                     f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
