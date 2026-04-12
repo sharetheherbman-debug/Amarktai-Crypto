@@ -3124,19 +3124,19 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
             try:
                 grand_total = await _pwl.get_user_balance(user_id)
                 if not isinstance(grand_total, (int, float)) or grand_total < 0:
-                    grand_total = float(wallet_status.get("total", 0.0))
+                    grand_total = max(0.0, float(wallet_status.get("total", 0.0)))
             except Exception:
-                grand_total = float(wallet_status.get("total", 0.0))
-            allocated_zar = max(0.0, float(grand_total) - available_zar)
-            funded = float(grand_total) > 0
+                grand_total = max(0.0, float(wallet_status.get("total", 0.0)))
+            allocated_zar = max(0.0, grand_total - available_zar)
+            funded = grand_total > 0
             report["checks"]["paper_wallet"] = {
                 "status": "PASS" if funded else "WARN",
                 "funded": funded,
                 "available_wallet_zar": round(available_zar, 2),
                 "allocated_zar": round(allocated_zar, 2),
-                "total_zar": round(float(grand_total), 2),
+                "total_zar": round(grand_total, 2),
                 "message": (
-                    f"Paper wallet funded (available R{available_zar:.2f} + allocated R{allocated_zar:.2f} = R{float(grand_total):.2f} ZAR)"
+                    f"Paper wallet funded (available R{available_zar:.2f} + allocated R{allocated_zar:.2f} = R{grand_total:.2f} ZAR)"
                     if funded
                     else "Paper wallet is unfunded. POST /api/wallet/paper/fund or /api/wallet/paper/set-balance to add capital."
                 ),
