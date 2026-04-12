@@ -114,14 +114,16 @@ function DisabledPanel({ title, reasons }) {
 function PlatformGrowthCard({ platform, data, threshold }) {
   const profit = safeNum(data?.realized_profit_zar);
   const nextThreshold = safeNum(data?.next_threshold_zar ?? (safeNum(data?.next_milestone) * safeNum(threshold)));
-  const progress = nextThreshold > 0 ? Math.min((profit / nextThreshold) * 100, 100) : 0;
+  // Losses must never fill the progress bar — clamp to [0, 100] only for positive profit.
+  const progress = (profit > 0 && nextThreshold > 0) ? Math.min((profit / nextThreshold) * 100, 100) : 0;
+  const isLoss = profit < 0;
   const spawned = safeNum(data?.milestones_spawned ?? data?.total_spawned);
   const eligible = data?.eligible;
   const blocked = (data?.blocked_reasons || []).filter(r => r !== 'PROFIT_BELOW_THRESHOLD');
 
   return (
     <div style={{
-      background: 'var(--glass)', border: '1px solid var(--line)',
+      background: 'var(--glass)', border: `1px solid ${isLoss ? 'rgba(239,68,68,0.3)' : 'var(--line)'}`,
       borderRadius: '12px', padding: '18px',
       display: 'flex', flexDirection: 'column', gap: '12px',
     }}>
@@ -135,19 +137,31 @@ function PlatformGrowthCard({ platform, data, threshold }) {
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
           <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Progress to next milestone</span>
-          <span style={{ color: 'var(--accent2)', fontSize: '0.8rem', fontWeight: 600 }}>{progress.toFixed(1)}%</span>
+          <span style={{ color: isLoss ? '#ef4444' : 'var(--accent2)', fontSize: '0.8rem', fontWeight: 600 }}>
+            {isLoss ? '▼ Loss' : `${progress.toFixed(1)}%`}
+          </span>
         </div>
         <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '6px', height: '6px', overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', borderRadius: '6px', width: `${progress}%`,
-            background: eligible
-              ? 'linear-gradient(90deg, var(--success), #34d399)'
-              : 'linear-gradient(90deg, var(--accent2), #60a5fa)',
-            transition: 'width 0.4s ease',
-          }} />
+          {isLoss ? (
+            // Loss indicator: full-width red bar to signal negative realized profit
+            <div style={{
+              height: '100%', borderRadius: '6px', width: '100%',
+              background: 'rgba(239,68,68,0.35)',
+            }} />
+          ) : (
+            <div style={{
+              height: '100%', borderRadius: '6px', width: `${progress}%`,
+              background: eligible
+                ? 'linear-gradient(90deg, var(--success), #34d399)'
+                : 'linear-gradient(90deg, var(--accent2), #60a5fa)',
+              transition: 'width 0.4s ease',
+            }} />
+          )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px' }}>
-          <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{fmtZAR(profit)} realized</span>
+          <span style={{ color: isLoss ? '#ef4444' : 'var(--muted)', fontSize: '0.75rem', fontWeight: isLoss ? 700 : 400 }}>
+            {fmtZAR(profit)} realized{isLoss ? ' (loss)' : ''}
+          </span>
           <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>Target: {fmtZAR(nextThreshold)}</span>
         </div>
       </div>
@@ -288,11 +302,14 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
     };
   }, [growthData]);
 
-  // Determine overall growth engine operational status
+  // Determine overall growth engine operational status.
+  // Platform-level blockers (funds, API keys, max bots) also block the engine — show "Blocked"
+  // not "Active — Accumulating" when no spawn can happen for reasons other than profit threshold.
   const growthStatus = useMemo(() => {
     if (!growthEnabled) return 'disabled';
     if (globalGrowthBlockers.length > 0) return 'blocked';
     if (aggregateStats.eligiblePlatforms > 0) return 'ready';
+    if (aggregateStats.blockedPlatforms > 0) return 'blocked';
     return 'accumulating';
   }, [growthEnabled, globalGrowthBlockers, aggregateStats]);
 
@@ -328,7 +345,7 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
                 <span style={{ fontSize: '0.82rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Growth Engine</span>
                 <span style={{ fontWeight: 700, fontSize: '1.1rem', color: sd.color }}>● {sd.label}</span>
                 <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-                  Reinvest: {reinvestEnabled ? '● Active' : '○ Disabled'}
+                  Reinvest: {!reinvestEnabled ? '○ Disabled' : aggregateStats.blockedPlatforms > 0 && aggregateStats.eligiblePlatforms === 0 ? '● Enabled — Blocked' : '● Active'}
                 </span>
               </div>
             );
