@@ -131,8 +131,9 @@ STOP_LOSS_COOLDOWN_MINUTES = int(os.getenv('STOP_LOSS_COOLDOWN_MINUTES', '30'))
 LOSING_STREAK_THRESHOLD = int(os.getenv('LOSING_STREAK_THRESHOLD', '3'))
 LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10'))
 # Base average-confidence threshold for entry. Raised by LOSING_STREAK_SIGNAL_BOOST
-# after a losing streak. Default: 0.65 (65%).
-BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.65'))
+# after a losing streak. Lowered to 0.30 to allow trades when only the local
+# market-regime source is available (Fetch.ai / ML often return is_simulated=True).
+BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.30'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.

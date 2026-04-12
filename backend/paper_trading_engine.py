@@ -1294,7 +1294,7 @@ class PaperTradingEngine:
 
             # Market regime is always locally computed
             available_sources += 1
-            if regime.get('confidence', 0) > 0.5:
+            if regime.get('confidence', 0) > 0.3:
                 total_confidence += regime.get('confidence', 0)
                 confidence_sources += 1
 

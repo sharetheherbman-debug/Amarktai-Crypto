@@ -3081,7 +3081,7 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
         # 7. Bots scheduler state
         try:
             # Check if scheduler is running
-            from engines.scheduler import trading_scheduler
+            from trading_scheduler import trading_scheduler
             scheduler_running = trading_scheduler.running if hasattr(trading_scheduler, 'running') else False
             report["checks"]["scheduler"] = {
                 "status": "PASS" if scheduler_running else "WARN",
@@ -3109,10 +3109,10 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
             from services.paper_wallet_service import paper_wallet_service
             wallet_status = await paper_wallet_service.get_wallet_status(user_id)
             available_zar = float(wallet_status.get("available_zar", 0.0))
-            # Base the funded flag on available ZAR so it is always consistent
-            # with the value shown in the message (avoids a scenario where other
-            # currency balances make `funded=True` while available_zar is 0).
-            funded = available_zar > 0
+            # Use the canonical `funded` flag from get_wallet_status (total > 0 across
+            # all currencies) so that USDT-funded wallets are not incorrectly reported
+            # as unfunded just because available_zar is zero.
+            funded = wallet_status.get("funded", False)
             report["checks"]["paper_wallet"] = {
                 "status": "PASS" if funded else "WARN",
                 "funded": funded,
