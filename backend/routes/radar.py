@@ -506,8 +506,9 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
             from services.paper_wallet_service import paper_wallet_service as _pws
             _wallet = await _pws.get_balances(user_id)
             _wallet_funded = float(_wallet.get("total", 0) or 0) > 0
-        except Exception:
-            _wallet_funded = True  # assume funded on error to avoid blocking display
+        except Exception as _wallet_err:
+            logger.warning("radar_snapshot: wallet balance check failed for user %s: %s", user_id[:8], _wallet_err)
+            _wallet_funded = True  # assume funded on error so bots are not falsely blocked
 
         for raw_bot in bots:
             # Use the canonical string bot ID (not MongoDB _id) — trades are stored with bot.id

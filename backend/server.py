@@ -909,10 +909,17 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
             # when the balance is 0 and starting capital is configured.  This matches
             # the behaviour of the seed-luno-paper endpoint so batch-create works
             # out-of-the-box without requiring a separate fund step.
-            if available <= 0 and currency == "ZAR" and PAPER_STARTING_CAPITAL_ZAR > 0:
+            # Note: auto-fund is always in ZAR.  For USDT exchanges the paper wallet
+            # service's reserve_funds() auto-converts ZAR→USDT at the paper FX rate, so
+            # a ZAR-funded wallet covers all exchanges transparently.
+            if available <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
                 try:
                     await paper_wallet_service.fund(user_id, float(PAPER_STARTING_CAPITAL_ZAR), "ZAR")
-                    available = float(PAPER_STARTING_CAPITAL_ZAR)
+                    # Re-read available after funding (USDT will be available via ZAR conversion)
+                    available = await paper_wallet_service.get_available_balance(user_id, currency)
+                    if available <= 0:
+                        # USDT balance still 0 — fall back to full ZAR amount as proxy
+                        available = float(PAPER_STARTING_CAPITAL_ZAR)
                     logger.info(
                         "batch-create: auto-funded paper wallet with R%.2f ZAR for user %s",
                         PAPER_STARTING_CAPITAL_ZAR, user_id[:8],

@@ -90,13 +90,14 @@ async def compute_bot_eligibility(user_id: str, db) -> Dict[str, Any]:
         explicit_eligible = b.get("eligible_to_trade")
         if explicit_eligible:
             eligible.append(b)
-        elif explicit_eligible is None or explicit_eligible == "":
+        elif explicit_eligible is None:
             # Field never written — treat active bots with no explicit block as eligible
             if b.get("active") and not b.get("not_eligible_reasons"):
                 eligible.append(b)
             else:
                 ineligible.append(b)
         else:
+            # explicit_eligible is False — genuinely ineligible
             ineligible.append(b)
 
     # Separate normal vs scalper counts
