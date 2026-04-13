@@ -133,6 +133,8 @@ PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
+# Minimum average confidence required for paper mode quality bypass (learning/data-collection mode).
+MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.1"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1175,20 +1177,15 @@ class PaperTradingEngine:
                             _hurst_detail["override"] = "confidence_override"
                         else:
                             # PAPER DATA-COLLECTION BYPASS:
-                            # When ml_is_simulated=True (no real ML signal yet), the Hurst
-                            # filter may block normal bots in random-walk conditions even
-                            # though the purpose of paper trading is to COLLECT TRAINING DATA.
-                            # In that case, allow the entry with a data-collection annotation
-                            # so the bot accumulates trade history without being permanently
-                            # blocked by market-structure gating.
-                            # Live-mode behaviour is unchanged: ml_is_simulated=False still
-                            # enforces the strict Hurst block.
-                            _paper_hurst_bypass = prediction.get("is_simulated", True)
+                            # Paper mode bots are always allowed to trade regardless of Hurst
+                            # regime mismatch — the purpose of paper trading is to COLLECT
+                            # TRAINING DATA.  Any detected regime (even mismatched) is
+                            # acceptable for learning.  Live-mode behaviour is unchanged.
+                            _paper_hurst_bypass = _is_paper_mode_bot
                             if _paper_hurst_bypass:
                                 logger.info(
-                                    "⚠️  HURST_PAPER_BYPASS | %s | %s | %s | "
-                                    "confidence=%.3f < 0.55 but ml_is_simulated=True — "
-                                    "allowing entry for data-collection",
+                                    "[REGIME_BYPASS] paper_mode_override | %s | %s | %s | "
+                                    "confidence=%.3f — allowing entry for data-collection",
                                     bot_data.get("name", bot_id[:8]), symbol,
                                     _hurst_detail.get("reason", "Hurst regime mismatch"),
                                     _hurst_confidence,
@@ -1399,7 +1396,7 @@ class PaperTradingEngine:
             # collection and learning, not profit guarding.  Live mode remains strict.
             if _is_paper_mode_bot:
                 _hard_edge_blocked = False
-                logger.debug(
+                logger.info(
                     "[EDGE_BYPASS] paper_mode_override | %s | net_edge=%.4f%%",
                     bot_data.get("name", bot_id[:8]), _net_edge_pct,
                 )
@@ -1601,7 +1598,16 @@ class PaperTradingEngine:
             # confidence ramp-up period.  We still require at least one regime
             # source to have reported (confidence_sources >= 1).
             _sim_bypass_confidence = ml_is_simulated and confidence_sources >= 1
-            if not _sim_bypass_confidence and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
+            # Paper mode bypass: allow trade if ANY minimal confidence detected (>= 0.1).
+            # Paper mode is a learning environment; strict quality gates only apply to live.
+            _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= MIN_PAPER_MODE_CONFIDENCE
+            if _paper_quality_bypass:
+                logger.info(
+                    "[QUALITY_BYPASS] paper_mode_override | %s | %s | "
+                    "avg_confidence=%.3f sources=%d — allowing entry for data-collection",
+                    bot_data.get("name", bot_id[:8]), symbol, avg_confidence, confidence_sources,
+                )
+            if not _sim_bypass_confidence and not _paper_quality_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
                     f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
