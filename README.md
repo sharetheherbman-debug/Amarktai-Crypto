@@ -1,12 +1,12 @@
 # Amarktai Network - Autonomous Trading Platform
 
-**Production-ready AI-powered cryptocurrency trading system** supporting paper and live trading across 7 major exchanges.
+**AI-powered cryptocurrency trading system** supporting paper and live trading across 8 major exchanges.
 
-> 📚 **Documentation:** All documentation is now centralized in the [`docs/`](docs/) folder. See [`docs/INDEX.md`](docs/INDEX.md) for a complete index.
+> 📚 **Documentation:** Operational docs are in the [`docs/`](docs/) folder. Stale audit/forensic reports are in [`docs/_archive/`](docs/_archive/).
 
-[![Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen)]()
+[![Status](https://img.shields.io/badge/status-paper%20trading%20live-brightgreen)]()
 [![Real-time](https://img.shields.io/badge/realtime-WebSocket%20%2B%20SSE-blue)]()
-[![Platforms](https://img.shields.io/badge/platforms-7%20exchanges-orange)]()
+[![Platforms](https://img.shields.io/badge/platforms-8%20exchanges-orange)]()
 [![ToS Safe](https://img.shields.io/badge/ToS-compliant-success)]()
 
 ---
@@ -38,6 +38,22 @@ The script:
 3. Exits **0** (all PASS) or **non-zero** (any FAIL).
 
 This script is the single definition of "the system works". It must return all PASS before go-live.
+
+---
+
+## 💰 **Bot Capital Policy (Canonical)**
+
+| Exchange | Bot Capital | Currency | Notes |
+|---|---|---|---|
+| Luno | R 1,000 ZAR | ZAR | Native Luno quote |
+| Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io, Coinbase | R1,000 ÷ ZAR/USDT FX rate | USDT | Auto-converted from ZAR wallet |
+
+**On-demand allocation model** — capital is **not** deducted from the wallet when a bot is created. Funds are reserved only when a trade actually opens, and released when the trade closes. This prevents wallet deadlock.
+
+Runtime truth (single source):
+- `/api/wallet/paper` → `available_wallet_zar` = wallet balance minus open positions only
+- `/api/radar/snapshot` → `eligible_to_trade = true` when wallet has funds and bot is active
+- `/api/trades/recent` → populated within 2–5 minutes of system start
 
 ---
 
@@ -83,11 +99,11 @@ This script is the single definition of "the system works". It must return all P
 ## ✨ **Key Features - Production-Ready**
 
 ### 🤖 **Multi-Exchange Trading**
-- **7 Fully Supported Exchanges**: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io
-- **Paper Trading**: 7-day requirement with realistic simulation
+- **8 Fully Supported Exchanges**: Luno, Binance, KuCoin, Bybit, Kraken, Bitget, Gate.io, Coinbase
+- **Paper Trading**: 7-day requirement with realistic simulation (on-demand capital — no pre-allocation deadlock)
 - **Live Trading**: Auto-promotion after criteria met (win rate, drawdown, edge gate)
-- **65 Bots Maximum**: Distributed across exchanges (5+10+10+10+10+10+10)
-- **Auto-Spawn**: New bot every R1000 realized profit per exchange
+- **75 Bots Maximum**: Distributed across exchanges (5 Luno + 10×7 non-Luno)
+- **Auto-Spawn**: Growth engine spawns new bots from realized profit milestones
 
 ### 📊 **Real-Time Analytics** 
 - **Equity Tracking**: Live P&L curves with realized/unrealized profits
@@ -96,13 +112,14 @@ This script is the single definition of "the system works". It must return all P
 - **Win Rate Statistics**: Comprehensive trade performance metrics
 - **Real-Time Updates**: WebSocket + SSE for instant dashboard updates
 
-### 💰 **Wallet Architecture (Production-Safe)**
+### 💰 **Wallet Architecture (On-Demand Allocation)**
+- ✅ **On-Demand Capital**: Funds deducted only when a trade opens; released when trade closes
+- ✅ **No Pre-Allocation Deadlock**: Creating bots does not drain the available wallet balance
 - ✅ **Transfer State Machine**: requested → approved → queued → broadcast → confirmed
 - ✅ **Idempotency Keys**: Prevent duplicate transfers
 - ✅ **2FA/TOTP Enforcement**: Required for withdrawals (configurable via REQUIRE_2FA_FOR_WITHDRAWALS)
 - ✅ **Admin Approval Workflows**: Large transfers require manual approval
-- ✅ **Reserved Funds Tracking**: Prevents double-spending with capital allocation ledger
-- ✅ **Balance Sync**: Real-time balance fetching for all 7 exchanges
+- ✅ **Balance Sync**: Real-time balance fetching for all 8 exchanges
 - ✅ **Real CCXT Withdrawals**: Actual exchange API withdrawals (no simulation in live mode)
 - ✅ **Safety Limits**: Transaction, daily, and monthly withdrawal limits
 - ✅ **Emergency Stop Integration**: Blocks all transfers when emergency stop is active

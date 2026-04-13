@@ -10,7 +10,6 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import database as db
 from logger_config import logger
-from services.paper_wallet_ledger import paper_wallet_ledger
 
 
 class BotLifecycleManager:
@@ -245,17 +244,10 @@ class BotLifecycleManager:
                 return False, "Bot not found"
             
             user_id = bot.get('user_id')
-            
-            # Reserve paper funds in ledger
-            if initial_capital > 0:
-                exchange = (bot.get("exchange") or "").lower()
-                pair = bot.get("pair", "")
-                currency = "ZAR" if exchange == "luno" or "/ZAR" in pair else "USDT"
-                success, msg = await paper_wallet_ledger.reserve_funds(user_id, bot_id, initial_capital, currency)
-                if not success:
-                    logger.warning(f"Failed to reserve paper funds for bot {bot_id}: {msg}")
-                    return False, msg
-            
+
+            # On-demand allocation model: do NOT pre-allocate wallet funds at bot creation.
+            # Capital is reserved only when a trade actually executes (paper_trading_engine).
+
             await db.bots_collection.update_one(
                 {"id": bot_id},
                 {
@@ -266,7 +258,7 @@ class BotLifecycleManager:
                     }
                 }
             )
-            logger.info(f"Tagged bot {bot_id} as {origin} with paper period and R{initial_capital:,.2f} reserved")
+            logger.info(f"Tagged bot {bot_id} as {origin} with paper period (capital R{initial_capital:,.2f} allocated on-demand)")
             return True, "Tagged"
             
         except Exception as e:

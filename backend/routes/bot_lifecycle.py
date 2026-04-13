@@ -1855,12 +1855,11 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
     - Paper mode only; returns 400 if live trading is active.
     - Idempotent: skips bots that already exist (same name + exchange + trading_mode).
     - Enforces MAX 5 bots: returns 409 if user already has >5 non-deleted luno paper bots.
-    - Allocates capital per bot via paper_wallet_ledger (creates ledger entries).
+    - Does NOT pre-allocate wallet capital; funds are deducted only when a trade opens.
     - Returns a JSON summary with bot IDs and created/existing status.
     """
     from uuid import uuid4
     from services.paper_wallet_service import paper_wallet_service
-    from services.paper_wallet_ledger import paper_wallet_ledger
     from config import PAPER_STARTING_CAPITAL_ZAR
 
     try:
@@ -1900,7 +1899,10 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 },
             )
 
-        # Determine per-bot capital (1/5 of available paper wallet)
+        # Determine per-bot capital (canonical: R1000 ZAR per Luno bot; capped to 1/5 of
+        # available funds so newly seeded bots get a realistic but non-zero stake).
+        # Capital is recorded on the bot doc only — the wallet is NOT debited until a
+        # trade actually opens (on-demand allocation model).
         wallet = await paper_wallet_service.get_balances(user_id)
         available_zar = float(wallet.get("balances", {}).get("ZAR", 0))
         starting = float(PAPER_STARTING_CAPITAL_ZAR)
@@ -1916,7 +1918,8 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             except Exception as _fund_err:
                 logger.warning(f"Auto-fund paper wallet failed for user {user_id}: {_fund_err}")
 
-        # Each bot gets 1/5 of available funds (min 500 ZAR, max starting/5)
+        # Each bot gets 1/5 of starting capital (min 500 ZAR, max starting/5).
+        # This is a notional book-capital for sizing trades, NOT a wallet deduction.
         per_bot_capital = max(500.0, min(available_zar / 5.0, starting / 5.0))
 
         results = []
@@ -1945,15 +1948,9 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
 
             bot_id = str(uuid4())
 
-            # Reserve funds AND create ledger entry via paper_wallet_ledger
-            reserved, reserve_msg = await paper_wallet_ledger.reserve_funds(
-                user_id, bot_id, per_bot_capital, "ZAR"
-            )
-            if not reserved:
-                results.append(
-                    {"name": name, "bot_id": None, "status": "skipped", "reason": reserve_msg}
-                )
-                continue
+            # On-demand allocation: do NOT call paper_wallet_ledger.reserve_funds() here.
+            # Capital is deducted from the wallet only when a trade actually opens
+            # (paper_trading_engine.py: paper_wallet_service.reserve_funds on entry).
 
             bot_doc = {
                 "id": bot_id,
