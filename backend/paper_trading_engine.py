@@ -1068,30 +1068,47 @@ class PaperTradingEngine:
             playbook_params = get_playbook_params(risk_mode, playbook, caution=playbook_info.get("caution", False))
 
             # REGIME STAND-DOWN: if playbook is stand_down, skip new entries.
+            # PAPER MODE EXCEPTION: stand_down is only enforced in live mode.
+            # In paper mode, fall back to mean_reversion (caution) so data
+            # collection continues.  This prevents extreme-regime periods from
+            # permanently blocking all paper entries.
+            _bot_trading_mode = str(bot_data.get("trading_mode") or bot_data.get("mode") or "paper").lower()
+            _is_paper_mode_bot = _bot_trading_mode.startswith("paper")
             if playbook == "stand_down":
-                logger.info(
-                    f"⏭️  SKIP_REGIME_STANDDOWN | {bot_data.get('name', bot_id[:8])} | "
-                    f"regime={playbook_info['regime']} conf={playbook_info['confidence']}"
-                )
-                self._log_action(
-                    "SKIP", bot_id, symbol or "?",
-                    reason="regime_standdown",
-                    bot_name=bot_data.get("name", ""),
-                )
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "skip_reason": "regime_standdown",
-                    "error": "Regime stand-down: no new entries in current market conditions",
-                    "details": {
-                        "regime": playbook_info["regime"],
-                        "playbook": playbook,
-                        "regime_strength": playbook_info["strength"],
-                        "regime_confidence": playbook_info["confidence"],
-                        "exchange": exchange,
-                        "symbol": symbol,
-                    },
-                }
+                if _is_paper_mode_bot:
+                    # Downgrade to mean_reversion with maximum caution for paper learning
+                    logger.info(
+                        "⚠️  STAND_DOWN_PAPER_DOWNGRADE | %s | regime=%s → mean_reversion (caution) "
+                        "for paper data-collection",
+                        bot_data.get("name", bot_id[:8]), playbook_info["regime"],
+                    )
+                    playbook = "mean_reversion"
+                    playbook_info = {**playbook_info, "playbook": "mean_reversion", "caution": True}
+                    playbook_params = get_playbook_params(risk_mode, "mean_reversion", caution=True)
+                else:
+                    logger.info(
+                        f"⏭️  SKIP_REGIME_STANDDOWN | {bot_data.get('name', bot_id[:8])} | "
+                        f"regime={playbook_info['regime']} conf={playbook_info['confidence']}"
+                    )
+                    self._log_action(
+                        "SKIP", bot_id, symbol or "?",
+                        reason="regime_standdown",
+                        bot_name=bot_data.get("name", ""),
+                    )
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "regime_standdown",
+                        "error": "Regime stand-down: no new entries in current market conditions",
+                        "details": {
+                            "regime": playbook_info["regime"],
+                            "playbook": playbook,
+                            "regime_strength": playbook_info["strength"],
+                            "regime_confidence": playbook_info["confidence"],
+                            "exchange": exchange,
+                            "symbol": symbol,
+                        },
+                    }
             
             # 3. AI INTELLIGENCE: Get ML prediction
             # Use module-global directly to avoid local-variable shadowing issues.
@@ -1155,32 +1172,53 @@ class PaperTradingEngine:
                             )
                             _hurst_detail["override"] = "confidence_override"
                         else:
-                            logger.info(
-                                "⏭️  SKIP_HURST | %s | %s | %s | confidence=%.3f",
-                                bot_data.get("name", bot_id[:8]), symbol,
-                                _hurst_detail.get("reason", "Hurst regime mismatch"),
-                                _hurst_confidence,
-                            )
+                            # PAPER DATA-COLLECTION BYPASS:
+                            # When ml_is_simulated=True (no real ML signal yet), the Hurst
+                            # filter may block normal bots in random-walk conditions even
+                            # though the purpose of paper trading is to COLLECT TRAINING DATA.
+                            # In that case, allow the entry with a data-collection annotation
+                            # so the bot accumulates trade history without being permanently
+                            # blocked by market-structure gating.
+                            # Live-mode behaviour is unchanged: ml_is_simulated=False still
+                            # enforces the strict Hurst block.
+                            _paper_hurst_bypass = prediction.get("is_simulated", True)
+                            if _paper_hurst_bypass:
+                                logger.info(
+                                    "⚠️  HURST_PAPER_BYPASS | %s | %s | %s | "
+                                    "confidence=%.3f < 0.55 but ml_is_simulated=True — "
+                                    "allowing entry for data-collection",
+                                    bot_data.get("name", bot_id[:8]), symbol,
+                                    _hurst_detail.get("reason", "Hurst regime mismatch"),
+                                    _hurst_confidence,
+                                )
+                                _hurst_detail["override"] = "paper_data_collection"
+                            else:
+                                logger.info(
+                                    "⏭️  SKIP_HURST | %s | %s | %s | confidence=%.3f",
+                                    bot_data.get("name", bot_id[:8]), symbol,
+                                    _hurst_detail.get("reason", "Hurst regime mismatch"),
+                                    _hurst_confidence,
+                                )
 
-                            logger.info(
-                                "BLOCK_DETAIL %s",
-                                json.dumps({
+                                logger.info(
+                                    "BLOCK_DETAIL %s",
+                                    json.dumps({
+                                        "bot_id": bot_id,
+                                        "reason": "hurst_regime_mismatch",
+                                        "hurst": _hurst_detail.get("hurst"),
+                                        "regime": _hurst_detail.get("regime"),
+                                        "confidence": _hurst_confidence,
+                                        "symbol": symbol,
+                                        "exchange": exchange,
+                                    }),
+                                )
+                                return {
+                                    "success": False,
                                     "bot_id": bot_id,
-                                    "reason": "hurst_regime_mismatch",
-                                    "hurst": _hurst_detail.get("hurst"),
-                                    "regime": _hurst_detail.get("regime"),
-                                    "confidence": _hurst_confidence,
-                                    "symbol": symbol,
-                                    "exchange": exchange,
-                                }),
-                            )
-                            return {
-                                "success": False,
-                                "bot_id": bot_id,
-                                "skip_reason": "hurst_regime_mismatch",
-                                "error": _hurst_detail.get("reason", "Hurst regime mismatch"),
-                                "details": _hurst_detail,
-                            }
+                                    "skip_reason": "hurst_regime_mismatch",
+                                    "error": _hurst_detail.get("reason", "Hurst regime mismatch"),
+                                    "details": _hurst_detail,
+                                }
                     prediction["hurst"] = _hurst_detail
             except Exception as _hurst_err:
                 logger.debug("Hurst filter skipped (non-fatal): %s", _hurst_err)
