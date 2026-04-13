@@ -45,7 +45,7 @@ def _bot_is_runnable(b: Dict) -> bool:
     - eligible_to_trade=False: not runnable.
     """
     elig = b.get("eligible_to_trade")
-    if elig:
+    if elig is True:
         return True
     if elig is None and b.get("active") and not b.get("not_eligible_reasons"):
         return True

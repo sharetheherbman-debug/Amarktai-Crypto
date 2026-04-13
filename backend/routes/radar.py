@@ -267,7 +267,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         # Display is always the ZAR canonical base so non-Luno bots show R1000
         # instead of a FX-converted USDT amount.  canonical_base_capital_zar is
         # the frozen ZAR value written at bot creation and never changes.
-        "capital_allocated_display": _canonical_base_zar if _quote_currency != "ZAR" else _to_zar(capital),
+        "capital_allocated_display": _to_zar(capital) if _quote_currency == "ZAR" else _canonical_base_zar,
         "capital_summary": bot.get("capital_summary", {}),
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
