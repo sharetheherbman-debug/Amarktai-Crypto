@@ -299,7 +299,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "not_eligible_reasons": bot.get("not_eligible_reasons", []),
         "activity_state": bot.get("activity_state", "active_record"),
         "activity_reason_code": bot.get("activity_reason_code"),
-        "runnable": bot.get("runnable", False),
+        "runnable": bot.get("eligible_to_trade", False),
         "has_open_position": bool(open_trade),
         # V2 render-safe fields (always present, never NaN/None for numerics)
         "regime_label": str(bot.get("regime_label", bot.get("market_regime", "unknown")) or "unknown"),
