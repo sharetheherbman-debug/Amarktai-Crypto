@@ -32,6 +32,26 @@ logger = logging.getLogger(__name__)
 _MAX_BOTS = 500
 
 
+def _bot_is_runnable(b: Dict) -> bool:
+    """Return True if a bot should count as runnable (eligible to trade).
+
+    Mirrors truth_kernel.compute_bot_eligibility logic so that all
+    canonical counts agree with the Truth Console.
+
+    - eligible_to_trade=True: explicitly runnable.
+    - eligible_to_trade=None (field never written by the engine — newly
+      created bots not yet evaluated by the scheduler): treat as runnable
+      if the bot is active and has no explicit blocking reasons.
+    - eligible_to_trade=False: not runnable.
+    """
+    elig = b.get("eligible_to_trade")
+    if elig is True:
+        return True
+    if elig is None and b.get("active") and not b.get("not_eligible_reasons"):
+        return True
+    return False
+
+
 async def get_canonical_bot_activity(user_id: str) -> Dict[str, Any]:
     """Return canonical bot activity semantics snapshot scoped to *user_id*.
 
@@ -75,14 +95,14 @@ async def get_canonical_bot_activity(user_id: str) -> Dict[str, Any]:
         1 for b in normalized
         if b.get("status") in {"training", "quarantined", "quarantine", "training_failed"}
     )
-    runnable = sum(1 for b in active_bots if b.get("eligible_to_trade"))
+    runnable = sum(1 for b in active_bots if _bot_is_runnable(b))
     scalper = sum(1 for b in normalized if b.get("bot_type") == "scalper")
     uagent = sum(1 for b in normalized if b.get("bot_type") == "uagent")
     normal = len(normalized) - scalper - uagent
 
     blocked_reasons: Dict[str, int] = {}
     for bot in active_bots:
-        if bot.get("eligible_to_trade"):
+        if _bot_is_runnable(bot):
             continue
         for reason in bot.get("not_eligible_reasons", []):
             blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1

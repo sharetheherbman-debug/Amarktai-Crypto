@@ -248,11 +248,11 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "canonical_base_capital_zar": _canonical_base_zar,
         "funding_input_amount": _funding_input_amount,
         "funding_input_currency": _funding_input_currency,
-        # Funding semantics — explicit fields to prevent UI confusion.
-        # funding_currency = the currency capital is stored/traded in.
-        # funding_amount   = the raw capital in that currency.
-        "funding_currency": _quote_currency,
-        "funding_amount": capital,
+        # Funding semantics — always expose the user-facing ZAR entry so that
+        # Luno and non-Luno bots display a consistent R-amount here.
+        # capital_allocated (below) carries the native quote-currency amount.
+        "funding_currency": "ZAR",
+        "funding_amount": _canonical_base_zar,
         "side": None,
         "entry_price": None,
         "current_price": None,
@@ -264,7 +264,10 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "unrealized_pnl": 0.0,
         "unrealized_pnl_display": 0.0,
         "capital_allocated": capital,
-        "capital_allocated_display": _to_zar(capital),
+        # Display is always the ZAR canonical base so non-Luno bots show R1000
+        # instead of a FX-converted USDT amount.  canonical_base_capital_zar is
+        # the frozen ZAR value written at bot creation and never changes.
+        "capital_allocated_display": _to_zar(capital) if _quote_currency == "ZAR" else _canonical_base_zar,
         "capital_summary": bot.get("capital_summary", {}),
         "exposure_pct": 0.0,
         "daily_profit_target": daily_target,
