@@ -859,13 +859,28 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         )
 
     def _make_bot_record(name: str, risk_mode) -> dict:
-        """Return a single bot dict with authoritative canonical capital fields."""
+        """Return a single bot dict with authoritative canonical capital fields.
+
+        Capital policy:
+          - canonical_base_capital_zar  = always R1000 ZAR (the economic base)
+          - initial_capital / current_capital = in the exchange's native quote
+            currency (ZAR for Luno, USDT for Binance/KuCoin/etc.)
+          - This matches bot_validator.validate_bot_creation exactly.
+        """
         record = {
             'id': str(uuid4()),
             'user_id': user_id,
             'name': name,
-            'initial_capital': capital_per_bot,
-            'current_capital': capital_per_bot,
+            # Canonical capital truth fields — mirrors bot_validator output.
+            'canonical_base_capital_zar': round(float(capital_per_bot), 2),
+            'funding_input_amount': round(float(capital_per_bot), 2),
+            'funding_input_currency': 'ZAR',
+            'fx_rate_at_creation': fx_rate_at_creation,
+            'quote_currency': quote_currency,
+            # initial_capital / current_capital are in quote_currency units.
+            # For Luno: ZAR (== capital_per_bot). For Binance/etc: USDT.
+            'initial_capital': quote_capital,
+            'current_capital': quote_capital,
             'total_profit': 0.0,
             'risk_mode': risk_mode,
             'trading_mode': 'paper',
@@ -902,8 +917,10 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         try:
             from services.paper_wallet_service import paper_wallet_service
             from config import PAPER_STARTING_CAPITAL_ZAR
-            currency = "ZAR" if exchange == "luno" else "USDT"
-            total_required = len(bots_to_create) * capital_per_bot
+            currency = quote_currency  # "ZAR" for luno, "USDT" for binance/kucoin/etc.
+            # total_required is in quote_currency units — quote_capital is the
+            # correctly FX-converted amount (R1000 / FX for USDT exchanges).
+            total_required = len(bots_to_create) * quote_capital
             available = await paper_wallet_service.get_available_balance(user_id, currency)
             # Auto-fund the paper wallet the first time (post-reset or first login)
             # when the balance is 0 and starting capital is configured.  This matches
