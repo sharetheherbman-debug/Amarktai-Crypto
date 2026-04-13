@@ -220,9 +220,12 @@ BOT_SPAWN_PROFIT_ZAR = int(os.getenv('BOT_SPAWN_PROFIT_ZAR', '300'))  # Spawn ne
 BOT_SPAWN_PROFIT_THRESHOLD_ZAR = BOT_SPAWN_PROFIT_ZAR  # Backward compatibility alias
 AUTO_SPAWN_COOLDOWN_MINUTES = int(os.getenv('AUTO_SPAWN_COOLDOWN_MINUTES', '60'))
 AUTO_SPAWN_MAX_PER_DAY = int(os.getenv('AUTO_SPAWN_MAX_PER_DAY', '2'))
-NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '200'))  # Capital to give new bot
+NEW_BOT_SEED_CAPITAL_ZAR = int(os.getenv('NEW_BOT_SEED_CAPITAL_ZAR', '200'))  # Capital to give new bot (auto-spawned only)
 REINVEST_THRESHOLD_ZAR = int(os.getenv('REINVEST_THRESHOLD_ZAR', '50'))  # Lower threshold for more frequent reinvestment
 NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
+# Minimum starting capital for any manually-created bot (all platforms).
+# Auto-spawned (growth-engine) bots are exempt — they use NEW_BOT_SEED_CAPITAL_ZAR.
+BOT_MANUAL_MIN_CAPITAL_ZAR = int(os.getenv('BOT_MANUAL_MIN_CAPITAL_ZAR', '1000'))
 MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # MUST match MAX_BOTS_GLOBAL in exchange_limits.py (5+10+10+10+10+10+10)
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation rate for genetic evolution

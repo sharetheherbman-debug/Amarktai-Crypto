@@ -966,12 +966,13 @@ async def _handle_create_bot(user_id: str, params: Dict[str, Any]) -> Dict[str, 
     else:
         trading_mode = TradingMode.PAPER
 
+    from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
     bot = BotCreate(
         name=name,
         exchange=exchange,
         risk_mode=BotRiskMode(risk_mode),
         trading_mode=trading_mode,
-        initial_capital=float(params.get("initial_capital", 0) or 0),
+        initial_capital=max(float(params.get("initial_capital", _MIN_CAP) or _MIN_CAP), float(_MIN_CAP)),
         strategy_preset=params.get("strategy_preset"),
     )
     data = await create_bot(bot, user_id)

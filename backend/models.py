@@ -99,7 +99,7 @@ class BotCreate(BaseModel):
     platform: Optional[str] = None  # Alias for exchange, will be normalized
     risk_mode: BotRiskMode
     trading_mode: TradingMode = TradingMode.PAPER
-    initial_capital: float = 0
+    initial_capital: float = 1000.0
     strategy_preset: Optional[str] = None
     
     @model_validator(mode='after')

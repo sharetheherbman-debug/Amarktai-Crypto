@@ -1918,9 +1918,9 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
             except Exception as _fund_err:
                 logger.warning(f"Auto-fund paper wallet failed for user {user_id}: {_fund_err}")
 
-        # Each bot gets 1/5 of starting capital (min 500 ZAR, max starting/5).
+        # Each bot gets 1/5 of starting capital (min R1000 ZAR, max starting/5).
         # This is a notional book-capital for sizing trades, NOT a wallet deduction.
-        per_bot_capital = max(500.0, min(available_zar / 5.0, starting / 5.0))
+        per_bot_capital = max(1000.0, min(available_zar / 5.0, starting / 5.0))
 
         results = []
         now_iso = datetime.now(timezone.utc).isoformat()
