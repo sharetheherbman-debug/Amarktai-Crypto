@@ -37,6 +37,7 @@ import ccxt.async_support as ccxt
 import asyncio
 import json
 import os
+import random
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Tuple, Optional, List
@@ -1270,6 +1271,16 @@ class PaperTradingEngine:
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
 
+            # ── PAPER MODE SIGNAL RECOVERY: ensure trend/signal is never null ──
+            # If all AI sources returned neutral/None, inject a random direction so
+            # the learning loop can produce training data from the very first tick.
+            if _is_paper_mode_bot and (not trend or trend in ("neutral", "unknown", None)):
+                trend = random.choice(["bullish", "bearish"])
+                logger.info(
+                    "[SIGNAL_RECOVERY] signal injected | %s | %s | trend=%s (was neutral/null)",
+                    bot_data.get("name", bot_id[:8]), symbol, trend,
+                )
+
             # EDGE GATE: Require expected move to clear costs + buffer
             # Skip the gate when the ML prediction has no real data (is_simulated=True)
             # Adaptive safety buffer: use risk-mode config default, increase if spread is wide.
@@ -1347,6 +1358,23 @@ class PaperTradingEngine:
                 except Exception as _fb_err:
                     logger.debug("Fallback signal failed (non-fatal): %s", _fb_err)
 
+            # ── PAPER MODE SAFETY NET: guarantee a non-zero signal so the hard-edge
+            #    filter never blocks a paper bot.  This applies only after the OHLCV
+            #    fallback above has already tried (and either failed or returned 0).
+            _paper_fallback_used = False
+            if _is_paper_mode_bot and expected_move_pct <= 0:
+                expected_move_pct = round(random.uniform(0.001, 0.003), 4)
+                _injected_dir = random.choice(["up", "down"])
+                prediction["predicted_change"] = (
+                    expected_move_pct if _injected_dir == "up" else -expected_move_pct
+                )
+                prediction.setdefault("direction", _injected_dir)
+                _paper_fallback_used = True
+                logger.info(
+                    "[SIGNAL_RECOVERY] signal injected | %s | %s | move=%.4f%% dir=%s",
+                    bot_data.get("name", bot_id[:8]), symbol, expected_move_pct, _injected_dir,
+                )
+
             # Adaptive safety buffer per risk mode and spread quality
             _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
             _base_safety_buffer = float(_risk_mode_cfg.get("safety_buffer_pct", SAFETY_BUFFER_PCT))
@@ -1367,11 +1395,16 @@ class PaperTradingEngine:
             # Live mode uses the live_trading_engine; strictness there is unchanged.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
 
-            _hard_edge_blocked = (
-                expected_move_pct <= 0  # paper mode: block only zero/negative signals
-                if _is_paper_mode_bot
-                else _net_edge_pct <= MINIMUM_EDGE_PCT  # live mode: enforce full edge check
-            )
+            # Paper mode must NEVER be blocked by edge logic — its purpose is data
+            # collection and learning, not profit guarding.  Live mode remains strict.
+            if _is_paper_mode_bot:
+                _hard_edge_blocked = False
+                logger.debug(
+                    "[EDGE_BYPASS] paper_mode_override | %s | net_edge=%.4f%%",
+                    bot_data.get("name", bot_id[:8]), _net_edge_pct,
+                )
+            else:
+                _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT  # live mode: enforce full edge check
             if _hard_edge_blocked:
                 logger.info(
                     f"⏭️  SKIP_HARD_EDGE | {bot_data.get('name', bot_id[:8])} | "
@@ -1698,6 +1731,13 @@ class PaperTradingEngine:
                 self.last_error = f"Invalid price: {current_price}"
                 return {"success": False, "bot_id": bot_id, "error": "Invalid price before trade"}
             
+            # Log when paper mode is executing a trade that used an injected fallback signal
+            if _is_paper_mode_bot and _paper_fallback_used:
+                logger.info(
+                    "[FORCED_TRADE] reason=fallback_signal | %s | %s | move=%.4f%%",
+                    bot_data.get("name", bot_id[:8]), symbol, expected_move_pct,
+                )
+
             # REALISTIC EXIT - Use actual bid/ask snapshots with slippage + latency buffers
 
             entry_base = market_snapshot.get("ask") or current_price
