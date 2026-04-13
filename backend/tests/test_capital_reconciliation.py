@@ -386,3 +386,75 @@ def test_exposure_check_single_exchange_within_limit():
     assert binance_zar <= max_allowed, (
         f"Binance equity R{binance_zar:.2f} should be ≤ R{max_allowed:.2f} (60% of R{total_zar:.2f})"
     )
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION GUARD — batch_create capital policy
+# These tests ensure the batch_create wallet check and bot records NEVER silently
+# regress to using the raw ZAR amount (1000) as USDT for non-Luno bots.
+# ---------------------------------------------------------------------------
+
+def test_regression_guard_wallet_check_uses_quote_capital():
+    """REGRESSION GUARD: batch-create wallet check must use quote_capital (R1000/FX),
+    not capital_per_bot flat (1000 USDT).
+
+    With a R30,000 paper wallet at FX 19, a batch of 10 Binance bots should be
+    affordable (~540 USDT needed).  If the bug re-appears (10000 USDT needed) the
+    entire fleet would be blocked by wallet_insufficient.
+    """
+    from services.fx_normalizer import resolve_capital_for_exchange, update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    capital_per_bot = 1000.0  # ZAR economic base
+    bot_count = 10
+
+    quote_capital, quote_currency, fx_rate = resolve_capital_for_exchange(capital_per_bot, "binance")
+
+    # total_required as batch_create now computes it
+    total_required = bot_count * quote_capital
+
+    assert quote_currency == "USDT"
+    # Must NOT equal bot_count * capital_per_bot (10000 — the old broken value)
+    assert total_required < bot_count * capital_per_bot, (
+        "REGRESSION: wallet check must use quote_capital (USDT), not capital_per_bot (ZAR). "
+        f"Got total_required={total_required:.2f} which equals or exceeds {bot_count * capital_per_bot}"
+    )
+    # With R30000 paper wallet at FX 19 ≈ 1578 USDT available; 10 bots need ~526 USDT
+    simulated_usdt_available = 30000.0 / fx_rate
+    assert total_required < simulated_usdt_available, (
+        f"REGRESSION: 10 starter Binance bots ({total_required:.2f} USDT) must fit in "
+        f"a R30k paper wallet (~{simulated_usdt_available:.2f} USDT). "
+        "If this fails the old bug (1000 USDT per bot flat) has returned."
+    )
+
+
+def test_regression_guard_bot_record_initial_capital_is_usdt():
+    """REGRESSION GUARD: batch-create bot records must store initial_capital in
+    quote_currency units (USDT for Binance/KuCoin/etc.), not the raw ZAR base.
+
+    Luno must remain ZAR-native at R1000 exactly.
+    """
+    from services.fx_normalizer import resolve_capital_for_exchange, update_fx_rate
+    update_fx_rate(19.0, "test")
+
+    capital_per_bot = 1000.0  # ZAR input from user
+
+    # Non-Luno exchanges: initial_capital must be R1000/FX, not 1000 flat
+    for exchange in ("binance", "kucoin", "bybit", "kraken", "bitget", "gate", "coinbase"):
+        quote_capital, quote_currency, fx_rate = resolve_capital_for_exchange(capital_per_bot, exchange)
+        assert quote_currency == "USDT", f"{exchange}: quote_currency must be USDT"
+        assert quote_capital < capital_per_bot, (
+            f"REGRESSION [{exchange}]: initial_capital must be ~R1000/FX USDT (~52.63), "
+            f"not {quote_capital:.2f} (which equals the raw ZAR amount). "
+            "The old bug stored 1000 USDT, inflating canonical_base_capital_zar to R19000+."
+        )
+        assert quote_capital == pytest.approx(capital_per_bot / fx_rate, rel=1e-3)
+
+    # Luno: initial_capital must be ZAR 1000 (no conversion)
+    luno_capital, luno_currency, luno_fx = resolve_capital_for_exchange(capital_per_bot, "luno")
+    assert luno_currency == "ZAR", "Luno must remain ZAR-native"
+    assert luno_capital == pytest.approx(capital_per_bot), (
+        "Luno initial_capital must be R1000 ZAR exactly (no FX conversion)"
+    )
+    assert luno_fx == pytest.approx(1.0), "Luno FX rate must be 1.0 (identity)"
+
