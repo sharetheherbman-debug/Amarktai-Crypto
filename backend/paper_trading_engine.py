@@ -2590,20 +2590,29 @@ class PaperTradingEngine:
             # Record result for risk engine
             await risk_engine.record_trade_result(user_id, net_profit)
 
-            _close_entry_value = float(
-                trade_result.get("trade_amount") or trade_result.get("entry_value") or 0
+            _ta = trade_result.get("trade_amount")
+            _ev = trade_result.get("entry_value")
+            close_entry_value = float(
+                _ta if _ta is not None else (_ev if _ev is not None else 0)
             )
-            _close_symbol = trade_result.get("symbol", "")
-            _close_exchange = trade_result.get("exchange", "luno")
-            _close_currency = (
-                "ZAR" if _close_exchange == "luno" or "/ZAR" in _close_symbol else "USDT"
+            close_symbol = trade_result.get("symbol", "")
+            close_exchange = trade_result.get("exchange", "luno")
+            close_currency = (
+                "ZAR" if close_exchange == "luno" or "/ZAR" in close_symbol else "USDT"
             )
-            _release_amount = max(0.0, _close_entry_value + net_profit)
-            if _close_entry_value > 0:
-                await paper_wallet_service.release_funds(user_id, _release_amount, _close_currency)
+            release_amount = close_entry_value + net_profit
+            if close_entry_value > 0:
+                if release_amount < 0:
+                    logger.warning(
+                        f"[CAPITAL_RELEASE] bot={bot_id[:8]} clamp: "
+                        f"entry={close_entry_value:.2f} pnl={net_profit:.2f} "
+                        f"would release {release_amount:.2f} — clamped to 0"
+                    )
+                    release_amount = 0.0
+                await paper_wallet_service.release_funds(user_id, release_amount, close_currency)
                 logger.debug(
-                    f"[CAPITAL_RELEASE] bot={bot_id[:8]} entry={_close_entry_value:.2f} "
-                    f"pnl={net_profit:.2f} released={_release_amount:.2f} {_close_currency}"
+                    f"[CAPITAL_RELEASE] bot={bot_id[:8]} entry={close_entry_value:.2f} "
+                    f"pnl={net_profit:.2f} released={release_amount:.2f} {close_currency}"
                 )
 
             # Update bot capital record
