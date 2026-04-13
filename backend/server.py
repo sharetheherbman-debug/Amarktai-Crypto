@@ -760,7 +760,14 @@ async def spawn_bot_now(
 
         requested_capital = payload.get("initial_capital")
         if requested_capital:
-            config["capital"] = float(requested_capital)
+            from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
+            config["capital"] = max(float(requested_capital), float(_MIN_CAP))
+        else:
+            # User-triggered spawn: ensure capital meets manual minimum even when
+            # the spawner's auto-allocation returns a lower figure.
+            from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
+            if float(config.get("capital", 0)) < float(_MIN_CAP):
+                config["capital"] = float(_MIN_CAP)
 
         requested_name = payload.get("name")
         if requested_name:
@@ -807,7 +814,9 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
         bot_type = 'normal'
 
     count = data.get('count', 10)
-    capital_per_bot = data.get('capital_per_bot', 1000)
+    # Enforce minimum R1000 ZAR per manually-created bot (all platforms).
+    from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
+    capital_per_bot = max(float(data.get('capital_per_bot', _MIN_CAP)), float(_MIN_CAP))
     # Only use explicit per-mode counts if provided; otherwise allocate entire count to safe_count
     explicit_split = 'safe_count' in data or 'risky_count' in data or 'aggressive_count' in data
     if explicit_split:

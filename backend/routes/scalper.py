@@ -202,6 +202,9 @@ async def scalper_seed(
     exchange = data.get("exchange", "binance")
     pair = data.get("pair", "BTC/USDT")
 
+    # Enforce minimum R1000 ZAR for manually-seeded scalper bots.
+    _seed_capital = max(1000.0, float(data.get("capital", 1000)))
+
     bot_doc = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -211,8 +214,8 @@ async def scalper_seed(
         "pair": pair,
         "status": "active",
         "risk_mode": "aggressive",
-        "initial_capital": float(data.get("capital", 500)),
-        "current_capital": float(data.get("capital", 500)),
+        "initial_capital": _seed_capital,
+        "current_capital": _seed_capital,
         "trading_mode": "paper",
         "deleted": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
