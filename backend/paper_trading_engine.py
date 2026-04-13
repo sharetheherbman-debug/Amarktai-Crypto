@@ -133,6 +133,8 @@ PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
+# Minimum average confidence required for paper mode quality bypass (learning/data-collection mode).
+MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.1"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1598,7 +1600,7 @@ class PaperTradingEngine:
             _sim_bypass_confidence = ml_is_simulated and confidence_sources >= 1
             # Paper mode bypass: allow trade if ANY minimal confidence detected (>= 0.1).
             # Paper mode is a learning environment; strict quality gates only apply to live.
-            _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= 0.1
+            _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= MIN_PAPER_MODE_CONFIDENCE
             if _paper_quality_bypass:
                 logger.info(
                     "[QUALITY_BYPASS] paper_mode_override | %s | %s | "
