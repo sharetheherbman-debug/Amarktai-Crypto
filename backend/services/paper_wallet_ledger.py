@@ -155,22 +155,17 @@ class PaperWalletLedger:
             ledger = await self.collection.find_one({"bot_id": bot_id})
 
             if not ledger:
+                # On-demand model: no pre-allocated ledger entry at bot creation.
+                # Return the bot's current_capital so the engine can size trades correctly.
                 bot = await db.bots_collection.find_one(
                     {"id": bot_id},
-                    {"_id": 0, "user_id": 1, "initial_capital": 1}
+                    {"_id": 0, "current_capital": 1, "initial_capital": 1}
                 )
-                if bot and bot.get("initial_capital", 0) > 0:
-                    currency = self._resolve_bot_currency(bot)
-                    success, _ = await self.reserve_funds(
-                        bot.get("user_id"),
-                        bot_id,
-                        bot.get("initial_capital", 0),
-                        currency
+                if bot:
+                    capital = float(
+                        bot.get("current_capital") or bot.get("initial_capital") or 0
                     )
-                    if success:
-                        ledger = await self.collection.find_one({"bot_id": bot_id})
-
-            if not ledger:
+                    return True, capital, "Bot capital (on-demand model)"
                 return False, 0.0, f"No paper wallet found for bot {bot_id[:8]}"
             
             balance = ledger.get("current_balance", 0.0)
@@ -182,25 +177,34 @@ class PaperWalletLedger:
     
     async def can_trade(self, bot_id: str, required_amount: float) -> Tuple[bool, str]:
         """
-        Check if bot has sufficient paper funds for a trade.
-        
+        Check if user's paper wallet has sufficient funds for a trade.
+
+        On-demand model: checks the available paper wallet balance for the bot's
+        user rather than a per-bot pre-allocated ledger entry.
+
         Args:
             bot_id: Bot ID
-            required_amount: Required amount for trade
+            required_amount: Required trade amount
         
         Returns:
             (can_trade, message)
         """
         try:
-            success, balance, msg = await self.get_balance(bot_id)
-            
-            if not success:
-                return False, msg
-            
-            if balance < required_amount:
-                return False, f"Insufficient paper funds: R{balance:.2f} < R{required_amount:.2f}"
-            
-            return True, f"Sufficient funds: R{balance:.2f}"
+            bot = await db.bots_collection.find_one(
+                {"id": bot_id},
+                {"_id": 0, "user_id": 1, "exchange": 1, "pair": 1}
+            )
+            if not bot:
+                return False, f"Bot {bot_id[:8]} not found"
+
+            user_id = bot.get("user_id")
+            currency = self._resolve_bot_currency(bot)
+            available = await paper_wallet_service.get_available_balance(user_id, currency)
+
+            if available < required_amount:
+                return False, f"Insufficient paper funds: {available:.2f} {currency} < {required_amount:.2f}"
+
+            return True, f"Sufficient funds: {available:.2f} {currency}"
         
         except Exception as e:
             logger.error(f"Error checking can_trade: {e}")

@@ -48,6 +48,7 @@ from risk_engine import risk_engine
 from services.order_validation import order_validator
 from utils.trading_gates import enforce_trading_gates, TradingGateError
 from services.paper_wallet_ledger import paper_wallet_ledger
+from services.paper_wallet_service import paper_wallet_service
 from services.trading_mode_validator import trading_mode_validator
 from config import (
     MIN_TRADE_PROFIT_THRESHOLD_ZAR,
@@ -1624,41 +1625,48 @@ class PaperTradingEngine:
             elif ai_agreement >= 2:
                 confidence_boost = 1.1
             
-            # PHASE 4A: Check paper wallet balance BEFORE calculating trade amount
+            # PHASE 4A: On-demand capital check — use bot's current_capital for position sizing
             bot_id_val = bot_data.get('id')
-            can_afford, balance, wallet_msg = await paper_wallet_ledger.get_balance(bot_id_val)
-            
-            if not can_afford:
-                logger.warning(f"❌ {bot_data['name'][:15]} - No paper wallet: {wallet_msg}")
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "error": f"Paper wallet not found: {wallet_msg}"
-                }
-            
-            # Use paper wallet balance instead of bot capital
-            paper_capital = balance
-            
+            # On-demand model: size trades off the bot's own capital record (not a
+            # pre-allocated ledger entry).  The actual wallet deduction happens only
+            # when the trade is confirmed to open.
+            paper_capital = float(bot_data.get('current_capital', 1000))
+
             if paper_capital <= 0:
-                logger.warning(f"❌ {bot_data['name'][:15]} - Insufficient paper funds: R{paper_capital:.2f}")
+                logger.warning(f"❌ {bot_data['name'][:15]} - Bot capital is zero")
                 return {
                     "success": False,
                     "bot_id": bot_id,
-                    "error": f"Insufficient paper funds: R{paper_capital:.2f}"
+                    "error": "Bot capital is zero"
                 }
-            
+
             final_position_size = min(base_position_size * confidence_boost, 0.60)  # Cap at 60%
             trade_amount = paper_capital * final_position_size
-            
-            # PHASE 4A: Verify paper wallet can afford this trade
-            can_execute, wallet_check_msg = await paper_wallet_ledger.can_trade(bot_id_val, trade_amount)
-            
-            if not can_execute:
-                logger.warning(f"❌ {bot_data['name'][:15]} - {wallet_check_msg}")
+
+            # Determine the wallet currency for this bot/exchange
+            _trade_currency = "ZAR" if exchange == "luno" or "/ZAR" in symbol else "USDT"
+
+            # PHASE 4A: Verify user paper wallet has sufficient funds for this trade size only
+            _available_for_trade = await paper_wallet_service.get_available_balance(
+                user_id, _trade_currency
+            )
+            logger.info(
+                f"[CAPITAL_CHECK] bot={bot_id_val[:8] if bot_id_val else '?'} "
+                f"available={_available_for_trade:.2f} required_trade={trade_amount:.2f} "
+                f"eligible={'true' if _available_for_trade >= trade_amount else 'false'}"
+            )
+            if _available_for_trade < trade_amount:
+                logger.warning(
+                    f"❌ {bot_data['name'][:15]} - Insufficient wallet: "
+                    f"available={_available_for_trade:.2f} {_trade_currency} < required={trade_amount:.2f}"
+                )
                 return {
                     "success": False,
                     "bot_id": bot_id,
-                    "error": wallet_check_msg
+                    "error": (
+                        f"Insufficient paper wallet funds: "
+                        f"{_available_for_trade:.2f} {_trade_currency} < {trade_amount:.2f}"
+                    )
                 }
             
             # CLAMP trade_amount to the risk engine's allowed notional BEFORE validation.
@@ -1733,6 +1741,22 @@ class PaperTradingEngine:
             if entry_value <= 0:
                 logger.error(f"Invalid trade values: entry={entry_value}")
                 return {"success": False, "bot_id": bot_id, "error": "Market unavailable for pricing"}
+
+            # On-demand: deduct the actual trade notional from the paper wallet now
+            # that the entry price is confirmed.  This mirrors what a real exchange
+            # would do — capital is committed only at execution, not at bot creation.
+            _deducted, _deduct_msg = await paper_wallet_service.reserve_funds(
+                user_id, entry_value, _trade_currency
+            )
+            if not _deducted:
+                logger.warning(
+                    f"❌ {bot_data['name'][:15]} - Could not reserve trade funds: {_deduct_msg}"
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "error": f"Could not reserve trade funds: {_deduct_msg}",
+                }
 
             avg_entry_price = entry_value / crypto_amount
 
@@ -2558,31 +2582,32 @@ class PaperTradingEngine:
             except Exception as e:
                 logger.warning(f"Ledger append failed: {e}")
             
-            # PHASE 4A: Update paper wallet ledger with trade result
+            # PHASE 4A: Release trade funds back to paper wallet on close
+            # On-demand model: return the original trade notional plus any P&L so
+            # the wallet balance correctly reflects only active positions.
             net_profit = trade_result.get('profit_loss', 0)
 
             # Record result for risk engine
             await risk_engine.record_trade_result(user_id, net_profit)
-            
-            if net_profit > 0:
-                # Credit profit to paper wallet
-                success, msg = await paper_wallet_ledger.credit(bot_id, net_profit, "trade_profit")
-                if not success:
-                    logger.warning(f"Failed to credit paper wallet: {msg}")
-            else:
-                # Debit loss from paper wallet (net_profit is negative)
-                loss_amount = abs(net_profit)
-                success, msg = await paper_wallet_ledger.debit(bot_id, loss_amount, "trade_loss")
-                if not success:
-                    logger.warning(f"Failed to debit paper wallet: {msg}")
-            
-            # Get updated paper wallet balance
-            success, paper_balance, msg = await paper_wallet_ledger.get_balance(bot_id)
-            if success:
-                new_capital = paper_balance
-            else:
-                # Fallback to calculation if paper wallet fails
-                new_capital = fresh_bot['current_capital'] + net_profit
+
+            _close_entry_value = float(
+                trade_result.get("trade_amount") or trade_result.get("entry_value") or 0
+            )
+            _close_symbol = trade_result.get("symbol", "")
+            _close_exchange = trade_result.get("exchange", "luno")
+            _close_currency = (
+                "ZAR" if _close_exchange == "luno" or "/ZAR" in _close_symbol else "USDT"
+            )
+            _release_amount = max(0.0, _close_entry_value + net_profit)
+            if _close_entry_value > 0:
+                await paper_wallet_service.release_funds(user_id, _release_amount, _close_currency)
+                logger.debug(
+                    f"[CAPITAL_RELEASE] bot={bot_id[:8]} entry={_close_entry_value:.2f} "
+                    f"pnl={net_profit:.2f} released={_release_amount:.2f} {_close_currency}"
+                )
+
+            # Update bot capital record
+            new_capital = fresh_bot['current_capital'] + net_profit
 
             if ledger_equity is not None and ledger_equity > 0:
                 new_capital = ledger_equity
