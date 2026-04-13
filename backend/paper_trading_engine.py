@@ -1360,19 +1360,17 @@ class PaperTradingEngine:
             ml_is_simulated = prediction.get("is_simulated", False)
 
             # ── HARD TRADE FILTER: net-edge check ───────────────────────────────────
-            # When ml_is_simulated=True (no real ML signal yet) we operate in
-            # paper data-collection mode.  Only block entries that have ZERO
-            # directional signal (expected_move_pct == 0); any positive fallback
-            # signal is allowed through so the bot can accumulate training data.
-            # This deliberately accepts sub-fee-cost simulated trades: the goal is
-            # data, not profit, and cost accounting is still tracked in the ledger.
-            # When a real ML signal is available we enforce the stricter MINIMUM_EDGE_PCT.
+            # Paper mode goal is data collection and learning, not profit.  Cost
+            # accounting is still recorded in the ledger, but cost-vs-signal math
+            # must not prevent entries — that would block all trades in calm markets.
+            # Rule: block ONLY zero/negative directional signal in paper mode.
+            # Live mode uses the live_trading_engine; strictness there is unchanged.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
 
             _hard_edge_blocked = (
-                expected_move_pct == 0  # paper data-collection: block zero-signal only
-                if ml_is_simulated
-                else _net_edge_pct <= MINIMUM_EDGE_PCT
+                expected_move_pct <= 0  # paper mode: block only zero/negative signals
+                if _is_paper_mode_bot
+                else _net_edge_pct <= MINIMUM_EDGE_PCT  # live mode: enforce full edge check
             )
             if _hard_edge_blocked:
                 logger.info(
@@ -1416,7 +1414,7 @@ class PaperTradingEngine:
                     },
                 }
 
-            if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
+            if EDGE_GATE_PAPER and not ml_is_simulated and not _is_paper_mode_bot and expected_move_pct < edge_required_pct:
                 logger.info(
                     f"⏭️  SKIP_EDGE_GATE | {bot_data.get('name', bot_id[:8])} | "
                     f"expected={expected_move_pct:.4f}% required={edge_required_pct:.4f}%"
@@ -1471,7 +1469,7 @@ class PaperTradingEngine:
             # In simulated-ML mode the hard edge filter already guarantees expected_move_pct != 0.
             # Skipping this gate prevents double-blocking data-collection paper trades where
             # the fallback signal is positive but below the round-trip cost (by design).
-            if not ml_is_simulated and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+            if not ml_is_simulated and not _is_paper_mode_bot and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
                 logger.info(
                     f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
