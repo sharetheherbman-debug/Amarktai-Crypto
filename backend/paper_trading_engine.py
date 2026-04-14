@@ -1060,14 +1060,16 @@ class PaperTradingEngine:
             if depth_notional is not None and not bot_data.get("allow_low_liquidity"):
                 # PAPER_MIN_ORDERBOOK_NOTIONAL is expressed in ZAR.  For USDT-quoted
                 # pairs the depth_notional is in USDT, so we convert the threshold
-                # to USDT using a conservative FX proxy (~18.5 ZAR/USDT) rather than
-                # applying the ZAR threshold directly.  This prevents legitimate
-                # high-liquidity USDT pairs from being blocked by the ZAR-denominated
-                # limit, while keeping the same economic protection floor.
+                # to USDT using a conservative FX proxy rather than applying the
+                # ZAR threshold directly.  This prevents legitimate high-liquidity
+                # USDT pairs from being blocked by the ZAR-denominated limit while
+                # keeping the same economic protection floor.
+                # FX proxy: ~18.5 ZAR/USDT (conservative mid-range estimate; used
+                # only for threshold scaling, not for any trade sizing or PnL).
                 _quote_currency_sym = (symbol or "").split("/")[-1].upper() if "/" in (symbol or "") else ""
                 if _quote_currency_sym == "USDT":
-                    _PROXY_FX = 18.5  # approximate ZAR/USDT — used only for threshold scaling
-                    _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL / _PROXY_FX
+                    _PROXY_FX_ZAR_USDT = 18.5
+                    _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL / _PROXY_FX_ZAR_USDT
                 else:
                     _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL
                 if depth_notional < _effective_min_notional:

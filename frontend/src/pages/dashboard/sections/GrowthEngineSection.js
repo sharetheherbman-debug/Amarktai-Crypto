@@ -23,6 +23,16 @@ const REASON_LABELS = {
   PROFIT_BELOW_THRESHOLD:       'Profit has not yet reached the milestone threshold',
 };
 
+// System-wide blockers that affect the entire growth engine (not just one platform).
+// Per-platform blockers like MAX_BOTS_REACHED or INSUFFICIENT_AVAILABLE_FUNDS only
+// block that specific exchange row — they must NOT drive the global status to "blocked"
+// while other platforms are still accumulating normally.
+const SYSTEM_WIDE_BLOCKERS = [
+  'AUTOPILOT_GROWTH_DISABLED', 'AUTOPILOT_DISABLED', 'TRADING_MODE_DISABLED',
+  'AUTOPILOT_OFF_FOR_USER', 'DAILY_LOSS_LOCK_ACTIVE', 'AUTOPILOT_MODE_DISABLED',
+  'EMERGENCY_STOP_ACTIVE', 'BODYGUARD_LOCK_ACTIVE',
+];
+
 function safeNum(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -284,13 +294,8 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
 
   // Collect global blocking reasons across ALL platforms (feature-level reasons
   // like AUTOPILOT_GROWTH_DISABLED apply to all platforms, not just one).
-  // Only system-wide reason codes are collected here; per-platform reasons like
-  // MAX_BOTS_REACHED or INSUFFICIENT_AVAILABLE_FUNDS are shown only on the row.
-  const SYSTEM_WIDE_BLOCKERS = [
-    'AUTOPILOT_GROWTH_DISABLED','AUTOPILOT_DISABLED','TRADING_MODE_DISABLED',
-    'AUTOPILOT_OFF_FOR_USER','DAILY_LOSS_LOCK_ACTIVE','AUTOPILOT_MODE_DISABLED',
-    'EMERGENCY_STOP_ACTIVE','BODYGUARD_LOCK_ACTIVE',
-  ];
+  // Only system-wide reason codes (defined above) are collected here; per-platform
+  // reasons like MAX_BOTS_REACHED or INSUFFICIENT_AVAILABLE_FUNDS are shown only on the row.
   const globalGrowthBlockers = platforms.length > 0
     ? [...new Set(
         platforms.flatMap(p => (growthData.platforms[p]?.blocked_reasons || []))
