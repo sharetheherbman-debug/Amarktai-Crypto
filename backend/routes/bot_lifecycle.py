@@ -9,6 +9,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, TypedDict
 import logging
 import os
+import inspect as _inspect
 
 from auth import get_current_user
 import database as db
@@ -228,7 +229,6 @@ async def get_bots_status(
         if db.trades_collection is not None:
             try:
                 bot_ids_all = [b.get("id") for b in bots if b.get("id")]
-                import inspect as _inspect
                 _distinct_call = db.trades_collection.distinct(
                     "bot_id",
                     {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},

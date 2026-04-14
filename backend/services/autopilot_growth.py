@@ -356,7 +356,12 @@ class AutopilotGrowthService:
         # The reserved_funds_service queries wallet_balances_collection which only
         # has live trading balances.  Paper wallets live in wallets_collection and are
         # managed by paper_wallet_service — they must be checked directly here.
-        _is_paper_mode = skip_api_key_check  # reuse the same live/paper determination
+        # Paper mode is active when paper runtime flag is set OR static config has paper
+        # enabled but not live.
+        _is_paper_mode = (
+            (_paper_runtime and not _live_runtime)
+            or (config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING)
+        )
         if _is_paper_mode:
             try:
                 from services.paper_wallet_service import paper_wallet_service as _pws
