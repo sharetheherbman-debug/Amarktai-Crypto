@@ -1,12 +1,13 @@
 """
 Config package
-Re-exports constants from ../config.py for backward compatibility with imports like:
-    from config import PAPER_TRAINING_DAYS
-"""
+==============
+CANONICAL RUNTIME CONFIG.  Python resolves `import config` to this package
+(config/__init__.py), NOT to the standalone config.py file in the parent
+directory.  ALL changes to runtime defaults MUST be made here.
 
-# These constants are duplicated here to avoid circular import issues
-# The canonical source is ../config.py
-# When backend/config.py is updated, these should be kept in sync
+config.py (parent) is kept as a thin reference copy for IDE navigation and
+legacy tooling only — it is never imported at runtime when this package exists.
+"""
 
 import os
 
@@ -266,7 +267,7 @@ NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
 # Minimum starting capital for any manually-created bot (all platforms).
 # Auto-spawned (growth-engine) bots are exempt — they use NEW_BOT_SEED_CAPITAL_ZAR.
 BOT_MANUAL_MIN_CAPITAL_ZAR = int(os.getenv('BOT_MANUAL_MIN_CAPITAL_ZAR', '1000'))
-MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # Total bots across all 7 exchanges
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '75'))  # Must equal MAX_BOTS_GLOBAL in exchange_limits.py (currently 75)
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% threshold

@@ -1,7 +1,11 @@
 """
 Production Configuration
-All system limits and settings
-Reads from environment variables
+========================
+NOTE: This file (config.py) is a REFERENCE COPY only.
+      At runtime, Python resolves `import config` to the config/ package
+      (config/__init__.py), which is the CANONICAL source.
+      All runtime default changes MUST be made in config/__init__.py.
+      This file is kept for IDE navigation and legacy tooling only.
 
 CANONICAL ENV VARIABLE NAMES (Pass 1 Go-Live Recovery):
   Trading gates:  PAPER_TRADING (1/0), LIVE_TRADING (1/0), AUTOPILOT_ENABLED (1/0)
@@ -167,7 +171,7 @@ EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'false').lower() == 'true'
 PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35% max spread
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
 PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'true').lower() == 'true'
-PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '60'))
+PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))  # Exit stale paper positions after 120 min (matches config/__init__.py)
 
 # Default paper trading pair whitelist (can be overridden per bot)
 PAPER_PAIR_WHITELIST = {
@@ -226,7 +230,7 @@ NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
 # Minimum starting capital for any manually-created bot (all platforms).
 # Auto-spawned (growth-engine) bots are exempt — they use NEW_BOT_SEED_CAPITAL_ZAR.
 BOT_MANUAL_MIN_CAPITAL_ZAR = int(os.getenv('BOT_MANUAL_MIN_CAPITAL_ZAR', '1000'))
-MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # MUST match MAX_BOTS_GLOBAL in exchange_limits.py (5+10+10+10+10+10+10)
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '75'))  # Must equal MAX_BOTS_GLOBAL in exchange_limits.py (currently 75)
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation rate for genetic evolution
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% performance threshold
