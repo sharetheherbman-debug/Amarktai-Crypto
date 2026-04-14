@@ -162,8 +162,46 @@ class AutopilotGrowthService:
         return bot_id
 
     async def get_growth_status(self) -> Dict:
+        # Build the list of platforms that are relevant for this user.
+        # Only show platforms where the user either:
+        #   (a) has at least one active (non-deleted) bot, OR
+        #   (b) has a configured API key
+        # This prevents ghost exchanges (Bybit / Bitget / KuCoin etc.) from
+        # appearing in the growth engine panel when the user never created bots
+        # there and has no API keys for them.
+        active_exchanges: set = set()
+        try:
+            exchange_docs = await self.db.bots.distinct(
+                "exchange",
+                {
+                    "user_id": self.user_id,
+                    "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                    "deleted": {"$ne": True},
+                    "is_deleted": {"$ne": True},
+                    "deleted_at": {"$exists": False},
+                },
+            )
+            active_exchanges.update(str(e).lower() for e in (exchange_docs or []))
+        except Exception:
+            pass
+        try:
+            key_docs = await self.db.api_keys.distinct(
+                "provider", {"user_id": str(self.user_id)}
+            )
+            active_exchanges.update(str(e).lower() for e in (key_docs or []))
+        except Exception:
+            pass
+
+        # Intersect with SUPPORTED_PLATFORMS to maintain canonical ordering.
+        visible_platforms = [p for p in SUPPORTED_PLATFORMS if p in active_exchanges]
+
+        # Fall back to all supported platforms only when nothing is configured yet
+        # (brand-new user) so the panel is not completely empty.
+        if not visible_platforms:
+            visible_platforms = list(SUPPORTED_PLATFORMS)
+
         status = {}
-        for platform in SUPPORTED_PLATFORMS:
+        for platform in visible_platforms:
             status[platform] = await self._get_platform_status(platform)
 
         return {
