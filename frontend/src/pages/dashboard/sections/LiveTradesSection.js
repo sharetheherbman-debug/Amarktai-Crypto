@@ -383,20 +383,61 @@ export default function LiveTradesSection({
 
             {(selectedTrade.reason != null || selectedTrade.decision_trace != null) && (() => {
               const raw = selectedTrade.reason != null ? selectedTrade.reason : selectedTrade.decision_trace;
-              // Safely convert to renderable content — objects cause React error #31
+              // Human-readable recursive renderer for decision trace fields.
+              // Nested objects expand as indented sub-tables instead of raw JSON blobs.
+              const SKIP_KEYS = new Set(['top_candidates']); // large/irrelevant arrays
+              const LABEL_MAP = {
+                expectancy_estimate: 'Expectancy (ZAR)',
+                cost_estimate: 'Est. Cost %',
+                regime: 'Market Regime',
+                playbook: 'Strategy',
+                chosen_pair: 'Chosen Pair',
+                evaluated_pairs_count: 'Pairs Evaluated',
+                take_profit_pct: 'Take Profit %',
+                stop_loss_pct: 'Stop Loss %',
+                time_exit_minutes: 'Max Hold (min)',
+                hard_max_hold_seconds: 'Hard Exit (s)',
+                next_exit_reason: 'Next Exit',
+              };
+              const fmtLabel = (k) => LABEL_MAP[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+              const fmtVal = (v) => {
+                if (v == null) return '—';
+                if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+                if (typeof v === 'number') return Number.isInteger(v) ? String(v) : v.toFixed(4);
+                return String(v);
+              };
+              const renderValue = (v, depth = 0) => {
+                if (v == null) return <span style={{ color: 'var(--muted)' }}>—</span>;
+                if (typeof v !== 'object' || Array.isArray(v)) return <span>{fmtVal(v)}</span>;
+                // Nested object: render as indented key-value block
+                const entries = Object.entries(v).filter(([k]) => !SKIP_KEYS.has(k));
+                if (entries.length === 0) return <span style={{ color: 'var(--muted)' }}>—</span>;
+                return (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginLeft: depth > 0 ? 8 : 0 }}>
+                    <tbody>
+                      {entries.map(([k2, v2]) => (
+                        <tr key={k2}>
+                          <td style={{ padding: '2px 8px 2px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600, fontSize: '0.78rem' }}>{fmtLabel(k2)}</td>
+                          <td style={{ padding: '2px 0', color: 'var(--text)', wordBreak: 'break-word', fontSize: '0.78rem' }}>{renderValue(v2, depth + 1)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              };
               const renderTrace = () => {
                 if (raw == null) return null;
                 if (typeof raw === 'string') return <span>{raw}</span>;
                 if (typeof raw !== 'object') return <span>{String(raw)}</span>;
-                // Object: render as key-value rows for readability
+                const entries = Object.entries(raw).filter(([k]) => !SKIP_KEYS.has(k));
                 return (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                     <tbody>
-                      {Object.entries(raw).map(([k, v]) => (
+                      {entries.map(([k, v]) => (
                         <tr key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <td style={{ padding: '3px 8px 3px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600 }}>{k}</td>
+                          <td style={{ padding: '3px 8px 3px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600 }}>{fmtLabel(k)}</td>
                           <td style={{ padding: '3px 0', color: 'var(--text)', wordBreak: 'break-word' }}>
-                            {v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                            {renderValue(v)}
                           </td>
                         </tr>
                       ))}
@@ -405,16 +446,32 @@ export default function LiveTradesSection({
                 );
               };
               return (
-                <div style={{
-                  marginTop: '14px',
-                  padding: '12px',
-                  background: 'rgba(59, 130, 246, 0.06)',
-                  border: '1px solid var(--line)',
-                  borderRadius: '10px',
-                }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Decision Trace</div>
-                  {renderTrace()}
-                </div>
+                <details style={{ marginTop: '14px' }}>
+                  <summary style={{
+                    cursor: 'pointer',
+                    padding: '8px 12px',
+                    background: 'rgba(59, 130, 246, 0.06)',
+                    border: '1px solid var(--line)',
+                    borderRadius: '10px',
+                    fontSize: '0.72rem',
+                    color: 'var(--muted)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    userSelect: 'none',
+                  }}>
+                    Decision Trace ▸ expand
+                  </summary>
+                  <div style={{
+                    marginTop: '4px',
+                    padding: '12px',
+                    background: 'rgba(59, 130, 246, 0.04)',
+                    border: '1px solid var(--line)',
+                    borderRadius: '0 0 10px 10px',
+                    borderTop: 'none',
+                  }}>
+                    {renderTrace()}
+                  </div>
+                </details>
               );
             })()}
           </div>

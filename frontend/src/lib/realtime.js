@@ -25,6 +25,7 @@ class RealtimeClient {
     this.reconnectDelay = 1000; // Start at 1 second
     this.maxReconnectDelay = 30000; // Max 30 seconds
     this.listeners = new Map();
+    this.rawListeners = new Set(); // Receive every raw message before typed dispatch
     this.pollingIntervals = new Map();
     this.lastUpdate = {};
     this.connectionMode = 'disconnected'; // 'ws', 'sse', 'polling', 'disconnected'
@@ -111,6 +112,13 @@ class RealtimeClient {
       console.warn('⚠️  Message without type:', message);
       return;
     }
+
+    // Deliver raw message to raw listeners FIRST (before typed dispatch).
+    // This lets useDashboardState subscribe once and handle all event types
+    // without opening a second WebSocket connection.
+    this.rawListeners.forEach(cb => {
+      try { cb(message); } catch (e) { console.error('Raw listener error for message type', message?.type, ':', e); }
+    });
 
     // Handle ping/pong
     if (type === 'ping') {
@@ -404,6 +412,16 @@ class RealtimeClient {
   }
 
   /**
+   * Subscribe to ALL raw messages (before typed dispatch).
+   * Returns an unsubscribe function.
+   * Use this to avoid opening a second WebSocket connection.
+   */
+  onRawMessage(callback) {
+    this.rawListeners.add(callback);
+    return () => this.rawListeners.delete(callback);
+  }
+
+  /**
    * Disconnect
    */
   disconnect() {
@@ -422,6 +440,7 @@ class RealtimeClient {
     this.connected = false;
     this.connectionMode = 'disconnected';
     this.listeners.clear();
+    this.rawListeners.clear();
     this.lastUpdate = {};
   }
 

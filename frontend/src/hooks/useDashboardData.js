@@ -242,7 +242,9 @@ export const useDashboardData = (token) => {
       return undefined;
     }
 
-    const intervalMs = 4000;
+    // Poll metrics and system status every 15s (was 4s — too aggressive under load).
+    // Live prices are polled by useDashboardState at 4s; we avoid double-polling here.
+    const intervalMs = 15000;
     loadLivePrices();
     loadMetrics();
     loadSystemStatus();
@@ -265,10 +267,16 @@ export const useDashboardData = (token) => {
     }
 
     realtimeClient.connect(token);
+    // Debounce WS-triggered trade refreshes to prevent storms when multiple
+    // trade events arrive in quick succession (e.g. batch close on paper mode).
+    let _tradeDebounceTimer = null;
     const refreshTradeTruth = () => {
-      loadRecentTrades();
-      loadCountdown();
-      loadMetrics();
+      clearTimeout(_tradeDebounceTimer);
+      _tradeDebounceTimer = setTimeout(() => {
+        loadRecentTrades();
+        loadCountdown();
+        loadMetrics();
+      }, 1500);
     };
     const unsubscribePrices = realtimeClient.on('prices_update', (payload) => {
       const pricesPayload = payload?.prices || payload?.data?.prices || payload?.data;
@@ -310,6 +318,7 @@ export const useDashboardData = (token) => {
     const unsubscribeAnalyticsUpdate = realtimeClient.on('analytics_update', refreshTradeTruth);
 
     return () => {
+      clearTimeout(_tradeDebounceTimer);
       unsubscribePrices();
       unsubscribeOverview();
       unsubscribeBots();
