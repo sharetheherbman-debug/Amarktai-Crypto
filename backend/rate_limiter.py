@@ -73,6 +73,15 @@ class RateLimiter:
         self.bot_orders_today[bot_id] += 1
         logger.debug(f"Rate limiter: {exchange} orders today: {self.orders_today[exchange]}, burst: {self.orders_per_10_seconds[exchange]['count']}/10")
     
+    def purge_bots(self, bot_ids: list) -> None:
+        """Remove per-bot counters for a list of deleted/reset bot IDs.
+
+        Called by the reset orchestrator so that dangling rate-limit counts
+        from soft-deleted bots don't affect new bots created after a reset.
+        """
+        for bid in bot_ids:
+            self.bot_orders_today.pop(bid, None)
+
     def get_stats(self, exchange: str = None) -> dict:
         """Get current rate limit statistics"""
         if exchange:

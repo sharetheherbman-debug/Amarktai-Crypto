@@ -472,20 +472,52 @@ async def get_drawdown_analysis(
         }
         start_time = now - range_map.get(range, timedelta(days=7))
         
-        # Get all bots for capital tracking
+        # Get only non-deleted bots for capital tracking
         bots = await db.bots_collection.find(
-            {"user_id": user_id},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0, "initial_capital": 1, "current_capital": 1}
         ).to_list(1000)
         
         initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
         current_capital = sum(bot.get('current_capital', 0) for bot in bots)
-        
-        # Get trades in time range
+
+        # Respect the last paper-reset baseline so pre-reset trades don't
+        # contaminate peak equity / drawdown for the current session.
+        reset_timestamp_str: str | None = None
+        if db.paper_reset_baselines_collection is not None:
+            try:
+                baseline_doc = await db.paper_reset_baselines_collection.find_one(
+                    {"user_id": user_id}, sort=[("reset_at", -1)]
+                )
+                if baseline_doc:
+                    reset_timestamp_str = baseline_doc.get("reset_at")
+            except Exception as _e:
+                logger.warning("drawdown: could not fetch paper_reset_baselines: %s", _e)
+
+        # Effective window start = max(range window start, last reset)
+        effective_start = start_time
+        if reset_timestamp_str:
+            try:
+                from datetime import timezone as _tz
+                reset_dt = datetime.fromisoformat(reset_timestamp_str.replace("Z", "+00:00"))
+                if reset_dt.tzinfo is None:
+                    reset_dt = reset_dt.replace(tzinfo=_tz.utc)
+                if reset_dt > start_time:
+                    effective_start = reset_dt
+            except Exception:
+                pass
+
+        # Get trades in time range (post-reset only)
         trades = await db.trades_collection.find(
             {
                 "user_id": user_id,
-                "timestamp": {"$gte": start_time.isoformat()}
+                "timestamp": {"$gte": effective_start.isoformat()}
             },
             {"_id": 0, "timestamp": 1, "net_pnl": 1, "profit_loss": 1}
         ).sort("timestamp", 1).to_list(10000)

@@ -10,6 +10,7 @@ import time
 
 from auth import get_current_user
 import database as db
+from services.bot_filters import bot_not_deleted_filter
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def get_trade_cadence(
         }
         if bot_type:
             matching_bots = await db.bots_collection.find(
-                {"user_id": user_id, "bot_type": bot_type, "deleted": {"$ne": True}},
+                bot_not_deleted_filter({"user_id": user_id, "bot_type": bot_type}),
                 {"_id": 0, "id": 1}
             ).to_list(200)
             bot_ids = [b["id"] for b in matching_bots]

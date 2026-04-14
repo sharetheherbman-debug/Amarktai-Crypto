@@ -12,6 +12,7 @@ import logging
 
 from auth import get_current_user
 import database as db
+from services.bot_filters import bot_not_deleted_filter
 from exchange_limits import (
     SCALPER_BOT_ALLOCATION,
     MAX_SCALPER_BOTS_GLOBAL,
@@ -41,7 +42,7 @@ async def scalper_caps(user_id: str = Depends(get_current_user)):
     Returns per-exchange scalper bot cap usage and global limits.
     """
     bots = await db.bots_collection.find(
-        {"user_id": user_id, "deleted": {"$ne": True}, "bot_type": "scalper"}
+        bot_not_deleted_filter({"user_id": user_id, "bot_type": "scalper"})
     ).to_list(length=200)
 
     per_exchange = {}
@@ -74,11 +75,11 @@ async def scalper_summary(user_id: str = Depends(get_current_user)):
     Returns scalper-specific metrics separate from normal bots.
     """
     bots = await db.bots_collection.find(
-        {"user_id": user_id, "deleted": {"$ne": True}, "bot_type": "scalper"}
+        bot_not_deleted_filter({"user_id": user_id, "bot_type": "scalper"})
     ).to_list(length=200)
 
     normal_bots = await db.bots_collection.count_documents(
-        {"user_id": user_id, "deleted": {"$ne": True}, "bot_type": {"$ne": "scalper"}}
+        bot_not_deleted_filter({"user_id": user_id, "bot_type": {"$ne": "scalper"}})
     )
 
     active = [b for b in bots if b.get("status") == "active"]
@@ -124,7 +125,7 @@ async def set_profit_routing(
         raise HTTPException(status_code=400, detail=f"Invalid mode. Must be one of: {valid_modes}")
 
     result = await db.bots_collection.update_many(
-        {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}},
+        bot_not_deleted_filter({"user_id": user_id, "bot_type": "scalper"}),
         {"$set": {"profit_routing": mode}},
     )
 
@@ -193,7 +194,7 @@ async def scalper_seed(
     import uuid
 
     existing = await db.bots_collection.count_documents(
-        {"user_id": user_id, "bot_type": "scalper", "deleted": {"$ne": True}}
+        bot_not_deleted_filter({"user_id": user_id, "bot_type": "scalper"})
     )
 
     if existing > 0:
