@@ -15,9 +15,9 @@ class CircuitBreaker {
     this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
     this.failureCount = 0;
     this.successCount = 0;
-    this.failureThreshold = 3; // Open circuit after 3 failures
+    this.failureThreshold = 5; // Open circuit after 5 failures (less hair-trigger)
     this.successThreshold = 2; // Close circuit after 2 successes in half-open
-    this.timeout = 30000; // 30 seconds before trying half-open
+    this.timeout = 10000; // 10 seconds before trying half-open (faster recovery)
     this.resetTimer = null;
     this.listeners = new Set();
     this.lastFailureTime = null;
