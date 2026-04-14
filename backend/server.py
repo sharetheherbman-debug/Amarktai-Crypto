@@ -3264,6 +3264,65 @@ async def diagnostics_go_live(user_id: Annotated[str, Depends(get_current_user)]
         except Exception as e:
             report["checks"]["trades"] = {"status": "WARN", "error": str(e)}
 
+        # 12. Learning intelligence status
+        try:
+            from services.river_learner import river_learner as _rl
+            _rl_diag = _rl.get_diagnostics() if hasattr(_rl, "get_diagnostics") else {}
+            _samples = _rl_diag.get("samples_seen", _rl_diag.get("total_samples", 0))
+            _rl_active = bool(_rl_diag.get("river_active", False) or _rl_diag.get("active", False))
+            _min_samples = 10  # predict_edge activates at >= 10 samples
+            _prediction_live = _rl_active and _samples >= _min_samples
+
+            if _samples >= 50:
+                _learning_stage = "active"
+            elif _samples >= _min_samples:
+                _learning_stage = "warming"
+            else:
+                _learning_stage = "dormant"
+
+            # XGBoost classification
+            from pathlib import Path as _Path
+            _xgb_model_path = _Path(__file__).resolve().parent / "models" / "xgb_predictor.json"
+            _xgb_model_present = _xgb_model_path.exists()
+            # XGBoost is offline-only: used by retrain_xgboost.py + learning_loop.py nightly
+            # It is NOT wired into live signal scoring (ml_predictor uses momentum, not xgboost)
+            _xgb_status = "offline-only" if _xgb_model_present else "inactive"
+
+            # Optuna: only called inside scripts/retrain_xgboost.py — never in live path
+            _optuna_available = False
+            try:
+                import optuna as _optuna  # noqa: F401
+                _optuna_available = True
+            except ImportError:
+                pass
+
+            report["checks"]["learning"] = {
+                "status": "PASS" if _rl_active else "WARN",
+                "river": {
+                    "active": _rl_active,
+                    "samples_seen": _samples,
+                    "prediction_influence_live": _prediction_live,
+                    "stage": _learning_stage,
+                    "min_samples_for_prediction": _min_samples,
+                },
+                "xgboost": {
+                    "status": _xgb_status,
+                    "model_present": _xgb_model_present,
+                    "note": "offline-only: nightly retrain via learning_loop; NOT wired into live signal path",
+                },
+                "optuna": {
+                    "installed": _optuna_available,
+                    "note": "offline-only: called inside retrain_xgboost.py only",
+                },
+                "summary": (
+                    f"River {_learning_stage} ({_samples} samples). "
+                    f"Predictions {'active' if _prediction_live else 'dormant (< ' + str(_min_samples) + ' samples)'}. "
+                    f"XGBoost {_xgb_status}."
+                ),
+            }
+        except Exception as e:
+            report["checks"]["learning"] = {"status": "WARN", "error": str(e)}
+
         # Determine overall status
         failed_checks = [k for k, v in report["checks"].items() if v.get("status") == "FAIL"]
         if failed_checks:

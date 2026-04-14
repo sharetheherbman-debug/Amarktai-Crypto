@@ -2519,6 +2519,9 @@ class PaperTradingEngine:
             _symbol_universe.record_closed(bot_id, symbol or "")
 
             # ── River online learner hook (non-fatal) ────────────────────
+            # Exactly one learning update per closed trade, with the real user_id.
+            # The duplicate sync call in run_trading_cycle was removed to prevent
+            # double-learning the same trade with inconsistent user identity.
             try:
                 from services.river_learner import river_learner
                 river_features = {
@@ -2528,7 +2531,8 @@ class PaperTradingEngine:
                     "close_vs_sma20": float((open_trade.get("indicators") or {}).get("close_vs_sma20", 0)),
                     "volume_ratio": 1.0,
                 }
-                await river_learner.record_outcome(river_features, net_profit)
+                _river_user_id = str(bot_data.get("user_id") or "default")
+                await river_learner.record_outcome(river_features, net_profit, user_id=_river_user_id)
             except Exception as _river_err:
                 logger.debug(f"River online learner hook failed (non-fatal): {_river_err}")
 
@@ -2997,23 +3001,9 @@ class PaperTradingEngine:
             except Exception as e:
                 logger.warning(f"Realtime trade broadcast failed: {e}")
 
-            # River online learner hook — update per-user model with trade outcome.
-            try:
-                from services.river_learner import river_learner
-                _river_features = {
-                    k: trade_result.get(k, 0.0)
-                    for k in ("rsi", "macd", "macd_hist", "atr", "bb_upper", "bb_lower",
-                              "vwap", "close_vs_sma20", "volume", "confidence")
-                    if trade_result.get(k) is not None
-                }
-                river_learner.record_outcome_sync(
-                    user_id=bot_data["user_id"],
-                    features=_river_features,
-                    net_profit=float(trade_result.get("profit_loss", 0)),
-                )
-            except Exception as _re:
-                logger.debug("River learner update skipped: %s", _re)
-            
+            # NOTE: River learning is handled exactly once inside _close_open_trade
+            # with the real user_id. Do NOT add a second record_outcome call here.
+
             return {
                 "bot_id": bot_id,
                 "new_capital": round(new_capital, 2),
