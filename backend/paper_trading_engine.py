@@ -43,7 +43,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Tuple, Optional, List
 import logging
 import database as db
-from exchange_limits import get_fee_rate
+from exchange_limits import get_fee_rate, SCALPER_MAX_HOLD_SECONDS
 from rate_limiter import rate_limiter
 from risk_engine import risk_engine
 from services.order_validation import order_validator
@@ -2001,11 +2001,28 @@ class PaperTradingEngine:
             age_seconds = age_minutes * 60
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price else 0
 
+            # ── Bot-type-specific hold-time limits ─────────────────────────────────────
+            # Scalpers must exit after SCALPER_MAX_HOLD_SECONDS (300s = 5 min) so that
+            # the radar's FORCE_EXIT signal aligns with when the paper engine actually
+            # closes the position.  Normal/training bots use the standard paper limits.
+            _bot_type_for_hold = str(bot_data.get("bot_type") or "normal").lower()
+            if _bot_type_for_hold == "scalper":
+                _effective_hard_hold_sec = SCALPER_MAX_HOLD_SECONDS
+                # Soft exit fires 30 s before hard limit so spread check has one cycle to pass
+                _effective_soft_hold_sec = max(60, SCALPER_MAX_HOLD_SECONDS - 30)
+                _effective_time_exit_min = SCALPER_MAX_HOLD_SECONDS / 60.0
+                _effective_stagnation_min = min(2.0, _effective_time_exit_min * 0.5)
+            else:
+                _effective_hard_hold_sec = HARD_MAX_HOLD_SECONDS
+                _effective_soft_hold_sec = SOFT_MAX_HOLD_SECONDS
+                _effective_time_exit_min = PAPER_MAX_HOLD_MINUTES
+                _effective_stagnation_min = STAGNATION_EXIT_MINUTES
+
             logger.info(
                 f"PAPER_EVAL trade_id={open_trade.get('id', '?')} bot={bot_id} "
-                f"age_min={age_minutes:.1f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
-                f"time_exit_in={max(0.0, PAPER_MAX_HOLD_MINUTES - age_minutes):.1f}min "
-                f"hard_exit_in={max(0.0, HARD_MAX_HOLD_SECONDS/60 - age_minutes):.1f}min "
+                f"bot_type={_bot_type_for_hold} age_min={age_minutes:.1f} tp={take_profit_price:.4f} sl={stop_loss_price:.4f} "
+                f"time_exit_in={max(0.0, _effective_time_exit_min - age_minutes):.1f}min "
+                f"hard_exit_in={max(0.0, _effective_hard_hold_sec/60 - age_minutes):.1f}min "
                 f"price={current_price:.4f} pnl_pct={pnl_pct:.2f}"
             )
 
@@ -2030,18 +2047,19 @@ class PaperTradingEngine:
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stop_loss",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif age_seconds >= HARD_MAX_HOLD_SECONDS:
-                # HARD max-hold (C2): force-close unconditionally after HARD_MAX_HOLD_SECONDS.
+            elif age_seconds >= _effective_hard_hold_sec:
+                # HARD max-hold (C2): force-close unconditionally after bot-type-specific hard limit.
+                # Scalpers: 300s (5 min). Normal bots: HARD_MAX_HOLD_SECONDS (8700s ≈ 145 min).
                 # Low confidence blocks OPENING new trades only — it must NEVER block closing.
                 close_reason = "hard_max_hold"
                 logger.info(
                     f"CLOSE_HARD_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
-                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
-                    f"hard_max_hold_sec={HARD_MAX_HOLD_SECONDS}"
+                    f"bot_type={_bot_type_for_hold} price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"hard_max_hold_sec={_effective_hard_hold_sec}"
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="hard_max_hold",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif age_seconds >= SOFT_MAX_HOLD_SECONDS:
+            elif age_seconds >= _effective_soft_hold_sec:
                 # SOFT max-hold (C2): close when spread is acceptable; retry until HARD limit.
                 spread_at_close = market_snapshot.get("spread_bps", 0) if market_snapshot else 0
                 if spread_at_close <= (PAPER_MAX_SPREAD_PCT * 100):  # spread_bps vs bps-converted cap
@@ -2049,7 +2067,7 @@ class PaperTradingEngine:
                     logger.info(
                         f"CLOSE_SOFT_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
                         f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
-                        f"soft_max_hold_sec={SOFT_MAX_HOLD_SECONDS}"
+                        f"soft_max_hold_sec={_effective_soft_hold_sec}"
                     )
                     self._log_action("CLOSE", bot_id, symbol or "?", reason="soft_max_hold",
                                      trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
@@ -2058,15 +2076,14 @@ class PaperTradingEngine:
                         f"SOFT_MAX_HOLD_RETRY bot={bot_id} trade={open_trade.get('id', '?')} "
                         f"spread_bps={spread_at_close:.1f} exceeds cap — retry next tick"
                     )
-            elif age_minutes >= PAPER_MAX_HOLD_MINUTES:
-                # Unconditional time exit: fires after PAPER_MAX_HOLD_MINUTES (default 120)
-                # regardless of P&L direction. Unlike stale_exit, this does NOT require
-                # negative P&L, ensuring profitable trades also close for accounting.
+            elif age_minutes >= _effective_time_exit_min:
+                # Unconditional time exit: fires after bot-type-specific time limit.
+                # Scalpers: 5 min. Normal bots: PAPER_MAX_HOLD_MINUTES (120 min).
                 close_reason = "time_exit"
                 logger.info(
                     f"CLOSE_TIME_EXIT bot={bot_id} trade={open_trade.get('id', '?')} "
                     f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
-                    f"max_hold={PAPER_MAX_HOLD_MINUTES}"
+                    f"max_hold={_effective_time_exit_min:.1f}min"
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="time_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
@@ -2090,8 +2107,8 @@ class PaperTradingEngine:
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stale_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
             elif (
-                STAGNATION_EXIT_MINUTES > 0
-                and age_minutes >= STAGNATION_EXIT_MINUTES
+                _effective_stagnation_min > 0
+                and age_minutes >= _effective_stagnation_min
                 and entry_price > 0
             ):
                 # Stagnation/no-progress exit: price hasn't moved beyond estimated

@@ -206,9 +206,24 @@ class AutopilotGrowthService:
             reasons.append("PROFIT_BELOW_THRESHOLD")
 
         spawn_capital = float(config.NEW_BOT_CAPITAL)
-        has_funds, available_capital = await reserved_funds_service.check_available_funds(
-            self.user_id, platform, "ZAR", spawn_capital
-        )
+        # In paper mode, query paper wallet instead of wallet_balances_collection.
+        _modes_doc = await self.db.system_modes.find_one({"user_id": self.user_id}, {"_id": 0})
+        _paper_rt = _modes_doc.get("paperTrading", False) if _modes_doc else False
+        _live_rt = _modes_doc.get("liveTrading", False) if _modes_doc else False
+        _is_paper = (_paper_rt and not _live_rt) or (config.ENABLE_PAPER_TRADING and not config.ENABLE_LIVE_TRADING)
+        if _is_paper:
+            try:
+                from services.paper_wallet_service import paper_wallet_service as _pws
+                _pw = await _pws.get_balances(self.user_id)
+                available_capital = float(_pw.get("total", 0) or 0)
+                has_funds = available_capital >= spawn_capital
+            except Exception:
+                available_capital = spawn_capital
+                has_funds = True
+        else:
+            has_funds, available_capital = await reserved_funds_service.check_available_funds(
+                self.user_id, platform, "ZAR", spawn_capital
+            )
         reserved_summary = await reserved_funds_service.get_reserved_summary(self.user_id)
         reserved_capital = _exchange_reserved_from_summary(reserved_summary, platform)
         shortfall = max(0.0, spawn_capital - float(available_capital))
@@ -337,9 +352,28 @@ class AutopilotGrowthService:
                     reasons.append("API_KEYS_INVALID")
 
         spawn_capital = float(config.NEW_BOT_CAPITAL)
-        has_funds, _available = await reserved_funds_service.check_available_funds(
-            self.user_id, platform, "ZAR", spawn_capital
-        )
+        # In paper mode, use the paper wallet balance as the source of available funds.
+        # The reserved_funds_service queries wallet_balances_collection which only
+        # has live trading balances.  Paper wallets live in wallets_collection and are
+        # managed by paper_wallet_service — they must be checked directly here.
+        _is_paper_mode = skip_api_key_check  # reuse the same live/paper determination
+        if _is_paper_mode:
+            try:
+                from services.paper_wallet_service import paper_wallet_service as _pws
+                _pw = await _pws.get_balances(self.user_id)
+                _pw_total = float(_pw.get("total", 0) or 0)
+                # Paper wallet is shared across all platforms; treat full balance as
+                # available so we don't block spawning when funds exist.
+                has_funds = _pw_total >= spawn_capital
+                _available = _pw_total
+            except Exception as _pw_err:
+                logger.warning("Growth guardrail: paper wallet check failed: %s", _pw_err)
+                has_funds = True  # optimistic: don't block on transient wallet errors
+                _available = spawn_capital
+        else:
+            has_funds, _available = await reserved_funds_service.check_available_funds(
+                self.user_id, platform, "ZAR", spawn_capital
+            )
         if not has_funds:
             reasons.append("INSUFFICIENT_AVAILABLE_FUNDS")
 
