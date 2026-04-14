@@ -368,7 +368,18 @@ class SignalAggregator:
         final_confidence = sum(
             weights[k] * confidences[k] for k in _BASE_WEIGHTS
         )
-        final_confidence = round(min(max(final_confidence, 0.0), 1.0), 4)
+
+        # Apply river edge as a directional confidence adjustment.
+        # When the online learner has enough samples (≥10), it has learned from
+        # real closed-trade outcomes.  A river_edge < 0.35 means the model has
+        # seen many losses in similar feature conditions — penalise confidence.
+        # A river_edge > 0.65 is a mild boost (reward good-signal regimes).
+        # Capped at ±0.08 to avoid overwhelming the primary signal weights.
+        if river_edge != 0.5:  # Only adjust when we have a real prediction
+            _river_adjustment = (river_edge - 0.5) * 0.16  # maps [0,1] → [-0.08, +0.08]
+            final_confidence = max(0.0, min(1.0, final_confidence + _river_adjustment))
+
+        final_confidence = round(final_confidence, 4)
 
         final_direction = _direction_from_score(weighted_sum)
 

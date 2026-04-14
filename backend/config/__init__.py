@@ -135,6 +135,15 @@ LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10
 # after a losing streak. Set to 0.45 to require meaningful signal quality before entry;
 # avoids low-confidence trades that pass only because the local regime source is available.
 BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.45'))
+
+# ── Scalper-specific stricter thresholds ────────────────────────────────────
+# Scalpers require higher signal quality than normal bots because their profit
+# window per trade is smaller (less room to absorb spread + fee costs).
+SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '0.62'))
+# Max hold time for scalpers (minutes).  Normal bots use PAPER_MAX_HOLD_MINUTES.
+SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
+# Max spread (%) for scalpers.  Normal bots use PAPER_MAX_SPREAD_PCT.
+SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.15'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
@@ -336,6 +345,9 @@ __all__ = [
     'LOSING_STREAK_THRESHOLD',
     'LOSING_STREAK_SIGNAL_BOOST',
     'BASE_CONFIDENCE_THRESHOLD',
+    'SCALPER_CONFIDENCE_THRESHOLD',
+    'SCALPER_MAX_HOLD_MINUTES',
+    'SCALPER_MAX_SPREAD_PCT',
     'SOFT_MAX_HOLD_SECONDS',
     'HARD_MAX_HOLD_SECONDS',
     'SYMBOL_COOLDOWN_MINUTES',
