@@ -4,7 +4,7 @@
 Exchange Rate Limits - Production Requirements
 
 REQUIREMENTS PER EXCHANGE (NORMAL BOTS):
-- Luno: 5 bots max, 400 trades/bot/day, 2,000 total/day
+- Luno: 10 bots max total (5 normal + 5 scalper), 400 trades/bot/day, 2,000 total/day
 - Binance: 10 bots max, 500 trades/bot/day, 5,000 total/day
 - KuCoin: 10 bots max, 1,000 trades/bot/day, 10,000 total/day
 - Bybit: 10 bots max, 800 trades/bot/day, 8,000 total/day
@@ -13,10 +13,10 @@ REQUIREMENTS PER EXCHANGE (NORMAL BOTS):
 - Gate.io: 10 bots max, 800 trades/bot/day, 8,000 total/day
 - Coinbase: 10 bots max, 600 trades/bot/day, 6,000 total/day
 
-GLOBAL LIMIT (NORMAL): 75 bots total across all 8 exchanges (5 + 10×7)
+GLOBAL LIMIT (NORMAL): 75 bots total across all 8 exchanges (5+5 luno + 10×7)
 
 SCALPER BOTS (SEPARATE CATEGORY):
-- Luno: max 5 scalper bots
+- Luno: max 5 scalper bots (in addition to 5 normal = 10 total on Luno)
 - All other exchanges: max 10 scalper bots each
 - Scalpers are tracked independently from normal bots.
 - Scalper caps do NOT affect normal bot caps.

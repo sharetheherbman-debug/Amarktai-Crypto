@@ -36,7 +36,7 @@ MIN_TRADES_FOR_PROMOTION = 25
 
 # Exchange limits (8 canonical exchanges)
 EXCHANGE_BOT_LIMITS = {
-    'luno': 5,
+    'luno': 10,  # 10 total on Luno: 5 normal + 5 scalper
     'binance': 10,
     'kucoin': 10,
     'bybit': 10,
@@ -144,7 +144,9 @@ SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '
 # Max hold time for scalpers (minutes).  Normal bots use PAPER_MAX_HOLD_MINUTES.
 SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
 # Max spread (%) for scalpers.  Normal bots use PAPER_MAX_SPREAD_PCT.
-SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.15'))
+# 0.30% allows realistic ZAR-quoted pair spreads (Luno BTC/ZAR is typically 0.1-0.3%).
+# The previous 0.15% was too tight, permanently blocking scalpers on ZAR pairs.
+SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.30'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.

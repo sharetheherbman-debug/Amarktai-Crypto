@@ -14,6 +14,7 @@ from config.platforms import SUPPORTED_PLATFORMS, PLATFORM_CONFIG
 from engines.bot_spawner import bot_spawner
 from services.reserved_funds_service import reserved_funds_service
 from services.provider_registry import ProviderStatus
+from exchange_limits import get_scalper_cap
 
 logger = logging.getLogger(__name__)
 
@@ -213,14 +214,23 @@ class AutopilotGrowthService:
         }
 
     async def _get_platform_status(self, platform: str) -> Dict:
-        # Count only normal (non-scalper) bots — scalper bots have separate caps
+        # Count total bots (all types) for display — total cap = normal + scalper
         bots_current = await self.db.bots.count_documents({
+            "user_id": self.user_id,
+            "exchange": platform,
+            "status": {"$ne": "deleted"},
+        })
+        # Count non-scalper bots separately for growth engine guardrail awareness
+        normal_bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
             "status": {"$ne": "deleted"},
             "bot_type": {"$nin": ["scalper"]},
         })
-        bots_max = _platform_bot_limit(platform)
+        # Total cap = normal cap + scalper cap (e.g. Luno = 5 + 5 = 10)
+        normal_cap = _platform_bot_limit(platform)
+        scalper_cap = get_scalper_cap(platform)
+        bots_max = normal_cap + scalper_cap
         profit = await self.get_platform_realized_profit_zar(platform)
         last_milestone = await self._get_last_milestone_index(platform)
         next_milestone = last_milestone + 1
@@ -277,6 +287,9 @@ class AutopilotGrowthService:
             "next_threshold_zar": round(next_threshold, 2),
             "bots_current": bots_current,
             "bots_max": bots_max,
+            "normal_bots_current": normal_bots_current,
+            "normal_bots_max": normal_cap,
+            "scalper_bots_max": scalper_cap,
             "milestones_spawned": milestones_spawned,
             "eligible": eligible and profit_ready,
             "blocked_reasons": reasons,
@@ -339,15 +352,18 @@ class AutopilotGrowthService:
         if bodyguard_count > 0:
             reasons.append("BODYGUARD_LOCK_ACTIVE")
 
-        # Count only normal (non-scalper) bots — scalper bots have separate caps and
-        # must not inflate the normal-bot count against the platform normal-bot limit.
-        bots_current = await self.db.bots.count_documents({
+        # Count all bots on this platform (normal + scalper) and compare to total cap.
+        # Total cap = normal_bot_limit + scalper_cap (e.g. Luno = 5 + 5 = 10).
+        # The growth engine only spawns normal bots, but reporting MAX_BOTS_REACHED
+        # based on the TOTAL cap prevents the growth panel from claiming FULL when
+        # e.g. 9 total bots exist (5 normal + 4 scalper) with a 10-bot total cap.
+        total_bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
             "status": {"$ne": "deleted"},
-            "bot_type": {"$nin": ["scalper"]},
         })
-        if bots_current >= _platform_bot_limit(platform):
+        _total_cap = _platform_bot_limit(platform) + get_scalper_cap(platform)
+        if total_bots_current >= _total_cap:
             reasons.append("MAX_BOTS_REACHED")
 
         # Check cooldown period - no spawns within AUTO_SPAWN_COOLDOWN_MINUTES

@@ -50,12 +50,12 @@ async def get_user_countdowns(user_id: str = Depends(get_current_user)):
         ).to_list(100)
         
         # Calculate current progress for each countdown
-        # Get user's current capital
+        # Get canonical portfolio value: ZAR + USDT-in-ZAR (avoids undercounting)
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        current_capital = user.get("total_capital", 0.0)
+        current_capital = await _get_canonical_portfolio_zar(user_id, user)
         
         result = []
         for countdown in countdowns:
@@ -97,6 +97,29 @@ async def get_user_countdowns(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error fetching user countdowns: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _get_canonical_portfolio_zar(user_id: str, user_doc=None) -> float:
+    """Return canonical portfolio value in ZAR including USDT balances converted to ZAR.
+
+    Priority:
+    1. Paper wallet canonical equity (available + allocated, all currencies → ZAR)
+    2. Fallback to user.total_capital (ZAR only — less accurate)
+
+    This is the ONE source of truth for countdown / progress / equity displays.
+    """
+    try:
+        from services.canonical import get_canonical_paper_wallet_equity
+        equity = await get_canonical_paper_wallet_equity(user_id)
+        total = float(equity.get("total_equity", 0) or 0)
+        if total > 0:
+            return total
+    except Exception as e:
+        logger.warning("canonical equity fetch failed for %s: %s", user_id[:8], e)
+    # Fallback: user.total_capital (ZAR only)
+    if user_doc is None:
+        user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
+    return float((user_doc or {}).get("total_capital", 0.0) or 0.0)
 
 
 async def calculate_daily_roi(user_id: str) -> float:
@@ -146,9 +169,9 @@ async def calculate_daily_roi(user_id: str) -> float:
                 rate, _ = _gfr(qc, "ZAR")
                 total_profit_zar += (float(pnl_raw or 0) - fees_raw) * rate
 
-        # user.total_capital is always in ZAR (platform-level aggregate)
+        # Use canonical portfolio value (ZAR + USDT-in-ZAR) as the current capital base
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-        current_capital = float((user or {}).get("total_capital", 0.0) or 0.0)
+        current_capital = await _get_canonical_portfolio_zar(user_id, user)
         starting_capital = current_capital - total_profit_zar
 
         if starting_capital <= 0:
@@ -192,9 +215,9 @@ async def create_countdown(countdown: CountdownCreate, user_id: str = Depends(ge
         
         await db.user_countdowns_collection.insert_one(countdown_doc)
         
-        # Get current progress
+        # Get current progress using canonical portfolio value (ZAR + USDT-in-ZAR)
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-        current_capital = user.get("total_capital", 0.0) if user else 0.0
+        current_capital = await _get_canonical_portfolio_zar(user_id, user)
         
         target = countdown.target_amount
         progress = min(current_capital, target)
@@ -263,9 +286,9 @@ async def update_countdown(
             "user_id": user_id
         })
         
-        # Calculate progress
+        # Calculate progress using canonical portfolio value (ZAR + USDT-in-ZAR)
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
-        current_capital = user.get("total_capital", 0.0) if user else 0.0
+        current_capital = await _get_canonical_portfolio_zar(user_id, user)
         
         target = updated["target_amount"]
         progress = min(current_capital, target)

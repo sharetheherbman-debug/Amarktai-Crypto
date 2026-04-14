@@ -24,7 +24,7 @@ class BotSpawner:
         self.max_bots = 65
         # SUPPORTED EXCHANGES: All 7 platforms
         self.exchange_distribution = {
-            'luno': 5,      # 5 bots on Luno
+            'luno': 10,     # 10 total on Luno (5 normal + 5 scalper)
             'binance': 10,  # 10 bots on Binance
             'kucoin': 10,   # 10 bots on KuCoin
             'bybit': 10,    # 10 bots on Bybit
