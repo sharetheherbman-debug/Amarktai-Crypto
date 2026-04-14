@@ -114,8 +114,8 @@ async def _get_canonical_portfolio_zar(user_id: str, user_doc=None) -> float:
         total = float(equity.get("total_equity", 0) or 0)
         if total > 0:
             return total
-    except Exception as _e:
-        logger.warning("canonical equity fetch failed for %s: %s", user_id[:8], _e)
+    except Exception as e:
+        logger.warning("canonical equity fetch failed for %s: %s", user_id[:8], e)
     # Fallback: user.total_capital (ZAR only)
     if user_doc is None:
         user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
