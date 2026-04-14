@@ -304,7 +304,7 @@ async def get_live_trades(
                 trade.get('quote_currency')
                 or _get_trade_quote_currency(trade.get('exchange', ''), trade.get('symbol') or trade.get('pair', ''))
             )
-            _trade_sym = _TRADE_CURRENCY_SYMBOL.get(str(_trade_qc).upper(), str(_trade_qc).upper() + ' ')
+            _trade_sym = _TRADE_CURRENCY_SYMBOL.get(str(_trade_qc).upper(), str(_trade_qc).upper())
 
             # Build enriched trade object
             enriched_trade = {

@@ -1370,7 +1370,7 @@ class PaperTradingEngine:
                         # so Luno's own OHLCV is still tried first.
                         _fb_symbol = symbol
                         _fb_exchange = exchange
-                        if str(symbol).endswith("/ZAR") or str(symbol).endswith("ZAR"):
+                        if str(symbol).endswith("/ZAR"):
                             _base = str(symbol).split("/")[0]
                             _fb_symbol = f"{_base}/USDT"
                             _fb_exchange = "binance"

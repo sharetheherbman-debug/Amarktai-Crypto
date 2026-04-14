@@ -283,6 +283,15 @@ def _rule_based_prediction(row) -> tuple:
 # ---------------------------------------------------------------------------
 # Legacy private helper (kept for existing callers in predict_price)
 # ---------------------------------------------------------------------------
+# Momentum prediction constants
+# ---------------------------------------------------------------------------
+# Empirical multiplier: maps EMA divergence → predicted continuation move.
+# A 0.3% EMA-5/EMA-20 divergence typically precedes a ~0.9% continuation
+# in crypto at the 1 h timeframe, so a 3× factor is a calibrated estimate.
+# Capped at ±2 % to stay within a realistic single-candle move range.
+_MOMENTUM_MULTIPLIER = 300          # divergence × this → predicted_change_pct
+_MAX_PREDICTED_CHANGE_PCT = 2.0     # hard cap in both directions
+
 
 def _compute_momentum(closes: list) -> tuple:
     """
@@ -341,7 +350,7 @@ def _compute_momentum(closes: list) -> tuple:
     #   gate, while producing values large enough to clear paper-mode costs
     #   for directional signals that have meaningful (≥0.2%) divergence.
     predicted_change_pct = round(
-        max(-2.0, min(divergence * 300, 2.0)),
+        max(-_MAX_PREDICTED_CHANGE_PCT, min(divergence * _MOMENTUM_MULTIPLIER, _MAX_PREDICTED_CHANGE_PCT)),
         4,
     )
 
