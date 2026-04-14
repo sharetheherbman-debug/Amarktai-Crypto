@@ -23,6 +23,16 @@ const REASON_LABELS = {
   PROFIT_BELOW_THRESHOLD:       'Profit has not yet reached the milestone threshold',
 };
 
+// System-wide blockers that affect the entire growth engine (not just one platform).
+// Per-platform blockers like MAX_BOTS_REACHED or INSUFFICIENT_AVAILABLE_FUNDS only
+// block that specific exchange row — they must NOT drive the global status to "blocked"
+// while other platforms are still accumulating normally.
+const SYSTEM_WIDE_BLOCKERS = [
+  'AUTOPILOT_GROWTH_DISABLED', 'AUTOPILOT_DISABLED', 'TRADING_MODE_DISABLED',
+  'AUTOPILOT_OFF_FOR_USER', 'DAILY_LOSS_LOCK_ACTIVE', 'AUTOPILOT_MODE_DISABLED',
+  'EMERGENCY_STOP_ACTIVE', 'BODYGUARD_LOCK_ACTIVE',
+];
+
 function safeNum(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -282,13 +292,15 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
   const threshold = growthData?.profit_threshold_zar ?? 0;
   const minReinvest = reinvestData?.min_reinvest_zar ?? 0;
 
-  // Collect global blocking reasons from the first platform's response (feature-level reasons
-  // like AUTOPILOT_GROWTH_DISABLED apply to all platforms, not just one)
+  // Collect global blocking reasons across ALL platforms (feature-level reasons
+  // like AUTOPILOT_GROWTH_DISABLED apply to all platforms, not just one).
+  // Only system-wide reason codes (defined above) are collected here; per-platform
+  // reasons like MAX_BOTS_REACHED or INSUFFICIENT_AVAILABLE_FUNDS are shown only on the row.
   const globalGrowthBlockers = platforms.length > 0
-    ? (growthData.platforms[platforms[0]]?.blocked_reasons || [])
-        .filter(r => ['AUTOPILOT_GROWTH_DISABLED','AUTOPILOT_DISABLED','TRADING_MODE_DISABLED',
-                      'AUTOPILOT_OFF_FOR_USER','DAILY_LOSS_LOCK_ACTIVE','AUTOPILOT_MODE_DISABLED',
-                      'EMERGENCY_STOP_ACTIVE','BODYGUARD_LOCK_ACTIVE'].includes(r))
+    ? [...new Set(
+        platforms.flatMap(p => (growthData.platforms[p]?.blocked_reasons || []))
+                 .filter(r => SYSTEM_WIDE_BLOCKERS.includes(r))
+      )]
     : (growthEnabled === false ? ['AUTOPILOT_GROWTH_DISABLED'] : []);
 
   // Aggregate stats across all platforms
@@ -298,13 +310,18 @@ export default function GrowthEngineSection({ autopilotGrowthStatus, autopilotRe
     return {
       totalSpawned: entries.reduce((s, p) => s + safeNum(p?.milestones_spawned ?? p?.total_spawned), 0),
       eligiblePlatforms: entries.filter(p => p?.eligible).length,
-      blockedPlatforms: entries.filter(p => !p?.eligible && (p?.blocked_reasons || []).some(r => r !== 'PROFIT_BELOW_THRESHOLD')).length,
+      // Only count a platform as "blocked" when it has a non-profit-threshold AND
+      // system-wide reason — per-platform-only blockers (MAX_BOTS_REACHED etc.) still
+      // allow the overall engine to show "accumulating" on the remaining platforms.
+      blockedPlatforms: entries.filter(p => !p?.eligible && (p?.blocked_reasons || []).some(r => SYSTEM_WIDE_BLOCKERS.includes(r))).length,
     };
   }, [growthData]);
 
-  // Determine overall growth engine operational status.
-  // Platform-level blockers (funds, API keys, max bots) also block the engine — show "Blocked"
-  // not "Active — Accumulating" when no spawn can happen for reasons other than profit threshold.
+  // Determine overall growth engine operational status using ONE canonical truth:
+  // - System-wide blockers → blocked
+  // - Any platform eligible to spawn → ready
+  // - All platforms only waiting on profit → accumulating (NOT blocked)
+  // - Per-platform-only blockers (MAX_BOTS_REACHED etc.) ≠ global blocked
   const growthStatus = useMemo(() => {
     if (!growthEnabled) return 'disabled';
     if (globalGrowthBlockers.length > 0) return 'blocked';

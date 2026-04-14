@@ -1057,19 +1057,36 @@ class PaperTradingEngine:
                 }
 
             depth_notional = market_snapshot.get("depth_notional")
-            if depth_notional is not None and depth_notional < PAPER_MIN_ORDERBOOK_NOTIONAL and not bot_data.get("allow_low_liquidity"):
-                return {
-                    "success": False,
-                    "bot_id": bot_id,
-                    "skip_reason": "low_liquidity",
-                    "error": f"Order book depth {depth_notional:.2f} below minimum",
-                    "details": {
-                        "depth_notional": round(depth_notional, 2),
-                        "min_notional": PAPER_MIN_ORDERBOOK_NOTIONAL,
-                        "symbol": symbol,
-                        "exchange": exchange
+            if depth_notional is not None and not bot_data.get("allow_low_liquidity"):
+                # PAPER_MIN_ORDERBOOK_NOTIONAL is expressed in ZAR.  For USDT-quoted
+                # pairs the depth_notional is in USDT, so we convert the threshold
+                # to USDT using a conservative FX proxy rather than applying the
+                # ZAR threshold directly.  This prevents legitimate high-liquidity
+                # USDT pairs from being blocked by the ZAR-denominated limit while
+                # keeping the same economic protection floor.
+                # FX proxy: ~18.5 ZAR/USDT (conservative mid-range estimate; used
+                # only for threshold scaling, not for any trade sizing or PnL).
+                _quote_currency_sym = (symbol or "").split("/")[-1].upper() if "/" in (symbol or "") else ""
+                if _quote_currency_sym == "USDT":
+                    _PROXY_FX_ZAR_USDT = 18.5
+                    _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL / _PROXY_FX_ZAR_USDT
+                else:
+                    _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL
+                if depth_notional < _effective_min_notional:
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "low_liquidity",
+                        "error": f"Order book depth {depth_notional:.2f} below minimum",
+                        "details": {
+                            "depth_notional": round(depth_notional, 2),
+                            "min_notional": round(_effective_min_notional, 2),
+                            "min_notional_zar": PAPER_MIN_ORDERBOOK_NOTIONAL,
+                            "quote_currency": _quote_currency_sym or "ZAR",
+                            "symbol": symbol,
+                            "exchange": exchange
+                        }
                     }
-                }
             
             # 2. AI INTELLIGENCE: Check market regime
             _regime_detector = market_regime_detector
@@ -1152,6 +1169,7 @@ class PaperTradingEngine:
             ext_signal_data = {"strength": 0.0, "volatility": 0.0, "sentiment": "unavailable", "is_simulated": True, "source": "unavailable"}
 
             # 3b. SIGNAL AGGREGATION: Combine ML, alpha fusion, sentiment, order flow
+            _agg = None
             try:
                 from services.signal_aggregator import aggregate_signals
                 _agg = await aggregate_signals(symbol, exchange, bot_type=str(bot_data.get("bot_type") or "normal").lower(), regime_result=regime)
@@ -1166,7 +1184,8 @@ class PaperTradingEngine:
                 logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
 
             # Persist the aggregated strategy signal so monitoring APIs can read it.
-            # This populates last_strategy_signal which was previously never written.
+            # Also write market_regime, confidence_score, and pair so that the radar
+            # always reflects the live decision state rather than stale/missing values.
             try:
                 _signal_snapshot = {
                     "direction": prediction.get("direction", "neutral"),
@@ -1176,9 +1195,23 @@ class PaperTradingEngine:
                     "regime_confidence": round(float(regime.get("confidence", 0)), 4),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
+                _agg_confidence = float((_agg or {}).get("confidence") or 0)
+                _regime_str = regime.get("regime", "unknown") or "unknown"
+                _bot_state_update = {
+                    "last_strategy_signal": _signal_snapshot,
+                    # Radar truth fields — written every tick so display is always fresh
+                    "market_regime": _regime_str,
+                    "confidence_score": round(
+                        _agg_confidence if _agg_confidence > 0 else float(regime.get("confidence", 0)), 4
+                    ),
+                }
+                # Persist the selected symbol back to the bot document so the radar
+                # shows a real pair instead of "unknown" for newly-created bots.
+                if symbol and bot_data.get("pair") != symbol:
+                    _bot_state_update["pair"] = symbol
                 await db.bots_collection.update_one(
                     {"id": bot_id},
-                    {"$set": {"last_strategy_signal": _signal_snapshot}},
+                    {"$set": _bot_state_update},
                 )
             except Exception as _sig_write_err:
                 logger.debug("last_strategy_signal write failed (non-fatal): %s", _sig_write_err)
@@ -1690,6 +1723,18 @@ class PaperTradingEngine:
                     _conf_threshold = max(_conf_threshold, BASE_CONFIDENCE_THRESHOLD + 0.15)
 
             avg_confidence = total_confidence / max(confidence_sources, 1)
+
+            # ── Confidence truth unification ───────────────────────────────────────────
+            # When the signal aggregator has run successfully and contributed at least
+            # one real signal, use its composite confidence as the authoritative value.
+            # This ensures that the confidence displayed in the radar (from _agg) is
+            # IDENTICAL to the confidence used at this gate — eliminating the mismatch
+            # where bots show confidence ~0.52-0.55 in the UI but fail low_confidence.
+            _agg_composite = float((_agg or {}).get("confidence") or 0)
+            _agg_signals_used = int((_agg or {}).get("signals_used") or 0)
+            if _agg_composite > 0 and _agg_signals_used >= 1:
+                avg_confidence = _agg_composite
+                confidence_sources = max(confidence_sources, _agg_signals_used)
 
             # ── Adaptive discipline: after consecutive losses, tighten threshold ──────
             # Uses the derive_adaptive_discipline function from entry_quality.py which

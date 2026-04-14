@@ -16,6 +16,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
 
+# ---------------------------------------------------------------------------
+# Capital normalization helper
+# ---------------------------------------------------------------------------
+def _bot_capital_zar(bot: dict, field: str = "initial_capital") -> float:
+    """Return *field* value in ZAR regardless of the bot's quote currency.
+
+    Priority order:
+    1. ``canonical_base_capital_zar`` — authoritative ZAR value frozen at
+       creation time.  Always correct (R1000 = R1000, never USDT-inflated).
+    2. raw ``field`` value × ``fx_rate_at_creation`` — for bots that were
+       created before canonical_base_capital_zar was introduced.
+    3. raw ``field`` value — last resort (ZAR-quoted bots are fine here;
+       USDT bots may be slightly off but won't inflate wildly).
+
+    Using this helper for every capital sum prevents mixed-currency inflation
+    (e.g., 923 USDT being added to ZAR totals as if it were R923).
+    """
+    canonical = bot.get("canonical_base_capital_zar")
+    if canonical and float(canonical) > 0:
+        return float(canonical)
+    raw = float(bot.get(field) or 0)
+    if raw <= 0:
+        return 0.0
+    quote = (bot.get("quote_currency") or "").upper()
+    if quote == "USDT":
+        fx = float(bot.get("fx_rate_at_creation") or 0)
+        if fx > 0:
+            return round(raw * fx, 4)
+    return raw
+
+
 @router.get("/pnl_timeseries")
 async def get_pnl_timeseries(
     range: str = Query("7d", regex="^(1d|7d|30d|90d|1y|all)$"),
@@ -54,9 +85,16 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
         - realized_pnl: Profit/loss from closed trades
     """
     try:
-        # Get all user bots
+        # Get all user bots — exclude deleted bots so ghost/stale bots from
+        # previous runs do not inflate capital totals.
         bots = await db.bots_collection.find(
-            {"user_id": user_id},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0}
         ).to_list(1000)
         
@@ -71,9 +109,9 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
                 "message": "No bots created yet. Create a bot to start trading."
             }
         
-        # Calculate totals
-        funded_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        # Calculate totals using ZAR-normalised capital to prevent USDT inflation.
+        funded_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
+        current_capital = sum(_bot_capital_zar(b, "current_capital") for b in bots)
         realized_pnl = sum(bot.get('total_profit', 0) for bot in bots)
         
         # Unrealized PnL from open positions (paper trading doesn't have open positions)
@@ -89,8 +127,8 @@ async def get_capital_breakdown(user_id: str = Depends(get_current_user)):
                 {
                     "bot_id": bot['id'],
                     "bot_name": bot.get('name'),
-                    "funded": bot.get('initial_capital', 0),
-                    "current": bot.get('current_capital', 0),
+                    "funded": _bot_capital_zar(bot, "initial_capital"),
+                    "current": _bot_capital_zar(bot, "current_capital"),
                     "realized_pnl": bot.get('total_profit', 0)
                 }
                 for bot in bots
@@ -481,11 +519,14 @@ async def get_drawdown_analysis(
                 "is_deleted": {"$ne": True},
                 "deleted_at": {"$exists": False},
             },
-            {"_id": 0, "initial_capital": 1, "current_capital": 1}
+            {"_id": 0, "initial_capital": 1, "current_capital": 1,
+             "canonical_base_capital_zar": 1, "fx_rate_at_creation": 1, "quote_currency": 1}
         ).to_list(1000)
         
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        # Use ZAR-normalised capital to prevent USDT-quoted bots from inflating
+        # the ZAR peak-equity calculation (canonical_base_capital_zar = frozen R1000).
+        initial_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
+        current_capital = sum(_bot_capital_zar(b, "current_capital") for b in bots)
 
         # Respect the last paper-reset baseline so pre-reset trades don't
         # contaminate peak equity / drawdown for the current session.
@@ -717,15 +758,21 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
     try:
         from services.profit_service import profit_service
         
-        # Get all user bots (exclude deleted)
+        # Get all user bots (exclude deleted — use full 4-field filter for correctness)
         bots = await db.bots_collection.find(
-            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0}
         ).to_list(1000)
         
-        # Calculate capital totals
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
-        current_capital = sum(bot.get('current_capital', 0) for bot in bots)
+        # Use ZAR-normalised capital to prevent USDT bots inflating ZAR totals.
+        initial_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
+        current_capital = sum(_bot_capital_zar(b, "current_capital") for b in bots)
         
         # Get trade statistics with gross/fees/net breakdown
         all_stats = await profit_service.get_trade_stats(user_id)
@@ -863,15 +910,21 @@ async def get_countdown_to_target(
     try:
         from services.profit_service import profit_service
         
-        # Get all user bots (exclude deleted)
+        # Get all user bots (exclude deleted — full 4-field filter)
         bots = await db.bots_collection.find(
-            {"user_id": user_id, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0}
         ).to_list(1000)
         
-        # Calculate current equity
-        equity_current = sum(bot.get('current_capital', 0) for bot in bots)
-        initial_capital = sum(bot.get('initial_capital', 0) for bot in bots)
+        # Use ZAR-normalised capital
+        equity_current = sum(_bot_capital_zar(b, "current_capital") for b in bots)
+        initial_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
         net_pnl_total = equity_current - initial_capital
         
         # Get first trade timestamp

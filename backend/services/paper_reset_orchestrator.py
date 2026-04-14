@@ -259,6 +259,8 @@ async def run(
     #            daily counters surviving the reset.
     #          - paper engine _bot_loss_streaks: prevents old loss streaks
     #            from a prior session bleeding into a new session.
+    #          - trade_staggerer cooldowns: prevents old cooldown windows
+    #            from blocking trading for the freshly-seeded bots.
     # ------------------------------------------------------------------
     if bot_ids:
         try:
@@ -273,6 +275,14 @@ async def run(
                 _pte._bot_loss_streaks.pop(_bid, None)
         except Exception as exc:
             logger.debug("paper_reset_orchestrator: loss_streak purge: %s", exc)
+
+        try:
+            from engines.trade_staggerer import trade_staggerer as _ts
+            for _bid in bot_ids:
+                _ts._bot_cooldowns.pop(_bid, None)
+                _ts._trade_queue.discard(_bid) if hasattr(_ts._trade_queue, "discard") else None
+        except Exception as exc:
+            logger.debug("paper_reset_orchestrator: trade_staggerer purge: %s", exc)
 
     # ------------------------------------------------------------------
     # Step 3: Wipe user-scoped paper fills (is_paper=True) so that
@@ -355,6 +365,8 @@ async def run(
     # Step 4b: Wipe Growth Engine per-user state and decisions so the
     #          Growth Engine panel reflects a clean slate immediately
     #          after reset instead of showing stale "blocked/0" state.
+    #          Also wipe autopilot_milestones so the growth engine does
+    #          not think milestones from a previous session already fired.
     # ------------------------------------------------------------------
     if raw_db is not None:
         await _safe_delete(
@@ -367,6 +379,24 @@ async def run(
             {"user_id": user_id},
             "growth_engine_decisions",
         )
+
+    # autopilot_milestones lives in a named collection in database.py
+    await _safe_delete(
+        db.autopilot_milestones_collection,
+        {"user_id": user_id},
+        "autopilot_milestones",
+    )
+    # autopilot actions/events from prior sessions
+    await _safe_delete(
+        db.autopilot_actions_collection,
+        {"user_id": user_id},
+        "autopilot_actions",
+    )
+    await _safe_delete(
+        db.autopilot_reinvest_events_collection,
+        {"user_id": user_id},
+        "autopilot_reinvest_events",
+    )
 
     # ------------------------------------------------------------------
     # Step 5: Reset per-user risk locks (daily loss, emergency stop).

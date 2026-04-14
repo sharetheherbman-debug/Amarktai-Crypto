@@ -876,6 +876,9 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
             currency (ZAR for Luno, USDT for Binance/KuCoin/etc.)
           - This matches bot_validator.validate_bot_creation exactly.
         """
+        # Default pair per exchange so the radar can show a real symbol
+        # even before the first trading-engine tick selects one.
+        _default_pair = 'XBT/ZAR' if exchange == 'luno' else 'BTC/USDT'
         record = {
             'id': str(uuid4()),
             'user_id': user_id,
@@ -894,6 +897,7 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
             'risk_mode': risk_mode,
             'trading_mode': 'paper',
             'exchange': exchange,
+            'pair': _default_pair,  # default pair; engine will update when it selects a better one
             'status': 'active',
             'trades_count': 0,
             'created_at': datetime.now(timezone.utc).isoformat(),
