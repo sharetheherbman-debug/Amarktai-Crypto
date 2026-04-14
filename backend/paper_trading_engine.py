@@ -353,6 +353,19 @@ class PaperTradingEngine:
     KRAKEN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     GATE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     COINBASE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
+
+    @classmethod
+    def _exchange_fallback_pairs(cls) -> dict:
+        """Return per-exchange fallback pair lists (used when live exchange metadata is unavailable)."""
+        return {
+            'luno': cls.LUNO_PAIRS,
+            'kucoin': cls.KUCOIN_PAIRS,
+            'bybit': cls.BYBIT_PAIRS,
+            'bitget': cls.BITGET_PAIRS,
+            'kraken': cls.KRAKEN_PAIRS,
+            'gate': cls.GATE_PAIRS,
+            'coinbase': cls.COINBASE_PAIRS,
+        }
     
     def __init__(self):
         self.luno_exchange = None
@@ -618,16 +631,7 @@ class PaperTradingEngine:
             logger.warning(f"Failed to fetch pairs from {exchange}: {e}")
 
         # Fallback to hardcoded defaults when exchange metadata is unavailable
-        _fallback = {
-            'luno': self.LUNO_PAIRS,
-            'kucoin': self.KUCOIN_PAIRS,
-            'bybit': self.BYBIT_PAIRS,
-            'bitget': self.BITGET_PAIRS,
-            'kraken': self.KRAKEN_PAIRS,
-            'gate': self.GATE_PAIRS,
-            'coinbase': self.COINBASE_PAIRS,
-        }
-        return _fallback.get(exchange, self.BINANCE_PAIRS)
+        return self._exchange_fallback_pairs().get(exchange, self.BINANCE_PAIRS)
 
     def _get_whitelist_pairs(self, exchange: str, bot_data: Dict) -> Optional[list]:
         if not PAPER_PAIR_WHITELIST_ENABLED:

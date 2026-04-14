@@ -157,10 +157,11 @@ class SymbolUniverseService:
         # (e.g. PAPER_PAIR_WHITELIST_ENABLED=true env var) to act as a curated
         # safety universe.
         whitelist = PAPER_PAIR_WHITELIST.get(exchange) if PAPER_PAIR_WHITELIST_ENABLED else None
+        # Use explicit None check so an intentionally empty bot_override_universe
+        # list is treated as "no override" rather than silently falling through to
+        # the whitelist (an empty list is falsy in Python).
         universe = (
-            bot_override_universe
-            or whitelist
-            or []
+            bot_override_universe if bot_override_universe is not None else (whitelist or [])
         )
         universe_set = set(universe)
 
