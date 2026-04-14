@@ -18,7 +18,7 @@ import { circuitBreaker } from './circuitBreaker';
 // Create axios instance with defaults
 const apiClient = axios.create({
   baseURL: API_BASE,
-  timeout: 30000, // 30 seconds
+  timeout: 12000, // 12 seconds — fail fast so circuit breaker recovers quickly
   headers: {
     'Content-Type': 'application/json'
   }

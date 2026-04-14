@@ -232,9 +232,16 @@ class SelfHealingSystem:
             if rogue_count > 0:
                 logger.info(f"🛡️ Self-Healing: Fixed {rogue_count} rogue bots")
         
+            # Record timestamp of successful scan completion so get_status() can
+            # return a truthful last_check and last_result to the UI.
+            self.last_check = datetime.now(timezone.utc)
+            self.last_result = f"scanned_ok:{len(bots)}_bots_{rogue_count}_fixed"
+
         except Exception as e:
             logger.error(f"Scan all bots error: {e}", exc_info=True)
             # Never crash - log and continue
+            self.last_check = datetime.now(timezone.utc)
+            self.last_result = f"scan_error:{str(e)[:80]}"
     
     async def scan_all_users(self):
         """

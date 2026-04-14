@@ -268,9 +268,16 @@ export default function useDashboardState(navigate) {
   const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
   
   const chatEndRef = useRef(null);
+  // wsRef no longer opens a connection (duplicate WebSocket eliminated); kept
+  // only as a null ref so the cleanup function can guard defensively.
   const wsRef = useRef(null);
   const sseRef = useRef(null);
   const botStatusErrorRef = useRef({ lastShown: 0 });
+  // Debounce timers for WS-triggered API cascades.  Coalesces rapid-fire events
+  // (e.g. bots_update × 3 in 200ms) into a single refresh after 1.5 s of quiet.
+  const _wsDebounce = useRef({});
+  // Cleanup callback for realtimeClient raw-message subscription.
+  const _rtCleanup = useRef(null);
   
   const token = localStorage.getItem('token');
   const axiosConfig = useMemo(() => ({
@@ -396,8 +403,16 @@ export default function useDashboardState(navigate) {
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('navigateToSection', handleNavigateToSection);
+      // Clean up realtimeClient subscriptions set up by setupRealTimeConnections.
+      if (_rtCleanup.current) {
+        _rtCleanup.current();
+        _rtCleanup.current = null;
+      }
+      // wsRef.current is no longer opened by setupRealTimeConnections but may still
+      // exist from a previous render cycle — close defensively.
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
         wsInitializedRef.current = false;
       }
       if (sseRef.current) sseRef.current.close();
@@ -442,7 +457,9 @@ export default function useDashboardState(navigate) {
     }
   }, [token, user]);
 
-  // Poll overview and risk data every 10 seconds
+  // Poll overview and risk data every 30 seconds (was 10s).
+  // loadOverviewData makes 5 parallel requests internally; polling it every 10s
+  // contributed to timeout storms under paper-trading load.
   useEffect(() => {
     if (!token || !user) return;
     
@@ -455,7 +472,7 @@ export default function useDashboardState(navigate) {
         loadCountdown();
         loadSystemStats();
       }
-    }, 10000);
+    }, 30000);
     
     return () => clearInterval(interval);
   }, [token, user, realtimeFallback]);
@@ -707,89 +724,48 @@ export default function useDashboardState(navigate) {
   }, [adminBots, selectedUserId]);
 
   const setupRealTimeConnections = () => {
-    console.log('✅ Initializing WebSocket connection...');
-    
-    // Also connect the realtime client for API key events
+    console.log('✅ Initializing WebSocket via realtimeClient...');
+
+    // Single canonical connection managed by realtimeClient singleton.
+    // useDashboardData also calls realtimeClient.connect(token) — the second
+    // call is a no-op (readyState guard inside realtimeClient.connectWebSocket).
     if (token) {
       realtimeClient.connect(token);
     }
-    
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
-    
-    const connectWebSocket = () => {
-      try {
-        // Use shared helper to build same-origin WS URL (wss:// on HTTPS)
-        const wsEndpoint = `${wsUrl()}?token=${token}`;
-        wsRef.current = new WebSocket(wsEndpoint);
-        
-        wsRef.current.onopen = () => {
-          reconnectAttempts = 0; // Reset on successful connection
-          setConnectionStatus(prev => ({ ...prev, ws: 'Connected', sse: 'Connected' }));
-          console.log('✅ WebSocket connected');
-          refreshAllDashboardData();
-          
-          const pingInterval = setInterval(() => {
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              const startTime = Date.now();
-              wsRef.current.send(JSON.stringify({ 
-                type: 'ping', 
-                timestamp: startTime 
-              }));
-            }
-          }, 20000); // Ping every 20 seconds
-          
-          wsRef.current.pingInterval = pingInterval;
-        };
-        
-        wsRef.current.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'pong') {
-              const rtt = Date.now() - data.timestamp;
-              setWsRtt(`${rtt}ms`);
-            } else {
-              handleRealTimeUpdate(data);
-            }
-          } catch (err) {
-            console.error('WebSocket message parse error:', err);
-          }
-        };
-        
-        wsRef.current.onclose = () => {
-          setConnectionStatus(prev => ({ ...prev, ws: 'Disconnected', sse: 'Disconnected' }));
-          setWsRtt(NOT_AVAILABLE);
-          
-          // Only reconnect if under max attempts
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            setTimeout(() => {
-              console.log(`Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-              connectWebSocket();
-            }, 5000);
-          } else {
-            console.log('❌ Max reconnect attempts reached');
-          }
-        };
-        
-        wsRef.current.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          setConnectionStatus(prev => ({ ...prev, ws: 'Error', sse: 'Error' }));
-        };
-      } catch (err) {
-        console.error('WebSocket connection error:', err);
-        setConnectionStatus(prev => ({ ...prev, ws: 'Error', sse: 'Error' }));
+
+    // Subscribe to connection-state changes so the UI status badge updates.
+    const offConn = realtimeClient.on('connection', (payload) => {
+      const isUp = payload?.status === 'connected';
+      setConnectionStatus(prev => ({
+        ...prev,
+        ws: isUp ? 'Connected' : 'Disconnected',
+        sse: isUp ? 'Connected' : 'Disconnected',
+      }));
+      if (isUp) {
+        // A single initial load is enough; refreshAllDashboardData fires 15
+        // requests in parallel — do NOT call it again on every reconnect.
+        // The polling intervals in useDashboardData already keep data fresh.
+        console.log('✅ WebSocket connected');
+        refreshAllDashboardData();
+      } else {
+        setWsRtt(NOT_AVAILABLE);
       }
-    };
-    
-    // Only use WebSocket (SSE disabled due to auth issues)
-    try {
-      connectWebSocket();
-    } catch (err) {
-      console.error('Failed to initialize WebSocket:', err);
-      setConnectionStatus({ ws: 'Error', sse: 'Error', api: 'Connected' });
-    }
+    });
+
+    // Forward ALL raw WS messages to handleRealTimeUpdate via the onRawMessage
+    // hook added to realtimeClient.  This replaces the redundant second WebSocket
+    // connection (wsRef.current) that previously caused every backend event to
+    // trigger double API cascades.
+    const offRaw = realtimeClient.onRawMessage((message) => {
+      if (message.type === 'pong' && message.timestamp) {
+        setWsRtt(`${Date.now() - message.timestamp}ms`);
+      } else if (message.type !== 'ping') {
+        // ping is a keepalive — no need to route to handleRealTimeUpdate
+        handleRealTimeUpdate(message);
+      }
+    });
+
+    _rtCleanup.current = () => { offConn(); offRaw(); };
   };
 
   // Rate limiter for unknown message types
@@ -799,6 +775,14 @@ export default function useDashboardState(navigate) {
     loadRecentTrades();
     loadMetrics();
     loadCountdown();
+  }, []);
+
+  // Debounce helper for WS-triggered API refreshes.  Coalesces bursts of the
+  // same event (e.g. multiple trades_update in 500ms) into a single call after
+  // `delay` ms of quiet.  Prevents timeout storms when paper trades close in batch.
+  const _debounceWs = useCallback((key, fn, delay = 1500) => {
+    clearTimeout(_wsDebounce.current[key]);
+    _wsDebounce.current[key] = setTimeout(fn, delay);
   }, []);
 
   const registerNotableEvent = useCallback((title, detail) => {
@@ -900,15 +884,15 @@ export default function useDashboardState(navigate) {
       }
       case 'bots_update': {
         // Event payloads can be partial; always re-fetch canonical bot status.
-        refreshBotState();
-        loadMetrics();
+        // Debounced: a burst of bots_update events (e.g. batch start) coalesces
+        // into a single refresh after 1.5 s of quiet.
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         break;
       }
       case 'trades_update':
       case 'trade_inserted': {
         // Canonical truth: always refresh from source; do not trust deltas.
-        refreshCanonicalTradeTruth();
-        loadCustomCountdowns();
+        _debounceWs('trade_truth', () => { refreshCanonicalTradeTruth(); loadCustomCountdowns(); });
         break;
       }
       case 'notification':
@@ -922,29 +906,30 @@ export default function useDashboardState(navigate) {
         break;
       case 'trade_executed':
         // Trade truth must come from backend canonical source (not screen-local merges).
-        refreshCanonicalTradeTruth();
-        loadCustomCountdowns();
+        // Debounce to coalesce rapid-fire trade events (batch paper closes etc.).
+        _debounceWs('trade_truth', () => { refreshCanonicalTradeTruth(); loadCustomCountdowns(); });
         
-        // Refresh analytics tabs if they are active
-        if (profitsTab === 'equity') {
-          loadEquityData();
-        } else if (profitsTab === 'drawdown') {
-          loadDrawdownData();
-        } else if (profitsTab === 'win-rate') {
-          loadWinRateData();
-        } else if (profitsTab === 'profit-history') {
-          loadProfitData();
-        }
+        // Refresh analytics tabs if they are active — also debounced to avoid 4× calls
+        _debounceWs('analytics_tab', () => {
+          if (profitsTab === 'equity') {
+            loadEquityData();
+          } else if (profitsTab === 'drawdown') {
+            loadDrawdownData();
+          } else if (profitsTab === 'win-rate') {
+            loadWinRateData();
+          } else if (profitsTab === 'profit-history') {
+            loadProfitData();
+          }
+        }, 2000);
         break;
       case 'trade_opened':
       case 'trade_closed':
         // Keep live/open/closed truth in sync with canonical backend collections.
-        refreshCanonicalTradeTruth();
-        loadCustomCountdowns();
+        _debounceWs('trade_truth', () => { refreshCanonicalTradeTruth(); loadCustomCountdowns(); });
         break;
       case 'analytics_update':
         // Recompute dashboard surfaces from canonical endpoints.
-        refreshCanonicalTradeTruth();
+        _debounceWs('trade_truth', refreshCanonicalTradeTruth);
         break;
       
       case 'profit_update':
@@ -982,12 +967,12 @@ export default function useDashboardState(navigate) {
             }));
           }
         }
-        loadOverviewData();
-        loadRiskStatus();
+        // Debounce the follow-up REST fetches so rapid overview_updated events
+        // don't each spawn a 5-request loadOverviewData storm.
+        _debounceWs('overview', () => { loadOverviewData(); loadRiskStatus(); }, 2000);
         break;
       case 'bot_status_changed':
-        refreshBotState();
-        loadMetrics();
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         if (data.message) toast.info(data.message);
         break;
       
@@ -1004,33 +989,29 @@ export default function useDashboardState(navigate) {
       
       case 'bot_created':
         // Reload bots and metrics immediately
-        refreshBotState();
-        loadMetrics();
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         if (data.message) toast.success(data.message);
         break;
       
       case 'bot_updated':
         // Avoid stale local merges; re-sync from canonical /api/bots/status.
-        refreshBotState();
-        loadMetrics();
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         break;
       case 'bot_paused':
       case 'bot_resumed':
-        refreshBotState();
-        loadMetrics();
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         if (data.message) toast.info(data.message);
         break;
       
       case 'bot_deleted':
         // Reload bots list
-        refreshBotState();
-        loadMetrics();
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         if (data.message) toast.success(data.message);
         break;
       
       case 'bot_promoted':
         // Bot promoted to live
-        refreshBotState();
+        _debounceWs('bots', refreshBotState);
         if (data.message) toast.success(data.message);
         break;
       
@@ -1073,14 +1054,13 @@ export default function useDashboardState(navigate) {
       
       case 'autopilot_action':
         // Autopilot did something
-        refreshBotState();
-        loadMetrics();
+        _debounceWs('bots', () => { refreshBotState(); loadMetrics(); });
         if (data.message) toast.info(data.message);
         break;
       
       case 'self_healing':
         // Self-healing paused a bot
-        refreshBotState();
+        _debounceWs('bots', refreshBotState);
         if (data.message) toast.warning(data.message);
         break;
       
@@ -1094,14 +1074,17 @@ export default function useDashboardState(navigate) {
       // Now handled above with state updates only (no full reload)
       
       case 'profit_updated':
-        // Profit changed - update all profit displays
-        loadMetrics();
-        loadCountdown();
-        loadCustomCountdowns();
-        loadProfitData(graphPeriod);
-        loadAutoSpawnStatus();
-        loadAutopilotGrowthStatus();
-        loadAutopilotReinvestStatus();
+        // Profit changed - debounce to prevent storm from multiple profit events.
+        // Each deferred call fires all profit-related endpoints once after quiet.
+        _debounceWs('profit_updated', () => {
+          loadMetrics();
+          loadCountdown();
+          loadCustomCountdowns();
+          loadProfitData(graphPeriod);
+          loadAutoSpawnStatus();
+          loadAutopilotGrowthStatus();
+          loadAutopilotReinvestStatus();
+        }, 2000);
         break;
       
       case 'ai_evolution':
