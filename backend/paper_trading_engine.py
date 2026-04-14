@@ -1385,23 +1385,18 @@ class PaperTradingEngine:
             ml_is_simulated = prediction.get("is_simulated", False)
 
             # ── HARD TRADE FILTER: net-edge check ───────────────────────────────────
-            # Paper mode goal is data collection and learning, not profit.  Cost
-            # accounting is still recorded in the ledger, but cost-vs-signal math
-            # must not prevent entries — that would block all trades in calm markets.
-            # Rule: block ONLY zero/negative directional signal in paper mode.
-            # Live mode uses the live_trading_engine; strictness there is unchanged.
+            # Paper trading must be realistic enough to trust before live rollout.
+            # Apply the same net-edge check to both paper and live mode so that
+            # negative-edge trades are blocked in paper trading too.
+            # Exception: simulated-ML data-collection mode (no real exchange data) —
+            # the fallback OHLCV signal already computed a minimal expected_move_pct
+            # above, so the edge check is meaningful even in sim mode.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
 
-            # Paper mode must NEVER be blocked by edge logic — its purpose is data
-            # collection and learning, not profit guarding.  Live mode remains strict.
-            if _is_paper_mode_bot:
-                _hard_edge_blocked = False
-                logger.info(
-                    "[EDGE_BYPASS] paper_mode_override | %s | net_edge=%.4f%%",
-                    bot_data.get("name", bot_id[:8]), _net_edge_pct,
-                )
-            else:
-                _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT  # live mode: enforce full edge check
+            # Block when net edge is at or below the minimum threshold for ALL modes.
+            # Previously paper mode bypassed this — that allowed negative-expectancy
+            # trades through, which this audit is fixing.
+            _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT
             if _hard_edge_blocked:
                 logger.info(
                     f"⏭️  SKIP_HARD_EDGE | {bot_data.get('name', bot_id[:8])} | "
@@ -1444,7 +1439,7 @@ class PaperTradingEngine:
                     },
                 }
 
-            if EDGE_GATE_PAPER and not ml_is_simulated and not _is_paper_mode_bot and expected_move_pct < edge_required_pct:
+            if EDGE_GATE_PAPER and not ml_is_simulated and expected_move_pct < edge_required_pct:
                 logger.info(
                     f"⏭️  SKIP_EDGE_GATE | {bot_data.get('name', bot_id[:8])} | "
                     f"expected={expected_move_pct:.4f}% required={edge_required_pct:.4f}%"
@@ -1496,10 +1491,11 @@ class PaperTradingEngine:
             trade_amount_for_exp = float(bot_data.get("current_capital", 1000.0)) * _position_size_pct
             estimated_expectancy_pct = expected_move_pct - estimated_cost_pct
             estimated_expectancy_zar = estimated_expectancy_pct / 100.0 * trade_amount_for_exp
-            # In simulated-ML mode the hard edge filter already guarantees expected_move_pct != 0.
-            # Skipping this gate prevents double-blocking data-collection paper trades where
-            # the fallback signal is positive but below the round-trip cost (by design).
-            if not ml_is_simulated and not _is_paper_mode_bot and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
+            # Expectancy gate: applies to ALL modes (paper and live) to ensure only
+            # positive-edge trades enter.  Exception: simulated-ML mode where no real
+            # exchange data is available — the hard edge filter above already caught
+            # zero-move signals, so double-blocking is unnecessary.
+            if not ml_is_simulated and estimated_expectancy_zar <= MIN_EXPECTANCY_ZAR:
                 logger.info(
                     f"⏭️  SKIP_EXPECTANCY | {bot_data.get('name', bot_id[:8])} | "
                     f"exp_zar={estimated_expectancy_zar:.4f} <= min={MIN_EXPECTANCY_ZAR:.4f} "
@@ -1598,13 +1594,15 @@ class PaperTradingEngine:
             # confidence ramp-up period.  We still require at least one regime
             # source to have reported (confidence_sources >= 1).
             _sim_bypass_confidence = ml_is_simulated and confidence_sources >= 1
-            # Paper mode bypass: allow trade if ANY minimal confidence detected (>= 0.1).
-            # Paper mode is a learning environment; strict quality gates only apply to live.
-            _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= MIN_PAPER_MODE_CONFIDENCE
+            # Paper mode quality: paper trades must still meet a minimum confidence
+            # threshold so that data collected reflects realistic signal quality.
+            # MIN_PAPER_MODE_CONFIDENCE (default 0.1) is used as the floor; paper
+            # bots bypass the *strict* multi-source check but still need a real signal.
+            _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= MIN_PAPER_MODE_CONFIDENCE and confidence_sources >= 1
             if _paper_quality_bypass:
                 logger.info(
-                    "[QUALITY_BYPASS] paper_mode_override | %s | %s | "
-                    "avg_confidence=%.3f sources=%d — allowing entry for data-collection",
+                    "[QUALITY_CHECK] paper_mode | %s | %s | "
+                    "avg_confidence=%.3f sources=%d — meets paper minimum",
                     bot_data.get("name", bot_id[:8]), symbol, avg_confidence, confidence_sources,
                 )
             if not _sim_bypass_confidence and not _paper_quality_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):

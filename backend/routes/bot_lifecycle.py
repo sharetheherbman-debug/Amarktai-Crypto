@@ -221,7 +221,23 @@ async def get_bots_status(
             state.get("bot_id"): state
             for state in await bot_runtime_state.list_states(user_id)
         }
-        
+
+        # Single query to determine which bots have open/active trades.
+        # This powers the "In Position" counter in Bot Operations Center.
+        open_position_bot_ids: set = set()
+        if db.trades_collection is not None:
+            try:
+                bot_ids_all = [b.get("id") for b in bots if b.get("id")]
+                import inspect as _inspect
+                _distinct_call = db.trades_collection.distinct(
+                    "bot_id",
+                    {"bot_id": {"$in": bot_ids_all}, "status": {"$in": ["open", "active", "pending"]}},
+                )
+                _open_ids = await _distinct_call if _inspect.isawaitable(_distinct_call) else _distinct_call
+                open_position_bot_ids = set(_open_ids or [])
+            except Exception as _e:
+                logger.warning("open-position distinct query failed: %s", _e)
+
         # Enrich each bot with detailed state
         enriched_bots = []
         for bot in bots:
@@ -325,6 +341,42 @@ async def get_bots_status(
                 pause_reason_message = pause_reason or 'Bot paused'
                 pause_next_action = 'Resume bot'
             
+            # ── Per-bot position + performance metrics ────────────────────────────
+            bot_id_str = bot.get('id', '')
+            has_open_position = bot_id_str in open_position_bot_ids
+
+            # Performance object — built from the bot document counters that the
+            # trading engine maintains via $inc/$set on trade open/close.
+            _win_count = int(bot.get('win_count', 0))
+            _loss_count = int(bot.get('loss_count', 0))
+            _trades_closed = int(bot.get('trades_count', 0))
+            _win_rate_pct = round(_win_count / _trades_closed * 100, 2) if _trades_closed > 0 else 0.0
+            _total_profit = float(bot.get('total_profit', 0))
+            performance = {
+                "profit_realized": _total_profit,
+                "trade_count": _trades_closed,
+                "win_rate_pct": _win_rate_pct,
+                "win_count": _win_count,
+                "loss_count": _loss_count,
+            }
+
+            # Capital summary — derived from bot document fields kept in sync by engine.
+            _current_capital = float(bot.get('current_capital', 0))
+            _initial_capital = float(
+                bot.get('initial_capital') or bot.get('starting_capital') or _current_capital
+            )
+            _open_pos_value = float(bot.get('open_position_value', 0))
+            _unrealized = float(bot.get('unrealized_profit', 0))
+            capital_summary = {
+                "initial_capital": _initial_capital,
+                "allocated_capital": _current_capital,
+                "available_capital": max(0.0, _current_capital - _open_pos_value),
+                "open_position_value": _open_pos_value,
+                "total_equity": _current_capital + _unrealized,
+                "realized_profit": _total_profit,
+                "unrealized_profit": _unrealized,
+            }
+
             enriched_bot = {
                 "id": bot.get('id'),
                 "name": bot.get('name'),
@@ -373,6 +425,13 @@ async def get_bots_status(
                 "last_order_attempt_at": bot.get('last_order_attempt_at'),
                 "last_order_error": bot.get('last_order_error'),
                 "last_trade_simulated_at": bot.get('last_trade_simulated_at') or bot.get('last_trade'),
+                # Open position flag — used by Bot Operations Center "In Position" counter
+                "has_open_position": has_open_position,
+                "open_position": has_open_position,  # legacy alias
+                # Performance metrics — used by Bot Fleet panel cards
+                "performance": performance,
+                # Capital summary — used by Bot Fleet detailed view
+                "capital_summary": capital_summary,
             }
             enriched_bots.append(enriched_bot)
         
