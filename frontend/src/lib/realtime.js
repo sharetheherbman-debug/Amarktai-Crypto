@@ -117,7 +117,7 @@ class RealtimeClient {
     // This lets useDashboardState subscribe once and handle all event types
     // without opening a second WebSocket connection.
     this.rawListeners.forEach(cb => {
-      try { cb(message); } catch (e) { console.error('Raw listener error:', e); }
+      try { cb(message); } catch (e) { console.error('Raw listener error for message type', message?.type, ':', e); }
     });
 
     // Handle ping/pong

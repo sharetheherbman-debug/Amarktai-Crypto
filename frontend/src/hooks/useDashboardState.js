@@ -268,7 +268,9 @@ export default function useDashboardState(navigate) {
   const [emergencyOverrideStatus, setEmergencyOverrideStatus] = useState(null);
   
   const chatEndRef = useRef(null);
-  const wsRef = useRef(null); // kept for legacy close() in cleanup
+  // wsRef no longer opens a connection (duplicate WebSocket eliminated); kept
+  // only as a null ref so the cleanup function can guard defensively.
+  const wsRef = useRef(null);
   const sseRef = useRef(null);
   const botStatusErrorRef = useRef({ lastShown: 0 });
   // Debounce timers for WS-triggered API cascades.  Coalesces rapid-fire events
