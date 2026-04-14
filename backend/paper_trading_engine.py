@@ -1363,9 +1363,25 @@ class PaperTradingEngine:
                     _fb_ohlcv = _hurst_ohlcv_cache  # reuse already-fetched data
                     if _fb_ohlcv is None or len(_fb_ohlcv) < 14:
                         from ml_predictor import fetch_ohlcv as _fb_fetch
+                        # For ZAR-quoted pairs (Luno) the requested symbol (e.g. BTC/ZAR)
+                        # is not listed on Binance/KuCoin/Bybit.  Use the base/USDT proxy
+                        # so fetch_ohlcv can always fall back to a liquid cross-exchange
+                        # source for the directional signal.  The exchange arg is kept as-is
+                        # so Luno's own OHLCV is still tried first.
+                        _fb_symbol = symbol
+                        _fb_exchange = exchange
+                        if str(symbol).endswith("/ZAR") or str(symbol).endswith("ZAR"):
+                            _base = str(symbol).split("/")[0]
+                            _fb_symbol = f"{_base}/USDT"
+                            _fb_exchange = "binance"
                         _fb_ohlcv = await asyncio.get_event_loop().run_in_executor(
-                            None, _fb_fetch, symbol, "1h", 50, exchange
+                            None, _fb_fetch, _fb_symbol, "1h", 50, _fb_exchange
                         )
+                        if (_fb_ohlcv is None or len(_fb_ohlcv) < 14) and _fb_symbol != symbol:
+                            # Last resort: try original symbol on luno directly
+                            _fb_ohlcv = await asyncio.get_event_loop().run_in_executor(
+                                None, _fb_fetch, symbol, "1h", 50, exchange
+                            )
                     if _fb_ohlcv and len(_fb_ohlcv) >= 15:
                         _fb_closes = [float(c[4]) for c in _fb_ohlcv]
                         # RSI(14): needs 15 elements to compute 14 differences

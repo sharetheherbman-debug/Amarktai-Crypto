@@ -12,8 +12,12 @@ import os
 
 from auth import get_current_user
 from services.accounting import accounting_service
+from services.fx_normalizer import get_quote_currency as _get_trade_quote_currency
 import database as db
 from utils.trade_utils import normalize_trade_timestamps, parse_trade_timestamp, build_trade_record
+
+# Currency symbol map for display fallbacks — ensures USDT trades show "$" not "R".
+_TRADE_CURRENCY_SYMBOL = {"ZAR": "R", "USD": "$", "USDT": "$", "USDC": "$", "BUSD": "$"}
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +298,14 @@ async def get_live_trades(
             except:
                 timestamp = datetime.now(timezone.utc).isoformat()
             
+            # Resolve trading quote currency for correct display symbol
+            # (ZAR → "R", USDT → "$"). Must happen before building the dict.
+            _trade_qc = (
+                trade.get('quote_currency')
+                or _get_trade_quote_currency(trade.get('exchange', ''), trade.get('symbol') or trade.get('pair', ''))
+            )
+            _trade_sym = _TRADE_CURRENCY_SYMBOL.get(str(_trade_qc).upper(), str(_trade_qc).upper() + ' ')
+
             # Build enriched trade object
             enriched_trade = {
                 # Bot info
@@ -315,10 +327,12 @@ async def get_live_trades(
                 "fee_total": trade.get('fee_amount', 0),
                 "net_profit_loss": trade.get('net_pnl', 0),
                 
-                # Display labels
-                "net_pnl_display": trade.get('net_pnl_display', f"R{trade.get('net_pnl', 0):.2f}"),
-                "gross_pnl_display": trade.get('gross_pnl_display', f"R{trade.get('gross_pnl', 0):.2f}"),
-                "fee_display": trade.get('fee_display', f"R{trade.get('fee_amount', 0):.2f}"),
+                # Display labels — use correct currency symbol for the trade's exchange.
+                # Luno/ZAR trades show "R"; Binance/KuCoin/Bybit USDT trades show "$".
+                "net_pnl_display": trade.get('net_pnl_display', f"{_trade_sym}{trade.get('net_pnl', 0):.2f}"),
+                "gross_pnl_display": trade.get('gross_pnl_display', f"{_trade_sym}{trade.get('gross_pnl', 0):.2f}"),
+                "fee_display": trade.get('fee_display', f"{_trade_sym}{trade.get('fee_amount', 0):.2f}"),
+                "quote_currency": _trade_qc,
                 
                 # Strategy/signal
                 "strategy_tag": trade.get('strategy_tag') or trade.get('trend', 'unknown'),

@@ -41,12 +41,17 @@ def _bot_is_runnable(b: Dict) -> bool:
     - eligible_to_trade=True: explicitly runnable.
     - eligible_to_trade=None (field never written by the engine — newly
       created bots not yet evaluated by the scheduler): treat as runnable
-      if the bot is active and has no explicit blocking reasons.
+      if the bot is active, has a valid trading_mode, and has no explicit
+      blocking reasons.
     - eligible_to_trade=False: not runnable.
+    - missing trading_mode: not runnable (cannot determine paper vs live).
     """
     elig = b.get("eligible_to_trade")
     if elig is True:
         return True
+    # A bot with no trading_mode cannot execute trades — block it.
+    if not (b.get("trading_mode") or b.get("mode")):
+        return False
     if elig is None and b.get("active") and not b.get("not_eligible_reasons"):
         return True
     return False
@@ -104,8 +109,12 @@ async def get_canonical_bot_activity(user_id: str) -> Dict[str, Any]:
     for bot in active_bots:
         if _bot_is_runnable(bot):
             continue
+        # Capture explicit blocking reasons stored on the document.
         for reason in bot.get("not_eligible_reasons", []):
             blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+        # Derive implicit blocking reasons not yet written to the document.
+        if not (bot.get("trading_mode") or bot.get("mode")):
+            blocked_reasons["no_trading_mode"] = blocked_reasons.get("no_trading_mode", 0) + 1
 
     bots_with_open_positions = 0
     active_bot_ids = [str(b.get("id")) for b in active_bots if b.get("id")]
