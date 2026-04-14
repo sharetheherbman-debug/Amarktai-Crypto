@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Tuple
 
 from config import (
     PAPER_PAIR_WHITELIST,
+    PAPER_PAIR_WHITELIST_ENABLED,
     SYMBOL_COOLDOWN_MINUTES,
     SYMBOL_COOLDOWN_HISTORY,
     PORTFOLIO_GUARD_WINDOW_MINUTES,
@@ -149,16 +150,23 @@ class SymbolUniverseService:
         open_symbols = set(open_symbols_for_user or [])
         filtered_out: Dict[str, str] = {}
 
-        # 1. Build the allowed universe for this exchange
+        # 1. Build the allowed universe for this exchange.
+        # When PAPER_PAIR_WHITELIST_ENABLED is False (default) the whitelist is
+        # skipped so bots can evaluate any pair returned by dynamic exchange
+        # discovery.  The whitelist is only consulted when explicitly enabled
+        # (e.g. PAPER_PAIR_WHITELIST_ENABLED=true env var) to act as a curated
+        # safety universe.
+        whitelist = PAPER_PAIR_WHITELIST.get(exchange) if PAPER_PAIR_WHITELIST_ENABLED else None
+        # Use explicit None check so an intentionally empty bot_override_universe
+        # list is treated as "no override" rather than silently falling through to
+        # the whitelist (an empty list is falsy in Python).
         universe = (
-            bot_override_universe
-            or PAPER_PAIR_WHITELIST.get(exchange)
-            or DEFAULT_SYMBOL_UNIVERSE.get(exchange)
-            or []
+            bot_override_universe if bot_override_universe is not None else (whitelist or [])
         )
         universe_set = set(universe)
 
-        # 2. Filter candidates to those in the universe and available on the exchange
+        # 2. Filter candidates to those in the universe (only when a universe is
+        # defined) and available on the exchange.
         candidates: List[str] = []
         for sym in available_pairs:
             if universe_set and sym not in universe_set:
@@ -262,14 +270,19 @@ class SymbolUniverseService:
         }
 
     def get_universe(self, exchange: str, bot_override: Optional[List[str]] = None) -> List[str]:
-        """Return the symbol universe list for *exchange*."""
+        """Return the symbol universe list for *exchange*.
+
+        When PAPER_PAIR_WHITELIST_ENABLED is False (default) the dynamic
+        exchange pair list is used and this returns the DEFAULT_SYMBOL_UNIVERSE
+        as a reference / diagnostic aid only (not used as a hard filter).
+        """
         if bot_override:
             return list(bot_override)
-        return list(
-            PAPER_PAIR_WHITELIST.get(exchange)
-            or DEFAULT_SYMBOL_UNIVERSE.get(exchange)
-            or []
-        )
+        if PAPER_PAIR_WHITELIST_ENABLED:
+            whitelist = PAPER_PAIR_WHITELIST.get(exchange)
+            if whitelist:
+                return list(whitelist)
+        return list(DEFAULT_SYMBOL_UNIVERSE.get(exchange) or [])
 
     def last_n_symbols(self, bot_id: str) -> List[str]:
         """Return the last N closed symbols for *bot_id* (for diagnostics)."""

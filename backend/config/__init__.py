@@ -100,7 +100,7 @@ EDGE_GATE_PAPER = os.getenv('EDGE_GATE_PAPER', 'true').lower() == 'true'
 EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'false').lower() == 'true'
 PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35% max spread
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
-PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'true').lower() == 'true'
+PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'false').lower() == 'true'
 PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
 # Time-exit fires unconditionally at this age regardless of P&L.
 # Ensures profitable trades still close for overnight win/loss accounting.
@@ -234,16 +234,53 @@ RISK_MODE_CONFIG: dict = {
     },
 }
 
-# Default paper trading pair whitelist (can be overridden per bot)
+# Broad per-exchange pair universe used as a FALLBACK when PAPER_PAIR_WHITELIST_ENABLED=true.
+# By default PAPER_PAIR_WHITELIST_ENABLED=false so dynamic exchange discovery is used instead.
+# When enabled (e.g. via env var) this list acts as a curated safety universe, not a hard block.
 PAPER_PAIR_WHITELIST = {
-    "luno": ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR"],
-    "binance": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "kucoin": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "bybit": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "kraken": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "bitget": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "gate": ["BTC/USDT", "ETH/USDT", "XRP/USDT"],
-    "coinbase": ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT"],
+    "luno": [
+        "BTC/ZAR", "ETH/ZAR", "XRP/ZAR", "SOL/ZAR", "USDC/ZAR",
+        "LTC/ZAR", "BCH/ZAR", "LINK/ZAR",
+    ],
+    "binance": [
+        "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+        "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT",
+        "LTC/USDT", "LINK/USDT", "UNI/USDT", "ATOM/USDT", "FIL/USDT",
+        "NEAR/USDT", "APT/USDT", "ARB/USDT", "OP/USDT", "SUI/USDT",
+    ],
+    "kucoin": [
+        "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+        "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT",
+        "LTC/USDT", "LINK/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT",
+        "APT/USDT", "ARB/USDT", "OP/USDT", "SUI/USDT", "KCS/USDT",
+    ],
+    "bybit": [
+        "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+        "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT",
+        "LTC/USDT", "LINK/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT",
+        "APT/USDT", "ARB/USDT", "OP/USDT", "SUI/USDT",
+    ],
+    "kraken": [
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT",
+        "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT", "LTC/USDT",
+        "LINK/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT",
+    ],
+    "bitget": [
+        "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT",
+        "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT",
+        "LTC/USDT", "LINK/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT",
+        "APT/USDT", "ARB/USDT", "OP/USDT", "SUI/USDT",
+    ],
+    "gate": [
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT",
+        "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT", "LTC/USDT",
+        "LINK/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT", "ARB/USDT",
+    ],
+    "coinbase": [
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT",
+        "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "MATIC/USDT", "LTC/USDT",
+        "LINK/USDT", "UNI/USDT", "ATOM/USDT", "NEAR/USDT", "APT/USDT",
+    ],
 }
 EXCHANGE_DAILY_TRADE_LIMITS = {
     'luno': int(os.getenv('LUNO_MAX_TRADES_PER_DAY', '20000')),

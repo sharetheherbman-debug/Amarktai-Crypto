@@ -344,12 +344,28 @@ def validate_trade_pnl(trade_pnl: float, bot_capital: float) -> bool:
 class PaperTradingEngine:
     """Accurate paper trading - profits = what you'd make live"""
     
-    # Default pairs (fallback)
+    # Default pairs (fallback when exchange metadata is unavailable)
     LUNO_PAIRS = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
     BINANCE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT']
     KUCOIN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     BYBIT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     BITGET_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
+    KRAKEN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
+    GATE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
+    COINBASE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
+
+    @classmethod
+    def _exchange_fallback_pairs(cls) -> dict:
+        """Return per-exchange fallback pair lists (used when live exchange metadata is unavailable)."""
+        return {
+            'luno': cls.LUNO_PAIRS,
+            'kucoin': cls.KUCOIN_PAIRS,
+            'bybit': cls.BYBIT_PAIRS,
+            'bitget': cls.BITGET_PAIRS,
+            'kraken': cls.KRAKEN_PAIRS,
+            'gate': cls.GATE_PAIRS,
+            'coinbase': cls.COINBASE_PAIRS,
+        }
     
     def __init__(self):
         self.luno_exchange = None
@@ -357,6 +373,9 @@ class PaperTradingEngine:
         self.kucoin_exchange = None
         self.bybit_exchange = None
         self.bitget_exchange = None
+        self.kraken_exchange = None
+        self.gate_exchange = None
+        self.coinbase_exchange = None
         self.price_cache = {}
         self.preferred_exchange = 'luno'
         self.available_pairs_cache = {}  # Cache for dynamically fetched pairs
@@ -480,6 +499,45 @@ class PaperTradingEngine:
                 logger.info("✅ Bitget ready (PUBLIC MODE)")
         except Exception as e:
             logger.warning(f"Bitget init failed: {e}")
+
+        try:
+            # Kraken - PUBLIC MODE
+            if not self.kraken_exchange:
+                self.kraken_exchange = ccxt.kraken({
+                    'enableRateLimit': True,
+                    'timeout': 30000,
+                    'apiKey': None,
+                    'secret': None
+                })
+                logger.info("✅ Kraken ready (PUBLIC MODE)")
+        except Exception as e:
+            logger.warning(f"Kraken init failed: {e}")
+
+        try:
+            # Gate.io - PUBLIC MODE
+            if not self.gate_exchange:
+                self.gate_exchange = ccxt.gate({
+                    'enableRateLimit': True,
+                    'timeout': 30000,
+                    'apiKey': None,
+                    'secret': None
+                })
+                logger.info("✅ Gate ready (PUBLIC MODE)")
+        except Exception as e:
+            logger.warning(f"Gate init failed: {e}")
+
+        try:
+            # Coinbase - PUBLIC MODE
+            if not self.coinbase_exchange:
+                self.coinbase_exchange = ccxt.coinbase({
+                    'enableRateLimit': True,
+                    'timeout': 30000,
+                    'apiKey': None,
+                    'secret': None
+                })
+                logger.info("✅ Coinbase ready (PUBLIC MODE)")
+        except Exception as e:
+            logger.warning(f"Coinbase init failed: {e}")
     
     def get_mode_label(self) -> dict:
         """
@@ -531,10 +589,10 @@ class PaperTradingEngine:
         try:
             if exchange in self.available_pairs_cache:
                 return self.available_pairs_cache[exchange]
-            
+
             if not self.luno_exchange and not self.binance_exchange and not self.kucoin_exchange:
                 await self.init_exchanges()
-            
+
             exchange_obj = None
             if exchange == 'luno' and self.luno_exchange:
                 exchange_obj = self.luno_exchange
@@ -546,36 +604,34 @@ class PaperTradingEngine:
                 exchange_obj = self.bybit_exchange
             elif exchange == 'bitget' and self.bitget_exchange:
                 exchange_obj = self.bitget_exchange
-            
+            elif exchange == 'kraken' and self.kraken_exchange:
+                exchange_obj = self.kraken_exchange
+            elif exchange == 'gate' and self.gate_exchange:
+                exchange_obj = self.gate_exchange
+            elif exchange == 'coinbase' and self.coinbase_exchange:
+                exchange_obj = self.coinbase_exchange
+
             if exchange_obj:
                 markets = await exchange_obj.load_markets()
-                
+
                 # Filter for active pairs only
                 if exchange == 'luno':
                     # South African exchange: Focus on ZAR pairs
                     available = [symbol for symbol in markets.keys() if '/ZAR' in symbol and markets[symbol].get('active', True)]
                 else:
-                    # Global exchanges: Focus on USDT pairs (most liquid)
-                    available = [symbol for symbol in markets.keys() if '/USDT' in symbol and markets[symbol].get('active', True)][:50]  # Top 50 pairs
-                
+                    # Global exchanges: Focus on USDT pairs (most liquid); cap at 50 to stay manageable
+                    available = [symbol for symbol in markets.keys() if '/USDT' in symbol and markets[symbol].get('active', True)][:50]
+
                 if available:
                     self.available_pairs_cache[exchange] = available
                     logger.info(f"✅ Loaded {len(available)} trading pairs from {exchange.upper()}")
                     return available
-        
+
         except Exception as e:
             logger.warning(f"Failed to fetch pairs from {exchange}: {e}")
-        
-        # Fallback to defaults
-        if exchange == 'luno':
-            return self.LUNO_PAIRS
-        elif exchange == 'kucoin':
-            return self.KUCOIN_PAIRS
-        elif exchange == 'bybit':
-            return self.BYBIT_PAIRS
-        elif exchange == 'bitget':
-            return self.BITGET_PAIRS
-        return self.BINANCE_PAIRS
+
+        # Fallback to hardcoded defaults when exchange metadata is unavailable
+        return self._exchange_fallback_pairs().get(exchange, self.BINANCE_PAIRS)
 
     def _get_whitelist_pairs(self, exchange: str, bot_data: Dict) -> Optional[list]:
         if not PAPER_PAIR_WHITELIST_ENABLED:
