@@ -66,20 +66,39 @@ class BotSpawner:
             logger.error(f"Get bot count error: {e}")
             return {"error": str(e)}
     
-    async def determine_next_bot_config(self, user_id: str) -> Dict:
-        """Determine config for next bot to spawn"""
+    async def determine_next_bot_config(self, user_id: str, allowed_exchanges: List[str] = None) -> Dict:
+        """Determine config for next bot to spawn.
+
+        Args:
+            user_id: The user to spawn for.
+            allowed_exchanges: Optional whitelist of exchange IDs.  When provided,
+                only exchanges in this list are considered for spawning.  This
+                prevents auto_spawn_to_target from silently expanding to exchanges
+                that were not part of the user's intended run (e.g. Bybit/Bitget/
+                KuCoin when the user only wants Luno + Binance).
+        """
         try:
             bot_count = await self.get_bot_count(user_id)
             
             if bot_count['total_bots'] >= self.max_bots:
                 return {"error": "Maximum bot count reached"}
             
+            # Build the effective exchange distribution — filtered to allowed_exchanges
+            # when that restriction is supplied by the caller.
+            effective_distribution = {
+                ex: cnt
+                for ex, cnt in self.exchange_distribution.items()
+                if allowed_exchanges is None or ex in allowed_exchanges
+            }
+            if not effective_distribution:
+                return {"error": "No exchanges available after applying allowed_exchanges filter"}
+
             # Find exchange with most remaining slots
             by_exchange = bot_count['by_exchange']
             target_exchange = None
             max_remaining = 0
             
-            for exchange, target_count in self.exchange_distribution.items():
+            for exchange, target_count in effective_distribution.items():
                 current = by_exchange.get(exchange, {}).get('total', 0)
                 remaining = target_count - current
                 
@@ -263,8 +282,15 @@ class BotSpawner:
             logger.error(f"Bot spawn error: {e}")
             return {"success": False, "error": str(e)}
     
-    async def auto_spawn_to_target(self, user_id: str) -> Dict:
-        """Auto-spawn bots until target reached"""
+    async def auto_spawn_to_target(self, user_id: str, allowed_exchanges: List[str] = None) -> Dict:
+        """Auto-spawn bots until target reached.
+
+        Args:
+            user_id: The user to spawn for.
+            allowed_exchanges: Optional list of exchange IDs to restrict spawning to.
+                Pass ``['luno', 'binance']`` to prevent silent expansion to Bybit /
+                Bitget / KuCoin etc.  When None, all configured exchanges are used.
+        """
         try:
             bot_count = await self.get_bot_count(user_id)
             total_bots = bot_count['total_bots']
@@ -272,8 +298,8 @@ class BotSpawner:
             spawned = []
             
             while total_bots < self.max_bots:
-                # Determine config for next bot
-                config = await self.determine_next_bot_config(user_id)
+                # Determine config for next bot — respects allowed_exchanges
+                config = await self.determine_next_bot_config(user_id, allowed_exchanges=allowed_exchanges)
                 
                 if "error" in config:
                     break
