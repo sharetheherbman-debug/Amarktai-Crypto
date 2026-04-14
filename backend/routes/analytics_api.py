@@ -489,7 +489,7 @@ async def get_drawdown_analysis(
 
         # Respect the last paper-reset baseline so pre-reset trades don't
         # contaminate peak equity / drawdown for the current session.
-        reset_timestamp_str: str | None = None
+        reset_timestamp_str: Optional[str] = None
         if db.paper_reset_baselines_collection is not None:
             try:
                 baseline_doc = await db.paper_reset_baselines_collection.find_one(
