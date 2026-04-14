@@ -87,7 +87,11 @@ def classify_regime(
 
     if candidate not in CANONICAL_REGIMES:
         candidate = "unknown"
-    if confidence < 0.45:
+    # In calm markets (low trend + low volatility) the confidence formula starts at
+    # BASE_REGIME_CONFIDENCE=0.35 and rarely exceeds 0.45 even for a clearly
+    # identifiable consolidation or mean_reversion regime.  Lowering the cut-off
+    # from 0.45 to 0.38 avoids forcing correct, stable regimes to "unknown".
+    if confidence < 0.38:
         candidate = "unknown"
 
     return {
@@ -115,7 +119,7 @@ def strategy_regime_allowed(bot_type: str, regime: str, confidence: float) -> Di
     normalized_regime = regime if regime in CANONICAL_REGIMES else "unknown"
     allowed_list = sorted(allowed)
 
-    if normalized_regime == "unknown" or confidence < 0.5:
+    if normalized_regime == "unknown" or confidence < 0.4:
         return {
             "allowed": False,
             "reason_code": "REGIME_UNKNOWN_BLOCK",

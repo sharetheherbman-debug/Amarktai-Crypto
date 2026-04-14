@@ -188,12 +188,11 @@ class SignalEngine:
     async def _get_market_regime(self, symbol: str, exchange: str) -> Dict[str, Any]:
         """Get market regime analysis"""
         try:
-            from market_regime import detect_market_regime
-            
-            # Get recent price data
-            result = await detect_market_regime(self.db, symbol, exchange)
+            from market_regime import market_regime_detector
+
+            result = await market_regime_detector.detect_regime(symbol, exchange)
             return result
-            
+
         except Exception as e:
             logger.warning(f"Market regime detection failed: {e}")
             return {'regime': 'unknown', 'confidence': 0.3, 'volatility': 'moderate'}
@@ -318,6 +317,9 @@ class SignalEngine:
         """
         live_trading_active = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
 
+        # Accumulator — must be initialised before any += assignments below.
+        edge = 0.0
+
         # 1. ML prediction contribution
         ml_is_simulated = ml.get('is_simulated', False)
         if live_trading_active and ml_is_simulated:
@@ -343,15 +345,16 @@ class SignalEngine:
         # 2. Regime contribution
         regime_type = regime.get('regime', 'unknown')
         regime_confidence = regime.get('confidence', 0.5)
-        
-        # Positive regimes for trading
-        if regime_type in ['stable_uptrend', 'stable_downtrend']:
+
+        # Cover both market_regime_detector labels (stable_uptrend etc.) and
+        # canonical regime_classifier labels (trending_up etc.)
+        if regime_type in ('stable_uptrend', 'stable_downtrend', 'trending_up', 'trending_down'):
             edge += 15.0 * regime_confidence * self.regime_weight
-        elif regime_type == 'consolidation':
+        elif regime_type in ('consolidation', 'mean_reversion', 'low_volatility'):
             edge += 5.0 * regime_confidence * self.regime_weight
-        elif regime_type in ['volatile_uptrend', 'volatile_downtrend']:
+        elif regime_type in ('volatile_uptrend', 'volatile_downtrend', 'breakout', 'high_volatility'):
             edge += 10.0 * regime_confidence * self.regime_weight
-        elif regime_type == 'choppy':
+        elif regime_type in ('choppy',):
             edge -= 10.0 * regime_confidence * self.regime_weight
         
         # 3. Alpha fusion contribution

@@ -37,7 +37,6 @@ import ccxt.async_support as ccxt
 import asyncio
 import json
 import os
-import random
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Tuple, Optional, List
@@ -1016,12 +1015,18 @@ class PaperTradingEngine:
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
-            
+
             # CRITICAL: Guard against None or invalid price
             if current_price is None or current_price <= 0:
                 logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
                 self.last_error = f"Invalid price: {current_price}"
-                return {"success": False, "bot_id": bot_id, "error": f"Market unavailable for {symbol}"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "no_price_data", "error": f"Market unavailable for {symbol}"}
+
+            # Update last_market_price whenever we have a valid price (not only on fills)
+            await db.bots_collection.update_one(
+                {"id": bot_id},
+                {"$set": {"last_market_price": current_price}},
+            )
 
             spread_pct = (market_snapshot.get("spread", 0) / current_price) * 100 if current_price else 0
             if spread_pct > PAPER_MAX_SPREAD_PCT and not bot_data.get("allow_wide_spread"):
@@ -1147,6 +1152,24 @@ class PaperTradingEngine:
             except Exception as _agg_err:
                 logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
 
+            # Persist the aggregated strategy signal so monitoring APIs can read it.
+            # This populates last_strategy_signal which was previously never written.
+            try:
+                _signal_snapshot = {
+                    "direction": prediction.get("direction", "neutral"),
+                    "confidence": round(float(prediction.get("confidence", 0)), 4),
+                    "predicted_change": round(float(prediction.get("predicted_change", 0)), 4),
+                    "regime": regime.get("regime", "unknown"),
+                    "regime_confidence": round(float(regime.get("confidence", 0)), 4),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {"$set": {"last_strategy_signal": _signal_snapshot}},
+                )
+            except Exception as _sig_write_err:
+                logger.debug("last_strategy_signal write failed (non-fatal): %s", _sig_write_err)
+
             # 3c. HURST EXPONENT FILTER: block entries when market memory doesn't
             # match bot strategy (random-walk for trend bots, trending for scalpers).
             # RELAXED: allow trade even on regime mismatch when confidence >= 0.55
@@ -1268,15 +1291,19 @@ class PaperTradingEngine:
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
 
-            # ── PAPER MODE SIGNAL RECOVERY: ensure trend/signal is never null ──
-            # If all AI sources returned neutral/None, inject a random direction so
-            # the learning loop can produce training data from the very first tick.
-            if _is_paper_mode_bot and (not trend or trend in ("neutral", "unknown", None)):
-                trend = random.choice(["bullish", "bearish"])
-                logger.info(
-                    "[SIGNAL_RECOVERY] signal injected | %s | %s | trend=%s (was neutral/null)",
-                    bot_data.get("name", bot_id[:8]), symbol, trend,
-                )
+            # Use regime trend as a deterministic fallback when all AI sources report neutral.
+            # Regime is computed from real market data (price history), so it is always
+            # preferable to a random choice.  "neutral" is kept as-is when regime is also
+            # unknown — injecting a random direction would produce meaningless training data.
+            if not trend or trend in ("neutral", "unknown", None):
+                _regime_trend = regime.get("trend", "neutral")
+                if _regime_trend in ("bullish", "bearish"):
+                    trend = _regime_trend
+                    logger.info(
+                        "[SIGNAL_RECOVERY] using regime trend | %s | %s | trend=%s",
+                        bot_data.get("name", bot_id[:8]), symbol, trend,
+                    )
+                # else: leave trend as "neutral" — no directional signal available
 
             # EDGE GATE: Require expected move to clear costs + buffer
             # Skip the gate when the ML prediction has no real data (is_simulated=True)
@@ -1355,22 +1382,23 @@ class PaperTradingEngine:
                 except Exception as _fb_err:
                     logger.debug("Fallback signal failed (non-fatal): %s", _fb_err)
 
-            # ── PAPER MODE SAFETY NET: guarantee a non-zero signal so the hard-edge
-            #    filter never blocks a paper bot.  This applies only after the OHLCV
-            #    fallback above has already tried (and either failed or returned 0).
-            _paper_fallback_used = False
-            if _is_paper_mode_bot and expected_move_pct <= 0:
-                expected_move_pct = round(random.uniform(0.001, 0.003), 4)
-                _injected_dir = random.choice(["up", "down"])
-                prediction["predicted_change"] = (
-                    expected_move_pct if _injected_dir == "up" else -expected_move_pct
-                )
-                prediction.setdefault("direction", _injected_dir)
-                _paper_fallback_used = True
+            # No usable signal — skip this cycle cleanly rather than injecting random noise.
+            # "No data → no trade" is correct behavior. The OHLCV-based fallback above
+            # (RSI + trend + ATR) handles flat-market edge cases with real derived signals.
+            # Random injection was removed because it violates production correctness rules.
+            if expected_move_pct <= 0:
                 logger.info(
-                    "[SIGNAL_RECOVERY] signal injected | %s | %s | move=%.4f%% dir=%s",
-                    bot_data.get("name", bot_id[:8]), symbol, expected_move_pct, _injected_dir,
+                    "[SIGNAL_SKIP] no usable signal | %s | %s | "
+                    "ML returned 0 and OHLCV fallback could not derive a signal",
+                    bot_data.get("name", bot_id[:8]), symbol,
                 )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "no_usable_signal",
+                    "error": "No ML prediction and OHLCV fallback returned zero — skipping cycle",
+                }
+            _paper_fallback_used = False
 
             # Adaptive safety buffer per risk mode and spread quality
             _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
@@ -1549,7 +1577,7 @@ class PaperTradingEngine:
 
             # Market regime is always locally computed
             available_sources += 1
-            if regime.get('confidence', 0) > 0.3:
+            if regime.get('confidence', 0) >= 0.3:
                 total_confidence += regime.get('confidence', 0)
                 confidence_sources += 1
 
