@@ -37,7 +37,6 @@ import ccxt.async_support as ccxt
 import asyncio
 import json
 import os
-import random
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Tuple, Optional, List
@@ -69,6 +68,9 @@ from config import (
     LOSING_STREAK_THRESHOLD,
     LOSING_STREAK_SIGNAL_BOOST,
     BASE_CONFIDENCE_THRESHOLD,
+    SCALPER_CONFIDENCE_THRESHOLD,
+    SCALPER_MAX_HOLD_MINUTES,
+    SCALPER_MAX_SPREAD_PCT,
     SOFT_MAX_HOLD_SECONDS,
     HARD_MAX_HOLD_SECONDS,
     SYMBOL_COOLDOWN_MINUTES,
@@ -134,7 +136,10 @@ PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
 # Minimum average confidence required for paper mode quality bypass (learning/data-collection mode).
-MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.1"))
+# Raised from 0.1 to 0.35: the old value let any signal through, producing low-quality trades
+# that were statistically guaranteed to lose after fees.  0.35 aligns with the minimum viable
+# regime confidence and still allows data collection when real signals are present.
+MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.35"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1016,23 +1021,36 @@ class PaperTradingEngine:
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
-            
+
             # CRITICAL: Guard against None or invalid price
             if current_price is None or current_price <= 0:
                 logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
                 self.last_error = f"Invalid price: {current_price}"
-                return {"success": False, "bot_id": bot_id, "error": f"Market unavailable for {symbol}"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "no_price_data", "error": f"Market unavailable for {symbol}"}
+
+            # Update last_market_price whenever we have a valid price (not only on fills)
+            await db.bots_collection.update_one(
+                {"id": bot_id},
+                {"$set": {"last_market_price": current_price}},
+            )
 
             spread_pct = (market_snapshot.get("spread", 0) / current_price) * 100 if current_price else 0
-            if spread_pct > PAPER_MAX_SPREAD_PCT and not bot_data.get("allow_wide_spread"):
+
+            # Scalpers use a tighter spread limit than normal bots; their profit window
+            # is smaller so a wide spread eats a larger fraction of expected move.
+            _bt_spread = str(bot_data.get("bot_type") or "normal").lower()
+            _effective_max_spread = SCALPER_MAX_SPREAD_PCT if _bt_spread == "scalper" else PAPER_MAX_SPREAD_PCT
+
+            if spread_pct > _effective_max_spread and not bot_data.get("allow_wide_spread"):
                 return {
                     "success": False,
                     "bot_id": bot_id,
                     "skip_reason": "spread_too_wide",
-                    "error": f"Spread {spread_pct:.3f}% exceeds max {PAPER_MAX_SPREAD_PCT:.3f}%",
+                    "error": f"Spread {spread_pct:.3f}% exceeds max {_effective_max_spread:.3f}% (bot_type={_bt_spread})",
                     "details": {
                         "spread_pct": round(spread_pct, 4),
-                        "max_spread_pct": PAPER_MAX_SPREAD_PCT,
+                        "max_spread_pct": _effective_max_spread,
+                        "bot_type": _bt_spread,
                         "symbol": symbol,
                         "exchange": exchange
                     }
@@ -1146,6 +1164,24 @@ class PaperTradingEngine:
                     prediction["signal_aggregator"] = _agg
             except Exception as _agg_err:
                 logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
+
+            # Persist the aggregated strategy signal so monitoring APIs can read it.
+            # This populates last_strategy_signal which was previously never written.
+            try:
+                _signal_snapshot = {
+                    "direction": prediction.get("direction", "neutral"),
+                    "confidence": round(float(prediction.get("confidence", 0)), 4),
+                    "predicted_change": round(float(prediction.get("predicted_change", 0)), 4),
+                    "regime": regime.get("regime", "unknown"),
+                    "regime_confidence": round(float(regime.get("confidence", 0)), 4),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {"$set": {"last_strategy_signal": _signal_snapshot}},
+                )
+            except Exception as _sig_write_err:
+                logger.debug("last_strategy_signal write failed (non-fatal): %s", _sig_write_err)
 
             # 3c. HURST EXPONENT FILTER: block entries when market memory doesn't
             # match bot strategy (random-walk for trend bots, trending for scalpers).
@@ -1268,15 +1304,45 @@ class PaperTradingEngine:
                 elif fetchai_signal == 'SELL' and trend != 'bearish':
                     trend = 'bearish'  # Strong SELL signal overrides
 
-            # ── PAPER MODE SIGNAL RECOVERY: ensure trend/signal is never null ──
-            # If all AI sources returned neutral/None, inject a random direction so
-            # the learning loop can produce training data from the very first tick.
-            if _is_paper_mode_bot and (not trend or trend in ("neutral", "unknown", None)):
-                trend = random.choice(["bullish", "bearish"])
+            # Use regime trend as a deterministic fallback when all AI sources report neutral.
+            # Regime is computed from real market data (price history), so it is always
+            # preferable to a random choice.  "neutral" is kept as-is when regime is also
+            # unknown — injecting a random direction would produce meaningless training data.
+            if not trend or trend in ("neutral", "unknown", None):
+                _regime_trend = regime.get("trend", "neutral")
+                if _regime_trend in ("bullish", "bearish"):
+                    trend = _regime_trend
+                    logger.info(
+                        "[SIGNAL_RECOVERY] using regime trend | %s | %s | trend=%s",
+                        bot_data.get("name", bot_id[:8]), symbol, trend,
+                    )
+                # else: leave trend as "neutral" — no directional signal available
+
+            # DIRECTIONAL BIAS CHECK: Skip LONG entry when signals strongly indicate DOWN.
+            # The system is long-only (always buys), so entering on a bearish signal
+            # is statistically guaranteed to lose.  Block entry when trend is bearish
+            # AND the ML prediction also points down with meaningful confidence.
+            # NOTE: neutral trend is still allowed — no strong signal is ambiguous, not bearish.
+            _ml_direction_for_check = str(prediction.get("direction") or "neutral").lower()
+            _ml_conf_for_check = float(prediction.get("confidence", 0) or 0)
+            _is_strongly_bearish = (
+                trend == "bearish"
+                and _ml_direction_for_check in ("down", "sell", "bearish")
+                and _ml_conf_for_check >= 0.45
+            )
+            if _is_strongly_bearish:
                 logger.info(
-                    "[SIGNAL_RECOVERY] signal injected | %s | %s | trend=%s (was neutral/null)",
+                    "[SKIP_BEARISH_LONG] %s | %s | trend=%s ml_dir=%s ml_conf=%.2f — "
+                    "long entry blocked in bearish regime to avoid directional loss",
                     bot_data.get("name", bot_id[:8]), symbol, trend,
+                    _ml_direction_for_check, _ml_conf_for_check,
                 )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "bearish_long_blocked",
+                    "error": "Long entry blocked: signals are strongly bearish",
+                }
 
             # EDGE GATE: Require expected move to clear costs + buffer
             # Skip the gate when the ML prediction has no real data (is_simulated=True)
@@ -1355,22 +1421,23 @@ class PaperTradingEngine:
                 except Exception as _fb_err:
                     logger.debug("Fallback signal failed (non-fatal): %s", _fb_err)
 
-            # ── PAPER MODE SAFETY NET: guarantee a non-zero signal so the hard-edge
-            #    filter never blocks a paper bot.  This applies only after the OHLCV
-            #    fallback above has already tried (and either failed or returned 0).
-            _paper_fallback_used = False
-            if _is_paper_mode_bot and expected_move_pct <= 0:
-                expected_move_pct = round(random.uniform(0.001, 0.003), 4)
-                _injected_dir = random.choice(["up", "down"])
-                prediction["predicted_change"] = (
-                    expected_move_pct if _injected_dir == "up" else -expected_move_pct
-                )
-                prediction.setdefault("direction", _injected_dir)
-                _paper_fallback_used = True
+            # No usable signal — skip this cycle cleanly rather than injecting random noise.
+            # "No data → no trade" is correct behavior. The OHLCV-based fallback above
+            # (RSI + trend + ATR) handles flat-market edge cases with real derived signals.
+            # Random injection was removed because it violates production correctness rules.
+            if expected_move_pct <= 0:
                 logger.info(
-                    "[SIGNAL_RECOVERY] signal injected | %s | %s | move=%.4f%% dir=%s",
-                    bot_data.get("name", bot_id[:8]), symbol, expected_move_pct, _injected_dir,
+                    "[SIGNAL_SKIP] no usable signal | %s | %s | "
+                    "ML returned 0 and OHLCV fallback could not derive a signal",
+                    bot_data.get("name", bot_id[:8]), symbol,
                 )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "no_usable_signal",
+                    "error": "No ML prediction and OHLCV fallback returned zero — skipping cycle",
+                }
+            _paper_fallback_used = False
 
             # Adaptive safety buffer per risk mode and spread quality
             _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
@@ -1545,7 +1612,7 @@ class PaperTradingEngine:
 
             # Market regime is always locally computed
             available_sources += 1
-            if regime.get('confidence', 0) > 0.3:
+            if regime.get('confidence', 0) >= 0.3:
                 total_confidence += regime.get('confidence', 0)
                 confidence_sources += 1
 
@@ -1565,27 +1632,80 @@ class PaperTradingEngine:
 
             # (external signal provider removed — always simulated, not counted)
 
-            # Require at least 1 confident source when ≤2 sources are available,
-            # or at least 2 when 3+ sources are available.
-            # Adaptive boost: after LOSING_STREAK_THRESHOLD consecutive stop-losses,
-            # raise the avg_confidence bar by LOSING_STREAK_SIGNAL_BOOST to filter
-            # low-quality entries more aggressively.
-            min_sources_required = 1 if available_sources <= 2 else 2
-            avg_confidence = total_confidence / max(confidence_sources, 1)
-            _loss_streak = self._bot_loss_streaks.get(bot_id, 0)
-            if _loss_streak >= LOSING_STREAK_THRESHOLD:
-                _conf_threshold = BASE_CONFIDENCE_THRESHOLD + LOSING_STREAK_SIGNAL_BOOST
-            else:
-                _conf_threshold = BASE_CONFIDENCE_THRESHOLD
+            # ── Bot-type specific thresholds ───────────────────────────────────
+            # Scalpers require stricter quality because their profit window per trade
+            # is narrower — less room to absorb spread/fee costs.
+            _bot_type_for_gate = str(bot_data.get("bot_type") or "normal").lower()
+            _is_scalper_bot = _bot_type_for_gate == "scalper"
 
-            # Fix 3/4: Consolidation/choppy regime — reduce trading frequency by requiring
-            # stronger signal confirmation.  Mean-reversion in a tight range without a
-            # breakout signal is coin-flip quality; demand at least 2 agreeing sources and
-            # a higher average confidence before entering.
-            _consolidation_regimes = ("consolidation", "choppy", "sideways", "SQUEEZE")
-            if playbook == "mean_reversion" and playbook_info["regime"] in _consolidation_regimes:
-                min_sources_required = max(min_sources_required, 2)
-                _conf_threshold = max(_conf_threshold, BASE_CONFIDENCE_THRESHOLD + 0.15)
+            # Scalpers use a higher confidence threshold than normal bots.
+            # Normal bots keep the existing BASE_CONFIDENCE_THRESHOLD logic.
+            if _is_scalper_bot:
+                # SCALPER: use a stricter threshold and always require ≥2 sources.
+                _conf_threshold = SCALPER_CONFIDENCE_THRESHOLD
+                min_sources_required = 2
+                # River edge penalty: when the online model predicts < 0.4 win
+                # probability (after ≥10 samples), add an extra 0.10 to the threshold.
+                try:
+                    from services.river_learner import river_learner as _rl
+                    if _rl.active and _rl.sample_count(str(bot_data.get("user_id", "default"))) >= 10:
+                        _agg_river_edge = float((_agg or {}).get("river_edge", 0.5))
+                        if _agg_river_edge < 0.40:
+                            _conf_threshold += 0.10
+                            logger.debug(
+                                "[SCALPER_RIVER_PENALTY] river_edge=%.3f → conf_threshold=%.3f",
+                                _agg_river_edge, _conf_threshold,
+                            )
+                except Exception:
+                    pass
+            else:
+                # NORMAL BOT: existing adaptive threshold logic.
+                min_sources_required = 1 if available_sources <= 2 else 2
+                _loss_streak = self._bot_loss_streaks.get(bot_id, 0)
+                if _loss_streak >= LOSING_STREAK_THRESHOLD:
+                    _conf_threshold = BASE_CONFIDENCE_THRESHOLD + LOSING_STREAK_SIGNAL_BOOST
+                else:
+                    _conf_threshold = BASE_CONFIDENCE_THRESHOLD
+
+                # Consolidation/choppy regime — demand stronger confirmation for mean_reversion
+                _consolidation_regimes = ("consolidation", "choppy", "sideways", "SQUEEZE")
+                if playbook == "mean_reversion" and playbook_info["regime"] in _consolidation_regimes:
+                    min_sources_required = max(min_sources_required, 2)
+                    _conf_threshold = max(_conf_threshold, BASE_CONFIDENCE_THRESHOLD + 0.15)
+
+            avg_confidence = total_confidence / max(confidence_sources, 1)
+
+            # ── Adaptive discipline: after consecutive losses, tighten threshold ──────
+            # Uses the derive_adaptive_discipline function from entry_quality.py which
+            # was previously computed but never applied to the threshold.
+            try:
+                from services.entry_quality import derive_adaptive_discipline as _derive_ad
+                _recent_trades_raw = await db.trades_collection.find(
+                    {"bot_id": bot_id, "status": "closed"},
+                    {"net_pnl": 1, "profit_loss": 1, "trade_close_reason": 1},
+                ).sort("closed_at", -1).limit(8).to_list(8)
+                _adapt = _derive_ad(_recent_trades_raw)
+                if _adapt.get("stand_down"):
+                    logger.info(
+                        "[ADAPTIVE_STANDDOWN] %s | consecutive losses → stand-down",
+                        bot_data.get("name", bot_id[:8]),
+                    )
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "adaptive_stand_down",
+                        "error": "Adaptive discipline: consecutive losses — standing down",
+                    }
+                if _adapt.get("confidence_uplift", 0) > 0:
+                    _conf_threshold = min(0.98, _conf_threshold + _adapt["confidence_uplift"])
+                    logger.debug(
+                        "[ADAPTIVE_TIGHTENED] %s | confidence_uplift=%.2f → threshold=%.3f",
+                        bot_data.get("name", bot_id[:8]),
+                        _adapt["confidence_uplift"],
+                        _conf_threshold,
+                    )
+            except Exception as _ad_err:
+                logger.debug("derive_adaptive_discipline failed (non-fatal): %s", _ad_err)
 
             # In simulated-ML data-collection mode the only available source is the
             # local regime detector, whose confidence ramps up as price history grows.
@@ -1594,10 +1714,9 @@ class PaperTradingEngine:
             # confidence ramp-up period.  We still require at least one regime
             # source to have reported (confidence_sources >= 1).
             _sim_bypass_confidence = ml_is_simulated and confidence_sources >= 1
-            # Paper mode quality: paper trades must still meet a minimum confidence
-            # threshold so that data collected reflects realistic signal quality.
-            # MIN_PAPER_MODE_CONFIDENCE (default 0.1) is used as the floor; paper
-            # bots bypass the *strict* multi-source check but still need a real signal.
+            # Paper mode bypass: allow trade if confidence meets the raised minimum threshold.
+            # MIN_PAPER_MODE_CONFIDENCE raised from 0.1 to 0.35 to prevent low-quality trades.
+            # Also requires confidence_sources >= 1 to ensure at least one real source contributed.
             _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= MIN_PAPER_MODE_CONFIDENCE and confidence_sources >= 1
             if _paper_quality_bypass:
                 logger.info(
@@ -1608,9 +1727,9 @@ class PaperTradingEngine:
             if not _sim_bypass_confidence and not _paper_quality_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
-                    f"available={available_sources} contributing={confidence_sources} avg={avg_confidence:.2%} "
-                    f"threshold={_conf_threshold:.2%} loss_streak={_loss_streak} "
-                    f"regime={playbook_info['regime']} playbook={playbook}"
+                    f"bot_type={_bot_type_for_gate} available={available_sources} "
+                    f"contributing={confidence_sources} avg={avg_confidence:.2%} "
+                    f"threshold={_conf_threshold:.2%} regime={playbook_info['regime']} playbook={playbook}"
                 )
 
                 logger.info(
@@ -1618,6 +1737,7 @@ class PaperTradingEngine:
                     json.dumps({
                         "bot_id": bot_id,
                         "reason": "low_confidence",
+                        "bot_type": _bot_type_for_gate,
                         "edge": round(_net_edge_pct, 4),
                         "cost": round(estimated_cost_pct, 4),
                         "regime": playbook_info["regime"],
@@ -1627,7 +1747,7 @@ class PaperTradingEngine:
                         "threshold": round(_conf_threshold, 4),
                     }),
                 )
-                return {"success": False, "bot_id": bot_id, "error": "Trade quality threshold not met"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "low_confidence", "error": "Trade quality threshold not met"}
             
             # Position sizing - OPTIMIZED for quality over quantity
             # Larger positions on high-confidence AI signals
@@ -1808,6 +1928,21 @@ class PaperTradingEngine:
 
             stop_loss_pct = float(bot_data.get("stop_loss_pct", 0.02))
             take_profit_pct = float(bot_data.get("take_profit_pct", 0.03))
+
+            # Apply regime-specific TP/SL from playbook_params (computed earlier but never used).
+            # Playbook parameters are calibrated per-regime and per-risk-mode; they are
+            # strictly more accurate than the static bot_data defaults (2% SL / 3% TP).
+            # Bot-level overrides still win when the user explicitly sets them and they differ
+            # from the defaults (i.e. the user customised the bot beyond factory settings).
+            _pp_sl = playbook_params.get("stop_loss_pct") if playbook_params else None
+            _pp_tp = playbook_params.get("take_profit_pct") if playbook_params else None
+            # Only apply playbook TP/SL if bot is using the factory defaults (not user-customised)
+            _sl_is_default = (abs(stop_loss_pct - 0.02) < 1e-6)
+            _tp_is_default = (abs(take_profit_pct - 0.03) < 1e-6)
+            if _pp_sl and _sl_is_default:
+                stop_loss_pct = float(_pp_sl)
+            if _pp_tp and _tp_is_default:
+                take_profit_pct = float(_pp_tp)
 
             fee_currency = "ZAR" if "/ZAR" in symbol else "USDT"
             market_source = market_snapshot.get("source") if isinstance(market_snapshot, dict) else data_source
@@ -2029,6 +2164,22 @@ class PaperTradingEngine:
             self.closes_attempted += 1
 
             close_reason = None
+
+            # ── Scalper short hold: force time-exit after SCALPER_MAX_HOLD_MINUTES ──────
+            # Scalpers are designed for short in-and-out cycles.  Holding beyond their
+            # intended window locks capital and accumulates adverse price movement risk.
+            _close_bot_type = str(bot_data.get("bot_type") or open_trade.get("bot_type") or "normal").lower()
+            _is_close_scalper = _close_bot_type == "scalper"
+            if _is_close_scalper and age_minutes >= SCALPER_MAX_HOLD_MINUTES and not close_reason:
+                close_reason = "scalper_max_hold"
+                logger.info(
+                    f"CLOSE_SCALPER_MAX_HOLD bot={bot_id} trade={open_trade.get('id', '?')} "
+                    f"price={current_price:.4f} pnl_pct={pnl_pct:.2f} age_min={age_minutes:.1f} "
+                    f"scalper_max_hold_min={SCALPER_MAX_HOLD_MINUTES}"
+                )
+                self._log_action("CLOSE", bot_id, symbol or "?", reason="scalper_max_hold",
+                                 trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+
             if current_price >= take_profit_price:
                 close_reason = "take_profit"
                 logger.info(
@@ -2047,7 +2198,42 @@ class PaperTradingEngine:
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stop_loss",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif age_seconds >= _effective_hard_hold_sec:
+
+            # ── evaluate_pre_timeout_exit (entry_quality.py) ─────────────────────────
+            # Applies regime-aware early exit signals before the time-limit exits below.
+            # This prevents capital being trapped in deteriorating regime positions.
+            # Runs ONLY when TP/SL have not already triggered (no close_reason yet).
+            if not close_reason:
+                try:
+                    from services.entry_quality import evaluate_pre_timeout_exit as _eval_pte
+                    _max_hold_for_type = SCALPER_MAX_HOLD_MINUTES if _is_close_scalper else PAPER_MAX_HOLD_MINUTES
+                    _hold_ratio = age_minutes / max(_max_hold_for_type, 1)
+                    _min_progress = float(open_trade.get("expected_move_pct", 0.3)) * 0.5
+                    _pte_regime_obj = (
+                        open_trade.get("ai_regime_data") or
+                        {"trend": open_trade.get("ai_regime", "neutral"), "confidence": float(open_trade.get("ai_confidence", 0))}
+                    )
+                    _pte_result = _eval_pte(
+                        bot_class=_close_bot_type,
+                        hold_ratio=_hold_ratio,
+                        pnl_pct=pnl_pct,
+                        min_progress_pct=_min_progress,
+                        regime_trend=str(_pte_regime_obj.get("trend", "neutral")),
+                        regime_confidence=float(_pte_regime_obj.get("confidence", 0)),
+                    )
+                    if _pte_result:
+                        close_reason = _pte_result
+                        logger.info(
+                            f"CLOSE_PRE_TIMEOUT_{_pte_result.upper()} bot={bot_id} "
+                            f"trade={open_trade.get('id', '?')} price={current_price:.4f} "
+                            f"pnl_pct={pnl_pct:.3f} hold_ratio={_hold_ratio:.2f}"
+                        )
+                        self._log_action("CLOSE", bot_id, symbol or "?", reason=_pte_result,
+                                         trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
+                except Exception as _pte_err:
+                    logger.debug("evaluate_pre_timeout_exit failed (non-fatal): %s", _pte_err)
+
+            if not close_reason and age_seconds >= _effective_hard_hold_sec:
                 # HARD max-hold (C2): force-close unconditionally after bot-type-specific hard limit.
                 # Scalpers: 300s (5 min). Normal bots: HARD_MAX_HOLD_SECONDS (8700s ≈ 145 min).
                 # Low confidence blocks OPENING new trades only — it must NEVER block closing.
@@ -2059,7 +2245,7 @@ class PaperTradingEngine:
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="hard_max_hold",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif age_seconds >= _effective_soft_hold_sec:
+            if not close_reason and age_seconds >= _effective_soft_hold_sec:
                 # SOFT max-hold (C2): close when spread is acceptable; retry until HARD limit.
                 spread_at_close = market_snapshot.get("spread_bps", 0) if market_snapshot else 0
                 if spread_at_close <= (PAPER_MAX_SPREAD_PCT * 100):  # spread_bps vs bps-converted cap
@@ -2076,9 +2262,10 @@ class PaperTradingEngine:
                         f"SOFT_MAX_HOLD_RETRY bot={bot_id} trade={open_trade.get('id', '?')} "
                         f"spread_bps={spread_at_close:.1f} exceeds cap — retry next tick"
                     )
-            elif age_minutes >= _effective_time_exit_min:
+            if not close_reason and age_minutes >= _effective_time_exit_min:
                 # Unconditional time exit: fires after bot-type-specific time limit.
                 # Scalpers: 5 min. Normal bots: PAPER_MAX_HOLD_MINUTES (120 min).
+                # Unlike stale_exit, this does NOT require negative P&L.
                 close_reason = "time_exit"
                 logger.info(
                     f"CLOSE_TIME_EXIT bot={bot_id} trade={open_trade.get('id', '?')} "
@@ -2087,7 +2274,7 @@ class PaperTradingEngine:
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="time_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif (
+            if not close_reason and (
                 PAPER_SAFETY_EXIT_MINUTES > 0
                 and age_minutes >= PAPER_SAFETY_EXIT_MINUTES
                 and pnl_pct > 0
@@ -2102,11 +2289,11 @@ class PaperTradingEngine:
                 )
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="safety_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
+            if not close_reason and age_minutes >= PAPER_STALE_EXIT_MINUTES and pnl_pct <= 0:
                 close_reason = "stale_exit"
                 self._log_action("CLOSE", bot_id, symbol or "?", reason="stale_exit",
                                  trade_id=open_trade.get("id", ""), bot_name=bot_data.get("name", ""))
-            elif (
+            if not close_reason and (
                 _effective_stagnation_min > 0
                 and age_minutes >= _effective_stagnation_min
                 and entry_price > 0
@@ -2347,6 +2534,9 @@ class PaperTradingEngine:
             _symbol_universe.record_closed(bot_id, symbol or "")
 
             # ── River online learner hook (non-fatal) ────────────────────
+            # Exactly one learning update per closed trade, with the real user_id.
+            # The duplicate sync call in run_trading_cycle was removed to prevent
+            # double-learning the same trade with inconsistent user identity.
             try:
                 from services.river_learner import river_learner
                 river_features = {
@@ -2356,7 +2546,8 @@ class PaperTradingEngine:
                     "close_vs_sma20": float((open_trade.get("indicators") or {}).get("close_vs_sma20", 0)),
                     "volume_ratio": 1.0,
                 }
-                await river_learner.record_outcome(river_features, net_profit)
+                _river_user_id = str(bot_data.get("user_id") or "default")
+                await river_learner.record_outcome(river_features, net_profit, user_id=_river_user_id)
             except Exception as _river_err:
                 logger.debug(f"River online learner hook failed (non-fatal): {_river_err}")
 
@@ -2825,23 +3016,9 @@ class PaperTradingEngine:
             except Exception as e:
                 logger.warning(f"Realtime trade broadcast failed: {e}")
 
-            # River online learner hook — update per-user model with trade outcome.
-            try:
-                from services.river_learner import river_learner
-                _river_features = {
-                    k: trade_result.get(k, 0.0)
-                    for k in ("rsi", "macd", "macd_hist", "atr", "bb_upper", "bb_lower",
-                              "vwap", "close_vs_sma20", "volume", "confidence")
-                    if trade_result.get(k) is not None
-                }
-                river_learner.record_outcome(
-                    user_id=bot_data["user_id"],
-                    features=_river_features,
-                    net_profit=float(trade_result.get("profit_loss", 0)),
-                )
-            except Exception as _re:
-                logger.debug("River learner update skipped: %s", _re)
-            
+            # NOTE: River learning is handled exactly once inside _close_open_trade
+            # with the real user_id. Do NOT add a second record_outcome call here.
+
             return {
                 "bot_id": bot_id,
                 "new_capital": round(new_capital, 2),

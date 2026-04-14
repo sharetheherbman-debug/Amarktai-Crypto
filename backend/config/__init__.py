@@ -1,12 +1,13 @@
 """
 Config package
-Re-exports constants from ../config.py for backward compatibility with imports like:
-    from config import PAPER_TRAINING_DAYS
-"""
+==============
+CANONICAL RUNTIME CONFIG.  Python resolves `import config` to this package
+(config/__init__.py), NOT to the standalone config.py file in the parent
+directory.  ALL changes to runtime defaults MUST be made here.
 
-# These constants are duplicated here to avoid circular import issues
-# The canonical source is ../config.py
-# When backend/config.py is updated, these should be kept in sync
+config.py (parent) is kept as a thin reference copy for IDE navigation and
+legacy tooling only — it is never imported at runtime when this package exists.
+"""
 
 import os
 
@@ -135,6 +136,15 @@ LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10
 # after a losing streak. Set to 0.45 to require meaningful signal quality before entry;
 # avoids low-confidence trades that pass only because the local regime source is available.
 BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.45'))
+
+# ── Scalper-specific stricter thresholds ────────────────────────────────────
+# Scalpers require higher signal quality than normal bots because their profit
+# window per trade is smaller (less room to absorb spread + fee costs).
+SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '0.62'))
+# Max hold time for scalpers (minutes).  Normal bots use PAPER_MAX_HOLD_MINUTES.
+SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
+# Max spread (%) for scalpers.  Normal bots use PAPER_MAX_SPREAD_PCT.
+SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.15'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
@@ -257,7 +267,7 @@ NEW_BOT_CAPITAL = NEW_BOT_SEED_CAPITAL_ZAR  # Backward compatibility alias
 # Minimum starting capital for any manually-created bot (all platforms).
 # Auto-spawned (growth-engine) bots are exempt — they use NEW_BOT_SEED_CAPITAL_ZAR.
 BOT_MANUAL_MIN_CAPITAL_ZAR = int(os.getenv('BOT_MANUAL_MIN_CAPITAL_ZAR', '1000'))
-MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '65'))  # Total bots across all 7 exchanges
+MAX_TOTAL_BOTS = int(os.getenv('MAX_TOTAL_BOTS', '75'))  # Must equal MAX_BOTS_GLOBAL in exchange_limits.py (currently 75)
 TOP_PERFORMERS_COUNT = int(os.getenv('TOP_PERFORMERS_COUNT', '5'))
 EVOLUTION_MUTATION_RATE = float(os.getenv('EVOLUTION_MUTATION_RATE', '0.25'))  # 25% mutation
 QUARANTINE_THRESHOLD = float(os.getenv('QUARANTINE_THRESHOLD', '-0.05'))  # -5% threshold
@@ -336,6 +346,9 @@ __all__ = [
     'LOSING_STREAK_THRESHOLD',
     'LOSING_STREAK_SIGNAL_BOOST',
     'BASE_CONFIDENCE_THRESHOLD',
+    'SCALPER_CONFIDENCE_THRESHOLD',
+    'SCALPER_MAX_HOLD_MINUTES',
+    'SCALPER_MAX_SPREAD_PCT',
     'SOFT_MAX_HOLD_SECONDS',
     'HARD_MAX_HOLD_SECONDS',
     'SYMBOL_COOLDOWN_MINUTES',

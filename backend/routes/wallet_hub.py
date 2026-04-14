@@ -25,6 +25,7 @@ from engines.wallet_manager import wallet_manager
 from engines.funding_plan_manager import funding_plan_manager
 from config.exchange_config import get_required_fields, get_deposit_requirements
 from services.wallet_summary_service import wallet_summary_service
+from services.bot_filters import bot_not_deleted_filter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/wallet", tags=["Wallet Hub"])
@@ -167,12 +168,10 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
             if db.bots_collection is not None:
                 # Count ALL non-deleted bots with DB status active/running (regardless of training state)
                 all_bot_docs = await db.bots_collection.find(
-                    {
+                    bot_not_deleted_filter({
                         "user_id": user_id,
                         "status": {"$in": ["active", "running"]},
-                        "deleted": {"$ne": True},
-                        "is_deleted": {"$ne": True},
-                    },
+                    }),
                     {"_id": 0, "trading_mode": 1, "initial_capital": 1, "current_capital": 1}
                 ).to_list(1000)
                 for b in all_bot_docs:

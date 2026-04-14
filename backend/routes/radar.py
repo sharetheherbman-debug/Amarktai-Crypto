@@ -36,6 +36,7 @@ from services.truth_normalizer import normalize_bot_trade_truth
 from services.fx_normalizer import get_quote_currency, to_display_zar, get_fx_rate
 from services.reconciliation import compute_equity_zar
 from config import PAPER_SUPPORTED_EXCHANGES
+from services.bot_filters import bot_not_deleted_filter
 
 logger = logging.getLogger(__name__)
 
@@ -586,7 +587,7 @@ async def radar_timeseries(
     since = now - timedelta(hours=hours)
 
     # Build bot filter
-    bot_query: Dict = {"user_id": user_id, "deleted": {"$ne": True}}
+    bot_query: Dict = bot_not_deleted_filter({"user_id": user_id})
     if bot_type:
         bot_query["bot_type"] = bot_type
 

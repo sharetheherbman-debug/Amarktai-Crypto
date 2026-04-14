@@ -143,6 +143,11 @@ async def run(
         {
             "$set": {
                 "status": "deleted",
+                # Stamp BOTH deletion fields so every filter variant excludes these bots:
+                #   - bot_not_deleted_filter() checks status + deleted + is_deleted + deleted_at
+                #   - legacy queries using only "deleted": {"$ne": True} also need this field
+                "deleted": True,
+                "is_deleted": True,
                 "deleted_at": now_iso,
                 "deleted_by": user_id,
                 "deletion_reason": "paper_reset_orchestrator",
@@ -249,6 +254,27 @@ async def run(
             logger.warning("paper_reset_orchestrator: telemetry: %s", exc)
 
     # ------------------------------------------------------------------
+    # Step 2b: Purge in-memory per-bot state for the deleted bot IDs.
+    #          - rate_limiter.bot_orders_today: prevents stale per-bot
+    #            daily counters surviving the reset.
+    #          - paper engine _bot_loss_streaks: prevents old loss streaks
+    #            from a prior session bleeding into a new session.
+    # ------------------------------------------------------------------
+    if bot_ids:
+        try:
+            from rate_limiter import rate_limiter as _rl
+            _rl.purge_bots(bot_ids)
+        except Exception as exc:
+            logger.debug("paper_reset_orchestrator: rate_limiter purge: %s", exc)
+
+        try:
+            from paper_trading_engine import paper_trading_engine as _pte
+            for _bid in bot_ids:
+                _pte._bot_loss_streaks.pop(_bid, None)
+        except Exception as exc:
+            logger.debug("paper_reset_orchestrator: loss_streak purge: %s", exc)
+
+    # ------------------------------------------------------------------
     # Step 3: Wipe user-scoped paper fills (is_paper=True) so that
     #         compute_equity() returns 0 after the reset.
     # ------------------------------------------------------------------
@@ -324,6 +350,23 @@ async def run(
     await _safe_delete(db.wallet_balances_collection, {"user_id": user_id}, "wallet_balances")
     await _safe_delete(db.capital_injections_collection, {"user_id": user_id}, "capital_injections")
     await _safe_delete(db.user_countdowns_collection, {"user_id": user_id}, "user_countdowns")
+
+    # ------------------------------------------------------------------
+    # Step 4b: Wipe Growth Engine per-user state and decisions so the
+    #          Growth Engine panel reflects a clean slate immediately
+    #          after reset instead of showing stale "blocked/0" state.
+    # ------------------------------------------------------------------
+    if raw_db is not None:
+        await _safe_delete(
+            raw_db["growth_engine_state"],
+            {"user_id": user_id},
+            "growth_engine_state",
+        )
+        await _safe_delete(
+            raw_db["growth_engine_decisions"],
+            {"user_id": user_id},
+            "growth_engine_decisions",
+        )
 
     # ------------------------------------------------------------------
     # Step 5: Reset per-user risk locks (daily loss, emergency stop).
