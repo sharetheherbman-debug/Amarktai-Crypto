@@ -317,7 +317,7 @@ class SignalEngine:
         """
         live_trading_active = os.getenv("ENABLE_LIVE_TRADING", "false").lower() == "true"
 
-        # Accumulator — must be initialised before any += assignments below.
+        # Accumulator — must be initialized before any += assignments below.
         edge = 0.0
 
         # 1. ML prediction contribution
