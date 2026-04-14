@@ -345,7 +345,7 @@ class PaperTradingEngine:
     """Accurate paper trading - profits = what you'd make live"""
     
     # Default pairs (fallback when exchange metadata is unavailable)
-    LUNO_PAIRS = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR']
+    LUNO_PAIRS = ['BTC/ZAR', 'ETH/ZAR', 'XRP/ZAR', 'SOL/ZAR', 'LTC/ZAR', 'BCH/ZAR', 'LINK/ZAR', 'USDC/ZAR']
     BINANCE_PAIRS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT']
     KUCOIN_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
     BYBIT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT']
@@ -1721,10 +1721,14 @@ class PaperTradingEngine:
                 total_confidence += regime.get('confidence', 0)
                 confidence_sources += 1
 
-            # ML predictor uses public CCXT data — count only when not simulated
+            # ML predictor uses public CCXT data — count only when not simulated.
+            # Gate lowered from >0.6 to >=0.4 because _rule_based_prediction always
+            # returns confidence in [0.40, 0.90].  Using >0.6 silently discarded all
+            # predictions in the 0.40–0.60 range, leaving confidence_sources=0 and
+            # blocking trades even when a valid ML signal existed.
             if not prediction.get('is_simulated', False):
                 available_sources += 1
-                if prediction.get('confidence', 0) > 0.6:
+                if prediction.get('confidence', 0) >= 0.4:
                     total_confidence += prediction.get('confidence', 0)
                     confidence_sources += 1
 

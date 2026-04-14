@@ -111,7 +111,7 @@ PAPER_SUPPORTED_EXCHANGES = set(SUPPORTED_PLATFORMS)  # All 8 exchanges supporte
 
 # Exchange bot limits (researched and safe)
 EXCHANGE_BOT_LIMITS = {
-    'luno': 5,
+    'luno': 10,  # 10 total on Luno: 5 normal + 5 scalper
     'binance': 10,
     'kucoin': 10,
     'bybit': 10,
