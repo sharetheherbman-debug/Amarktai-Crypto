@@ -19,6 +19,7 @@ from services.bot_quarantine import quarantine_service
 from services.bot_runtime_state import bot_runtime_state
 from engines.audit_logger import audit_logger
 from rules.bot_rules import SUPPORTED_EXCHANGES
+from services.fx_normalizer import get_quote_currency as _get_quote_currency
 from utils.datetime_helpers import remaining_seconds
 from utils.env_utils import env_bool
 
@@ -367,6 +368,14 @@ async def get_bots_status(
             )
             _open_pos_value = float(bot.get('open_position_value', 0))
             _unrealized = float(bot.get('unrealized_profit', 0))
+            # Resolve the native trading quote currency so the frontend can display
+            # USDT amounts with "$" and ZAR amounts with "R" — never mix the two.
+            _exchange_str = str(bot.get('exchange') or '').lower()
+            _pair_str = str(bot.get('pair') or bot.get('symbol') or '')
+            _quote_currency = (
+                bot.get('quote_currency')
+                or _get_quote_currency(_exchange_str, _pair_str)
+            )
             capital_summary = {
                 "initial_capital": _initial_capital,
                 "allocated_capital": _current_capital,
@@ -375,12 +384,16 @@ async def get_bots_status(
                 "total_equity": _current_capital + _unrealized,
                 "realized_profit": _total_profit,
                 "unrealized_profit": _unrealized,
+                "quote_currency": _quote_currency,
             }
 
             enriched_bot = {
                 "id": bot.get('id'),
                 "name": bot.get('name'),
                 "exchange": bot.get('exchange', 'unknown'),
+                # Native trading quote currency — used by frontend to show correct symbol
+                # (ZAR → "R", USDT → "$").  Must never be absent on a Binance/KuCoin/Bybit bot.
+                "quote_currency": _quote_currency,
                 "state": state,
                 "lifecycle_state": state,  # Canonical lifecycle state
                 "display_state": state,  # Single canonical display state for frontend
