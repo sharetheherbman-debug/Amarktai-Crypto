@@ -1104,7 +1104,7 @@ class PaperTradingEngine:
                 # Write a minimal state snapshot so last_strategy_signal is never null
                 # (the full signal write at the end of this block is unreachable from here).
                 try:
-                    _spread_state = {
+                    spread_state = {
                         "last_strategy_signal": {
                             "direction": "neutral",
                             "confidence": 0.0,
@@ -1118,10 +1118,10 @@ class PaperTradingEngine:
                     }
                     await db.bots_collection.update_one(
                         {"id": bot_id},
-                        {"$set": _spread_state},
+                        {"$set": spread_state},
                     )
-                except Exception as _spr_err:
-                    logger.debug("spread_too_wide state write failed (non-fatal): %s", _spr_err)
+                except Exception as spread_err:
+                    logger.debug("spread_too_wide state write failed (non-fatal): %s", spread_err)
                 return {
                     "success": False,
                     "bot_id": bot_id,
