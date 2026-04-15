@@ -6,6 +6,7 @@ Trade Staggerer - 24/7 Staggered Trade Execution
 """
 
 import asyncio
+import os
 from typing import Dict, List
 from datetime import datetime, timezone, timedelta
 from collections import deque
@@ -15,11 +16,23 @@ import database as db
 
 logger = logging.getLogger(__name__)
 
+# Minimum seconds a bot must wait between successfully opening new trades.
+# This enforces round-robin fairness across the fleet: once a bot opens a
+# trade it is benched for this period so other bots get execution slots.
+# Only applied when had_entry=True (new trade opened), NOT for close-only or
+# skip ticks — those are unaffected so trade management stays responsive.
+BOT_TRADE_COOLDOWN_SECONDS = int(os.getenv("BOT_TRADE_COOLDOWN_SECONDS", "60"))
+
 class TradeStaggerer:
     def __init__(self):
         # Queue management
         self.trade_queue = deque()
-        self.active_trades = {}  # {bot_id: timestamp}
+        self.active_trades = {}  # {bot_id: timestamp} — currently-executing trades
+
+        # Per-bot post-trade cooldown: tracks when each bot last COMPLETED a new
+        # trade entry.  Used by can_execute_now to prevent a single bot from
+        # consuming all execution slots while others are waiting.
+        self._last_completed: Dict[str, datetime] = {}
         
         # Rate limiting per exchange
         self.exchange_limits = {
@@ -41,11 +54,21 @@ class TradeStaggerer:
     async def can_execute_now(self, bot_id: str, exchange: str) -> tuple[bool, str]:
         """Check if a bot can execute a trade now"""
         try:
-            # Check if bot already has an active trade
+            # Per-bot post-trade cooldown: prevent the same bot from monopolising
+            # execution slots.  This fires AFTER a trade entry completes (not during
+            # the trade, which is tracked by active_trades below).
+            last_done = self._last_completed.get(bot_id)
+            if last_done:
+                elapsed = (datetime.now(timezone.utc) - last_done).total_seconds()
+                if elapsed < BOT_TRADE_COOLDOWN_SECONDS:
+                    remaining = int(BOT_TRADE_COOLDOWN_SECONDS - elapsed)
+                    return False, f"Bot post-trade cooldown ({remaining}s remaining)"
+
+            # Check if bot already has an active (in-flight) trade
             if bot_id in self.active_trades:
-                elapsed = (datetime.now(timezone.utc) - self.active_trades[bot_id]).seconds
-                if elapsed < 60:  # Wait at least 1 minute between bot trades
-                    return False, f"Bot cooldown active ({60 - elapsed}s remaining)"
+                elapsed = (datetime.now(timezone.utc) - self.active_trades[bot_id]).total_seconds()
+                if elapsed < 60:  # Guard against concurrent execution of the same bot
+                    return False, f"Bot execution in progress ({int(60 - elapsed)}s remaining)"
             
             # Check exchange rate limits
             limits = self.exchange_limits.get(exchange.lower(), self.exchange_limits['binance'])
@@ -58,9 +81,9 @@ class TradeStaggerer:
             # Check minimum delay between trades on this exchange
             last_trade = self.last_trade_per_exchange.get(exchange)
             if last_trade:
-                elapsed = (datetime.now(timezone.utc) - last_trade).seconds
+                elapsed = (datetime.now(timezone.utc) - last_trade).total_seconds()
                 if elapsed < limits['min_delay']:
-                    return False, f"Exchange rate limit ({limits['min_delay'] - elapsed}s remaining)"
+                    return False, f"Exchange rate limit ({int(limits['min_delay'] - elapsed)}s remaining)"
             
             return True, "OK"
             
@@ -83,16 +106,34 @@ class TradeStaggerer:
         except Exception as e:
             logger.error(f"Register trade start error: {e}")
     
-    async def register_trade_complete(self, bot_id: str, exchange: str):
-        """Register that a trade has completed"""
+    async def register_trade_complete(self, bot_id: str, exchange: str, had_entry: bool = False):
+        """Register that a trade has completed.
+
+        Args:
+            bot_id:     The bot that finished its execution slot.
+            exchange:   The exchange the bot was trading on.
+            had_entry:  True when the bot successfully OPENED a new trade this slot.
+                        When True the per-bot cooldown (BOT_TRADE_COOLDOWN_SECONDS) is
+                        started so other bots get execution slots before this one
+                        re-enters.  False for close-only ticks and skip ticks so that
+                        trade management (exit monitoring) remains responsive.
+        """
         try:
             if bot_id in self.active_trades:
                 del self.active_trades[bot_id]
+
+            if had_entry:
+                # Start per-bot cooldown: bench this bot for BOT_TRADE_COOLDOWN_SECONDS
+                # so other bots get their turn at the exchange execution slot.
+                self._last_completed[bot_id] = datetime.now(timezone.utc)
             
             current = self.concurrent_trades_per_exchange.get(exchange, 0)
             self.concurrent_trades_per_exchange[exchange] = max(0, current - 1)
             
-            logger.debug(f"✅ Trade completed: {bot_id[:8]} on {exchange} (concurrent: {current - 1})")
+            logger.debug(
+                f"✅ Trade completed: {bot_id[:8]} on {exchange} "
+                f"(concurrent: {max(0, current - 1)}, had_entry={had_entry})"
+            )
             
         except Exception as e:
             logger.error(f"Register trade complete error: {e}")
@@ -162,7 +203,7 @@ class TradeStaggerer:
                 else:
                     # Put back in queue if still relevant
                     queued_time = datetime.fromisoformat(trade_request['queued_at'].replace('Z', '+00:00'))
-                    age_minutes = (datetime.now(timezone.utc) - queued_time).seconds / 60
+                    age_minutes = (datetime.now(timezone.utc) - queued_time).total_seconds() / 60
                     
                     if age_minutes < 30:  # Only re-queue if less than 30 minutes old
                         self.trade_queue.append(trade_request)
@@ -333,7 +374,7 @@ class TradeStaggerer:
             stale_bots = []
             
             for bot_id, timestamp in list(self.active_trades.items()):
-                age_minutes = (now - timestamp).seconds / 60
+                age_minutes = (now - timestamp).total_seconds() / 60
                 
                 if age_minutes > 10:  # Consider stale after 10 minutes
                     stale_bots.append(bot_id)

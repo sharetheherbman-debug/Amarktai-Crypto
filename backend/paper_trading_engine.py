@@ -997,8 +997,29 @@ class PaperTradingEngine:
                         "allowed_pairs": allowed_pairs
                     }
                 }
+
+            # Fetch open symbols for portfolio diversity (used in both selection
+            # branches and in the portfolio guard fallback below).
+            open_symbols_for_user: List[str] = []
+            try:
+                open_trades_cursor = db.trades_collection.find(
+                    {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}
+                )
+                open_trades_list = await open_trades_cursor.to_list(100)
+                open_symbols_for_user = [
+                    t.get("pair") or t.get("symbol", "")
+                    for t in open_trades_list
+                    if t.get("pair") or t.get("symbol")
+                ]
+            except Exception:
+                pass
+
+            # Track whether pair came from the bot's fixed assignment so the
+            # portfolio guard below can attempt a dynamic fallback when blocked.
+            _used_fixed_pair = False
             if requested_symbol and requested_symbol in available_pairs:
                 symbol = requested_symbol
+                _used_fixed_pair = True
                 self._last_symbol_selection = {
                     "winner": symbol, "winner_reason": "bot_requested",
                     "candidate_count": len(available_pairs),
@@ -1009,21 +1030,6 @@ class PaperTradingEngine:
             else:
                 if not available_pairs and allowed_pairs:
                     available_pairs = allowed_pairs
-                # Portfolio guard: fetch open symbol set for this user to apply
-                # diversity scoring (non-blocking – ignore errors).
-                open_symbols_for_user: List[str] = []
-                try:
-                    open_trades_cursor = db.trades_collection.find(
-                        {"user_id": user_id, "status": "open"}, {"pair": 1, "symbol": 1, "_id": 0}
-                    )
-                    open_trades_list = await open_trades_cursor.to_list(100)
-                    open_symbols_for_user = [
-                        t.get("pair") or t.get("symbol", "")
-                        for t in open_trades_list
-                        if t.get("pair") or t.get("symbol")
-                    ]
-                except Exception:
-                    pass
 
                 selected, sym_diag = await _symbol_universe.select(
                     bot_id=bot_id,
@@ -1037,32 +1043,64 @@ class PaperTradingEngine:
                 self._last_symbol_selection = sym_diag
 
             # Portfolio guard (C3): prevent >PORTFOLIO_GUARD_MAX_SAME_SYMBOL concurrent
-            # opens on the same symbol per user within PORTFOLIO_GUARD_WINDOW_MINUTES.
+            # opens on the same symbol per user.
             # Only blocks opening NEW trades; never affects closing.
+            # FALLBACK: when the bot's fixed pair is blocked, try dynamic pair
+            # selection so bots that all share the same configured pair can still
+            # trade on alternative symbols rather than all failing the guard.
             if PORTFOLIO_GUARD_MAX_SAME_SYMBOL > 0:
                 try:
-                    cutoff = datetime.now(timezone.utc) - timedelta(
-                        minutes=PORTFOLIO_GUARD_WINDOW_MINUTES
-                    )
                     same_symbol_count = await db.trades_collection.count_documents({
                         "user_id": user_id,
                         "status": "open",
                         "pair": symbol,
                     })
                     if same_symbol_count >= PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
-                        logger.info(
-                            f"PORTFOLIO_GUARD: user={user_id} symbol={symbol} "
-                            f"open={same_symbol_count} >= max={PORTFOLIO_GUARD_MAX_SAME_SYMBOL}"
-                        )
-                        return {
-                            "success": False,
-                            "bot_id": bot_id,
-                            "skip_reason": "portfolio_guard",
-                            "error": (
-                                f"Portfolio guard: already {same_symbol_count} open trade(s) "
-                                f"on {symbol} for this user"
-                            ),
-                        }
+                        _rerouted = False
+                        if _used_fixed_pair and len(available_pairs) > 1:
+                            # The bot's fixed pair is already held by another trade.
+                            # Try to find an alternative via the universe selector so
+                            # this bot can still participate rather than sitting out.
+                            alt_pairs = [p for p in available_pairs if p != symbol]
+                            if alt_pairs:
+                                selected_alt, sym_diag_alt = await _symbol_universe.select(
+                                    bot_id=bot_id,
+                                    user_id=user_id,
+                                    exchange=exchange,
+                                    available_pairs=alt_pairs,
+                                    open_symbols_for_user=open_symbols_for_user,
+                                    bot_override_universe=bot_data.get("symbol_universe"),
+                                )
+                                if selected_alt:
+                                    alt_count = await db.trades_collection.count_documents({
+                                        "user_id": user_id,
+                                        "status": "open",
+                                        "pair": selected_alt,
+                                    })
+                                    if alt_count < PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
+                                        logger.info(
+                                            "PORTFOLIO_GUARD_REROUTE: %s fixed-pair %s blocked "
+                                            "(open=%d); switching to %s for this cycle",
+                                            bot_data.get("name", bot_id[:8]),
+                                            symbol, same_symbol_count, selected_alt,
+                                        )
+                                        symbol = selected_alt
+                                        self._last_symbol_selection = sym_diag_alt
+                                        _rerouted = True
+                        if not _rerouted:
+                            logger.info(
+                                "PORTFOLIO_GUARD: user=%s symbol=%s open=%d >= max=%d",
+                                user_id, symbol, same_symbol_count, PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
+                            )
+                            return {
+                                "success": False,
+                                "bot_id": bot_id,
+                                "skip_reason": "portfolio_guard",
+                                "error": (
+                                    f"Portfolio guard: already {same_symbol_count} open trade(s) "
+                                    f"on {symbol} for this user"
+                                ),
+                            }
                 except Exception:
                     pass  # non-blocking
 
