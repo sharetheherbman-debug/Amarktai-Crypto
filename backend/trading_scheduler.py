@@ -149,6 +149,80 @@ class TradingScheduler:
             
             active_bots = supported_bots
 
+            # ── RUN-ACTIVE EXCHANGES GATE ──────────────────────────────────────────
+            # After the platform-support gate above (which uses the global
+            # PAPER_SUPPORTED_EXCHANGES set), apply a per-user "run active exchanges"
+            # gate.  This distinguishes:
+            #   SUPPORTED   — exchanges the platform supports globally (8 total)
+            #   CONFIGURED  — exchanges the user has API keys for
+            #   RUN-ACTIVE  — exchanges selected for this user's current paper run
+            #
+            # Bots whose exchange is not in the user's run-active set are NOT paused
+            # or deleted — their status remains unchanged.  They are simply excluded
+            # from this run by setting excluded_from_run=True on the bot document so
+            # the truth layer can distinguish them from participating bots.
+            from services.canonical import get_user_run_exchanges
+            _user_run_exchanges_cache: dict = {}
+
+            run_active_bots = []
+            run_excluded_bots = []
+            for bot in active_bots:
+                _uid = bot.get("user_id", "")
+                if _uid not in _user_run_exchanges_cache:
+                    try:
+                        _user_run_exchanges_cache[_uid] = set(await get_user_run_exchanges(_uid))
+                    except Exception as _ure_err:
+                        logger.warning("get_user_run_exchanges failed for user %s: %s", _uid, _ure_err)
+                        _user_run_exchanges_cache[_uid] = {"luno"}
+                _run_exs = _user_run_exchanges_cache[_uid]
+                _bot_exchange = (bot.get("exchange") or "").lower()
+                if _bot_exchange in _run_exs:
+                    run_active_bots.append(bot)
+                else:
+                    run_excluded_bots.append(bot)
+
+            # Mark excluded bots so truth layer can surface them clearly.
+            # Do NOT change status, do NOT quarantine, do NOT pause.
+            _excl_now = datetime.now(timezone.utc).isoformat()
+            for bot in run_excluded_bots:
+                _bot_exchange = (bot.get("exchange") or "unknown").lower()
+                _uid = bot.get("user_id", "")
+                _run_exs = _user_run_exchanges_cache.get(_uid, set())
+                logger.info(
+                    "⏩ RUN_EXCLUDED | %s | exchange=%s not in run_active=%s",
+                    bot.get("name", bot["id"][:8]), _bot_exchange, sorted(_run_exs),
+                )
+                try:
+                    await db.bots_collection.update_one(
+                        {"id": bot["id"]},
+                        {"$set": {
+                            "excluded_from_run": True,
+                            "run_exclusion_reason": "exchange_not_in_run_selection",
+                            "run_exclusion_exchange": _bot_exchange,
+                            "run_exclusion_at": _excl_now,
+                        }},
+                    )
+                except Exception as _excl_err:
+                    logger.warning("Failed to mark bot %s excluded_from_run: %s", bot["id"][:8], _excl_err)
+
+            # Clear stale exclusion flags for bots that ARE in this run.
+            for bot in run_active_bots:
+                if bot.get("excluded_from_run"):
+                    try:
+                        await db.bots_collection.update_one(
+                            {"id": bot["id"]},
+                            {"$unset": {
+                                "excluded_from_run": "",
+                                "run_exclusion_reason": "",
+                                "run_exclusion_exchange": "",
+                                "run_exclusion_at": "",
+                            }},
+                        )
+                    except Exception as _clear_err:
+                        logger.warning("Failed to clear excluded_from_run for bot %s: %s", bot["id"][:8], _clear_err)
+
+            active_bots = run_active_bots
+
             # Sync with runtime truth store (pause/stopped bots are skipped)
             runtime_filtered = []
             for bot in active_bots:
@@ -495,6 +569,7 @@ class TradingScheduler:
                         pass
             
             # Add new trades to queue
+            _now_iso = datetime.now(timezone.utc).isoformat()
             for bot in active_bots:
                 bot_id = bot['id']
                 exchange = bot.get('exchange', 'binance')
@@ -505,6 +580,17 @@ class TradingScheduler:
                 if can_execute:
                     # Add to queue
                     await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
+
+                # Always stamp last_tick_at in the primary bots collection so that
+                # diagnostics endpoints never show null for active bots — even when
+                # the bot is rate-limited by the staggerer and not yet in the queue.
+                try:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {"last_tick_at": _now_iso}},
+                    )
+                except Exception:
+                    pass
 
             # Force-close overdue open trades for all users — this sweeps trades from
             # paused bots that the normal cycle would skip (fix for D exit precedence).
