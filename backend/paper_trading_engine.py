@@ -649,7 +649,10 @@ class PaperTradingEngine:
             logger.warning(f"Failed to fetch pairs from {exchange}: {e}")
             # Return stale cache if available rather than falling back to hardcoded list
             if exchange in self.available_pairs_cache:
-                _stale_pairs, _ = self.available_pairs_cache[exchange]
+                _stale_entry = self.available_pairs_cache[exchange]
+                _stale_pairs = _stale_entry[0] if isinstance(_stale_entry, tuple) and len(_stale_entry) == 2 else (
+                    _stale_entry if isinstance(_stale_entry, list) else None
+                )
                 if _stale_pairs:
                     return _stale_pairs
 
