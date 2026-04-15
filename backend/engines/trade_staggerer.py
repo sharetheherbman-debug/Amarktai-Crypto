@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 # skip ticks — those are unaffected so trade management stays responsive.
 BOT_TRADE_COOLDOWN_SECONDS = int(os.getenv("BOT_TRADE_COOLDOWN_SECONDS", "60"))
 
+# Maximum seconds a bot's execution slot may remain "in-flight" before the
+# concurrent-execution guard considers it stuck.  In practice paper trades
+# complete in < 1s but the guard prevents double-submission if the async loop
+# ever delivers two ticks for the same bot at once.
+BOT_EXECUTION_TIMEOUT_SECONDS = int(os.getenv("BOT_EXECUTION_TIMEOUT_SECONDS", "60"))
+
 class TradeStaggerer:
     def __init__(self):
         # Queue management
@@ -67,8 +73,8 @@ class TradeStaggerer:
             # Check if bot already has an active (in-flight) trade
             if bot_id in self.active_trades:
                 elapsed = (datetime.now(timezone.utc) - self.active_trades[bot_id]).total_seconds()
-                if elapsed < 60:  # Guard against concurrent execution of the same bot
-                    return False, f"Bot execution in progress ({int(60 - elapsed)}s remaining)"
+                if elapsed < BOT_EXECUTION_TIMEOUT_SECONDS:
+                    return False, f"Bot execution in progress ({int(BOT_EXECUTION_TIMEOUT_SECONDS - elapsed)}s remaining)"
             
             # Check exchange rate limits
             limits = self.exchange_limits.get(exchange.lower(), self.exchange_limits['binance'])
