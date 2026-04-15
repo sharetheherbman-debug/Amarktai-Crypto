@@ -1276,7 +1276,6 @@ class PaperTradingEngine:
                     "error": f"Signal contradiction: direction={_pred_dir} predicted_change={_pred_change:.4f}",
                 }
 
-
             # Also write market_regime, confidence_score, and pair so that the radar
             # always reflects the live decision state rather than stale/missing values.
             try:
