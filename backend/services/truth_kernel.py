@@ -78,7 +78,13 @@ async def compute_bot_eligibility(user_id: str, db) -> Dict[str, Any]:
       yet been evaluated by the scheduler (they will be on next tick).
     """
     bots_raw = await db["bots"].find(
-        {"user_id": user_id, "deleted": {"$ne": True}}
+        {
+            "user_id": user_id,
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
+        }
     ).to_list(length=500)
 
     bots = [normalize_bot_state(b) for b in bots_raw]
@@ -165,7 +171,13 @@ async def compute_wallet_balances(user_id: str, db) -> Dict[str, Any]:
 async def compute_risk_state(user_id: str, db) -> Dict[str, Any]:
     """Canonical risk state: peak equity, drawdown, daily PnL."""
     bots_raw = await db["bots"].find(
-        {"user_id": user_id, "deleted": {"$ne": True}}
+        {
+            "user_id": user_id,
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
+        }
     ).to_list(length=500)
 
     total_equity = sum(float(b.get("current_capital", 0)) for b in bots_raw)

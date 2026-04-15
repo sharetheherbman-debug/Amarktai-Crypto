@@ -128,14 +128,20 @@ class AutopilotGrowthService:
         _normal_bots_now = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"},
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
             "bot_type": {"$nin": ["scalper"]},
         })
         _normal_cap = _platform_bot_limit(platform)
         _scalper_bots_now = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"},
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
             "bot_type": "scalper",
         })
         _scalper_cap = get_scalper_cap(platform)
@@ -244,13 +250,19 @@ class AutopilotGrowthService:
         bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"},
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
         })
         # Count non-scalper bots separately for growth engine guardrail awareness
         normal_bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"},
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
             "bot_type": {"$nin": ["scalper"]},
         })
         # Total cap = normal cap + scalper cap (e.g. Luno = 5 + 5 = 10)
@@ -373,7 +385,11 @@ class AutopilotGrowthService:
 
         bodyguard_count = await self.db.bots.count_documents({
             "user_id": self.user_id,
-            "paused_by_bodyguard": True
+            "paused_by_bodyguard": True,
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
         })
         if bodyguard_count > 0:
             reasons.append("BODYGUARD_LOCK_ACTIVE")
@@ -386,7 +402,10 @@ class AutopilotGrowthService:
         total_bots_current = await self.db.bots.count_documents({
             "user_id": self.user_id,
             "exchange": platform,
-            "status": {"$ne": "deleted"},
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
         })
         _total_cap = _platform_bot_limit(platform) + get_scalper_cap(platform)
         if total_bots_current >= _total_cap:

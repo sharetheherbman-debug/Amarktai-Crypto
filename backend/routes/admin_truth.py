@@ -63,7 +63,12 @@ async def repair_bot_states(user_id: str = Depends(require_admin)):
 
         # Fetch all non-deleted bots for this admin user
         all_bots = await db.bots_collection.find(
-            {"deleted": {"$ne": True}, "status": {"$nin": ["deleted", "marked_for_deletion"]}},
+            {
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
             {"_id": 0}
         ).to_list(2000)
 
