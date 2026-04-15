@@ -1256,7 +1256,27 @@ class PaperTradingEngine:
             except Exception as _agg_err:
                 logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
 
-            # Persist the aggregated strategy signal so monitoring APIs can read it.
+            # Validation guard: direction and predicted_change must agree in sign.
+            # If they contradict (e.g. direction="up" but predicted_change < 0),
+            # the signal is corrupt — log and skip rather than placing a wrong-side trade.
+            _pred_dir = prediction.get("direction", "neutral")
+            _pred_change = float(prediction.get("predicted_change", 0) or 0)
+            if (
+                (_pred_dir == "up" and _pred_change < 0)
+                or (_pred_dir == "down" and _pred_change > 0)
+            ):
+                logger.error(
+                    "[SIGNAL_MISMATCH] direction=%s predicted_change=%.4f for %s — skipping trade",
+                    _pred_dir, _pred_change, symbol,
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "signal_mismatch",
+                    "error": f"Signal contradiction: direction={_pred_dir} predicted_change={_pred_change:.4f}",
+                }
+
+
             # Also write market_regime, confidence_score, and pair so that the radar
             # always reflects the live decision state rather than stale/missing values.
             try:
