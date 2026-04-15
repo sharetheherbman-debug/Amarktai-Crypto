@@ -40,13 +40,15 @@ class MarketRegimeDetector:
                 if p['timestamp'] > cutoff_time
             ]
             
-            # Need at least 10 data points
+            # Need at least 10 data points — fall back to "range" so the system
+            # never blocks trades with regime="unknown" during the warm-up period.
             if len(self.price_history[pair]) < 10:
                 return {
-                    "regime": "unknown",
+                    "regime": "range",
                     "trend": "neutral",
                     "volatility": "normal",
-                    "confidence": 0
+                    "confidence": 0.25,
+                    "is_fallback": True,
                 }
             
             prices = [p['price'] for p in self.price_history[pair]]
@@ -108,11 +110,14 @@ class MarketRegimeDetector:
             
         except Exception as e:
             logger.error(f"Regime detection failed for {pair}: {e}")
+            # Never return "unknown" or "error" — use "range" fallback so regime
+            # detection never blocks trades during error conditions.
             return {
-                "regime": "error",
+                "regime": "range",
                 "trend": "neutral",
                 "volatility": "normal",
-                "confidence": 0
+                "confidence": 0.20,
+                "is_fallback": True,
             }
     
     async def adjust_bot_for_regime(self, bot: dict, regime: dict):

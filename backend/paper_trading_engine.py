@@ -136,10 +136,12 @@ PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
 # Minimum average confidence required for paper mode quality bypass (learning/data-collection mode).
-# Raised from 0.1 to 0.35: the old value let any signal through, producing low-quality trades
-# that were statistically guaranteed to lose after fees.  0.35 aligns with the minimum viable
-# regime confidence and still allows data collection when real signals are present.
-MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.35"))
+# Lowered from 0.35 to 0.30: confidence_score ≈ 0.32 should be allowed to trade in paper mode,
+# provided at least one real signal source contributed (confidence_sources >= 1).
+MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.30"))
+# Bootstrap confidence floor: when a bot has placed 0 trades, allow first trade at this
+# lower threshold so the learning loop can start.
+BOOTSTRAP_MIN_CONFIDENCE = float(os.getenv("BOOTSTRAP_MIN_CONFIDENCE", "0.30"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1247,12 +1249,15 @@ class PaperTradingEngine:
                     "direction": prediction.get("direction", "neutral"),
                     "confidence": round(float(prediction.get("confidence", 0)), 4),
                     "predicted_change": round(float(prediction.get("predicted_change", 0)), 4),
-                    "regime": regime.get("regime", "unknown"),
+                    "regime": regime.get("regime", "consolidation") or "consolidation",
                     "regime_confidence": round(float(regime.get("confidence", 0)), 4),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
                 _agg_confidence = float((_agg or {}).get("confidence") or 0)
-                _regime_str = regime.get("regime", "unknown") or "unknown"
+                # Regime label: never store "unknown" — use "consolidation" as fallback
+                _regime_raw = regime.get("regime", "consolidation") or "consolidation"
+                _regime_str = _regime_raw if _regime_raw not in ("unknown", "error", "") else "consolidation"
+                _agg_net_edge = float((_agg or {}).get("expected_net_edge_bps") or 0)
                 _bot_state_update = {
                     "last_strategy_signal": _signal_snapshot,
                     # Radar truth fields — written every tick so display is always fresh
@@ -1260,6 +1265,8 @@ class PaperTradingEngine:
                     "confidence_score": round(
                         _agg_confidence if _agg_confidence > 0 else float(regime.get("confidence", 0)), 4
                     ),
+                    # Write edge estimate so radar/truth fields show real values
+                    "expected_net_edge_bps": round(_agg_net_edge, 4),
                 }
                 # Persist the selected symbol back to the bot document so the radar
                 # shows a real pair instead of "unknown" for newly-created bots.
@@ -1835,9 +1842,8 @@ class PaperTradingEngine:
             # confidence ramp-up period.  We still require at least one regime
             # source to have reported (confidence_sources >= 1).
             _sim_bypass_confidence = ml_is_simulated and confidence_sources >= 1
-            # Paper mode bypass: allow trade if confidence meets the raised minimum threshold.
-            # MIN_PAPER_MODE_CONFIDENCE raised from 0.1 to 0.35 to prevent low-quality trades.
-            # Also requires confidence_sources >= 1 to ensure at least one real source contributed.
+            # Paper mode bypass: allow trade if confidence meets the minimum threshold
+            # and at least one real source contributed.
             _paper_quality_bypass = _is_paper_mode_bot and avg_confidence >= MIN_PAPER_MODE_CONFIDENCE and confidence_sources >= 1
             if _paper_quality_bypass:
                 logger.info(
@@ -1845,7 +1851,32 @@ class PaperTradingEngine:
                     "avg_confidence=%.3f sources=%d — meets paper minimum",
                     bot_data.get("name", bot_id[:8]), symbol, avg_confidence, confidence_sources,
                 )
-            if not _sim_bypass_confidence and not _paper_quality_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
+            # Bootstrap bypass: allow the very first trade (trades_count == 0) at a lower
+            # confidence threshold so the learning loop can start from a cold state.
+            _bot_trades_count = int(bot_data.get("trades_count") or bot_data.get("closed_trades_count") or 0)
+            _bootstrap_bypass = (
+                _bot_trades_count == 0
+                and avg_confidence >= BOOTSTRAP_MIN_CONFIDENCE
+                and confidence_sources >= 1
+                and playbook_info.get("regime") not in (None, "", "unknown", "error")
+            )
+            if _bootstrap_bypass:
+                logger.info(
+                    "[BOOTSTRAP] first_trade | %s | %s | confidence=%.3f regime=%s — allowing first trade",
+                    bot_data.get("name", bot_id[:8]), symbol, avg_confidence, playbook_info.get("regime"),
+                )
+            # Extra bypass: if regime is known (not unknown/error/blank) and indicators are valid,
+            # allow entry at a lowered floor (0.30) even when below the normal threshold.
+            _regime_known = playbook_info.get("regime") not in (None, "", "unknown", "error")
+            _indicators_valid = expected_move_pct > 0
+            _regime_indicator_bypass = (
+                _regime_known
+                and _indicators_valid
+                and avg_confidence >= 0.30
+                and confidence_sources >= 1
+            )
+            if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
+                _block_reason = "low_confidence"
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
                     f"bot_type={_bot_type_for_gate} available={available_sources} "
@@ -1856,16 +1887,19 @@ class PaperTradingEngine:
                 logger.info(
                     "BLOCK_DETAIL %s",
                     json.dumps({
+                        "bot": bot_data.get("name", bot_id[:8]),
                         "bot_id": bot_id,
-                        "reason": "low_confidence",
+                        "reason_blocked": _block_reason,
                         "bot_type": _bot_type_for_gate,
+                        "confidence": round(avg_confidence, 4),
+                        "regime": playbook_info["regime"],
+                        "regime_confidence": round(float(regime.get("confidence", 0)), 4),
                         "edge": round(_net_edge_pct, 4),
                         "cost": round(estimated_cost_pct, 4),
-                        "regime": playbook_info["regime"],
-                        "confidence": round(avg_confidence, 4),
                         "sources": confidence_sources,
                         "min_sources": min_sources_required,
                         "threshold": round(_conf_threshold, 4),
+                        "symbol": symbol,
                     }),
                 )
                 return {"success": False, "bot_id": bot_id, "skip_reason": "low_confidence", "error": "Trade quality threshold not met"}

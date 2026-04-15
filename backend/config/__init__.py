@@ -136,20 +136,21 @@ STOP_LOSS_COOLDOWN_MINUTES = int(os.getenv('STOP_LOSS_COOLDOWN_MINUTES', '30'))
 LOSING_STREAK_THRESHOLD = int(os.getenv('LOSING_STREAK_THRESHOLD', '3'))
 LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10'))
 # Base average-confidence threshold for entry. Raised by LOSING_STREAK_SIGNAL_BOOST
-# after a losing streak. Set to 0.45 to require meaningful signal quality before entry;
-# avoids low-confidence trades that pass only because the local regime source is available.
-BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.45'))
+# after a losing streak. Lowered from 0.45 to 0.35 to allow trading when valid
+# signals are present (confidence_score ≈ 0.32-0.38 was blocking all trades).
+BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.35'))
 
-# ── Scalper-specific stricter thresholds ────────────────────────────────────
-# Scalpers require higher signal quality than normal bots because their profit
-# window per trade is smaller (less room to absorb spread + fee costs).
-SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '0.62'))
+# ── Scalper-specific thresholds ────────────────────────────────────────────────
+# Scalpers operate on fast micro-signals; they need a lower confidence threshold
+# because their individual signal windows are shorter (less data per cycle).
+# Lowered from 0.62 to 0.28 to unblock scalper bots.
+SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '0.28'))
 # Max hold time for scalpers (minutes).  Normal bots use PAPER_MAX_HOLD_MINUTES.
 SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
 # Max spread (%) for scalpers.  Normal bots use PAPER_MAX_SPREAD_PCT.
-# 0.30% allows realistic ZAR-quoted pair spreads (Luno BTC/ZAR is typically 0.1-0.3%).
-# The previous 0.15% was too tight, permanently blocking scalpers on ZAR pairs.
-SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.30'))
+# Lowered from 0.30 to 0.25 to keep scalpers in tighter-spread conditions while
+# still allowing realistic ZAR-quoted pair spreads (Luno BTC/ZAR is 0.1-0.25%).
+SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.25'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
@@ -206,34 +207,48 @@ SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER = float(os.getenv('SAFETY_BUFFER_WIDE_SPREA
 # Targets are NOT hard-coded outcomes; they tune behaviour (risk / selectivity
 # / frequency) within the drawdown and expectancy guardrails above.
 RISK_MODE_CONFIG: dict = {
+    # TP/SL calibration (same principle as regime_playbooks._PLAYBOOK_PARAMS):
+    # Luno round-trip cost ≈ 0.64% (0.25%×2 fee + 0.06% spread + 0.08% slippage).
+    # These defaults are only used as fallback when playbook params are unavailable.
+    # TP must be > SL + 1.28% to achieve positive EV at 50% win rate on Luno.
     "safe": {
-        "max_hold_minutes": int(os.getenv('SAFE_MAX_HOLD_MINUTES', '60')),
-        "safety_exit_minutes": int(os.getenv('SAFE_SAFETY_EXIT_MINUTES', '30')),
-        "take_profit_pct": float(os.getenv('SAFE_TAKE_PROFIT_PCT', '0.015')),
-        "stop_loss_pct": float(os.getenv('SAFE_STOP_LOSS_PCT', '0.010')),
+        "max_hold_minutes": int(os.getenv('SAFE_MAX_HOLD_MINUTES', '90')),
+        "safety_exit_minutes": int(os.getenv('SAFE_SAFETY_EXIT_MINUTES', '45')),
+        "take_profit_pct": float(os.getenv('SAFE_TAKE_PROFIT_PCT', '0.035')),
+        "stop_loss_pct": float(os.getenv('SAFE_STOP_LOSS_PCT', '0.018')),
         "position_size_pct": float(os.getenv('SAFE_POSITION_SIZE_PCT', '0.20')),
-        "min_confidence": float(os.getenv('SAFE_MIN_CONFIDENCE', '0.65')),
+        "min_confidence": float(os.getenv('SAFE_MIN_CONFIDENCE', '0.55')),
         "safety_buffer_pct": float(os.getenv('SAFE_SAFETY_BUFFER_PCT', '0.15')),
         # Adaptive target: aim ~3-4% daily on R1000 initial budget
         "daily_target_pct": float(os.getenv('SAFE_DAILY_TARGET_PCT', '0.03')),
     },
     "balanced": {
-        "max_hold_minutes": int(os.getenv('BALANCED_MAX_HOLD_MINUTES', '90')),
-        "safety_exit_minutes": int(os.getenv('BALANCED_SAFETY_EXIT_MINUTES', '45')),
-        "take_profit_pct": float(os.getenv('BALANCED_TAKE_PROFIT_PCT', '0.025')),
-        "stop_loss_pct": float(os.getenv('BALANCED_STOP_LOSS_PCT', '0.015')),
+        "max_hold_minutes": int(os.getenv('BALANCED_MAX_HOLD_MINUTES', '120')),
+        "safety_exit_minutes": int(os.getenv('BALANCED_SAFETY_EXIT_MINUTES', '60')),
+        "take_profit_pct": float(os.getenv('BALANCED_TAKE_PROFIT_PCT', '0.045')),
+        "stop_loss_pct": float(os.getenv('BALANCED_STOP_LOSS_PCT', '0.022')),
         "position_size_pct": float(os.getenv('BALANCED_POSITION_SIZE_PCT', '0.30')),
-        "min_confidence": float(os.getenv('BALANCED_MIN_CONFIDENCE', '0.60')),
+        "min_confidence": float(os.getenv('BALANCED_MIN_CONFIDENCE', '0.50')),
         "safety_buffer_pct": float(os.getenv('BALANCED_SAFETY_BUFFER_PCT', '0.10')),
         "daily_target_pct": float(os.getenv('BALANCED_DAILY_TARGET_PCT', '0.05')),
     },
+    "risky": {
+        "max_hold_minutes": int(os.getenv('RISKY_MAX_HOLD_MINUTES', '120')),
+        "safety_exit_minutes": int(os.getenv('RISKY_SAFETY_EXIT_MINUTES', '60')),
+        "take_profit_pct": float(os.getenv('RISKY_TAKE_PROFIT_PCT', '0.055')),
+        "stop_loss_pct": float(os.getenv('RISKY_STOP_LOSS_PCT', '0.028')),
+        "position_size_pct": float(os.getenv('RISKY_POSITION_SIZE_PCT', '0.38')),
+        "min_confidence": float(os.getenv('RISKY_MIN_CONFIDENCE', '0.45')),
+        "safety_buffer_pct": float(os.getenv('RISKY_SAFETY_BUFFER_PCT', '0.08')),
+        "daily_target_pct": float(os.getenv('RISKY_DAILY_TARGET_PCT', '0.06')),
+    },
     "aggressive": {
-        "max_hold_minutes": int(os.getenv('AGGRESSIVE_MAX_HOLD_MINUTES', '120')),
-        "safety_exit_minutes": int(os.getenv('AGGRESSIVE_SAFETY_EXIT_MINUTES', '60')),
-        "take_profit_pct": float(os.getenv('AGGRESSIVE_TAKE_PROFIT_PCT', '0.04')),
-        "stop_loss_pct": float(os.getenv('AGGRESSIVE_STOP_LOSS_PCT', '0.025')),
+        "max_hold_minutes": int(os.getenv('AGGRESSIVE_MAX_HOLD_MINUTES', '150')),
+        "safety_exit_minutes": int(os.getenv('AGGRESSIVE_SAFETY_EXIT_MINUTES', '75')),
+        "take_profit_pct": float(os.getenv('AGGRESSIVE_TAKE_PROFIT_PCT', '0.070')),
+        "stop_loss_pct": float(os.getenv('AGGRESSIVE_STOP_LOSS_PCT', '0.035')),
         "position_size_pct": float(os.getenv('AGGRESSIVE_POSITION_SIZE_PCT', '0.45')),
-        "min_confidence": float(os.getenv('AGGRESSIVE_MIN_CONFIDENCE', '0.55')),
+        "min_confidence": float(os.getenv('AGGRESSIVE_MIN_CONFIDENCE', '0.40')),
         "safety_buffer_pct": float(os.getenv('AGGRESSIVE_SAFETY_BUFFER_PCT', '0.08')),
         "daily_target_pct": float(os.getenv('AGGRESSIVE_DAILY_TARGET_PCT', '0.08')),
     },

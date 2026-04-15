@@ -129,14 +129,25 @@ class RiskEngine:
         # 5. Check per-exchange exposure (only if user has multiple exchanges)
         # Use canonical ZAR equity per exchange (not raw mixed-currency sum)
         exchanges_used = set(b.get("exchange") for b in user_bots)
-        
+
         if len(exchanges_used) > 1:  # Only enforce if using multiple exchanges
             exchange_bots = [b for b in user_bots if b.get("exchange") == exchange]
             exchange_equity_zar, _ = compute_equity_zar(exchange_bots)
-            max_exchange_exposure = total_equity * 0.60  # 60% max per exchange
-            
+            # Exposure limit:
+            #  - 2-exchange setups (e.g. Luno + Binance): 85% — one exchange can
+            #    legitimately hold most of the capital in a paired setup.
+            #  - 3+ exchange setups: 70% — wider diversification is expected.
+            # Paper mode gets a higher ceiling to avoid deadlocking a small fleet.
+            _is_paper = (bot or {}).get("trading_mode", "paper") == "paper"
+            if len(exchanges_used) == 2:
+                max_exchange_exposure = total_equity * (0.90 if _is_paper else 0.85)
+            else:
+                max_exchange_exposure = total_equity * (0.75 if _is_paper else 0.70)
+
             if exchange_equity_zar > max_exchange_exposure:
-                return False, f"Too much exposure on {exchange.upper()} (max 60% of equity)"
+                _pct = round(exchange_equity_zar / total_equity * 100, 1)
+                _limit = round(max_exchange_exposure / total_equity * 100, 1)
+                return False, f"Too much exposure on {exchange.upper()} ({_pct}% > {_limit}% limit)"
         
         # 6. Minimum trade notional — configurable via MIN_TRADE_NOTIONAL_ZAR env var
         if proposed_notional < MIN_TRADE_NOTIONAL_ZAR:

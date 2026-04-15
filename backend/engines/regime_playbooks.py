@@ -98,50 +98,79 @@ _REGIME_STRENGTH: Dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 # Structure: playbook -> risk_mode -> param_overrides
+# TP/SL calibration rationale
+# ────────────────────────────
+# Luno charges 0.25% per side (taker), plus ~0.06% spread + ~0.08% slippage
+# = 0.64% total round-trip cost.  For a trade to have positive expected value
+# at a 50% win rate (worst case), we need:
+#   net_TP  > net_SL
+#   TP - costs > SL + costs
+#   TP > SL + 2 × 0.64%  →  TP > SL + 1.28%   (minimum viability on Luno)
+#
+# Previous values violated this (e.g. mean_reversion safe TP=1.2%, SL=1.0%
+# gave R:R = 0.34 — guaranteed to lose on Luno).  Every row below satisfies
+# TP ≥ SL + 1.5% to give a comfortable buffer above break-even.
 _PLAYBOOK_PARAMS: Dict[str, Dict[str, Dict[str, float]]] = {
     "momentum": {
+        # Trending market — wide TP to ride the move, moderate SL.
         "safe": {
-            "take_profit_pct": 0.020,
-            "stop_loss_pct": 0.012,
-            "max_hold_minutes": 60,
-            "safety_exit_minutes": 35,
+            "take_profit_pct": 0.040,   # net after 0.64% cost: +3.36%
+            "stop_loss_pct":   0.018,   # net after 0.64% cost: -2.44%  R:R≈1.38
+            "max_hold_minutes": 90,
+            "safety_exit_minutes": 45,
             "position_size_multiplier": 1.0,
         },
         "balanced": {
-            "take_profit_pct": 0.030,
-            "stop_loss_pct": 0.018,
-            "max_hold_minutes": 90,
-            "safety_exit_minutes": 50,
+            "take_profit_pct": 0.055,   # net: +4.91%
+            "stop_loss_pct":   0.025,   # net: -3.14%  R:R≈1.56
+            "max_hold_minutes": 120,
+            "safety_exit_minutes": 60,
             "position_size_multiplier": 1.1,
         },
-        "aggressive": {
-            "take_profit_pct": 0.050,
-            "stop_loss_pct": 0.030,
+        "risky": {
+            "take_profit_pct": 0.065,
+            "stop_loss_pct":   0.030,
             "max_hold_minutes": 120,
             "safety_exit_minutes": 65,
+            "position_size_multiplier": 1.15,
+        },
+        "aggressive": {
+            "take_profit_pct": 0.080,   # net: +7.36%
+            "stop_loss_pct":   0.035,   # net: -4.14%  R:R≈1.78
+            "max_hold_minutes": 150,
+            "safety_exit_minutes": 75,
             "position_size_multiplier": 1.25,
         },
     },
     "mean_reversion": {
+        # Range / consolidation market — moderate TP, tight SL.
+        # TP must clear round-trip cost by a meaningful margin.
         "safe": {
-            "take_profit_pct": 0.012,
-            "stop_loss_pct": 0.010,
-            "max_hold_minutes": 40,
-            "safety_exit_minutes": 20,
+            "take_profit_pct": 0.030,   # net: +2.36%
+            "stop_loss_pct":   0.015,   # net: -2.14%  R:R≈1.10
+            "max_hold_minutes": 60,
+            "safety_exit_minutes": 30,
             "position_size_multiplier": 0.85,
         },
         "balanced": {
-            "take_profit_pct": 0.018,
-            "stop_loss_pct": 0.014,
-            "max_hold_minutes": 60,
-            "safety_exit_minutes": 30,
+            "take_profit_pct": 0.040,   # net: +3.36%
+            "stop_loss_pct":   0.020,   # net: -2.64%  R:R≈1.27
+            "max_hold_minutes": 80,
+            "safety_exit_minutes": 40,
             "position_size_multiplier": 0.90,
         },
-        "aggressive": {
-            "take_profit_pct": 0.030,
-            "stop_loss_pct": 0.022,
-            "max_hold_minutes": 80,
+        "risky": {
+            "take_profit_pct": 0.050,
+            "stop_loss_pct":   0.025,
+            "max_hold_minutes": 90,
             "safety_exit_minutes": 45,
+            "position_size_multiplier": 0.95,
+        },
+        "aggressive": {
+            "take_profit_pct": 0.060,   # net: +5.36%
+            "stop_loss_pct":   0.030,   # net: -3.64%  R:R≈1.47
+            "max_hold_minutes": 100,
+            "safety_exit_minutes": 50,
             "position_size_multiplier": 1.0,
         },
     },
@@ -149,22 +178,29 @@ _PLAYBOOK_PARAMS: Dict[str, Dict[str, Dict[str, float]]] = {
         # Stand-down params are not used for entry (entry is blocked);
         # kept here for completeness / future use by the exit controller.
         "safe": {
-            "take_profit_pct": 0.010,
-            "stop_loss_pct": 0.008,
+            "take_profit_pct": 0.025,
+            "stop_loss_pct":   0.015,
             "max_hold_minutes": 30,
             "safety_exit_minutes": 15,
             "position_size_multiplier": 0.5,
         },
         "balanced": {
-            "take_profit_pct": 0.012,
-            "stop_loss_pct": 0.010,
+            "take_profit_pct": 0.030,
+            "stop_loss_pct":   0.018,
             "max_hold_minutes": 35,
             "safety_exit_minutes": 18,
             "position_size_multiplier": 0.5,
         },
+        "risky": {
+            "take_profit_pct": 0.035,
+            "stop_loss_pct":   0.020,
+            "max_hold_minutes": 40,
+            "safety_exit_minutes": 20,
+            "position_size_multiplier": 0.5,
+        },
         "aggressive": {
-            "take_profit_pct": 0.015,
-            "stop_loss_pct": 0.012,
+            "take_profit_pct": 0.040,
+            "stop_loss_pct":   0.022,
             "max_hold_minutes": 40,
             "safety_exit_minutes": 20,
             "position_size_multiplier": 0.5,
