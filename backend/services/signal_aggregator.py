@@ -270,8 +270,8 @@ class SignalAggregator:
                     # Override predicted_change with RSI/MACD signal when momentum-based
                     if abs(_macd_hist) > 0 or _rsi != 50.0:
                         method = "rule_based_indicators"
-        except Exception:
-            logger.debug("Indicator fetch failed for %s — using defaults", symbol, exc_info=True)
+        except Exception as _ind_err:
+            logger.debug("Indicator fetch failed for %s — using defaults: %s", symbol, _ind_err)
 
         # -- 2. Regime ---------------------------------------------------
         regime_label = "consolidation"  # default: never use "unknown"
@@ -436,7 +436,11 @@ class SignalAggregator:
         _momentum_signal = abs(_rsi - 50.0) / 50.0 * abs(_macd_hist) * 100.0 if _macd_hist != 0 else abs(_rsi - 50.0) / 50.0 * 0.5
         _vol_signal = _atr_pct  # ATR pct = expected 1-candle move
         _raw_gross_bps = max(_momentum_signal, _vol_signal) * 100.0  # convert pct → bps
-        # Apply direction: if signals agree, boost; else dampen
+        # Apply direction agreement boost: when direction is "up" and RSI is
+        # oversold (< 50) the reversal-upward read is confirmed → boost edge.
+        # When direction is "down" and RSI is overbought (> 50) the same logic
+        # applies in the bearish direction.  This is a contrarian-confirmation
+        # boost (mean-reversion context), not a trend-following one.
         if final_direction == "up" and _rsi < 50:
             _raw_gross_bps *= 1.2
         elif final_direction == "down" and _rsi > 50:

@@ -1858,16 +1858,16 @@ class PaperTradingEngine:
                 _bot_trades_count == 0
                 and avg_confidence >= BOOTSTRAP_MIN_CONFIDENCE
                 and confidence_sources >= 1
-                and playbook_info.get("regime", "unknown") != "unknown"
+                and playbook_info.get("regime") not in (None, "", "unknown", "error")
             )
             if _bootstrap_bypass:
                 logger.info(
                     "[BOOTSTRAP] first_trade | %s | %s | confidence=%.3f regime=%s — allowing first trade",
                     bot_data.get("name", bot_id[:8]), symbol, avg_confidence, playbook_info.get("regime"),
                 )
-            # Extra bypass: if regime is known (not unknown) and indicators are valid,
+            # Extra bypass: if regime is known (not unknown/error/blank) and indicators are valid,
             # allow entry at a lowered floor (0.30) even when below the normal threshold.
-            _regime_known = playbook_info.get("regime", "unknown") not in ("unknown", None, "")
+            _regime_known = playbook_info.get("regime") not in (None, "", "unknown", "error")
             _indicators_valid = expected_move_pct > 0
             _regime_indicator_bypass = (
                 _regime_known
