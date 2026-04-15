@@ -381,7 +381,9 @@ class PaperTradingEngine:
         self.coinbase_exchange = None
         self.price_cache = {}
         self.preferred_exchange = 'luno'
-        self.available_pairs_cache = {}  # Cache for dynamically fetched pairs: exchange -> (pairs, fetched_at)
+        # exchange -> (List[str], datetime) — pairs list + time it was fetched.
+        # Entries expire after _CACHE_TTL_SECONDS (1 h) in get_available_pairs.
+        self.available_pairs_cache: dict = {}
         self.market_data_provider = None
         self.ledger_service = None
         
@@ -592,11 +594,19 @@ class PaperTradingEngine:
         _CACHE_TTL_SECONDS = 3600  # Refresh pair list every hour
         try:
             if exchange in self.available_pairs_cache:
-                _cached_pairs, _cached_at = self.available_pairs_cache[exchange]
-                _age = (datetime.now(timezone.utc) - _cached_at).total_seconds()
-                if _age < _CACHE_TTL_SECONDS:
-                    return _cached_pairs
-                # Cache expired — fall through to re-fetch
+                _entry = self.available_pairs_cache[exchange]
+                # Guard against legacy plain-list entries (pre-TTL format).
+                if isinstance(_entry, tuple) and len(_entry) == 2:
+                    _cached_pairs, _cached_at = _entry
+                    _age = (datetime.now(timezone.utc) - _cached_at).total_seconds()
+                    if _age < _CACHE_TTL_SECONDS:
+                        return _cached_pairs
+                    # Cache expired — fall through to re-fetch
+                elif isinstance(_entry, list):
+                    # Legacy format: treat as valid but immediately re-fetch next call
+                    # by not storing it back; return what we have for this call.
+                    self.available_pairs_cache.pop(exchange, None)
+                    return _entry
 
             if not self.luno_exchange and not self.binance_exchange and not self.kucoin_exchange:
                 await self.init_exchanges()
