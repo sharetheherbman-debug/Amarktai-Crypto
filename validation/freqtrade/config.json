@@ -55,10 +55,10 @@
     "listen_port": 8081,
     "verbosity": "error",
     "enable_openapi": false,
-    "jwt_secret_key": "amarktai_validation_secret_change_this",
+    "jwt_secret_key": "${FREQTRADE_JWT_SECRET:-CHANGE_ME_generate_a_64char_random_string}",
     "CORS_origins": ["http://localhost:3000"],
-    "username": "admin",
-    "password": "password_change_me"
+    "username": "${FREQTRADE_API_USER:-admin}",
+    "password": "${FREQTRADE_API_PASSWORD:-CHANGE_ME_use_a_strong_password}"
   },
   "initial_state": "running",
   "force_entry_enable": false,

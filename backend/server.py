@@ -3582,6 +3582,7 @@ routers_to_mount = [
     ("routes.self_healing_endpoints", "Self-Healing"),   # /api/self-healing/status — autonomy dashboard
     ("routes.fx_rates", "FX Rates"),                    # /api/fx/rates,refresh,health
     ("routes.backtesting", "Backtesting"),              # /api/backtest/run,optimize,history
+    ("routes.live_funds", "Live Funds Control"),         # /api/live-funds/status,audit,reconcile,health
 ]
 
 # Mount realtime router only if enabled via feature flag
