@@ -391,6 +391,19 @@ async def get_bots_status(
                 "id": bot.get('id'),
                 "name": bot.get('name'),
                 "exchange": bot.get('exchange', 'unknown'),
+                # Canonical bot type — must be forwarded so the frontend's
+                # Normal/Scalper summary tiles and fleet tab filters work correctly.
+                # Without this field every bot reads as '' (empty), which the
+                # BotOperationsCenter counts as "normal", producing 20 Normal / 0 Scalper.
+                "bot_type": (bot.get('bot_type') or 'normal').lower(),
+                # Active trading pair — used by fleet cards, diagnostics, and radar
+                "pair": bot.get('pair') or bot.get('symbol') or '',
+                "symbol": bot.get('symbol') or bot.get('pair') or '',
+                # Last scheduler skip reason — surfaces why individual bots are blocked
+                # (e.g. hard_edge_filter, portfolio_guard) so the frontend can display it
+                # in the bot card and diagnostics panel for each exchange.
+                "last_skip_reason": bot.get('last_skip_reason') or '',
+                "last_eligibility_code": bot.get('last_eligibility') or bot.get('last_eligibility_code') or '',
                 # Native trading quote currency — used by frontend to show correct symbol
                 # (ZAR → "R", USDT → "$").  Must never be absent on a Binance/KuCoin/Bybit bot.
                 "quote_currency": _quote_currency,

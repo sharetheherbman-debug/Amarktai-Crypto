@@ -68,6 +68,8 @@ class _SymbolHistory:
         self._closed: Dict[str, deque] = defaultdict(lambda: deque(maxlen=SYMBOL_COOLDOWN_HISTORY))
         # bot_id -> list of (symbol, stop_loss_at_utc) for stop-loss specific cooldown
         self._stop_losses: Dict[str, List] = defaultdict(list)
+        # "bot_id:exchange" -> call count for pair-scan rotation
+        self._scan_counters: Dict[str, int] = {}
 
     def record_closed(self, bot_id: str, symbol: str) -> None:
         self._closed[bot_id].append((symbol, datetime.now(timezone.utc)))
@@ -97,6 +99,17 @@ class _SymbolHistory:
 
     def last_n_symbols(self, bot_id: str) -> List[str]:
         return [sym for sym, _ in self._closed[bot_id]]
+
+    def get_and_increment_scan_counter(self, bot_id: str, exchange: str) -> int:
+        """Return current scan counter for (bot_id, exchange) then increment it.
+
+        Used to rotate the pair candidate list each call so that stable-sort
+        tiebreaks cycle through all pairs instead of always picking index 0.
+        """
+        key = f"{bot_id}:{exchange}"
+        count = self._scan_counters.get(key, 0)
+        self._scan_counters[key] = count + 1
+        return count
 
 
 # Module-level singleton (shared by all engine instances)
@@ -188,7 +201,17 @@ class SymbolUniverseService:
             )
             return None, diag
 
-        # 3. Score each candidate
+        # 3. Rotate candidates so that stable-sort tiebreaks cycle through all pairs
+        #    rather than always picking the first candidate when scores are equal.
+        #    Each call advances the rotation offset by 1, producing round-robin pair
+        #    selection across the candidate list over successive calls for the same bot.
+        _n_cand = len(candidates)
+        if _n_cand > 1:
+            _rot = _symbol_history.get_and_increment_scan_counter(bot_id, exchange) % _n_cand
+            if _rot:
+                candidates = candidates[_rot:] + candidates[:_rot]
+
+        # 4. Score each candidate
         scored: List[Dict] = []
         for sym in candidates:
             score = 1.0
@@ -213,7 +236,7 @@ class SymbolUniverseService:
 
             scored.append({"symbol": sym, "score": round(score, 4), "notes": notes})
 
-        # 4. Sort descending by score, break ties by original position (stable)
+        # 5. Sort descending by score, break ties by rotated position (stable)
         scored.sort(key=lambda x: -x["score"])
 
         winner_entry = scored[0]

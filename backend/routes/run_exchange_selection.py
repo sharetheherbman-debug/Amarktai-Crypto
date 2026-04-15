@@ -54,7 +54,7 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
         ))
 
         # Get configured exchanges (has API key)
-        key_docs = await db.database["api_keys"].find(
+        key_docs = await db.api_keys_collection.find(
             {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
             {"_id": 0, "provider": 1},
         ).to_list(50)
@@ -126,7 +126,7 @@ async def set_run_selection(
             upsert=False,
         )
         # Re-determine resolution tier after clearing explicit selection
-        has_cfg = bool(await db.database["api_keys"].find_one(
+        has_cfg = bool(await db.api_keys_collection.find_one(
             {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}}
         ))
         resolved = await get_user_run_exchanges(user_id)

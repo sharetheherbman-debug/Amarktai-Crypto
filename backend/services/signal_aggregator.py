@@ -425,6 +425,13 @@ class SignalAggregator:
 
         final_direction = _direction_from_score(weighted_sum)
 
+        # Align predicted_change sign with final_direction to prevent contradictions
+        # (e.g. direction="up" but predicted_change < 0 is invalid).
+        if final_direction == "up" and predicted_change < 0:
+            predicted_change = abs(predicted_change)
+        elif final_direction == "down" and predicted_change > 0:
+            predicted_change = -abs(predicted_change)
+
         signals_used = sum(1 for v in availability.values() if v)
 
         # ── Expected net edge (basis points) ──────────────────────────────────

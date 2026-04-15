@@ -381,7 +381,9 @@ class PaperTradingEngine:
         self.coinbase_exchange = None
         self.price_cache = {}
         self.preferred_exchange = 'luno'
-        self.available_pairs_cache = {}  # Cache for dynamically fetched pairs
+        # exchange -> (List[str], datetime) — pairs list + time it was fetched.
+        # Entries expire after _CACHE_TTL_SECONDS (1 h) in get_available_pairs.
+        self.available_pairs_cache: dict = {}
         self.market_data_provider = None
         self.ledger_service = None
         
@@ -589,9 +591,22 @@ class PaperTradingEngine:
 
     async def get_available_pairs(self, exchange: str = 'luno') -> list:
         """Dynamically fetch ALL available trading pairs for maximum profit"""
+        _CACHE_TTL_SECONDS = 3600  # Refresh pair list every hour
         try:
             if exchange in self.available_pairs_cache:
-                return self.available_pairs_cache[exchange]
+                _entry = self.available_pairs_cache[exchange]
+                # Guard against legacy plain-list entries (pre-TTL format).
+                if isinstance(_entry, tuple) and len(_entry) == 2:
+                    _cached_pairs, _cached_at = _entry
+                    _age = (datetime.now(timezone.utc) - _cached_at).total_seconds()
+                    if _age < _CACHE_TTL_SECONDS:
+                        return _cached_pairs
+                    # Cache expired — fall through to re-fetch
+                elif isinstance(_entry, list):
+                    # Legacy format: treat as valid but immediately re-fetch next call
+                    # by not storing it back; return what we have for this call.
+                    self.available_pairs_cache.pop(exchange, None)
+                    return _entry
 
             if not self.luno_exchange and not self.binance_exchange and not self.kucoin_exchange:
                 await self.init_exchanges()
@@ -626,12 +641,20 @@ class PaperTradingEngine:
                     available = [symbol for symbol in markets.keys() if '/USDT' in symbol and markets[symbol].get('active', True)][:50]
 
                 if available:
-                    self.available_pairs_cache[exchange] = available
+                    self.available_pairs_cache[exchange] = (available, datetime.now(timezone.utc))
                     logger.info(f"✅ Loaded {len(available)} trading pairs from {exchange.upper()}")
                     return available
 
         except Exception as e:
             logger.warning(f"Failed to fetch pairs from {exchange}: {e}")
+            # Return stale cache if available rather than falling back to hardcoded list
+            if exchange in self.available_pairs_cache:
+                _stale_entry = self.available_pairs_cache[exchange]
+                _stale_pairs = _stale_entry[0] if isinstance(_stale_entry, tuple) and len(_stale_entry) == 2 else (
+                    _stale_entry if isinstance(_stale_entry, list) else None
+                )
+                if _stale_pairs:
+                    return _stale_pairs
 
         # Fallback to hardcoded defaults when exchange metadata is unavailable
         return self._exchange_fallback_pairs().get(exchange, self.BINANCE_PAIRS)
@@ -1256,7 +1279,26 @@ class PaperTradingEngine:
             except Exception as _agg_err:
                 logger.warning("Signal aggregator failed (non-fatal): %s", _agg_err)
 
-            # Persist the aggregated strategy signal so monitoring APIs can read it.
+            # Validation guard: direction and predicted_change must agree in sign.
+            # If they contradict (e.g. direction="up" but predicted_change < 0),
+            # the signal is corrupt — log and skip rather than placing a wrong-side trade.
+            _pred_dir = prediction.get("direction", "neutral")
+            _pred_change = float(prediction.get("predicted_change", 0) or 0)
+            if (
+                (_pred_dir == "up" and _pred_change < 0)
+                or (_pred_dir == "down" and _pred_change > 0)
+            ):
+                logger.error(
+                    "[SIGNAL_MISMATCH] direction=%s predicted_change=%.4f for %s — skipping trade",
+                    _pred_dir, _pred_change, symbol,
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "signal_mismatch",
+                    "error": f"Signal contradiction: direction={_pred_dir} predicted_change={_pred_change:.4f}",
+                }
+
             # Also write market_regime, confidence_score, and pair so that the radar
             # always reflects the live decision state rather than stale/missing values.
             try:
