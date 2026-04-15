@@ -151,6 +151,10 @@ SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
 # Lowered from 0.30 to 0.25 to keep scalpers in tighter-spread conditions while
 # still allowing realistic ZAR-quoted pair spreads (Luno BTC/ZAR is 0.1-0.25%).
 SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.25'))
+# Edge safety buffer (%) for scalpers.  Normal bots use SAFETY_BUFFER_PCT (0.10–0.15%).
+# Scalpers target smaller moves by design; a smaller buffer prevents the edge gate
+# from over-blocking valid scalp setups where expected_move is only slightly above cost.
+SCALPER_EDGE_BUFFER_PCT = float(os.getenv('SCALPER_EDGE_BUFFER_PCT', '0.04'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
@@ -406,6 +410,7 @@ __all__ = [
     'SCALPER_CONFIDENCE_THRESHOLD',
     'SCALPER_MAX_HOLD_MINUTES',
     'SCALPER_MAX_SPREAD_PCT',
+    'SCALPER_EDGE_BUFFER_PCT',
     'SOFT_MAX_HOLD_SECONDS',
     'HARD_MAX_HOLD_SECONDS',
     'SYMBOL_COOLDOWN_MINUTES',

@@ -1810,13 +1810,18 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             # For now, use paper as fallback (implement live balance fetching later)
             zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
             btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
+            usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
         else:
             # Paper mode
             zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
             btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
-        
+            usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
+
+        # Convert all balances to ZAR: ZAR + BTC×btcPrice + USDT×fxRate
+        from services.fx_normalizer import get_fx_rate as _ctm_gfr
+        _usdt_zar_rate, _ = _ctm_gfr("USDT", "ZAR")
         btc_price = await paper_engine.get_real_price('BTC/ZAR', 'luno')
-        current_capital = zar_balance + (btc_balance * btc_price)
+        current_capital = zar_balance + (btc_balance * btc_price) + (usdt_balance * _usdt_zar_rate)
         
         # BACKEND TRUTH: Get all bots total capital from MongoDB
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
