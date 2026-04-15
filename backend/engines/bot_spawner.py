@@ -331,15 +331,36 @@ class BotSpawner:
             return {"success": False, "error": str(e)}
     
     async def spawn_single_bot_smart(self, user_id: str) -> Dict:
-        """Spawn a single bot with AI-determined optimal config"""
+        """Spawn a single bot with AI-determined optimal config.
+
+        Uses the user's existing bot exchanges as the allowed_exchanges whitelist
+        so that auto-spawn never silently expands to exchanges that aren't part of
+        the user's intended run (e.g. Bybit / Bitget when the user only wants
+        Luno + Binance).  If no bots exist yet, defaults to ['luno'].
+        """
         try:
-            config = await self.determine_next_bot_config(user_id)
-            
+            # Derive allowed exchanges from what the user already has bots on.
+            # This prevents routing drift to exchanges that were not set up by
+            # the user (e.g. leftover Bybit/Bitget bots from a previous run).
+            existing_bots = await db.bots_collection.find(
+                {"user_id": user_id},
+                {"_id": 0, "exchange": 1}
+            ).to_list(200)
+            _existing_exchanges = list({
+                b.get("exchange", "luno").lower()
+                for b in existing_bots
+                if b.get("exchange")
+            })
+            # If the user has no bots at all, default to luno only.
+            allowed_exchanges = _existing_exchanges if _existing_exchanges else ["luno"]
+
+            config = await self.determine_next_bot_config(user_id, allowed_exchanges=allowed_exchanges)
+
             if "error" in config:
                 return {"success": False, "error": config["error"]}
-            
+
             return await self.spawn_bot(user_id, config)
-            
+
         except Exception as e:
             logger.error(f"Smart spawn error: {e}")
             return {"success": False, "error": str(e)}

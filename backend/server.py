@@ -743,7 +743,18 @@ async def spawn_bot_now(
         from config.platforms import normalize_platform_id, is_valid_platform
         from datetime import datetime, timezone
 
-        config = await bot_spawner.determine_next_bot_config(user_id)
+        # Derive allowed exchanges from the user's existing bots so that the
+        # spawner never silently expands to exchanges the user didn't set up
+        # (e.g. Bybit/Bitget when the user only has Luno + Binance).
+        _existing_bots = await db.bots_collection.find(
+            {"user_id": user_id}, {"_id": 0, "exchange": 1}
+        ).to_list(200)
+        _allowed_exchanges = list({
+            b.get("exchange", "luno").lower()
+            for b in _existing_bots if b.get("exchange")
+        }) or ["luno"]
+
+        config = await bot_spawner.determine_next_bot_config(user_id, allowed_exchanges=_allowed_exchanges)
         if "error" in config:
             raise HTTPException(status_code=400, detail=config.get("error"))
 

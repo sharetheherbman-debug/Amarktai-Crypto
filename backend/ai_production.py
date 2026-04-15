@@ -254,7 +254,16 @@ class AIProductionHandler:
             elif command == "spawn_bots":
                 count = int(params.get('count', 1))
                 from engines.bot_spawner import bot_spawner
-                
+
+                # Derive allowed exchanges from existing bots to prevent routing drift.
+                _existing = await db.bots_collection.find(
+                    {"user_id": user_id}, {"_id": 0, "exchange": 1}
+                ).to_list(200)
+                _allowed = list({
+                    b.get("exchange", "luno").lower()
+                    for b in _existing if b.get("exchange")
+                }) or ["luno"]
+
                 if count == 1:
                     result = await bot_spawner.spawn_single_bot_smart(user_id)
                     if result.get('success'):
@@ -262,8 +271,8 @@ class AIProductionHandler:
                     else:
                         return {"success": False, "message": f"❌ Spawn failed: {result.get('error')}"}
                 else:
-                    # Spawn multiple or spawn to target
-                    result = await bot_spawner.auto_spawn_to_target(user_id)
+                    # Spawn multiple or spawn to target — pass allowed_exchanges
+                    result = await bot_spawner.auto_spawn_to_target(user_id, allowed_exchanges=_allowed)
                     return {"success": True, "message": f"🤖 Spawned {result['spawned_count']} bots (Total: {result['total_bots']}/45)"}
             
             # CHECK WALLET STATUS
