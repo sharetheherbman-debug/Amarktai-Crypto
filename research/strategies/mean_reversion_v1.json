@@ -1,0 +1,45 @@
+{
+  "name": "mean_reversion",
+  "version": "v1",
+  "stage": "experimental",
+  "notes": "RSI oversold/overbought mean-reversion. Works on both Luno ZAR and Binance USDT pairs in consolidation/ranging regimes.",
+  "registered_at": "2026-04-15T00:00:00+00:00",
+  "config": {
+    "strategy": "mean_reversion",
+    "playbook": "mean_reversion",
+    "bot_type": "normal",
+    "applicable_regimes": ["consolidation", "SQUEEZE", "sideways", "range", "choppy"],
+    "entry": {
+      "rsi_oversold": 35,
+      "rsi_exit": 55,
+      "require_ema_proximity_pct": 1.5,
+      "require_vol_ratio_lt": 2.0
+    },
+    "exit": {
+      "take_profit_pct": 3.0,
+      "stop_loss_pct": 1.5,
+      "max_hold_minutes": 80,
+      "safety_exit_minutes": 40
+    },
+    "risk": {
+      "position_size_pct": 0.09,
+      "fixed_fractional_risk_pct": 0.015,
+      "max_concurrent_trades": 1
+    },
+    "fees": {
+      "luno_taker_pct": 0.25,
+      "luno_roundtrip_cost_pct": 0.64,
+      "binance_taker_pct": 0.10,
+      "binance_roundtrip_cost_pct": 0.25,
+      "note": "TP=3.0% clears Luno roundtrip (0.64%) with 2.36% net. SL=1.5% gives R:R=1.57."
+    },
+    "research_metrics": {
+      "vectorbt_sharpe": null,
+      "vectorbt_total_return_pct": null,
+      "vectorbt_win_rate_pct": null,
+      "freqtrade_backtest_profit_pct": null,
+      "validated_by": null,
+      "validated_at": null
+    }
+  }
+}

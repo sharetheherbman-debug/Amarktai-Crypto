@@ -55,6 +55,7 @@ from utils.env_utils import env_bool
 from utils.bot_state import normalize_bot_state
 from json_utils import serialize_doc
 import ccxt.async_support as ccxt
+from services.fx_normalizer import get_fx_rate as _get_fx_rate
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -1810,13 +1811,17 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             # For now, use paper as fallback (implement live balance fetching later)
             zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
             btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
+            usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
         else:
             # Paper mode
             zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
             btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
-        
+            usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
+
+        # Convert all balances to ZAR: ZAR + BTC×btcPrice + USDT×fxRate
+        usdt_zar_rate, _ = _get_fx_rate("USDT", "ZAR")
         btc_price = await paper_engine.get_real_price('BTC/ZAR', 'luno')
-        current_capital = zar_balance + (btc_balance * btc_price)
+        current_capital = zar_balance + (btc_balance * btc_price) + (usdt_balance * usdt_zar_rate)
         
         # BACKEND TRUTH: Get all bots total capital from MongoDB
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
@@ -3577,6 +3582,7 @@ routers_to_mount = [
     ("routes.self_healing_endpoints", "Self-Healing"),   # /api/self-healing/status — autonomy dashboard
     ("routes.fx_rates", "FX Rates"),                    # /api/fx/rates,refresh,health
     ("routes.backtesting", "Backtesting"),              # /api/backtest/run,optimize,history
+    ("routes.live_funds", "Live Funds Control"),         # /api/live-funds/status,audit,reconcile,health
 ]
 
 # Mount realtime router only if enabled via feature flag

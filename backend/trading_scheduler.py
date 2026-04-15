@@ -23,6 +23,7 @@ from utils.trading_gates import TradingGateError, enforce_live_trading_gates
 from utils.trading_mode import resolve_bot_trading_mode
 from services.bot_runtime_state import bot_runtime_state
 from services.bot_filters import bot_not_deleted_filter
+from services.bot_eligibility_logger import elig_log, EligibilityCode
 
 logger = logging.getLogger(__name__)
 
@@ -384,25 +385,48 @@ class TradingScheduler:
                             err_msg = result.get('error') if isinstance(result, dict) else "No trade result"
                             skip_reason = result.get('skip_reason') if isinstance(result, dict) else None
                             reason_msg = skip_reason or err_msg or "unknown"
-                            # Map known skip reasons to stable codes for easy log grepping
-                            _SKIP_CODE_MAP = {
-                                "edge_gate": "SKIP_EDGE_GATE",
-                                "pair_not_allowed": "SKIP_PAIR_NOT_ALLOWED",
-                                "spread_too_wide": "SKIP_SPREAD_WIDE",
-                                "low_liquidity": "SKIP_LOW_LIQUIDITY",
-                                "open_trade_close_failed": "SKIP_OPEN_CLOSE_FAIL",
+
+                            # Map paper engine skip_reason to canonical EligibilityCode
+                            _SKIP_TO_CODE = {
+                                "edge_gate":             EligibilityCode.EDGE_GATE,
+                                "pair_not_allowed":      EligibilityCode.PAIR_NOT_ALLOWED,
+                                "spread_too_wide":       EligibilityCode.SPREAD_TOO_WIDE,
+                                "low_liquidity":         EligibilityCode.LOW_LIQUIDITY,
+                                "no_price_data":         EligibilityCode.NO_PRICE_DATA,
+                                "hard_edge_filter":      EligibilityCode.HARD_EDGE_FILTER,
+                                "low_confidence":        EligibilityCode.LOW_CONFIDENCE,
+                                "bearish_long_blocked":  EligibilityCode.BEARISH_LONG_BLOCKED,
+                                "low_expectancy":        EligibilityCode.LOW_EXPECTANCY,
+                                "regime_standdown":      EligibilityCode.REGIME_STAND_DOWN,
+                                "exchange_exposure":     EligibilityCode.EXCHANGE_EXPOSURE,
+                                "drawdown_limit":        EligibilityCode.DRAWDOWN_LIMIT,
+                                "symbol_cooldown":       EligibilityCode.SYMBOL_COOLDOWN,
+                                "portfolio_guard":       EligibilityCode.PORTFOLIO_GUARD,
+                                "hurst_mismatch":        EligibilityCode.HURST_MISMATCH,
+                                "adaptive_stand_down":   EligibilityCode.ADAPTIVE_STAND_DOWN,
                             }
-                            skip_code = _SKIP_CODE_MAP.get(skip_reason, "SKIP_OTHER")
-                            logger.info(
-                                f"⏭️  {skip_code} | {bot['name']} | {reason_msg}"
+                            elig_code = _SKIP_TO_CODE.get(skip_reason, EligibilityCode.UNKNOWN)
+
+                            # Emit structured eligibility log
+                            await elig_log.skip_and_persist(
+                                bot,
+                                elig_code,
+                                details={
+                                    "skip_reason": skip_reason,
+                                    "error": err_msg,
+                                    **(result.get("details", {}) if isinstance(result, dict) else {}),
+                                },
+                                db_collection=db.bots_collection,
                             )
+
                             await db.bots_collection.update_one(
                                 {"id": bot_id},
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                     "last_decision_at": datetime.now(timezone.utc).isoformat(),
                                     "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
-                                    "last_order_error": reason_msg
+                                    "last_order_error": reason_msg,
+                                    "last_skip_reason": str(elig_code),
                                 }}
                             )
                         else:

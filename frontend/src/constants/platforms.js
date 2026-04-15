@@ -1,13 +1,20 @@
 /**
  * Platform Constants - Single Source of Truth
- * Defines the 7 supported exchanges + 3 AI providers for the entire system
+ * Defines the 8 supported exchanges + 10 AI/data providers for the entire system
  */
 
 // Supported exchanges (in display order) - 8 EXCHANGES
 export const SUPPORTED_PLATFORMS = ['luno', 'binance', 'kucoin', 'bybit', 'kraken', 'bitget', 'gate', 'coinbase'];
 
-// Supported AI / market-data providers - 5 PROVIDERS (OpenAI, CoinStats, Fetch.ai, HuggingFace, CoinDesk)
-export const SUPPORTED_AI_PROVIDERS = ['openai', 'coinstats', 'fetchai', 'huggingface', 'coindesk'];
+// Supported AI / market-data providers - 10 PROVIDERS
+// Core AI: OpenAI, HuggingFace, Fetch.ai (optional cloud intelligence)
+// Market data: CoinStats, CoinDesk, CoinGecko, CryptoCompare, Coinranking (price/news data)
+// On-chain / alerts: Whale Alert, Glassnode (optional enrichers)
+export const SUPPORTED_AI_PROVIDERS = [
+  'openai', 'huggingface', 'fetchai',
+  'coinstats', 'coindesk', 'coingecko', 'cryptocompare', 'coinranking',
+  'whale_alert', 'glassnode',
+];
 
 // All supported providers (exchanges + AI)
 export const ALL_PROVIDERS = [...SUPPORTED_PLATFORMS, ...SUPPORTED_AI_PROVIDERS];
@@ -173,9 +180,68 @@ export const PLATFORM_CONFIG = {
     displayName: 'CoinDesk',
     icon: '📊',
     color: '#FF5C35',
-    type: 'ai_provider',
+    type: 'data_provider',
+    optional: true,
     enabled: true,
     requiredKeyFields: ['api_key']
+  },
+  coingecko: {
+    id: 'coingecko',
+    name: 'CoinGecko',
+    displayName: 'CoinGecko',
+    icon: '🦎',
+    color: '#8DC63F',
+    type: 'data_provider',
+    optional: true,
+    enabled: true,
+    requiredKeyFields: ['api_key'],
+    note: 'Free tier works without a key. Key unlocks higher rate limits.'
+  },
+  cryptocompare: {
+    id: 'cryptocompare',
+    name: 'CryptoCompare',
+    displayName: 'CryptoCompare',
+    icon: '📈',
+    color: '#1E90FF',
+    type: 'data_provider',
+    optional: true,
+    enabled: true,
+    requiredKeyFields: ['api_key']
+  },
+  coinranking: {
+    id: 'coinranking',
+    name: 'Coinranking',
+    displayName: 'Coinranking',
+    icon: '🏆',
+    color: '#FF7A00',
+    type: 'data_provider',
+    optional: true,
+    enabled: true,
+    requiredKeyFields: ['api_key']
+  },
+  whale_alert: {
+    id: 'whale_alert',
+    name: 'Whale Alert',
+    displayName: 'Whale Alert',
+    icon: '🐳',
+    color: '#00B4D8',
+    type: 'data_provider',
+    optional: true,
+    enabled: true,
+    requiredKeyFields: ['api_key'],
+    note: 'Optional. Provides cross-chain large transfer alerts.'
+  },
+  glassnode: {
+    id: 'glassnode',
+    name: 'Glassnode',
+    displayName: 'Glassnode',
+    icon: '🔬',
+    color: '#6C63FF',
+    type: 'data_provider',
+    optional: true,
+    enabled: true,
+    requiredKeyFields: ['api_key'],
+    note: 'Optional. On-chain metrics for BTC/ETH.'
   }
 };
 

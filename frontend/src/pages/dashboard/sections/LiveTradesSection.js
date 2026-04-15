@@ -196,9 +196,11 @@ export default function LiveTradesSection({
       </div>
 
       {/* Content Area */}
-      <div style={{ display: 'grid', gridTemplateColumns: selectedTrade && viewMode === 'feed' ? '1fr 380px' : '1fr', gap: '16px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: '16px' }}>
         {/* Feed / Table */}
         <div style={{
+          flex: '1 1 0',
+          minWidth: 0,
           background: 'var(--glass)',
           border: '1px solid var(--line)',
           borderRadius: '14px',
@@ -335,6 +337,9 @@ export default function LiveTradesSection({
         {/* Detail Panel (Feed view only) */}
         {selectedTrade && viewMode === 'feed' && (
           <div style={{
+            flex: '0 0 360px',
+            minWidth: '260px',
+            maxWidth: '420px',
             background: 'var(--glass)',
             border: '1px solid var(--line)',
             borderRadius: '14px',
@@ -360,7 +365,7 @@ export default function LiveTradesSection({
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
               {[
                 { label: 'Side', value: (selectedTrade.side || selectedTrade.action || 'Trade').toString().toUpperCase(), color: getSideColor(selectedTrade.side || selectedTrade.action) },
                 { label: 'Price', value: formatZAR(selectedTrade.entry_price || selectedTrade.price || selectedTrade.avg_price) },

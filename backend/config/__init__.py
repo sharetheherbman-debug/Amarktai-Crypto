@@ -151,6 +151,10 @@ SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
 # Lowered from 0.30 to 0.25 to keep scalpers in tighter-spread conditions while
 # still allowing realistic ZAR-quoted pair spreads (Luno BTC/ZAR is 0.1-0.25%).
 SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.25'))
+# Edge safety buffer (%) for scalpers.  Normal bots use SAFETY_BUFFER_PCT (0.10–0.15%).
+# Scalpers target smaller moves by design; a smaller buffer prevents the edge gate
+# from over-blocking valid scalp setups where expected_move is only slightly above cost.
+SCALPER_EDGE_BUFFER_PCT = float(os.getenv('SCALPER_EDGE_BUFFER_PCT', '0.04'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
@@ -380,6 +384,35 @@ REQUIRE_WALLET_FUNDED = os.getenv('REQUIRE_WALLET_FUNDED', 'true').lower() == 't
 REQUIRE_API_KEYS_FOR_LIVE = os.getenv('REQUIRE_API_KEYS_FOR_LIVE', 'true').lower() == 'true'
 AUTO_PROMOTE_LIVE = os.getenv('AUTO_PROMOTE_LIVE', 'false').lower() == 'true'  # Auto-promote eligible bots from paper to live daily
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LIVE-FUNDS CONTROL POLICY
+# All monetary limits apply to real-money live trading only.
+# Paper-trading mode is never governed by these limits.
+# Any value can be overridden via environment variables for deployment tuning.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Master kill-switch: set to 'true' only when the full pre-live checklist is satisfied.
+# This is separate from ENABLE_LIVE_TRADING (which is the mode flag).
+# Both must be True for live-money movement to be allowed.
+LIVE_FUNDS_MOVEMENT_ALLOWED = os.getenv('LIVE_FUNDS_MOVEMENT_ALLOWED', 'false').lower() == 'true'
+
+# Per-trade hard limits (ZAR)
+LIVE_MAX_TRADE_SIZE_ZAR    = float(os.getenv('LIVE_MAX_TRADE_SIZE_ZAR',    '5000'))   # Max notional per single live trade
+LIVE_MIN_TRADE_SIZE_ZAR    = float(os.getenv('LIVE_MIN_TRADE_SIZE_ZAR',    '50'))     # Min notional per single live trade
+
+# Per-exchange hard limits (ZAR)
+LIVE_MAX_EXCHANGE_EXPOSURE_ZAR = float(os.getenv('LIVE_MAX_EXCHANGE_EXPOSURE_ZAR', '20000'))  # Max total live capital on any single exchange
+
+# Per-user daily limits (ZAR)
+LIVE_MAX_DAILY_LOSS_ZAR        = float(os.getenv('LIVE_MAX_DAILY_LOSS_ZAR',    '2000'))   # Daily P&L loss triggers circuit breaker
+LIVE_MAX_DAILY_TRANSFER_ZAR    = float(os.getenv('LIVE_MAX_DAILY_TRANSFER_ZAR', '10000'))  # Max total ZAR transferred to exchanges in a day
+
+# Approval requirements for high-risk actions
+LIVE_REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR = float(os.getenv('LIVE_REQUIRE_ADMIN_APPROVAL_ABOVE_ZAR', '10000'))  # Trades/transfers above this need admin approval
+
+# Reconciliation tolerance: balance diff % that triggers reconciliation alert
+LIVE_RECONCILIATION_TOLERANCE_PCT = float(os.getenv('LIVE_RECONCILIATION_TOLERANCE_PCT', '0.5'))  # 0.5% tolerance
+
 # Supported Exchanges for Paper Trading
 # Import from canonical source: backend/config/platforms.py
 from config.platforms import SUPPORTED_PLATFORMS
@@ -406,6 +439,7 @@ __all__ = [
     'SCALPER_CONFIDENCE_THRESHOLD',
     'SCALPER_MAX_HOLD_MINUTES',
     'SCALPER_MAX_SPREAD_PCT',
+    'SCALPER_EDGE_BUFFER_PCT',
     'SOFT_MAX_HOLD_SECONDS',
     'HARD_MAX_HOLD_SECONDS',
     'SYMBOL_COOLDOWN_MINUTES',

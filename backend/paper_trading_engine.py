@@ -71,6 +71,7 @@ from config import (
     SCALPER_CONFIDENCE_THRESHOLD,
     SCALPER_MAX_HOLD_MINUTES,
     SCALPER_MAX_SPREAD_PCT,
+    SCALPER_EDGE_BUFFER_PCT,
     SOFT_MAX_HOLD_SECONDS,
     HARD_MAX_HOLD_SECONDS,
     SYMBOL_COOLDOWN_MINUTES,
@@ -1100,6 +1101,27 @@ class PaperTradingEngine:
             _effective_max_spread = SCALPER_MAX_SPREAD_PCT if _bt_spread == "scalper" else PAPER_MAX_SPREAD_PCT
 
             if spread_pct > _effective_max_spread and not bot_data.get("allow_wide_spread"):
+                # Write a minimal state snapshot so last_strategy_signal is never null
+                # (the full signal write at the end of this block is unreachable from here).
+                try:
+                    spread_state = {
+                        "last_strategy_signal": {
+                            "direction": "neutral",
+                            "confidence": 0.0,
+                            "regime": str(bot_data.get("market_regime") or "consolidation"),
+                            "blocked_by": "spread_too_wide",
+                            "spread_pct": round(spread_pct, 4),
+                            "max_spread_pct": _effective_max_spread,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                        "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": spread_state},
+                    )
+                except Exception as spread_err:
+                    logger.debug("spread_too_wide state write failed (non-fatal): %s", spread_err)
                 return {
                     "success": False,
                     "bot_id": bot_id,
@@ -1559,6 +1581,11 @@ class PaperTradingEngine:
                 _effective_safety_buffer = _base_safety_buffer * SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER
             else:
                 _effective_safety_buffer = _base_safety_buffer
+            # Scalpers target smaller moves by design; cap the safety buffer so the
+            # edge gate does not over-block valid scalp setups where expected_move
+            # is only slightly above round-trip cost.
+            if _bt_spread == "scalper":
+                _effective_safety_buffer = min(_effective_safety_buffer, SCALPER_EDGE_BUFFER_PCT)
             edge_required_pct = estimated_cost_pct + _effective_safety_buffer
 
             ml_is_simulated = prediction.get("is_simulated", False)

@@ -128,7 +128,7 @@ class RiskEngine:
         
         # 5. Check per-exchange exposure (only if user has multiple exchanges)
         # Use canonical ZAR equity per exchange (not raw mixed-currency sum)
-        exchanges_used = set(b.get("exchange") for b in user_bots)
+        exchanges_used = {b.get("exchange") for b in user_bots if b.get("exchange")}
 
         if len(exchanges_used) > 1:  # Only enforce if using multiple exchanges
             exchange_bots = [b for b in user_bots if b.get("exchange") == exchange]
