@@ -178,7 +178,8 @@ class StrategyRegistry:
             payload = json.load(f)
 
         payload["stage"] = to_stage
-        payload["promoted_to_active_at"] = datetime.now(timezone.utc).isoformat() if to_stage == "active" else None
+        if to_stage == "active":
+            payload["promoted_to_active_at"] = datetime.now(timezone.utc).isoformat()
         with open(config_file, "w") as f:
             json.dump(payload, f, indent=2)
 

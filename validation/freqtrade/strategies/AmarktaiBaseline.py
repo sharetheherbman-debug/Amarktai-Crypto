@@ -12,7 +12,7 @@ Logic:
 - Entry: EMA-20 crosses above EMA-50 AND RSI in range
 - Stop-loss: Fixed percentage (mirrors paper engine SL)
 - Take-profit: Fixed percentage (mirrors paper engine TP)
-- Max hold: 120 hours (mirrors PAPER_MAX_HOLD_MINUTES=120)
+- Max hold: 120 minutes (mirrors PAPER_MAX_HOLD_MINUTES=120 in the live engine)
 
 Fee assumption: 0.10% taker (Binance), matching live engine.
 Round-trip cost: ~0.25% (fee×2 + slippage×2 + spread)
@@ -21,7 +21,6 @@ Parameters mirror research/strategies/momentum_v1.json config.
 """
 
 from freqtrade.strategy import IStrategy, IntParameter, DecimalParameter
-from freqtrade.strategy.interface import IStrategy
 import pandas as pd
 import pandas_ta as pta  # Freqtrade includes pandas-ta
 
@@ -57,7 +56,7 @@ class AmarktaiBaseline(IStrategy):
     }
     stoploss = -0.018   # 1.8% stop-loss (momentum safe profile)
 
-    # Max hold: 120h = 7200 min ≈ PAPER_MAX_HOLD_MINUTES equivalent
+    # Max hold mirrors PAPER_MAX_HOLD_MINUTES=120 (120 minutes = 2 hours)
     max_open_trades = 1
     use_exit_signal = True
     exit_profit_only = False
