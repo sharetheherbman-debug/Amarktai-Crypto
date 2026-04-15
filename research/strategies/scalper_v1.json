@@ -1,0 +1,49 @@
+{
+  "name": "scalper",
+  "version": "v1",
+  "stage": "experimental",
+  "notes": "MACD histogram cross + RSI band + volume filter. Optimised for Binance USDT pairs. Luno fees too high for scalping — Binance only.",
+  "registered_at": "2026-04-15T00:00:00+00:00",
+  "config": {
+    "strategy": "scalper",
+    "playbook": "scalper",
+    "bot_type": "scalper",
+    "applicable_regimes": ["consolidation", "mean_reversion", "high_volatility", "low_volatility"],
+    "entry": {
+      "rsi_lo": 40,
+      "rsi_hi": 60,
+      "vol_ratio_min": 1.2,
+      "macd_hist_cross_above_zero": true,
+      "max_spread_pct": 0.25,
+      "min_expected_move_pct": 0.35
+    },
+    "exit": {
+      "take_profit_pct": 0.8,
+      "stop_loss_pct": 0.4,
+      "max_hold_minutes": 25,
+      "scalper_hard_exit_seconds": 300
+    },
+    "risk": {
+      "position_size_pct": 0.08,
+      "fixed_fractional_risk_pct": 0.01,
+      "max_concurrent_trades": 1
+    },
+    "confidence": {
+      "min_threshold": 0.28,
+      "require_sources_gte": 2
+    },
+    "fees": {
+      "binance_taker_pct": 0.10,
+      "binance_roundtrip_cost_pct": 0.25,
+      "luno_NOT_SUITABLE": "Luno fees 0.64% roundtrip eat the entire expected scalp move"
+    },
+    "research_metrics": {
+      "vectorbt_sharpe": null,
+      "vectorbt_total_return_pct": null,
+      "vectorbt_win_rate_pct": null,
+      "freqtrade_backtest_profit_pct": null,
+      "validated_by": null,
+      "validated_at": null
+    }
+  }
+}

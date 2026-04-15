@@ -6,21 +6,25 @@ import { get, post, del, notifyError } from '../lib/apiClient';
 
 const APIKeySettings = () => {
   const NOT_AVAILABLE = 'Not available';
-  // Build providers list from platform config (11 providers: 4 AI + 7 exchanges)
+  // Build providers list from platform config
   const PROVIDERS = ALL_PROVIDERS.map(id => {
     const config = PLATFORM_CONFIG[id];
+    if (!config) return null;
     return {
       id: config.id,
       name: config.displayName || config.name,
       icon: config.icon,
       fields: config.requiredKeyFields,
-      type: config.type || 'exchange'
+      type: config.type || 'exchange',
+      optional: config.optional || false,
+      note: config.note || null,
     };
-  });
+  }).filter(Boolean);
 
   // Separated lists for rendering
   const EXCHANGE_PROVIDERS = PROVIDERS.filter(p => SUPPORTED_PLATFORMS.includes(p.id));
-  const AI_PROVIDERS_LIST = PROVIDERS.filter(p => SUPPORTED_AI_PROVIDERS.includes(p.id));
+  const AI_PROVIDERS_LIST  = PROVIDERS.filter(p => SUPPORTED_AI_PROVIDERS.includes(p.id) && p.type === 'ai_provider');
+  const DATA_PROVIDERS_LIST = PROVIDERS.filter(p => SUPPORTED_AI_PROVIDERS.includes(p.id) && p.type === 'data_provider');
 
   const [providers, setProviders] = useState([]);
   const [formData, setFormData] = useState({});
@@ -425,9 +429,25 @@ const APIKeySettings = () => {
 
       {/* ── AI Providers section ── */}
       <h3 className="api-key-section-heading" style={{marginTop: '28px'}}>🤖 AI Providers</h3>
+      <p style={{fontSize:'0.82rem', color:'var(--muted)', marginBottom:'12px', marginTop:'-4px'}}>
+        Optional cloud intelligence providers. Core trading (regime detection, ML signals, self-learning) works without any of these.
+      </p>
       <div className="api-key-grid">
         {AI_PROVIDERS_LIST.map(provider => renderProviderCard(provider))}
       </div>
+
+      {/* ── Data & Enrichment Providers section ── */}
+      {DATA_PROVIDERS_LIST.length > 0 && (
+        <>
+          <h3 className="api-key-section-heading" style={{marginTop: '28px'}}>📡 Market Data &amp; Enrichment</h3>
+          <p style={{fontSize:'0.82rem', color:'var(--muted)', marginBottom:'12px', marginTop:'-4px'}}>
+            Optional data enrichers. Missing keys show as <em>Not configured</em> and do not break the platform.
+          </p>
+          <div className="api-key-grid">
+            {DATA_PROVIDERS_LIST.map(provider => renderProviderCard(provider))}
+          </div>
+        </>
+      )}
 
       <div className="api-key-security">
         <h4>ℹ️ Security Note</h4>

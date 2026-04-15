@@ -1,0 +1,45 @@
+{
+  "name": "momentum",
+  "version": "v1",
+  "stage": "experimental",
+  "notes": "Initial EMA-cross + RSI momentum config. Tuned for Luno BTC/ZAR and Binance BTC/USDT.",
+  "registered_at": "2026-04-15T00:00:00+00:00",
+  "config": {
+    "strategy": "momentum",
+    "playbook": "momentum",
+    "bot_type": "normal",
+    "applicable_regimes": ["stable_uptrend", "volatile_uptrend", "BULLISH_CALM", "bullish"],
+    "entry": {
+      "rsi_entry_min": 45,
+      "rsi_exit_max": 75,
+      "ema_fast": 20,
+      "ema_slow": 50,
+      "require_vol_ratio_gt": 1.0
+    },
+    "exit": {
+      "take_profit_pct": 4.0,
+      "stop_loss_pct": 1.8,
+      "max_hold_minutes": 120,
+      "safety_exit_minutes": 60
+    },
+    "risk": {
+      "position_size_pct": 0.10,
+      "fixed_fractional_risk_pct": 0.015,
+      "max_concurrent_trades": 1
+    },
+    "fees": {
+      "luno_taker_pct": 0.25,
+      "luno_roundtrip_cost_pct": 0.64,
+      "binance_taker_pct": 0.10,
+      "binance_roundtrip_cost_pct": 0.25
+    },
+    "research_metrics": {
+      "vectorbt_sharpe": null,
+      "vectorbt_total_return_pct": null,
+      "vectorbt_win_rate_pct": null,
+      "freqtrade_backtest_profit_pct": null,
+      "validated_by": null,
+      "validated_at": null
+    }
+  }
+}
