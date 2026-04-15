@@ -59,12 +59,16 @@ export default function BotOperationsCenter({
 
   const botStats = (bots || []).reduce((acc, b) => {
     const st = (b.status || b.state || '').toLowerCase();
-    const bt = (b.bot_type || 'normal').toLowerCase();
+    // Use empty string fallback (not 'normal') so bots without bot_type don't
+    // inflate the Normal counter — they are counted as normal below via exclusion.
+    const bt = (b.bot_type || '').toLowerCase();
     acc.total++;
     if (['active', 'running', 'trading'].includes(st)) acc.active++;
     if (b.has_open_position || b.open_position) acc.inPosition++;
-    if (bt === 'normal') acc.normal++;
     if (bt === 'scalper') acc.scalper++;
+    // Bots with no bot_type (empty string) and explicit 'normal' bots both count as Normal.
+    // Explicit inclusion avoids new bot types silently inflating the Normal counter.
+    else if (bt === 'normal' || bt === '') acc.normal++;
     return acc;
   }, { total: 0, active: 0, inPosition: 0, normal: 0, scalper: 0 });
 

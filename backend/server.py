@@ -56,6 +56,7 @@ from utils.bot_state import normalize_bot_state
 from json_utils import serialize_doc
 import ccxt.async_support as ccxt
 from services.fx_normalizer import get_fx_rate as _get_fx_rate
+from services.canonical import get_canonical_paper_wallet_equity as _get_canonical_equity
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -1803,30 +1804,34 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         ledger = get_ledger_service(db.db)
         stats = await ledger.get_stats(user_id)
         trades_total = stats.get("total_fills", 0)
-        ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
-        
-        # Get current balance (paper or live based on mode)
-        if is_live:
-            # For live mode, calculate from real exchange balances
-            # For now, use paper as fallback (implement live balance fetching later)
-            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
-            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
-            usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
-        else:
-            # Paper mode
-            zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
-            btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
-            usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
 
-        # Convert all balances to ZAR: ZAR + BTC×btcPrice + USDT×fxRate
-        usdt_zar_rate, _ = _get_fx_rate("USDT", "ZAR")
-        btc_price = await paper_engine.get_real_price('BTC/ZAR', 'luno')
-        current_capital = zar_balance + (btc_balance * btc_price) + (usdt_balance * usdt_zar_rate)
-        
-        # BACKEND TRUTH: Get all bots total capital from MongoDB
-        bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-        total_bot_capital = sum(bot.get('current_capital', 0) for bot in bots)
-        total_capital = max(current_capital, total_bot_capital, ledger_equity)
+        # CANONICAL EQUITY: use the single source of truth that converts ALL
+        # per-currency balances (ZAR + USDT + BTC etc.) to ZAR before summing.
+        # This prevents the old max()/raw-sum bugs where USDT was counted as ZAR.
+        equity_info = await _get_canonical_equity(user_id)
+        total_capital = float(equity_info.get("total_equity", 0) or 0)
+
+        # Fallback: if canonical returns 0 (wallet not yet seeded), try ledger equity
+        if total_capital <= 0:
+            try:
+                ledger_equity = await ledger.compute_equity(user_id, currency="ZAR")
+                total_capital = float(ledger_equity or 0)
+            except Exception:
+                pass
+
+        # Last resort: live balance query (paper or live mode)
+        if total_capital <= 0:
+            if is_live:
+                zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
+                btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
+                usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
+            else:
+                zar_balance = ccxt_service.get_paper_balance(user_id, 'ZAR')
+                btc_balance = ccxt_service.get_paper_balance(user_id, 'BTC')
+                usdt_balance = ccxt_service.get_paper_balance(user_id, 'USDT')
+            usdt_zar_rate, _ = _get_fx_rate("USDT", "ZAR")
+            btc_price = await paper_engine.get_real_price('BTC/ZAR', 'luno')
+            total_capital = zar_balance + (btc_balance * btc_price) + (usdt_balance * usdt_zar_rate)
         
         target = 1_000_000
 

@@ -495,6 +495,7 @@ class TradingScheduler:
                         pass
             
             # Add new trades to queue
+            _now_iso = datetime.now(timezone.utc).isoformat()
             for bot in active_bots:
                 bot_id = bot['id']
                 exchange = bot.get('exchange', 'binance')
@@ -505,6 +506,17 @@ class TradingScheduler:
                 if can_execute:
                     # Add to queue
                     await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
+
+                # Always stamp last_tick_at in the primary bots collection so that
+                # diagnostics endpoints never show null for active bots — even when
+                # the bot is rate-limited by the staggerer and not yet in the queue.
+                try:
+                    await db.bots_collection.update_one(
+                        {"id": bot_id},
+                        {"$set": {"last_tick_at": _now_iso}},
+                    )
+                except Exception:
+                    pass
 
             # Force-close overdue open trades for all users — this sweeps trades from
             # paused bots that the normal cycle would skip (fix for D exit precedence).

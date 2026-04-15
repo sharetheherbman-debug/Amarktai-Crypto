@@ -1472,7 +1472,13 @@ class PaperTradingEngine:
             expected_move_pct = abs(float(prediction.get("predicted_change", 0) or 0))
             fee_pct_roundtrip = fee_rate * 2 * 100
             slippage_pct_roundtrip = slippage_rate * 2 * 100
-            estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + spread_pct
+            # Paper fills execute at simulated mid ± PAPER_SPREAD_BPS, not the live
+            # bid/ask.  Using the live market spread here inflates estimated_cost_pct
+            # beyond what paper execution actually costs, causing the hard edge filter
+            # to block trades that would be profitable in paper simulation.
+            # The live spread is still used for the spread_too_wide liquidity gate above.
+            paper_spread_cost_pct = PAPER_SPREAD_BPS / 100  # simulated full-spread cost (e.g. 0.06%)
+            estimated_cost_pct = fee_pct_roundtrip + slippage_pct_roundtrip + paper_spread_cost_pct
 
             # ── FALLBACK SIGNAL: derive minimal signal from OHLCV when expected_move_pct == 0 ──
             # This prevents the hard edge filter from blocking every simulated-ML cycle.

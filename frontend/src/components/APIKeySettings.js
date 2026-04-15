@@ -449,6 +449,47 @@ const APIKeySettings = () => {
         </>
       )}
 
+      {/* ── Internal Modules section ── */}
+      <h3 className="api-key-section-heading" style={{marginTop: '28px'}}>⚙️ Internal Modules</h3>
+      <p style={{fontSize:'0.82rem', color:'var(--muted)', marginBottom:'12px', marginTop:'-4px'}}>
+        These are internal sidecars bundled with the system. They do not require external API keys.
+      </p>
+      <div className="api-key-grid">
+        {[
+          {
+            id: 'vectorbt',
+            name: 'VectorBT',
+            icon: '📊',
+            description: 'Strategy backtesting sidecar. Runs in the research/ directory. No API key needed.',
+            status: 'Internal — always active',
+          },
+          {
+            id: 'freqtrade',
+            name: 'Freqtrade Validator',
+            icon: '🔬',
+            description: 'Strategy validation sidecar. Runs in validation/freqtrade/. No API key needed.',
+            status: 'Internal — always active',
+          },
+        ].map(mod => (
+          <div key={mod.id} className="api-key-card disabled" style={{opacity: 0.85, cursor: 'default'}}>
+            <div className="api-key-card-header" style={{cursor: 'default'}}>
+              <div className="api-key-card-title">
+                <span className="api-key-icon"><span>{mod.icon}</span></span>
+                <div>
+                  <h3>{mod.name}</h3>
+                  <span className="api-key-badge success">Internal sidecar</span>
+                </div>
+              </div>
+              <span style={{fontSize:'0.8rem', color:'var(--muted)'}}>No key required</span>
+            </div>
+            <div className="api-key-card-meta">
+              <span>Status: {mod.status}</span>
+              <span>{mod.description}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="api-key-security">
         <h4>ℹ️ Security Note</h4>
         <p>
