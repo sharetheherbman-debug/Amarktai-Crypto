@@ -123,13 +123,39 @@ class AutopilotGrowthService:
             spawn_capital = base_capital
         
         spawn_capital = round(spawn_capital, 2)
-        logger.info(f"Spawning bot on {platform} with capital ZAR {spawn_capital:.2f} (base: {base_capital}, profit: {profit:.2f}, threshold: {target_profit:.2f})")
-        
+
+        # Determine bot type: if normal cap is full, grow the scalper fleet instead.
+        _normal_bots_now = await self.db.bots.count_documents({
+            "user_id": self.user_id,
+            "exchange": platform,
+            "status": {"$ne": "deleted"},
+            "bot_type": {"$nin": ["scalper"]},
+        })
+        _normal_cap = _platform_bot_limit(platform)
+        _scalper_bots_now = await self.db.bots.count_documents({
+            "user_id": self.user_id,
+            "exchange": platform,
+            "status": {"$ne": "deleted"},
+            "bot_type": "scalper",
+        })
+        _scalper_cap = get_scalper_cap(platform)
+        if _normal_bots_now >= _normal_cap and _scalper_bots_now < _scalper_cap:
+            _spawn_bot_type = "scalper"
+        else:
+            _spawn_bot_type = "normal"
+
+        logger.info(
+            f"Spawning {_spawn_bot_type} bot on {platform} with capital ZAR {spawn_capital:.2f} "
+            f"(base: {base_capital}, profit: {profit:.2f}, threshold: {target_profit:.2f}, "
+            f"normal={_normal_bots_now}/{_normal_cap}, scalper={_scalper_bots_now}/{_scalper_cap})"
+        )
+
         spawn_result = await bot_spawner.spawn_bot(self.user_id, {
             "exchange": platform,
             "risk_mode": "safe",
             "capital": spawn_capital,
-            "name": f"Auto-{_platform_display_name(platform)}-{next_milestone:02d}"
+            "name": f"Auto-{_platform_display_name(platform)}-{next_milestone:02d}",
+            "bot_type": _spawn_bot_type,
         })
 
         if not spawn_result.get("success"):

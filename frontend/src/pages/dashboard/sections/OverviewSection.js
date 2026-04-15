@@ -61,15 +61,26 @@ export default function OverviewSection({
 }) {
   const aiProviders = aiStatus?.providers || {};
   const aiCapabilities = aiStatus?.capabilities || {};
-  const aiProviderIds = Object.keys(aiProviders);
   const aiCapabilityIds = Object.keys(aiCapabilities);
-  const aiUsableProviders = aiProviderIds.filter((id) => aiProviders[id]?.usable).length;
-  const aiAvailableCapabilities = aiCapabilityIds.filter((id) => aiCapabilities[id]?.available).length;
+  // Count only configured optional providers (not all possible providers) so
+  // "0/0" never appears when optional keys are simply not set yet.
+  const aiConfiguredProviderIds = Object.keys(aiProviders).filter((id) => aiProviders[id]?.configured);
+  const aiUsableProviders = aiConfiguredProviderIds.filter((id) => aiProviders[id]?.usable).length;
+  // If the backend already computed these counters, use them directly.
+  const aiAvailableCapabilities = aiStatus?.available_capabilities
+    ?? aiCapabilityIds.filter((id) => aiCapabilities[id]?.available).length;
+  const aiTotalCapabilities = aiStatus?.total_capabilities ?? aiCapabilityIds.length;
   const aiDegraded = Boolean(aiStatus?.degraded_mode);
   const aiKeyConfigured = aiStatus?.key_configured
     ?? aiProviders?.openai?.configured
     ?? aiProviders?.openai?.usable
     ?? false;
+  // Human-readable provider usable label:
+  //   no configured providers → "None configured"
+  //   some configured         → "N/M usable"
+  const aiProvidersLabel = aiConfiguredProviderIds.length === 0
+    ? 'None configured'
+    : `${aiUsableProviders}/${aiConfiguredProviderIds.length} usable`;
   const formatOverviewDate = (value) => {
     const formatted = formatDate(value);
     return formatted;
@@ -91,7 +102,19 @@ export default function OverviewSection({
   const formatStatusValue = (value) => {
     if (value === null || value === undefined || value === '') return NOT_AVAILABLE;
     if (typeof value === 'boolean') return value ? 'Active' : 'Idle';
-    if (typeof value === 'string') return humanizeReason(value);
+    if (typeof value === 'string') {
+      // Convert raw self-healing result codes to human-readable text
+      if (value === 'idle') return 'Not yet run';
+      if (value === 'stopped') return 'Stopped';
+      if (value === 'running') return 'Running';
+      // "scanned_ok:5_bots_0_fixed" → "Scan OK: 5 bots, 0 fixed"
+      const scanOkMatch = value.match(/^scanned_ok:(\d+)_bots_(\d+)_fixed$/);
+      if (scanOkMatch) return `Scan OK: ${scanOkMatch[1]} bots, ${scanOkMatch[2]} fixed`;
+      // "scan_error:..." → "Scan Error: ..."
+      const scanErrorMatch = value.match(/^scan_error:(.+)$/);
+      if (scanErrorMatch) return `Scan error: ${scanErrorMatch[1]}`;
+      return humanizeReason(value);
+    }
     if (typeof value === 'object') {
       return value.status || value.state || value.mode || NOT_AVAILABLE;
     }
@@ -333,7 +356,7 @@ export default function OverviewSection({
             <GlassCard className="overview-card">
               <div className="overview-card-header">
                 <h3>Autonomy Status</h3>
-                <span className="overview-card-meta">{aiKeyConfigured ? 'AI Connected' : 'AI Offline'}</span>
+                <span className="overview-card-meta">{aiKeyConfigured ? 'Cloud AI Connected' : 'Core AI Active'}</span>
               </div>
               <div className="overview-status-list">
                 {autonomyItems.map(item => (
@@ -353,11 +376,11 @@ export default function OverviewSection({
               <div className="overview-status-list">
                 <div className="overview-status-row">
                   <span>Providers Usable</span>
-                  <strong>{aiUsableProviders}/{aiProviderIds.length || 0}</strong>
+                  <strong>{aiProvidersLabel}</strong>
                 </div>
                 <div className="overview-status-row">
                   <span>Features Available</span>
-                  <strong>{aiAvailableCapabilities}/{aiCapabilityIds.length || 0}</strong>
+                  <strong>{aiAvailableCapabilities}/{aiTotalCapabilities}</strong>
                 </div>
               </div>
             </GlassCard>

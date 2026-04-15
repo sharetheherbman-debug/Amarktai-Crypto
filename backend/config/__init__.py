@@ -34,9 +34,12 @@ MIN_WIN_RATE = 0.52  # 52%
 MIN_PROFIT_PERCENT = 0.03  # 3%
 MIN_TRADES_FOR_PROMOTION = 25
 
-# Exchange limits (8 canonical exchanges)
+# Exchange limits (8 canonical exchanges) — NORMAL bots only.
+# Total per-platform cap = EXCHANGE_BOT_LIMITS[x] + SCALPER_BOT_ALLOCATION[x]
+# e.g. Luno: 5 normal + 5 scalper = 10 total
+#      Binance: 10 normal + 10 scalper = 20 total
 EXCHANGE_BOT_LIMITS = {
-    'luno': 10,  # 10 total on Luno: 5 normal + 5 scalper
+    'luno': 5,       # 5 normal bots (+ 5 scalper = 10 total on Luno)
     'binance': 10,
     'kucoin': 10,
     'bybit': 10,

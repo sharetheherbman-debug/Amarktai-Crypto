@@ -253,6 +253,7 @@ class BotSpawner:
                 "last_trade_time": None,
                 "auto_spawned": True,  # Mark as auto-spawned
                 "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
+                "bot_type": config.get("bot_type", "normal"),
             }
             
             await db.bots_collection.insert_one(bot_doc)

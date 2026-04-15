@@ -98,6 +98,8 @@
   gap: 1rem;
   flex: 1;
   overflow: hidden;
+  /* Prevent grid from expanding beyond its container */
+  min-width: 0;
 }
 
 .timeline-sidebar {
@@ -159,7 +161,12 @@
   border: 1px solid var(--line, rgba(59, 130, 246, 0.12));
   border-radius: 12px;
   overflow-y: auto;
+  overflow-x: hidden;
   color: var(--text, #e4f0ff);
+  /* Prevent grid overflow — the 1fr column must shrink to fit */
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 /* Responsive design */

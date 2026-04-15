@@ -91,7 +91,16 @@ class PaperWalletService:
     async def get_balances(self, user_id: str) -> Dict:
         wallet = await self._ensure_wallet(user_id)
         balances = wallet.get("balances") or {}
-        total = sum(float(value or 0) for value in balances.values())
+        # Convert non-ZAR currencies to ZAR before summing portfolio total.
+        # USDT is the only non-ZAR currency currently held in paper wallets.
+        usdt_to_zar = await _get_paper_zar_per_usdt()
+        total = 0.0
+        for currency, value in balances.items():
+            v = float(value or 0)
+            if currency.upper() == "USDT":
+                total += v * usdt_to_zar
+            else:
+                total += v
         return {
             "balances": balances,
             "total": round(total, 2)
@@ -111,7 +120,16 @@ class PaperWalletService:
         """
         wallet = await self._ensure_wallet(user_id)
         balances = wallet.get("balances") or {}
-        total = round(sum(float(v or 0) for v in balances.values()), 2)
+        # Convert non-ZAR currencies to ZAR before computing total portfolio value.
+        usdt_to_zar = await _get_paper_zar_per_usdt()
+        total = 0.0
+        for currency, value in balances.items():
+            v = float(value or 0)
+            if currency.upper() == "USDT":
+                total += v * usdt_to_zar
+            else:
+                total += v
+        total = round(total, 2)
         available_zar = float(balances.get("ZAR", 0))
         return {
             "balances": balances,
@@ -144,7 +162,11 @@ class PaperWalletService:
             return_document=ReturnDocument.AFTER
         )
         balances = result.get("balances") or {}
-        total = sum(float(value or 0) for value in balances.values())
+        usdt_to_zar = await _get_paper_zar_per_usdt()
+        total = 0.0
+        for cur, value in balances.items():
+            v = float(value or 0)
+            total += v * usdt_to_zar if cur.upper() == "USDT" else v
         return {
             "balances": balances,
             "total": round(total, 2)
