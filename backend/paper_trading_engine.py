@@ -1186,48 +1186,41 @@ class PaperTradingEngine:
             playbook = playbook_info["playbook"]
             playbook_params = get_playbook_params(risk_mode, playbook, caution=playbook_info.get("caution", False))
 
-            # REGIME STAND-DOWN: if playbook is stand_down, skip new entries.
-            # PAPER MODE EXCEPTION: stand_down is only enforced in live mode.
-            # In paper mode, fall back to mean_reversion (caution) so data
-            # collection continues.  This prevents extreme-regime periods from
-            # permanently blocking all paper entries.
+            # REGIME STAND-DOWN: skip new entries when the regime is stand_down.
+            # This applies in BOTH live and paper mode — stand_down means "clearly
+            # dangerous conditions" (volatile_downtrend / BEARISH_VOLATILE).
+            # The previous paper-mode exception that downgraded stand_down to
+            # mean_reversion was causing systematic losses on Luno: the engine was
+            # trading against confirmed strong downtrends and losing consistently,
+            # contaminating the paper validation signal.  Paper mode is now aligned
+            # with live mode for regime stand-down.
             _bot_trading_mode = str(bot_data.get("trading_mode") or bot_data.get("mode") or "paper").lower()
             _is_paper_mode_bot = _bot_trading_mode.startswith("paper")
             if playbook == "stand_down":
-                if _is_paper_mode_bot:
-                    # Downgrade to mean_reversion with maximum caution for paper learning
-                    logger.info(
-                        "⚠️  STAND_DOWN_PAPER_DOWNGRADE | %s | regime=%s → mean_reversion (caution) "
-                        "for paper data-collection",
-                        bot_data.get("name", bot_id[:8]), playbook_info["regime"],
-                    )
-                    playbook = "mean_reversion"
-                    playbook_info = {**playbook_info, "playbook": "mean_reversion", "caution": True}
-                    playbook_params = get_playbook_params(risk_mode, "mean_reversion", caution=True)
-                else:
-                    logger.info(
-                        f"⏭️  SKIP_REGIME_STANDDOWN | {bot_data.get('name', bot_id[:8])} | "
-                        f"regime={playbook_info['regime']} conf={playbook_info['confidence']}"
-                    )
-                    self._log_action(
-                        "SKIP", bot_id, symbol or "?",
-                        reason="regime_standdown",
-                        bot_name=bot_data.get("name", ""),
-                    )
-                    return {
-                        "success": False,
-                        "bot_id": bot_id,
-                        "skip_reason": "regime_standdown",
-                        "error": "Regime stand-down: no new entries in current market conditions",
-                        "details": {
-                            "regime": playbook_info["regime"],
-                            "playbook": playbook,
-                            "regime_strength": playbook_info["strength"],
-                            "regime_confidence": playbook_info["confidence"],
-                            "exchange": exchange,
-                            "symbol": symbol,
-                        },
-                    }
+                logger.info(
+                    f"⏭️  SKIP_REGIME_STANDDOWN | {bot_data.get('name', bot_id[:8])} | "
+                    f"regime={playbook_info['regime']} conf={playbook_info['confidence']} "
+                    f"mode={'paper' if _is_paper_mode_bot else 'live'}"
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="regime_standdown",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "regime_standdown",
+                    "error": "Regime stand-down: no new entries in current market conditions",
+                    "details": {
+                        "regime": playbook_info["regime"],
+                        "playbook": playbook,
+                        "regime_strength": playbook_info["strength"],
+                        "regime_confidence": playbook_info["confidence"],
+                        "exchange": exchange,
+                        "symbol": symbol,
+                    },
+                }
             
             # 3. AI INTELLIGENCE: Get ML prediction
             # Use module-global directly to avoid local-variable shadowing issues.

@@ -418,3 +418,59 @@ async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str
             "not_eligible_reasons": details.get("rejection_reasons") or fallback_reasons,
         }
     return latest
+
+
+# ---------------------------------------------------------------------------
+# Per-user "run active exchanges" — three-tier fallback
+# ---------------------------------------------------------------------------
+async def get_user_run_exchanges(user_id: str) -> list[str]:
+    """Return the exchanges that are active for the user's current paper run.
+
+    Three-tier resolution (highest priority first):
+
+    1. ``system_modes.run_active_exchanges``  — explicit user selection
+    2. Exchanges with a valid API key in the ``api_keys`` collection
+       (i.e. exchanges the user actually configured)
+    3. ``['luno']``  — safe single-exchange fallback
+
+    This is the CANONICAL source of truth used by the scheduler and truth
+    endpoints to decide which bots participate in a given paper run.
+
+    All 8 supported exchanges remain in the platform registry — this
+    function only determines which subset is active for *this user's
+    current run*.
+    """
+    from config.platforms import SUPPORTED_PLATFORMS
+
+    # Tier 1: explicit selection stored in system_modes
+    try:
+        modes = await db.system_modes_collection.find_one(
+            {"user_id": user_id}, {"_id": 0, "run_active_exchanges": 1}
+        )
+        explicit = modes.get("run_active_exchanges") if modes else None
+        if isinstance(explicit, list) and explicit:
+            # Intersect with SUPPORTED_PLATFORMS to guard against stale names
+            valid = [e.lower() for e in explicit if e.lower() in SUPPORTED_PLATFORMS]
+            if valid:
+                return valid
+    except Exception as exc:
+        logger.debug("get_user_run_exchanges tier-1 failed for %s: %s", user_id, exc)
+
+    # Tier 2: exchanges with a stored API key for this user
+    try:
+        key_docs = await db.database["api_keys"].find(
+            {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
+            {"_id": 0, "provider": 1},
+        ).to_list(50)
+        from_keys = [
+            d["provider"].lower()
+            for d in key_docs
+            if d.get("provider") and d["provider"].lower() in SUPPORTED_PLATFORMS
+        ]
+        if from_keys:
+            return list(dict.fromkeys(from_keys))  # deduplicated, order-preserving
+    except Exception as exc:
+        logger.debug("get_user_run_exchanges tier-2 failed for %s: %s", user_id, exc)
+
+    # Tier 3: safe fallback
+    return ["luno"]

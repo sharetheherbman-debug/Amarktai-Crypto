@@ -3584,6 +3584,7 @@ routers_to_mount = [
     ("routes.admin_truth", "Admin Truth Console"),       # /api/admin/truth/summary — TruthConsoleSection
     ("routes.scalper", "Scalper Bot Config"),            # /api/scalper/caps,summary — ScalperBotsPanel
     ("routes.exchange_status", "Exchange Status"),       # /api/exchanges/status — ExchangeStatusSection
+    ("routes.run_exchange_selection", "Run Exchange Selection"),  # /api/exchanges/run-selection
     ("routes.self_healing_endpoints", "Self-Healing"),   # /api/self-healing/status — autonomy dashboard
     ("routes.fx_rates", "FX Rates"),                    # /api/fx/rates,refresh,health
     ("routes.backtesting", "Backtesting"),              # /api/backtest/run,optimize,history

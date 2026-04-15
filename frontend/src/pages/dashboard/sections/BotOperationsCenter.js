@@ -66,9 +66,9 @@ export default function BotOperationsCenter({
     if (['active', 'running', 'trading'].includes(st)) acc.active++;
     if (b.has_open_position || b.open_position) acc.inPosition++;
     if (bt === 'scalper') acc.scalper++;
-    // Bots with no bot_type (empty string) and explicit 'normal' bots both count as Normal.
-    // Explicit inclusion avoids new bot types silently inflating the Normal counter.
-    else if (bt === 'normal' || bt === '') acc.normal++;
+    // Any non-scalper bot_type (including '', 'normal', and future unknown types)
+    // counts as Normal, keeping total === normal + scalper always true.
+    else acc.normal++;
     return acc;
   }, { total: 0, active: 0, inPosition: 0, normal: 0, scalper: 0 });
 
