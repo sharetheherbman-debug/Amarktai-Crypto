@@ -17,6 +17,14 @@ CANONICAL_REGIMES: Set[str] = {
     "low_volatility",
     "unknown",
 }
+# Regime used as fallback when insufficient data or low confidence.
+# "consolidation" is chosen because it is a valid regime for both scalpers and
+# normal bots, and represents a neutral/uncertain market state.
+_FALLBACK_REGIME = "consolidation"
+# Minimum confidence floor — never emit 0.0 so the confidence gate always has
+# something to work with.
+_MIN_CONFIDENCE = 0.20
+
 BASE_REGIME_CONFIDENCE = 0.35
 DEPTH_NOTIONAL_NORMALIZATION_FACTOR = 2_000_000.0
 
@@ -27,23 +35,25 @@ _REGIME_ALIAS_MAP = {
     "volatile_downtrend": "high_volatility",
     "consolidation": "consolidation",
     "choppy": "mean_reversion",
+    "range": "consolidation",
+    "ranging": "mean_reversion",
     "trend": "trending_up",
     "trending": "trending_up",
-    "panic": "high_volatility",
-    "ranging": "mean_reversion",
-    "low_volatility": "low_volatility",
+    "trend_up": "trending_up",
+    "trend_down": "trending_down",
     "volatile": "high_volatility",
+    "panic": "high_volatility",
+    "low_volatility": "low_volatility",
     "accumulation": "breakout",
 }
 
 _STRATEGY_ALLOWED_REGIMES = {
-    # Scalpers thrive in quiet/sideways consolidating markets where price is range-bound.
-    # They are blocked in trending, breakout, and high-volatility regimes where momentum
-    # overwhelms the tight microstructure edge scalpers rely on.
-    # low_volatility is also blocked: extremely flat markets produce sub-spread moves
-    # that cannot cover round-trip costs, making scalper entries economically infeasible.
-    "scalper": {"consolidation", "mean_reversion"},
-    "normal": {"trending_up", "trending_down", "consolidation", "mean_reversion", "breakout", "low_volatility"},
+    # Scalpers operate on short-term micro-volatility and momentum; they work in
+    # consolidating/ranging markets AND in moderate-volatility regimes where
+    # micro-momentum signals are present.  Only hard-trending breakout regimes
+    # (where momentum overwhelms the tight scalper spread) are excluded.
+    "scalper": {"consolidation", "mean_reversion", "high_volatility", "low_volatility"},
+    "normal": {"trending_up", "trending_down", "consolidation", "mean_reversion", "breakout", "high_volatility", "low_volatility"},
 }
 
 
@@ -58,10 +68,12 @@ def classify_regime(
 ) -> Dict[str, float | str | bool]:
     """Classify market regime into canonical labels with confidence.
 
-    Unknown or weak-confidence states intentionally bias toward NO_TRADE.
+    Regime NEVER returns "unknown" — insufficient data falls back to
+    _FALLBACK_REGIME ("consolidation") so the trading pipeline always has a
+    usable regime to work with.
     """
     trend_norm = str(trend or "neutral").lower()
-    candidate = _REGIME_ALIAS_MAP.get(str(raw_regime or "").lower(), "unknown")
+    candidate = _REGIME_ALIAS_MAP.get(str(raw_regime or "").lower(), _FALLBACK_REGIME)
 
     # Feature-driven overrides (prefer measured quality over raw aliases)
     if volatility_pct >= 4.5:
@@ -81,18 +93,18 @@ def classify_regime(
     confidence -= min(0.25, max(spread_pct, 0) / 3.0)
     if depth_notional is not None and depth_notional > 0:
         confidence += min(0.15, depth_notional / DEPTH_NOTIONAL_NORMALIZATION_FACTOR)
-    confidence = max(0.0, min(1.0, confidence))
+    # Enforce minimum confidence floor so downstream gates always have a signal.
+    confidence = max(_MIN_CONFIDENCE, min(1.0, confidence))
 
     market_quality = max(0.0, min(1.0, confidence - min(0.4, max(spread_pct, 0) / 5.0)))
 
-    if candidate not in CANONICAL_REGIMES:
-        candidate = "unknown"
-    # In calm markets (low trend + low volatility) the confidence formula starts at
-    # BASE_REGIME_CONFIDENCE=0.35 and rarely exceeds 0.45 even for a clearly
-    # identifiable consolidation or mean_reversion regime.  Lowering the cut-off
-    # from 0.45 to 0.38 avoids forcing correct, stable regimes to "unknown".
-    if confidence < 0.38:
-        candidate = "unknown"
+    # Guard: if the candidate is somehow not in the canonical set, use the fallback.
+    if candidate not in CANONICAL_REGIMES or candidate == "unknown":
+        candidate = _FALLBACK_REGIME
+
+    # Previously low-confidence states were forced to "unknown", which blocked all
+    # trades.  Now we keep the detected regime label and just report the actual
+    # (possibly low) confidence — callers can decide how to interpret it.
 
     return {
         "regime": candidate,
@@ -116,10 +128,13 @@ def strategy_regime_allowed(bot_type: str, regime: str, confidence: float) -> Di
     """
     normalized_bot_type = "scalper" if str(bot_type or "").lower() == "scalper" else "normal"
     allowed = _STRATEGY_ALLOWED_REGIMES[normalized_bot_type]
-    normalized_regime = regime if regime in CANONICAL_REGIMES else "unknown"
+    normalized_regime = regime if regime in CANONICAL_REGIMES else _FALLBACK_REGIME
     allowed_list = sorted(allowed)
 
-    if normalized_regime == "unknown" or confidence < 0.4:
+    # Lower confidence gate: 0.30 is sufficient for a valid regime signal.
+    # The old 0.40 threshold blocked most paper-mode bot cycles where regime
+    # confidence is 0.30–0.38 (calm/consolidating market with small spread).
+    if normalized_regime == "unknown" or confidence < 0.30:
         return {
             "allowed": False,
             "reason_code": "REGIME_UNKNOWN_BLOCK",

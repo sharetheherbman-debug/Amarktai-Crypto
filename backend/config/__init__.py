@@ -136,20 +136,21 @@ STOP_LOSS_COOLDOWN_MINUTES = int(os.getenv('STOP_LOSS_COOLDOWN_MINUTES', '30'))
 LOSING_STREAK_THRESHOLD = int(os.getenv('LOSING_STREAK_THRESHOLD', '3'))
 LOSING_STREAK_SIGNAL_BOOST = float(os.getenv('LOSING_STREAK_SIGNAL_BOOST', '0.10'))
 # Base average-confidence threshold for entry. Raised by LOSING_STREAK_SIGNAL_BOOST
-# after a losing streak. Set to 0.45 to require meaningful signal quality before entry;
-# avoids low-confidence trades that pass only because the local regime source is available.
-BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.45'))
+# after a losing streak. Lowered from 0.45 to 0.35 to allow trading when valid
+# signals are present (confidence_score ≈ 0.32-0.38 was blocking all trades).
+BASE_CONFIDENCE_THRESHOLD = float(os.getenv('BASE_CONFIDENCE_THRESHOLD', '0.35'))
 
-# ── Scalper-specific stricter thresholds ────────────────────────────────────
-# Scalpers require higher signal quality than normal bots because their profit
-# window per trade is smaller (less room to absorb spread + fee costs).
-SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '0.62'))
+# ── Scalper-specific thresholds ────────────────────────────────────────────────
+# Scalpers operate on fast micro-signals; they need a lower confidence threshold
+# because their individual signal windows are shorter (less data per cycle).
+# Lowered from 0.62 to 0.28 to unblock scalper bots.
+SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '0.28'))
 # Max hold time for scalpers (minutes).  Normal bots use PAPER_MAX_HOLD_MINUTES.
 SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
 # Max spread (%) for scalpers.  Normal bots use PAPER_MAX_SPREAD_PCT.
-# 0.30% allows realistic ZAR-quoted pair spreads (Luno BTC/ZAR is typically 0.1-0.3%).
-# The previous 0.15% was too tight, permanently blocking scalpers on ZAR pairs.
-SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.30'))
+# Lowered from 0.30 to 0.25 to keep scalpers in tighter-spread conditions while
+# still allowing realistic ZAR-quoted pair spreads (Luno BTC/ZAR is 0.1-0.25%).
+SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.25'))
 # Soft max-hold (seconds): close if spread is acceptable; retry otherwise but
 # cannot exceed HARD_MAX_HOLD_SECONDS.  Fires AFTER the regular time_exit at
 # PAPER_MAX_HOLD_MINUTES as a grace-window for spread-sensitive exits.
