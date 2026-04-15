@@ -381,7 +381,7 @@ class PaperTradingEngine:
         self.coinbase_exchange = None
         self.price_cache = {}
         self.preferred_exchange = 'luno'
-        self.available_pairs_cache = {}  # Cache for dynamically fetched pairs
+        self.available_pairs_cache = {}  # Cache for dynamically fetched pairs: exchange -> (pairs, fetched_at)
         self.market_data_provider = None
         self.ledger_service = None
         
@@ -589,9 +589,14 @@ class PaperTradingEngine:
 
     async def get_available_pairs(self, exchange: str = 'luno') -> list:
         """Dynamically fetch ALL available trading pairs for maximum profit"""
+        _CACHE_TTL_SECONDS = 3600  # Refresh pair list every hour
         try:
             if exchange in self.available_pairs_cache:
-                return self.available_pairs_cache[exchange]
+                _cached_pairs, _cached_at = self.available_pairs_cache[exchange]
+                _age = (datetime.now(timezone.utc) - _cached_at).total_seconds()
+                if _age < _CACHE_TTL_SECONDS:
+                    return _cached_pairs
+                # Cache expired — fall through to re-fetch
 
             if not self.luno_exchange and not self.binance_exchange and not self.kucoin_exchange:
                 await self.init_exchanges()
@@ -626,12 +631,17 @@ class PaperTradingEngine:
                     available = [symbol for symbol in markets.keys() if '/USDT' in symbol and markets[symbol].get('active', True)][:50]
 
                 if available:
-                    self.available_pairs_cache[exchange] = available
+                    self.available_pairs_cache[exchange] = (available, datetime.now(timezone.utc))
                     logger.info(f"✅ Loaded {len(available)} trading pairs from {exchange.upper()}")
                     return available
 
         except Exception as e:
             logger.warning(f"Failed to fetch pairs from {exchange}: {e}")
+            # Return stale cache if available rather than falling back to hardcoded list
+            if exchange in self.available_pairs_cache:
+                _stale_pairs, _ = self.available_pairs_cache[exchange]
+                if _stale_pairs:
+                    return _stale_pairs
 
         # Fallback to hardcoded defaults when exchange metadata is unavailable
         return self._exchange_fallback_pairs().get(exchange, self.BINANCE_PAIRS)

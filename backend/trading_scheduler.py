@@ -568,22 +568,34 @@ class TradingScheduler:
                     except Exception:
                         pass
             
-            # Add new trades to queue
+            # Add new trades to queue — with fair rotation and duplicate guard.
+            #
+            # FAIRNESS: Rotate the iteration start position by one slot each tick so
+            # that no single bot monopolises the front of the queue.  With N active bots
+            # and a 5-slot-per-tick execution window, every bot advances through first
+            # position every N ticks instead of the same bot always going first.
+            #
+            # DUPLICATE GUARD: Only enqueue a bot that is NOT already waiting in the
+            # queue.  Without this check, bots accumulate multiple entries each tick,
+            # which lets a single bot re-execute before others have had their turn.
             _now_iso = datetime.now(timezone.utc).isoformat()
+            _n_active = len(active_bots)
+            if _n_active > 1:
+                _offset = self.tick_count % _n_active
+                active_bots = active_bots[_offset:] + active_bots[:_offset]
+
+            # Build a fast-lookup set of bot IDs already waiting in the queue so we
+            # can skip re-queuing them (O(1) per bot).
+            _already_queued_ids: set = {
+                item.get('bot_id') for item in trade_staggerer.trade_queue
+                if item.get('bot_id')
+            }
+
             for bot in active_bots:
                 bot_id = bot['id']
                 exchange = bot.get('exchange', 'binance')
-                
-                # Check if bot can trade
-                can_execute, reason = await trade_staggerer.can_execute_now(bot_id, exchange)
-                
-                if can_execute:
-                    # Add to queue
-                    await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
 
-                # Always stamp last_tick_at in the primary bots collection so that
-                # diagnostics endpoints never show null for active bots — even when
-                # the bot is rate-limited by the staggerer and not yet in the queue.
+                # Always stamp last_tick_at so diagnostics never show null for active bots.
                 try:
                     await db.bots_collection.update_one(
                         {"id": bot_id},
@@ -591,6 +603,17 @@ class TradingScheduler:
                     )
                 except Exception:
                     pass
+
+                # Skip bots that already have an entry waiting in the queue —
+                # prevents the same bot from holding multiple queue slots.
+                if bot_id in _already_queued_ids:
+                    continue
+
+                # Check if bot can trade
+                can_execute, reason = await trade_staggerer.can_execute_now(bot_id, exchange)
+
+                if can_execute:
+                    await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
 
             # Force-close overdue open trades for all users — this sweeps trades from
             # paused bots that the normal cycle would skip (fix for D exit precedence).
