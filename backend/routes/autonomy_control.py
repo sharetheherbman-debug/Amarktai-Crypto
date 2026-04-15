@@ -19,7 +19,7 @@ from services.system_mode_service import system_mode_service
 from services.learning_loop import learning_loop
 from autopilot_engine import autopilot
 from trading_scheduler import trading_scheduler
-from self_healing import self_healing
+from engines.self_healing import self_healing
 from websocket_manager import manager
 from services.realtime_broadcaster import realtime_broadcaster
 
