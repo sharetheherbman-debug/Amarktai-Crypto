@@ -6,6 +6,7 @@ Includes realtime smoke tests and system health checks
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
+from collections import Counter, defaultdict
 import logging
 import os
 
@@ -3131,8 +3132,7 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
       "timestamp": str
     }
     """
-    from datetime import datetime as _dt, timezone as _tz
-    now_iso = _dt.now(_tz.utc).isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     checks: dict = {}
     blockers: list = []
 
@@ -3140,9 +3140,9 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
     try:
         await db.client.admin.command("ping")
         checks["db"] = {"ok": True, "detail": "connected"}
-    except Exception as e:
-        checks["db"] = {"ok": False, "detail": str(e)}
-        blockers.append(f"DB unavailable: {e}")
+    except Exception:
+        checks["db"] = {"ok": False, "detail": "connection_failed"}
+        blockers.append("DB unavailable")
 
     # ── Bot census ────────────────────────────────────────────────────────────
     try:
@@ -3183,8 +3183,9 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
         elif active_count == 0:
             blockers.append("No active bots — all bots are paused/stopped")
     except Exception as e:
-        checks["bots"] = {"ok": False, "error": str(e)}
-        blockers.append(f"Bot census failed: {e}")
+        logger.error("go_live_readiness: bot census error: %s", e)
+        checks["bots"] = {"ok": False, "error": "bot_census_failed"}
+        blockers.append("Bot census failed")
 
     # ── Trading mode ──────────────────────────────────────────────────────────
     try:
@@ -3202,8 +3203,9 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
         if not paper and not live:
             blockers.append("Neither paper nor live trading is enabled in system_modes")
     except Exception as e:
-        checks["trading_mode"] = {"ok": False, "error": str(e)}
-        blockers.append(f"Trading mode check failed: {e}")
+        logger.error("go_live_readiness: trading mode check error: %s", e)
+        checks["trading_mode"] = {"ok": False, "error": "trading_mode_check_failed"}
+        blockers.append("Trading mode check failed")
 
     # ── Scheduler ─────────────────────────────────────────────────────────────
     try:
@@ -3219,8 +3221,9 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
         if not sched_running:
             blockers.append("Trading scheduler is NOT running")
     except Exception as e:
-        checks["scheduler"] = {"ok": False, "error": str(e)}
-        blockers.append(f"Scheduler check failed: {e}")
+        logger.error("go_live_readiness: scheduler check error: %s", e)
+        checks["scheduler"] = {"ok": False, "error": "scheduler_check_failed"}
+        blockers.append("Scheduler check failed")
 
     # ── Portfolio guard config ─────────────────────────────────────────────────
     try:
@@ -3232,23 +3235,24 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             "exchange_scoped": True,  # added in this release
         }
     except Exception as e:
-        checks["portfolio_guard"] = {"error": str(e)}
+        logger.error("go_live_readiness: portfolio guard check error: %s", e)
+        checks["portfolio_guard"] = {"error": "config_unavailable"}
 
     # ── Staggerer config ───────────────────────────────────────────────────────
     try:
         from engines.trade_staggerer import BOT_TRADE_COOLDOWN_SECONDS, trade_staggerer
-        luno_max = trade_staggerer.exchange_limits.get("luno", {}).get("max_concurrent", "?")
+        luno_max = trade_staggerer.exchange_limits.get("luno", {}).get("max_concurrent", 0)
         checks["staggerer"] = {
             "bot_cooldown_seconds": BOT_TRADE_COOLDOWN_SECONDS,
             "luno_max_concurrent": luno_max,
-            "binance_max_concurrent": trade_staggerer.exchange_limits.get("binance", {}).get("max_concurrent", "?"),
+            "binance_max_concurrent": trade_staggerer.exchange_limits.get("binance", {}).get("max_concurrent", 0),
         }
     except Exception as e:
-        checks["staggerer"] = {"error": str(e)}
+        logger.error("go_live_readiness: staggerer check error: %s", e)
+        checks["staggerer"] = {"error": "staggerer_unavailable"}
 
     # ── Open trades ────────────────────────────────────────────────────────────
     try:
-        from collections import Counter as _Counter
         bot_ids = [b["id"] for b in bots] if "bots" in checks and checks["bots"].get("ok") else []
         open_trades = []
         if bot_ids:
@@ -3256,14 +3260,15 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
                 {"bot_id": {"$in": bot_ids}, "status": "open"},
                 {"_id": 0, "bot_id": 1, "pair": 1, "exchange": 1},
             ).to_list(200)
-        by_pair = dict(_Counter(t.get("pair", "?") for t in open_trades))
+        by_pair = dict(Counter(t.get("pair", "unknown") for t in open_trades))
         checks["open_trades"] = {
             "ok": True,
             "count": len(open_trades),
             "by_pair": by_pair,
         }
     except Exception as e:
-        checks["open_trades"] = {"ok": False, "error": str(e)}
+        logger.error("go_live_readiness: open trades check error: %s", e)
+        checks["open_trades"] = {"ok": False, "error": "open_trades_check_failed"}
 
     # ── Reinvestment pool ─────────────────────────────────────────────────────
     try:
@@ -3277,12 +3282,12 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
                 pool_total = float(pool_doc.get("total_zar", 0) or 0)
         checks["reinvestment"] = {"pool_total_zar": round(pool_total, 2)}
     except Exception as e:
-        checks["reinvestment"] = {"error": str(e)}
+        logger.error("go_live_readiness: reinvestment check error: %s", e)
+        checks["reinvestment"] = {"error": "reinvestment_check_failed"}
 
     # ── Cohort skip distribution (last_skip_reason from bot docs) ─────────────
     try:
-        from collections import Counter as _C2, defaultdict as _dd
-        cohort_map: dict = _dd(lambda: _C2())
+        cohort_map: dict = defaultdict(Counter)
         for bot in (bots if "bots" in checks and checks["bots"].get("ok") else []):
             exch = (bot.get("exchange") or "unknown").lower()
             bt = (bot.get("bot_type") or "normal").lower()
@@ -3293,7 +3298,8 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             k: dict(v.most_common(5)) for k, v in sorted(cohort_map.items())
         }
     except Exception as e:
-        checks["cohort_skips"] = {"error": str(e)}
+        logger.error("go_live_readiness: cohort skip check error: %s", e)
+        checks["cohort_skips"] = {"error": "cohort_check_failed"}
 
     # ── Overall readiness ─────────────────────────────────────────────────────
     critical_ok = (
