@@ -195,12 +195,14 @@ export default function LiveTradesSection({
         </select>
       </div>
 
-      {/* Content Area */}
-      <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', gap: '16px', minHeight: 0 }}>
+      {/* Content Area — wrap on narrow screens so the detail panel never
+           squashes the feed below ~340 px.  On wide desktop both panels sit
+           side-by-side; below ~780 px the detail card drops below the feed. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: '16px', minHeight: 0 }}>
         {/* Feed / Table */}
         <div style={{
-          flex: '1 1 0',
-          minWidth: 0,
+          flex: '1 1 340px',
+          minWidth: '300px',
           background: 'var(--glass)',
           border: '1px solid var(--line)',
           borderRadius: '14px',
@@ -334,12 +336,15 @@ export default function LiveTradesSection({
           )}
         </div>
 
-        {/* Detail Panel (Feed view only) */}
+        {/* Detail Panel (Feed view only)
+             Width: 380px flex-basis, shrinks if container is tight, wraps below the
+             feed when viewport is narrow.  Never collapses below 280px.            */}
         {selectedTrade && viewMode === 'feed' && (
           <div style={{
-            flex: '0 0 400px',
-            minWidth: '260px',
-            maxWidth: '460px',
+            flex: '0 1 380px',
+            minWidth: '280px',
+            width: '100%',
+            maxWidth: '420px',
             background: 'var(--glass)',
             border: '1px solid var(--line)',
             borderRadius: '14px',
@@ -349,6 +354,7 @@ export default function LiveTradesSection({
             alignSelf: 'start',
             maxHeight: 'calc(100vh - 80px)',
             overflowY: 'auto',
+            boxSizing: 'border-box',
           }}>
             <div style={{ marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
@@ -367,7 +373,7 @@ export default function LiveTradesSection({
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
               {[
                 { label: 'Side', value: (selectedTrade.side || selectedTrade.action || 'Trade').toString().toUpperCase(), color: getSideColor(selectedTrade.side || selectedTrade.action) },
                 { label: 'Price', value: formatZAR(selectedTrade.entry_price || selectedTrade.price || selectedTrade.avg_price) },
@@ -380,10 +386,11 @@ export default function LiveTradesSection({
                   background: 'rgba(10, 14, 26, 0.5)',
                   border: '1px solid var(--line)',
                   borderRadius: '10px',
-                  padding: '10px 14px',
+                  padding: '10px 12px',
+                  minWidth: 0,
                 }}>
-                  <div style={{ fontSize: '0.70rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '5px', whiteSpace: 'nowrap' }}>{label}</div>
-                  <div style={{ fontSize: '0.93rem', fontWeight: 700, color: color || 'var(--text)', wordBreak: 'break-all' }}>{value}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: color || 'var(--text)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{value}</div>
                 </div>
               ))}
             </div>

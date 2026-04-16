@@ -67,7 +67,7 @@ class TradeStaggerer:
             self.last_trade_per_exchange[exchange] = None
             self.concurrent_trades_per_exchange[exchange] = 0
     
-    async def can_execute_now(self, bot_id: str, exchange: str) -> tuple[bool, str]:
+    async def can_execute_now(self, bot_id: str, exchange: str, paper_mode: bool = False) -> tuple[bool, str]:
         """Check if a bot can execute a trade now"""
         try:
             # Per-bot post-trade cooldown: prevent the same bot from monopolising
@@ -94,12 +94,17 @@ class TradeStaggerer:
             if concurrent >= limits['max_concurrent']:
                 return False, f"Exchange concurrent limit reached ({concurrent}/{limits['max_concurrent']})"
             
-            # Check minimum delay between trades on this exchange
-            last_trade = self.last_trade_per_exchange.get(exchange)
-            if last_trade:
-                elapsed = (datetime.now(timezone.utc) - last_trade).total_seconds()
-                if elapsed < limits['min_delay']:
-                    return False, f"Exchange rate limit ({int(limits['min_delay'] - elapsed)}s remaining)"
+            # Check minimum delay between trades on this exchange.
+            # Paper bots do not hit real exchange APIs so the inter-trade delay is
+            # pure serialisation overhead.  Skip it for paper bots so that multiple
+            # paper bots on the same exchange can execute in the same scheduler tick
+            # without artificially waiting seconds between each one.
+            if not paper_mode:
+                last_trade = self.last_trade_per_exchange.get(exchange)
+                if last_trade:
+                    elapsed = (datetime.now(timezone.utc) - last_trade).total_seconds()
+                    if elapsed < limits['min_delay']:
+                        return False, f"Exchange rate limit ({int(limits['min_delay'] - elapsed)}s remaining)"
             
             return True, "OK"
             
@@ -154,7 +159,7 @@ class TradeStaggerer:
         except Exception as e:
             logger.error(f"Register trade complete error: {e}")
     
-    async def add_to_queue(self, bot_id: str, exchange: str, priority: int = 0):
+    async def add_to_queue(self, bot_id: str, exchange: str, priority: int = 0, paper_mode: bool = False):
         """Add a trade request to the queue"""
         try:
             if not bot_id or not exchange:
@@ -167,6 +172,7 @@ class TradeStaggerer:
                 "bot_id": bot_id,
                 "exchange": exchange,
                 "priority": priority,
+                "paper_mode": paper_mode,
                 "queued_at": datetime.now(timezone.utc).isoformat()
             }
             
@@ -212,7 +218,9 @@ class TradeStaggerer:
                 except Exception:
                     pass  # If DB check fails, fall through to normal logic
                 
-                can_execute, reason = await self.can_execute_now(bot_id, exchange)
+                can_execute, reason = await self.can_execute_now(
+                    bot_id, exchange, paper_mode=trade_request.get('paper_mode', False)
+                )
                 
                 if can_execute:
                     return trade_request
@@ -376,7 +384,11 @@ class TradeStaggerer:
                 "locks": locks,
                 "cooldowns": cooldowns,
                 "sample_items": sample_items,
-                "exchange_stats": exchange_stats
+                "exchange_stats": exchange_stats,
+                # paper_mode flag stored on each queue item bypasses min_delay
+                # for paper bots — verified active when True shows in sample_items
+                "paper_min_delay_bypass_enabled": True,
+                "bot_trade_cooldown_seconds": BOT_TRADE_COOLDOWN_SECONDS,
             }
             
         except Exception as e:
