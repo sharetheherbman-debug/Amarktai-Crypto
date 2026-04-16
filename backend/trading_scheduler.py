@@ -176,7 +176,13 @@ class TradingScheduler:
                         _user_run_exchanges_cache[_uid] = {"luno"}
                 _run_exs = _user_run_exchanges_cache[_uid]
                 _bot_exchange = (bot.get("exchange") or "").lower()
-                if _bot_exchange in _run_exs:
+                # Paper-mode bots run on PUBLIC exchange endpoints and do NOT need
+                # configured API keys.  Including them only when run_active_exchanges
+                # returns a key-based list (typically ['luno']) silently blocks all
+                # paper Binance/KuCoin/etc. bots even when they are fully configured
+                # and ready.  Paper bots are already filtered to PAPER_SUPPORTED_EXCHANGES
+                # by the platform-support gate above, so including all of them here is safe.
+                if _is_paper_bot(bot) or _bot_exchange in _run_exs:
                     run_active_bots.append(bot)
                 else:
                     run_excluded_bots.append(bot)
@@ -520,7 +526,18 @@ class TradingScheduler:
                         result = await self.execute_live_trade(bot)
                     
                     # Register trade complete
-                    await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
+                    # had_entry=True only when a new trade was successfully OPENED this
+                    # slot.  This starts the per-bot cooldown in the staggerer so other
+                    # bots get execution turns.  Close-only ticks and skipped ticks pass
+                    # had_entry=False so exit monitoring remains responsive.
+                    _had_entry = bool(
+                        result
+                        and isinstance(result, dict)
+                        and result.get('trade')
+                        and isinstance(result.get('trade'), dict)
+                        and result['trade'].get('status') == 'open'
+                    )
+                    await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'), had_entry=_had_entry)
                     logger.debug(f"✅ Registered trade complete for {bot['name']}")
                     
                     # Send WebSocket update via rt_events for enhanced tracking
