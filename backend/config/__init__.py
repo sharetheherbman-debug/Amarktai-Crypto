@@ -173,7 +173,13 @@ SYMBOL_COOLDOWN_HISTORY = int(os.getenv('SYMBOL_COOLDOWN_HISTORY', '3'))
 # Portfolio guard: max new opens on the same symbol per user in this window (minutes).
 PORTFOLIO_GUARD_WINDOW_MINUTES = int(os.getenv('PORTFOLIO_GUARD_WINDOW_MINUTES', '10'))
 # Portfolio guard: max concurrent open trades on the same symbol per user.
+# Live mode: 1 — strict, never hold the same symbol twice across the whole fleet.
 PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '1'))
+# Paper mode: 2 — allows a second bot to enter the same symbol so that a paper
+# fleet is not frozen to one-bot-at-a-time when multiple bots converge on the same
+# pair.  Each exchange is checked independently (exchange-scoped guard) so Luno and
+# Binance cohorts remain independent.  Raise via env for wider fleet validation.
+PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '2'))
 # Training-mode max hold: closes training trades sooner to speed up the learn loop.
 # Default 45 min; recorded as close_reason=training_timeout.
 TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))
@@ -446,6 +452,7 @@ __all__ = [
     'SYMBOL_COOLDOWN_HISTORY',
     'PORTFOLIO_GUARD_WINDOW_MINUTES',
     'PORTFOLIO_GUARD_MAX_SAME_SYMBOL',
+    'PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL',
     'TRAINING_MAX_HOLD_MINUTES',
     'TRAINING_TRADES_REQUIRED',
     'MAX_DRAWDOWN_PCT',

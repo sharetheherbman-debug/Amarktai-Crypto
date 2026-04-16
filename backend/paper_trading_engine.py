@@ -77,6 +77,7 @@ from config import (
     SYMBOL_COOLDOWN_MINUTES,
     PORTFOLIO_GUARD_WINDOW_MINUTES,
     PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
+    PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
     TRAINING_TRADES_REQUIRED,
     TRAINING_MAX_HOLD_MINUTES,
     MAX_DRAWDOWN_PCT,
@@ -1042,20 +1043,26 @@ class PaperTradingEngine:
                 symbol = selected or (available_pairs[0] if available_pairs else "BTC/USDT")
                 self._last_symbol_selection = sym_diag
 
-            # Portfolio guard (C3): prevent >PORTFOLIO_GUARD_MAX_SAME_SYMBOL concurrent
-            # opens on the same symbol per user.
+            # Portfolio guard (C3): prevent >PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL concurrent
+            # opens on the same symbol+exchange per user.
+            # The guard is EXCHANGE-SCOPED so Luno and Binance cohorts are independent:
+            # one Luno bot holding XBT/ZAR does NOT block a Binance bot from BTC/USDT.
+            # PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL=2 allows a second bot on the same
+            # exchange+symbol so a paper fleet is not frozen to one-bot-at-a-time when
+            # all bots converge on the same pair.
             # Only blocks opening NEW trades; never affects closing.
             # FALLBACK: when the bot's fixed pair is blocked, try dynamic pair
             # selection so bots that all share the same configured pair can still
             # trade on alternative symbols rather than all failing the guard.
-            if PORTFOLIO_GUARD_MAX_SAME_SYMBOL > 0:
+            if PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL > 0:
                 try:
                     same_symbol_count = await db.trades_collection.count_documents({
                         "user_id": user_id,
                         "status": "open",
                         "pair": symbol,
+                        "exchange": exchange,  # exchange-scoped: Luno and Binance are independent
                     })
-                    if same_symbol_count >= PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
+                    if same_symbol_count >= PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
                         _rerouted = False
                         if _used_fixed_pair and len(available_pairs) > 1:
                             # The bot's fixed pair is already held by another trade.
@@ -1076,8 +1083,9 @@ class PaperTradingEngine:
                                         "user_id": user_id,
                                         "status": "open",
                                         "pair": selected_alt,
+                                        "exchange": exchange,
                                     })
-                                    if alt_count < PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
+                                    if alt_count < PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL:
                                         logger.info(
                                             "PORTFOLIO_GUARD_REROUTE: %s fixed-pair %s blocked "
                                             "(open=%d); switching to %s for this cycle",
@@ -1089,8 +1097,8 @@ class PaperTradingEngine:
                                         _rerouted = True
                         if not _rerouted:
                             logger.info(
-                                "PORTFOLIO_GUARD: user=%s symbol=%s open=%d >= max=%d",
-                                user_id, symbol, same_symbol_count, PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
+                                "PORTFOLIO_GUARD: user=%s exchange=%s symbol=%s open=%d >= max=%d",
+                                user_id, exchange, symbol, same_symbol_count, PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL,
                             )
                             return {
                                 "success": False,
@@ -1098,7 +1106,7 @@ class PaperTradingEngine:
                                 "skip_reason": "portfolio_guard",
                                 "error": (
                                     f"Portfolio guard: already {same_symbol_count} open trade(s) "
-                                    f"on {symbol} for this user"
+                                    f"on {symbol} ({exchange}) for this user"
                                 ),
                             }
                 except Exception:

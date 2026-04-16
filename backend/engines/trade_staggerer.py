@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 # trade it is benched for this period so other bots get execution slots.
 # Only applied when had_entry=True (new trade opened), NOT for close-only or
 # skip ticks — those are unaffected so trade management stays responsive.
-BOT_TRADE_COOLDOWN_SECONDS = int(os.getenv("BOT_TRADE_COOLDOWN_SECONDS", "60"))
+# Default: 30s — allows faster rotation in a paper fleet.
+# For live mode, set BOT_TRADE_COOLDOWN_SECONDS=60 via env.
+BOT_TRADE_COOLDOWN_SECONDS = int(os.getenv("BOT_TRADE_COOLDOWN_SECONDS", "30"))
 
 # Maximum seconds a bot's execution slot may remain "in-flight" before the
 # concurrent-execution guard considers it stuck.  In practice paper trades
@@ -40,9 +42,17 @@ class TradeStaggerer:
         # consuming all execution slots while others are waiting.
         self._last_completed: Dict[str, datetime] = {}
         
-        # Rate limiting per exchange
+        # Rate limiting per exchange.
+        # For LIVE trading these values are real API rate limits.
+        # For PAPER trading the concurrency limits govern how many paper-engine
+        # goroutines can process simultaneously — paper bots do not hit real APIs
+        # so higher concurrency is safe and necessary for fleet-wide participation.
+        # Luno: raised from 2→4 for paper so a 10-bot Luno fleet can actually
+        # run concurrently rather than serializing through 2 slots.
+        # Override via env: TRADE_STAGGERER_LUNO_MAX_CONCURRENT, etc.
+        _luno_max = int(os.getenv("TRADE_STAGGERER_LUNO_MAX_CONCURRENT", "4"))
         self.exchange_limits = {
-            'luno': {'max_concurrent': 2, 'min_delay': 10},      # 2 concurrent, 10s between
+            'luno': {'max_concurrent': _luno_max, 'min_delay': 5},
             'binance': {'max_concurrent': 5, 'min_delay': 2},    # 5 concurrent, 2s between
             'kucoin': {'max_concurrent': 3, 'min_delay': 3},     # 3 concurrent, 3s between
             'bybit': {'max_concurrent': 4, 'min_delay': 3},      # 4 concurrent, 3s between

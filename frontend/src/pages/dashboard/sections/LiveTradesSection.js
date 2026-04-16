@@ -196,7 +196,7 @@ export default function LiveTradesSection({
       </div>
 
       {/* Content Area */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: '16px' }}>
+      <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', gap: '16px', minHeight: 0 }}>
         {/* Feed / Table */}
         <div style={{
           flex: '1 1 0',
@@ -338,8 +338,8 @@ export default function LiveTradesSection({
         {selectedTrade && viewMode === 'feed' && (
           <div style={{
             flex: '0 0 400px',
-            minWidth: '300px',
-            maxWidth: '480px',
+            minWidth: '260px',
+            maxWidth: '460px',
             background: 'var(--glass)',
             border: '1px solid var(--line)',
             borderRadius: '14px',

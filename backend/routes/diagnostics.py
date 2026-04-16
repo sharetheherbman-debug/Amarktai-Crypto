@@ -3097,3 +3097,223 @@ async def get_self_learning_recommendations(user_id: str = Depends(get_current_u
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ============================================================================
+# Go-Live Readiness  (single aggregated endpoint for post-deploy proof)
+# ============================================================================
+
+@router.get("/go-live")
+async def go_live_readiness(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/diagnostics/go-live
+
+    Aggregates all go-live readiness signals into one canonical response so
+    every post-deploy proof command is a single curl call.
+
+    Returns:
+    -------
+    {
+      "ready_for_paper": bool,
+      "ready_for_live": bool,
+      "checks": {
+        "db": { "ok": bool, "detail": str },
+        "bots": { "ok": bool, "total": int, "active": int, "by_exchange": {...}, "by_type": {...} },
+        "trading_mode": { "ok": bool, "paper_trading": bool, "live_trading": bool },
+        "scheduler": { "ok": bool, "running": bool, "tick_count": int },
+        "portfolio_guard": { "max_same_symbol_paper": int, "exchange_scoped": bool },
+        "staggerer": { "bot_cooldown_seconds": int, "luno_max_concurrent": int },
+        "open_trades": { "ok": bool, "count": int },
+        "reinvestment": { "pool_total_zar": float },
+        "cohort_skips": { ... },
+      },
+      "blockers": [ str, ... ],
+      "timestamp": str
+    }
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    now_iso = _dt.now(_tz.utc).isoformat()
+    checks: dict = {}
+    blockers: list = []
+
+    # ── DB ────────────────────────────────────────────────────────────────────
+    try:
+        await db.client.admin.command("ping")
+        checks["db"] = {"ok": True, "detail": "connected"}
+    except Exception as e:
+        checks["db"] = {"ok": False, "detail": str(e)}
+        blockers.append(f"DB unavailable: {e}")
+
+    # ── Bot census ────────────────────────────────────────────────────────────
+    try:
+        from utils.bot_state import is_active_bot
+        bots = await db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {"_id": 0, "id": 1, "exchange": 1, "bot_type": 1, "status": 1,
+             "last_skip_reason": 1, "last_eligibility": 1},
+        ).to_list(500)
+
+        by_exchange: dict = {}
+        by_type: dict = {"normal": 0, "scalper": 0}
+        active_count = 0
+
+        for bot in bots:
+            exch = (bot.get("exchange") or "unknown").lower()
+            by_exchange[exch] = by_exchange.get(exch, 0) + 1
+            bt = (bot.get("bot_type") or "normal").lower()
+            by_type[bt] = by_type.get(bt, 0) + 1
+            if is_active_bot(bot):
+                active_count += 1
+
+        checks["bots"] = {
+            "ok": len(bots) > 0,
+            "total": len(bots),
+            "active": active_count,
+            "by_exchange": by_exchange,
+            "by_type": by_type,
+        }
+        if len(bots) == 0:
+            blockers.append("No bots found for this user")
+        elif active_count == 0:
+            blockers.append("No active bots — all bots are paused/stopped")
+    except Exception as e:
+        checks["bots"] = {"ok": False, "error": str(e)}
+        blockers.append(f"Bot census failed: {e}")
+
+    # ── Trading mode ──────────────────────────────────────────────────────────
+    try:
+        modes_doc = await db.system_modes_collection.find_one(
+            {"user_id": user_id}, {"_id": 0}
+        ) if db.system_modes_collection is not None else None
+        modes_doc = modes_doc or {}
+        paper = bool(modes_doc.get("paperTrading", True))
+        live = bool(modes_doc.get("liveTrading", False))
+        checks["trading_mode"] = {
+            "ok": paper or live,
+            "paper_trading": paper,
+            "live_trading": live,
+        }
+        if not paper and not live:
+            blockers.append("Neither paper nor live trading is enabled in system_modes")
+    except Exception as e:
+        checks["trading_mode"] = {"ok": False, "error": str(e)}
+        blockers.append(f"Trading mode check failed: {e}")
+
+    # ── Scheduler ─────────────────────────────────────────────────────────────
+    try:
+        from trading_scheduler import trading_scheduler
+        sched_status = trading_scheduler.get_status()
+        sched_running = sched_status.get("running", False)
+        checks["scheduler"] = {
+            "ok": sched_running,
+            "running": sched_running,
+            "tick_count": sched_status.get("tick_count", 0),
+            "last_tick_at": sched_status.get("last_tick_at"),
+        }
+        if not sched_running:
+            blockers.append("Trading scheduler is NOT running")
+    except Exception as e:
+        checks["scheduler"] = {"ok": False, "error": str(e)}
+        blockers.append(f"Scheduler check failed: {e}")
+
+    # ── Portfolio guard config ─────────────────────────────────────────────────
+    try:
+        import config as _cfg
+        paper_pg = getattr(_cfg, "PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL", 1)
+        checks["portfolio_guard"] = {
+            "max_same_symbol_paper": paper_pg,
+            "max_same_symbol_live": getattr(_cfg, "PORTFOLIO_GUARD_MAX_SAME_SYMBOL", 1),
+            "exchange_scoped": True,  # added in this release
+        }
+    except Exception as e:
+        checks["portfolio_guard"] = {"error": str(e)}
+
+    # ── Staggerer config ───────────────────────────────────────────────────────
+    try:
+        from engines.trade_staggerer import BOT_TRADE_COOLDOWN_SECONDS, trade_staggerer
+        luno_max = trade_staggerer.exchange_limits.get("luno", {}).get("max_concurrent", "?")
+        checks["staggerer"] = {
+            "bot_cooldown_seconds": BOT_TRADE_COOLDOWN_SECONDS,
+            "luno_max_concurrent": luno_max,
+            "binance_max_concurrent": trade_staggerer.exchange_limits.get("binance", {}).get("max_concurrent", "?"),
+        }
+    except Exception as e:
+        checks["staggerer"] = {"error": str(e)}
+
+    # ── Open trades ────────────────────────────────────────────────────────────
+    try:
+        from collections import Counter as _Counter
+        bot_ids = [b["id"] for b in bots] if "bots" in checks and checks["bots"].get("ok") else []
+        open_trades = []
+        if bot_ids:
+            open_trades = await db.trades_collection.find(
+                {"bot_id": {"$in": bot_ids}, "status": "open"},
+                {"_id": 0, "bot_id": 1, "pair": 1, "exchange": 1},
+            ).to_list(200)
+        by_pair = dict(_Counter(t.get("pair", "?") for t in open_trades))
+        checks["open_trades"] = {
+            "ok": True,
+            "count": len(open_trades),
+            "by_pair": by_pair,
+        }
+    except Exception as e:
+        checks["open_trades"] = {"ok": False, "error": str(e)}
+
+    # ── Reinvestment pool ─────────────────────────────────────────────────────
+    try:
+        pool_total = 0.0
+        if db.autopilot_milestones_collection is not None:
+            pool_doc = await db.autopilot_milestones_collection.find_one(
+                {"user_id": user_id, "type": "capital_growth_pool"},
+                {"_id": 0, "total_zar": 1},
+            )
+            if pool_doc:
+                pool_total = float(pool_doc.get("total_zar", 0) or 0)
+        checks["reinvestment"] = {"pool_total_zar": round(pool_total, 2)}
+    except Exception as e:
+        checks["reinvestment"] = {"error": str(e)}
+
+    # ── Cohort skip distribution (last_skip_reason from bot docs) ─────────────
+    try:
+        from collections import Counter as _C2, defaultdict as _dd
+        cohort_map: dict = _dd(lambda: _C2())
+        for bot in (bots if "bots" in checks and checks["bots"].get("ok") else []):
+            exch = (bot.get("exchange") or "unknown").lower()
+            bt = (bot.get("bot_type") or "normal").lower()
+            key = f"{exch}_{bt}"
+            sr = bot.get("last_skip_reason") or "none"
+            cohort_map[key][sr] += 1
+        checks["cohort_skips"] = {
+            k: dict(v.most_common(5)) for k, v in sorted(cohort_map.items())
+        }
+    except Exception as e:
+        checks["cohort_skips"] = {"error": str(e)}
+
+    # ── Overall readiness ─────────────────────────────────────────────────────
+    critical_ok = (
+        checks.get("db", {}).get("ok", False)
+        and checks.get("bots", {}).get("ok", False)
+        and checks.get("bots", {}).get("active", 0) > 0
+        and checks.get("trading_mode", {}).get("ok", False)
+        and checks.get("scheduler", {}).get("ok", False)
+    )
+    ready_for_paper = critical_ok and checks.get("trading_mode", {}).get("paper_trading", False)
+    ready_for_live = (
+        critical_ok
+        and checks.get("trading_mode", {}).get("live_trading", False)
+        and len(blockers) == 0
+    )
+
+    return {
+        "ready_for_paper": ready_for_paper,
+        "ready_for_live": ready_for_live,
+        "checks": checks,
+        "blockers": blockers,
+        "timestamp": now_iso,
+    }
