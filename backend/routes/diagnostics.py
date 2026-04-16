@@ -3260,7 +3260,7 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
                 {"bot_id": {"$in": bot_ids}, "status": "open"},
                 {"_id": 0, "bot_id": 1, "pair": 1, "exchange": 1},
             ).to_list(200)
-        by_pair = dict(Counter(t.get("pair", "unknown") for t in open_trades))
+        by_pair = dict(Counter(t.get("pair", "unknown") for t in open_trades).most_common())
         checks["open_trades"] = {
             "ok": True,
             "count": len(open_trades),
