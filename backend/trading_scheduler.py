@@ -369,11 +369,11 @@ class TradingScheduler:
                 except Exception:
                     pass
 
-            # Process ready trades from queue
-            logger.debug("🔍 Checking trade queue for ready trades...")
-            # Build a fast lookup set of active bot IDs to detect stale queue entries
-            active_bot_ids = {b['id'] for b in active_bots}
-            for _ in range(5):  # Process up to 5 trades per cycle
+            # Process ready trades from queue.
+            # Process up to len(active_bots) items per tick (floored at 5, capped at 20)
+            # so the whole fleet can participate in a single scheduler cycle.
+            _max_per_tick = min(max(5, len(active_bots)), 20)
+            for _ in range(_max_per_tick):  # Process up to _max_per_tick trades per cycle
                 trade_request = await trade_staggerer.get_next_trade()
                 
                 if not trade_request:
@@ -589,8 +589,8 @@ class TradingScheduler:
             #
             # FAIRNESS: Rotate the iteration start position by one slot each tick so
             # that no single bot monopolises the front of the queue.  With N active bots
-            # and a 5-slot-per-tick execution window, every bot advances through first
-            # position every N ticks instead of the same bot always going first.
+            # and a dynamic _max_per_tick processing window, every bot advances through
+            # first position every N ticks instead of the same bot always going first.
             #
             # DUPLICATE GUARD: Only enqueue a bot that is NOT already waiting in the
             # queue.  Without this check, bots accumulate multiple entries each tick,
@@ -627,10 +627,11 @@ class TradingScheduler:
                     continue
 
                 # Check if bot can trade
-                can_execute, reason = await trade_staggerer.can_execute_now(bot_id, exchange)
+                _is_paper = _is_paper_bot(bot)
+                can_execute, reason = await trade_staggerer.can_execute_now(bot_id, exchange, paper_mode=_is_paper)
 
                 if can_execute:
-                    await trade_staggerer.add_to_queue(bot_id, exchange, priority=0)
+                    await trade_staggerer.add_to_queue(bot_id, exchange, priority=0, paper_mode=_is_paper)
 
             # Force-close overdue open trades for all users — this sweeps trades from
             # paused bots that the normal cycle would skip (fix for D exit precedence).

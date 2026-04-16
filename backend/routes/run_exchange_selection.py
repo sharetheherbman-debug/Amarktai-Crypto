@@ -25,7 +25,7 @@ import logging
 from auth import get_current_user
 import database as db
 from config.platforms import SUPPORTED_PLATFORMS
-from services.canonical import get_user_run_exchanges
+from services.canonical import get_user_run_exchanges, get_unlocked_exchanges
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             e.lower() in SUPPORTED_PLATFORMS for e in explicit
         ))
 
-        # Get configured exchanges (has API key)
+        # Get configured exchanges (has API key — any key, tested or not)
         key_docs = await db.api_keys_collection.find(
             {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
             {"_id": 0, "provider": 1},
@@ -64,19 +64,28 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             if d.get("provider") and d["provider"].lower() in SUPPORTED_PLATFORMS
         ))
 
+        # Get UNLOCKED exchanges: key present AND last_test_ok=True
+        unlocked_exchanges = await get_unlocked_exchanges(user_id)
+
         resolution_tier = (
             "explicit" if has_explicit
             else "api_keys" if configured_exchanges
             else "fallback"
         )
 
-        # Build per-exchange status table
+        # Build per-exchange status table.
+        # Three independent flags per exchange:
+        #   supported  — exchange is in SUPPORTED_PLATFORMS (always true here)
+        #   configured — user has saved an API key (tested or not)
+        #   unlocked   — key is saved AND last connection test passed
+        #   run_active — exchange is participating in the current run
         exchange_table = []
         for ex in SUPPORTED_PLATFORMS:
             exchange_table.append({
                 "exchange": ex,
-                "supported": True,              # always true (SUPPORTED_PLATFORMS)
+                "supported": True,
                 "configured": ex in configured_exchanges,
+                "unlocked": ex in unlocked_exchanges,
                 "run_active": ex in run_active,
             })
 
@@ -91,6 +100,7 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             "resolution_tier": resolution_tier,
             "explicit_selection": explicit if has_explicit else None,
             "configured_exchanges": configured_exchanges,
+            "unlocked_exchanges": unlocked_exchanges,
             "supported_exchanges": list(SUPPORTED_PLATFORMS),
             "exchange_status": exchange_table,
             "excluded_bots_count": excluded_count,

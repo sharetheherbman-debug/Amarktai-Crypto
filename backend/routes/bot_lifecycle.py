@@ -98,6 +98,20 @@ def _bots_status_payload(
         for bot in bots
         if bot.get("state") in ("active", "running") or bot.get("status") in ("active", "running")
     )
+    # Bot-type breakdown — canonical counts used by diagnostics, fleet header tiles,
+    # and radar.  Count every non-deleted bot (total), then separately count active ones.
+    normal_total = sum(1 for b in bots if (b.get("bot_type") or "normal").lower() != "scalper")
+    scalper_total = sum(1 for b in bots if (b.get("bot_type") or "normal").lower() == "scalper")
+    normal_active = sum(
+        1 for b in bots
+        if (b.get("bot_type") or "normal").lower() != "scalper"
+        and (b.get("state") in ("active", "running") or b.get("status") in ("active", "running"))
+    )
+    scalper_active = sum(
+        1 for b in bots
+        if (b.get("bot_type") or "normal").lower() == "scalper"
+        and (b.get("state") in ("active", "running") or b.get("status") in ("active", "running"))
+    )
     return {
         "success": success,
         "active_bots": active_bots,
@@ -107,6 +121,15 @@ def _bots_status_payload(
         "total": len(bots),
         "exchange_counts": exchange_counts,
         "all_exchanges": all_exchanges,
+        # Canonical fleet type breakdown — must match diagnostics + overview
+        "by_type": {
+            "normal": normal_total,
+            "scalper": scalper_total,
+        },
+        "by_type_active": {
+            "normal": normal_active,
+            "scalper": scalper_active,
+        },
         **({"error": error} if error else {}),
     }
 

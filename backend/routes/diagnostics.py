@@ -3251,6 +3251,39 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
         logger.error("go_live_readiness: staggerer check error: %s", e)
         checks["staggerer"] = {"error": "staggerer_unavailable"}
 
+    # ── Exchange unlock status ─────────────────────────────────────────────────
+    # Shows which exchanges are configured (key saved), unlocked (key+test ok),
+    # and run-active (participating in current run).  A ghost exchange is one
+    # where run_active=True but unlocked=False — visible here as a warning.
+    try:
+        from services.canonical import get_unlocked_exchanges, get_user_run_exchanges
+        _run_active = await get_user_run_exchanges(user_id)
+        _unlocked = await get_unlocked_exchanges(user_id)
+        _key_docs = await db.api_keys_collection.find(
+            {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
+            {"_id": 0, "provider": 1},
+        ).to_list(50) if db.api_keys_collection is not None else []
+        from config.platforms import SUPPORTED_PLATFORMS
+        _configured = [
+            d["provider"].lower()
+            for d in _key_docs
+            if d.get("provider") and d["provider"].lower() in SUPPORTED_PLATFORMS
+        ]
+        _ghost_exchanges = [ex for ex in _run_active if ex not in _unlocked]
+        checks["exchange_unlock"] = {
+            "configured_exchanges": list(dict.fromkeys(_configured)),
+            "unlocked_exchanges": _unlocked,
+            "run_active_exchanges": _run_active,
+            "ghost_exchanges": _ghost_exchanges,
+            "note": (
+                "ghost_exchanges: run-active but not yet unlocked (key+test). "
+                "Paper bots bypass this check — ghost is not a hard blocker for paper runs."
+            ),
+        }
+    except Exception as e:
+        logger.error("go_live_readiness: exchange unlock check error: %s", e)
+        checks["exchange_unlock"] = {"error": "exchange_unlock_check_failed"}
+
     # ── Open trades ────────────────────────────────────────────────────────────
     try:
         bot_ids = [b["id"] for b in bots] if "bots" in checks and checks["bots"].get("ok") else []

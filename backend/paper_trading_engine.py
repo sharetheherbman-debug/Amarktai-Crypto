@@ -131,12 +131,30 @@ EXCHANGE_FEES = {
 }
 
 # Paper execution tuning (bps = basis points, 1 bps = 0.01%)
-PAPER_SLIPPAGE_BPS = float(os.getenv("PAPER_SLIPPAGE_BPS", "8"))  # 0.08%
+PAPER_SLIPPAGE_BPS = float(os.getenv("PAPER_SLIPPAGE_BPS", "8"))  # 0.08% — default (Luno / illiquid)
 PAPER_LATENCY_BPS = float(os.getenv("PAPER_LATENCY_BPS", "3"))   # 0.03%
 PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
+
+# Per-exchange slippage calibration (bps = basis points, 1 bps = 0.01%).
+# Binance / KuCoin / Bybit have deep order books so simulated slippage must be
+# much lower than Luno/ZAR pairs.  Using the single PAPER_SLIPPAGE_BPS=8bps for
+# Binance inflates estimated_cost_pct to ~0.42 %, which blocks nearly every trade
+# because typical short-term expected moves on BTC/USDT are only 0.25–0.35 %.
+# Binance 2 bps → estimated_cost ≈ 0.30 %; realistic threshold ~0.32 %.
+# Override any exchange via env: PAPER_SLIPPAGE_BPS_BINANCE, etc.
+EXCHANGE_SLIPPAGE_BPS: dict[str, float] = {
+    "binance":  float(os.getenv("PAPER_SLIPPAGE_BPS_BINANCE",   "2")),  # 0.02% — deep book
+    "kucoin":   float(os.getenv("PAPER_SLIPPAGE_BPS_KUCOIN",    "4")),  # 0.04%
+    "bybit":    float(os.getenv("PAPER_SLIPPAGE_BPS_BYBIT",     "3")),  # 0.03%
+    "bitget":   float(os.getenv("PAPER_SLIPPAGE_BPS_BITGET",    "4")),  # 0.04%
+    "kraken":   float(os.getenv("PAPER_SLIPPAGE_BPS_KRAKEN",    "5")),  # 0.05%
+    "luno":     float(os.getenv("PAPER_SLIPPAGE_BPS_LUNO",      "8")),  # 0.08% — ZAR pairs, less liquid
+    "gate":     float(os.getenv("PAPER_SLIPPAGE_BPS_GATE",      "5")),  # 0.05%
+    "coinbase": float(os.getenv("PAPER_SLIPPAGE_BPS_COINBASE",  "3")),  # 0.03% — deep BTC/USD book with tight spreads
+}
 # Minimum average confidence required for paper mode quality bypass (learning/data-collection mode).
 # Lowered from 0.35 to 0.30: confidence_score ≈ 0.32 should be allowed to trade in paper mode,
 # provided at least one real signal source contributed (confidence_sources >= 1).
@@ -1546,7 +1564,11 @@ class PaperTradingEngine:
             # EDGE GATE: Require expected move to clear costs + buffer
             # Skip the gate when the ML prediction has no real data (is_simulated=True)
             # Adaptive safety buffer: use risk-mode config default, increase if spread is wide.
-            slippage_rate = PAPER_SLIPPAGE_BPS / 10000
+            # Use per-exchange slippage: Binance (2bps) is much more liquid than Luno (8bps).
+            # The single global PAPER_SLIPPAGE_BPS was over-penalising deep-book exchanges
+            # and blocking nearly every Binance/KuCoin trade.
+            _exch_slippage_bps = EXCHANGE_SLIPPAGE_BPS.get(exchange.lower(), PAPER_SLIPPAGE_BPS)
+            slippage_rate = _exch_slippage_bps / 10000
             latency_rate = PAPER_LATENCY_BPS / 10000
             exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
             fee_rate = exchange_fee_struct.get('taker', 0.001)

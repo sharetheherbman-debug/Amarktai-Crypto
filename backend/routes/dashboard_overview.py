@@ -105,6 +105,11 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         paused_bots = sum(1 for b in bots if b.get("status") == "paused")
         training_bots = sum(1 for b in bots if b.get("status") in ["training", "quarantined"])
         total_bots = len(bots)
+        in_position_bots = sum(1 for b in bots if b.get("has_open_position") or b.get("open_position"))
+
+        # Bot-type breakdown — must agree with /api/bots/status by_type
+        normal_bots = sum(1 for b in bots if (b.get("bot_type") or "normal").lower() != "scalper")
+        scalper_bots = sum(1 for b in bots if (b.get("bot_type") or "normal").lower() == "scalper")
         
         # Calculate total profit from bots — normalised to ZAR
         total_profit = 0.0
@@ -212,6 +217,12 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
             "paused_bots": paused_bots,
             "training_bots": training_bots,
             "total_bots": total_bots,
+            # Bot-type breakdown — must agree with /api/bots/status by_type
+            "by_type": {
+                "normal": normal_bots,
+                "scalper": scalper_bots,
+            },
+            "in_position_bots": in_position_bots,
             "total_trades": total_trades,
             "win_rate": round(win_rate, 1),
             "last_trade_time": last_trade_time,

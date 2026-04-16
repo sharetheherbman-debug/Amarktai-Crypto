@@ -230,6 +230,9 @@ class OverviewService:
                 "bots_paused": bot_metrics["paused"],
                 "bots_training": bot_metrics["training"],
                 "bots_quarantine": bot_metrics["quarantine"],
+                "bots_total": bot_metrics["total"],
+                # Bot-type breakdown — same predicate as /api/bots/status by_type
+                "bots_by_type": bot_metrics.get("by_type", {"normal": 0, "scalper": 0}),
 
                 # Risk metrics
                 "daily_loss_lock": daily_loss_lock,
@@ -429,19 +432,27 @@ class OverviewService:
         }
     
     def _compute_bot_metrics(self, bots: List[Dict]) -> Dict:
-        """Compute bot counts by status"""
+        """Compute bot counts by status and type"""
         normalized = [normalize_bot_state(bot) for bot in bots]
         active = sum(1 for b in normalized if b.get("active"))
         paused = sum(1 for b in normalized if b.get("paused"))
         training = sum(1 for b in normalized if b.get("status") == "training")
         quarantine = sum(1 for b in normalized if b.get("status") in ["quarantined", "quarantine"])
-        
+
+        # Bot-type breakdown (mirrors /api/bots/status by_type counts)
+        normal_total = sum(1 for b in bots if (b.get("bot_type") or "normal").lower() != "scalper")
+        scalper_total = sum(1 for b in bots if (b.get("bot_type") or "normal").lower() == "scalper")
+
         return {
             "active": active,
             "paused": paused,
             "training": training,
             "quarantine": quarantine,
-            "total": len(bots)
+            "total": len(bots),
+            "by_type": {
+                "normal": normal_total,
+                "scalper": scalper_total,
+            },
         }
     
     def _compute_capital_metrics(self, bots: List[Dict]) -> Dict:
