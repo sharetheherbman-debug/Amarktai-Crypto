@@ -337,69 +337,97 @@ export default function LiveTradesSection({
         </div>
 
         {/* Detail Panel (Feed view only)
-             Width: 380px flex-basis, shrinks if container is tight, wraps below the
-             feed when viewport is narrow.  Never collapses below 280px.            */}
+             Width: 420px flex-basis, wraps below feed when viewport is narrow.
+             Decision trace is always visible (no hidden `<details>` collapse). */}
         {selectedTrade && viewMode === 'feed' && (
           <div style={{
-            flex: '0 1 380px',
-            minWidth: '280px',
+            flex: '0 1 420px',
+            minWidth: '300px',
             width: '100%',
-            maxWidth: '420px',
-            background: 'var(--glass)',
-            border: '1px solid var(--line)',
-            borderRadius: '14px',
-            padding: '20px',
-            position: 'sticky',
-            top: 0,
+            maxWidth: '460px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
             alignSelf: 'start',
-            maxHeight: 'calc(100vh - 80px)',
-            overflowY: 'auto',
-            boxSizing: 'border-box',
+            position: 'sticky',
+            top: '16px',
           }}>
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
-                  {selectedTrade.symbol || NA}
-                </h3>
-                <span style={modePillStyle(isLiveTrade(selectedTrade))}>
-                  {isLiveTrade(selectedTrade) ? 'LIVE' : 'PAPER'}
-                </span>
-              </div>
-              <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-                {selectedTrade.bot_name || 'Bot'} • {getPlatformDisplayName(selectedTrade.exchange?.toLowerCase())}
-              </p>
-              <p style={{ color: 'var(--muted)', fontSize: '0.78rem', marginTop: '2px' }}>
-                {formatDateTime(selectedTrade.timestamp)}
-              </p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
-              {[
-                { label: 'Side', value: (selectedTrade.side || selectedTrade.action || 'Trade').toString().toUpperCase(), color: getSideColor(selectedTrade.side || selectedTrade.action) },
-                { label: 'Price', value: formatZAR(selectedTrade.entry_price || selectedTrade.price || selectedTrade.avg_price) },
-                { label: 'Size', value: selectedTrade.size || selectedTrade.quantity || selectedTrade.qty || selectedTrade.amount || NA },
-                { label: 'P/L', value: formatZAR(selectedTrade.profit_loss ?? selectedTrade.net_profit_loss ?? selectedTrade.net_pnl), color: (Number(selectedTrade.profit_loss ?? selectedTrade.net_profit_loss ?? 0) || 0) >= 0 ? '#22c55e' : '#ef4444' },
-                { label: 'Fees', value: formatZAR(selectedTrade.fees || selectedTrade.fee || selectedTrade.fee_total || selectedTrade.fee_amount) },
-                { label: 'Slippage', value: (selectedTrade.slippage != null || selectedTrade.slippage_cost != null) ? formatZAR(selectedTrade.slippage ?? selectedTrade.slippage_cost) : NA },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{
-                  background: 'rgba(10, 14, 26, 0.5)',
-                  border: '1px solid var(--line)',
-                  borderRadius: '10px',
-                  padding: '10px 12px',
-                  minWidth: 0,
-                }}>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: color || 'var(--text)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{value}</div>
+            {/* ── Trade Header ── */}
+            <div style={{
+              background: 'var(--glass)',
+              border: '1px solid var(--line)',
+              borderRadius: '14px',
+              padding: '16px 18px',
+            }}>
+              {/* Close button */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)' }}>
+                      {selectedTrade.symbol || NA}
+                    </span>
+                    <span style={modePillStyle(isLiveTrade(selectedTrade))}>
+                      {isLiveTrade(selectedTrade) ? 'LIVE' : 'PAPER'}
+                    </span>
+                    {selectedTrade.status && (
+                      <span style={{
+                        fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px',
+                        borderRadius: '999px', textTransform: 'uppercase',
+                        background: (selectedTrade.status === 'open') ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.1)',
+                        color: (selectedTrade.status === 'open') ? '#f59e0b' : '#22c55e',
+                        border: `1px solid ${(selectedTrade.status === 'open') ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.25)'}`,
+                      }}>
+                        {selectedTrade.status}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.82rem', margin: 0 }}>
+                    {selectedTrade.bot_name || 'Bot'} · {getPlatformDisplayName(selectedTrade.exchange?.toLowerCase())}
+                  </p>
+                  <p style={{ color: 'var(--muted)', fontSize: '0.75rem', marginTop: '2px' }}>
+                    {formatDateTime(selectedTrade.timestamp)}
+                  </p>
                 </div>
-              ))}
+                <button
+                  onClick={() => setSelectedTradeId(null)}
+                  style={{
+                    background: 'transparent', border: '1px solid var(--line)',
+                    borderRadius: '6px', padding: '4px 8px', cursor: 'pointer',
+                    color: 'var(--muted)', fontSize: '0.75rem', lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                  title="Close panel"
+                >✕</button>
+              </div>
+
+              {/* ── Metric Grid ── */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                {[
+                  { label: 'Side', value: (selectedTrade.side || selectedTrade.action || 'Trade').toString().toUpperCase(), color: getSideColor(selectedTrade.side || selectedTrade.action) },
+                  { label: 'Entry Price', value: formatZAR(selectedTrade.entry_price || selectedTrade.price || selectedTrade.avg_price) },
+                  { label: 'Size', value: selectedTrade.size || selectedTrade.quantity || selectedTrade.qty || selectedTrade.amount || NA },
+                  { label: 'P / L', value: formatZAR(selectedTrade.profit_loss ?? selectedTrade.net_profit_loss ?? selectedTrade.net_pnl), color: (Number(selectedTrade.profit_loss ?? selectedTrade.net_profit_loss ?? 0) || 0) >= 0 ? '#22c55e' : '#ef4444' },
+                  { label: 'Fees', value: formatZAR(selectedTrade.fees || selectedTrade.fee || selectedTrade.fee_total || selectedTrade.fee_amount) },
+                  { label: 'Slippage', value: (selectedTrade.slippage != null || selectedTrade.slippage_cost != null) ? formatZAR(selectedTrade.slippage ?? selectedTrade.slippage_cost) : NA },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{
+                    background: 'rgba(10, 14, 26, 0.55)',
+                    border: '1px solid var(--line)',
+                    borderRadius: '10px',
+                    padding: '9px 11px',
+                    minWidth: 0,
+                  }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: color || 'var(--text)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{value}</div>
+                  </div>
+                ))}
+              </div>
             </div>
 
+            {/* ── Decision Trace — always visible, scrollable ── */}
             {(selectedTrade.reason != null || selectedTrade.decision_trace != null) && (() => {
               const raw = selectedTrade.reason != null ? selectedTrade.reason : selectedTrade.decision_trace;
-              // Human-readable recursive renderer for decision trace fields.
-              // Nested objects expand as indented sub-tables instead of raw JSON blobs.
-              const SKIP_KEYS = new Set(['top_candidates']); // large/irrelevant arrays
+              const SKIP_KEYS = new Set(['top_candidates']);
               const LABEL_MAP = {
                 expectancy_estimate: 'Expectancy (ZAR)',
                 cost_estimate: 'Est. Cost %',
@@ -412,6 +440,8 @@ export default function LiveTradesSection({
                 time_exit_minutes: 'Max Hold (min)',
                 hard_max_hold_seconds: 'Hard Exit (s)',
                 next_exit_reason: 'Next Exit',
+                skip_reason: 'Skip Reason',
+                eligibility_code: 'Eligibility Code',
               };
               const fmtLabel = (k) => LABEL_MAP[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
               const fmtVal = (v) => {
@@ -423,7 +453,6 @@ export default function LiveTradesSection({
               const renderValue = (v, depth = 0) => {
                 if (v == null) return <span style={{ color: 'var(--muted)' }}>—</span>;
                 if (typeof v !== 'object' || Array.isArray(v)) return <span>{fmtVal(v)}</span>;
-                // Nested object: render as indented key-value block
                 const entries = Object.entries(v).filter(([k]) => !SKIP_KEYS.has(k));
                 if (entries.length === 0) return <span style={{ color: 'var(--muted)' }}>—</span>;
                 return (
@@ -431,61 +460,64 @@ export default function LiveTradesSection({
                     <tbody>
                       {entries.map(([k2, v2]) => (
                         <tr key={k2}>
-                          <td style={{ padding: '2px 8px 2px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600, fontSize: '0.78rem' }}>{fmtLabel(k2)}</td>
-                          <td style={{ padding: '2px 0', color: 'var(--text)', wordBreak: 'break-word', fontSize: '0.78rem' }}>{renderValue(v2, depth + 1)}</td>
+                          <td style={{ padding: '2px 8px 2px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600, fontSize: '0.75rem' }}>{fmtLabel(k2)}</td>
+                          <td style={{ padding: '2px 0', color: 'var(--text)', wordBreak: 'break-word', fontSize: '0.75rem' }}>{renderValue(v2, depth + 1)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 );
               };
-              const renderTrace = () => {
-                if (raw == null) return null;
-                if (typeof raw === 'string') return <span>{raw}</span>;
-                if (typeof raw !== 'object') return <span>{String(raw)}</span>;
-                const entries = Object.entries(raw).filter(([k]) => !SKIP_KEYS.has(k));
-                return (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                    <tbody>
-                      {entries.map(([k, v]) => (
-                        <tr key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <td style={{ padding: '3px 8px 3px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600 }}>{fmtLabel(k)}</td>
-                          <td style={{ padding: '3px 0', color: 'var(--text)', wordBreak: 'break-word' }}>
-                            {renderValue(v)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                );
-              };
+              if (raw == null) return null;
+              const entries = typeof raw === 'object' && !Array.isArray(raw)
+                ? Object.entries(raw).filter(([k]) => !SKIP_KEYS.has(k))
+                : null;
               return (
-                <details style={{ marginTop: '14px' }}>
-                  <summary style={{
-                    cursor: 'pointer',
-                    padding: '8px 12px',
-                    background: 'rgba(59, 130, 246, 0.06)',
-                    border: '1px solid var(--line)',
-                    borderRadius: '10px',
-                    fontSize: '0.72rem',
-                    color: 'var(--muted)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    userSelect: 'none',
-                  }}>
-                    Decision Trace ▸ expand
-                  </summary>
+                <div style={{
+                  background: 'var(--glass)',
+                  border: '1px solid var(--line)',
+                  borderRadius: '14px',
+                  overflow: 'hidden',
+                }}>
+                  {/* Trace header — always visible */}
                   <div style={{
-                    marginTop: '4px',
-                    padding: '12px',
-                    background: 'rgba(59, 130, 246, 0.04)',
-                    border: '1px solid var(--line)',
-                    borderRadius: '0 0 10px 10px',
-                    borderTop: 'none',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '10px 16px',
+                    borderBottom: '1px solid var(--line)',
+                    background: 'rgba(59, 130, 246, 0.05)',
                   }}>
-                    {renderTrace()}
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#3B82F6' }}>
+                      🔍 Decision Trace
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--muted)', marginLeft: 'auto' }}>
+                      {entries ? `${entries.length} fields` : ''}
+                    </span>
                   </div>
-                </details>
+                  {/* Trace body — scrollable, max 320px */}
+                  <div style={{
+                    padding: '12px 16px',
+                    maxHeight: '320px',
+                    overflowY: 'auto',
+                    fontSize: '0.82rem',
+                  }}>
+                    {entries ? (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <tbody>
+                          {entries.map(([k, v]) => (
+                            <tr key={k} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                              <td style={{ padding: '4px 8px 4px 0', color: 'var(--muted)', whiteSpace: 'nowrap', verticalAlign: 'top', fontWeight: 600, width: '38%' }}>{fmtLabel(k)}</td>
+                              <td style={{ padding: '4px 0', color: 'var(--text)', wordBreak: 'break-word' }}>
+                                {renderValue(v)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <span style={{ color: 'var(--muted)' }}>{String(raw)}</span>
+                    )}
+                  </div>
+                </div>
               );
             })()}
           </div>

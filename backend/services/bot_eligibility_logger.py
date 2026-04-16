@@ -69,6 +69,19 @@ class EligibilityCode(str, Enum):
     SCALPER_EV_TOO_LOW        = "scalper_ev_too_low"
     SCALPER_SPREAD_TOO_WIDE   = "scalper_spread_too_wide"
 
+    # ── Signal / data quality blocks ────────────────────────────────────────
+    SIGNAL_MISMATCH           = "signal_mismatch"
+    EXPECTANCY_GATE           = "expectancy_gate"
+    PNL_VALIDATION_FAILED     = "pnl_validation_failed"
+
+    # ── Close-path blocks (trade open, exit attempted but no condition met) ─
+    CLOSE_EXCEPTION           = "close_exception"
+    OPEN_TRADE_CLOSE_FAILED   = "open_trade_close_failed"
+
+    # ── Runtime / cycle errors ───────────────────────────────────────────────
+    CYCLE_ERROR               = "cycle_error"
+    TRADE_REJECTED            = "trade_rejected"
+
     # ── Catch-all (use only when no specific code applies) ──────────────────
     UNKNOWN                   = "unknown"
 
@@ -104,6 +117,13 @@ ELIGIBILITY_DESCRIPTIONS: Dict[str, str] = {
     EligibilityCode.GROWTH_INSUFFICIENT_FUNDS:"Insufficient capital for new bot spawn",
     EligibilityCode.SCALPER_EV_TOO_LOW:       "Scalper: expected value below minimum for this spread",
     EligibilityCode.SCALPER_SPREAD_TOO_WIDE:  "Scalper: spread exceeds SCALPER_MAX_SPREAD_PCT",
+    EligibilityCode.SIGNAL_MISMATCH:          "Signal direction contradicts predicted price change — corrupt signal skipped",
+    EligibilityCode.EXPECTANCY_GATE:          "Estimated expectancy does not support trade (edge − costs < threshold)",
+    EligibilityCode.PNL_VALIDATION_FAILED:    "Exit P&L failed validation check — trade held open",
+    EligibilityCode.CLOSE_EXCEPTION:          "Trade close attempt raised an exception — trade being monitored",
+    EligibilityCode.OPEN_TRADE_CLOSE_FAILED:  "Trade close failed and was abandoned — marked as failed",
+    EligibilityCode.CYCLE_ERROR:              "Unhandled error during trading cycle execution",
+    EligibilityCode.TRADE_REJECTED:           "Trade rejected by execution layer (entry conditions not met)",
     EligibilityCode.UNKNOWN:                  "Ineligible for unspecified reason",
 }
 

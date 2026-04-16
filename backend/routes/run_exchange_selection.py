@@ -89,6 +89,28 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
                 "run_active": ex in run_active,
             })
 
+        # paper_active_exchanges: exchanges that have at least one active paper bot.
+        # Paper bots bypass the API-key gate so this is the real participation truth.
+        from config import PAPER_SUPPORTED_EXCHANGES
+        _paper_exch: set = set()
+        _pb_cursor = db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": "active",
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {"_id": 0, "exchange": 1, "mode": 1, "trading_mode": 1},
+        )
+        async for _pb in _pb_cursor:
+            _mode = ((_pb.get("mode") or _pb.get("trading_mode")) or "paper").lower()
+            if _mode.startswith("paper") or _mode in ("", "paper"):
+                _ex = (_pb.get("exchange") or "").lower()
+                if _ex and _ex in PAPER_SUPPORTED_EXCHANGES:
+                    _paper_exch.add(_ex)
+        paper_active_exchanges = sorted(_paper_exch)
+
         # Count excluded bots
         excluded_count = await db.bots_collection.count_documents(
             {"user_id": user_id, "excluded_from_run": True}
@@ -97,6 +119,7 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
         return {
             "user_id": user_id,
             "run_active_exchanges": run_active,
+            "paper_active_exchanges": paper_active_exchanges,
             "resolution_tier": resolution_tier,
             "explicit_selection": explicit if has_explicit else None,
             "configured_exchanges": configured_exchanges,
@@ -104,6 +127,13 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             "supported_exchanges": list(SUPPORTED_PLATFORMS),
             "exchange_status": exchange_table,
             "excluded_bots_count": excluded_count,
+            "note": (
+                "paper_active_exchanges shows which exchanges have active paper bots "
+                "executing right now.  Paper bots bypass the API-key gate so "
+                "configured_exchanges/unlocked_exchanges are advisory for paper mode.  "
+                "run_active_exchanges reflects the API-key-based or explicit selection "
+                "used by live bots."
+            ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
