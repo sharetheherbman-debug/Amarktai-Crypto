@@ -146,13 +146,14 @@ PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
 # Binance 2 bps → estimated_cost ≈ 0.30 %; realistic threshold ~0.32 %.
 # Override any exchange via env: PAPER_SLIPPAGE_BPS_BINANCE, etc.
 EXCHANGE_SLIPPAGE_BPS: dict[str, float] = {
-    "binance":  float(os.getenv("PAPER_SLIPPAGE_BPS_BINANCE",  "2")),  # 0.02% — deep book
-    "kucoin":   float(os.getenv("PAPER_SLIPPAGE_BPS_KUCOIN",   "4")),  # 0.04%
-    "bybit":    float(os.getenv("PAPER_SLIPPAGE_BPS_BYBIT",    "3")),  # 0.03%
-    "bitget":   float(os.getenv("PAPER_SLIPPAGE_BPS_BITGET",   "4")),  # 0.04%
-    "kraken":   float(os.getenv("PAPER_SLIPPAGE_BPS_KRAKEN",   "5")),  # 0.05%
-    "luno":     float(os.getenv("PAPER_SLIPPAGE_BPS_LUNO",     "8")),  # 0.08% — ZAR pairs, less liquid
-    "gate":     float(os.getenv("PAPER_SLIPPAGE_BPS_GATE",     "5")),  # 0.05%
+    "binance":  float(os.getenv("PAPER_SLIPPAGE_BPS_BINANCE",   "2")),  # 0.02% — deep book
+    "kucoin":   float(os.getenv("PAPER_SLIPPAGE_BPS_KUCOIN",    "4")),  # 0.04%
+    "bybit":    float(os.getenv("PAPER_SLIPPAGE_BPS_BYBIT",     "3")),  # 0.03%
+    "bitget":   float(os.getenv("PAPER_SLIPPAGE_BPS_BITGET",    "4")),  # 0.04%
+    "kraken":   float(os.getenv("PAPER_SLIPPAGE_BPS_KRAKEN",    "5")),  # 0.05%
+    "luno":     float(os.getenv("PAPER_SLIPPAGE_BPS_LUNO",      "8")),  # 0.08% — ZAR pairs, less liquid
+    "gate":     float(os.getenv("PAPER_SLIPPAGE_BPS_GATE",      "5")),  # 0.05%
+    "coinbase": float(os.getenv("PAPER_SLIPPAGE_BPS_COINBASE",  "3")),  # 0.03% — deep BTC/USD book with tight spreads
 }
 # Minimum average confidence required for paper mode quality bypass (learning/data-collection mode).
 # Lowered from 0.35 to 0.30: confidence_score ≈ 0.32 should be allowed to trade in paper mode,

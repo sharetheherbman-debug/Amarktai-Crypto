@@ -3259,10 +3259,10 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
         from services.canonical import get_unlocked_exchanges, get_user_run_exchanges
         _run_active = await get_user_run_exchanges(user_id)
         _unlocked = await get_unlocked_exchanges(user_id)
-        _key_docs = await db.database["api_keys"].find(
+        _key_docs = await db.api_keys_collection.find(
             {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
             {"_id": 0, "provider": 1},
-        ).to_list(50) if db.database else []
+        ).to_list(50) if db.api_keys_collection is not None else []
         from config.platforms import SUPPORTED_PLATFORMS
         _configured = [
             d["provider"].lower()

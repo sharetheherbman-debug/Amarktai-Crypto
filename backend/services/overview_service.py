@@ -230,6 +230,9 @@ class OverviewService:
                 "bots_paused": bot_metrics["paused"],
                 "bots_training": bot_metrics["training"],
                 "bots_quarantine": bot_metrics["quarantine"],
+                "bots_total": bot_metrics["total"],
+                # Bot-type breakdown — same predicate as /api/bots/status by_type
+                "bots_by_type": bot_metrics.get("by_type", {"normal": 0, "scalper": 0}),
 
                 # Risk metrics
                 "daily_loss_lock": daily_loss_lock,

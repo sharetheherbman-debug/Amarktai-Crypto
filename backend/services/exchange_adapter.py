@@ -175,7 +175,7 @@ class ExchangeAdapter:
         if user_id:
             try:
                 import database as db
-                key_doc = await db.database["api_keys"].find_one(
+                key_doc = await db.api_keys_collection.find_one(
                     {"user_id": user_id, "provider": exchange}
                 )
                 if key_doc and key_doc.get("api_key"):

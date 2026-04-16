@@ -441,7 +441,7 @@ async def get_unlocked_exchanges(user_id: str) -> list[str]:
     from config.platforms import SUPPORTED_PLATFORMS
 
     try:
-        key_docs = await db.database["api_keys"].find(
+        key_docs = await db.api_keys_collection.find(
             {
                 "user_id": user_id,
                 "api_key": {"$exists": True, "$ne": ""},
@@ -502,7 +502,7 @@ async def get_user_run_exchanges(user_id: str) -> list[str]:
     # Requiring a passing test prevents stale / untested keys from silently
     # activating exchanges, which is the root cause of ghost exchange participation.
     try:
-        key_docs = await db.database["api_keys"].find(
+        key_docs = await db.api_keys_collection.find(
             {
                 "user_id": user_id,
                 "api_key": {"$exists": True, "$ne": ""},
