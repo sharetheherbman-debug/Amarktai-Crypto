@@ -24,6 +24,7 @@ Currency rule:
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
+import config
 import database as db
 from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
 from utils.trade_utils import parse_trade_timestamp
@@ -166,7 +167,6 @@ class OverviewService:
             last_rebalance: Optional[str] = None
             capital_growth_pool: float = 0.0
             try:
-                import config as _cfg
                 if db.autopilot_milestones_collection is not None:
                     _last_ms = await db.autopilot_milestones_collection.find_one(
                         {"user_id": user_id, "status": "spawned"},
@@ -179,7 +179,7 @@ class OverviewService:
                     if last_rebalance:
                         try:
                             _last_dt = datetime.fromisoformat(last_rebalance.replace("Z", "+00:00"))
-                            _next_dt = _last_dt + timedelta(minutes=float(_cfg.AUTO_SPAWN_COOLDOWN_MINUTES))
+                            _next_dt = _last_dt + timedelta(minutes=float(config.AUTO_SPAWN_COOLDOWN_MINUTES))
                             next_reinvest = _next_dt.isoformat()
                         except Exception:
                             pass

@@ -8,6 +8,7 @@ from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field, validator
 import logging
 import time
+from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import os
@@ -3179,8 +3180,6 @@ async def get_cohort_skip_counts(
                 "status": 1,
             },
         ).to_list(5000)
-
-        from collections import defaultdict, Counter
 
         cohorts: dict = defaultdict(lambda: {
             "total_bots": 0,
