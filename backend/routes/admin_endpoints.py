@@ -3200,7 +3200,7 @@ async def get_cohort_skip_counts(
             if ec:
                 cohorts[key]["eligibility_code_counts"][ec] += 1
             cohorts[key]["bot_details"].append({
-                "id": bot.get("id", "")[:8],
+                "id": (bot.get("id") or "")[:8],
                 "name": bot.get("name"),
                 "status": bot.get("status"),
                 "last_skip_reason": sr or None,

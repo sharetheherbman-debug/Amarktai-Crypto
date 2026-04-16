@@ -178,7 +178,11 @@ class OverviewService:
                     # next_reinvest = last spawn time + cooldown minutes
                     if last_rebalance:
                         try:
-                            _last_dt = datetime.fromisoformat(last_rebalance.replace("Z", "+00:00"))
+                            # Handle both 'Z' and '+00:00' timezone suffixes from MongoDB
+                            _ts = str(last_rebalance)
+                            if _ts.endswith("Z"):
+                                _ts = _ts[:-1] + "+00:00"
+                            _last_dt = datetime.fromisoformat(_ts)
                             _next_dt = _last_dt + timedelta(minutes=float(config.AUTO_SPAWN_COOLDOWN_MINUTES))
                             next_reinvest = _next_dt.isoformat()
                         except Exception:
