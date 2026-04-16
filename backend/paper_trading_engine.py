@@ -145,7 +145,7 @@ PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
 # because typical short-term expected moves on BTC/USDT are only 0.25–0.35 %.
 # Binance 2 bps → estimated_cost ≈ 0.30 %; realistic threshold ~0.32 %.
 # Override any exchange via env: PAPER_SLIPPAGE_BPS_BINANCE, etc.
-EXCHANGE_SLIPPAGE_BPS: dict = {
+EXCHANGE_SLIPPAGE_BPS: dict[str, float] = {
     "binance":  float(os.getenv("PAPER_SLIPPAGE_BPS_BINANCE",  "2")),  # 0.02% — deep book
     "kucoin":   float(os.getenv("PAPER_SLIPPAGE_BPS_KUCOIN",   "4")),  # 0.04%
     "bybit":    float(os.getenv("PAPER_SLIPPAGE_BPS_BYBIT",    "3")),  # 0.03%

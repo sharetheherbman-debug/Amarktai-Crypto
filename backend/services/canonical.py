@@ -421,6 +421,46 @@ async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str
 
 
 # ---------------------------------------------------------------------------
+# Per-user "unlocked exchanges" — requires key present AND test passed
+# ---------------------------------------------------------------------------
+async def get_unlocked_exchanges(user_id: str) -> list[str]:
+    """Return exchanges that the user has truly unlocked.
+
+    An exchange is *unlocked* only when BOTH conditions are met:
+      1. A non-empty API key is stored for the exchange.
+      2. The most recent key test passed (``last_test_ok`` is True).
+
+    This is stricter than ``get_user_run_exchanges`` tier-2, which only
+    checks key presence.  Use this when you need to know which exchanges
+    are genuinely verified and ready for live trading.
+
+    For PAPER trading, unlocked status is advisory — paper bots can run
+    on any paper-capable exchange without API keys.  For LIVE trading,
+    only unlocked exchanges should be activated.
+    """
+    from config.platforms import SUPPORTED_PLATFORMS
+
+    try:
+        key_docs = await db.database["api_keys"].find(
+            {
+                "user_id": user_id,
+                "api_key": {"$exists": True, "$ne": ""},
+                "last_test_ok": True,
+            },
+            {"_id": 0, "provider": 1},
+        ).to_list(50)
+        unlocked = [
+            d["provider"].lower()
+            for d in key_docs
+            if d.get("provider") and d["provider"].lower() in SUPPORTED_PLATFORMS
+        ]
+        return list(dict.fromkeys(unlocked))  # deduplicated, order-preserving
+    except Exception as exc:
+        logger.debug("get_unlocked_exchanges failed for %s: %s", user_id, exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Per-user "run active exchanges" — three-tier fallback
 # ---------------------------------------------------------------------------
 async def get_user_run_exchanges(user_id: str) -> list[str]:
@@ -429,8 +469,10 @@ async def get_user_run_exchanges(user_id: str) -> list[str]:
     Three-tier resolution (highest priority first):
 
     1. ``system_modes.run_active_exchanges``  — explicit user selection
-    2. Exchanges with a valid API key in the ``api_keys`` collection
-       (i.e. exchanges the user actually configured)
+    2. Exchanges with a VERIFIED API key (``last_test_ok`` is True) so
+       that only tested, working connections participate automatically.
+       Exchanges with a saved-but-untested key do NOT activate by default;
+       the user must either run the key test or use an explicit selection.
     3. ``['luno']``  — safe single-exchange fallback
 
     This is the CANONICAL source of truth used by the scheduler and truth
@@ -456,10 +498,16 @@ async def get_user_run_exchanges(user_id: str) -> list[str]:
     except Exception as exc:
         logger.debug("get_user_run_exchanges tier-1 failed for %s: %s", user_id, exc)
 
-    # Tier 2: exchanges with a stored API key for this user
+    # Tier 2: exchanges with a VERIFIED API key (last_test_ok=True).
+    # Requiring a passing test prevents stale / untested keys from silently
+    # activating exchanges, which is the root cause of ghost exchange participation.
     try:
         key_docs = await db.database["api_keys"].find(
-            {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
+            {
+                "user_id": user_id,
+                "api_key": {"$exists": True, "$ne": ""},
+                "last_test_ok": True,
+            },
             {"_id": 0, "provider": 1},
         ).to_list(50)
         from_keys = [
