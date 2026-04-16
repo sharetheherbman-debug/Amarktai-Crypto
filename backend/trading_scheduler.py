@@ -466,26 +466,64 @@ class TradingScheduler:
                             skip_reason = result.get('skip_reason') if isinstance(result, dict) else None
                             reason_msg = skip_reason or err_msg or "unknown"
 
-                            # Map paper engine skip_reason to canonical EligibilityCode
+                            # Map paper engine skip_reason to canonical EligibilityCode.
+                            # Every skip_reason value returned by paper_trading_engine.py
+                            # must appear here so that UNKNOWN is never emitted in normal
+                            # operating paths.  Use EligibilityCode.UNKNOWN only for truly
+                            # unrecognised values.
                             _SKIP_TO_CODE = {
-                                "edge_gate":             EligibilityCode.EDGE_GATE,
-                                "pair_not_allowed":      EligibilityCode.PAIR_NOT_ALLOWED,
-                                "spread_too_wide":       EligibilityCode.SPREAD_TOO_WIDE,
-                                "low_liquidity":         EligibilityCode.LOW_LIQUIDITY,
-                                "no_price_data":         EligibilityCode.NO_PRICE_DATA,
-                                "hard_edge_filter":      EligibilityCode.HARD_EDGE_FILTER,
-                                "low_confidence":        EligibilityCode.LOW_CONFIDENCE,
-                                "bearish_long_blocked":  EligibilityCode.BEARISH_LONG_BLOCKED,
-                                "low_expectancy":        EligibilityCode.LOW_EXPECTANCY,
-                                "regime_standdown":      EligibilityCode.REGIME_STAND_DOWN,
-                                "exchange_exposure":     EligibilityCode.EXCHANGE_EXPOSURE,
-                                "drawdown_limit":        EligibilityCode.DRAWDOWN_LIMIT,
-                                "symbol_cooldown":       EligibilityCode.SYMBOL_COOLDOWN,
-                                "portfolio_guard":       EligibilityCode.PORTFOLIO_GUARD,
-                                "hurst_mismatch":        EligibilityCode.HURST_MISMATCH,
-                                "adaptive_stand_down":   EligibilityCode.ADAPTIVE_STAND_DOWN,
+                                # ── Entry-gate blocks ──────────────────────────────────
+                                "edge_gate":               EligibilityCode.EDGE_GATE,
+                                "pair_not_allowed":        EligibilityCode.PAIR_NOT_ALLOWED,
+                                "spread_too_wide":         EligibilityCode.SPREAD_TOO_WIDE,
+                                "low_liquidity":           EligibilityCode.LOW_LIQUIDITY,
+                                "no_price_data":           EligibilityCode.NO_PRICE_DATA,
+                                "hard_edge_filter":        EligibilityCode.HARD_EDGE_FILTER,
+                                "low_confidence":          EligibilityCode.LOW_CONFIDENCE,
+                                "bearish_long_blocked":    EligibilityCode.BEARISH_LONG_BLOCKED,
+                                "low_expectancy":          EligibilityCode.LOW_EXPECTANCY,
+                                "expectancy_gate":         EligibilityCode.EXPECTANCY_GATE,
+                                "regime_standdown":        EligibilityCode.REGIME_STAND_DOWN,
+                                "exchange_exposure":       EligibilityCode.EXCHANGE_EXPOSURE,
+                                "drawdown_limit":          EligibilityCode.DRAWDOWN_LIMIT,
+                                "symbol_cooldown":         EligibilityCode.SYMBOL_COOLDOWN,
+                                "portfolio_guard":         EligibilityCode.PORTFOLIO_GUARD,
+                                # Both spellings emitted by paper engine
+                                "hurst_mismatch":          EligibilityCode.HURST_MISMATCH,
+                                "hurst_regime_mismatch":   EligibilityCode.HURST_MISMATCH,
+                                "adaptive_stand_down":     EligibilityCode.ADAPTIVE_STAND_DOWN,
+                                # Signal direction contradicts predicted change
+                                "signal_mismatch":         EligibilityCode.SIGNAL_MISMATCH,
+                                # Scalper-specific
+                                "scalper_spread_too_wide": EligibilityCode.SCALPER_SPREAD_TOO_WIDE,
+                                "scalper_ev_too_low":      EligibilityCode.SCALPER_EV_TOO_LOW,
+                                # ── Close-path non-blocks (trade stays open) ───────────
+                                # These fire when a bot has an open trade and the exit
+                                # conditions have not been met yet.  They are NOT entry
+                                # blocks; the bot is healthy and monitoring its trade.
+                                "no_exit_signal":          EligibilityCode.OPEN_POSITION_ACTIVE,
+                                "open_position_active":    EligibilityCode.OPEN_POSITION_ACTIVE,
+                                "invalid_values":          EligibilityCode.NO_PRICE_DATA,
+                                "pnl_validation_failed":   EligibilityCode.PNL_VALIDATION_FAILED,
+                                "close_exception":         EligibilityCode.CLOSE_EXCEPTION,
+                                "open_trade_close_failed": EligibilityCode.OPEN_TRADE_CLOSE_FAILED,
+                                # Generic rejection from execute_smart_trade
+                                "trade_rejected":          EligibilityCode.TRADE_REJECTED,
+                                # No usable signal from any AI source
+                                "no_usable_signal":        EligibilityCode.NO_USABLE_SIGNAL,
                             }
-                            elig_code = _SKIP_TO_CODE.get(skip_reason, EligibilityCode.UNKNOWN)
+                            # Detect dynamic "cycle_error: <exception>" strings
+                            _raw_skip = skip_reason or ""
+                            if _raw_skip.startswith("cycle_error"):
+                                elig_code = EligibilityCode.CYCLE_ERROR
+                            else:
+                                elig_code = _SKIP_TO_CODE.get(skip_reason, EligibilityCode.UNKNOWN)
+                            if elig_code == EligibilityCode.UNKNOWN and skip_reason:
+                                logger.warning(
+                                    "⚠️ Unmapped skip_reason '%s' for bot %s — defaulting to UNKNOWN. "
+                                    "Add this reason to _SKIP_TO_CODE in trading_scheduler.py.",
+                                    skip_reason, bot_id[:8],
+                                )
 
                             # Emit structured eligibility log
                             await elig_log.skip_and_persist(

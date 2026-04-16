@@ -3255,8 +3255,21 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
     # Shows which exchanges are configured (key saved), unlocked (key+test ok),
     # and run-active (participating in current run).  A ghost exchange is one
     # where run_active=True but unlocked=False — visible here as a warning.
+    #
+    # NOTE on paper_active_exchanges:
+    #   Paper bots bypass the API-key gate (they use public exchange endpoints).
+    #   Because of this bypass, paper bots on Binance etc. will EXECUTE even when
+    #   configured_exchanges=[] and unlocked_exchanges=[].  paper_active_exchanges
+    #   shows which exchanges have paper bots actually participating right now.
+    #   This is the correct source-of-truth for paper-fleet breadth.
+    #
+    #   When configured_exchanges=[] it means no API keys are saved (fine for paper).
+    #   When unlocked_exchanges=[] it means no keys have passed a test (fine for paper).
+    #   When run_active_exchanges=["luno"] it is the tier-3 fallback — paper bots on
+    #   other exchanges are STILL executing because they bypass this gate.
     try:
         from services.canonical import get_unlocked_exchanges, get_user_run_exchanges
+        from config import PAPER_SUPPORTED_EXCHANGES
         _run_active = await get_user_run_exchanges(user_id)
         _unlocked = await get_unlocked_exchanges(user_id)
         _key_docs = await db.api_keys_collection.find(
@@ -3270,14 +3283,43 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             if d.get("provider") and d["provider"].lower() in SUPPORTED_PLATFORMS
         ]
         _ghost_exchanges = [ex for ex in _run_active if ex not in _unlocked]
+
+        # Derive paper_active_exchanges: exchanges that have at least one non-deleted
+        # active paper bot for this user.  These are the exchanges actually
+        # participating in the current paper run regardless of API-key state.
+        _paper_bot_cursor = db.bots_collection.find(
+            {
+                "user_id": user_id,
+                "status": "active",
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {"_id": 0, "exchange": 1, "mode": 1, "trading_mode": 1},
+        ) if db.bots_collection is not None else None
+        _paper_exch_set: set = set()
+        if _paper_bot_cursor is not None:
+            async for _pb in _paper_bot_cursor:
+                _mode = ((_pb.get("mode") or _pb.get("trading_mode")) or "paper").lower()
+                if _mode.startswith("paper") or _mode in ("", "paper"):
+                    _ex = (_pb.get("exchange") or "").lower()
+                    if _ex and _ex in PAPER_SUPPORTED_EXCHANGES:
+                        _paper_exch_set.add(_ex)
+        _paper_active = sorted(_paper_exch_set)
+
         checks["exchange_unlock"] = {
             "configured_exchanges": list(dict.fromkeys(_configured)),
             "unlocked_exchanges": _unlocked,
             "run_active_exchanges": _run_active,
+            "paper_active_exchanges": _paper_active,
             "ghost_exchanges": _ghost_exchanges,
+            "paper_bypass_active": len(_paper_active) > 0,
             "note": (
-                "ghost_exchanges: run-active but not yet unlocked (key+test). "
-                "Paper bots bypass this check — ghost is not a hard blocker for paper runs."
+                "paper_active_exchanges: exchanges where paper bots are currently running "
+                "(paper bots bypass the API-key gate). "
+                "configured_exchanges/unlocked_exchanges apply to live trading only. "
+                "ghost_exchanges: run-active but not yet unlocked (key+test) — "
+                "not a hard blocker for paper runs."
             ),
         }
     except Exception as e:
