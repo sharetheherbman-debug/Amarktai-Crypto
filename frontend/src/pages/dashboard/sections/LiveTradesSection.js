@@ -337,9 +337,9 @@ export default function LiveTradesSection({
         {/* Detail Panel (Feed view only) */}
         {selectedTrade && viewMode === 'feed' && (
           <div style={{
-            flex: '0 0 360px',
-            minWidth: '260px',
-            maxWidth: '420px',
+            flex: '0 0 400px',
+            minWidth: '300px',
+            maxWidth: '480px',
             background: 'var(--glass)',
             border: '1px solid var(--line)',
             borderRadius: '14px',
@@ -347,9 +347,11 @@ export default function LiveTradesSection({
             position: 'sticky',
             top: 0,
             alignSelf: 'start',
+            maxHeight: 'calc(100vh - 80px)',
+            overflowY: 'auto',
           }}>
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
                   {selectedTrade.symbol || NA}
                 </h3>
@@ -365,7 +367,7 @@ export default function LiveTradesSection({
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               {[
                 { label: 'Side', value: (selectedTrade.side || selectedTrade.action || 'Trade').toString().toUpperCase(), color: getSideColor(selectedTrade.side || selectedTrade.action) },
                 { label: 'Price', value: formatZAR(selectedTrade.entry_price || selectedTrade.price || selectedTrade.avg_price) },
@@ -378,10 +380,10 @@ export default function LiveTradesSection({
                   background: 'rgba(10, 14, 26, 0.5)',
                   border: '1px solid var(--line)',
                   borderRadius: '10px',
-                  padding: '10px 12px',
+                  padding: '10px 14px',
                 }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{label}</div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 700, color: color || 'var(--text)' }}>{value}</div>
+                  <div style={{ fontSize: '0.70rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '5px', whiteSpace: 'nowrap' }}>{label}</div>
+                  <div style={{ fontSize: '0.93rem', fontWeight: 700, color: color || 'var(--text)', wordBreak: 'break-all' }}>{value}</div>
                 </div>
               ))}
             </div>
