@@ -91,11 +91,13 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         - win_rate: Percentage of winning trades
     """
     try:
-        # Get all user's bots (exclude deleted)
+        # Get all user's bots (exclude deleted) — same filter set as /api/bots/status
         bots = await db.bots_collection.find({
             "user_id": user_id,
-            "status": {"$ne": "deleted"},
-            "deleted_at": {"$exists": False}
+            "status": {"$nin": ["deleted", "marked_for_deletion"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
         }, {"_id": 0}).to_list(1000)
         
         # Calculate bot counts
