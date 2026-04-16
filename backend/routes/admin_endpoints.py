@@ -8,6 +8,7 @@ from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field, validator
 import logging
 import time
+from collections import defaultdict, Counter
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import os
@@ -3134,6 +3135,96 @@ async def get_scheduler_status(
         
     except Exception as e:
         logger.error(f"Scheduler status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/cohort-skips")
+async def get_cohort_skip_counts(
+    admin_id: str = Depends(require_admin)
+):
+    """
+    P3 Diagnostic: per-cohort skip-reason counts (admin-only).
+
+    Returns exact skip-reason counts broken down by:
+    - exchange (binance / luno / kucoin / …)
+    - bot_type (normal / scalper)
+
+    Cohorts returned:
+    - binance_normal, binance_scalper
+    - luno_normal, luno_scalper
+    - <exchange>_<type> for every other active exchange/type combination
+
+    Each cohort entry contains:
+    - total_bots: number of bots in this cohort
+    - last_skip_reason: raw per-bot last skip reason
+    - top_skip_reasons: ranked dict {reason: count}
+    - eligibility_codes: ranked dict {code: count}
+    """
+    try:
+        bots = await db.bots_collection.find(
+            {
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
+            },
+            {
+                "_id": 0,
+                "id": 1,
+                "name": 1,
+                "exchange": 1,
+                "bot_type": 1,
+                "last_skip_reason": 1,
+                "last_eligibility": 1,
+                "last_eligibility_code": 1,
+                "status": 1,
+            },
+        ).to_list(5000)
+
+        cohorts: dict = defaultdict(lambda: {
+            "total_bots": 0,
+            "skip_reason_counts": Counter(),
+            "eligibility_code_counts": Counter(),
+            "bot_details": [],
+        })
+
+        for bot in bots:
+            exchange = (bot.get("exchange") or "unknown").lower()
+            bot_type = (bot.get("bot_type") or "normal").lower()
+            key = f"{exchange}_{bot_type}"
+            cohorts[key]["total_bots"] += 1
+            sr = bot.get("last_skip_reason") or ""
+            ec = bot.get("last_eligibility") or bot.get("last_eligibility_code") or ""
+            if sr:
+                cohorts[key]["skip_reason_counts"][sr] += 1
+            if ec:
+                cohorts[key]["eligibility_code_counts"][ec] += 1
+            cohorts[key]["bot_details"].append({
+                "id": (bot.get("id") or "")[:8],
+                "name": bot.get("name"),
+                "status": bot.get("status"),
+                "last_skip_reason": sr or None,
+                "last_eligibility_code": ec or None,
+            })
+
+        result = {}
+        for key, data in sorted(cohorts.items()):
+            result[key] = {
+                "total_bots": data["total_bots"],
+                "top_skip_reasons": dict(data["skip_reason_counts"].most_common(10)),
+                "eligibility_codes": dict(data["eligibility_code_counts"].most_common(10)),
+                "bot_details": data["bot_details"],
+            }
+
+        return {
+            "success": True,
+            "cohorts": result,
+            "total_bots_scanned": len(bots),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Cohort skip counts error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

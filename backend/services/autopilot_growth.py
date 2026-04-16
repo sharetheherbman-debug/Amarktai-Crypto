@@ -81,6 +81,16 @@ class AutopilotGrowthService:
         eligible, reasons = await self._check_guardrails(platform)
         if not eligible:
             logger.info(f"Autopilot growth blocked for {platform}: {', '.join(reasons)}")
+            # P4 REINVESTMENT POLICY: when MAX_BOTS_REACHED route profits to the
+            # capital_growth_pool instead of discarding them.  This ensures realized
+            # profits are preserved and visible on the dashboard even when the bot
+            # fleet is fully saturated.
+            if "MAX_BOTS_REACHED" in reasons:
+                profit = await self.get_platform_realized_profit_zar(platform)
+                next_milestone = await self.get_next_milestone(platform)
+                target_profit = next_milestone * threshold
+                if profit >= target_profit:
+                    await self._route_to_capital_growth_pool(platform, profit)
             return None
 
         profit = await self.get_platform_realized_profit_zar(platform)
@@ -337,7 +347,57 @@ class AutopilotGrowthService:
             "reserved_capital": round(reserved_capital, 2),
             "shortfall_capital": round(shortfall, 2),
             "block_reason_details": block_reason_details,
+            # P4: how much profit has been routed to the growth pool when at max bots
+            "capital_growth_pool_zar": await self._get_capital_growth_pool(platform),
+            "at_max_bots": bots_current >= bots_max,
         }
+
+    async def _route_to_capital_growth_pool(self, platform: str, profit_zar: float) -> None:
+        """Accumulate milestone-triggered profit into the capital_growth_pool record.
+
+        Called when MAX_BOTS_REACHED so profits are NOT silently discarded.
+        The pool document is a single upserted record per user/platform.
+        The overview_service reads it to populate the "Capital Growth Pool" tile.
+        """
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await self.milestones.update_one(
+                {
+                    "user_id": self.user_id,
+                    "platform": platform,
+                    "type": "capital_growth_pool",
+                },
+                {
+                    "$setOnInsert": {
+                        "user_id": self.user_id,
+                        "platform": platform,
+                        "type": "capital_growth_pool",
+                        "created_at": now_iso,
+                        "total_zar": 0.0,
+                    },
+                    "$set": {"last_updated_at": now_iso},
+                    "$inc": {"total_zar": round(profit_zar, 2)},
+                },
+                upsert=True,
+            )
+            logger.info(
+                "💰 CAPITAL_GROWTH_POOL | platform=%s profit_zar=%.2f "
+                "(MAX_BOTS_REACHED — reinvesting profits into capital pool)",
+                platform, profit_zar,
+            )
+        except Exception as exc:
+            logger.warning("Failed to route profit to capital_growth_pool: %s", exc)
+
+    async def _get_capital_growth_pool(self, platform: str) -> float:
+        """Return total ZAR accumulated in the capital growth pool for this platform."""
+        try:
+            _pool = await self.milestones.find_one(
+                {"user_id": self.user_id, "platform": platform, "type": "capital_growth_pool"},
+                {"_id": 0, "total_zar": 1},
+            )
+            return round(float((_pool or {}).get("total_zar", 0) or 0), 2)
+        except Exception:
+            return 0.0
 
     async def _get_last_milestone_index(self, platform: str) -> int:
         last_event = await self.milestones.find_one(

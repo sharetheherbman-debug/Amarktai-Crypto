@@ -22,6 +22,8 @@ from rules.bot_rules import SUPPORTED_EXCHANGES
 from services.fx_normalizer import get_quote_currency as _get_quote_currency
 from utils.datetime_helpers import remaining_seconds
 from utils.env_utils import env_bool
+from utils.numeric_utils import safe_numeric
+from json_utils import serialize_doc
 
 logger = logging.getLogger(__name__)
 
@@ -348,11 +350,11 @@ async def get_bots_status(
 
             # Performance object — built from the bot document counters that the
             # trading engine maintains via $inc/$set on trade open/close.
-            _win_count = int(bot.get('win_count', 0))
-            _loss_count = int(bot.get('loss_count', 0))
-            _trades_closed = int(bot.get('trades_count', 0))
+            _win_count = int(bot.get('win_count', 0) or 0)
+            _loss_count = int(bot.get('loss_count', 0) or 0)
+            _trades_closed = int(bot.get('trades_count', 0) or 0)
             _win_rate_pct = round(_win_count / _trades_closed * 100, 2) if _trades_closed > 0 else 0.0
-            _total_profit = float(bot.get('total_profit', 0))
+            _total_profit = safe_numeric(bot.get('total_profit', 0))
             performance = {
                 "profit_realized": _total_profit,
                 "trade_count": _trades_closed,
@@ -362,12 +364,12 @@ async def get_bots_status(
             }
 
             # Capital summary — derived from bot document fields kept in sync by engine.
-            _current_capital = float(bot.get('current_capital', 0))
-            _initial_capital = float(
+            _current_capital = safe_numeric(bot.get('current_capital', 0))
+            _initial_capital = safe_numeric(
                 bot.get('initial_capital') or bot.get('starting_capital') or _current_capital
             )
-            _open_pos_value = float(bot.get('open_position_value', 0))
-            _unrealized = float(bot.get('unrealized_profit', 0))
+            _open_pos_value = safe_numeric(bot.get('open_position_value', 0))
+            _unrealized = safe_numeric(bot.get('unrealized_profit', 0))
             # Resolve the native trading quote currency so the frontend can display
             # USDT amounts with "$" and ZAR amounts with "R" — never mix the two.
             _exchange_str = str(bot.get('exchange') or '').lower()
@@ -418,7 +420,7 @@ async def get_bots_status(
                 "paused_at": bot.get('paused_at') or bot.get('quarantined_at'),
                 "paused_by_user": bot.get('paused_by_user', False),
                 "paused_by_system": bot.get('paused_by_system', False),
-                "runtime_state": runtime_state,
+                "runtime_state": serialize_doc(runtime_state) if runtime_state else None,
                 "quarantine_reason": bot.get('quarantine_reason'),
                 "quarantine_until": bot.get('quarantine_until'),
                 "quarantine_release_at": quarantine_release_at,
@@ -428,9 +430,9 @@ async def get_bots_status(
                 "training_block_reason": training_block_reason,
                 "trading_mode": bot.get('trading_mode', 'paper'),
                 "risk_mode": bot.get('risk_mode', 'balanced'),
-                "current_capital": bot.get('current_capital', 0),
-                "total_profit": bot.get('total_profit', 0),
-                "trades_count": bot.get('trades_count', 0),
+                "current_capital": safe_numeric(bot.get('current_capital', 0)),
+                "total_profit": safe_numeric(bot.get('total_profit', 0)),
+                "trades_count": int(bot.get('trades_count', 0) or 0),
                 "training_complete": training_complete,
                 "training_failed_reason": bot.get('training_failed_reason'),
                 "training_in_progress": training_in_progress,
@@ -459,7 +461,9 @@ async def get_bots_status(
                 # Capital summary — used by Bot Fleet detailed view
                 "capital_summary": capital_summary,
             }
-            enriched_bots.append(enriched_bot)
+            # Serialize to eliminate BSON types (datetime→ISO str, ObjectId→str, etc.)
+            # that would cause json.dumps(..., allow_nan=False) to raise ValueError.
+            enriched_bots.append(serialize_doc(enriched_bot))
         
         # Count by exchange to ensure all 7 are represented
         exchange_counts = {exchange: 0 for exchange in all_exchanges}

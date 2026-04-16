@@ -24,6 +24,7 @@ Currency rule:
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
+import config
 import database as db
 from config.platforms import SUPPORTED_PLATFORMS, get_platform_config
 from utils.trade_utils import parse_trade_timestamp
@@ -74,11 +75,14 @@ class OverviewService:
                 # Return empty snapshot for non-existent user
                 return self._empty_snapshot(now)
 
-            # Get all user's bots (exclude deleted)
+            # Get all user's bots (exclude deleted) — same filter as /api/bots/status
+            # to guarantee counts are consistent across all dashboard tiles.
             bots = await db.bots_collection.find({
                 "user_id": user_id,
-                "status": {"$ne": "deleted"},
-                "deleted_at": {"$exists": False}
+                "status": {"$nin": ["deleted", "marked_for_deletion"]},
+                "deleted": {"$ne": True},
+                "is_deleted": {"$ne": True},
+                "deleted_at": {"$exists": False},
             }, {"_id": 0}).to_list(1000)
 
             bot_ids = [b["id"] for b in bots] if bots else []
@@ -125,15 +129,21 @@ class OverviewService:
             market_prices = await self._get_market_prices()
 
             # ==================================================================
-            # TRADING MODE FLAGS
+            # TRADING MODE FLAGS — canonical source is system_modes_collection,
+            # NOT the user document.  Reading from the user doc produces stale
+            # values because the dashboard toggle writes to system_modes only.
             # ==================================================================
+            _modes_doc = await db.system_modes_collection.find_one(
+                {"user_id": user_id}, {"_id": 0}
+            ) if db.system_modes_collection is not None else None
+            _modes_doc = _modes_doc or {}
             trading_mode_flags = {
-                "paper_trading": user.get("system_mode") in ["testing", "paper"],
-                "live_trading": user.get("system_mode") == "live_trading",
-                "autopilot": user.get("autopilot_enabled", False),
-                "bodyguard": user.get("bodyguard_enabled", True),
-                "learning": user.get("learning_enabled", True),
-                "emergency_stop": user.get("emergency_stop", False)
+                "paper_trading": bool(_modes_doc.get("paperTrading", True)),
+                "live_trading": bool(_modes_doc.get("liveTrading", False)),
+                "autopilot": bool(_modes_doc.get("autopilot", False)),
+                "bodyguard": bool(_modes_doc.get("bodyguard", user.get("bodyguard_enabled", True))),
+                "learning": bool(_modes_doc.get("learning", user.get("learning_enabled", True))),
+                "emergency_stop": bool(_modes_doc.get("emergencyStop", False)),
             }
 
             # ==================================================================
@@ -146,6 +156,47 @@ class OverviewService:
                     return None
                 # Re-use the already-fetched rate to avoid a redundant FX lookup
                 return round(float(zar_val) * zar_rate, 2)
+
+            # ==================================================================
+            # REINVESTMENT / GROWTH METADATA
+            # next_reinvest: ISO timestamp of next profit-milestone spawn window.
+            # last_rebalance: ISO timestamp of the most recent milestone spawn.
+            # These power the "Next Reinvest" and "Last Rebalance" dashboard tiles.
+            # ==================================================================
+            next_reinvest: Optional[str] = None
+            last_rebalance: Optional[str] = None
+            capital_growth_pool: float = 0.0
+            try:
+                if db.autopilot_milestones_collection is not None:
+                    _last_ms = await db.autopilot_milestones_collection.find_one(
+                        {"user_id": user_id, "status": "spawned"},
+                        {"_id": 0, "triggered_at": 1},
+                        sort=[("triggered_at", -1)],
+                    )
+                    if _last_ms:
+                        last_rebalance = _last_ms.get("triggered_at")
+                    # next_reinvest = last spawn time + cooldown minutes
+                    if last_rebalance:
+                        try:
+                            # Handle both 'Z' and '+00:00' timezone suffixes from MongoDB
+                            _ts = str(last_rebalance)
+                            if _ts.endswith("Z"):
+                                _ts = _ts[:-1] + "+00:00"
+                            _last_dt = datetime.fromisoformat(_ts)
+                            _next_dt = _last_dt + timedelta(minutes=float(config.AUTO_SPAWN_COOLDOWN_MINUTES))
+                            next_reinvest = _next_dt.isoformat()
+                        except Exception:
+                            pass
+                    # capital_growth_pool: sum of profits routed to growth pool
+                    # (written by autopilot_growth when MAX_BOTS_REACHED)
+                    _pool_doc = await db.autopilot_milestones_collection.find_one(
+                        {"user_id": user_id, "type": "capital_growth_pool"},
+                        {"_id": 0, "total_zar": 1},
+                    )
+                    if _pool_doc:
+                        capital_growth_pool = float(_pool_doc.get("total_zar", 0) or 0)
+            except Exception as _re:
+                logger.debug("Could not compute reinvest metadata: %s", _re)
 
             # ==================================================================
             # ASSEMBLE COMPLETE SNAPSHOT
@@ -188,6 +239,11 @@ class OverviewService:
 
                 # System flags
                 "trading_mode_flags": trading_mode_flags,
+
+                # Reinvestment / growth metadata
+                "next_reinvest": next_reinvest,
+                "last_rebalance": last_rebalance,
+                "capital_growth_pool": _cvt(capital_growth_pool),
 
                 # Display currency metadata
                 "display_currency": dc,
