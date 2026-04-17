@@ -98,9 +98,26 @@ class OverviewService:
             fee_metrics = await self._compute_fee_metrics(bot_ids, today_start)
 
             # ==================================================================
-            # TRADE METRICS
+            # TRADE METRICS (closed trades)
             # ==================================================================
             trade_metrics = await self._compute_trade_metrics(bot_ids, today_start)
+
+            # ==================================================================
+            # OPEN TRADES COUNT — canonical source for live-position count.
+            # Separately queried so the dashboard can show BOTH:
+            #   trades_total  = closed trades (realised P&L history)
+            #   open_trades   = current live positions
+            # This eliminates the "overview vs live-trades count mismatch":
+            # they measure different things and are now both explicit.
+            # ==================================================================
+            open_trades_count = 0
+            try:
+                if bot_ids and db.trades_collection is not None:
+                    open_trades_count = await db.trades_collection.count_documents(
+                        {"bot_id": {"$in": bot_ids}, "status": "open"}
+                    )
+            except Exception as _ote:
+                logger.debug("Could not count open trades: %s", _ote)
 
             # ==================================================================
             # BOT METRICS
@@ -213,8 +230,12 @@ class OverviewService:
                 "today_fees": _cvt(fee_metrics["today_fees"]),
 
                 # Trade metrics (counts — no currency conversion needed)
+                # trades_today / trades_total: CLOSED trades (realised history)
+                # open_trades:                 CURRENTLY OPEN positions
+                # These are distinct metrics; both are required for dashboard truth.
                 "trades_today": trade_metrics["trades_today"],
                 "trades_total": trade_metrics["trades_total"],
+                "open_trades": open_trades_count,
                 "win_rate": trade_metrics["win_rate"],
 
                 # Capital metrics (in display_currency)
@@ -591,6 +612,7 @@ class OverviewService:
             "today_fees": 0.0,
             "trades_today": 0,
             "trades_total": 0,
+            "open_trades": 0,
             "win_rate": 0.0,
             "equity": 0.0,
             "required_capital_total": 0.0,

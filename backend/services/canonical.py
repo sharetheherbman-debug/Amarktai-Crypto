@@ -522,3 +522,50 @@ async def get_user_run_exchanges(user_id: str) -> list[str]:
 
     # Tier 3: safe fallback
     return ["luno"]
+
+
+# ---------------------------------------------------------------------------
+# Per-user "paper run exchanges" — used exclusively for PAPER bot eligibility
+# ---------------------------------------------------------------------------
+async def get_user_paper_exchanges(user_id: str) -> list[str]:
+    """Return the exchanges on which paper bots are allowed to execute.
+
+    Paper bots do not require API keys (they use public market-data endpoints),
+    so the key-based tier-2 of ``get_user_run_exchanges`` is inappropriate here.
+    Instead we apply:
+
+    1. ``system_modes.run_active_exchanges``  — explicit user selection
+       (when set, BOTH live and paper bots honour it — the operator has spoken).
+    2. ALL ``PAPER_SUPPORTED_EXCHANGES`` — when no explicit selection exists,
+       paper bots may use every exchange the platform supports for paper trading.
+       This avoids the tier-3 fallback of ``["luno"]`` silently restricting a
+       paper fleet that was intentionally created across multiple exchanges.
+
+    Note: this function never returns exchanges outside PAPER_SUPPORTED_EXCHANGES
+    even when the user has an explicit selection that includes unsupported names.
+
+    For LIVE bots, use ``get_user_run_exchanges()`` which requires API-key proof.
+    """
+    from config import PAPER_SUPPORTED_EXCHANGES
+    from config.platforms import SUPPORTED_PLATFORMS
+
+    # Tier 1: explicit selection stored in system_modes
+    try:
+        modes = await db.system_modes_collection.find_one(
+            {"user_id": user_id}, {"_id": 0, "run_active_exchanges": 1}
+        )
+        explicit = modes.get("run_active_exchanges") if modes else None
+        if isinstance(explicit, list) and explicit:
+            # Intersect with PAPER_SUPPORTED_EXCHANGES — only supported paper exchanges
+            valid = [
+                e.lower()
+                for e in explicit
+                if e.lower() in PAPER_SUPPORTED_EXCHANGES
+            ]
+            if valid:
+                return valid
+    except Exception as exc:
+        logger.debug("get_user_paper_exchanges tier-1 failed for %s: %s", user_id, exc)
+
+    # Tier 2: all paper-capable exchanges (no API key required for paper)
+    return list(PAPER_SUPPORTED_EXCHANGES)

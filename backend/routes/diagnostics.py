@@ -3268,9 +3268,10 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
     #   When run_active_exchanges=["luno"] it is the tier-3 fallback — paper bots on
     #   other exchanges are STILL executing because they bypass this gate.
     try:
-        from services.canonical import get_unlocked_exchanges, get_user_run_exchanges
+        from services.canonical import get_unlocked_exchanges, get_user_run_exchanges, get_user_paper_exchanges
         from config import PAPER_SUPPORTED_EXCHANGES
         _run_active = await get_user_run_exchanges(user_id)
+        _paper_run = await get_user_paper_exchanges(user_id)
         _unlocked = await get_unlocked_exchanges(user_id)
         _key_docs = await db.api_keys_collection.find(
             {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
@@ -3311,15 +3312,17 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             "configured_exchanges": list(dict.fromkeys(_configured)),
             "unlocked_exchanges": _unlocked,
             "run_active_exchanges": _run_active,
+            "paper_run_exchanges": _paper_run,
             "paper_active_exchanges": _paper_active,
             "ghost_exchanges": _ghost_exchanges,
             "paper_bypass_active": len(_paper_active) > 0,
             "note": (
-                "paper_active_exchanges: exchanges where paper bots are currently running "
-                "(paper bots bypass the API-key gate). "
+                "paper_run_exchanges: exchanges paper bots are ALLOWED to use "
+                "(explicit selection respected; no-selection defaults to all PAPER_SUPPORTED_EXCHANGES). "
+                "paper_active_exchanges: exchanges where paper bots are executing RIGHT NOW. "
                 "configured_exchanges/unlocked_exchanges apply to live trading only. "
                 "ghost_exchanges: run-active but not yet unlocked (key+test) — "
-                "not a hard blocker for paper runs."
+                "not a hard blocker for paper runs but must be resolved before live go-live."
             ),
         }
     except Exception as e:
@@ -3362,6 +3365,7 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
 
     # ── Cohort skip distribution (last_skip_reason from bot docs) ─────────────
     try:
+        from services.bot_eligibility_logger import ELIGIBILITY_DESCRIPTIONS
         cohort_map: dict = defaultdict(Counter)
         for bot in (bots if "bots" in checks and checks["bots"].get("ok") else []):
             exch = (bot.get("exchange") or "unknown").lower()
@@ -3369,8 +3373,21 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             key = f"{exch}_{bt}"
             sr = bot.get("last_skip_reason") or "none"
             cohort_map[key][sr] += 1
-        checks["cohort_skips"] = {
+        cohort_skips = {
             k: dict(v.most_common(5)) for k, v in sorted(cohort_map.items())
+        }
+        # Collect all reason codes seen across all cohorts and attach descriptions
+        _all_reason_codes: set = set()
+        for v in cohort_map.values():
+            _all_reason_codes.update(v.keys())
+        _all_reason_codes.discard("none")
+        reason_descriptions = {
+            code: ELIGIBILITY_DESCRIPTIONS.get(code, f"Unmapped reason '{code}' — add to _SKIP_TO_CODE")
+            for code in sorted(_all_reason_codes)
+        }
+        checks["cohort_skips"] = {
+            "by_cohort": cohort_skips,
+            "reason_descriptions": reason_descriptions,
         }
     except Exception as e:
         logger.error("go_live_readiness: cohort skip check error: %s", e)

@@ -25,7 +25,7 @@ import logging
 from auth import get_current_user
 import database as db
 from config.platforms import SUPPORTED_PLATFORMS
-from services.canonical import get_user_run_exchanges, get_unlocked_exchanges
+from services.canonical import get_user_run_exchanges, get_unlocked_exchanges, get_user_paper_exchanges
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
     """
     try:
         run_active = await get_user_run_exchanges(user_id)
+        paper_run_exchanges = await get_user_paper_exchanges(user_id)
 
         # Determine which tier resolved the run_active list
         modes = await db.system_modes_collection.find_one(
@@ -119,6 +120,7 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
         return {
             "user_id": user_id,
             "run_active_exchanges": run_active,
+            "paper_run_exchanges": paper_run_exchanges,
             "paper_active_exchanges": paper_active_exchanges,
             "resolution_tier": resolution_tier,
             "explicit_selection": explicit if has_explicit else None,
@@ -128,11 +130,12 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             "exchange_status": exchange_table,
             "excluded_bots_count": excluded_count,
             "note": (
-                "paper_active_exchanges shows which exchanges have active paper bots "
-                "executing right now.  Paper bots bypass the API-key gate so "
-                "configured_exchanges/unlocked_exchanges are advisory for paper mode.  "
-                "run_active_exchanges reflects the API-key-based or explicit selection "
-                "used by live bots."
+                "paper_run_exchanges: exchanges on which paper bots are ALLOWED to execute "
+                "(explicit run_active_exchanges selection, or all PAPER_SUPPORTED_EXCHANGES when "
+                "no selection is set).  "
+                "paper_active_exchanges: exchanges where paper bots are actively executing NOW.  "
+                "run_active_exchanges: exchange gate for live bots (requires API key proof).  "
+                "configured_exchanges/unlocked_exchanges are advisory for paper mode."
             ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

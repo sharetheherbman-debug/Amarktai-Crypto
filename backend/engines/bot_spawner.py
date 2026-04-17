@@ -290,9 +290,20 @@ class BotSpawner:
             user_id: The user to spawn for.
             allowed_exchanges: Optional list of exchange IDs to restrict spawning to.
                 Pass ``['luno', 'binance']`` to prevent silent expansion to Bybit /
-                Bitget / KuCoin etc.  When None, all configured exchanges are used.
+                Bitget / KuCoin etc.  When None, derives from ``get_user_paper_exchanges``
+                so spawning NEVER silently expands to exchanges outside the user's
+                current run selection (preventing ghost bots on unintended exchanges).
         """
         try:
+            # Resolve allowed_exchanges from canonical source when not explicitly provided.
+            if allowed_exchanges is None:
+                try:
+                    from services.canonical import get_user_paper_exchanges
+                    allowed_exchanges = await get_user_paper_exchanges(user_id)
+                except Exception as _ex_err:
+                    logger.warning("auto_spawn_to_target: get_user_paper_exchanges failed: %s", _ex_err)
+                    allowed_exchanges = ["luno"]
+
             bot_count = await self.get_bot_count(user_id)
             total_bots = bot_count['total_bots']
             
@@ -333,26 +344,20 @@ class BotSpawner:
     async def spawn_single_bot_smart(self, user_id: str) -> Dict:
         """Spawn a single bot with AI-determined optimal config.
 
-        Uses the user's existing bot exchanges as the allowed_exchanges whitelist
-        so that auto-spawn never silently expands to exchanges that aren't part of
-        the user's intended run (e.g. Bybit / Bitget when the user only wants
-        Luno + Binance).  If no bots exist yet, defaults to ['luno'].
+        Uses ``get_user_paper_exchanges`` as the canonical allowed-exchanges source
+        so spawning never silently expands to exchanges outside the user's run
+        selection.  If the call fails, falls back to ``["luno"]``.
         """
         try:
-            # Derive allowed exchanges from what the user already has bots on.
-            # This prevents routing drift to exchanges that were not set up by
-            # the user (e.g. leftover Bybit/Bitget bots from a previous run).
-            existing_bots = await db.bots_collection.find(
-                {"user_id": user_id},
-                {"_id": 0, "exchange": 1}
-            ).to_list(200)
-            _existing_exchanges = list({
-                b.get("exchange", "luno").lower()
-                for b in existing_bots
-                if b.get("exchange")
-            })
-            # If the user has no bots at all, default to luno only.
-            allowed_exchanges = _existing_exchanges if _existing_exchanges else ["luno"]
+            # Use canonical paper-exchange resolver — NOT existing bot exchanges.
+            # Using existing bot exchanges would perpetuate ghost exchanges (a ghost
+            # bot already on bybit would keep generating new bybit bots).
+            try:
+                from services.canonical import get_user_paper_exchanges
+                allowed_exchanges = await get_user_paper_exchanges(user_id)
+            except Exception as _ex_err:
+                logger.warning("spawn_single_bot_smart: get_user_paper_exchanges failed: %s", _ex_err)
+                allowed_exchanges = ["luno"]
 
             config = await self.determine_next_bot_config(user_id, allowed_exchanges=allowed_exchanges)
 

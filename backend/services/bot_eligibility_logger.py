@@ -220,6 +220,7 @@ class BotEligibilityLogger:
                     {"id": bot.get("id")},
                     {"$set": {
                         "last_eligibility": event,
+                        "last_eligibility_code": str(reason_code),  # top-level string for easy querying
                         "last_skip_reason":  str(reason_code),
                         "last_tick_at":      event["timestamp"],
                     }},

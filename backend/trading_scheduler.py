@@ -161,8 +161,15 @@ class TradingScheduler:
             # or deleted — their status remains unchanged.  They are simply excluded
             # from this run by setting excluded_from_run=True on the bot document so
             # the truth layer can distinguish them from participating bots.
-            from services.canonical import get_user_run_exchanges
-            _user_run_exchanges_cache: dict = {}
+            from services.canonical import get_user_run_exchanges, get_user_paper_exchanges
+            # Two separate caches: live-bots use run-active (API-key-based);
+            # paper bots use paper-run (explicit selection OR all paper-supported exchanges).
+            # This eliminates the unconditional paper bypass that caused ghost exchanges:
+            # when the operator explicitly selects run_active_exchanges=["luno"], paper bots
+            # also respect that selection.  When no explicit selection is set, paper bots
+            # default to ALL PAPER_SUPPORTED_EXCHANGES (not just ["luno"]).
+            _user_run_exchanges_cache: dict = {}    # live bot gate
+            _user_paper_exchanges_cache: dict = {}  # paper bot gate
 
             run_active_bots = []
             run_excluded_bots = []
@@ -174,15 +181,24 @@ class TradingScheduler:
                     except Exception as _ure_err:
                         logger.warning("get_user_run_exchanges failed for user %s: %s", _uid, _ure_err)
                         _user_run_exchanges_cache[_uid] = {"luno"}
-                _run_exs = _user_run_exchanges_cache[_uid]
+                if _uid not in _user_paper_exchanges_cache:
+                    try:
+                        _user_paper_exchanges_cache[_uid] = set(await get_user_paper_exchanges(_uid))
+                    except Exception as _upe_err:
+                        logger.warning("get_user_paper_exchanges failed for user %s: %s", _uid, _upe_err)
+                        from config import PAPER_SUPPORTED_EXCHANGES as _PSE
+                        _user_paper_exchanges_cache[_uid] = set(_PSE)
                 _bot_exchange = (bot.get("exchange") or "").lower()
-                # Paper-mode bots run on PUBLIC exchange endpoints and do NOT need
-                # configured API keys.  Including them only when run_active_exchanges
-                # returns a key-based list (typically ['luno']) silently blocks all
-                # paper Binance/KuCoin/etc. bots even when they are fully configured
-                # and ready.  Paper bots are already filtered to PAPER_SUPPORTED_EXCHANGES
-                # by the platform-support gate above, so including all of them here is safe.
-                if _is_paper_bot(bot) or _bot_exchange in _run_exs:
+                # Choose the correct allowed-exchange set for this bot's mode:
+                # - Paper bots: use paper_exchanges (explicit selection OR all paper-supported)
+                # - Live bots: use run_exchanges (must have verified API key)
+                # This ensures paper bots are NEVER silently allowed on exchanges the
+                # operator explicitly excluded via run_active_exchanges.
+                if _is_paper_bot(bot):
+                    _effective_exs = _user_paper_exchanges_cache[_uid]
+                else:
+                    _effective_exs = _user_run_exchanges_cache[_uid]
+                if _bot_exchange in _effective_exs:
                     run_active_bots.append(bot)
                 else:
                     run_excluded_bots.append(bot)
@@ -193,10 +209,16 @@ class TradingScheduler:
             for bot in run_excluded_bots:
                 _bot_exchange = (bot.get("exchange") or "unknown").lower()
                 _uid = bot.get("user_id", "")
-                _run_exs = _user_run_exchanges_cache.get(_uid, set())
+                _effective_exs = (
+                    _user_paper_exchanges_cache.get(_uid, set())
+                    if _is_paper_bot(bot)
+                    else _user_run_exchanges_cache.get(_uid, set())
+                )
                 logger.info(
-                    "⏩ RUN_EXCLUDED | %s | exchange=%s not in run_active=%s",
-                    bot.get("name", bot["id"][:8]), _bot_exchange, sorted(_run_exs),
+                    "⏩ RUN_EXCLUDED | %s | exchange=%s not in %s=%s",
+                    bot.get("name", bot["id"][:8]), _bot_exchange,
+                    "paper_run" if _is_paper_bot(bot) else "run_active",
+                    sorted(_effective_exs),
                 )
                 try:
                     await db.bots_collection.update_one(
