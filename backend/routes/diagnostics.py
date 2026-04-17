@@ -3382,7 +3382,12 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             _all_reason_codes.update(v.keys())
         _all_reason_codes.discard("none")
         reason_descriptions = {
-            code: ELIGIBILITY_DESCRIPTIONS.get(code, f"Unmapped reason '{code}' — add to _SKIP_TO_CODE")
+            code: ELIGIBILITY_DESCRIPTIONS.get(
+                code,
+                f"Unmapped reason '{code}' — add to ELIGIBILITY_DESCRIPTIONS "
+                "in services/bot_eligibility_logger.py and to _SKIP_TO_CODE "
+                "in trading_scheduler.py"
+            )
             for code in sorted(_all_reason_codes)
         }
         checks["cohort_skips"] = {

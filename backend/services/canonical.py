@@ -530,16 +530,20 @@ async def get_user_run_exchanges(user_id: str) -> list[str]:
 async def get_user_paper_exchanges(user_id: str) -> list[str]:
     """Return the exchanges on which paper bots are allowed to execute.
 
-    Paper bots do not require API keys (they use public market-data endpoints),
-    so the key-based tier-2 of ``get_user_run_exchanges`` is inappropriate here.
-    Instead we apply:
+    Paper bots do not require API keys (they use public market-data endpoints).
+    This function intentionally skips the API-key verification tier that
+    ``get_user_run_exchanges`` applies — there is no tier-2 key check here
+    because paper trading does not need real API credentials.
 
-    1. ``system_modes.run_active_exchanges``  — explicit user selection
-       (when set, BOTH live and paper bots honour it — the operator has spoken).
+    Resolution order:
+
+    1. ``system_modes.run_active_exchanges`` — explicit operator selection.
+       When set, both live AND paper bots honour it (the operator has spoken).
     2. ALL ``PAPER_SUPPORTED_EXCHANGES`` — when no explicit selection exists,
-       paper bots may use every exchange the platform supports for paper trading.
-       This avoids the tier-3 fallback of ``["luno"]`` silently restricting a
-       paper fleet that was intentionally created across multiple exchanges.
+       paper bots may use every exchange the platform supports for paper
+       trading.  This avoids the tier-3 ``["luno"]`` fallback of
+       ``get_user_run_exchanges`` silently restricting a paper fleet that was
+       intentionally created across multiple exchanges.
 
     Note: this function never returns exchanges outside PAPER_SUPPORTED_EXCHANGES
     even when the user has an explicit selection that includes unsupported names.
