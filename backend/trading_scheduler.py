@@ -1001,7 +1001,7 @@ class TradingScheduler:
                     except Exception as e:
                         logger.debug(f"Failed to emit heartbeat: {e}")
                 
-                _tick_start_ms = time.monotonic() * 1000
+                _tick_start = time.monotonic()
                 _bots_processed = 0
                 try:
                     async with asyncio.timeout(45):
@@ -1014,7 +1014,7 @@ class TradingScheduler:
                 except Exception as _tick_err:
                     logger.error("[SCHEDULER] tick=%d execute_bot_trades error: %s", self.tick_count, _tick_err)
                 finally:
-                    _tick_elapsed_ms = int(time.monotonic() * 1000 - _tick_start_ms)
+                    _tick_elapsed_ms = int((time.monotonic() - _tick_start) * 1000)
                     logger.info(
                         "[SCHEDULER] tick=%d bots_processed=%d time_ms=%d",
                         self.tick_count, _bots_processed, _tick_elapsed_ms,

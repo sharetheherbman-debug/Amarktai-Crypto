@@ -512,7 +512,14 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
                     {"bot_id": {"$in": bot_ids}, "status": {"$in": ["open", "active", "pending"]}},
                     sort=[("timestamp", -1)],
                 )
-                for _ot in await open_trades_cursor.to_list(length=500):
+                _BATCH_LIMIT = 500
+                _raw_trades = await open_trades_cursor.to_list(length=_BATCH_LIMIT)
+                if len(_raw_trades) == _BATCH_LIMIT:
+                    logger.warning(
+                        "radar_snapshot: open-trade batch hit limit=%d for user %s — some trades may be missed",
+                        _BATCH_LIMIT, user_id[:8],
+                    )
+                for _ot in _raw_trades:
                     _bid = str(_ot.get("bot_id", ""))
                     if _bid and _bid not in open_trades_by_bot:
                         open_trades_by_bot[_bid] = _ot
