@@ -49,6 +49,12 @@ logger = logging.getLogger(__name__)
 _SNAPSHOT_CACHE: Dict[str, tuple] = {}
 _SNAPSHOT_TTL = 10  # seconds
 
+# Maximum number of legacy trades (without realized_pnl_zar / fee_display_zar)
+# fetched in the Python fallback path.  Trades above this limit are excluded
+# from totals; a warning is logged.  Run the realized_pnl_zar migration to
+# convert legacy records and eliminate this path.
+_LEGACY_TRADE_LIMIT = 10000
+
 
 class OverviewService:
     """Centralized overview metrics computation service"""
@@ -356,8 +362,8 @@ class OverviewService:
                      {"realized_pnl_zar": None}]},
             {"_id": 0, "net_pnl": 1, "profit_loss": 1, "gross_pnl": 1,
              "quote_currency": 1, "exchange": 1, "timestamp": 1}
-        ).to_list(10000)
-        if len(legacy_trades) >= 10000:
+        ).to_list(_LEGACY_TRADE_LIMIT)
+        if len(legacy_trades) >= _LEGACY_TRADE_LIMIT:
             logger.warning("_compute_profit_metrics: legacy trade limit (10000) reached for user bots; "
                            "some historical PnL may be excluded. Run realized_pnl_zar migration.")
 
@@ -422,8 +428,8 @@ class OverviewService:
              "$or": [{"fee_display_zar": {"$exists": False}}, {"fee_display_zar": None}]},
             {"_id": 0, "fee_amount": 1, "fees": 1, "fee": 1,
              "quote_currency": 1, "exchange": 1, "timestamp": 1}
-        ).to_list(10000)
-        if len(legacy_fee_trades) >= 10000:
+        ).to_list(_LEGACY_TRADE_LIMIT)
+        if len(legacy_fee_trades) >= _LEGACY_TRADE_LIMIT:
             logger.warning("_compute_fee_metrics: legacy fee trade limit (10000) reached for user bots; "
                            "some historical fee totals may be excluded. Run fee_display_zar migration.")
 
