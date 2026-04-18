@@ -278,6 +278,10 @@ export default function useDashboardState(navigate) {
   const _wsDebounce = useRef({});
   // Cleanup callback for realtimeClient raw-message subscription.
   const _rtCleanup = useRef(null);
+  // Tracks whether the WS has connected at least once this session.
+  // Prevents refreshAllDashboardData (15 parallel requests) from firing
+  // on every reconnect when the backend is under load.
+  const _wsConnectedOnce = useRef(false);
   
   const token = localStorage.getItem('token');
   const axiosConfig = useMemo(() => ({
@@ -415,6 +419,8 @@ export default function useDashboardState(navigate) {
         wsRef.current = null;
         wsInitializedRef.current = false;
       }
+      // Reset the first-connect flag so a fresh mount triggers a full refresh.
+      _wsConnectedOnce.current = false;
       if (sseRef.current) sseRef.current.close();
     };
   }, []);
@@ -429,7 +435,7 @@ export default function useDashboardState(navigate) {
       let priceInterval;
       const startPolling = () => {
         loadLivePrices();
-        priceInterval = setInterval(loadLivePrices, 4000);
+        priceInterval = setInterval(loadLivePrices, 15000);
       };
 
       const stopPolling = () => {
@@ -733,6 +739,12 @@ export default function useDashboardState(navigate) {
       realtimeClient.connect(token);
     }
 
+    // Track first connect vs. reconnects so we don't fire a 15-request
+    // refreshAllDashboardData storm on every WS reconnect under load.
+    // When the backend is stressed the WS cycles frequently; each reconnect
+    // used to trigger 15 parallel REST calls, amplifying the overload.
+    // Using a ref (not a closure variable) so the flag persists across effect reruns.
+
     // Subscribe to connection-state changes so the UI status badge updates.
     const offConn = realtimeClient.on('connection', (payload) => {
       const isUp = payload?.status === 'connected';
@@ -742,11 +754,18 @@ export default function useDashboardState(navigate) {
         sse: isUp ? 'Connected' : 'Disconnected',
       }));
       if (isUp) {
-        // A single initial load is enough; refreshAllDashboardData fires 15
-        // requests in parallel — do NOT call it again on every reconnect.
-        // The polling intervals in useDashboardData already keep data fresh.
-        console.log('✅ WebSocket connected');
-        refreshAllDashboardData();
+        if (!_wsConnectedOnce.current) {
+          // First connect only: do a full refresh to populate the dashboard.
+          _wsConnectedOnce.current = true;
+          console.log('✅ WebSocket connected (initial) — refreshing dashboard');
+          refreshAllDashboardData();
+        } else {
+          // Reconnect: polling intervals already keep data fresh.
+          // Only do a lightweight refresh (overview + risk) rather than 15 parallel calls.
+          console.log('✅ WebSocket reconnected — skipping full refresh (polling covers it)');
+          loadOverviewData();
+          loadRiskStatus();
+        }
       } else {
         setWsRtt(NOT_AVAILABLE);
       }

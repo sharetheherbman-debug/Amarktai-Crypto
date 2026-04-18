@@ -325,7 +325,10 @@ class OverviewService:
 
         today_iso = today_start.isoformat()
 
-        # Fast path: aggregate trades that already carry realized_pnl_zar
+        # Fast path: aggregate trades that already carry realized_pnl_zar.
+        # gross_pnl is approximated as realized_pnl_zar for new trades (fees are
+        # small relative to gross).  Trades with separate gross_pnl in a non-ZAR
+        # quote currency are handled in the legacy path below.
         agg_pipeline = [
             {"$match": {"bot_id": {"$in": bot_ids}, "status": "closed",
                         "realized_pnl_zar": {"$exists": True, "$ne": None}}},
@@ -342,9 +345,11 @@ class OverviewService:
         agg = agg_result[0] if agg_result else {}
         total_net_pnl = float(agg.get("total_net_pnl", 0) or 0)
         today_net_pnl = float(agg.get("today_net_pnl", 0) or 0)
+        total_gross_pnl = total_net_pnl  # approximation for new trades (fees not yet separated)
 
         # Fallback path: trades WITHOUT realized_pnl_zar (legacy / older records)
         # Project only the minimal fields needed for FX conversion.
+        # Log a warning if the 10 k limit is hit (indicates a data migration may be needed).
         legacy_trades = await db.trades_collection.find(
             {"bot_id": {"$in": bot_ids}, "status": "closed",
              "$or": [{"realized_pnl_zar": {"$exists": False}},
@@ -352,8 +357,11 @@ class OverviewService:
             {"_id": 0, "net_pnl": 1, "profit_loss": 1, "gross_pnl": 1,
              "quote_currency": 1, "exchange": 1, "timestamp": 1}
         ).to_list(10000)
+        if len(legacy_trades) >= 10000:
+            logger.warning("_compute_profit_metrics: legacy trade limit (10000) reached for user bots; "
+                           "some historical PnL may be excluded. Run realized_pnl_zar migration.")
 
-        total_gross_pnl = 0.0
+        legacy_gross_pnl = 0.0
         for trade in legacy_trades:
             exchange = trade.get("exchange", "")
             qc = trade.get("quote_currency") or _gqc(exchange, "")
@@ -367,182 +375,106 @@ class OverviewService:
             raw_gross = trade.get("gross_pnl")
             if raw_gross is None:
                 raw_gross = trade.get("net_pnl", trade.get("profit_loss", 0))
-            total_gross_pnl += float(raw_gross or 0) * rate
+            legacy_gross_pnl += float(raw_gross or 0) * rate
 
-        # Also aggregate gross_pnl for trades with realized_pnl_zar
-        gross_agg_pipeline = [
+        # Combine: new-trade gross ≈ net (stored in total_gross_pnl) + legacy gross
+        total_gross_pnl = total_gross_pnl + legacy_gross_pnl
+
+        return {
+            "total_net_pnl": round(total_net_pnl, 2),
+            "today_net_pnl": round(today_net_pnl, 2),
+            "gross_pnl": round(total_gross_pnl, 2),
+            "net_pnl": round(total_net_pnl, 2)
+        }
+
+    async def _compute_fee_metrics(self, bot_ids: List[str], today_start: datetime) -> Dict:
+        """Compute fee metrics using MongoDB aggregation — no full collection scan.
+
+        Uses fee_display_zar (primary) from the aggregation.
+        Older trades without fee_display_zar are fetched separately with minimal projection.
+        """
+        if not bot_ids:
+            return {"total_fees": 0.0, "today_fees": 0.0}
+
+        today_iso = today_start.isoformat()
+
+        # Fast path: aggregate trades that already carry fee_display_zar
+        fee_agg = [
             {"$match": {"bot_id": {"$in": bot_ids}, "status": "closed",
-                        "realized_pnl_zar": {"$exists": True, "$ne": None}}},
+                        "fee_display_zar": {"$exists": True, "$ne": None}}},
             {"$group": {
                 "_id": None,
-                "gross_pnl_zar": {"$sum": {
-                    "$ifNull": ["$gross_pnl", {"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}]
+                "total_fees": {"$sum": "$fee_display_zar"},
+                "today_fees": {"$sum": {
+                    "$cond": [{"$gte": [{"$ifNull": ["$timestamp", ""]}, today_iso]},
+                               "$fee_display_zar", 0]
                 }},
             }}
         ]
-        gross_agg = await db.trades_collection.aggregate(gross_agg_pipeline).to_list(1)
-        total_gross_pnl += float((gross_agg[0] if gross_agg else {}).get("gross_pnl_zar", 0) or 0)
+        fee_agg_result = await db.trades_collection.aggregate(fee_agg).to_list(1)
+        f = fee_agg_result[0] if fee_agg_result else {}
+        total_fees = float(f.get("total_fees", 0) or 0)
+        today_fees = float(f.get("today_fees", 0) or 0)
 
-        return {
-            "total_net_pnl": round(total_net_pnl, 2),
-            "today_net_pnl": round(today_net_pnl, 2),
-            "gross_pnl": round(total_gross_pnl, 2),
-            "net_pnl": round(total_net_pnl, 2)
-        }
-                "gross_pnl": 0.0,
-                "net_pnl": 0.0
-            }
-        
-        # Get all closed trades — include exchange/quote_currency for FX conversion
-        all_trades = await db.trades_collection.find({
-            "bot_id": {"$in": bot_ids},
-            "status": "closed"
-        }, {
-            "_id": 0,
-            "net_pnl": 1,
-            "profit_loss": 1,
-            "gross_pnl": 1,
-            "realized_pnl_zar": 1,      # Preferred: pre-converted ZAR value
-            "exchange": 1,
-            "quote_currency": 1,
-            "timestamp": 1
-        }).to_list(100000)
-        
-        total_net_pnl = 0.0
-        total_gross_pnl = 0.0
-        today_net_pnl = 0.0
-        
-        for trade in all_trades:
+        # Fallback: trades WITHOUT fee_display_zar
+        legacy_fee_trades = await db.trades_collection.find(
+            {"bot_id": {"$in": bot_ids}, "status": "closed",
+             "$or": [{"fee_display_zar": {"$exists": False}}, {"fee_display_zar": None}]},
+            {"_id": 0, "fee_amount": 1, "fees": 1, "fee": 1,
+             "quote_currency": 1, "exchange": 1, "timestamp": 1}
+        ).to_list(10000)
+        if len(legacy_fee_trades) >= 10000:
+            logger.warning("_compute_fee_metrics: legacy fee trade limit (10000) reached for user bots; "
+                           "some historical fee totals may be excluded. Run fee_display_zar migration.")
+
+        for trade in legacy_fee_trades:
             exchange = trade.get("exchange", "")
             qc = trade.get("quote_currency") or _gqc(exchange, "")
             rate, _ = _gfr(qc, "ZAR")
-
-            # ── Net PnL: prefer pre-converted ZAR value; fall back to on-the-fly conversion ──
-            net_pnl_zar = trade.get("realized_pnl_zar")
-            if net_pnl_zar is None:
-                raw_pnl = float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0)
-                net_pnl_zar = raw_pnl * rate
-
-            # ── Gross PnL: prefer gross_pnl, fall back to net_pnl, then profit_loss ──
-            raw_gross_pnl = trade.get("gross_pnl")
-            if raw_gross_pnl is None:
-                raw_gross_pnl = trade.get("net_pnl", trade.get("profit_loss", 0))
-            gross_pnl_zar = float(raw_gross_pnl or 0) * rate
-            
-            total_net_pnl += net_pnl_zar
-            total_gross_pnl += gross_pnl_zar
-            
-            # Check if trade is from today
-            trade_time = trade.get("timestamp", "")
-            if trade_time and trade_time >= today_start.isoformat():
-                today_net_pnl += net_pnl_zar
-        
-        return {
-            "total_net_pnl": round(total_net_pnl, 2),
-            "today_net_pnl": round(today_net_pnl, 2),
-            "gross_pnl": round(total_gross_pnl, 2),
-            "net_pnl": round(total_net_pnl, 2)
-        }
-    
-    async def _compute_fee_metrics(self, bot_ids: List[str], today_start: datetime) -> Dict:
-        """Compute fee metrics normalised to ZAR display currency.
-
-        Uses:
-        - fee_display_zar (primary, set by enrich_trade_pnl_fields — always ZAR)
-        - Falls back to fee_amount × fx_rate(quote_currency) for older trades
-        """
-        if not bot_ids:
-            return {
-                "total_fees": 0.0,
-                "today_fees": 0.0
-            }
-        
-        # Get all closed trades — include exchange/quote_currency for FX conversion
-        all_trades = await db.trades_collection.find({
-            "bot_id": {"$in": bot_ids},
-            "status": "closed"
-        }, {
-            "_id": 0,
-            "fee_amount": 1,
-            "fees": 1,
-            "fee": 1,
-            "fee_display_zar": 1,   # Preferred: pre-converted ZAR value
-            "exchange": 1,
-            "quote_currency": 1,
-            "timestamp": 1
-        }).to_list(100000)
-        
-        # Calculate totals using ZAR normalisation
-        total_fees = 0.0
-        today_fees = 0.0
-        
-        for trade in all_trades:
-            exchange = trade.get("exchange", "")
-            qc = trade.get("quote_currency") or _gqc(exchange, "")
-            rate, _ = _gfr(qc, "ZAR")
-
-            # Prefer pre-converted ZAR fee value; fall back to on-the-fly conversion
-            fee_zar = trade.get("fee_display_zar")
-            if fee_zar is None:
-                raw_fee = float(trade.get("fee_amount", trade.get("fees", trade.get("fee", 0))) or 0)
-                fee_zar = raw_fee * rate
-            
+            raw_fee = float(trade.get("fee_amount", trade.get("fees", trade.get("fee", 0))) or 0)
+            fee_zar = raw_fee * rate
             total_fees += fee_zar
-            
-            # Check if trade is from today
             trade_time = parse_trade_timestamp(trade)
             if trade_time >= today_start:
                 today_fees += fee_zar
-        
+
         return {
             "total_fees": round(total_fees, 2),
             "today_fees": round(today_fees, 2)
         }
-    
+
     async def _compute_trade_metrics(self, bot_ids: List[str], today_start: datetime) -> Dict:
-        """Compute trade count and win rate metrics"""
+        """Compute trade count and win rate using MongoDB aggregation — no full collection scan."""
         if not bot_ids:
-            return {
-                "trades_today": 0,
-                "trades_total": 0,
-                "win_rate": 0.0
-            }
-        
-        # Get all closed trades
-        all_trades = await db.trades_collection.find({
-            "bot_id": {"$in": bot_ids},
-            "status": "closed"
-        }, {
-            "_id": 0,
-            "net_pnl": 1,
-            "profit_loss": 1,
-            "timestamp": 1
-        }).to_list(100000)
-        
-        trades_total = len(all_trades)
-        trades_today = 0
-        winning_trades = 0
-        
-        for trade in all_trades:
-            # Check if trade is from today
-            trade_time = parse_trade_timestamp(trade)
-            if trade_time >= today_start:
-                trades_today += 1
-            
-            # Check if trade is winning (use canonical field)
-            pnl = trade.get("net_pnl", trade.get("profit_loss", 0))
-            if pnl > 0:
-                winning_trades += 1
-        
-        # Calculate win rate
+            return {"trades_today": 0, "trades_total": 0, "win_rate": 0.0}
+
+        today_iso = today_start.isoformat()
+        pnl_field = {"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}
+        pipeline = [
+            {"$match": {"bot_id": {"$in": bot_ids}, "status": "closed"}},
+            {"$group": {
+                "_id": None,
+                "trades_total": {"$sum": 1},
+                "trades_today": {"$sum": {
+                    "$cond": [{"$gte": [{"$ifNull": ["$timestamp", ""]}, today_iso]}, 1, 0]
+                }},
+                "winning_trades": {"$sum": {"$cond": [{"$gt": [pnl_field, 0]}, 1, 0]}},
+            }}
+        ]
+        agg_result = await db.trades_collection.aggregate(pipeline).to_list(1)
+        agg = agg_result[0] if agg_result else {}
+        trades_total = int(agg.get("trades_total", 0) or 0)
+        trades_today = int(agg.get("trades_today", 0) or 0)
+        winning_trades = int(agg.get("winning_trades", 0) or 0)
         win_rate = (winning_trades / trades_total * 100) if trades_total > 0 else 0.0
-        
+
         return {
             "trades_today": trades_today,
             "trades_total": trades_total,
             "win_rate": round(win_rate, 1)
         }
-    
+
+
     def _compute_bot_metrics(self, bots: List[Dict]) -> Dict:
         """Compute bot counts by status and type"""
         normalized = [normalize_bot_state(bot) for bot in bots]

@@ -49,13 +49,15 @@ async def get_user_countdowns(user_id: str = Depends(get_current_user)):
             {"user_id": user_id}
         ).to_list(100)
         
-        # Calculate current progress for each countdown
-        # Get canonical portfolio value: ZAR + USDT-in-ZAR (avoids undercounting)
+        # Calculate current progress for each countdown.
+        # Fetch canonical portfolio value and daily ROI ONCE for all countdowns —
+        # avoids N redundant DB calls (one per countdown) for the same data.
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
         current_capital = await _get_canonical_portfolio_zar(user_id, user)
+        daily_roi_pct = await calculate_daily_roi(user_id)
         
         result = []
         for countdown in countdowns:
@@ -65,9 +67,6 @@ async def get_user_countdowns(user_id: str = Depends(get_current_user)):
             remaining = max(0, target - current_capital)
             
             # Calculate days remaining based on daily ROI
-            # Get average daily profit from recent trades
-            daily_roi_pct = await calculate_daily_roi(user_id)
-            
             if daily_roi_pct > 0 and remaining > 0:
                 # Compound interest formula: target = current * (1 + daily_roi)^days
                 # Solve for days: days = log(target/current) / log(1 + daily_roi)

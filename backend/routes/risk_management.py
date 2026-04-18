@@ -27,7 +27,7 @@ router = APIRouter()
 # Cache for 5 seconds per user_id to prevent poll-induced blocking.
 # ---------------------------------------------------------------------------
 _RISK_STATUS_CACHE: Dict[str, tuple] = {}   # user_id → (timestamp_mono, payload)
-_RISK_STATUS_TTL = 5  # seconds
+_RISK_STATUS_TTL = 30  # seconds — increased from 5s now that N+1 loop is replaced by batch query
 
 
 @router.get("/api/risk/daily-loss-lock")
@@ -93,8 +93,12 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
 
         bots = await db.bots_collection.find(
             {"user_id": user_id, "status": {"$ne": "deleted"}},
-            {"_id": 0, "id": 1, "name": 1, "status": 1, "trading_mode": 1, "mode": 1, "quarantine_reason": 1, "retraining_until": 1, "paused_by_bodyguard": 1, "pause_reason": 1}
+            {"_id": 0, "id": 1, "name": 1, "status": 1, "trading_mode": 1, "mode": 1,
+             "quarantine_reason": 1, "retraining_until": 1, "paused_by_bodyguard": 1,
+             "pause_reason": 1, "risk_mode": 1, "current_capital": 1, "equity_peak": 1,
+             "bodyguard_last_pause_at": 1, "bodyguard_last_breach_at": 1}
         ).to_list(1000)
+        bot_ids = [b["id"] for b in bots if b.get("id")]
 
         quarantined_bots = [bot for bot in bots if bot.get("status") == "quarantined"]
         bodyguard_bots = [bot for bot in bots if bot.get("paused_by_bodyguard")]
@@ -128,53 +132,96 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
         bodyguard_reason = bodyguard_reasons[0] if bodyguard_reasons else None
         quarantine_reason = quarantine_reasons[0] if quarantine_reasons else None
 
-        from services.bodyguard_service import bodyguard_service
-        from services.ledger_service import get_ledger_service
+        from services.bodyguard_service import (
+            bodyguard_service,
+            PAPER_DRAWDOWN_THRESHOLDS,
+            LIVE_DRAWDOWN_THRESHOLDS,
+        )
         bot_risk_status = []
         per_bot_status = []
+
+        # Batch daily PnL from trades_collection in ONE aggregation instead of
+        # N serial ledger calls.  The fills_ledger (used by ledger_service) may
+        # be empty for paper bots; trades_collection is the canonical source for
+        # paper P&L.  This replaces ~4 serial DB calls × N bots with 1 query.
+        # Note: only realized_pnl_zar (pre-converted ZAR) is used to avoid
+        # currency mixing when bots trade in different quote currencies (USDT, ZAR).
+        # Older trades without this field contribute 0 to the daily total — acceptable
+        # for risk display purposes (these are accurate for all new paper trades).
+        today_pnl_by_bot: dict = {}
+        try:
+            if bot_ids and db.trades_collection is not None:
+                today_start_iso = datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).isoformat()
+                pnl_pipeline = [
+                    {"$match": {
+                        "bot_id": {"$in": bot_ids},
+                        "status": "closed",
+                        "timestamp": {"$gte": today_start_iso},
+                        "realized_pnl_zar": {"$exists": True, "$ne": None},
+                    }},
+                    {"$group": {
+                        "_id": "$bot_id",
+                        "realized": {"$sum": "$realized_pnl_zar"},
+                        "fees": {"$sum": {"$ifNull": ["$fee_display_zar", 0]}},
+                    }}
+                ]
+                pnl_results = await db.trades_collection.aggregate(pnl_pipeline).to_list(1000)
+                for r in pnl_results:
+                    today_pnl_by_bot[r["_id"]] = float(r["realized"]) - float(r["fees"])
+        except Exception as _pnl_err:
+            logger.warning("risk/status: batch daily PnL aggregation failed: %s", _pnl_err)
+
         for bot in bots:
             bot_id = bot.get("id")
             if not bot_id:
                 continue
-            drawdown_status = await bodyguard_service.get_bot_drawdown_status(bot_id)
-            if not drawdown_status:
-                continue
-            daily_pnl = 0.0
-            daily_loss_pct = 0.0
-            try:
-                if db.db is not None:
-                    ledger = get_ledger_service(db.db)
-                    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-                    realized = await ledger.compute_realized_pnl(bot_id=bot_id, since=today_start)
-                    fees = await ledger.compute_fees_paid(bot_id=bot_id, since=today_start)
-                    daily_pnl = realized - fees
-                    equity = float(drawdown_status.get("current_capital") or 0)
-                    if daily_pnl < 0 and equity > 0:
-                        daily_loss_pct = abs(daily_pnl) / equity * 100
-            except Exception as e:
-                logger.warning(f"Risk status daily pnl fallback: {e}")
 
-            threshold = drawdown_status.get("threshold", 0)
-            current_drawdown = drawdown_status.get("current_drawdown_pct", 0)
+            # Build drawdown data from the already-loaded bot document —
+            # avoids a redundant bots_collection.find_one per bot.
+            # Compute threshold inline (same logic as BodyguardService._get_drawdown_threshold)
+            # to avoid accessing a private method across service boundaries.
+            risk_mode = (bot.get("risk_mode") or "balanced").lower()
+            if risk_mode == "aggressive":
+                risk_mode = "risky"
+            if risk_mode not in PAPER_DRAWDOWN_THRESHOLDS:
+                risk_mode = "balanced"
+            trading_mode = bot.get("trading_mode", "paper")
+            thresholds = PAPER_DRAWDOWN_THRESHOLDS if trading_mode == "paper" else LIVE_DRAWDOWN_THRESHOLDS
+            threshold = thresholds.get(risk_mode, thresholds.get("balanced", 20.0))
+
+            current_capital = float(bot.get("current_capital") or 0)
+            equity_peak = float(bot.get("equity_peak") or current_capital or 0)
+            current_drawdown_pct = 0.0
+            if equity_peak > 0:
+                current_drawdown_pct = max(0.0, (equity_peak - current_capital) / equity_peak * 100)
+            paused_by_bodyguard = bool(bot.get("paused_by_bodyguard", False))
+
+            daily_pnl = today_pnl_by_bot.get(bot_id, 0.0)
+            daily_loss_pct = 0.0
+            if daily_pnl < 0 and current_capital > 0:
+                daily_loss_pct = abs(daily_pnl) / current_capital * 100
+
             bot_risk_status.append({
                 "bot_id": bot_id,
-                "bot_name": drawdown_status.get("bot_name"),
-                "risk_mode": drawdown_status.get("risk_mode"),
-                "drawdown_pct": current_drawdown,
+                "bot_name": bot.get("name"),
+                "risk_mode": risk_mode,
+                "drawdown_pct": round(current_drawdown_pct, 2),
                 "daily_pnl": round(daily_pnl, 2),
                 "daily_loss_pct": round(daily_loss_pct, 2),
                 "threshold": threshold,
-                "would_pause": current_drawdown >= threshold,
-                "paused_by_bodyguard": drawdown_status.get("paused_by_bodyguard", False),
-                "pause_reason": drawdown_status.get("pause_reason"),
-                "last_decision_time": bot.get("bodyguard_last_pause_at") or bot.get("bodyguard_last_breach_at")
+                "would_pause": current_drawdown_pct >= threshold,
+                "paused_by_bodyguard": paused_by_bodyguard,
+                "pause_reason": bot.get("pause_reason"),
+                "last_decision_time": bot.get("bodyguard_last_pause_at") or bot.get("bodyguard_last_breach_at"),
             })
             bot_state = "ok"
             reason = None
             if bot.get("status") == "quarantined":
                 bot_state = "quarantined"
                 reason = bot.get("quarantine_reason") or "Bot quarantined"
-            elif bot.get("paused_by_bodyguard"):
+            elif paused_by_bodyguard:
                 bot_state = "warning"
                 reason = bot.get("pause_reason") or "Bodyguard pause"
             per_bot_status.append({
