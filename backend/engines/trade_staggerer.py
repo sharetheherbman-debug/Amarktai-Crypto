@@ -43,20 +43,22 @@ class TradeStaggerer:
         self._last_completed: Dict[str, datetime] = {}
         
         # Rate limiting per exchange.
-        # For LIVE trading these values are real API rate limits.
-        # For PAPER trading the concurrency limits govern how many paper-engine
-        # goroutines can process simultaneously — paper bots do not hit real APIs
-        # so higher concurrency is safe and necessary for fleet-wide participation.
-        # Luno: raised from 2→4 for paper so a 10-bot Luno fleet can actually
-        # run concurrently rather than serializing through 2 slots.
-        # Override via env: TRADE_STAGGERER_LUNO_MAX_CONCURRENT, etc.
-        _luno_max = int(os.getenv("TRADE_STAGGERER_LUNO_MAX_CONCURRENT", "4"))
+        # These values serve two purposes:
+        #   - PAPER trading: caps how many paper-engine coroutines run concurrently.
+        #     Paper bots do not hit real exchange APIs so high concurrency is safe.
+        #   - LIVE trading: the same limits apply; if live bots need stricter limits
+        #     use env vars (TRADE_STAGGERER_LUNO_MAX_CONCURRENT etc.) to reduce them.
+        # Luno: raised from 4→10 for paper fleet-wide concurrency.
+        # Binance: raised from 5→10 for paper fleet.
+        # Override any value via env: TRADE_STAGGERER_LUNO_MAX_CONCURRENT, etc.
+        _luno_max = int(os.getenv("TRADE_STAGGERER_LUNO_MAX_CONCURRENT", "10"))
+        _binance_max = int(os.getenv("TRADE_STAGGERER_BINANCE_MAX_CONCURRENT", "10"))
         self.exchange_limits = {
-            'luno': {'max_concurrent': _luno_max, 'min_delay': 5},
-            'binance': {'max_concurrent': 5, 'min_delay': 2},    # 5 concurrent, 2s between
-            'kucoin': {'max_concurrent': 3, 'min_delay': 3},     # 3 concurrent, 3s between
-            'bybit': {'max_concurrent': 4, 'min_delay': 3},      # 4 concurrent, 3s between
-            'bitget': {'max_concurrent': 4, 'min_delay': 3}      # 4 concurrent, 3s between
+            'luno':    {'max_concurrent': _luno_max,    'min_delay': 5},
+            'binance': {'max_concurrent': _binance_max, 'min_delay': 2},
+            'kucoin':  {'max_concurrent': 5, 'min_delay': 3},
+            'bybit':   {'max_concurrent': 5, 'min_delay': 3},
+            'bitget':  {'max_concurrent': 5, 'min_delay': 3},
         }
         
         self.last_trade_per_exchange = {}

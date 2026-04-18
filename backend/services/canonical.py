@@ -441,10 +441,16 @@ async def get_unlocked_exchanges(user_id: str) -> list[str]:
     from config.platforms import SUPPORTED_PLATFORMS
 
     try:
+        # Keys saved via the canonical /api/keys/save route store the raw key as
+        # "api_key_encrypted" (not "api_key").  Legacy routes stored it as "api_key".
+        # Accept either field so that both old and new-format documents are found.
         key_docs = await db.api_keys_collection.find(
             {
                 "user_id": user_id,
-                "api_key": {"$exists": True, "$ne": ""},
+                "$or": [
+                    {"api_key": {"$exists": True, "$ne": ""}},
+                    {"api_key_encrypted": {"$exists": True, "$ne": None}},
+                ],
                 "last_test_ok": True,
             },
             {"_id": 0, "provider": 1},
@@ -502,10 +508,16 @@ async def get_user_run_exchanges(user_id: str) -> list[str]:
     # Requiring a passing test prevents stale / untested keys from silently
     # activating exchanges, which is the root cause of ghost exchange participation.
     try:
+        # Keys saved via the canonical /api/keys/save route store the raw key as
+        # "api_key_encrypted" (not "api_key").  Legacy routes stored it as "api_key".
+        # Accept either field so that both old and new-format documents are found.
         key_docs = await db.api_keys_collection.find(
             {
                 "user_id": user_id,
-                "api_key": {"$exists": True, "$ne": ""},
+                "$or": [
+                    {"api_key": {"$exists": True, "$ne": ""}},
+                    {"api_key_encrypted": {"$exists": True, "$ne": None}},
+                ],
                 "last_test_ok": True,
             },
             {"_id": 0, "provider": 1},

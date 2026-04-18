@@ -3273,8 +3273,15 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
         _run_active = await get_user_run_exchanges(user_id)
         _paper_run = await get_user_paper_exchanges(user_id)
         _unlocked = await get_unlocked_exchanges(user_id)
+        # Accept both "api_key" (legacy routes) and "api_key_encrypted" (canonical route).
         _key_docs = await db.api_keys_collection.find(
-            {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
+            {
+                "user_id": user_id,
+                "$or": [
+                    {"api_key": {"$exists": True, "$ne": ""}},
+                    {"api_key_encrypted": {"$exists": True, "$ne": None}},
+                ],
+            },
             {"_id": 0, "provider": 1},
         ).to_list(50) if db.api_keys_collection is not None else []
         from config.platforms import SUPPORTED_PLATFORMS

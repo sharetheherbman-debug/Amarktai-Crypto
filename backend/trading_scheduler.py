@@ -396,90 +396,90 @@ class TradingScheduler:
                 except Exception:
                     pass
 
-            # Process ready trades from queue.
-            # Process up to len(active_bots) items per tick (floored at 5, capped at 20)
-            # so the whole fleet can participate in a single scheduler cycle.
-            _max_per_tick = min(max(5, len(active_bots)), 20)
-            for _ in range(_max_per_tick):  # Process up to _max_per_tick trades per cycle
-                trade_request = await trade_staggerer.get_next_trade()
-                
-                if not trade_request:
-                    logger.debug("📭 No trade ready in queue")
-                    break
-                
-                bot_id = trade_request.get('bot_id')
-                if not bot_id:
-                    logger.warning(
-                        f"⚠️ Malformed queue entry missing bot_id – dropping. payload={trade_request!r}"
-                    )
-                    continue
+            # Canonical skip-reason → EligibilityCode mapping, defined once per tick.
+            # Every skip_reason value returned by paper_trading_engine.py must appear
+            # here.  Use EligibilityCode.UNKNOWN only for truly unrecognised values.
+            _SKIP_TO_CODE = {
+                # ── Entry-gate blocks ──────────────────────────────────
+                "edge_gate":               EligibilityCode.EDGE_GATE,
+                "pair_not_allowed":        EligibilityCode.PAIR_NOT_ALLOWED,
+                "spread_too_wide":         EligibilityCode.SPREAD_TOO_WIDE,
+                "low_liquidity":           EligibilityCode.LOW_LIQUIDITY,
+                "no_price_data":           EligibilityCode.NO_PRICE_DATA,
+                "hard_edge_filter":        EligibilityCode.HARD_EDGE_FILTER,
+                "low_confidence":          EligibilityCode.LOW_CONFIDENCE,
+                "bearish_long_blocked":    EligibilityCode.BEARISH_LONG_BLOCKED,
+                "low_expectancy":          EligibilityCode.LOW_EXPECTANCY,
+                "expectancy_gate":         EligibilityCode.EXPECTANCY_GATE,
+                "regime_standdown":        EligibilityCode.REGIME_STAND_DOWN,
+                "exchange_exposure":       EligibilityCode.EXCHANGE_EXPOSURE,
+                "drawdown_limit":          EligibilityCode.DRAWDOWN_LIMIT,
+                "symbol_cooldown":         EligibilityCode.SYMBOL_COOLDOWN,
+                "portfolio_guard":         EligibilityCode.PORTFOLIO_GUARD,
+                # Both spellings emitted by paper engine
+                "hurst_mismatch":          EligibilityCode.HURST_MISMATCH,
+                "hurst_regime_mismatch":   EligibilityCode.HURST_MISMATCH,
+                "adaptive_stand_down":     EligibilityCode.ADAPTIVE_STAND_DOWN,
+                # Signal direction contradicts predicted change
+                "signal_mismatch":         EligibilityCode.SIGNAL_MISMATCH,
+                # Scalper-specific
+                "scalper_spread_too_wide": EligibilityCode.SCALPER_SPREAD_TOO_WIDE,
+                "scalper_ev_too_low":      EligibilityCode.SCALPER_EV_TOO_LOW,
+                # ── Close-path non-blocks (trade stays open) ───────────
+                "no_exit_signal":          EligibilityCode.OPEN_POSITION_ACTIVE,
+                "open_position_active":    EligibilityCode.OPEN_POSITION_ACTIVE,
+                "invalid_values":          EligibilityCode.NO_PRICE_DATA,
+                "pnl_validation_failed":   EligibilityCode.PNL_VALIDATION_FAILED,
+                "close_exception":         EligibilityCode.CLOSE_EXCEPTION,
+                "open_trade_close_failed": EligibilityCode.OPEN_TRADE_CLOSE_FAILED,
+                # Generic rejection from execute_smart_trade
+                "trade_rejected":          EligibilityCode.TRADE_REJECTED,
+                # No usable signal from any AI source
+                "no_usable_signal":        EligibilityCode.NO_USABLE_SIGNAL,
+            }
 
-                logger.info(f"📤 Dequeued trade: bot_id={bot_id}")
+            # ── Per-bot execution coroutine ──────────────────────────────────────
+            # Extracted so that asyncio.gather can run multiple paper-bot cycles
+            # concurrently within a single scheduler tick.  Live bots are still
+            # executed sequentially (they hit real exchange APIs with stricter rate
+            # limits and must not race on position state).
+            async def _execute_bot_cycle(bot: dict) -> None:
+                """Run one bot trade cycle and handle results / diagnostics."""
+                _bid = bot['id']
+                _bexch = bot.get('exchange', 'binance')
+                try:
+                    logger.debug(f"🔄 Executing trade for {bot['name']} (bot_id={_bid})")
 
-                bot = next((b for b in active_bots if b['id'] == bot_id), None)
-                
-                if not bot:
-                    # Stale queue entry – discard it (do NOT re-queue) so it stops repeating
-                    logger.warning(
-                        f"⚠️ Bot {bot_id} not found in active bots – discarding stale queue entry"
-                    )
-                    continue
-                
-                # PHASE 4B/4C: Validate trading mode gates BEFORE execution
-                try:
-                    can_trade, mode, reason = await trading_mode_validator.validate_bot_trading_mode(bot_id, bot)
-                    
-                    if not can_trade:
-                        logger.warning(f"⛔ {bot['name']} - Trading blocked (gate): {reason}")
-                        # Don't execute - mark reason
-                        continue
-                    
-                    logger.debug(f"✅ Trading gates passed for {bot['name']} in {mode} mode")
-                    
-                except TradingGateError as e:
-                    logger.error(f"⛔ Trading gate error for {bot['name']}: {e}")
-                    continue
-                
-                # Execute trade based on mode
-                try:
-                    logger.debug(f"🔄 Executing trade for {bot['name']} (bot_id={bot_id})")
-                    
                     # Check both 'mode' and 'trading_mode' for backwards compatibility
-                    mode = bot.get('mode') or bot.get('trading_mode', 'paper')
-                    is_paper_mode = str(mode).strip().lower().startswith('paper')
-                    
-                    # Register trade start
-                    await trade_staggerer.register_trade_start(bot_id, bot.get('exchange'))
-                    logger.debug(f"📝 Registered trade start for {bot['name']}")
-                    
-                    if is_paper_mode:
+                    _mode = bot.get('mode') or bot.get('trading_mode', 'paper')
+                    _is_paper = str(_mode).strip().lower().startswith('paper')
+
+                    if _is_paper:
                         # Paper trading
-                        logger.info(f"📊 Trade candidate: {bot['name']} on {bot.get('exchange')}")
+                        logger.info(f"📊 Trade candidate: {bot['name']} on {_bexch}")
                         logger.info(
-                            f"▶️  PAPER_SUBMIT | {bot['name']} | bot_id={bot_id[:8]} | "
-                            f"exchange={bot.get('exchange')}"
+                            f"▶️  PAPER_SUBMIT | {bot['name']} | bot_id={_bid[:8]} | "
+                            f"exchange={_bexch}"
                         )
-                        
-                        result = await paper_engine.run_trading_cycle(
-                            bot['id'],
+
+                        _result = await paper_engine.run_trading_cycle(
+                            _bid,
                             bot,
                             {'bots': db.bots_collection, 'trades': db.trades_collection}
                         )
-                        
-                        if result and result.get('trade'):
-                            trade = result['trade']
-                            # Use the trade's own id; fall back to bot_id only for logging
-                            trade_log_id = trade.get('id') or trade.get('trade_id') or bot_id
-                            profit = trade.get('profit_loss', 0)
-                            trade_status = trade.get('status', 'unknown')
+
+                        if _result and _result.get('trade'):
+                            _trade = _result['trade']
+                            _trade_log_id = _trade.get('id') or _trade.get('trade_id') or _bid
+                            _profit = _trade.get('profit_loss', 0)
+                            _trade_status = _trade.get('status', 'unknown')
                             logger.info(
-                                f"✅ PAPER_FILL | {bot['name']} | trade_id={trade_log_id} | "
-                                f"status={trade_status} | pnl={profit:.2f}"
+                                f"✅ PAPER_FILL | {bot['name']} | trade_id={_trade_log_id} | "
+                                f"status={_trade_status} | pnl={_profit:.2f}"
                             )
-                            logger.info(f"📡 Realtime event emitted: trade_id={trade_log_id}")
-                            # Clear any previous order error on successful trade
+                            logger.info(f"📡 Realtime event emitted: trade_id={_trade_log_id}")
                             await db.bots_collection.update_one(
-                                {"id": bot_id},
+                                {"id": _bid},
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                     "last_decision_at": datetime.now(timezone.utc).isoformat(),
@@ -487,97 +487,48 @@ class TradingScheduler:
                                     "last_order_error": None
                                 }}
                             )
-                        elif result is None or (isinstance(result, dict) and not result.get('success', True)):
-                            # Trade was attempted but blocked/failed - record diagnostics
-                            err_msg = result.get('error') if isinstance(result, dict) else "No trade result"
-                            skip_reason = result.get('skip_reason') if isinstance(result, dict) else None
-                            reason_msg = skip_reason or err_msg or "unknown"
+                        elif _result is None or (isinstance(_result, dict) and not _result.get('success', True)):
+                            _err_msg = _result.get('error') if isinstance(_result, dict) else "No trade result"
+                            _skip_reason = _result.get('skip_reason') if isinstance(_result, dict) else None
+                            _reason_msg = _skip_reason or _err_msg or "unknown"
 
-                            # Map paper engine skip_reason to canonical EligibilityCode.
-                            # Every skip_reason value returned by paper_trading_engine.py
-                            # must appear here so that UNKNOWN is never emitted in normal
-                            # operating paths.  Use EligibilityCode.UNKNOWN only for truly
-                            # unrecognised values.
-                            _SKIP_TO_CODE = {
-                                # ── Entry-gate blocks ──────────────────────────────────
-                                "edge_gate":               EligibilityCode.EDGE_GATE,
-                                "pair_not_allowed":        EligibilityCode.PAIR_NOT_ALLOWED,
-                                "spread_too_wide":         EligibilityCode.SPREAD_TOO_WIDE,
-                                "low_liquidity":           EligibilityCode.LOW_LIQUIDITY,
-                                "no_price_data":           EligibilityCode.NO_PRICE_DATA,
-                                "hard_edge_filter":        EligibilityCode.HARD_EDGE_FILTER,
-                                "low_confidence":          EligibilityCode.LOW_CONFIDENCE,
-                                "bearish_long_blocked":    EligibilityCode.BEARISH_LONG_BLOCKED,
-                                "low_expectancy":          EligibilityCode.LOW_EXPECTANCY,
-                                "expectancy_gate":         EligibilityCode.EXPECTANCY_GATE,
-                                "regime_standdown":        EligibilityCode.REGIME_STAND_DOWN,
-                                "exchange_exposure":       EligibilityCode.EXCHANGE_EXPOSURE,
-                                "drawdown_limit":          EligibilityCode.DRAWDOWN_LIMIT,
-                                "symbol_cooldown":         EligibilityCode.SYMBOL_COOLDOWN,
-                                "portfolio_guard":         EligibilityCode.PORTFOLIO_GUARD,
-                                # Both spellings emitted by paper engine
-                                "hurst_mismatch":          EligibilityCode.HURST_MISMATCH,
-                                "hurst_regime_mismatch":   EligibilityCode.HURST_MISMATCH,
-                                "adaptive_stand_down":     EligibilityCode.ADAPTIVE_STAND_DOWN,
-                                # Signal direction contradicts predicted change
-                                "signal_mismatch":         EligibilityCode.SIGNAL_MISMATCH,
-                                # Scalper-specific
-                                "scalper_spread_too_wide": EligibilityCode.SCALPER_SPREAD_TOO_WIDE,
-                                "scalper_ev_too_low":      EligibilityCode.SCALPER_EV_TOO_LOW,
-                                # ── Close-path non-blocks (trade stays open) ───────────
-                                # These fire when a bot has an open trade and the exit
-                                # conditions have not been met yet.  They are NOT entry
-                                # blocks; the bot is healthy and monitoring its trade.
-                                "no_exit_signal":          EligibilityCode.OPEN_POSITION_ACTIVE,
-                                "open_position_active":    EligibilityCode.OPEN_POSITION_ACTIVE,
-                                "invalid_values":          EligibilityCode.NO_PRICE_DATA,
-                                "pnl_validation_failed":   EligibilityCode.PNL_VALIDATION_FAILED,
-                                "close_exception":         EligibilityCode.CLOSE_EXCEPTION,
-                                "open_trade_close_failed": EligibilityCode.OPEN_TRADE_CLOSE_FAILED,
-                                # Generic rejection from execute_smart_trade
-                                "trade_rejected":          EligibilityCode.TRADE_REJECTED,
-                                # No usable signal from any AI source
-                                "no_usable_signal":        EligibilityCode.NO_USABLE_SIGNAL,
-                            }
-                            # Detect dynamic "cycle_error: <exception>" strings
-                            _raw_skip = skip_reason or ""
+                            _raw_skip = _skip_reason or ""
                             if _raw_skip.startswith("cycle_error"):
-                                elig_code = EligibilityCode.CYCLE_ERROR
+                                _elig_code = EligibilityCode.CYCLE_ERROR
                             else:
-                                elig_code = _SKIP_TO_CODE.get(skip_reason, EligibilityCode.UNKNOWN)
-                            if elig_code == EligibilityCode.UNKNOWN and skip_reason:
+                                _elig_code = _SKIP_TO_CODE.get(_skip_reason, EligibilityCode.UNKNOWN)
+                            if _elig_code == EligibilityCode.UNKNOWN and _skip_reason:
                                 logger.warning(
                                     "⚠️ Unmapped skip_reason '%s' for bot %s — defaulting to UNKNOWN. "
                                     "Add this reason to _SKIP_TO_CODE in trading_scheduler.py.",
-                                    skip_reason, bot_id[:8],
+                                    _skip_reason, _bid[:8],
                                 )
 
-                            # Emit structured eligibility log
                             await elig_log.skip_and_persist(
                                 bot,
-                                elig_code,
+                                _elig_code,
                                 details={
-                                    "skip_reason": skip_reason,
-                                    "error": err_msg,
-                                    **(result.get("details", {}) if isinstance(result, dict) else {}),
+                                    "skip_reason": _skip_reason,
+                                    "error": _err_msg,
+                                    **(_result.get("details", {}) if isinstance(_result, dict) else {}),
                                 },
                                 db_collection=db.bots_collection,
                             )
 
                             await db.bots_collection.update_one(
-                                {"id": bot_id},
+                                {"id": _bid},
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                     "last_decision_at": datetime.now(timezone.utc).isoformat(),
                                     "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
-                                    "last_order_error": reason_msg,
-                                    "last_skip_reason": str(elig_code),
+                                    "last_order_error": _reason_msg,
+                                    "last_skip_reason": str(_elig_code),
                                 }}
                             )
                         else:
                             # Tick happened but no trade (e.g. open position)
                             await db.bots_collection.update_one(
-                                {"id": bot_id},
+                                {"id": _bid},
                                 {"$set": {
                                     "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                     "last_decision_at": datetime.now(timezone.utc).isoformat(),
@@ -585,70 +536,142 @@ class TradingScheduler:
                             )
                     else:
                         # LIVE TRADING - Use live_trading_engine
-                        logger.info(f"🔴 LIVE TRADING: {bot['name']} on {bot.get('exchange')}")
-                        
-                        # Execute live trade
-                        result = await self.execute_live_trade(bot)
-                    
+                        logger.info(f"🔴 LIVE TRADING: {bot['name']} on {_bexch}")
+                        _result = await self.execute_live_trade(bot)
+
                     # Register trade complete
-                    # had_entry=True only when a new trade was successfully OPENED this
-                    # slot.  This starts the per-bot cooldown in the staggerer so other
-                    # bots get execution turns.  Close-only ticks and skipped ticks pass
-                    # had_entry=False so exit monitoring remains responsive.
                     _had_entry = bool(
-                        result
-                        and isinstance(result, dict)
-                        and result.get('trade')
-                        and isinstance(result.get('trade'), dict)
-                        and result['trade'].get('status') == 'open'
+                        _result
+                        and isinstance(_result, dict)
+                        and _result.get('trade')
+                        and isinstance(_result.get('trade'), dict)
+                        and _result['trade'].get('status') == 'open'
                     )
-                    await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'), had_entry=_had_entry)
+                    await trade_staggerer.register_trade_complete(_bid, _bexch, had_entry=_had_entry)
                     logger.debug(f"✅ Registered trade complete for {bot['name']}")
-                    
-                    # Send WebSocket update via rt_events for enhanced tracking
-                    if result and isinstance(result, dict):
-                        trade_data = result.get('trade', {})
-                        if trade_data:
-                            # Broadcast trade execution event
+
+                    # WebSocket / realtime event
+                    if _result and isinstance(_result, dict):
+                        _trade_data = _result.get('trade', {})
+                        if _trade_data:
                             try:
                                 await rt_events.trade_executed(bot['user_id'], {
                                     "bot_id": bot['id'],
                                     "bot_name": bot['name'],
-                                    "pair": trade_data.get('pair', 'unknown'),
-                                    "side": trade_data.get('side', 'unknown'),
-                                    "profit_loss": trade_data.get('profit_loss', 0),
-                                    "new_capital": result.get('new_capital', 0),
-                                    "total_profit": result.get('total_profit', 0),
+                                    "pair": _trade_data.get('pair', 'unknown'),
+                                    "side": _trade_data.get('side', 'unknown'),
+                                    "profit_loss": _trade_data.get('profit_loss', 0),
+                                    "new_capital": _result.get('new_capital', 0),
+                                    "total_profit": _result.get('total_profit', 0),
                                     "timestamp": datetime.now(timezone.utc).isoformat()
                                 })
-                            except Exception as e:
-                                logger.warning(f"Failed to emit trade_executed event: {e}")
-                        
-                        # Legacy WebSocket update (keep for backwards compatibility)
+                            except Exception as _ev_err:
+                                logger.warning(f"Failed to emit trade_executed event: {_ev_err}")
+
                         await manager.send_message(bot['user_id'], {
                             "type": "trade_executed",
-                            "bot_id": result.get('bot_id', bot_id),
+                            "bot_id": _result.get('bot_id', _bid),
                             "bot_name": bot['name'],
-                            "new_capital": result.get('new_capital', 0),
-                            "total_profit": result.get('total_profit', 0),
-                            "trade": trade_data
+                            "new_capital": _result.get('new_capital', 0),
+                            "total_profit": _result.get('total_profit', 0),
+                            "trade": _result.get('trade', {})
                         })
-                    
-                except Exception as e:
-                    logger.error(f"❌ Trade execution error for {bot['name']}: {e}", exc_info=True)
-                    await trade_staggerer.register_trade_complete(bot_id, bot.get('exchange'))
-                    # Surface the error into bot document for diagnostics
+
+                except Exception as _ex:
+                    logger.error(f"❌ Trade execution error for {bot['name']}: {_ex}", exc_info=True)
+                    await trade_staggerer.register_trade_complete(_bid, _bexch)
                     try:
                         await db.bots_collection.update_one(
-                            {"id": bot_id},
+                            {"id": _bid},
                             {"$set": {
                                 "last_tick_at": datetime.now(timezone.utc).isoformat(),
                                 "last_order_attempt_at": datetime.now(timezone.utc).isoformat(),
-                                "last_order_error": str(e)
+                                "last_order_error": str(_ex)
                             }}
                         )
                     except Exception:
                         pass
+
+            # ── PHASE 1 FIX: Collect ready requests, then execute concurrently ──
+            #
+            # Root cause of "one-trade-at-a-time": awaiting each paper_engine cycle
+            # sequentially means a 20-bot fleet can take 10+ seconds per tick (each
+            # cycle involves exchange API calls).  By collecting all ready bot requests
+            # first (sequentially, updating the staggerer state after each) and then
+            # running them concurrently with asyncio.gather, the whole fleet completes
+            # in roughly the time of the SLOWEST single bot cycle (~500 ms–2 s).
+            #
+            # Safety:
+            #  - register_trade_start is called BEFORE the gather, so the staggerer's
+            #    per-exchange concurrent counter is accurate during collection.
+            #  - Exchange concurrency limits (max_concurrent) are enforced in
+            #    can_execute_now → get_next_trade → no over-dispatch possible.
+            #  - Live bots are run separately, sequentially (real API rate limits).
+            _max_per_tick = len(active_bots)  # all active bots eligible per tick
+            _active_bots_map = {b['id']: b for b in active_bots}
+            _paper_tasks: list = []
+            _live_bots_pending: list = []
+
+            for _ in range(_max_per_tick):
+                trade_request = await trade_staggerer.get_next_trade()
+
+                if not trade_request:
+                    logger.debug("📭 No trade ready in queue")
+                    break
+
+                _req_bot_id = trade_request.get('bot_id')
+                if not _req_bot_id:
+                    logger.warning(
+                        f"⚠️ Malformed queue entry missing bot_id – dropping. payload={trade_request!r}"
+                    )
+                    continue
+
+                logger.info(f"📤 Dequeued trade: bot_id={_req_bot_id}")
+
+                _req_bot = _active_bots_map.get(_req_bot_id)
+                if not _req_bot:
+                    logger.warning(
+                        f"⚠️ Bot {_req_bot_id} not found in active bots – discarding stale queue entry"
+                    )
+                    continue
+
+                # Trading mode gate
+                try:
+                    _can_trade, _mode_str, _reason_str = await trading_mode_validator.validate_bot_trading_mode(_req_bot_id, _req_bot)
+                    if not _can_trade:
+                        logger.warning(f"⛔ {_req_bot['name']} - Trading blocked (gate): {_reason_str}")
+                        continue
+                    logger.debug(f"✅ Trading gates passed for {_req_bot['name']} in {_mode_str} mode")
+                except TradingGateError as _tge:
+                    logger.error(f"⛔ Trading gate error for {_req_bot['name']}: {_tge}")
+                    continue
+
+                # Register start NOW (before concurrent launch) so the exchange
+                # concurrent counter is updated for the next iteration of this loop.
+                await trade_staggerer.register_trade_start(_req_bot_id, _req_bot.get('exchange'))
+                logger.debug(f"📝 Registered trade start for {_req_bot['name']}")
+
+                _req_mode = _req_bot.get('mode') or _req_bot.get('trading_mode', 'paper')
+                if str(_req_mode).strip().lower().startswith('paper'):
+                    _paper_tasks.append(_req_bot)
+                else:
+                    _live_bots_pending.append(_req_bot)
+
+            # Run all paper bots concurrently in this tick
+            if _paper_tasks:
+                logger.info(
+                    "⚡ CONCURRENT_TICK | launching %d paper bot cycles simultaneously",
+                    len(_paper_tasks),
+                )
+                await asyncio.gather(
+                    *[_execute_bot_cycle(b) for b in _paper_tasks],
+                    return_exceptions=True,  # don't let one failure cancel others
+                )
+
+            # Run live bots sequentially (real exchange rate limits)
+            for _lb in _live_bots_pending:
+                await _execute_bot_cycle(_lb)
+
             
             # Add new trades to queue — with fair rotation and duplicate guard.
             #
