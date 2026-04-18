@@ -26,9 +26,8 @@ class AutoPromotionManager:
         """Check if a single bot is eligible for auto-promotion"""
         try:
             # Check if in paper mode — support both 'mode' and 'trading_mode' fields
-            if bot.get('trading_mode') not in ('paper', None) and bot.get('mode') not in ('paper', None):
-                return False, "Not in paper mode"
-            if bot.get('trading_mode', bot.get('mode')) != 'paper':
+            effective_mode = bot.get('trading_mode') or bot.get('mode')
+            if effective_mode != 'paper':
                 return False, "Not in paper mode"
 
             # Check if 7 days have passed

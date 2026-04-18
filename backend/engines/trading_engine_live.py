@@ -645,7 +645,7 @@ class LiveTradingEngine:
                         try:
                             opened_at_str = trade.get('timestamp') or trade.get('created_at')
                             if opened_at_str:
-                                from datetime import datetime, timezone, timedelta
+                                # datetime/timezone already imported at module level
                                 opened_at = datetime.fromisoformat(
                                     str(opened_at_str).replace('Z', '+00:00')
                                 )

@@ -811,9 +811,9 @@ class TradingScheduler:
                 return {"success": False, "bot_id": bot['id'], "skip_reason": effective_reason}
 
             # ── BLOCKER 1: Enforce live funds policy before execution ──────────
-            # Notional proxy: use trade_size (capital × risk_multiplier) which is
-            # denominated in ZAR (the bot's capital currency).
-            notional_zar = trade_size
+            # Notional proxy: bot capital is tracked in ZAR, so capital × risk_multiplier
+            # gives a reliable ZAR-denominated size estimate without a price API call.
+            notional_zar = trade_size  # = capital * risk_multiplier, denominated in ZAR
             policy_ok, policy_violations = await live_funds_policy.check_trade(
                 user_id=bot['user_id'],
                 exchange=exchange,
