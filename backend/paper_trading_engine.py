@@ -162,6 +162,11 @@ MIN_PAPER_MODE_CONFIDENCE = float(os.getenv("MIN_PAPER_MODE_CONFIDENCE", "0.30")
 # Bootstrap confidence floor: when a bot has placed 0 trades, allow first trade at this
 # lower threshold so the learning loop can start.
 BOOTSTRAP_MIN_CONFIDENCE = float(os.getenv("BOOTSTRAP_MIN_CONFIDENCE", "0.30"))
+# Minimum expected_move_pct for the paper-mode regime hard-edge bypass.
+# When a valid regime signal exists but expected_move is below round-trip cost, trades below
+# cost are still allowed in paper mode for data-collection purposes, provided the expected
+# move is at least this threshold (not a zero-signal entry).
+PAPER_BYPASS_MIN_MOVE_PCT = float(os.getenv("PAPER_BYPASS_MIN_MOVE_PCT", "0.05"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1732,7 +1737,7 @@ class PaperTradingEngine:
             _paper_hard_edge_bypass = (
                 _is_paper_mode_bot
                 and _regime_is_valid
-                and expected_move_pct > 0.05
+                and expected_move_pct > PAPER_BYPASS_MIN_MOVE_PCT
             )
             if _paper_hard_edge_bypass:
                 _hard_edge_blocked = False

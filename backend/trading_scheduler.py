@@ -607,7 +607,7 @@ class TradingScheduler:
             #  - Exchange concurrency limits (max_concurrent) are enforced in
             #    can_execute_now → get_next_trade → no over-dispatch possible.
             #  - Live bots are run separately, sequentially (real API rate limits).
-            _max_per_tick = min(max(5, len(active_bots)), len(active_bots))
+            _max_per_tick = len(active_bots)  # all active bots eligible per tick
             _active_bots_map = {b['id']: b for b in active_bots}
             _paper_tasks: list = []
             _live_bots_pending: list = []
