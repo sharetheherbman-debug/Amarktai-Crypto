@@ -3194,7 +3194,20 @@ async def get_cohort_skip_counts(
             key = f"{exchange}_{bot_type}"
             cohorts[key]["total_bots"] += 1
             sr = bot.get("last_skip_reason") or ""
-            ec = bot.get("last_eligibility") or bot.get("last_eligibility_code") or ""
+        # last_eligibility is stored as a full event dict by skip_and_persist().
+        # Extract the string reason_code from it.  The fallback chain is:
+        #   1. last_eligibility dict → reason_code  (primary, from event dict)
+        #   2. last_eligibility_code string          (top-level field, written
+        #                                             since the eligibility logger
+        #                                             fix lands in this PR)
+        #   3. last_skip_reason string               (legacy parallel field,
+        #                                             also written by scheduler;
+        #                                             kept for backward compat)
+        _elig_raw = bot.get("last_eligibility")
+        if isinstance(_elig_raw, dict):
+            ec = _elig_raw.get("reason_code") or ""
+        else:
+            ec = bot.get("last_eligibility_code") or bot.get("last_skip_reason") or ""
             if sr:
                 cohorts[key]["skip_reason_counts"][sr] += 1
             if ec:
@@ -3216,10 +3229,39 @@ async def get_cohort_skip_counts(
                 "bot_details": data["bot_details"],
             }
 
+        # Include human-readable descriptions for every reason code that appears
+        # in this response so operators can understand every block path.
+        try:
+            from services.bot_eligibility_logger import ELIGIBILITY_DESCRIPTIONS
+            _all_codes: set = set()
+            for cohort_data in result.values():
+                _all_codes.update(cohort_data.get("top_skip_reasons", {}).keys())
+                _all_codes.update(cohort_data.get("eligibility_codes", {}).keys())
+            reason_code_descriptions = {
+                code: ELIGIBILITY_DESCRIPTIONS.get(
+                    code,
+                    f"Unmapped reason '{code}' — add to ELIGIBILITY_DESCRIPTIONS "
+                    "in services/bot_eligibility_logger.py and to _SKIP_TO_CODE "
+                    "in trading_scheduler.py"
+                )
+                for code in sorted(_all_codes)
+                if code
+            }
+        except Exception:
+            reason_code_descriptions = {}
+
         return {
             "success": True,
             "cohorts": result,
             "total_bots_scanned": len(bots),
+            "reason_code_descriptions": reason_code_descriptions,
+            "note": (
+                "reason_code_descriptions maps every skip/eligibility code in this "
+                "response to a human-readable explanation. "
+                "No UNKNOWN codes should appear for standard block paths; "
+                "if UNKNOWN appears, the paper engine emitted an unrecognised "
+                "skip_reason — check trading_scheduler._SKIP_TO_CODE."
+            ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 

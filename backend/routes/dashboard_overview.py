@@ -190,6 +190,14 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
             total_trades = len(all_trades)
             winning_trades = sum(1 for t in all_trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+
+            # Open trades — current live positions.
+            # This is a DIFFERENT metric from total_trades (closed history).
+            # Both are returned explicitly to prevent dashboard ambiguity.
+            open_trades_count = await db.trades_collection.count_documents({
+                "bot_id": {"$in": bot_ids},
+                "status": "open"
+            })
             
             # Last trade time
             last_trade = await db.trades_collection.find_one(
@@ -204,6 +212,7 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
             weekly_profit = 0
             monthly_profit = 0
             total_trades = 0
+            open_trades_count = 0
             win_rate = 0
             last_trade_time = None
         
@@ -223,7 +232,11 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
                 "scalper": scalper_bots,
             },
             "in_position_bots": in_position_bots,
+            # total_trades = CLOSED trades (realised P&L history)
+            # open_trades  = CURRENT open positions (live-trades page count)
+            # Both are returned to prevent count mismatch confusion.
             "total_trades": total_trades,
+            "open_trades": open_trades_count,
             "win_rate": round(win_rate, 1),
             "last_trade_time": last_trade_time,
             "system_mode": system_mode,

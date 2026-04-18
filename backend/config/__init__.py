@@ -100,7 +100,7 @@ MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0
 # Paper trading anti-churn protections
 EDGE_BUFFER_PCT = float(os.getenv('EDGE_BUFFER_PCT', '0.15'))  # 0.15% buffer
 EDGE_GATE_PAPER = os.getenv('EDGE_GATE_PAPER', 'true').lower() == 'true'
-EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'false').lower() == 'true'
+EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'true').lower() == 'true'  # Default ON — live trades must have positive expected edge over fees+spread+slippage
 PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35% max spread
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
 PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'false').lower() == 'true'
@@ -175,11 +175,12 @@ PORTFOLIO_GUARD_WINDOW_MINUTES = int(os.getenv('PORTFOLIO_GUARD_WINDOW_MINUTES',
 # Portfolio guard: max concurrent open trades on the same symbol per user.
 # Live mode: 1 — strict, never hold the same symbol twice across the whole fleet.
 PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '1'))
-# Paper mode: 2 — allows a second bot to enter the same symbol so that a paper
-# fleet is not frozen to one-bot-at-a-time when multiple bots converge on the same
-# pair.  Each exchange is checked independently (exchange-scoped guard) so Luno and
-# Binance cohorts remain independent.  Raise via env for wider fleet validation.
-PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '2'))
+# Paper mode: 5 — allows up to 5 bots to enter the same symbol concurrently so
+# that a paper fleet is not frozen to one-or-two-bots-at-a-time when multiple
+# bots converge on the same pair.  Each exchange is checked independently
+# (exchange-scoped guard) so Luno and Binance cohorts remain independent.
+# Raise via env for wider fleet validation; lower to restrict concentration.
+PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL = int(os.getenv('PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL', '5'))
 # Training-mode max hold: closes training trades sooner to speed up the learn loop.
 # Default 45 min; recorded as close_reason=training_timeout.
 TRAINING_MAX_HOLD_MINUTES = int(os.getenv('TRAINING_MAX_HOLD_MINUTES', '45'))

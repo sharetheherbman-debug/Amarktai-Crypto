@@ -55,25 +55,98 @@ class LiveTradingEngine:
             return {}
     
     def normalize_symbol(self, symbol: str, exchange_name: str) -> str:
-        """Normalize symbol for specific exchange"""
+        """Normalize symbol for specific exchange.
+
+        Uses a static map for exchanges that require non-slash formats.
+        Falls back to the unified slash notation for all others (CCXT
+        handles the final conversion to exchange-native IDs internally).
+        """
         symbol_map = {
+            # Luno uses non-standard concatenated format
             'luno': {
                 'BTC/ZAR': 'XBTZAR',
                 'ETH/ZAR': 'ETHZAR',
-                'XRP/ZAR': 'XRPZAR'
+                'XRP/ZAR': 'XRPZAR',
+                'LTC/ZAR': 'LTCZAR',
+                'BCH/ZAR': 'BCHZAR',
+                'USDC/ZAR': 'USDCZAR',
             },
+            # Binance — unified slash format works; include common ZAR pairs
             'binance': {
                 'BTC/ZAR': 'BTC/ZAR',
                 'ETH/ZAR': 'ETH/ZAR',
-                'BTC/USDT': 'BTC/USDT'
+                'BTC/USDT': 'BTC/USDT',
+                'ETH/USDT': 'ETH/USDT',
+                'BNB/USDT': 'BNB/USDT',
+                'XRP/USDT': 'XRP/USDT',
             },
+            # KuCoin — unified slash format works natively via CCXT
             'kucoin': {
                 'BTC/USDT': 'BTC/USDT',
-                'ETH/USDT': 'ETH/USDT'
-            }
+                'ETH/USDT': 'ETH/USDT',
+                'XRP/USDT': 'XRP/USDT',
+                'BNB/USDT': 'BNB/USDT',
+                'SOL/USDT': 'SOL/USDT',
+            },
+            # Bybit — CCXT accepts slash format; no custom mapping needed
+            'bybit': {
+                'BTC/USDT': 'BTC/USDT',
+                'ETH/USDT': 'ETH/USDT',
+                'XRP/USDT': 'XRP/USDT',
+                'SOL/USDT': 'SOL/USDT',
+            },
+            # Kraken uses XBT for Bitcoin in some market IDs
+            'kraken': {
+                'BTC/USD': 'XBT/USD',
+                'BTC/USDT': 'XBT/USDT',
+                'ETH/USD': 'ETH/USD',
+                'ETH/USDT': 'ETH/USDT',
+            },
+            # Bitget — CCXT accepts slash format
+            'bitget': {
+                'BTC/USDT': 'BTC/USDT',
+                'ETH/USDT': 'ETH/USDT',
+                'XRP/USDT': 'XRP/USDT',
+            },
+            # Gate.io uses underscore format for some pairs
+            'gate': {
+                'BTC/USDT': 'BTC_USDT',
+                'ETH/USDT': 'ETH_USDT',
+                'XRP/USDT': 'XRP_USDT',
+                'SOL/USDT': 'SOL_USDT',
+            },
+            # Coinbase uses hyphen format
+            'coinbase': {
+                'BTC/USD': 'BTC-USD',
+                'ETH/USD': 'ETH-USD',
+                'BTC/USDT': 'BTC-USDT',
+                'ETH/USDT': 'ETH-USDT',
+                'SOL/USDT': 'SOL-USDT',
+            },
         }
-        
-        return symbol_map.get(exchange_name, {}).get(symbol, symbol)
+
+        static = symbol_map.get(exchange_name, {}).get(symbol)
+        if static:
+            return static
+
+        # Dynamic CCXT fallback: if we have a live exchange instance, use
+        # its market map to resolve the canonical unified symbol.
+        try:
+            for _user_exchanges in self.active_exchanges.values():
+                exchange_instance = _user_exchanges.get(exchange_name)
+                if exchange_instance and hasattr(exchange_instance, 'markets') and exchange_instance.markets:
+                    if symbol in exchange_instance.markets:
+                        return symbol  # already valid
+                    # Try common reformats
+                    for candidate in (symbol, symbol.replace('/', ''), symbol.replace('/', '-'), symbol.replace('/', '_')):
+                        if candidate in exchange_instance.markets:
+                            return candidate
+                    break
+        except Exception:
+            pass
+
+        # Default: return symbol unchanged — CCXT handles most slash-format symbols natively
+        return symbol
     
     async def get_real_price(self, exchange: ccxt.Exchange, symbol: str) -> Optional[float]:
         """Get real current price from unified market data"""
@@ -487,97 +560,207 @@ class LiveTradingEngine:
         return None
     
     async def monitor_open_positions(self, user_id: str):
-        """Monitor open positions for stop loss / take profit"""
+        """Monitor open live positions — enforces stop-loss, take-profit, and max-hold exits."""
         try:
-            # Get all active live bots for user
+            import os as _os
+            live_max_hold_minutes = int(_os.getenv("LIVE_MAX_HOLD_MINUTES", "120"))
+
+            # Query bots using both canonical trading_mode and legacy mode field
             bots = await db.bots_collection.find(
-                {"user_id": user_id, "status": "active", "mode": "live"},
-                {"_id": 0}
+                {
+                    "user_id": user_id,
+                    "status": "active",
+                    "$or": [{"trading_mode": "live"}, {"mode": "live"}],
+                },
+                {"_id": 0},
             ).to_list(100)
-            
+
             for bot in bots:
-                # Get bot's open positions (from recent trades)
-                recent_trades = await db.trades_collection.find(
+                open_trades = await db.trades_collection.find(
                     {"bot_id": bot['id'], "status": "open"},
-                    {"_id": 0}
-                ).sort("timestamp", -1).to_list(10)
-                
-                for trade in recent_trades:
-                    # Get current price
-                    exchange = self.active_exchanges.get(user_id, {}).get(bot['exchange'])
-                    if not exchange:
-                        continue
-                    
-                    current_price = await self.get_real_price(exchange, trade['pair'])
+                    {"_id": 0},
+                ).sort("timestamp", -1).to_list(20)
+
+                for trade in open_trades:
+                    # Resolve exchange instance (may be absent if server restarted)
+                    exchange = self.active_exchanges.get(user_id, {}).get(
+                        bot.get('exchange', '').lower()
+                    )
+
+                    current_price = await self.get_real_price(exchange, trade.get('pair', ''))
                     if not current_price:
+                        logger.debug(
+                            f"monitor_open_positions: no price for {trade.get('pair')} "
+                            f"({bot.get('exchange')}) — skipping"
+                        )
                         continue
-                    
-                    # Check stop loss
-                    entry_price = trade.get('entry_price', 0)
-                    stop_loss_pct = bot.get('stop_loss_pct', 0.02)  # Default 2%
-                    
-                    if trade['side'] == 'buy':
-                        # Long position - check if price dropped below stop loss
-                        stop_loss_price = entry_price * (1 - stop_loss_pct)
-                        if current_price <= stop_loss_price:
-                            logger.warning(f"🚨 Stop loss triggered for {bot['name']} - {trade['pair']}")
-                            # Close position
-                            await self.close_position(bot, trade, current_price, "stop_loss")
-                    else:
-                        # Short position - check if price rose above stop loss
-                        stop_loss_price = entry_price * (1 + stop_loss_pct)
-                        if current_price >= stop_loss_price:
-                            logger.warning(f"🚨 Stop loss triggered for {bot['name']} - {trade['pair']}")
-                            await self.close_position(bot, trade, current_price, "stop_loss")
-                
+
+                    entry_price = float(trade.get('entry_price') or 0)
+                    if entry_price <= 0:
+                        continue
+
+                    side = trade.get('side', 'buy')
+                    stop_loss_pct = float(trade.get('stop_loss_pct') or bot.get('stop_loss_pct', 0.02))
+                    take_profit_pct = float(trade.get('take_profit_pct') or bot.get('take_profit_pct', 0.03))
+
+                    stop_loss_price = (
+                        entry_price * (1 - stop_loss_pct)
+                        if side == 'buy'
+                        else entry_price * (1 + stop_loss_pct)
+                    )
+                    take_profit_price = (
+                        entry_price * (1 + take_profit_pct)
+                        if side == 'buy'
+                        else entry_price * (1 - take_profit_pct)
+                    )
+
+                    # Check stop-loss
+                    hit_stop = (
+                        (side == 'buy' and current_price <= stop_loss_price) or
+                        (side == 'sell' and current_price >= stop_loss_price)
+                    )
+                    if hit_stop:
+                        logger.warning(
+                            f"🚨 Stop-loss triggered: {bot.get('name')} {trade.get('pair')} "
+                            f"price={current_price:.4f} sl={stop_loss_price:.4f}"
+                        )
+                        await self.close_position(bot, trade, current_price, "stop_loss")
+                        continue
+
+                    # Check take-profit
+                    hit_tp = (
+                        (side == 'buy' and current_price >= take_profit_price) or
+                        (side == 'sell' and current_price <= take_profit_price)
+                    )
+                    if hit_tp:
+                        logger.info(
+                            f"✅ Take-profit triggered: {bot.get('name')} {trade.get('pair')} "
+                            f"price={current_price:.4f} tp={take_profit_price:.4f}"
+                        )
+                        await self.close_position(bot, trade, current_price, "take_profit")
+                        continue
+
+                    # Check time-based max-hold exit
+                    if live_max_hold_minutes > 0:
+                        try:
+                            opened_at_str = trade.get('timestamp') or trade.get('created_at')
+                            if opened_at_str:
+                                # datetime/timezone already imported at module level
+                                opened_at = datetime.fromisoformat(
+                                    str(opened_at_str).replace('Z', '+00:00')
+                                )
+                                hold_minutes = (
+                                    datetime.now(timezone.utc) - opened_at
+                                ).total_seconds() / 60.0
+                                if hold_minutes >= live_max_hold_minutes:
+                                    logger.info(
+                                        f"⏰ Max-hold exit: {bot.get('name')} {trade.get('pair')} "
+                                        f"held {hold_minutes:.0f}m (limit {live_max_hold_minutes}m)"
+                                    )
+                                    await self.close_position(bot, trade, current_price, "max_hold_exit")
+                        except Exception as _te:
+                            logger.debug(f"Time-exit calc error: {_te}")
+
         except Exception as e:
-            logger.error(f"Position monitoring error: {e}")
+            logger.error(f"monitor_open_positions error: {e}")
     
     async def close_position(self, bot: Dict, trade: Dict, exit_price: float, reason: str):
-        """Close a position (stop loss or take profit)"""
+        """Close a live position and record realised P&L.
+
+        This is the single exit path for all live trades.  It:
+        - Marks the trade as closed with exit_price and reason
+        - Calculates net P&L (including entry fee already paid)
+        - Updates bot capital, total_profit, trades_count, win_count / loss_count
+        - Creates an alert
+        - Broadcasts a realtime event
+        """
         try:
-            # Calculate P/L
-            entry_price = trade['entry_price']
-            amount = trade['amount']
-            
-            if trade['side'] == 'buy':
-                pnl = (exit_price - entry_price) * amount
+            entry_price = float(trade.get('entry_price') or 0)
+            amount = float(trade.get('amount') or trade.get('qty') or 0)
+            side = trade.get('side', 'buy')
+            fee_paid = float(trade.get('fee_paid') or trade.get('fee_amount') or 0)
+
+            if side == 'buy':
+                pnl = (exit_price - entry_price) * amount - fee_paid
             else:
-                pnl = (entry_price - exit_price) * amount
-            
-            # Update trade in database
+                pnl = (entry_price - exit_price) * amount - fee_paid
+
+            closed_at = datetime.now(timezone.utc).isoformat()
+
+            # --- Update trade record ---
             await db.trades_collection.update_one(
                 {"id": trade['id']},
                 {"$set": {
                     "status": "closed",
                     "exit_price": exit_price,
                     "exit_reason": reason,
+                    "trade_close_reason": reason,
                     "profit_loss": pnl,
-                    "closed_at": datetime.now(timezone.utc).isoformat()
+                    "net_pnl": pnl,
+                    "realized_pnl": pnl,
+                    "closed_at": closed_at,
                 }}
             )
-            
-            # Update bot capital
-            new_capital = bot['current_capital'] + pnl
+
+            # --- Update bot capital and performance stats ---
+            new_capital = float(bot.get('current_capital', 0)) + pnl
+            win_inc = 1 if pnl > 0 else 0
+            loss_inc = 1 if pnl < 0 else 0
+
             await db.bots_collection.update_one(
                 {"id": bot['id']},
-                {"$set": {"current_capital": new_capital}}
+                {
+                    "$set": {
+                        "current_capital": new_capital,
+                        "last_trade_time": closed_at,
+                    },
+                    "$inc": {
+                        "total_profit": pnl,
+                        "trades_count": 1,
+                        "win_count": win_inc,
+                        "loss_count": loss_inc,
+                    },
+                }
             )
-            
-            # Create alert
+
+            # --- Alert ---
+            alert_type = "stop_loss" if reason == "stop_loss" else "take_profit" if reason == "take_profit" else "trade_closed"
+            pnl_label = f"+R{pnl:.2f}" if pnl >= 0 else f"-R{abs(pnl):.2f}"
             await db.alerts_collection.insert_one({
                 "user_id": bot['user_id'],
-                "type": "stop_loss" if reason == "stop_loss" else "take_profit",
-                "severity": "high",
-                "message": f"Position closed: {bot['name']} - {trade['pair']} at R{exit_price:.2f} ({reason})",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "dismissed": False
+                "type": alert_type,
+                "severity": "high" if reason == "stop_loss" else "info",
+                "message": (
+                    f"Live position closed ({reason}): {bot.get('name')} "
+                    f"{trade.get('pair')} @ {exit_price:.4f}  P&L {pnl_label}"
+                ),
+                "timestamp": closed_at,
+                "dismissed": False,
+                "bot_id": bot['id'],
+                "trade_id": trade['id'],
             })
-            
-            logger.info(f"✅ Position closed: {bot['name']} - {reason}")
-            
+
+            # --- Realtime broadcast ---
+            try:
+                from services.realtime_service import realtime_service
+                await realtime_service.broadcast_trade_execution(bot['user_id'], {
+                    **trade,
+                    "status": "closed",
+                    "exit_price": exit_price,
+                    "profit_loss": pnl,
+                    "exit_reason": reason,
+                    "closed_at": closed_at,
+                })
+            except Exception as _rt_err:
+                logger.debug(f"Realtime broadcast error on close: {_rt_err}")
+
+            logger.info(
+                f"✅ Live position closed ({reason}): {bot.get('name')} "
+                f"{trade.get('pair')} P&L={pnl:.4f} capital={new_capital:.2f}"
+            )
+
         except Exception as e:
-            logger.error(f"Close position error: {e}")
+            logger.error(f"close_position error: {e}")
 
 # Global instance
 live_trading_engine = LiveTradingEngine()

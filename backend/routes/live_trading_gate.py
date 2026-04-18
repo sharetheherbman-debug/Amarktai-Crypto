@@ -62,8 +62,38 @@ async def check_user_live_eligibility(user_id: str) -> Dict:
         reasons.append("No paper trading bots found")
         return {"eligible": False, "reasons": reasons}
     
-    # Aggregate statistics
-    total_trades = sum(bot.get('trades_count', 0) for bot in user_bots)
+    bot_ids = [bot['id'] for bot in user_bots]
+
+    # ── BLOCKER 9 FIX: read trade counts from trades_collection, not bot.trades_count ──
+    # bot.trades_count is a denormalised counter that can become stale after
+    # restores/migrations.  trades_collection is the canonical source.
+    total_trades = await db.trades_collection.count_documents({
+        "bot_id": {"$in": bot_ids},
+        "user_id": user_id,
+    })
+
+    # Win/loss rate from trades_collection (exclude open positions)
+    winning_trades = await db.trades_collection.count_documents({
+        "bot_id": {"$in": bot_ids},
+        "user_id": user_id,
+        "profit_loss": {"$gt": 0},
+        "status": {"$ne": "open"},
+    })
+    losing_trades = await db.trades_collection.count_documents({
+        "bot_id": {"$in": bot_ids},
+        "user_id": user_id,
+        "profit_loss": {"$lt": 0},
+        "status": {"$ne": "open"},
+    })
+    win_rate = (
+        winning_trades / (winning_trades + losing_trades)
+        if (winning_trades + losing_trades) > 0
+        else 0
+    )
+
+    # Capital / profit aggregates still come from bot documents
+    # (trades_collection P&L aggregation would be more accurate but these fields
+    #  are updated synchronously with each close and are reliable enough here)
     total_profit = sum(bot.get('total_profit', 0) for bot in user_bots)
     total_capital = sum(bot.get('current_capital', 0) for bot in user_bots)
     initial_capital = sum(bot.get('initial_capital', 0) for bot in user_bots)
@@ -71,11 +101,7 @@ async def check_user_live_eligibility(user_id: str) -> Dict:
     if total_trades < MIN_TRADES_FOR_PROMOTION:
         reasons.append(f"Insufficient trades: {total_trades}/{MIN_TRADES_FOR_PROMOTION} minimum")
     
-    # Calculate overall win rate
-    total_wins = sum(bot.get('win_count', 0) for bot in user_bots)
-    total_losses = sum(bot.get('loss_count', 0) for bot in user_bots)
-    win_rate = total_wins / (total_wins + total_losses) if (total_wins + total_losses) > 0 else 0
-    
+    # win_rate already computed from trades_collection above
     if win_rate < MIN_WIN_RATE:
         reasons.append(f"Win rate too low: {win_rate:.1%} (minimum {MIN_WIN_RATE:.1%})")
     
