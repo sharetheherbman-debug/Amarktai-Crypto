@@ -521,6 +521,24 @@ app.add_middleware(
 )
 
 # ============================================================================
+# SLOW ENDPOINT LOGGING MIDDLEWARE
+# Logs a warning for any request that takes longer than 1 second to respond.
+# This makes slow endpoints immediately visible in production logs.
+# ============================================================================
+@app.middleware("http")
+async def _log_slow_requests(request: Request, call_next):
+    """Warn on any API request that exceeds 1 second."""
+    _start = time.monotonic()
+    response = await call_next(request)
+    _elapsed_ms = int((time.monotonic() - _start) * 1000)
+    if _elapsed_ms > 1000:
+        logger.warning(
+            "SLOW_ENDPOINT | %s %s | %d ms",
+            request.method, request.url.path, _elapsed_ms,
+        )
+    return response
+
+# ============================================================================
 # WEBSOCKET
 # ============================================================================
 # NOTE: WebSocket endpoint /api/ws is now handled by routes/websocket.py

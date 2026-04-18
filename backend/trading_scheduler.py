@@ -7,6 +7,7 @@ Enforces trading mode gates (paper OR live required)
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from paper_trading_engine import paper_engine
 from engines.trading_engine_live import live_trading_engine  # Handles real CCXT exchange orders (live mode)
@@ -61,8 +62,12 @@ class TradingScheduler:
         # Live position monitoring cadence — every 20 seconds
         self._live_monitor_interval = 20
         
-    async def execute_bot_trades(self):
-        """Execute trades using staggered queue - CONTINUOUS OPERATION"""
+    async def execute_bot_trades(self) -> int:
+        """Execute trades using staggered queue - CONTINUOUS OPERATION.
+
+        Returns the number of bot cycles launched this tick (for heartbeat logging).
+        """
+        _bots_launched = 0
         try:
             # Update tick tracking
             from datetime import datetime, timezone, timedelta
@@ -667,10 +672,20 @@ class TradingScheduler:
                     *[_execute_bot_cycle(b) for b in _paper_tasks],
                     return_exceptions=True,  # don't let one failure cancel others
                 )
+                _bots_launched += len(_paper_tasks)
 
             # Run live bots sequentially (real exchange rate limits)
+            # Each bot is isolated — an exception in one does NOT stop the others.
             for _lb in _live_bots_pending:
-                await _execute_bot_cycle(_lb)
+                try:
+                    await _execute_bot_cycle(_lb)
+                    _bots_launched += 1
+                except Exception as _lb_err:
+                    logger.error(
+                        "❌ Live bot %s error (isolated, loop continues): %s",
+                        _lb.get("name", _lb.get("id", "?")[:8]), _lb_err,
+                    )
+                    continue
 
             
             # Add new trades to queue — with fair rotation and duplicate guard.
@@ -729,9 +744,12 @@ class TradingScheduler:
                     await paper_engine.close_overdue_trades(uid)
             except Exception as _sweep_err:
                 logger.warning(f"Overdue trade sweep error: {_sweep_err}")
-        
+
+            return _bots_launched
+
         except Exception as e:
             logger.error(f"Trading cycle error: {e}")
+            return _bots_launched
     
     async def execute_live_trade(self, bot: dict) -> dict:
         """Execute a live trade using live_trading_engine"""
@@ -983,8 +1001,25 @@ class TradingScheduler:
                     except Exception as e:
                         logger.debug(f"Failed to emit heartbeat: {e}")
                 
-                await self.execute_bot_trades()
-                
+                _tick_start = time.monotonic()
+                _bots_processed = 0
+                try:
+                    async with asyncio.timeout(45):
+                        _bots_processed = await self.execute_bot_trades() or 0
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "[SCHEDULER] tick=%d TIMEOUT after 45s — execute_bot_trades aborted to prevent loop stall",
+                        self.tick_count,
+                    )
+                except Exception as _tick_err:
+                    logger.error("[SCHEDULER] tick=%d execute_bot_trades error: %s", self.tick_count, _tick_err)
+                finally:
+                    _tick_elapsed_ms = int((time.monotonic() - _tick_start) * 1000)
+                    logger.info(
+                        "[SCHEDULER] tick=%d bots_processed=%d time_ms=%d",
+                        self.tick_count, _bots_processed, _tick_elapsed_ms,
+                    )
+
                 # ── BLOCKER 3: Monitor open live positions (SL/TP/time exit) ──
                 # Runs on a separate cadence (every 20s) so it doesn't block the
                 # main trade-entry cycle.  paper_engine.close_overdue_trades() only

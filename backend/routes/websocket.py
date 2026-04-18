@@ -103,42 +103,6 @@ async def websocket_endpoint(
     
     heartbeat_task = asyncio.create_task(_heartbeat())
     
-    async def _heartbeat():
-        """Send server-initiated ping every 10 seconds to keep connection alive."""
-        try:
-            while True:
-                await asyncio.sleep(10)
-                try:
-                    await websocket.send_json({
-                        "type": "ping",
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    })
-                except Exception as exc:
-                    logger.debug(f"Heartbeat send failed for user {user_id[:8]}...: {exc}")
-                    break
-        except asyncio.CancelledError:
-            pass
-    
-    heartbeat_task = asyncio.create_task(_heartbeat())
-    
-    async def _heartbeat():
-        """Send server-initiated ping every 10 seconds to keep connection alive."""
-        try:
-            while True:
-                await asyncio.sleep(10)
-                try:
-                    await websocket.send_json({
-                        "type": "ping",
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    })
-                except Exception as exc:
-                    logger.debug(f"Heartbeat send failed for user {user_id[:8]}...: {exc}")
-                    break
-        except asyncio.CancelledError:
-            pass
-    
-    heartbeat_task = asyncio.create_task(_heartbeat())
-    
     try:
         # Keep connection alive and handle messages
         while True:

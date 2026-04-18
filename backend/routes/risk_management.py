@@ -10,7 +10,8 @@ Provides admin endpoints to:
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone
 import logging
-from typing import Optional
+import time
+from typing import Optional, Dict
 
 from auth import get_current_user
 import database as db
@@ -19,6 +20,14 @@ from services.emergency_stop_override_service import emergency_stop_override_ser
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# TTL cache for /api/risk/status — the endpoint runs N per-bot serial DB
+# queries (bodyguard drawdown + ledger PnL per bot) which is expensive.
+# Cache for 5 seconds per user_id to prevent poll-induced blocking.
+# ---------------------------------------------------------------------------
+_RISK_STATUS_CACHE: Dict[str, tuple] = {}   # user_id → (timestamp_mono, payload)
+_RISK_STATUS_TTL = 5  # seconds
 
 
 @router.get("/api/risk/daily-loss-lock")
@@ -69,6 +78,13 @@ async def get_daily_loss_lock_status(user_id: str = Depends(get_current_user)):
 async def get_risk_status(user_id: str = Depends(get_current_user)):
     """Get consolidated risk lock status for current user."""
     try:
+        # Serve from cache when fresh — this endpoint runs N per-bot serial
+        # DB queries which can take 1–3s for large fleets.
+        _now_mono = time.monotonic()
+        _cached = _RISK_STATUS_CACHE.get(user_id)
+        if _cached and (_now_mono - _cached[0]) < _RISK_STATUS_TTL:
+            return _cached[1]
+
         user = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -170,7 +186,7 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
 
         bodyguard_active = len(bodyguard_bots) > 0
 
-        return {
+        _result = {
             "daily_loss_lock": {
                 "active": daily_loss_active,
                 "reason": daily_loss_reason,
@@ -218,6 +234,8 @@ async def get_risk_status(user_id: str = Depends(get_current_user)):
             "per_bot_status": per_bot_status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        _RISK_STATUS_CACHE[user_id] = (time.monotonic(), _result)
+        return _result
 
     except HTTPException:
         raise

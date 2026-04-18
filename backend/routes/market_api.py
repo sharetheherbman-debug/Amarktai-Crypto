@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
 import logging
+import time
 import httpx
 
 from auth import get_current_user
@@ -15,6 +16,14 @@ import database as db
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/market", tags=["Market"])
+
+# ---------------------------------------------------------------------------
+# In-process price cache — prevents repeated external Luno API calls when
+# the frontend polls rapidly.  TTL: 10 seconds.
+# ---------------------------------------------------------------------------
+_PRICES_CACHE: Optional[Dict] = None
+_PRICES_CACHE_TS: float = 0.0
+_PRICES_TTL = 10  # seconds
 
 
 @router.get("/prices")
@@ -31,7 +40,14 @@ async def get_market_prices(user_id: str = Depends(get_current_user)):
         - timestamp: When price was fetched
         - source: "luno_authenticated", "luno_public", or "unavailable"
     """
+    global _PRICES_CACHE, _PRICES_CACHE_TS
     try:
+        # Return cached response when fresh — avoids 3 sequential Luno HTTP calls
+        # per frontend poll cycle.
+        _now_mono = time.monotonic()
+        if _PRICES_CACHE is not None and (_now_mono - _PRICES_CACHE_TS) < _PRICES_TTL:
+            return _PRICES_CACHE
+
         # Try to get user's Luno API keys
         api_key = await db.api_keys_collection.find_one(
             {"user_id": user_id, "provider": "luno"},
@@ -56,10 +72,13 @@ async def get_market_prices(user_id: str = Depends(get_current_user)):
                     "source": "unavailable"
                 }
         
-        return {
+        _result = {
             "prices": prices,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        _PRICES_CACHE = _result
+        _PRICES_CACHE_TS = time.monotonic()
+        return _result
         
     except Exception as e:
         logger.error(f"Get market prices error: {e}")
@@ -77,7 +96,7 @@ async def _fetch_luno_ticker(pair: str, display_pair: str, api_key: Optional[Dic
         Dict with price, change_24h, change_pct, timestamp, source
     """
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             # Use public ticker endpoint
             url = f"https://api.luno.com/api/1/ticker?pair={pair}"
             

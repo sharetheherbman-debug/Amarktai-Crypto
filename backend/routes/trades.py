@@ -194,13 +194,10 @@ async def get_trade_stats(
         Summary statistics for all user trades
     """
     try:
-        # Get all trades
-        trades = await db.trades_collection.find(
-            {"user_id": user_id},
-            {"_id": 0}
-        ).to_list(10000)
-        
-        if not trades:
+        # Use count_documents + aggregation for stats instead of loading all trades
+        # into memory.  to_list(10000) on a large collection is a blocking scan.
+        total_trades = await db.trades_collection.count_documents({"user_id": user_id})
+        if total_trades == 0:
             return {
                 "total_trades": 0,
                 "total_volume": 0,
@@ -211,12 +208,23 @@ async def get_trade_stats(
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
         
-        # Calculate statistics
-        total_trades = len(trades)
-        total_volume = sum(abs(t.get('amount', 0) * t.get('price', 0)) for t in trades)
-        total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades)
-        winning_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
-        losing_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0])
+        # Calculate statistics via DB aggregation — avoids loading all trades into memory
+        pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$group": {
+                "_id": None,
+                "total_volume": {"$sum": {"$multiply": [{"$abs": {"$ifNull": ["$amount", 0]}}, {"$ifNull": ["$price", 0]}]}},
+                "total_pnl": {"$sum": {"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}},
+                "winning_trades": {"$sum": {"$cond": [{"$gt": [{"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}, 0]}, 1, 0]}},
+                "losing_trades": {"$sum": {"$cond": [{"$lt": [{"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}, 0]}, 1, 0]}},
+            }},
+        ]
+        agg_result = await db.trades_collection.aggregate(pipeline).to_list(1)
+        agg = agg_result[0] if agg_result else {}
+        total_volume = agg.get("total_volume", 0)
+        total_pnl = agg.get("total_pnl", 0)
+        winning_trades = agg.get("winning_trades", 0)
+        losing_trades = agg.get("losing_trades", 0)
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         
         return {
