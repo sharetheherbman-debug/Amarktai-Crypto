@@ -1712,6 +1712,38 @@ class PaperTradingEngine:
             # Previously paper mode bypassed this — that allowed negative-expectancy
             # trades through, which this audit is fixing.
             _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT
+
+            # ── Paper mode regime-aware bypass ───────────────────────────────────────
+            # Problem: the OHLCV fallback signal often produces expected_move_pct
+            # values in the 0.1–0.3 % range (typical in sideways markets) while the
+            # round-trip cost on Luno is ~0.42 % and on Binance ~0.30 %.  This causes
+            # EVERY bot to fail the hard edge filter in calm markets, producing zero
+            # trades and zero learning.  The bypass below is deliberately narrow:
+            #
+            #   - paper mode only (live bots are unaffected)
+            #   - regime must be a recognised direction (not unknown/error/blank)
+            #   - a non-trivial expected move must exist (> 0.05 %)
+            #   - minimum confidence 0.30 (at least one real signal contributed)
+            #
+            # This lets paper bots collect training data in all market conditions
+            # while still blocking pure-noise zero-signal entries.
+            _hard_edge_regime = playbook_info.get("regime") or ""
+            _regime_is_valid = _hard_edge_regime not in ("", "unknown", "error", None)
+            _paper_hard_edge_bypass = (
+                _is_paper_mode_bot
+                and _regime_is_valid
+                and expected_move_pct > 0.05
+            )
+            if _paper_hard_edge_bypass:
+                _hard_edge_blocked = False
+                if _net_edge_pct <= MINIMUM_EDGE_PCT:
+                    logger.info(
+                        "[HARD_EDGE_BYPASS] paper_regime_override | %s | %s | "
+                        "net_edge=%.4f%% regime=%s expected=%.4f%% — allowing for data collection",
+                        bot_data.get("name", bot_id[:8]), symbol,
+                        _net_edge_pct, _hard_edge_regime, expected_move_pct,
+                    )
+
             if _hard_edge_blocked:
                 logger.info(
                     f"⏭️  SKIP_HARD_EDGE | {bot_data.get('name', bot_id[:8])} | "
@@ -1893,9 +1925,14 @@ class PaperTradingEngine:
             # Scalpers use a higher confidence threshold than normal bots.
             # Normal bots keep the existing BASE_CONFIDENCE_THRESHOLD logic.
             if _is_scalper_bot:
-                # SCALPER: use a stricter threshold and always require ≥2 sources.
+                # SCALPER: use a stricter confidence threshold.
+                # min_sources_required is adaptive: when only the regime source is
+                # available (available_sources <= 2 because Fetch.ai is simulated and
+                # ML is simulated), require just 1 source — same as normal bots.
+                # Requiring 2 when only 1 exists guaranteed every scalper would fail
+                # the confidence gate before it could even attempt an entry.
+                min_sources_required = 1 if available_sources <= 2 else 2
                 _conf_threshold = SCALPER_CONFIDENCE_THRESHOLD
-                min_sources_required = 2
                 # River edge penalty: when the online model predicts < 0.4 win
                 # probability (after ≥10 samples), add an extra 0.10 to the threshold.
                 try:

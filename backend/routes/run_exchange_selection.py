@@ -54,9 +54,16 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             e.lower() in SUPPORTED_PLATFORMS for e in explicit
         ))
 
-        # Get configured exchanges (has API key — any key, tested or not)
+        # Get configured exchanges (has API key — any key, tested or not).
+        # Accept both "api_key" (legacy routes) and "api_key_encrypted" (canonical route).
         key_docs = await db.api_keys_collection.find(
-            {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}},
+            {
+                "user_id": user_id,
+                "$or": [
+                    {"api_key": {"$exists": True, "$ne": ""}},
+                    {"api_key_encrypted": {"$exists": True, "$ne": None}},
+                ],
+            },
             {"_id": 0, "provider": 1},
         ).to_list(50)
         configured_exchanges = list(dict.fromkeys(
@@ -170,7 +177,13 @@ async def set_run_selection(
         )
         # Re-determine resolution tier after clearing explicit selection
         has_cfg = bool(await db.api_keys_collection.find_one(
-            {"user_id": user_id, "api_key": {"$exists": True, "$ne": ""}}
+            {
+                "user_id": user_id,
+                "$or": [
+                    {"api_key": {"$exists": True, "$ne": ""}},
+                    {"api_key_encrypted": {"$exists": True, "$ne": None}},
+                ],
+            }
         ))
         resolved = await get_user_run_exchanges(user_id)
         tier_after_clear = "api_keys" if has_cfg else "fallback"

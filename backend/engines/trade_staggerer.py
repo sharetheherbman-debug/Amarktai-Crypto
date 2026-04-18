@@ -45,18 +45,18 @@ class TradeStaggerer:
         # Rate limiting per exchange.
         # For LIVE trading these values are real API rate limits.
         # For PAPER trading the concurrency limits govern how many paper-engine
-        # goroutines can process simultaneously — paper bots do not hit real APIs
+        # coroutines can process simultaneously — paper bots do not hit real APIs
         # so higher concurrency is safe and necessary for fleet-wide participation.
-        # Luno: raised from 2→4 for paper so a 10-bot Luno fleet can actually
-        # run concurrently rather than serializing through 2 slots.
+        # Luno: raised from 2→10 for paper so a 10-bot Luno fleet can actually
+        # run concurrently rather than serializing through a few slots.
         # Override via env: TRADE_STAGGERER_LUNO_MAX_CONCURRENT, etc.
-        _luno_max = int(os.getenv("TRADE_STAGGERER_LUNO_MAX_CONCURRENT", "4"))
+        _luno_max = int(os.getenv("TRADE_STAGGERER_LUNO_MAX_CONCURRENT", "10"))
         self.exchange_limits = {
             'luno': {'max_concurrent': _luno_max, 'min_delay': 5},
-            'binance': {'max_concurrent': 5, 'min_delay': 2},    # 5 concurrent, 2s between
-            'kucoin': {'max_concurrent': 3, 'min_delay': 3},     # 3 concurrent, 3s between
-            'bybit': {'max_concurrent': 4, 'min_delay': 3},      # 4 concurrent, 3s between
-            'bitget': {'max_concurrent': 4, 'min_delay': 3}      # 4 concurrent, 3s between
+            'binance': {'max_concurrent': 10, 'min_delay': 2},   # 10 concurrent for paper fleet
+            'kucoin': {'max_concurrent': 5, 'min_delay': 3},
+            'bybit': {'max_concurrent': 5, 'min_delay': 3},
+            'bitget': {'max_concurrent': 5, 'min_delay': 3}
         }
         
         self.last_trade_per_exchange = {}
