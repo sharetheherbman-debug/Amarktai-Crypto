@@ -181,22 +181,45 @@ def enforce_trading_gates(trading_mode: str = None) -> None:
 async def enforce_live_trading_gates(user_id: str, exchange: str) -> None:
     """
     Enforce all gates for live trading before placing real orders.
-    
+
+    Gates (in order):
+    1. LIVE_TRADING / ENABLE_LIVE_TRADING env var must be set
+    2. LIVE_FUNDS_MOVEMENT_ALLOWED env var must be set (second kill-switch)
+    3. Validated API keys must exist for this exchange
+
     Args:
         user_id: User ID (will be truncated in logs for security)
         exchange: Exchange name
-    
+
     Raises:
         TradingGateError: If any gate check fails
     """
     # 1. Check LIVE_TRADING environment variable
     enforce_trading_gates("live")
-    
-    # 2. Check API keys exist
+
+    # 2. Check LIVE_FUNDS_MOVEMENT_ALLOWED — second explicit kill-switch that
+    #    must be set before any real funds can move.  This allows LIVE_TRADING
+    #    to be enabled for configuration/testing while still blocking all orders
+    #    until an operator deliberately sets this flag.
+    try:
+        import config as _live_cfg
+        _funds_allowed = getattr(_live_cfg, 'LIVE_FUNDS_MOVEMENT_ALLOWED', False)
+    except Exception:
+        _funds_allowed = env_bool('LIVE_FUNDS_MOVEMENT_ALLOWED', False)
+
+    if not _funds_allowed:
+        msg = (
+            "❌ Live trading gate FAILED: LIVE_FUNDS_MOVEMENT_ALLOWED is not set. "
+            "Set LIVE_FUNDS_MOVEMENT_ALLOWED=true in your environment to allow real fund movement."
+        )
+        logger.error(msg)
+        raise TradingGateError(msg)
+
+    # 3. Check API keys exist
     keys_valid, keys_msg = await check_live_trading_keys(user_id, exchange)
     if not keys_valid:
         msg = f"❌ Live trading gate FAILED: {keys_msg}"
         logger.error(msg)
         raise TradingGateError(msg)
-    
+
     logger.info(f"✅ All live trading gates passed for user {user_id[:8]} on {exchange}")

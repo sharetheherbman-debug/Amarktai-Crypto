@@ -63,11 +63,17 @@ class LiveGateService:
             if bot.get('trading_mode') != 'live':
                 violations.append(f"Bot trading_mode is {bot.get('trading_mode')}, not live")
             
-            # Check 3: Bot must have validated API keys for exchange
-            from services.keys_service import keys_service
-            
-            api_key_data = await keys_service.get_user_api_key(user_id, exchange)
-            
+            # Check 3: Bot must have validated API keys for exchange.
+            # Keys may be stored with either 'provider' or 'exchange' field depending on
+            # which code path created them.  Query both to avoid false-negative blocks.
+            api_key_data = await db.api_keys_collection.find_one(
+                {
+                    "user_id": user_id,
+                    "$or": [{"provider": exchange}, {"exchange": exchange}],
+                },
+                {"_id": 0},
+            )
+
             if not api_key_data:
                 violations.append(f"No API key configured for {exchange}")
             elif not api_key_data.get('last_test_ok'):

@@ -19,6 +19,7 @@ from services.bot_quarantine import quarantine_service
 from services.system_gate import system_gate
 from services.trading_mode_validator import trading_mode_validator
 from services.live_gate_service import live_gate_service
+from services.live_funds_policy import live_funds_policy
 from utils.trading_gates import TradingGateError, enforce_live_trading_gates
 from utils.trading_mode import resolve_bot_trading_mode
 from services.bot_runtime_state import bot_runtime_state
@@ -55,6 +56,10 @@ class TradingScheduler:
         self.last_tick = None  # Track last execution time
         self.next_tick = None  # Track next scheduled execution
         self.tick_count = 0    # Count total ticks
+        # Tracks when we last ran the live position monitor loop (separate cadence)
+        self._last_live_monitor = None
+        # Live position monitoring cadence — every 20 seconds
+        self._live_monitor_interval = 20
         
     async def execute_bot_trades(self):
         """Execute trades using staggered queue - CONTINUOUS OPERATION"""
@@ -805,6 +810,27 @@ class TradingScheduler:
                 logger.warning(f"Skipping live trade for {bot.get('name')}: {effective_reason}")
                 return {"success": False, "bot_id": bot['id'], "skip_reason": effective_reason}
 
+            # ── BLOCKER 1: Enforce live funds policy before execution ──────────
+            # Notional proxy: use trade_size (capital × risk_multiplier) which is
+            # denominated in ZAR (the bot's capital currency).
+            notional_zar = trade_size
+            policy_ok, policy_violations = await live_funds_policy.check_trade(
+                user_id=bot['user_id'],
+                exchange=exchange,
+                notional_zar=notional_zar,
+                bot_id=bot['id'],
+                direction=side,
+            )
+            if not policy_ok:
+                logger.warning(
+                    f"Live funds policy blocked trade for {bot.get('name')}: {policy_violations}"
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot['id'],
+                    "skip_reason": f"live_funds_policy: {policy_violations[0] if policy_violations else 'policy_blocked'}",
+                }
+
             # Execute trade via live engine
             trade_result = await live_trading_engine.execute_trade(
                 bot_id=bot['id'],
@@ -819,16 +845,29 @@ class TradingScheduler:
             if not trade_result.get('success'):
                 logger.error(f"Live trade failed: {trade_result.get('error')}")
                 return None
-            
-            # Record trade in database
+
+            # ── BLOCKER 2: Record as OPEN trade — NOT immediately closed ───────
+            # The live engine returns entry-fill data only.  The position stays
+            # open until monitor_open_positions() fires the stop-loss, take-profit,
+            # or max-hold exit and calls close_position(), which updates all stats.
             from uuid import uuid4
             from utils.trade_utils import build_trade_record
 
-            entry_price = trade_result.get('entry_price', trade_result.get('price', 0))
-            exit_price = trade_result.get('exit_price')
-            if exit_price is None:
-                logger.error("Live trade missing exit_price; defaulting to entry_price for bot %s", bot['id'])
-                exit_price = entry_price
+            entry_price = trade_result.get('price', trade_result.get('entry_price', 0))
+            fee_amount  = trade_result.get('fee_amount', trade_result.get('fees', trade_result.get('fee', 0)))
+
+            # Pre-compute SL/TP prices from bot settings so monitor can act instantly
+            stop_loss_pct   = float(bot.get('stop_loss_pct', 0.02))
+            take_profit_pct = float(bot.get('take_profit_pct', 0.03))
+            stop_loss_price = (
+                entry_price * (1 - stop_loss_pct) if side == 'buy'
+                else entry_price * (1 + stop_loss_pct)
+            )
+            take_profit_price = (
+                entry_price * (1 + take_profit_pct) if side == 'buy'
+                else entry_price * (1 - take_profit_pct)
+            )
+
             trade_doc = build_trade_record(
                 {
                     "id": str(uuid4()),
@@ -837,18 +876,20 @@ class TradingScheduler:
                     "pair": pair,
                     "side": side,
                     "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "amount": trade_result.get('amount', 0),
-                    "profit_loss": trade_result.get('net_profit', 0),
+                    "amount": trade_result.get('amount', trade_amount),
+                    "profit_loss": 0,          # unknown until close
+                    "status": "open",          # stays open until monitor closes it
                     "is_paper": False,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "exchange": exchange,
                     "trading_mode": "live",
                     "is_live": True,
                     "exchange_order_id": trade_result.get("order_id") or trade_result.get("id"),
-                    "trade_close_reason": "live_fill",
-                    "realized_pnl": trade_result.get("net_profit", 0),
-                    "fee_paid": trade_result.get("fees", trade_result.get("fee", 0))
+                    "stop_loss_pct": stop_loss_pct,
+                    "take_profit_pct": take_profit_pct,
+                    "stop_loss_price": stop_loss_price,
+                    "take_profit_price": take_profit_price,
+                    "fee_paid": fee_amount,
                 },
                 user_id=bot['user_id'],
                 bot=bot
@@ -856,6 +897,7 @@ class TradingScheduler:
             
             await db.trades_collection.insert_one(trade_doc)
 
+            # Broadcast entry event for realtime dashboard
             try:
                 from services.realtime_service import realtime_service
                 await realtime_service.broadcast_trade_execution(bot['user_id'], trade_doc)
@@ -868,33 +910,22 @@ class TradingScheduler:
             except Exception as e:
                 logger.debug(f"Trade lesson record failed: {e}")
 
-            # Update bot stats
-            from utils.trade_utils import classify_trade_outcome
-            net_profit = trade_result.get('net_profit', 0)
-            new_capital = capital + net_profit
-            outcome = classify_trade_outcome(net_profit)
-            
+            # Update only last_trade_time — capital/stats updated by close_position() on exit
             await db.bots_collection.update_one(
                 {"id": bot['id']},
-                {
-                    "$set": {
-                        "current_capital": new_capital,
-                        "last_trade_time": datetime.now(timezone.utc).isoformat()
-                    },
-                    "$inc": {
-                        "total_profit": net_profit,
-                        "trades_count": 1,
-                        "win_count": outcome["win_count"],
-                        "loss_count": outcome["loss_count"]
-                    }
-                }
+                {"$set": {"last_trade_time": datetime.now(timezone.utc).isoformat()}}
             )
-            
+
+            logger.info(
+                f"🔴 Live trade OPENED: {bot.get('name')} {side} {pair} @ {entry_price} "
+                f"SL={stop_loss_price:.4f} TP={take_profit_price:.4f}"
+            )
+
             return {
                 "bot_id": bot['id'],
-                "new_capital": new_capital,
-                "total_profit": bot.get('total_profit', 0) + trade_result.get('net_profit', 0),
-                "trade": trade_doc
+                "new_capital": capital,   # unchanged — updated on close
+                "total_profit": bot.get('total_profit', 0),
+                "trade": trade_doc,       # status="open" → staggerer had_entry=True
             }
             
         except Exception as e:
@@ -931,6 +962,34 @@ class TradingScheduler:
                 
                 await self.execute_bot_trades()
                 
+                # ── BLOCKER 3: Monitor open live positions (SL/TP/time exit) ──
+                # Runs on a separate cadence (every 20s) so it doesn't block the
+                # main trade-entry cycle.  paper_engine.close_overdue_trades() only
+                # acts on paper trades; this is the live-engine equivalent.
+                _now = datetime.now(timezone.utc)
+                if (
+                    self._last_live_monitor is None
+                    or (_now - self._last_live_monitor).total_seconds() >= self._live_monitor_interval
+                ):
+                    self._last_live_monitor = _now
+                    try:
+                        live_user_ids = await db.bots_collection.distinct(
+                            "user_id",
+                            {
+                                "status": "active",
+                                "$or": [{"trading_mode": "live"}, {"mode": "live"}],
+                            },
+                        )
+                        for _uid in live_user_ids:
+                            try:
+                                await live_trading_engine.monitor_open_positions(_uid)
+                            except Exception as _me:
+                                logger.warning(
+                                    f"Live position monitor error uid={_uid[:8]}: {_me}"
+                                )
+                    except Exception as _sweep_err:
+                        logger.warning(f"Live position monitor sweep error: {_sweep_err}")
+
                 # Clean up stale trades periodically
                 await trade_staggerer.clear_stale_trades()
                 
