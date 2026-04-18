@@ -12,6 +12,7 @@ Provides a single endpoint for all dashboard overview metrics:
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 import logging
+import time
 from typing import Dict, Optional
 
 from auth import get_current_user
@@ -21,6 +22,14 @@ from services.fx_normalizer import get_fx_rate as _gfr, get_quote_currency as _g
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# In-process response cache — prevents repeated full DB scans when the
+# frontend polls this endpoint every few seconds.
+# TTL: 5 seconds per user_id.
+# ---------------------------------------------------------------------------
+_OVERVIEW_CACHE: Dict[str, tuple] = {}   # user_id → (timestamp_mono, payload)
+_OVERVIEW_TTL = 5  # seconds
 
 OVERVIEW_SNAPSHOT_KEYS = [
     "systemMode",
@@ -91,6 +100,12 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         - win_rate: Percentage of winning trades
     """
     try:
+        # Serve from cache if fresh (prevents repeated full DB scans on rapid polls)
+        _now_mono = time.monotonic()
+        _cached = _OVERVIEW_CACHE.get(user_id)
+        if _cached and (_now_mono - _cached[0]) < _OVERVIEW_TTL:
+            return _cached[1]
+
         # Get all user's bots (exclude deleted) — same filter set as /api/bots/status
         bots = await db.bots_collection.find({
             "user_id": user_id,
@@ -216,7 +231,7 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
             win_rate = 0
             last_trade_time = None
         
-        return {
+        _result = {
             "success": True,
             "total_profit": round(total_profit, 2),
             "daily_profit": round(daily_profit, 2),
@@ -243,6 +258,8 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
             "bodyguard_status": bodyguard_status,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        _OVERVIEW_CACHE[user_id] = (time.monotonic(), _result)
+        return _result
         
     except HTTPException:
         raise

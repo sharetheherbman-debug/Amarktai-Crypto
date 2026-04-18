@@ -46,8 +46,11 @@ class CCXTService:
         """Test exchange API connection by creating temporary instance"""
         try:
             exchange = self.init_exchange(exchange_name, api_key, api_secret, testnet=False, passphrase=passphrase)
-            await asyncio.to_thread(exchange.fetch_balance)
+            await asyncio.wait_for(asyncio.to_thread(exchange.fetch_balance), timeout=3.0)
             return True
+        except asyncio.TimeoutError:
+            logger.error(f"Connection test timed out for {exchange_name}")
+            return False
         except Exception as e:
             logger.error(f"Connection test failed for {exchange_name}: {e}")
             return False
@@ -55,8 +58,11 @@ class CCXTService:
     async def get_balance(self, exchange: ccxt.Exchange, currency: str = 'USDT') -> float:
         """Get balance for specific currency"""
         try:
-            balance = await asyncio.to_thread(exchange.fetch_balance)
+            balance = await asyncio.wait_for(asyncio.to_thread(exchange.fetch_balance), timeout=3.0)
             return balance.get(currency, {}).get('free', 0.0)
+        except asyncio.TimeoutError:
+            logger.error(f"fetch_balance timed out for {currency}")
+            return 0.0
         except Exception as e:
             logger.error(f"Failed to fetch balance: {e}")
             return 0.0
@@ -64,8 +70,11 @@ class CCXTService:
     async def fetch_ticker(self, exchange: ccxt.Exchange, symbol: str) -> Dict:
         """Fetch ticker data"""
         try:
-            ticker = await asyncio.to_thread(exchange.fetch_ticker, symbol)
+            ticker = await asyncio.wait_for(asyncio.to_thread(exchange.fetch_ticker, symbol), timeout=3.0)
             return ticker
+        except asyncio.TimeoutError:
+            logger.error(f"fetch_ticker timed out for {symbol}")
+            return {}
         except Exception as e:
             logger.error(f"Failed to fetch ticker for {symbol}: {e}")
             return {}
@@ -106,11 +115,14 @@ class CCXTService:
                 }
             else:
                 # Real trading
-                order = await asyncio.to_thread(
-                    exchange.create_market_order,
-                    symbol, side, amount
+                order = await asyncio.wait_for(
+                    asyncio.to_thread(exchange.create_market_order, symbol, side, amount),
+                    timeout=3.0,
                 )
                 return order
+        except asyncio.TimeoutError:
+            logger.error(f"create_market_order timed out for {symbol}")
+            raise
         except Exception as e:
             logger.error(f"Failed to create order: {e}")
             raise

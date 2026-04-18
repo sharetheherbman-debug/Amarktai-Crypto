@@ -502,6 +502,23 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
         bot_ids = [str(b.get("id") or b.get("_id") or "") for b in bots if b.get("id") or b.get("_id")]
         latest_decisions = await get_latest_bot_decisions(user_id, bot_ids)
 
+        # Batch-fetch all open trades for this user in a SINGLE query instead of
+        # one find_one per bot in the loop below.  This prevents N×RTT serial DB
+        # calls when a user has many bots — the main cause of radar timeouts.
+        open_trades_by_bot: dict = {}
+        if bot_ids:
+            try:
+                open_trades_cursor = db.trades_collection.find(
+                    {"bot_id": {"$in": bot_ids}, "status": {"$in": ["open", "active", "pending"]}},
+                    sort=[("timestamp", -1)],
+                )
+                for _ot in await open_trades_cursor.to_list(length=500):
+                    _bid = str(_ot.get("bot_id", ""))
+                    if _bid and _bid not in open_trades_by_bot:
+                        open_trades_by_bot[_bid] = _ot
+            except Exception as _ot_err:
+                logger.warning("radar_snapshot: batch open-trade query failed: %s", _ot_err)
+
         radar_entries: List[Dict] = []
 
         # One-shot wallet check for this user — used to enrich live eligibility
@@ -525,11 +542,9 @@ async def radar_snapshot(user_id: str = Depends(get_current_user)):
             }
             bot = normalize_bot_state({**raw_bot, **decision_fallback})
 
-            # Find open trade for this bot FIRST — needed for eligibility check below.
-            open_trade = await db.trades_collection.find_one(
-                {"bot_id": bot_id, "status": {"$in": ["open", "active", "pending"]}},
-                sort=[("timestamp", -1)],
-            )
+            # Find open trade for this bot from the pre-fetched batch map —
+            # avoids N serial DB round-trips inside the loop.
+            open_trade = open_trades_by_bot.get(bot_id)
 
             # Compute live eligibility when the DB field is absent or False.
             # eligible_to_trade is written by the paper engine during ticks, but

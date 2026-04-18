@@ -164,17 +164,11 @@ async def get_performance_summary(
         else:  # all
             start_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
         
-        # Get trades in period
-        trades = await db.trades_collection.find(
-            {
-                "user_id": user_id,
-                "timestamp": {"$gte": start_time.isoformat()}
-            },
-            {"_id": 0}
-        ).to_list(10000)
-        
-        # Calculate statistics using canonical field normalization
-        total_trades = len(trades)
+        # Get stats via DB aggregation — avoids loading 10,000+ records into memory
+        total_trades = await db.trades_collection.count_documents({
+            "user_id": user_id,
+            "timestamp": {"$gte": start_time.isoformat()}
+        })
         
         if total_trades == 0:
             return {
@@ -189,13 +183,29 @@ async def get_performance_summary(
                 "timestamp": now.isoformat()
             }
         
+        # Aggregate PnL stats server-side
+        _pnl_field = {"$ifNull": ["$net_pnl", {"$ifNull": ["$profit_loss", 0]}]}
+        agg_pipeline = [
+            {"$match": {"user_id": user_id, "timestamp": {"$gte": start_time.isoformat()}}},
+            {"$group": {
+                "_id": None,
+                "total_pnl": {"$sum": _pnl_field},
+                "gross_profit": {"$sum": {"$cond": [{"$gt": [_pnl_field, 0]}, _pnl_field, 0]}},
+                "gross_loss": {"$sum": {"$cond": [{"$lt": [_pnl_field, 0]}, {"$abs": _pnl_field}, 0]}},
+                "winning_trades": {"$sum": {"$cond": [{"$gt": [_pnl_field, 0]}, 1, 0]}},
+                "losing_trades": {"$sum": {"$cond": [{"$lt": [_pnl_field, 0]}, 1, 0]}},
+            }},
+        ]
+        agg_result = await db.trades_collection.aggregate(agg_pipeline).to_list(1)
+        agg = agg_result[0] if agg_result else {}
+
         # Use net_pnl (primary) → fallback profit_loss
-        winning_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0])
-        losing_trades = len([t for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0])
+        winning_trades = agg.get("winning_trades", 0)
+        losing_trades = agg.get("losing_trades", 0)
         
-        total_pnl = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades)
-        gross_profit = sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) > 0)
-        gross_loss = abs(sum(t.get('net_pnl', t.get('profit_loss', 0)) for t in trades if t.get('net_pnl', t.get('profit_loss', 0)) < 0))
+        total_pnl = agg.get("total_pnl", 0)
+        gross_profit = agg.get("gross_profit", 0)
+        gross_loss = agg.get("gross_loss", 0)
         
         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
         profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else 0
