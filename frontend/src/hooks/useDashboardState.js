@@ -419,18 +419,24 @@ export default function useDashboardState(navigate) {
         wsRef.current = null;
         wsInitializedRef.current = false;
       }
-      // Reset the first-connect flag so a fresh mount triggers a full refresh.
-      _wsConnectedOnce.current = false;
+      // DO NOT reset _wsConnectedOnce.current here.  Resetting this flag on every
+      // unmount causes the next WS connect event (reconnect) to trigger a full
+      // refreshAllDashboardData() storm — exactly the cascade we are preventing.
+      // The flag is intentionally persistent across WS reconnects so that only
+      // the very first connection after a page load fires the full refresh.
       if (sseRef.current) sseRef.current.close();
     };
   }, []);
   
   useEffect(() => {
     if (token && user) {
-      refreshAllDashboardData();
+      // DO NOT call refreshAllDashboardData() here — the mount effect already fires
+      // all 13 initial loads.  Calling refreshAllDashboardData() again the moment
+      // `user` resolves would launch a second 15-request storm on top of the initial
+      // burst, causing the circuit breaker to trip and timeout loops to start.
+      // Instead only load the two pieces that genuinely need user data at this point.
       loadSystemStats();
       loadProfitData();
-      // REMOVED: Duplicate setupRealTimeConnections() call
 
       let priceInterval;
       const startPolling = () => {

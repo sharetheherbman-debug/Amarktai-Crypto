@@ -8,9 +8,10 @@ Provides read-only access to immutable ledger data:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime, timedelta, timezone
 import logging
+import time
 
 from auth import get_current_user
 import database as db
@@ -20,6 +21,15 @@ from services.bot_filters import bot_not_deleted_filter
 
 router = APIRouter(prefix="/api", tags=["ledger"])
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Short-TTL in-process cache for /portfolio/summary.
+# The endpoint runs 8 sequential DB queries and is polled every 15s by two
+# independent frontend hooks simultaneously.  A 30s cache ensures concurrent
+# dashboard requests share one computation and also survive reconnect storms.
+# ---------------------------------------------------------------------------
+_PORTFOLIO_CACHE: dict = {}  # user_id → (monotonic_ts: float, result: dict)
+_PORTFOLIO_CACHE_TTL = 30  # seconds
 
 
 @router.get("/portfolio/summary")
@@ -40,9 +50,18 @@ async def get_portfolio_summary(
     - win_rate: Win rate (if calculable)
     """
     try:
-        ledger = get_ledger_service(db)
-        # current_user is now a string user_id, not a dict
         user_id = current_user
+
+        # Return cached result when still fresh to avoid 8 serial DB queries
+        # per frontend poll cycle (two hooks poll this endpoint independently).
+        now_mono = time.monotonic()
+        cached = _PORTFOLIO_CACHE.get(user_id)
+        if cached is not None:
+            cache_ts, cache_result = cached
+            if (now_mono - cache_ts) < _PORTFOLIO_CACHE_TTL:
+                return cache_result
+
+        ledger = get_ledger_service(db)
         
         # Compute core metrics
         equity = await ledger.compute_equity(user_id)
@@ -66,7 +85,7 @@ async def get_portfolio_summary(
         except Exception as e:
             logger.warning(f"Wallet summary unavailable: {e}")
         
-        return {
+        result = {
             "equity": round(equity, 2),
             "realized_pnl": round(realized_pnl, 2),
             "unrealized_pnl": round(unrealized_pnl, 2),
@@ -81,6 +100,8 @@ async def get_portfolio_summary(
             "data_source": "ledger",
             "phase": "1_read_only"
         }
+        _PORTFOLIO_CACHE[user_id] = (time.monotonic(), result)
+        return result
     except Exception as e:
         logger.error(f"Error getting portfolio summary: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get portfolio summary: {str(e)}")
