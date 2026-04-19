@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # independent frontend hooks simultaneously.  A 30s cache ensures concurrent
 # dashboard requests share one computation and also survive reconnect storms.
 # ---------------------------------------------------------------------------
-_PORTFOLIO_CACHE: Dict[str, object] = {}  # user_id → (ts, result)
+_PORTFOLIO_CACHE: dict = {}  # user_id → (monotonic_ts: float, result: dict)
 _PORTFOLIO_CACHE_TTL = 30  # seconds
 
 

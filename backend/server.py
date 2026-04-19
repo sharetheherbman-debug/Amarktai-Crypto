@@ -1794,10 +1794,10 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
         }
 
 # Per-user 30-second cache for /analytics/countdown-to-million.
-# This endpoint runs 4+ DB queries and an optional unbounded trade scan.
+# This endpoint runs 4+ DB queries and an optional trade scan.
 # It is polled on every refreshAllDashboardData call and every 30s interval.
 # Caching at 30s is safe: countdown figures don't need sub-minute precision.
-_COUNTDOWN_CACHE: dict = {}  # user_id → (monotonic_ts, result)
+_COUNTDOWN_CACHE: dict = {}  # user_id → (monotonic_ts: float, result: dict)
 _COUNTDOWN_CACHE_TTL = 30  # seconds
 
 @api_router.get("/analytics/countdown-to-million")
@@ -1907,7 +1907,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         if not series:
             thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
             # Limit to 500 documents — unbounded to_list(None) can block the event
-            # loop when many trades exist (thousands of records serialised into RAM).
+            # loop when many trades exist (thousands of records serialized into RAM).
             recent_trades = await db.trades_collection.find({
                 "user_id": user_id,
                 "timestamp": {"$gte": thirty_days_ago}
