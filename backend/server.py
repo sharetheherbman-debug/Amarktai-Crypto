@@ -1793,6 +1793,13 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
             "growth_rate": 0
         }
 
+# Per-user 30-second cache for /analytics/countdown-to-million.
+# This endpoint runs 4+ DB queries and an optional unbounded trade scan.
+# It is polled on every refreshAllDashboardData call and every 30s interval.
+# Caching at 30s is safe: countdown figures don't need sub-minute precision.
+_COUNTDOWN_CACHE: dict = {}  # user_id → (monotonic_ts, result)
+_COUNTDOWN_CACHE_TTL = 30  # seconds
+
 @api_router.get("/analytics/countdown-to-million")
 async def countdown_to_million(user_id: str = Depends(get_current_user)):
     """
@@ -1812,6 +1819,13 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         - projections: Both simple and compound projections
     """
     try:
+        # Return cached result when still fresh — this endpoint runs 4+ DB queries
+        # and is called on every refreshAllDashboardData (≥ 37 calls on mount).
+        _now_c = time.monotonic()
+        _cached_c = _COUNTDOWN_CACHE.get(user_id)
+        if _cached_c is not None and (_now_c - _cached_c[0]) < _COUNTDOWN_CACHE_TTL:
+            return _cached_c[1]
+
         from paper_trading_engine import paper_engine
         from services.ledger_service import get_ledger_service
         
@@ -1854,7 +1868,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         target = 1_000_000
 
         if trades_total < 10:
-            return {
+            _r = {
                 "ready": False,
                 "message": "Need at least 10 trades",
                 "trades_remaining": 10 - trades_total,
@@ -1866,10 +1880,12 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "mode": "Live" if is_live else "Paper",
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
+            _COUNTDOWN_CACHE[user_id] = (time.monotonic(), _r)
+            return _r
         
         # Check if target achieved
         if total_capital >= target:
-            return {
+            _r = {
                 "ready": True,
                 "current_capital": round(total_capital, 2),
                 "target": target,
@@ -1881,6 +1897,8 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
                 "message": "🎉 TARGET ACHIEVED! You reached R1 Million!",
                 "compound_projection": None
             }
+            _COUNTDOWN_CACHE[user_id] = (time.monotonic(), _r)
+            return _r
         
         # BACKEND TRUTH: Calculate daily ROI from ledger profit series
         series = await ledger.profit_series(user_id, period="daily", limit=30)
@@ -1888,10 +1906,12 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         unique_trade_days = len(series)
         if not series:
             thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+            # Limit to 500 documents — unbounded to_list(None) can block the event
+            # loop when many trades exist (thousands of records serialised into RAM).
             recent_trades = await db.trades_collection.find({
                 "user_id": user_id,
                 "timestamp": {"$gte": thirty_days_ago}
-            }).to_list(None)
+            }).to_list(500)
             unique_trade_days = len(set(t.get('timestamp', '')[:10] for t in recent_trades))
         
         # Need at least 3 full days of trading history
@@ -1965,7 +1985,7 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             # Compound over 365 days
             twelve_month_projection = total_capital * ((1 + (daily_roi_pct / 100)) ** 365)
         
-        return {
+        _r = {
             "ready": True,
             "current_capital": round(total_capital, 2),
             "target": target,
@@ -1993,6 +2013,8 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
             "data_quality": data_quality if est_days < 9999 else "insufficient",
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        _COUNTDOWN_CACHE[user_id] = (time.monotonic(), _r)
+        return _r
     except Exception as e:
         logger.error(f"Countdown calculation error: {e}")
         return {

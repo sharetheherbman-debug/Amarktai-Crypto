@@ -243,11 +243,12 @@ export const useDashboardData = (token) => {
     }
 
     // Poll metrics and system status every 15s (was 4s — too aggressive under load).
-    // Live prices are polled by useDashboardState at 4s; we avoid double-polling here.
-    const intervalMs = 15000;
+    // IMPORTANT: Do NOT call loadMetrics()/loadSystemStatus() here on initial mount.
+    // useDashboardState already fires those on mount as part of its 13-endpoint initial
+    // load sequence. Calling them here too doubles the mount burst and causes the circuit
+    // breaker to trip. We only load them on subsequent interval ticks (not the first).
     loadLivePrices();
-    loadMetrics();
-    loadSystemStatus();
+    const intervalMs = 15000;
     const interval = setInterval(() => {
       // Double-check token still exists before each poll
       if (getToken()) {

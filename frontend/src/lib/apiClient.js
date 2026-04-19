@@ -71,12 +71,16 @@ apiClient.interceptors.response.use(
     }
 
     // Retry logic for specific error codes
+    // Only retry once (not 3 times) — retrying timed-out requests 3× turns
+    // 1 slow request into 4 requests totalling 43 s (12+1+12+2+12+4), and with
+    // 19 parallel dashboard calls this quickly amplifies to 57 concurrent retries
+    // that keep the backend overloaded and prevent recovery.
     const shouldRetry = 
       error.code === 'ECONNABORTED' || // Timeout
       error.code === 'ERR_NETWORK' || // Network error
       (error.response && [408, 429, 500, 502, 503, 504].includes(error.response.status));
 
-    if (shouldRetry && originalRequest._retry < 3) {
+    if (shouldRetry && originalRequest._retry < 1) {
       originalRequest._retry += 1;
 
       // Exponential backoff: 1s, 2s, 4s

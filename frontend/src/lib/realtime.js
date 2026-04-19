@@ -321,12 +321,16 @@ class RealtimeClient {
     this.emit('connection', { status: 'connected', mode: 'polling' });
 
     // Poll different endpoints at different intervals
+    // IMPORTANT: These intervals must be conservative — the polling fallback fires
+    // when WebSocket/SSE is unavailable, which typically means the backend is under
+    // stress.  Aggressive polling during a backend slowdown makes recovery impossible.
+    // trades at 5s was causing ~12 extra req/min just from this fallback alone.
     const pollingConfig = [
-      { type: 'trades', endpoint: '/api/trades/recent?limit=50', interval: 5000 },
-      { type: 'bots', endpoint: '/api/bots', interval: 10000 },
-      { type: 'balances', endpoint: '/api/wallet/balances', interval: 15000 },
-      { type: 'metrics', endpoint: '/api/portfolio/summary', interval: 10000 },
-      { type: 'system_health', endpoint: '/api/system/health', interval: 30000 },
+      { type: 'trades', endpoint: '/api/trades/recent?limit=50', interval: 60000 },
+      { type: 'bots', endpoint: '/api/bots', interval: 30000 },
+      { type: 'balances', endpoint: '/api/wallet/balances', interval: 60000 },
+      { type: 'metrics', endpoint: '/api/portfolio/summary', interval: 30000 },
+      { type: 'system_health', endpoint: '/api/system/health', interval: 60000 },
     ];
 
     pollingConfig.forEach(({ type, endpoint, interval }) => {

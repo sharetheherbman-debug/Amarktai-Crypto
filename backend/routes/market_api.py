@@ -6,6 +6,7 @@ Provides real-time prices for BTC/ZAR, ETH/ZAR, XRP/ZAR from Luno
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict
+import asyncio
 import logging
 import time
 import httpx
@@ -58,19 +59,26 @@ async def get_market_prices(user_id: str = Depends(get_current_user)):
         pairs = ["XBTZAR", "ETHZAR", "XRPZAR"]  # Luno pair format
         display_pairs = ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR"]
         
-        for luno_pair, display_pair in zip(pairs, display_pairs):
+        # Fetch all three tickers concurrently instead of sequentially.
+        # Serial loop took up to 9 s (3× 3 s timeout each); asyncio.gather
+        # completes in the time of the slowest single call (~3 s).
+        async def _safe_fetch(luno_pair, display_pair):
             try:
-                price_data = await _fetch_luno_ticker(luno_pair, display_pair, api_key)
-                prices[display_pair] = price_data
+                return display_pair, await _fetch_luno_ticker(luno_pair, display_pair, api_key)
             except Exception as e:
                 logger.warning(f"Failed to fetch {display_pair} price: {e}")
-                prices[display_pair] = {
+                return display_pair, {
                     "price": 0.0,
                     "change_24h": 0.0,
                     "change_pct": 0.0,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "source": "unavailable"
                 }
+
+        results = await asyncio.gather(*[
+            _safe_fetch(lp, dp) for lp, dp in zip(pairs, display_pairs)
+        ])
+        prices = {dp: data for dp, data in results}
         
         _result = {
             "prices": prices,
