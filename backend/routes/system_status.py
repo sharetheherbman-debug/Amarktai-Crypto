@@ -5,6 +5,7 @@ Reports feature flags, scheduler status, and trading activity
 
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone, timedelta
+import time as _time
 from typing import Dict, Optional
 import logging
 import os
@@ -19,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system", tags=["System Status"])
 
+# Per-user TTL cache for /api/system/status — polled every 15 s by useDashboardData.
+# Caching for 15 s ensures each polling interval costs at most one DB round-trip.
+_SYSTEM_STATUS_CACHE: Dict[str, tuple] = {}  # user_id → (mono_time, payload)
+_SYSTEM_STATUS_TTL = 15  # seconds
+
 
 @router.get("/status")
 async def get_system_status(user_id: str = Depends(get_current_user)):
@@ -31,6 +37,11 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
     - Database health
     """
     try:
+        _now_mono = _time.monotonic()
+        _cached = _SYSTEM_STATUS_CACHE.get(user_id)
+        if _cached and (_now_mono - _cached[0]) < _SYSTEM_STATUS_TTL:
+            return _cached[1]
+
         # Get effective flags using the unified feature flags service
         effective_flags = await get_effective_flags(user_id)
         
@@ -139,7 +150,7 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
         except Exception as e:
             logger.warning(f"Wallet summary unavailable: {e}")
         
-        return {
+        _result = {
             "success": True,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "feature_flags": feature_flags,
@@ -157,10 +168,12 @@ async def get_system_status(user_id: str = Depends(get_current_user)):
             "system_modes": system_modes,
             "wallet_summary": wallet_summary
         }
+        _SYSTEM_STATUS_CACHE[user_id] = (_time.monotonic(), _result)
+        return _result
         
     except Exception as e:
         logger.error(f"System status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/since-last-login")
