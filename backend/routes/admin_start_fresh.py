@@ -46,7 +46,8 @@ async def _seed_paper_bots_after_reset(user_id: str, count: int) -> dict:
             await paper_wallet_service.fund(user_id, float(_START_CAP), "ZAR")
             available = float(_START_CAP)
 
-        capital_per_bot = max(available / count, float(_MIN_CAP)) if available > 0 else float(_MIN_CAP)
+        min_cap = float(_MIN_CAP)
+        capital_per_bot = max(available / count, min_cap) if available > 0 else min_cap
         now_iso = datetime.now(timezone.utc).isoformat()
         bots = [
             {

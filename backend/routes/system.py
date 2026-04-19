@@ -226,17 +226,15 @@ async def _seed_paper_bots(user_id: str, count: int) -> dict:
         # Auto-fund the paper wallet with starting capital (if still empty).
         from config import PAPER_STARTING_CAPITAL_ZAR as _START_CAP
         from services.paper_wallet_service import paper_wallet_service
+        from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
 
         available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
         if available <= 0 and _START_CAP > 0:
             await paper_wallet_service.fund(user_id, float(_START_CAP), "ZAR")
             available = float(_START_CAP)
 
-        capital_per_bot = max(available / count, 500.0) if available > 0 else 1000.0
-
-        # Soft-cap capital so bots are not over-funded on small wallets.
-        from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
-        capital_per_bot = max(capital_per_bot, float(_MIN_CAP))
+        min_cap = float(_MIN_CAP)
+        capital_per_bot = max(available / count, min_cap) if available > 0 else min_cap
 
         now_iso = datetime.now(timezone.utc).isoformat()
         bots = []

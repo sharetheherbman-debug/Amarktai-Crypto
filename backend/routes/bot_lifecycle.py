@@ -2173,9 +2173,10 @@ async def seed_default_fleet(
             available = float(PAPER_STARTING_CAPITAL_ZAR)
 
         # Determine capital per bot
+        min_cap = float(BOT_MANUAL_MIN_CAPITAL_ZAR)
         if capital_per_bot <= 0:
-            capital_per_bot = max(available / count, float(BOT_MANUAL_MIN_CAPITAL_ZAR)) if available > 0 else float(BOT_MANUAL_MIN_CAPITAL_ZAR)
-        capital_per_bot = max(capital_per_bot, float(BOT_MANUAL_MIN_CAPITAL_ZAR))
+            capital_per_bot = max(available / count, min_cap) if available > 0 else min_cap
+        capital_per_bot = max(capital_per_bot, min_cap)
 
         now_iso = datetime.now(timezone.utc).isoformat()
         bots = [
