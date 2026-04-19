@@ -2127,4 +2127,102 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/seed-fleet")
+async def seed_default_fleet(
+    count: int = 20,
+    capital_per_bot: float = 0,
+    user_id: str = Depends(get_current_user),
+):
+    """Seed a default paper-trading fleet of *count* bots (default 20).
+
+    Idempotent when bots already exist: skips creation and returns the current
+    count so the caller can verify the fleet is ready without over-seeding.
+
+    This endpoint is the canonical way to bootstrap bots after a paper reset.
+    It:
+      - Auto-funds the paper wallet from PAPER_STARTING_CAPITAL_ZAR if empty.
+      - Uses capital_per_bot if specified; otherwise distributes the wallet
+        balance evenly across *count* bots (min R1000/bot).
+      - Returns {bots_created, bots_existing, total_bots, capital_per_bot}.
+    """
+    from uuid import uuid4
+    from config import PAPER_STARTING_CAPITAL_ZAR, BOT_MANUAL_MIN_CAPITAL_ZAR
+    from services.paper_wallet_service import paper_wallet_service
+    from services.bot_filters import bot_not_deleted_filter
+
+    count = max(1, min(count, 50))  # Clamp to reasonable range
+
+    try:
+        # Count existing non-deleted bots
+        existing_count = await db.bots_collection.count_documents(
+            bot_not_deleted_filter({"user_id": user_id})
+        )
+        if existing_count > 0:
+            return {
+                "bots_created": 0,
+                "bots_existing": existing_count,
+                "total_bots": existing_count,
+                "capital_per_bot": capital_per_bot,
+                "message": f"Fleet already has {existing_count} bots — no new bots created.",
+            }
+
+        # Auto-fund wallet if empty
+        available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+        if available <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
+            await paper_wallet_service.fund(user_id, float(PAPER_STARTING_CAPITAL_ZAR), "ZAR")
+            available = float(PAPER_STARTING_CAPITAL_ZAR)
+
+        # Determine capital per bot
+        if capital_per_bot <= 0:
+            capital_per_bot = max(available / count, float(BOT_MANUAL_MIN_CAPITAL_ZAR)) if available > 0 else float(BOT_MANUAL_MIN_CAPITAL_ZAR)
+        capital_per_bot = max(capital_per_bot, float(BOT_MANUAL_MIN_CAPITAL_ZAR))
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        bots = [
+            {
+                "id": str(uuid4()),
+                "user_id": user_id,
+                "name": f"PaperBot-{i + 1}",
+                "status": "active",
+                "trading_mode": "paper",
+                "exchange": "luno",
+                "pair": "XBT/ZAR",
+                "bot_type": "normal",
+                "strategy_preset": "adaptive",
+                "risk_mode": "safe",
+                "initial_capital": round(capital_per_bot, 2),
+                "current_capital": round(capital_per_bot, 2),
+                "canonical_base_capital_zar": round(capital_per_bot, 2),
+                "funding_input_amount": round(capital_per_bot, 2),
+                "funding_input_currency": "ZAR",
+                "quote_currency": "ZAR",
+                "fx_rate_at_creation": 1.0,
+                "total_profit": 0.0,
+                "trades_count": 0,
+                "origin": "seed_fleet",
+                "paper_end_date": None,
+                "created_at": now_iso,
+                "last_trade": None,
+            }
+            for i in range(count)
+        ]
+        await db.bots_collection.insert_many(bots)
+
+        logger.info(
+            "seed-fleet: created %d paper bots (R%.2f/bot) for user %s",
+            len(bots), capital_per_bot, user_id[:8],
+        )
+        return {
+            "bots_created": len(bots),
+            "bots_existing": 0,
+            "total_bots": len(bots),
+            "capital_per_bot": round(capital_per_bot, 2),
+            "message": f"Created {len(bots)} paper bots successfully.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("seed-fleet error for user %s", user_id[:8])
+        raise HTTPException(status_code=500, detail=str(e))
 

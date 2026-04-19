@@ -29,6 +29,9 @@ class PriceFallbackService:
     def __init__(self):
         self.price_cache = {}
         self.cache_ttl = 60  # Cache for 60 seconds
+        # Negative cache TTL: after a failed fetch, skip retries for 30 s.
+        # This prevents hammering slow/unavailable exchanges on every request.
+        self.negative_cache_ttl = 30
         self.exchanges = {}
         self.initialized = False
     
@@ -37,11 +40,15 @@ class PriceFallbackService:
         if self.initialized:
             return
         
+        # Tight timeout (5 s) keeps exchange calls well under nginx's
+        # proxy_read_timeout so a slow exchange never cascades into 502s.
+        _TIMEOUT_MS = 5000
+        
         try:
             # Luno public
             self.exchanges['luno'] = ccxt.luno({
                 'enableRateLimit': True,
-                'timeout': 30000
+                'timeout': _TIMEOUT_MS
             })
             logger.info("✅ Luno public fallback initialized")
         except Exception as e:
@@ -51,6 +58,7 @@ class PriceFallbackService:
             # Binance public
             self.exchanges['binance'] = ccxt.binance({
                 'enableRateLimit': True,
+                'timeout': _TIMEOUT_MS,
                 'options': {'defaultType': 'spot'}
             })
             logger.info("✅ Binance public fallback initialized")
@@ -61,7 +69,7 @@ class PriceFallbackService:
             # KuCoin public
             self.exchanges['kucoin'] = ccxt.kucoin({
                 'enableRateLimit': True,
-                'timeout': 30000
+                'timeout': _TIMEOUT_MS
             })
             logger.info("✅ KuCoin public fallback initialized")
         except Exception as e:
@@ -71,7 +79,7 @@ class PriceFallbackService:
             # Bybit public
             self.exchanges['bybit'] = ccxt.bybit({
                 'enableRateLimit': True,
-                'timeout': 30000
+                'timeout': _TIMEOUT_MS
             })
             logger.info("✅ Bybit public fallback initialized")
         except Exception as e:
@@ -81,7 +89,7 @@ class PriceFallbackService:
             # Bitget public
             self.exchanges['bitget'] = ccxt.bitget({
                 'enableRateLimit': True,
-                'timeout': 30000
+                'timeout': _TIMEOUT_MS
             })
             logger.info("✅ Bitget public fallback initialized")
         except Exception as e:
@@ -94,7 +102,7 @@ class PriceFallbackService:
         return f"{exchange}:{symbol}"
     
     def _is_cache_valid(self, cache_entry: Dict) -> bool:
-        """Check if cache entry is still valid"""
+        """Check if cache entry is still valid (handles both positive and negative entries)."""
         if not cache_entry:
             return False
         
@@ -103,6 +111,9 @@ class PriceFallbackService:
             return False
         
         age = (datetime.now(timezone.utc) - cached_at).total_seconds()
+        # Negative cache entries have price=None and use negative_cache_ttl.
+        if cache_entry.get('price') is None:
+            return age < self.negative_cache_ttl
         return age < self.cache_ttl
     
     async def get_price(self, exchange: str, symbol: str) -> Optional[float]:
@@ -138,7 +149,7 @@ class PriceFallbackService:
             price = ticker.get('last') or ticker.get('close') or ticker.get('bid')
             
             if price and price > 0:
-                # Cache the result
+                # Cache the positive result
                 self.price_cache[cache_key] = {
                     'price': float(price),
                     'timestamp': datetime.now(timezone.utc)
@@ -148,10 +159,20 @@ class PriceFallbackService:
                 return float(price)
             else:
                 logger.warning(f"Invalid price for {cache_key}: {price}")
+                # Store negative cache so we don't retry immediately
+                self.price_cache[cache_key] = {
+                    'price': None,
+                    'timestamp': datetime.now(timezone.utc)
+                }
                 return None
         
         except Exception as e:
             logger.debug(f"Error fetching price for {cache_key}: {e}")
+            # Store negative cache entry to prevent repeated slow retries
+            self.price_cache[cache_key] = {
+                'price': None,
+                'timestamp': datetime.now(timezone.utc)
+            }
             return None
     
     async def get_multiple_prices(self, requests: list) -> Dict[str, Optional[float]]:

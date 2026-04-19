@@ -204,6 +204,82 @@ async def get_system_gates() -> dict:
 
 _PAPER_RESET_CONFIRMATION_PHRASE = "RESET PAPER SANDBOX"
 
+# Number of paper bots auto-seeded after every sandbox reset.
+# Set PAPER_RESET_AUTO_SEED_BOTS=0 to disable auto-seeding.
+_AUTO_SEED_BOT_COUNT = int(os.getenv("PAPER_RESET_AUTO_SEED_BOTS", "20"))
+
+
+async def _seed_paper_bots(user_id: str, count: int) -> dict:
+    """Create *count* paper bots for *user_id* if none exist after a reset.
+
+    Returns a summary dict: {bots_created, bots_skipped, error}.
+    Never raises — failure is non-fatal so the reset response still succeeds.
+    """
+    from uuid import uuid4
+    from datetime import timezone as _tz
+
+    summary: dict = {"bots_created": 0, "bots_skipped": 0, "error": None}
+    if count <= 0:
+        return summary
+
+    try:
+        # Auto-fund the paper wallet with starting capital (if still empty).
+        from config import PAPER_STARTING_CAPITAL_ZAR as _START_CAP
+        from services.paper_wallet_service import paper_wallet_service
+
+        available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+        if available <= 0 and _START_CAP > 0:
+            await paper_wallet_service.fund(user_id, float(_START_CAP), "ZAR")
+            available = float(_START_CAP)
+
+        capital_per_bot = max(available / count, 500.0) if available > 0 else 1000.0
+
+        # Soft-cap capital so bots are not over-funded on small wallets.
+        from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
+        capital_per_bot = max(capital_per_bot, float(_MIN_CAP))
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        bots = []
+        for i in range(count):
+            bots.append({
+                "id": str(uuid4()),
+                "user_id": user_id,
+                "name": f"PaperBot-{i + 1}",
+                "status": "active",
+                "trading_mode": "paper",
+                "exchange": "luno",
+                "pair": "XBT/ZAR",
+                "bot_type": "normal",
+                "strategy_preset": "adaptive",
+                "risk_mode": "safe",
+                "initial_capital": round(capital_per_bot, 2),
+                "current_capital": round(capital_per_bot, 2),
+                "canonical_base_capital_zar": round(capital_per_bot, 2),
+                "funding_input_amount": round(capital_per_bot, 2),
+                "funding_input_currency": "ZAR",
+                "quote_currency": "ZAR",
+                "fx_rate_at_creation": 1.0,
+                "total_profit": 0.0,
+                "trades_count": 0,
+                "origin": "auto_seed",
+                "paper_end_date": None,
+                "created_at": now_iso,
+                "last_trade": None,
+            })
+
+        if bots:
+            await db.bots_collection.insert_many(bots)
+            summary["bots_created"] = len(bots)
+            logger.info(
+                "_seed_paper_bots: created %d bots (R%.2f/bot) for user %s",
+                len(bots), capital_per_bot, user_id[:8],
+            )
+    except Exception as exc:
+        logger.warning("_seed_paper_bots: failed for user %s: %s", user_id[:8], exc)
+        summary["error"] = str(exc)
+
+    return summary
+
 
 @router.post("/paper-sandbox/reset")
 async def reset_paper_sandbox(
@@ -246,6 +322,11 @@ async def reset_paper_sandbox(
     except Exception as exc:
         logger.warning("paper-sandbox reset: ccxt paper balance clear failed: %s", exc)
 
+    # Auto-seed default bot fleet so the dashboard is immediately usable.
+    seed_result: dict = {}
+    if _AUTO_SEED_BOT_COUNT > 0:
+        seed_result = await _seed_paper_bots(user_id, _AUTO_SEED_BOT_COUNT)
+
     # Audit log
     try:
         await db.audit_logs_collection.insert_one({
@@ -270,6 +351,7 @@ async def reset_paper_sandbox(
         "deleted": result,
         "total_deleted": total_deleted,
         "invariant_warnings": result.get("warnings", []),
+        "bots_seeded": seed_result.get("bots_created", 0),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -3,8 +3,10 @@ Paper Wallet Service - Per-user simulated wallet balances.
 Manages available (unallocated) paper funds with per-currency balances.
 """
 
+import asyncio
 import logging
 import os
+import time as _time
 from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 from pymongo import ReturnDocument
@@ -21,6 +23,15 @@ _PAPER_ZAR_PER_USDT_DEFAULT: float = float(os.getenv("PAPER_ZAR_PER_USDT", "18.5
 _PAPER_FX_RATE_MIN: float = 5.0
 _PAPER_FX_RATE_MAX: float = 100.0
 
+# Negative-cache: after a failed live-rate fetch, skip retries for this many
+# seconds to avoid hammering exchange APIs on every request.
+_FX_NEGATIVE_CACHE_TTL: float = 30.0
+_fx_last_failed_at: float = 0.0
+
+# Hard cap on total time spent fetching the live FX rate.  Must be well under
+# nginx's proxy_read_timeout (30 s) so the HTTP request always completes.
+_FX_FETCH_TIMEOUT: float = float(os.getenv("PAPER_FX_FETCH_TIMEOUT_SECONDS", "5"))
+
 
 async def _get_paper_zar_per_usdt() -> float:
     """Return the ZAR-per-USDT rate to use for paper FX conversion.
@@ -28,22 +39,36 @@ async def _get_paper_zar_per_usdt() -> float:
     Resolution order (paper-only — never used for live trades):
     1. Try to derive a live rate via the price fallback service if it has
        been initialised and has cached Luno/Binance prices.
+       Capped at _FX_FETCH_TIMEOUT seconds to prevent nginx 502 storms
+       caused by slow exchange responses.
     2. Fall back to the PAPER_ZAR_PER_USDT environment variable
        (default 18.5) — a conservative mid-market approximation.
 
     Never raises — always returns a positive float.
     """
+    global _fx_last_failed_at
+
+    # Skip live fetch while in the negative-cache window (recent failure).
+    now_mono = _time.monotonic()
+    if now_mono - _fx_last_failed_at < _FX_NEGATIVE_CACHE_TTL:
+        return _PAPER_ZAR_PER_USDT_DEFAULT
+
     try:
         from services.price_fallback_service import price_fallback_service
-        btczar = await price_fallback_service.get_price("luno", "BTC/ZAR")
-        btcusdt = await price_fallback_service.get_price("binance", "BTC/USDT")
+        async with asyncio.timeout(_FX_FETCH_TIMEOUT):
+            btczar = await price_fallback_service.get_price("luno", "BTC/ZAR")
+            btcusdt = await price_fallback_service.get_price("binance", "BTC/USDT")
         if btczar and btcusdt and btcusdt > 0:
             rate = round(btczar / btcusdt, 4)
             if _PAPER_FX_RATE_MIN < rate < _PAPER_FX_RATE_MAX:
                 logger.debug("Paper FX: live USDZAR rate %.4f", rate)
                 return rate
+        # Prices fetched but not usable — set negative cache
+        _fx_last_failed_at = _time.monotonic()
     except Exception:
-        pass  # live rate unavailable; use static fallback
+        # Timeout or any other error — set negative cache to avoid repeated
+        # slow retries that would cause cascading nginx 502s.
+        _fx_last_failed_at = _time.monotonic()
 
     return _PAPER_ZAR_PER_USDT_DEFAULT
 
