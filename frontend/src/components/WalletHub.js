@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
+import { useRealtimeEvent } from '../hooks/useRealtime';
 import { get, post } from '../lib/apiClient';
 
 const EXCHANGE_NATIVE = {
@@ -38,8 +38,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   const [paperActionLoading, setPaperActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // eslint-disable-next-line no-unused-vars
-  const lastUpdate = useLastUpdate('wallet');
 
   const loadWalletData = useCallback(async () => {
     try {
@@ -154,7 +152,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem', marginBottom: '20px' }}>&#x1F4B0;</div>
+        <div style={{ fontSize: '2rem', marginBottom: '20px' }}>💰</div>
         <p>Loading wallet data...</p>
       </div>
     );
@@ -163,7 +161,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   if (error) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem', marginBottom: '20px', color: '#e74c3c' }}>&#x26A0;&#xFE0F;</div>
+        <div style={{ fontSize: '2rem', marginBottom: '20px', color: '#e74c3c' }}>⚠️</div>
         <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>Wallet Error</p>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px' }}>{error}</p>
         <button onClick={loadWalletData} style={{

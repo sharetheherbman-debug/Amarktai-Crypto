@@ -323,9 +323,14 @@ class PaperWalletService:
     }
 
     @classmethod
-    def _native_currency_for(cls, exchange: str) -> str:
+    def native_currency_for(cls, exchange: str) -> str:
         """Return the canonical paper-wallet currency for an exchange."""
         return cls._EXCHANGE_NATIVE_CURRENCY.get(exchange.lower(), "USDT")
+
+    @classmethod
+    def _native_currency_for(cls, exchange: str) -> str:
+        """Alias kept for internal backward-compatibility."""
+        return cls.native_currency_for(exchange)
 
     async def _ensure_exchange_wallet(self, user_id: str, exchange: str) -> Dict:
         """Return (or create) the per-exchange paper wallet document.
@@ -354,10 +359,10 @@ class PaperWalletService:
 
     async def get_exchange_wallet(self, user_id: str, exchange: str) -> Dict:
         """Return per-exchange paper wallet status."""
-        wallet = await self._ensure_exchange_wallet(user_id, exchange)
         exchange = exchange.lower()
+        wallet = await self._ensure_exchange_wallet(user_id, exchange)
         balances = wallet.get("balances") or {}
-        native = self._native_currency_for(exchange)
+        native = self.native_currency_for(exchange)
         available = float(balances.get(native, 0) or 0)
         return {
             "exchange": exchange,

@@ -332,7 +332,7 @@ def test_luno_market_price_not_placeholder():
 
     # The fallback block must handle XBT as a BTC variant
     assert "'XBT' in symbol" in source or '"XBT" in symbol' in source or \
-           "XBT" in source.split("fallback_price")[1][:500], (
+           "'XBT' in _sym_upper" in source or '"XBT" in _sym_upper' in source, (
         "paper_trading_engine.py fallback must handle XBT symbols (Luno's native BTC ticker)"
     )
 
@@ -368,13 +368,13 @@ def test_exchange_native_currency_assignments():
     """Luno paper wallet must use ZAR; Binance must use USDT."""
     from services.paper_wallet_service import PaperWalletService
 
-    assert PaperWalletService._native_currency_for("luno") == "ZAR", (
+    assert PaperWalletService.native_currency_for("luno") == "ZAR", (
         "Luno paper wallet must use ZAR as native currency"
     )
-    assert PaperWalletService._native_currency_for("binance") == "USDT", (
+    assert PaperWalletService.native_currency_for("binance") == "USDT", (
         "Binance paper wallet must use USDT as native currency"
     )
-    assert PaperWalletService._native_currency_for("kucoin") == "USDT", (
+    assert PaperWalletService.native_currency_for("kucoin") == "USDT", (
         "KuCoin paper wallet must use USDT as native currency"
     )
 

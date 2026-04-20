@@ -1428,8 +1428,8 @@ async def list_platform_wallets(user_id: str = Depends(get_current_user)):
             else:
                 wallets[exch] = {
                     "exchange": exch,
-                    "balances": {paper_wallet_service._native_currency_for(exch): 0.0},
-                    "native_currency": paper_wallet_service._native_currency_for(exch),
+                    "balances": {paper_wallet_service.native_currency_for(exch): 0.0},
+                    "native_currency": paper_wallet_service.native_currency_for(exch),
                     "available": 0.0,
                     "funded": False,
                     "updated_at": None,
