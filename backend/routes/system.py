@@ -205,7 +205,8 @@ async def get_system_gates() -> dict:
 _PAPER_RESET_CONFIRMATION_PHRASE = "RESET PAPER SANDBOX"
 
 # Number of paper bots auto-seeded after every sandbox reset.
-# Split evenly between normal and scalper types: half each per exchange.
+# Split between normal and scalper types per exchange (half/half; odd remainder
+# goes to scalper_per_exchange).
 # Set PAPER_RESET_AUTO_SEED_BOTS=0 to disable auto-seeding.
 _AUTO_SEED_BOT_COUNT = int(os.getenv("PAPER_RESET_AUTO_SEED_BOTS", "20"))
 

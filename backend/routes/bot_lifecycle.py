@@ -1998,7 +1998,6 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
 @router.post("/seed-fleet")
 async def seed_default_fleet(
     count: int = 20,

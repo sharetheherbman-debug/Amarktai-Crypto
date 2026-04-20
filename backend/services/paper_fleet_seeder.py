@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # the first tick; having a real pair at creation time makes radar/diagnostics
 # work immediately after a seed without waiting for the first scheduler tick.
 _DEFAULT_PAIR: Dict[str, str] = {
-    "luno": "XBT/ZAR",
+    "luno": "BTC/ZAR",
     "binance": "BTC/USDT",
     "kucoin": "BTC/USDT",
     "bybit": "BTC/USDT",
