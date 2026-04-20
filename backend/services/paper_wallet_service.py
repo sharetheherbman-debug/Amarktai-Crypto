@@ -510,9 +510,17 @@ class PaperWalletService:
         if result:
             return True, f"Reserved {amount:.2f} {currency} from {exchange} wallet"
 
-        # Fall through to the global paper wallet for backward compatibility.
-        ok, msg = await self.reserve_funds(user_id, amount, currency)
-        return ok, msg
+        # Exchange wallet has insufficient funds — do NOT fall back to the global
+        # paper wallet.  Each exchange is funded independently; cross-exchange
+        # capital sharing is prohibited by the platform-wallet architecture.
+        available = float(
+            (await self.get_exchange_wallet(user_id, exchange)).get("available", 0) or 0
+        )
+        return False, (
+            f"Insufficient {exchange} paper wallet balance. "
+            f"Available: {available:.2f} {native}. "
+            "Fund this exchange wallet via /api/wallet/platform/{exchange}/fund."
+        )
 
 
 paper_wallet_service = PaperWalletService()

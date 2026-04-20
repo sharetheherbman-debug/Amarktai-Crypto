@@ -569,7 +569,13 @@ class TestFrontendStructure:
         )
 
     def test_wallet_hub_sends_currency_with_deposit(self):
-        """WalletHub.js must include currency in paper wallet deposit payload."""
+        """WalletHub.js must include currency in platform wallet fund payload.
+
+        Architecture change (go-live correction): the global paper wallet deposit
+        section has been removed from WalletHub.  Deposits now exclusively target
+        per-platform exchange wallets via /wallet/platform/{exchange}/fund.
+        Currency is still included in the platform fund request payload.
+        """
         path = os.path.join(
             os.path.dirname(__file__), "..", "frontend", "src",
             "components", "WalletHub.js"
@@ -577,10 +583,13 @@ class TestFrontendStructure:
         with open(path) as f:
             src = f.read()
         assert "currency" in src, (
-            "WalletHub.js must send currency field with paper/deposit payload"
+            "WalletHub.js must include a currency field in platform wallet fund payload"
         )
-        assert "paper/deposit" in src or "wallet/paper/deposit" in src, (
-            "WalletHub.js must call the paper/deposit endpoint"
+        # Platform deposits go to /wallet/platform/{exchange}/fund
+        assert "platform/" in src or "wallet/platform" in src, (
+            "WalletHub.js must call the per-platform wallet fund endpoint "
+            "(/wallet/platform/{exchange}/fund). The global paper/deposit "
+            "endpoint is no longer used from WalletHub (platform-wallet architecture)."
         )
 
     def test_botcreate_model_has_capital_alias_field(self):
