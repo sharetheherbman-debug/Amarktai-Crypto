@@ -122,30 +122,16 @@ async def seed_paper_fleet(
         result["errors"].append("Both normal_per_exchange and scalper_per_exchange are 0 — nothing to seed.")
         return result
 
-    # ── Wallet funding ────────────────────────────────────────────────────
-    # Auto-fund the ZAR wallet if it is empty so we have a capital base.
-    try:
-        available_zar = await paper_wallet_service.get_available_balance(user_id, "ZAR")
-        if available_zar <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
-            await paper_wallet_service.fund(user_id, float(PAPER_STARTING_CAPITAL_ZAR), "ZAR")
-            available_zar = float(PAPER_STARTING_CAPITAL_ZAR)
-            logger.info(
-                "seed_paper_fleet: auto-funded wallet with R%.2f ZAR for user %s",
-                PAPER_STARTING_CAPITAL_ZAR, user_id[:8],
-            )
-    except Exception as exc:
-        logger.warning(
-            "seed_paper_fleet: wallet fund/check failed for user %s: %s", user_id[:8], exc
-        )
-        available_zar = float(PAPER_STARTING_CAPITAL_ZAR or 30000.0)
-        result["errors"].append(f"Wallet check warning: {exc}")
-
     # ── Capital per bot ───────────────────────────────────────────────────
+    # Capital is derived from PAPER_STARTING_CAPITAL_ZAR distributed evenly
+    # across all bots.  Each exchange wallet is auto-funded independently
+    # inside the exchange loop below using the exchange's native currency.
     min_cap = float(BOT_MANUAL_MIN_CAPITAL_ZAR or 1000.0)
     if capital_zar_per_bot <= 0:
-        # Distribute evenly; floor at minimum
         capital_zar_per_bot = max(
-            available_zar / total_bots_requested if total_bots_requested > 0 else min_cap,
+            float(PAPER_STARTING_CAPITAL_ZAR or 30000.0) / total_bots_requested
+            if total_bots_requested > 0
+            else min_cap,
             min_cap,
         )
     else:
@@ -166,6 +152,30 @@ async def seed_paper_fleet(
             continue
 
         result["by_exchange"].setdefault(exchange_lower, {"normal": 0, "scalper": 0})
+
+        # ── Ensure this exchange's paper wallet is funded ─────────────────
+        # Each exchange wallet is funded independently from PAPER_STARTING_CAPITAL_ZAR.
+        # This is the canonical per-platform wallet architecture: no global wallet
+        # fallback is used for bot execution.
+        try:
+            exch_wallet = await paper_wallet_service.get_exchange_wallet(user_id, exchange_lower)
+            if not exch_wallet.get("funded") and PAPER_STARTING_CAPITAL_ZAR > 0:
+                seed_capital, seed_currency, _ = resolve_capital_for_exchange(
+                    float(PAPER_STARTING_CAPITAL_ZAR), exchange_lower
+                )
+                await paper_wallet_service.fund_exchange_wallet(
+                    user_id, exchange_lower, seed_capital, seed_currency
+                )
+                logger.info(
+                    "seed_paper_fleet: auto-funded %s wallet with %.6f %s for user %s",
+                    exchange_lower, seed_capital, seed_currency, user_id[:8],
+                )
+        except Exception as exc:
+            logger.warning(
+                "seed_paper_fleet: exchange wallet fund/check failed for %s user=%s: %s",
+                exchange_lower, user_id[:8], exc,
+            )
+            result["errors"].append(f"Exchange wallet fund warning ({exchange_lower}): {exc}")
 
         # Resolve capital for this exchange (ZAR for Luno, USDT for others)
         try:

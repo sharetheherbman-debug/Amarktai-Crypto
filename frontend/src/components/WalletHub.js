@@ -33,9 +33,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   const [fundInputs, setFundInputs] = useState({});
   const [fundCurrencies, setFundCurrencies] = useState({});
   const [actionLoading, setActionLoading] = useState({});
-  const [globalDepositAmount, setGlobalDepositAmount] = useState('');
-  const [globalDepositCurrency, setGlobalDepositCurrency] = useState('ZAR');
-  const [paperActionLoading, setPaperActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -105,35 +102,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
     }
   };
 
-  const handleGlobalDeposit = async () => {
-    const amount = parseFloat(globalDepositAmount);
-    if (!amount || amount <= 0) { alert('Enter a valid amount'); return; }
-    if (!window.confirm('Add ' + amount + ' ' + globalDepositCurrency + ' to your global paper wallet?')) return;
-    try {
-      setPaperActionLoading(true);
-      await post('/wallet/paper/deposit', { amount, currency: globalDepositCurrency });
-      setGlobalDepositAmount('');
-      await loadWalletData();
-    } catch (err) {
-      alert('Failed to add funds: ' + (err.message || 'Unknown error'));
-    } finally {
-      setPaperActionLoading(false);
-    }
-  };
-
-  const handleGlobalReset = async () => {
-    if (!window.confirm('Reset global paper wallet to 0? This cannot be undone.')) return;
-    try {
-      setPaperActionLoading(true);
-      await post('/wallet/paper/reset', { confirm: true });
-      await loadWalletData();
-    } catch (err) {
-      alert('Failed to reset: ' + (err.message || 'Unknown error'));
-    } finally {
-      setPaperActionLoading(false);
-    }
-  };
-
   const cancelFundingPlan = async (planId) => {
     try {
       await post('/wallet/funding-plans/' + planId + '/cancel', {});
@@ -174,9 +142,10 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
 
   const unlockedExchanges = (walletStatus && walletStatus.unlocked_exchanges) || [];
   const mode = (walletStatus && walletStatus.mode) || 'paper';
-  const totalPortfolioZar = (platformSummary && (platformSummary.total_portfolio_zar != null
-    ? platformSummary.total_portfolio_zar
-    : platformSummary.global_wallet_zar)) || 0;
+  // Platform wallets are the canonical funding truth. Use platform_wallets_zar (per-exchange sum only).
+  // combined_zar (platform + legacy global) is intentionally NOT used here to avoid
+  // showing double-counted equity when the global wallet still has a residual balance.
+  const totalPortfolioZar = platformSummary?.platform_wallets_zar ?? platformSummary?.total_portfolio_zar ?? 0;
   const availableGlobalZar = (paperWallet && (paperWallet.available_wallet_zar != null
     ? paperWallet.available_wallet_zar
     : ((paperWallet.available && paperWallet.available.ZAR) || 0))) || 0;
@@ -222,10 +191,6 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
           <div>
             <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Total Equity (ZAR)</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--text)' }}>{fmtZAR(totalPortfolioZar)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Global Paper Wallet</div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 600, color: 'var(--text)' }}>{fmtZAR(availableGlobalZar)}</div>
           </div>
           <div>
             <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
@@ -374,77 +339,30 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         </div>
       )}
 
-      {/* Global Paper Wallet */}
-      {mode === 'paper' && (
+      {/* Combined Portfolio Value (read-only summary — funding is per-platform only) */}
+      {mode === 'paper' && availableGlobalZar > 0 && (
         <div style={{
-          background: 'var(--glass)', borderRadius: '12px', padding: '24px',
-          marginBottom: '30px', border: '1px solid var(--line)',
+          background: 'var(--glass)', borderRadius: '12px', padding: '20px',
+          marginBottom: '30px', border: '1px solid rgba(100,116,139,0.3)',
+          opacity: 0.85,
         }}>
-          <h2 style={{ marginBottom: '8px', fontSize: '1.2rem', color: 'var(--text)' }}>
-            Global Paper Wallet
+          <h2 style={{ marginBottom: '4px', fontSize: '1.1rem', color: 'var(--muted)' }}>
+            Combined Portfolio Value
           </h2>
-          <p style={{ marginBottom: '16px', color: 'var(--muted)', fontSize: '0.88rem' }}>
-            Shared simulation pool. Platform wallets above take priority when funded.
+          <p style={{ marginBottom: '12px', color: 'var(--muted)', fontSize: '0.82rem' }}>
+            Read-only display. Fund individual platform wallets above to allocate capital to bots.
           </p>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Available (ZAR)</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--text)' }}>{fmtZAR(availableGlobalZar)}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '4px' }}>Available (ZAR)</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: 'bold', color: 'var(--muted)' }}>{fmtZAR(availableGlobalZar)}</div>
             </div>
             {paperWallet && paperWallet.allocated_funds_zar != null && (
               <div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Allocated</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text)' }}>{fmtZAR(paperWallet.allocated_funds_zar)}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '4px' }}>Allocated</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--muted)' }}>{fmtZAR(paperWallet.allocated_funds_zar)}</div>
               </div>
             )}
-          </div>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Amount"
-              aria-label="Global paper wallet deposit amount"
-              id="global-deposit-amount"
-              name="global_deposit_amount"
-              value={globalDepositAmount}
-              onChange={(e) => setGlobalDepositAmount(e.target.value)}
-              style={{ padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }}
-            />
-            <select
-              aria-label="Global paper wallet deposit currency"
-              id="global-deposit-currency"
-              name="global_deposit_currency"
-              value={globalDepositCurrency}
-              onChange={(e) => setGlobalDepositCurrency(e.target.value)}
-              style={{ padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }}
-            >
-              <option value="ZAR">ZAR</option>
-              <option value="USDT">USDT</option>
-            </select>
-            <button
-              onClick={handleGlobalDeposit}
-              disabled={paperActionLoading}
-              style={{
-                padding: '8px 14px',
-                background: 'linear-gradient(135deg,rgba(34,197,94,0.9),rgba(34,197,94,0.65))',
-                color: '#0b0d14', border: 'none', borderRadius: '999px',
-                fontWeight: 600, cursor: paperActionLoading ? 'wait' : 'pointer',
-              }}
-            >
-              + Add Funds
-            </button>
-            <button
-              onClick={handleGlobalReset}
-              disabled={paperActionLoading}
-              style={{
-                padding: '8px 14px', background: 'rgba(239,68,68,0.2)', color: 'var(--text)',
-                border: '1px solid rgba(239,68,68,0.45)', borderRadius: '999px',
-                fontWeight: 600, cursor: paperActionLoading ? 'wait' : 'pointer',
-              }}
-            >
-              Reset
-            </button>
           </div>
         </div>
       )}

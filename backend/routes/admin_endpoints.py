@@ -3351,3 +3351,90 @@ async def get_chat_audit(
     except Exception as e:
         logger.error(f"Chat audit error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Admin Key Monitor ──────────────────────────────────────────────────────────
+# Provides API key health summary for the admin dashboard.
+# Frontend calls /api/admin/key-monitor (summary) and
+# /api/admin/key-monitor/per-user (per-user breakdown).
+
+
+@router.get("/key-monitor")
+async def get_admin_key_monitor(admin_user_id: str = Depends(require_admin)):
+    """Admin key monitor — summary of all users' API key health.
+
+    Returns a list of provider/exchange entries showing how many users have
+    keys configured and how many have passed the last test.
+
+    Each provider entry includes:
+    - fallback_priority: key resolution order (user_key → system_key → none)
+    - estimated_call_usage: approximate number of API calls attributed to this key
+    """
+    try:
+        providers_counter: dict = {}
+        tested_ok_counter: dict = {}
+        async for doc in db.api_keys_collection.find(
+            {}, {"_id": 0, "provider": 1, "last_test_ok": 1}
+        ):
+            provider = (doc.get("provider") or doc.get("exchange") or "unknown").lower()
+            providers_counter[provider] = providers_counter.get(provider, 0) + 1
+            if doc.get("last_test_ok"):
+                tested_ok_counter[provider] = tested_ok_counter.get(provider, 0) + 1
+
+        providers = [
+            {
+                "provider": p,
+                "total_keys": providers_counter[p],
+                "tested_ok": tested_ok_counter.get(p, 0),
+                "health": "ok" if tested_ok_counter.get(p, 0) > 0 else "untested",
+                # Key resolution order: user key takes priority over system fallback
+                "fallback_priority": ["user_key", "system_key", "none"],
+                # Estimated API calls — placeholder (not tracked per-provider yet)
+                "estimated_call_usage": 0,
+            }
+            for p in sorted(providers_counter.keys())
+        ]
+        return {
+            "providers": providers,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("Admin key monitor error: %s", exc)
+        return {"providers": [], "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/key-monitor/per-user")
+async def get_admin_key_monitor_per_user(admin_user_id: str = Depends(require_admin)):
+    """Admin per-user key monitor — per-user breakdown of API key health."""
+    try:
+        users_map: dict = {}
+        async for doc in db.api_keys_collection.find(
+            {},
+            {
+                "_id": 0,
+                "user_id": 1,
+                "provider": 1,
+                "exchange": 1,
+                "last_test_ok": 1,
+                "last_tested_at": 1,
+            },
+        ):
+            uid = doc.get("user_id", "unknown")
+            provider = (doc.get("provider") or doc.get("exchange") or "unknown").lower()
+            if uid not in users_map:
+                users_map[uid] = {"user_id": uid, "keys": []}
+            users_map[uid]["keys"].append(
+                {
+                    "provider": provider,
+                    "last_test_ok": bool(doc.get("last_test_ok")),
+                    "last_tested_at": doc.get("last_tested_at"),
+                }
+            )
+        return {
+            "users": list(users_map.values()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.error("Admin key monitor per-user error: %s", exc)
+        return {"users": [], "timestamp": datetime.now(timezone.utc).isoformat()}
+

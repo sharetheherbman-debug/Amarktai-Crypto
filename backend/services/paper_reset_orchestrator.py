@@ -421,8 +421,28 @@ async def run(
             )
             summary["risk_locks_reset"] = r.modified_count
         except Exception as exc:
-            logger.warning("paper_reset_orchestrator: risk lock reset: %s", exc)
+            logger.warning("paper_reset_orchestrator: risk lock reset (users): %s", exc)
             summary["warnings"].append(f"risk_lock_reset: {exc}")
+
+        # Also clear emergencyStop in system_modes_collection so the trading
+        # scheduler does not immediately re-pause freshly created paper bots.
+        # The scheduler reads system_modes_collection.emergencyStop (camelCase);
+        # users_collection.emergency_stop is a separate field used by other services.
+        try:
+            await db.system_modes_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "emergencyStop": False,
+                        "emergency_stop_cleared_at": now_iso,
+                    }
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "paper_reset_orchestrator: emergencyStop clear in system_modes failed: %s", exc
+            )
+            summary["warnings"].append(f"system_modes_emergency_stop_clear: {exc}")
 
     # ------------------------------------------------------------------
     # Step 6: Reset paper wallet to zero.
