@@ -253,6 +253,10 @@ async def test_seed_fleet_luno_uses_zar_capital():
         assert bot.get("initial_capital") == pytest.approx(
             bot.get("canonical_base_capital_zar"), rel=1e-4
         ), "Luno initial_capital must equal canonical_base_capital_zar"
+        # Default pair for Luno is BTC/ZAR (CCXT-normalised from XBT/ZAR)
+        assert bot.get("pair") == "BTC/ZAR", (
+            f"Luno default pair must be BTC/ZAR (CCXT-normalised), got {bot.get('pair')}"
+        )
 
 
 # ---------------------------------------------------------------------------
