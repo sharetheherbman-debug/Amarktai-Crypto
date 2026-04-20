@@ -1947,32 +1947,21 @@ async def get_all_bots_diagnostics(user_id: str = Depends(get_current_user)):
 
 
 # ============================================================================
-# Seed 5 Luno Paper Bots (Gbot1..Gbot5)
-# ============================================================================
-
-_GBOT_DEFINITIONS = [
-    {"name": "Gbot1", "risk_mode": "safe"},
-    {"name": "Gbot2", "risk_mode": "safe"},
-    {"name": "Gbot3", "risk_mode": "balanced"},
-    {"name": "Gbot4", "risk_mode": "balanced"},
-    {"name": "Gbot5", "risk_mode": "aggressive"},
-]
-
-
 @router.post("/seed-luno-paper")
 async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
     """
-    Seed 5 standard Luno paper-trading bots (Gbot1..Gbot5).
+    Seed up to 5 Luno normal paper-trading bots.
+
+    Legacy compatibility endpoint — delegates to the canonical
+    ``seed_paper_fleet`` service so capital, bot-cap, and field rules are
+    applied consistently.  Only Luno is seeded here regardless of the user's
+    configured run-selection (this endpoint is Luno-specific by design).
 
     - Paper mode only; returns 400 if live trading is active.
-    - Idempotent: skips bots that already exist (same name + exchange + trading_mode).
-    - Enforces MAX 5 bots: returns 409 if user already has >5 non-deleted luno paper bots.
-    - Does NOT pre-allocate wallet capital; funds are deducted only when a trade opens.
-    - Returns a JSON summary with bot IDs and created/existing status.
+    - Idempotent: existing Luno normal paper bots are counted against the cap.
+    - Returns a JSON summary with bots_created/skipped counts.
     """
-    from uuid import uuid4
-    from services.paper_wallet_service import paper_wallet_service
-    from config import PAPER_STARTING_CAPITAL_ZAR
+    from services.paper_fleet_seeder import seed_paper_fleet
 
     try:
         # Guard: paper mode only
@@ -1984,139 +1973,21 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
                 detail="Seeding paper bots is only allowed when live trading is OFF."
             )
 
-        _luno_paper_filter = {
-            "user_id": user_id,
-            "exchange": "luno",
-            "trading_mode": "paper",
-            "deleted_at": {"$exists": False},
-        }
+        result = await seed_paper_fleet(
+            user_id=user_id,
+            exchanges=["luno"],
+            normal_per_exchange=5,
+            scalper_per_exchange=0,
+            capital_zar_per_bot=0.0,
+            source="seed_luno_paper",
+        )
 
-        # Guard: enforce MAX 5 bots
-        total_existing_count = await db.bots_collection.count_documents(_luno_paper_filter)
-        if total_existing_count > 5:
-            existing_bots = await db.bots_collection.find(
-                _luno_paper_filter,
-                {"_id": 0, "id": 1, "name": 1, "status": 1},
-            ).to_list(None)
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "bot_limit_exceeded",
-                    "message": (
-                        f"User already has {total_existing_count} Luno paper bots "
-                        f"(max 5). No new bots created."
-                    ),
-                    "count": total_existing_count,
-                    "bots": existing_bots,
-                },
-            )
-
-        # Determine per-bot capital (canonical: R1000 ZAR per Luno bot; capped to 1/5 of
-        # available funds so newly seeded bots get a realistic but non-zero stake).
-        # Capital is recorded on the bot doc only — the wallet is NOT debited until a
-        # trade actually opens (on-demand allocation model).
-        wallet = await paper_wallet_service.get_balances(user_id)
-        available_zar = float(wallet.get("balances", {}).get("ZAR", 0))
-        starting = float(PAPER_STARTING_CAPITAL_ZAR)
-
-        # If the paper wallet is unfunded (balance is 0), auto-initialise it with
-        # PAPER_STARTING_CAPITAL_ZAR.  This mirrors what the dashboard does when the
-        # user clicks "Add Funds" for the first time, ensuring the seed endpoint works
-        # out-of-the-box in the same way the UI does.
-        if available_zar == 0 and starting > 0:
-            try:
-                await paper_wallet_service.fund(user_id, starting, "ZAR")
-                available_zar = starting
-            except Exception as _fund_err:
-                logger.warning(f"Auto-fund paper wallet failed for user {user_id}: {_fund_err}")
-
-        # Each bot gets 1/5 of starting capital (min R1000 ZAR, max starting/5).
-        # This is a notional book-capital for sizing trades, NOT a wallet deduction.
-        per_bot_capital = max(1000.0, min(available_zar / 5.0, starting / 5.0))
-
-        results = []
         now_iso = datetime.now(timezone.utc).isoformat()
-
-        for bot_def in _GBOT_DEFINITIONS:
-            name = bot_def["name"]
-            risk_mode = bot_def["risk_mode"]
-
-            # Check if already exists (non-deleted)
-            existing_doc = await db.bots_collection.find_one(
-                {
-                    "user_id": user_id,
-                    "name": name,
-                    "exchange": "luno",
-                    "trading_mode": "paper",
-                    "deleted_at": {"$exists": False},
-                },
-                {"_id": 0, "id": 1, "name": 1, "status": 1},
-            )
-            if existing_doc:
-                results.append(
-                    {"name": name, "bot_id": existing_doc["id"], "status": "existing"}
-                )
-                continue
-
-            bot_id = str(uuid4())
-
-            # On-demand allocation: do NOT call paper_wallet_ledger.reserve_funds() here.
-            # Capital is deducted from the wallet only when a trade actually opens
-            # (paper_trading_engine.py: paper_wallet_service.reserve_funds on entry).
-
-            bot_doc = {
-                "id": bot_id,
-                "user_id": user_id,
-                "name": name,
-                "status": "active",
-                "exchange": "luno",
-                "pair": "BTC/ZAR",
-                "risk_mode": risk_mode,
-                "initial_capital": per_bot_capital,
-                "starting_capital": per_bot_capital,
-                "current_capital": per_bot_capital,
-                "peak_capital": per_bot_capital,
-                "allocated_capital": per_bot_capital,
-                "mode": "paper",
-                "trading_mode": "paper",
-                "trades_count": 0,
-                "daily_trade_count": 0,
-                "last_trade_time": None,
-                "win_count": 0,
-                "loss_count": 0,
-                "total_profit": 0,
-                "created_at": now_iso,
-                "paper_start_date": now_iso,
-                "paper_end_eligible_at": (
-                    datetime.now(timezone.utc) + timedelta(days=7)
-                ).isoformat(),
-                "learning_complete": False,
-                # Paper bots are never gated by training — they trade freely immediately.
-                "training_complete": True,
-                "training_in_progress": False,
-                "seeded": True,
-                "deleted_at": None,  # Explicit null so partial index uidx_bot_identity covers this bot
-            }
-
-            await db.bots_collection.insert_one(bot_doc)
-            logger.info(
-                f"Seeded Luno paper bot: {name} id={bot_id} capital={per_bot_capital} "
-                f"risk={risk_mode} user={user_id[:8]}"
-            )
-            results.append(
-                {"name": name, "bot_id": bot_id, "status": "created", "capital": per_bot_capital}
-            )
-
-        created = [r for r in results if r["status"] == "created"]
-        existing = [r for r in results if r["status"] == "existing"]
-        skipped = [r for r in results if r["status"] == "skipped"]
-
         return {
             "success": True,
-            "created": len(created),
-            "existing": len(existing),
-            "skipped": len(skipped),
-            "bots": results,
+            "created": result["bots_created"],
+            "skipped": result["bots_skipped"],
+            "by_exchange": result["by_exchange"],
             "timestamp": now_iso,
         }
 
@@ -2127,6 +1998,7 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
 @router.post("/seed-fleet")
 async def seed_default_fleet(
     count: int = 20,
@@ -2135,90 +2007,67 @@ async def seed_default_fleet(
 ):
     """Seed a default paper-trading fleet of *count* bots (default 20).
 
-    Idempotent when bots already exist: skips creation and returns the current
-    count so the caller can verify the fleet is ready without over-seeding.
+    Delegates to the canonical ``seed_paper_fleet`` service so exchange
+    selection, capital conversion, and bot-cap checks are always applied
+    correctly.  The fleet is distributed across all exchanges configured
+    for paper trading for this user (normal + scalper split per exchange).
 
-    This endpoint is the canonical way to bootstrap bots after a paper reset.
-    It:
-      - Auto-funds the paper wallet from PAPER_STARTING_CAPITAL_ZAR if empty.
-      - Uses capital_per_bot if specified; otherwise distributes the wallet
-        balance evenly across *count* bots (min R1000/bot).
-      - Returns {bots_created, bots_existing, total_bots, capital_per_bot}.
+    Idempotent: if bots already exist for any exchange/type cohort, those
+    cohorts are skipped (cap check prevents duplication).
+
+    Returns {bots_created, bots_skipped, by_exchange, total_bots}.
     """
-    from uuid import uuid4
-    from config import PAPER_STARTING_CAPITAL_ZAR, BOT_MANUAL_MIN_CAPITAL_ZAR
-    from services.paper_wallet_service import paper_wallet_service
+    from services.paper_fleet_seeder import seed_paper_fleet
+    from services.canonical import get_user_paper_exchanges
     from services.bot_filters import bot_not_deleted_filter
 
     count = max(1, min(count, 50))  # Clamp to reasonable range
 
     try:
-        # Count existing non-deleted bots
-        existing_count = await db.bots_collection.count_documents(
+        # Resolve user's paper exchanges
+        try:
+            exchanges = await get_user_paper_exchanges(user_id)
+        except Exception as exc:
+            logger.warning(
+                "seed-fleet: could not resolve paper exchanges for user %s: %s — falling back to luno",
+                user_id[:8], exc,
+            )
+            exchanges = ["luno"]
+
+        # Distribute count across exchanges; each exchange gets bots_per_exchange bots
+        # split evenly between normal and scalper.
+        num_exchanges = max(1, len(exchanges))
+        bots_per_exchange = max(1, count // num_exchanges)
+        half = bots_per_exchange // 2
+        normal_per_exchange = half
+        scalper_per_exchange = bots_per_exchange - half
+
+        result = await seed_paper_fleet(
+            user_id=user_id,
+            exchanges=exchanges,
+            normal_per_exchange=normal_per_exchange,
+            scalper_per_exchange=scalper_per_exchange,
+            capital_zar_per_bot=float(capital_per_bot),
+            source="seed_fleet",
+        )
+
+        # Count total existing bots so the caller can verify the fleet
+        total_bots = await db.bots_collection.count_documents(
             bot_not_deleted_filter({"user_id": user_id})
         )
-        if existing_count > 0:
-            return {
-                "bots_created": 0,
-                "bots_existing": existing_count,
-                "total_bots": existing_count,
-                "capital_per_bot": capital_per_bot,
-                "message": f"Fleet already has {existing_count} bots — no new bots created.",
-            }
-
-        # Auto-fund wallet if empty
-        available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
-        if available <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
-            await paper_wallet_service.fund(user_id, float(PAPER_STARTING_CAPITAL_ZAR), "ZAR")
-            available = float(PAPER_STARTING_CAPITAL_ZAR)
-
-        # Determine capital per bot
-        min_cap = float(BOT_MANUAL_MIN_CAPITAL_ZAR)
-        if capital_per_bot <= 0:
-            capital_per_bot = max(available / count, min_cap) if available > 0 else min_cap
-        capital_per_bot = max(capital_per_bot, min_cap)
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-        bots = [
-            {
-                "id": str(uuid4()),
-                "user_id": user_id,
-                "name": f"PaperBot-{i + 1}",
-                "status": "active",
-                "trading_mode": "paper",
-                "exchange": "luno",
-                "pair": "XBT/ZAR",
-                "bot_type": "normal",
-                "strategy_preset": "adaptive",
-                "risk_mode": "safe",
-                "initial_capital": round(capital_per_bot, 2),
-                "current_capital": round(capital_per_bot, 2),
-                "canonical_base_capital_zar": round(capital_per_bot, 2),
-                "funding_input_amount": round(capital_per_bot, 2),
-                "funding_input_currency": "ZAR",
-                "quote_currency": "ZAR",
-                "fx_rate_at_creation": 1.0,
-                "total_profit": 0.0,
-                "trades_count": 0,
-                "origin": "seed_fleet",
-                "paper_end_date": None,
-                "created_at": now_iso,
-                "last_trade": None,
-            }
-            for i in range(count)
-        ]
-        await db.bots_collection.insert_many(bots)
 
         logger.info(
-            "seed-fleet: created %d paper bots (R%.2f/bot) for user %s",
-            len(bots), capital_per_bot, user_id[:8],
+            "seed-fleet: created %d bots for user %s (exchanges=%s)",
+            result["bots_created"], user_id[:8], exchanges,
         )
         return {
-            "bots_created": len(bots),
-            "bots_existing": 0,
-            "total_bots": len(bots),
-            "capital_per_bot": round(capital_per_bot, 2),
-            "message": f"Created {len(bots)} paper bots successfully.",
+            "bots_created": result["bots_created"],
+            "bots_skipped": result["bots_skipped"],
+            "by_exchange": result["by_exchange"],
+            "total_bots": total_bots,
+            "message": (
+                f"Created {result['bots_created']} paper bots across {num_exchanges} exchange(s)."
+            ),
         }
 
     except HTTPException:
