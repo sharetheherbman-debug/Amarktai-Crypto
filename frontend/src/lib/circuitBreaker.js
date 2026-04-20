@@ -46,13 +46,16 @@ class CircuitBreaker {
    * Record a failed request
    */
   recordFailure(error) {
-    // Only count 502/503/504 errors and network errors
+    // Only count genuine server-side errors (502/503/504) and network-down (ERR_NETWORK)
+    // as circuit breaker failures.  ECONNABORTED is the axios code for a *client-side*
+    // request timeout — it means the backend was slow, not dead.  Including it caused
+    // the circuit to trip on a slow-but-alive backend whenever the dashboard fired
+    // 13+ concurrent requests at mount (≥5 concurrent timeouts → OPEN immediately).
     const isServerError = 
       error?.response?.status === 502 ||
       error?.response?.status === 503 ||
       error?.response?.status === 504 ||
-      error?.code === 'ERR_NETWORK' ||
-      error?.code === 'ECONNABORTED';
+      error?.code === 'ERR_NETWORK';
 
     if (!isServerError) {
       return; // Don't count other errors (4xx, etc.)
