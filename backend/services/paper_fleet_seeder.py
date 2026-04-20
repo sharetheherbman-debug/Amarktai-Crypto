@@ -160,15 +160,15 @@ async def seed_paper_fleet(
         try:
             exch_wallet = await paper_wallet_service.get_exchange_wallet(user_id, exchange_lower)
             if not exch_wallet.get("funded") and PAPER_STARTING_CAPITAL_ZAR > 0:
-                seed_cap, seed_cur, _ = resolve_capital_for_exchange(
+                seed_capital, seed_currency, _ = resolve_capital_for_exchange(
                     float(PAPER_STARTING_CAPITAL_ZAR), exchange_lower
                 )
                 await paper_wallet_service.fund_exchange_wallet(
-                    user_id, exchange_lower, seed_cap, seed_cur
+                    user_id, exchange_lower, seed_capital, seed_currency
                 )
                 logger.info(
                     "seed_paper_fleet: auto-funded %s wallet with %.6f %s for user %s",
-                    exchange_lower, seed_cap, seed_cur, user_id[:8],
+                    exchange_lower, seed_capital, seed_currency, user_id[:8],
                 )
         except Exception as exc:
             logger.warning(

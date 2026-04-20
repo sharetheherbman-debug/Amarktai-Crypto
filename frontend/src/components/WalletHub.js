@@ -145,9 +145,7 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
   // Platform wallets are the canonical funding truth. Use platform_wallets_zar (per-exchange sum only).
   // combined_zar (platform + legacy global) is intentionally NOT used here to avoid
   // showing double-counted equity when the global wallet still has a residual balance.
-  const totalPortfolioZar = (platformSummary && platformSummary.platform_wallets_zar != null
-    ? platformSummary.platform_wallets_zar
-    : (platformSummary && platformSummary.total_portfolio_zar)) || 0;
+  const totalPortfolioZar = platformSummary?.platform_wallets_zar ?? platformSummary?.total_portfolio_zar ?? 0;
   const availableGlobalZar = (paperWallet && (paperWallet.available_wallet_zar != null
     ? paperWallet.available_wallet_zar
     : ((paperWallet.available && paperWallet.available.ZAR) || 0))) || 0;

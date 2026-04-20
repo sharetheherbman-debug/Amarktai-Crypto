@@ -1,14 +1,17 @@
 """
 Final Go-Live Architecture Tests
 ==================================
-Mandatory tests verifying the corrected platform-wallet architecture:
+Mandatory tests verifying the corrected platform-wallet architecture.
+Test numbers correspond to the required test list in the problem statement:
 
-3. test_no_cross_exchange_wallet_fallback
-5. test_fresh_paper_bots_do_not_inherit_emergency_stop
-7. test_wallet_overview_countdown_performance_share_same_valuation
-8. test_admin_key_monitor_frontend_no_dead_route_calls
+  3. test_no_cross_exchange_wallet_fallback
+  5. test_fresh_paper_bots_do_not_inherit_emergency_stop
+  7. test_wallet_overview_countdown_performance_share_same_valuation
+  8. test_admin_key_monitor_frontend_no_dead_route_calls
+  +  test_fleet_seeder_does_not_fund_global_wallet_for_bots (bonus)
 
-These complement the existing tests in test_platform_wallet_architecture.py.
+These complement the existing tests in test_platform_wallet_architecture.py
+which cover items 1, 2, 4, and 6 from the same required list.
 """
 
 from __future__ import annotations
