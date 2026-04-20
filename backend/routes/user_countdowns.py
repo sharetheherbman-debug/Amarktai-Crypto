@@ -108,9 +108,8 @@ async def _get_canonical_portfolio_zar(user_id: str, user_doc=None) -> float:
     This is the ONE source of truth for countdown / progress / equity displays.
     """
     try:
-        from services.canonical import get_canonical_paper_wallet_equity
-        equity = await get_canonical_paper_wallet_equity(user_id)
-        total = float(equity.get("total_equity", 0) or 0)
+        from services.canonical import get_total_paper_equity_zar
+        total = await get_total_paper_equity_zar(user_id)
         if total > 0:
             return total
     except Exception as e:

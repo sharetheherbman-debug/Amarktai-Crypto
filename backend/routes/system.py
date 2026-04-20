@@ -205,78 +205,55 @@ async def get_system_gates() -> dict:
 _PAPER_RESET_CONFIRMATION_PHRASE = "RESET PAPER SANDBOX"
 
 # Number of paper bots auto-seeded after every sandbox reset.
+# Split between normal and scalper types per exchange (half/half; odd remainder
+# goes to scalper_per_exchange).
 # Set PAPER_RESET_AUTO_SEED_BOTS=0 to disable auto-seeding.
 _AUTO_SEED_BOT_COUNT = int(os.getenv("PAPER_RESET_AUTO_SEED_BOTS", "20"))
 
 
-async def _seed_paper_bots(user_id: str, count: int) -> dict:
-    """Create *count* paper bots for *user_id* if none exist after a reset.
+async def _seed_paper_bots_canonical(user_id: str, count: int) -> dict:
+    """Seed *count* paper bots for *user_id* using the canonical fleet seeder.
 
-    Returns a summary dict: {bots_created, bots_skipped, error}.
+    Delegates entirely to ``services.paper_fleet_seeder.seed_paper_fleet`` so
+    that exchange selection, capital conversion, and bot-cap checks are always
+    applied correctly.  No inline bot insertion happens here.
+
+    Returns a summary dict: {bots_created, bots_skipped, errors}.
     Never raises — failure is non-fatal so the reset response still succeeds.
     """
-    from uuid import uuid4
-    from datetime import timezone as _tz
+    from services.paper_fleet_seeder import seed_paper_fleet
+    from services.canonical import get_user_paper_exchanges
 
-    summary: dict = {"bots_created": 0, "bots_skipped": 0, "error": None}
     if count <= 0:
-        return summary
+        return {"bots_created": 0, "bots_skipped": 0, "errors": []}
 
+    # Resolve which exchanges this user's paper bots should run on.
     try:
-        # Auto-fund the paper wallet with starting capital (if still empty).
-        from config import PAPER_STARTING_CAPITAL_ZAR as _START_CAP
-        from services.paper_wallet_service import paper_wallet_service
-        from config import BOT_MANUAL_MIN_CAPITAL_ZAR as _MIN_CAP
-
-        available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
-        if available <= 0 and _START_CAP > 0:
-            await paper_wallet_service.fund(user_id, float(_START_CAP), "ZAR")
-            available = float(_START_CAP)
-
-        min_cap = float(_MIN_CAP)
-        capital_per_bot = max(available / count, min_cap) if available > 0 else min_cap
-
-        now_iso = datetime.now(timezone.utc).isoformat()
-        bots = []
-        for i in range(count):
-            bots.append({
-                "id": str(uuid4()),
-                "user_id": user_id,
-                "name": f"PaperBot-{i + 1}",
-                "status": "active",
-                "trading_mode": "paper",
-                "exchange": "luno",
-                "pair": "XBT/ZAR",
-                "bot_type": "normal",
-                "strategy_preset": "adaptive",
-                "risk_mode": "safe",
-                "initial_capital": round(capital_per_bot, 2),
-                "current_capital": round(capital_per_bot, 2),
-                "canonical_base_capital_zar": round(capital_per_bot, 2),
-                "funding_input_amount": round(capital_per_bot, 2),
-                "funding_input_currency": "ZAR",
-                "quote_currency": "ZAR",
-                "fx_rate_at_creation": 1.0,
-                "total_profit": 0.0,
-                "trades_count": 0,
-                "origin": "auto_seed",
-                "paper_end_date": None,
-                "created_at": now_iso,
-                "last_trade": None,
-            })
-
-        if bots:
-            await db.bots_collection.insert_many(bots)
-            summary["bots_created"] = len(bots)
-            logger.info(
-                "_seed_paper_bots: created %d bots (R%.2f/bot) for user %s",
-                len(bots), capital_per_bot, user_id[:8],
-            )
+        exchanges = await get_user_paper_exchanges(user_id)
     except Exception as exc:
-        logger.warning("_seed_paper_bots: failed for user %s: %s", user_id[:8], exc)
-        summary["error"] = str(exc)
+        logger.warning(
+            "_seed_paper_bots_canonical: could not resolve paper exchanges for user %s: %s — falling back to luno",
+            user_id[:8], exc,
+        )
+        exchanges = ["luno"]
 
-    return summary
+    # Distribute count evenly: half normal, half scalper, split across exchanges.
+    # If only one exchange is active the full count goes there.
+    num_exchanges = max(1, len(exchanges))
+    bots_per_exchange = max(1, count // num_exchanges)
+    # Split each exchange's allocation evenly between normal and scalper
+    half = bots_per_exchange // 2
+    normal_per_exchange = half
+    scalper_per_exchange = bots_per_exchange - half  # absorbs odd remainder
+
+    return await seed_paper_fleet(
+        user_id=user_id,
+        exchanges=exchanges,
+        normal_per_exchange=normal_per_exchange,
+        scalper_per_exchange=scalper_per_exchange,
+        capital_zar_per_bot=0.0,  # auto-distribute from wallet balance
+        source="auto_seed",
+    )
 
 
 @router.post("/paper-sandbox/reset")
@@ -323,7 +300,7 @@ async def reset_paper_sandbox(
     # Auto-seed default bot fleet so the dashboard is immediately usable.
     seed_result: dict = {}
     if _AUTO_SEED_BOT_COUNT > 0:
-        seed_result = await _seed_paper_bots(user_id, _AUTO_SEED_BOT_COUNT)
+        seed_result = await _seed_paper_bots_canonical(user_id, _AUTO_SEED_BOT_COUNT)
 
     # Audit log
     try:

@@ -121,6 +121,8 @@ class WalletSummaryService:
         return total
 
     async def get_summary(self, user_id: str) -> Dict:
+        from services.fx_normalizer import to_display_zar, get_quote_currency
+
         bots = await db.bots_collection.find(
             {"user_id": user_id},
             {"_id": 0}
@@ -134,12 +136,29 @@ class WalletSummaryService:
         ]
         non_deleted = [b for b in normalized if not b.get("is_deleted")]
 
-        required_funds = sum(
-            float(b.get("initial_capital") or 1000) for b in active_bots
-        )
+        def _bot_capital_zar(bot: dict, field: str = "initial_capital") -> float:
+            """Return a bot's capital expressed in ZAR regardless of quote currency.
+
+            Resolution order:
+            1. canonical_base_capital_zar — stored at creation, most reliable.
+            2. Convert initial_capital / allocated_capital through FX using the
+               bot's quote_currency or exchange default.
+            """
+            canonical = bot.get("canonical_base_capital_zar")
+            if canonical is not None:
+                try:
+                    return float(canonical)
+                except (TypeError, ValueError):
+                    pass
+            raw = float(bot.get(field) or bot.get("initial_capital") or 1000)
+            exchange = bot.get("exchange") or ""
+            qc = bot.get("quote_currency") or get_quote_currency(exchange)
+            zar_val, _, _ = to_display_zar(raw, qc)
+            return zar_val if zar_val is not None else raw
+
+        required_funds = sum(_bot_capital_zar(b, "initial_capital") for b in active_bots)
         allocated_funds = sum(
-            float(b.get("allocated_capital") or b.get("initial_capital") or 1000)
-            for b in non_deleted
+            _bot_capital_zar(b, "allocated_capital") for b in non_deleted
         )
         reserved_funds = 0.0
         if db.wallet_balances_collection is not None:

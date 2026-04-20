@@ -28,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 import logging
 
+from services.reconciliation import compute_equity_zar
 from utils.bot_state import normalize_bot_state
 
 # ── Named constants for thresholds ──────────────────────────────────────
@@ -180,9 +181,9 @@ async def compute_risk_state(user_id: str, db) -> Dict[str, Any]:
         }
     ).to_list(length=500)
 
-    total_equity = sum(float(b.get("current_capital", 0)) for b in bots_raw)
+    total_equity, _equity_breakdown = compute_equity_zar(bots_raw)
     stored_peak = max(
-        (float(b.get("peak_equity", b.get("current_capital", 0))) for b in bots_raw),
+        (float(b.get("peak_equity", b.get("canonical_base_capital_zar") or b.get("current_capital", 0))) for b in bots_raw),
         default=0,
     )
     # Peak equity must never be lower than current equity to avoid negative drawdown %
