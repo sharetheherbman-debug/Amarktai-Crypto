@@ -400,6 +400,67 @@ async def get_total_paper_equity_zar(user_id: str) -> float:
         return 0.0
 
 
+async def get_platform_wallet_totals_zar(user_id: str) -> Dict[str, Any]:
+    """Return total ZAR-equivalent equity broken down by platform wallet.
+
+    Aggregates all per-exchange paper wallets and converts each balance to ZAR
+    using the canonical FX normaliser.  This is the single source for global
+    ZAR reporting surfaces (countdown, overview, profit tiles).
+
+    Returns:
+        {
+            "total_zar": float,          # sum of all platform wallets in ZAR
+            "by_exchange": {             # per-exchange breakdown
+                "luno": {"zar": float, "native": float, "currency": "ZAR"},
+                "binance": {"zar": float, "native": float, "currency": "USDT"},
+                ...
+            },
+            "global_wallet_zar": float,  # legacy global wallet equity (ZAR)
+            "combined_zar": float,       # total_zar + global_wallet_zar (full picture)
+            "source": "platform_wallet_totals_zar",
+        }
+
+    Never raises — returns safe zero-filled dict on error.
+    """
+    from services.fx_normalizer import to_display_zar
+
+    by_exchange: Dict[str, Any] = {}
+    platform_total_zar = 0.0
+
+    try:
+        all_wallets = await paper_wallet_service.get_all_exchange_wallets(user_id)
+        for exch, wallet in all_wallets.items():
+            native_currency = wallet.get("native_currency", "USDT")
+            native_amount = float(wallet.get("available", 0) or 0)
+            zar_val, _, _ = to_display_zar(native_amount, native_currency)
+            zar_amount = float(zar_val or 0)
+            platform_total_zar += zar_amount
+            by_exchange[exch] = {
+                "zar": round(zar_amount, 2),
+                "native": round(native_amount, 4),
+                "currency": native_currency,
+                "funded": native_amount > 0,
+            }
+    except Exception as exc:
+        logger.warning("get_platform_wallet_totals_zar failed for %s: %s", user_id[:8], exc)
+
+    # Include the legacy global wallet so combined_zar gives the full picture.
+    global_wallet_zar = 0.0
+    try:
+        equity = await get_canonical_paper_wallet_equity(user_id)
+        global_wallet_zar = float(equity.get("total_equity", 0) or 0)
+    except Exception:
+        pass
+
+    return {
+        "total_zar": round(platform_total_zar, 2),
+        "by_exchange": by_exchange,
+        "global_wallet_zar": round(global_wallet_zar, 2),
+        "combined_zar": round(platform_total_zar + global_wallet_zar, 2),
+        "source": "platform_wallet_totals_zar",
+    }
+
+
 async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     """Return latest machine-readable decision payload per bot for radar/status surfaces."""
     collection = getattr(db, "decisions_collection", None)

@@ -1,574 +1,486 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
 import { get, post } from '../lib/apiClient';
 
+const EXCHANGE_NATIVE = {
+  luno: 'ZAR',
+  binance: 'USDT',
+  kucoin: 'USDT',
+  bybit: 'USDT',
+  kraken: 'USDT',
+  bitget: 'USDT',
+  gate: 'USDT',
+  coinbase: 'USDT',
+};
+
+const EXCHANGE_LABELS = {
+  luno: 'Luno',
+  binance: 'Binance',
+  kucoin: 'KuCoin',
+  bybit: 'Bybit',
+  kraken: 'Kraken',
+  bitget: 'Bitget',
+  gate: 'Gate.io',
+  coinbase: 'Coinbase',
+};
+
 const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
-  const [balances, setBalances] = useState(null);
-  const [requirements, setRequirements] = useState(null);
+  const [walletStatus, setWalletStatus] = useState(null);
+  const [platformSummary, setPlatformSummary] = useState(null);
+  const [platformWallets, setPlatformWallets] = useState({});
   const [fundingPlans, setFundingPlans] = useState([]);
   const [paperWallet, setPaperWallet] = useState(null);
-  const [walletStatus, setWalletStatus] = useState(null); // New: comprehensive wallet status
-  const [paperDepositAmount, setPaperDepositAmount] = useState('');
-  const [paperDepositCurrency, setPaperDepositCurrency] = useState('ZAR');
+  const [fundInputs, setFundInputs] = useState({});
+  const [fundCurrencies, setFundCurrencies] = useState({});
+  const [actionLoading, setActionLoading] = useState({});
+  const [globalDepositAmount, setGlobalDepositAmount] = useState('');
+  const [globalDepositCurrency, setGlobalDepositCurrency] = useState('ZAR');
   const [paperActionLoading, setPaperActionLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [keysStatus, setKeysStatus] = useState({});
+  // eslint-disable-next-line no-unused-vars
   const lastUpdate = useLastUpdate('wallet');
 
-  useEffect(() => {
-    loadWalletData();
-  }, [platformFilter]);
-
-  // Load API keys status
-  useEffect(() => {
-    const loadKeysStatus = async () => {
-      try {
-        const data = await get('/keys/status');
-        const statusMap = data?.status_map || {};
-        setKeysStatus(statusMap);
-      } catch (err) {
-        console.error('Keys status fetch error:', err);
-      }
-    };
-    loadKeysStatus();
-  }, []);
-
-  const loadWalletData = async () => {
+  const loadWalletData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Load comprehensive wallet status (new endpoint) plus existing data in parallel
-      const [statusData, balancesData, requirementsData, plansData, paperWalletData] = await Promise.all([
-        get('/wallet/status').catch(err => {
-          console.error('Wallet status fetch error:', err);
-          return null; // Safe default
-        }),
-        get('/wallet/balances').catch(err => {
-          console.error('Balance fetch error:', err);
-          return { master_wallet: {}, last_updated: null }; // Safe default
-        }),
-        get('/wallet/requirements').catch(err => {
-          console.error('Requirements fetch error:', err);
-          return { requirements: {} }; // Safe default
-        }),
-        get('/wallet/funding-plans?status=awaiting_deposit').catch(err => {
-          console.error('Funding plans fetch error:', err);
-          return { plans: [] }; // Safe default
-        }),
-        get('/wallet/paper').catch(err => {
-          console.error('Paper wallet fetch error:', err);
-          return { balances: {}, total: 0, available: {} };
-        })
+
+      const [statusData, platformData, summaryData, plansData, paperWalletData] = await Promise.all([
+        get('/wallet/status').catch(() => null),
+        get('/wallet/platform').catch(() => null),
+        get('/wallet/platform/summary').catch(() => null),
+        get('/wallet/funding-plans?status=awaiting_deposit').catch(() => ({ plans: [] })),
+        get('/wallet/paper').catch(() => ({ balances: {}, total: 0, available: {} })),
       ]);
 
       setWalletStatus(statusData);
-      setBalances(balancesData || {});
-      setRequirements(requirementsData || {});
-      setFundingPlans(plansData.plans || []);
+      setPlatformWallets((platformData && platformData.platform_wallets) || {});
+      setPlatformSummary(summaryData);
+      setFundingPlans((plansData && plansData.plans) || []);
       setPaperWallet(paperWalletData || {});
       setLoading(false);
     } catch (err) {
-      console.error('Wallet data load error:', err);
-      const statusCode = err.status || err.response?.status || '';
-      setError(`Failed to load wallet data${statusCode ? ` (${statusCode})` : ''}: ${err.message || 'Unknown error'}`);
+      setError('Failed to load wallet data: ' + (err.message || 'Unknown error'));
       setLoading(false);
-      
-      // Initialize to safe defaults even on error
-      setWalletStatus(null);
-      setBalances({});
-      setRequirements({});
-      setFundingPlans([]);
-      setPaperWallet({});
     }
-  };
+  }, []);
 
-  // Subscribe to real-time wallet updates
+  useEffect(() => {
+    loadWalletData();
+  }, [platformFilter, loadWalletData]);
+
   useRealtimeEvent('wallet', (data) => {
-    if (data.event === 'balance_update') {
-      loadWalletData();
-    }
+    if (data.event === 'balance_update') loadWalletData();
   }, []);
 
-  // Subscribe to real-time balance updates
-  useRealtimeEvent('balances', (data) => {
-    setBalances(prevBalances => ({
-      ...prevBalances,
-      ...data
-    }));
-  }, []);
-
-  const getHealthColor = (health) => {
-    switch (health) {
-      case 'healthy': return '#27ae60';
-      case 'adequate': return '#3498db';
-      case 'warning': return '#f39c12';
-      case 'critical': return '#e74c3c';
-      default: return '#95a5a6';
+  const handleFundPlatform = async (exchange) => {
+    const amount = parseFloat(fundInputs[exchange] || '');
+    if (!amount || amount <= 0) { alert('Enter a valid positive amount'); return; }
+    const nativeCur = EXCHANGE_NATIVE[exchange] || 'ZAR';
+    const currency = fundCurrencies[exchange] || nativeCur;
+    const label = EXCHANGE_LABELS[exchange] || exchange;
+    if (!window.confirm('Add ' + amount + ' ' + currency + ' to ' + label + ' paper wallet?')) return;
+    try {
+      setActionLoading(prev => ({ ...prev, [exchange]: true }));
+      await post('/wallet/platform/' + exchange + '/fund', { amount, currency, confirmed: true });
+      setFundInputs(prev => ({ ...prev, [exchange]: '' }));
+      await loadWalletData();
+    } catch (err) {
+      alert('Failed to fund ' + exchange + ' wallet: ' + (err.message || 'Unknown error'));
+    } finally {
+      setActionLoading(prev => ({ ...prev, [exchange]: false }));
     }
   };
 
-  const getHealthIcon = (health) => {
-    switch (health) {
-      case 'healthy': return '✅';
-      case 'adequate': return '✔️';
-      case 'warning': return '⚠️';
-      case 'critical': return '🚨';
-      default: return '❓';
+  const handleResetPlatform = async (exchange) => {
+    const label = EXCHANGE_LABELS[exchange] || exchange;
+    if (!window.confirm('Reset ' + label + ' paper wallet to 0? This cannot be undone.')) return;
+    try {
+      setActionLoading(prev => ({ ...prev, [exchange]: true }));
+      await post('/wallet/platform/' + exchange + '/reset', { confirm: true });
+      await loadWalletData();
+    } catch (err) {
+      alert('Failed to reset ' + exchange + ' wallet: ' + (err.message || 'Unknown error'));
+    } finally {
+      setActionLoading(prev => ({ ...prev, [exchange]: false }));
+    }
+  };
+
+  const handleGlobalDeposit = async () => {
+    const amount = parseFloat(globalDepositAmount);
+    if (!amount || amount <= 0) { alert('Enter a valid amount'); return; }
+    if (!window.confirm('Add ' + amount + ' ' + globalDepositCurrency + ' to your global paper wallet?')) return;
+    try {
+      setPaperActionLoading(true);
+      await post('/wallet/paper/deposit', { amount, currency: globalDepositCurrency });
+      setGlobalDepositAmount('');
+      await loadWalletData();
+    } catch (err) {
+      alert('Failed to add funds: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPaperActionLoading(false);
+    }
+  };
+
+  const handleGlobalReset = async () => {
+    if (!window.confirm('Reset global paper wallet to 0? This cannot be undone.')) return;
+    try {
+      setPaperActionLoading(true);
+      await post('/wallet/paper/reset', { confirm: true });
+      await loadWalletData();
+    } catch (err) {
+      alert('Failed to reset: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPaperActionLoading(false);
     }
   };
 
   const cancelFundingPlan = async (planId) => {
     try {
-      await post(`/wallet/funding-plans/${planId}/cancel`, {});
+      await post('/wallet/funding-plans/' + planId + '/cancel', {});
       loadWalletData();
     } catch (err) {
       alert('Failed to cancel funding plan: ' + (err.message || 'Unknown error'));
     }
   };
 
-  const handlePaperDeposit = async () => {
-    const amount = parseFloat(paperDepositAmount);
-    if (!amount || amount <= 0) {
-      alert('Enter a valid amount');
-      return;
-    }
-    if (!window.confirm(`Add ${amount} ${paperDepositCurrency} to your training funds?`)) {
-      return;
-    }
-    try {
-      setPaperActionLoading(true);
-      await post('/wallet/paper/deposit', { amount, currency: paperDepositCurrency });
-      setPaperDepositAmount('');
-      await loadWalletData();
-    } catch (err) {
-      alert('Failed to add training funds: ' + (err.message || 'Unknown error'));
-    } finally {
-      setPaperActionLoading(false);
-    }
-  };
+  const fmtZAR = (v) =>
+    'R' + Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const handlePaperReset = async () => {
-    if (!window.confirm('Reset training funds to 0? This cannot be undone.')) {
-      return;
-    }
-    try {
-      setPaperActionLoading(true);
-      await post('/wallet/paper/reset', { confirm: true });
-      await loadWalletData();
-    } catch (err) {
-      alert('Failed to reset training funds: ' + (err.message || 'Unknown error'));
-    } finally {
-      setPaperActionLoading(false);
-    }
-  };
+  const fmtNative = (v, currency) =>
+    Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + ' ' + currency;
 
-  // Compute values needed for rendering
-  const masterWallet = balances?.master_wallet || {};
-  const exchanges = requirements?.requirements || {};
-  
-  // Check if Luno key is valid - only show prompt if no valid Luno key
-  const lunoStatus = keysStatus?.luno?.status || keysStatus?.luno || 'not_configured';
-  const hasValidLunoKey = lunoStatus === 'configured_valid' || lunoStatus === 'test_ok';
-  const showKeysPrompt = !hasValidLunoKey && !loading;
-
-  // Render loading state
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem', marginBottom: '20px' }}>💰</div>
+        <div style={{ fontSize: '2rem', marginBottom: '20px' }}>&#x1F4B0;</div>
         <p>Loading wallet data...</p>
       </div>
     );
   }
 
-  // Render error state with detailed information
   if (error) {
-    // Parse error to determine type
-    const statusCode = error.match(/\((\d{3})\)/)?.[1];
-    let errorTitle = 'Backend Error Fetching Balances';
-    let errorHint = 'Please check your connection and try again.';
-    
-    if (statusCode === '401' || statusCode === '403') {
-      errorTitle = 'Login Required';
-      errorHint = 'Please log in again to access wallet data.';
-    } else if (statusCode === '404') {
-      errorTitle = 'Endpoint Not Found';
-      errorHint = 'The wallet service endpoint is not available.';
-    } else if (statusCode === '500') {
-      errorTitle = 'Temporarily Unavailable';
-      errorHint = 'The wallet service is experiencing issues. We\'re working on it.';
-    }
-
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem', marginBottom: '20px', color: '#e74c3c' }}>⚠️</div>
-        <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>{errorTitle}</p>
+        <div style={{ fontSize: '2rem', marginBottom: '20px', color: '#e74c3c' }}>&#x26A0;&#xFE0F;</div>
+        <p style={{ color: '#e74c3c', fontWeight: '600', marginBottom: '12px' }}>Wallet Error</p>
         <p style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '16px' }}>{error}</p>
-        <div style={{
-          padding: '12px',
-          background: 'var(--glass)',
-          borderRadius: '6px',
-          marginBottom: '16px',
-          textAlign: 'left',
-          fontSize: '0.85rem',
-          color: 'var(--muted)',
-          maxWidth: '500px',
-          margin: '0 auto 16px'
-        }}>
-          <p><strong>Possible causes:</strong></p>
-          <ul style={{paddingLeft: '20px', marginTop: '8px'}}>
-            <li>No exchange API keys configured yet</li>
-            <li>Backend wallet service not responding</li>
-            <li>Database connection issue</li>
-            <li>{errorHint}</li>
-          </ul>
-        </div>
-        <button onClick={loadWalletData} style={{ 
-          marginTop: '20px', 
-          padding: '12px 24px',
-          background: 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)',
-          color: 'white',
-          border: 'none',
-          borderRadius: '6px',
-          fontWeight: '600',
-          cursor: 'pointer'
-        }}>
-          🔄 Retry
-        </button>
+        <button onClick={loadWalletData} style={{
+          padding: '12px 24px', background: 'linear-gradient(135deg,#4a90e2,#357abd)',
+          color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer'
+        }}>Retry</button>
       </div>
     );
   }
 
+  const unlockedExchanges = (walletStatus && walletStatus.unlocked_exchanges) || [];
+  const mode = (walletStatus && walletStatus.mode) || 'paper';
+  const totalPortfolioZar = (platformSummary && (platformSummary.total_portfolio_zar != null
+    ? platformSummary.total_portfolio_zar
+    : platformSummary.global_wallet_zar)) || 0;
+  const availableGlobalZar = (paperWallet && (paperWallet.available_wallet_zar != null
+    ? paperWallet.available_wallet_zar
+    : ((paperWallet.available && paperWallet.available.ZAR) || 0))) || 0;
+
+  const displayExchanges = unlockedExchanges.length > 0
+    ? unlockedExchanges
+    : Object.keys(platformWallets);
+
   return (
     <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '30px', fontSize: '2rem', color: 'var(--text)' }}>
-        💰 Wallet Hub
+        Wallet Hub
       </h1>
 
-      {showKeysPrompt && (
-        <div style={{ padding: '20px', textAlign: 'center', marginBottom: '24px', background: 'var(--glass)', borderRadius: '8px', border: '1px solid var(--line)' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '12px' }}>🔑</div>
-          <h3 style={{ marginBottom: '8px', color: 'var(--text)' }}>Add Exchange Keys to See Live Wallet Balances</h3>
-          <p style={{ color: 'var(--muted)', marginBottom: '16px', fontSize: '0.9rem' }}>
-            Configure your exchange API keys to view live balances and enable live trading.
-          </p>
-          <button
-            onClick={() => {
-              const event = new CustomEvent('navigateToSection', { detail: { section: 'api' } });
-              window.dispatchEvent(event);
-              const apiLink = document.querySelector('a[href="#"][class*="api"]');
-              if (apiLink) {
-                apiLink.click();
-              }
-            }}
-            style={{
-              padding: '10px 20px',
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              fontSize: '0.95rem'
-            }}
-          >
-            ➕ Add Exchange Keys
-          </button>
-        </div>
-      )}
-
-      {/* Required Funding Status - New comprehensive display */}
-      {walletStatus && (
-        <div style={{
-          background: 'var(--glass)',
-          borderRadius: '16px',
-          padding: '20px',
-          marginBottom: '24px',
-          color: 'var(--text)',
-          border: '1px solid var(--line)',
-          boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem' }}>💼 Funding Status</h3>
-            <div style={{
-              padding: '6px 12px',
-              background: walletStatus.funding_status === 'FUNDED' ? 'rgba(34, 197, 94, 0.15)' :
-                          walletStatus.funding_status === 'UNFUNDED' ? 'rgba(239, 68, 68, 0.15)' :
-                          'rgba(156, 163, 175, 0.15)',
-              border: `1px solid ${walletStatus.funding_status === 'FUNDED' ? 'rgba(34, 197, 94, 0.4)' :
-                                   walletStatus.funding_status === 'UNFUNDED' ? 'rgba(239, 68, 68, 0.4)' :
-                                   'rgba(156, 163, 175, 0.4)'}`,
-              borderRadius: '6px',
-              fontSize: '0.85rem',
-              color: walletStatus.funding_status === 'FUNDED' ? 'var(--success)' :
-                     walletStatus.funding_status === 'UNFUNDED' ? 'var(--error)' :
-                     'var(--muted)',
-              fontWeight: 600
-            }}>
-              {walletStatus.funding_status === 'FUNDED' ? '✅ Funded' :
-               walletStatus.funding_status === 'UNFUNDED' ? '⚠️ Unfunded' :
-               '❓ Not Configured'}
-            </div>
-          </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            <div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Mode</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                {walletStatus.mode === 'paper' ? '📝 Paper' : '🔴 Live'}
-              </div>
-            </div>
-            
-            <div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Required Capital</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                R{(walletStatus.required_capital || walletStatus.required_funding?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
-            
-            {(walletStatus.available_balance !== undefined || walletStatus.live_status === 'ok') && (
-              <div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Available</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                  R{(walletStatus.available_balance ?? walletStatus.live_balances?.total_zar ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            )}
-
-            {walletStatus.deficit !== undefined && walletStatus.deficit > 0 && walletStatus.mode !== 'paper' && (
-              <div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Deficit</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--error)' }}>
-                  R{walletStatus.deficit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            )}
-            {walletStatus.mode === 'paper' && (
-              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', gridColumn: '1 / -1', padding: '6px 0', borderTop: '1px solid var(--line)', marginTop: '4px' }}>
-                📝 Paper mode — simulated capital. No real funds required or at risk.
-              </div>
-            )}
-            
-            <div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                {walletStatus.active_bots ?? walletStatus.required_funding?.bot_count ?? 0}
-                {walletStatus.mode === 'paper' && walletStatus.paper_bots?.count > 0 && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)', marginLeft: '6px' }}>
-                    ({walletStatus.paper_bots.count} paper)
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* Mode Banner */}
       <div style={{
-        background: 'var(--glass)',
-        borderRadius: '16px',
-        padding: '30px',
-        marginBottom: '30px',
-        color: 'var(--text)',
-        border: '1px solid var(--line)',
-        boxShadow: '0 14px 28px rgba(0,0,0,0.25)'
+        display: 'flex', alignItems: 'center', gap: '12px',
+        padding: '10px 16px', marginBottom: '24px',
+        background: mode === 'paper' ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.1)',
+        border: '1px solid ' + (mode === 'paper' ? 'rgba(59,130,246,0.3)' : 'rgba(34,197,94,0.3)'),
+        borderRadius: '8px', fontSize: '0.9rem',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>🏦 Master Luno Wallet</h2>
-          {hasValidLunoKey && (
-            <div style={{ 
-              padding: '6px 12px', 
-              background: 'rgba(34, 197, 94, 0.15)', 
-              border: '1px solid rgba(34, 197, 94, 0.4)',
-              borderRadius: '6px',
-              fontSize: '0.85rem',
-              color: 'var(--success)'
+        <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+          {mode === 'paper' ? 'Paper Trading Mode' : 'Live Trading Mode'}
+        </span>
+        <span style={{ color: 'var(--muted)' }}>
+          {mode === 'paper'
+            ? '— Simulated funds only. No real money at risk.'
+            : '— Real exchange balances. Handle with care.'}
+        </span>
+      </div>
+
+      {/* Portfolio Summary */}
+      <div style={{
+        background: 'var(--glass)', borderRadius: '16px', padding: '24px',
+        marginBottom: '24px', border: '1px solid var(--line)',
+        boxShadow: '0 14px 28px rgba(0,0,0,0.25)',
+      }}>
+        <h2 style={{ margin: '0 0 20px', fontSize: '1.3rem', color: 'var(--text)' }}>
+          Portfolio Summary
+        </h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px' }}>
+          <div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Total Equity (ZAR)</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--text)' }}>{fmtZAR(totalPortfolioZar)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Global Paper Wallet</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 600, color: 'var(--text)' }}>{fmtZAR(availableGlobalZar)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Active Bots</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 600, color: 'var(--text)' }}>
+              {(walletStatus && walletStatus.active_bots) || 0}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Status</div>
+            <div style={{
+              display: 'inline-block', padding: '4px 10px', borderRadius: '6px', fontWeight: 600, fontSize: '0.88rem',
+              background: (walletStatus && walletStatus.funding_status) === 'FUNDED' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+              border: '1px solid ' + ((walletStatus && walletStatus.funding_status) === 'FUNDED' ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'),
+              color: (walletStatus && walletStatus.funding_status) === 'FUNDED' ? 'var(--success)' : 'var(--error)',
             }}>
-              ✅ Luno Key: Valid
-              {keysStatus?.luno?.last_tested_at && (
-                <span style={{ marginLeft: '8px', opacity: 0.8 }}>
-                  • Last checked: {new Date(keysStatus.luno.last_tested_at).toLocaleString('en-US')}
-                </span>
-              )}
+              {(walletStatus && walletStatus.funding_status) === 'FUNDED' ? 'Funded' :
+               (walletStatus && walletStatus.funding_status) === 'UNFUNDED' ? 'Unfunded' : 'Not Configured'}
+            </div>
+          </div>
+        </div>
+        {unlockedExchanges.length === 0 && (
+          <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', fontSize: '0.85rem', color: 'var(--muted)' }}>
+            No exchanges unlocked yet. Add and test API keys in API Setup to unlock per-platform wallets.
+          </div>
+        )}
+      </div>
+
+      {/* Platform Wallets (paper mode) */}
+      {mode === 'paper' && (
+        <div style={{ marginBottom: '30px' }}>
+          <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>
+            Platform Paper Wallets
+          </h2>
+          {displayExchanges.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px', background: 'var(--glass)', borderRadius: '12px', border: '1px solid var(--line)', color: 'var(--muted)' }}>
+              <p>No platforms unlocked. Add API keys to activate per-platform wallets.</p>
+              <p style={{ fontSize: '0.85rem', marginTop: '8px' }}>Platform wallets appear here once exchange keys are tested successfully.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+              {displayExchanges.map((exchange) => {
+                const wallet = platformWallets[exchange] || {};
+                const nativeCurrency = wallet.native_currency || EXCHANGE_NATIVE[exchange] || 'ZAR';
+                const available = wallet.available || 0;
+                const funded = wallet.funded || available > 0;
+                const zarBreakdown = platformSummary && platformSummary.by_exchange && platformSummary.by_exchange[exchange];
+                const zarValue = (zarBreakdown && zarBreakdown.zar) || 0;
+                const isLoading = actionLoading[exchange];
+                const currency = fundCurrencies[exchange] || nativeCurrency;
+
+                return (
+                  <div key={exchange} style={{
+                    background: 'var(--panel)', borderRadius: '12px', padding: '20px',
+                    border: '1px solid ' + (funded ? 'rgba(34,197,94,0.4)' : 'var(--line)'),
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text)' }}>
+                        {EXCHANGE_LABELS[exchange] || exchange.toUpperCase()}
+                      </h3>
+                      <span style={{
+                        padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600,
+                        background: funded ? 'rgba(34,197,94,0.15)' : 'rgba(156,163,175,0.15)',
+                        border: '1px solid ' + (funded ? 'rgba(34,197,94,0.4)' : 'rgba(156,163,175,0.4)'),
+                        color: funded ? 'var(--success)' : 'var(--muted)',
+                      }}>
+                        {funded ? 'Funded' : 'Unfunded'}
+                      </span>
+                    </div>
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '4px' }}>
+                        Available ({nativeCurrency})
+                      </div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--text)' }}>
+                        {fmtNative(available, nativeCurrency)}
+                      </div>
+                      {nativeCurrency !== 'ZAR' && zarValue > 0 && (
+                        <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '2px' }}>
+                          approx. {fmtZAR(zarValue)}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={'Amount (' + nativeCurrency + ')'}
+                        aria-label={'Fund ' + (EXCHANGE_LABELS[exchange] || exchange) + ' paper wallet amount'}
+                        id={'fund-amount-' + exchange}
+                        name={'fund_amount_' + exchange}
+                        value={fundInputs[exchange] || ''}
+                        onChange={(e) => setFundInputs(prev => ({ ...prev, [exchange]: e.target.value }))}
+                        style={{
+                          flex: 1, minWidth: '90px', padding: '7px 10px',
+                          borderRadius: '8px', border: '1px solid var(--line)',
+                          background: 'var(--panel)', color: 'var(--text)', fontSize: '0.88rem',
+                        }}
+                      />
+                      <select
+                        aria-label={'Fund ' + (EXCHANGE_LABELS[exchange] || exchange) + ' currency'}
+                        id={'fund-currency-' + exchange}
+                        name={'fund_currency_' + exchange}
+                        value={currency}
+                        onChange={(e) => setFundCurrencies(prev => ({ ...prev, [exchange]: e.target.value }))}
+                        style={{
+                          padding: '7px 10px', borderRadius: '8px',
+                          border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)', fontSize: '0.88rem',
+                        }}
+                      >
+                        <option value={nativeCurrency}>{nativeCurrency}</option>
+                        {nativeCurrency !== 'ZAR' && <option value="ZAR">ZAR</option>}
+                      </select>
+                      <button
+                        onClick={() => handleFundPlatform(exchange)}
+                        disabled={isLoading}
+                        style={{
+                          padding: '7px 14px',
+                          background: 'linear-gradient(135deg,rgba(34,197,94,0.9),rgba(34,197,94,0.65))',
+                          color: '#0b0d14', border: 'none', borderRadius: '999px',
+                          fontWeight: 600, cursor: isLoading ? 'wait' : 'pointer', fontSize: '0.85rem',
+                        }}
+                      >
+                        + Fund
+                      </button>
+                      {funded && (
+                        <button
+                          onClick={() => handleResetPlatform(exchange)}
+                          disabled={isLoading}
+                          style={{
+                            padding: '7px 12px',
+                            background: 'rgba(239,68,68,0.15)', color: 'var(--text)',
+                            border: '1px solid rgba(239,68,68,0.35)', borderRadius: '999px',
+                            fontWeight: 600, cursor: isLoading ? 'wait' : 'pointer', fontSize: '0.85rem',
+                          }}
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '40px', flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>Total Balance (ZAR)</div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>
-              R{(masterWallet.total_zar || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>BTC Balance</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-              {(masterWallet.btc_balance || 0).toFixed(8)} BTC
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>ETH Balance</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-              {(masterWallet.eth_balance || 0).toFixed(6)} ETH
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: '20px', fontSize: '0.85rem', opacity: 0.8 }}>
-          Last updated: {balances?.last_updated || 'Just now'}
-        </div>
-      </div>
+      )}
 
-      {isPaperMode ? (
+      {/* Global Paper Wallet */}
+      {mode === 'paper' && (
         <div style={{
-          background: 'var(--glass)',
-          borderRadius: '12px',
-          padding: '24px',
-          marginBottom: '30px',
-          border: '1px solid var(--line)'
+          background: 'var(--glass)', borderRadius: '12px', padding: '24px',
+          marginBottom: '30px', border: '1px solid var(--line)',
         }}>
-          <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>🧪 Training Funds</h2>
-          <p style={{ marginBottom: '16px', color: 'var(--muted)', fontSize: '0.9rem' }}>
-            Simulation funds for paper trading and training only. These credits never touch live balances.
+          <h2 style={{ marginBottom: '8px', fontSize: '1.2rem', color: 'var(--text)' }}>
+            Global Paper Wallet
+          </h2>
+          <p style={{ marginBottom: '16px', color: 'var(--muted)', fontSize: '0.88rem' }}>
+            Shared simulation pool. Platform wallets above take priority when funded.
           </p>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
             <div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Training Capital (Paper Mode)</div>
-              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text)' }}>
-                {paperWallet?.total?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-              </div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Available (ZAR)</div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--text)' }}>{fmtZAR(availableGlobalZar)}</div>
             </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Available</div>
+            {paperWallet && paperWallet.allocated_funds_zar != null && (
               <div>
-                {Object.entries(paperWallet?.available || {}).map(([currency, amount]) => (
-                  <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
-                ))}
+                <div style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '4px' }}>Allocated</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text)' }}>{fmtZAR(paperWallet.allocated_funds_zar)}</div>
               </div>
-            </div>
-            <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
-              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Allocated</div>
-              <div>
-                {Object.entries(paperWallet?.allocated || {}).map(([currency, amount]) => (
-                  <div key={currency}>{currency}: {Number(amount || 0).toFixed(2)}</div>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
-          <div style={{ marginTop: '16px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <input
               type="number"
               min="0"
               step="0.01"
               placeholder="Amount"
-              value={paperDepositAmount}
-              onChange={(e) => setPaperDepositAmount(e.target.value)}
-              style={{
-                padding: '8px 10px',
-                borderRadius: '10px',
-                border: '1px solid var(--line)',
-                background: 'var(--panel)',
-                color: 'var(--text)'
-              }}
+              aria-label="Global paper wallet deposit amount"
+              id="global-deposit-amount"
+              name="global_deposit_amount"
+              value={globalDepositAmount}
+              onChange={(e) => setGlobalDepositAmount(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }}
             />
             <select
-              value={paperDepositCurrency}
-              onChange={(e) => setPaperDepositCurrency(e.target.value)}
-              style={{
-                padding: '8px 10px',
-                borderRadius: '10px',
-                border: '1px solid var(--line)',
-                background: 'var(--panel)',
-                color: 'var(--text)'
-              }}
+              aria-label="Global paper wallet deposit currency"
+              id="global-deposit-currency"
+              name="global_deposit_currency"
+              value={globalDepositCurrency}
+              onChange={(e) => setGlobalDepositCurrency(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }}
             >
               <option value="ZAR">ZAR</option>
               <option value="USDT">USDT</option>
             </select>
             <button
-              onClick={handlePaperDeposit}
+              onClick={handleGlobalDeposit}
               disabled={paperActionLoading}
               style={{
                 padding: '8px 14px',
-                background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(34, 197, 94, 0.65) 100%)',
-                color: '#0b0d14',
-                border: 'none',
-                borderRadius: '999px',
-                fontWeight: 600,
-                cursor: paperActionLoading ? 'wait' : 'pointer'
+                background: 'linear-gradient(135deg,rgba(34,197,94,0.9),rgba(34,197,94,0.65))',
+                color: '#0b0d14', border: 'none', borderRadius: '999px',
+                fontWeight: 600, cursor: paperActionLoading ? 'wait' : 'pointer',
               }}
             >
-              ➕ Add Training Funds
+              + Add Funds
             </button>
             <button
-              onClick={handlePaperReset}
+              onClick={handleGlobalReset}
               disabled={paperActionLoading}
               style={{
-                padding: '8px 14px',
-                background: 'rgba(239, 68, 68, 0.2)',
-                color: 'var(--text)',
-                border: '1px solid rgba(239, 68, 68, 0.45)',
-                borderRadius: '999px',
-                fontWeight: 600,
-                cursor: paperActionLoading ? 'wait' : 'pointer'
+                padding: '8px 14px', background: 'rgba(239,68,68,0.2)', color: 'var(--text)',
+                border: '1px solid rgba(239,68,68,0.45)', borderRadius: '999px',
+                fontWeight: 600, cursor: paperActionLoading ? 'wait' : 'pointer',
               }}
             >
-              ♻️ Reset Training Capital
+              Reset
             </button>
           </div>
         </div>
-      ) : (
-        <div style={{
-          background: 'var(--glass)',
-          borderRadius: '12px',
-          padding: '18px',
-          marginBottom: '30px',
-          border: '1px solid var(--line)',
-          color: 'var(--muted)'
-        }}>
-          Training tools are available in paper mode only.
+      )}
+
+      {/* Live Exchange Balances */}
+      {mode !== 'paper' && walletStatus && walletStatus.live && walletStatus.live.balances && (
+        <div style={{ marginBottom: '30px' }}>
+          <h2 style={{ marginBottom: '16px', fontSize: '1.3rem', color: 'var(--text)' }}>Live Exchange Balances</h2>
+          <div style={{ padding: '20px', background: 'var(--glass)', borderRadius: '12px', border: '1px solid var(--line)' }}>
+            <pre style={{ color: 'var(--text)', fontSize: '0.85rem', margin: 0 }}>
+              {JSON.stringify(walletStatus.live.balances, null, 2)}
+            </pre>
+          </div>
         </div>
       )}
 
-      {/* Funding Plans (if any) */}
+      {/* Funding Plans */}
       {fundingPlans.length > 0 && (
         <div style={{ marginBottom: '30px' }}>
-          <h2 style={{ marginBottom: '15px', fontSize: '1.3rem', color: 'var(--text)' }}>
-            📋 Active Funding Plans
-          </h2>
+          <h2 style={{ marginBottom: '15px', fontSize: '1.3rem', color: 'var(--text)' }}>Active Funding Plans</h2>
           {fundingPlans.map(plan => (
-            <div key={plan.plan_id} style={{
-              background: '#fff3cd',
-              border: '2px solid #ffc107',
-              borderRadius: '8px',
-              padding: '20px',
-              marginBottom: '15px'
-            }}>
+            <div key={plan.plan_id} style={{ background: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px', padding: '20px', marginBottom: '15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '10px' }}>
-                    💰 {plan.to_exchange?.toUpperCase()} - R{plan.amount_required?.toFixed(2)} needed
+                    {plan.to_exchange && plan.to_exchange.toUpperCase()} - R{plan.amount_required && plan.amount_required.toFixed(2)} needed
                   </div>
-                  <div style={{ whiteSpace: 'pre-wrap', color: '#856404', marginBottom: '10px' }}>
-                    {plan.ai_message}
-                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap', color: '#856404', marginBottom: '10px' }}>{plan.ai_message}</div>
                   <div style={{ fontSize: '0.85rem', color: '#856404' }}>
                     Bot: {plan.bot_name || 'Not available'} | Created: {new Date(plan.created_at).toLocaleString()}
                   </div>
                 </div>
-                <button
-                  onClick={() => cancelFundingPlan(plan.plan_id)}
-                  style={{
-                    background: '#dc3545',
-                    color: 'white',
-                    border: 'none',
-                    padding: '8px 16px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '0.9rem'
-                  }}
-                >
+                <button onClick={() => cancelFundingPlan(plan.plan_id)}
+                  style={{ background: '#dc3545', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.9rem' }}>
                   Cancel
                 </button>
               </div>
@@ -577,132 +489,23 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         </div>
       )}
 
-      {/* Exchange Cards */}
-      <h2 style={{ marginBottom: '15px', fontSize: '1.3rem', color: 'var(--text)' }}>
-        🏢 Exchange Balances
-      </h2>
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '20px'
-      }}>
-        {Object.entries(exchanges).map(([exchange, data]) => {
-          const healthColor = getHealthColor(data.health);
-          const healthIcon = getHealthIcon(data.health);
-          const surplus = data.surplus_deficit || 0;
-
-          return (
-            <div key={exchange} style={{
-              background: 'var(--panel)',
-              border: `2px solid ${healthColor}`,
-              borderRadius: '8px',
-              padding: '20px',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              {/* Exchange Header */}
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: '15px'
-              }}>
-                <h3 style={{ fontSize: '1.2rem', color: 'var(--text)', margin: 0 }}>
-                  {String(exchange ?? '').toUpperCase()}
-                </h3>
-                <div style={{ fontSize: '1.5rem' }}>{healthIcon}</div>
-              </div>
-
-              {/* Balances */}
-              <div style={{ marginBottom: '15px' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '5px' }}>
-                  Required Capital
+      {/* Unlocked Exchanges Status */}
+      {unlockedExchanges.length > 0 && (
+        <div>
+          <h2 style={{ marginBottom: '15px', fontSize: '1.3rem', color: 'var(--text)' }}>Unlocked Exchanges</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            {unlockedExchanges.map(exchange => (
+              <div key={exchange} style={{ background: 'var(--panel)', borderRadius: '10px', padding: '16px', border: '1px solid rgba(34,197,94,0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text)' }}>{EXCHANGE_LABELS[exchange] || exchange.toUpperCase()}</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600 }}>Unlocked</span>
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--text)' }}>
-                  R{(data.required || 0).toLocaleString()}
+                <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Native: {EXCHANGE_NATIVE[exchange] || 'USDT'}
                 </div>
               </div>
-
-              <div style={{ marginBottom: '15px' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '5px' }}>
-                  Available Balance
-                </div>
-                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: 'var(--text)' }}>
-                  R{(data.available || 0).toLocaleString()}
-                </div>
-              </div>
-
-              {/* Surplus/Deficit */}
-              <div style={{
-                padding: '10px',
-                borderRadius: '6px',
-                background: surplus >= 0 ? '#d4edda' : '#f8d7da',
-                color: surplus >= 0 ? '#155724' : '#721c24',
-                marginBottom: '15px'
-              }}>
-                <div style={{ fontSize: '0.85rem' }}>
-                  {surplus >= 0 ? 'Surplus' : 'Deficit'}
-                </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
-                  R{Math.abs(surplus).toLocaleString()}
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between',
-                padding: '10px 0',
-                borderTop: '1px solid var(--border)',
-                fontSize: '0.85rem',
-                color: 'var(--muted)'
-              }}>
-                <div>Active Bots: {data.bots || 0}</div>
-                <div>Health: {data.health || 'unknown'}</div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-                <button style={{
-                  flex: 1,
-                  padding: '10px',
-                  background: '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold'
-                }}>
-                  Top Up
-                </button>
-                <button style={{
-                  flex: 1,
-                  padding: '10px',
-                  background: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold'
-                }}>
-                  Withdraw
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* No exchanges with bots */}
-      {Object.keys(exchanges).length === 0 && (
-        <div style={{
-          textAlign: 'center',
-          padding: '40px',
-          color: 'var(--muted)',
-          background: 'var(--panel)',
-          borderRadius: '8px'
-        }}>
-          <div style={{ fontSize: '3rem', marginBottom: '10px' }}>🤖</div>
-          <p>No active bots yet. Create your first bot to see exchange requirements.</p>
+            ))}
+          </div>
         </div>
       )}
     </div>

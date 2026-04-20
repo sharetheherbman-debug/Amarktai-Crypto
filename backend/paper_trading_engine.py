@@ -766,17 +766,22 @@ class PaperTradingEngine:
                 return float(cached_price)
         
         # Fallback 2: Default safe prices (never None)
-        if 'BTC' in symbol:
-            fallback_price = 50000.0
-        elif 'ETH' in symbol:
-            fallback_price = 3000.0
-        elif 'BNB' in symbol:
-            fallback_price = 300.0
-        elif 'SOL' in symbol:
-            fallback_price = 100.0
-        elif 'XRP' in symbol:
-            fallback_price = 0.5
+        # ZAR-quoted pairs (Luno: BTC/ZAR, XBT/ZAR) use ZAR-denominated fallbacks.
+        # XBT is Luno's native ticker for Bitcoin — treat it the same as BTC.
+        _is_zar_quote = symbol.upper().endswith('/ZAR') or symbol.upper().endswith('ZAR')
+        if 'BTC' in symbol.upper() or 'XBT' in symbol.upper():
+            # BTC/ZAR (Luno) ≈ R1 500 000; BTC/USDT ≈ $65 000
+            fallback_price = 1_500_000.0 if _is_zar_quote else 65_000.0
+        elif 'ETH' in symbol.upper():
+            fallback_price = 80_000.0 if _is_zar_quote else 3_500.0
+        elif 'BNB' in symbol.upper():
+            fallback_price = 5_500.0 if _is_zar_quote else 300.0
+        elif 'SOL' in symbol.upper():
+            fallback_price = 2_500.0 if _is_zar_quote else 140.0
+        elif 'XRP' in symbol.upper():
+            fallback_price = 10.0 if _is_zar_quote else 0.55
         else:
+            # Unknown symbol — use 1.0 only if ZAR-quoted to avoid inflating USD values
             fallback_price = 1.0
         
         logger.warning(f"Using fallback price for {symbol}: {fallback_price}")

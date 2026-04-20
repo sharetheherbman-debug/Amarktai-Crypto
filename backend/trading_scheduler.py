@@ -419,6 +419,10 @@ class TradingScheduler:
                 "regime_standdown":        EligibilityCode.REGIME_STAND_DOWN,
                 "exchange_exposure":       EligibilityCode.EXCHANGE_EXPOSURE,
                 "drawdown_limit":          EligibilityCode.DRAWDOWN_LIMIT,
+                # Protection-mode variants (Binance drawdown protection)
+                "protection_mode":         EligibilityCode.DRAWDOWN_LIMIT,
+                "max_drawdown":            EligibilityCode.DRAWDOWN_LIMIT,
+                "drawdown_exceeded":       EligibilityCode.DRAWDOWN_LIMIT,
                 "symbol_cooldown":         EligibilityCode.SYMBOL_COOLDOWN,
                 "portfolio_guard":         EligibilityCode.PORTFOLIO_GUARD,
                 # Both spellings emitted by paper engine
@@ -430,6 +434,18 @@ class TradingScheduler:
                 # Scalper-specific
                 "scalper_spread_too_wide": EligibilityCode.SCALPER_SPREAD_TOO_WIDE,
                 "scalper_ev_too_low":      EligibilityCode.SCALPER_EV_TOO_LOW,
+                # Budget / minimum trade-size blocks
+                "budget_exhausted":        EligibilityCode.BUDGET_EXHAUSTED,
+                "trade_too_small":         EligibilityCode.BUDGET_EXHAUSTED,
+                "min_trade_size":          EligibilityCode.BUDGET_EXHAUSTED,
+                "below_min_notional":      EligibilityCode.LOW_LIQUIDITY,
+                "insufficient_capital":    EligibilityCode.BUDGET_EXHAUSTED,
+                "capital_below_minimum":   EligibilityCode.BUDGET_EXHAUSTED,
+                # Mode / system blocks
+                "mode_disabled":           EligibilityCode.MODE_DISABLED,
+                "emergency_stop":          EligibilityCode.EMERGENCY_STOP,
+                "user_paused":             EligibilityCode.USER_PAUSED,
+                "unsupported_exchange":    EligibilityCode.UNSUPPORTED_EXCHANGE,
                 # ── Close-path non-blocks (trade stays open) ───────────
                 "no_exit_signal":          EligibilityCode.OPEN_POSITION_ACTIVE,
                 "open_position_active":    EligibilityCode.OPEN_POSITION_ACTIVE,

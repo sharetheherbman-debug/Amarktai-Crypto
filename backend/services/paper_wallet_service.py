@@ -302,5 +302,212 @@ class PaperWalletService:
             upsert=True
         )
 
+    # ------------------------------------------------------------------
+    # Per-exchange (per-platform) paper wallet helpers
+    # ------------------------------------------------------------------
+    # Each exchange has its own wallet document:
+    #   { user_id, type: "paper_exchange", exchange: "luno", balances: {ZAR: X} }
+    # These are the canonical per-platform paper wallets.  The global "paper"
+    # wallet (type="paper") is kept for backward compatibility.
+    # ------------------------------------------------------------------
+
+    _EXCHANGE_NATIVE_CURRENCY: Dict[str, str] = {
+        "luno":     "ZAR",
+        "binance":  "USDT",
+        "kucoin":   "USDT",
+        "bybit":    "USDT",
+        "kraken":   "USDT",
+        "bitget":   "USDT",
+        "gate":     "USDT",
+        "coinbase": "USDT",
+    }
+
+    @classmethod
+    def _native_currency_for(cls, exchange: str) -> str:
+        """Return the canonical paper-wallet currency for an exchange."""
+        return cls._EXCHANGE_NATIVE_CURRENCY.get(exchange.lower(), "USDT")
+
+    async def _ensure_exchange_wallet(self, user_id: str, exchange: str) -> Dict:
+        """Return (or create) the per-exchange paper wallet document.
+
+        Per-exchange wallets start at 0 balance — the user funds them manually.
+        """
+        await self.init_db()
+        exchange = exchange.lower()
+        wallet = await self.collection.find_one(
+            {"user_id": user_id, "type": "paper_exchange", "exchange": exchange},
+            {"_id": 0},
+        )
+        if wallet:
+            return wallet
+        native = self._native_currency_for(exchange)
+        wallet = {
+            "user_id": user_id,
+            "type": "paper_exchange",
+            "exchange": exchange,
+            "balances": {native: 0.0},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.collection.insert_one(wallet)
+        return wallet
+
+    async def get_exchange_wallet(self, user_id: str, exchange: str) -> Dict:
+        """Return per-exchange paper wallet status."""
+        wallet = await self._ensure_exchange_wallet(user_id, exchange)
+        exchange = exchange.lower()
+        balances = wallet.get("balances") or {}
+        native = self._native_currency_for(exchange)
+        available = float(balances.get(native, 0) or 0)
+        return {
+            "exchange": exchange,
+            "balances": balances,
+            "native_currency": native,
+            "available": available,
+            "funded": available > 0,
+            "updated_at": wallet.get("updated_at"),
+        }
+
+    async def get_all_exchange_wallets(self, user_id: str) -> Dict[str, Dict]:
+        """Return all per-exchange paper wallets keyed by exchange name."""
+        await self.init_db()
+        try:
+            docs = await self.collection.find(
+                {"user_id": user_id, "type": "paper_exchange"},
+                {"_id": 0},
+            ).to_list(20)
+        except Exception as exc:
+            logger.warning("get_all_exchange_wallets failed for %s: %s", user_id[:8], exc)
+            return {}
+        result: Dict[str, Dict] = {}
+        for doc in docs:
+            exch = doc.get("exchange", "")
+            if exch:
+                balances = doc.get("balances") or {}
+                native = self._native_currency_for(exch)
+                available = float(balances.get(native, 0) or 0)
+                result[exch] = {
+                    "exchange": exch,
+                    "balances": balances,
+                    "native_currency": native,
+                    "available": available,
+                    "funded": available > 0,
+                    "updated_at": doc.get("updated_at"),
+                }
+        return result
+
+    async def fund_exchange_wallet(
+        self,
+        user_id: str,
+        exchange: str,
+        amount: float,
+        currency: Optional[str] = None,
+    ) -> Dict:
+        """Fund a per-exchange paper wallet.
+
+        Args:
+            user_id:  User ID.
+            exchange: Exchange name (e.g. 'luno', 'binance').
+            amount:   Positive amount to add.
+            currency: Currency code; defaults to the exchange's native currency.
+        """
+        if amount <= 0:
+            raise ValueError(f"Fund amount must be positive, got {amount}")
+        await self.init_db()
+        exchange = exchange.lower()
+        native = self._native_currency_for(exchange)
+        currency = (currency or native).upper()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        result = await self.collection.find_one_and_update(
+            {"user_id": user_id, "type": "paper_exchange", "exchange": exchange},
+            {
+                "$inc": {f"balances.{currency}": amount},
+                "$set": {"updated_at": now_iso},
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "type": "paper_exchange",
+                    "exchange": exchange,
+                    "created_at": now_iso,
+                },
+            },
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        balances = (result or {}).get("balances") or {}
+        available = float(balances.get(native, 0) or 0)
+        return {
+            "exchange": exchange,
+            "balances": balances,
+            "native_currency": native,
+            "available": available,
+            "funded": available > 0,
+            "updated_at": now_iso,
+        }
+
+    async def reset_exchange_wallet(self, user_id: str, exchange: str) -> Dict:
+        """Reset a per-exchange paper wallet to zero balance."""
+        await self.init_db()
+        exchange = exchange.lower()
+        native = self._native_currency_for(exchange)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await self.collection.update_one(
+            {"user_id": user_id, "type": "paper_exchange", "exchange": exchange},
+            {
+                "$set": {
+                    "balances": {native: 0.0},
+                    "updated_at": now_iso,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "type": "paper_exchange",
+                    "exchange": exchange,
+                    "created_at": now_iso,
+                },
+            },
+            upsert=True,
+        )
+        return {
+            "exchange": exchange,
+            "balances": {native: 0.0},
+            "native_currency": native,
+            "available": 0.0,
+            "funded": False,
+            "updated_at": now_iso,
+        }
+
+    async def reserve_exchange_funds(
+        self, user_id: str, exchange: str, amount: float, currency: str
+    ) -> Tuple[bool, str]:
+        """Atomically reserve funds from a per-exchange paper wallet.
+
+        Falls back to the global paper wallet if the exchange wallet is empty,
+        preserving backward-compatibility with single-wallet seeding.
+        """
+        await self.init_db()
+        exchange = exchange.lower()
+        currency = currency.upper()
+        native = self._native_currency_for(exchange)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        result = await self.collection.find_one_and_update(
+            {
+                "user_id": user_id,
+                "type": "paper_exchange",
+                "exchange": exchange,
+                f"balances.{currency}": {"$gte": amount},
+            },
+            {
+                "$inc": {f"balances.{currency}": -amount},
+                "$set": {"updated_at": now_iso},
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        if result:
+            return True, f"Reserved {amount:.2f} {currency} from {exchange} wallet"
+
+        # Fall through to the global paper wallet for backward compatibility.
+        ok, msg = await self.reserve_funds(user_id, amount, currency)
+        return ok, msg
+
 
 paper_wallet_service = PaperWalletService()

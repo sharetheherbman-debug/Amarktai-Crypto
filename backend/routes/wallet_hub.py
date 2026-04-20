@@ -259,6 +259,17 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
         except Exception:
             pass
 
+        # ── Unlocked exchanges and per-platform wallets ───────────────────
+        unlocked_exchanges: list = []
+        platform_wallets: dict = {}
+        try:
+            from services.canonical import get_unlocked_exchanges, get_platform_wallet_totals_zar
+            unlocked_exchanges = await get_unlocked_exchanges(user_id)
+            platform_totals = await get_platform_wallet_totals_zar(user_id)
+            platform_wallets = platform_totals.get("by_exchange", {})
+        except Exception:
+            pass
+
         return {
             "mode": mode,
             # ── Mode-aware summary (primary fields consumed by WalletHub UI) ──
@@ -286,9 +297,13 @@ async def get_wallet_status_v2(user_id: str = Depends(get_current_user)):
                 "funded_status": "FUNDED" if (paper_total > 0 or paper_bots_count > 0) else "UNFUNDED",
                 "as_of": now_iso,
             },
+            # ── Per-platform wallet breakdown (canonical for WalletHub) ──────
+            "platform_wallets": platform_wallets,
+            "unlocked_exchanges": unlocked_exchanges,
             "live": {
                 "supported_exchanges": list(SUPPORTED_PLATFORMS),
                 "configured_exchanges": configured_exchanges,
+                "unlocked_exchanges": unlocked_exchanges,
                 "balances": live_balances,
                 "as_of": now_iso,
             },
@@ -1335,4 +1350,196 @@ async def currency_converter(data: dict, user_id: str = Depends(get_current_user
         raise
     except Exception as e:
         logger.error(f"Currency converter error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Per-Platform Paper Wallet Endpoints
+# ============================================================================
+# These endpoints implement the canonical per-platform paper wallet model:
+#   GET  /api/wallet/platform                   — list all platform wallets
+#   GET  /api/wallet/platform/{exchange}        — single platform wallet
+#   POST /api/wallet/platform/{exchange}/fund   — fund a platform wallet
+#   POST /api/wallet/platform/{exchange}/reset  — reset to zero
+#   GET  /api/wallet/platform/summary           — ZAR totals across all platforms
+# ============================================================================
+
+
+class PlatformWalletFundRequest(BaseModel):
+    """Request to fund a per-platform paper wallet."""
+    amount: float
+    currency: Optional[str] = None  # defaults to the exchange's native currency
+    confirmed: bool = False
+
+
+class PlatformWalletResetRequest(BaseModel):
+    confirm: bool = False
+
+
+@router.get("/platform/summary")
+async def get_platform_wallet_summary(user_id: str = Depends(get_current_user)):
+    """Canonical ZAR-equivalent summary across all per-platform paper wallets.
+
+    Returns total portfolio equity in ZAR with a per-exchange breakdown.
+    All values are reported in ZAR regardless of native currency (USDT, ZAR, etc.).
+
+    This is the canonical source for:
+    - countdown
+    - overview / profit tiles
+    - wallet hub portfolio total
+    """
+    from services.canonical import get_platform_wallet_totals_zar, get_unlocked_exchanges
+    try:
+        totals = await get_platform_wallet_totals_zar(user_id)
+        unlocked = await get_unlocked_exchanges(user_id)
+        return {
+            "success": True,
+            "total_portfolio_zar": totals["combined_zar"],
+            "platform_wallets_zar": totals["total_zar"],
+            "global_wallet_zar": totals["global_wallet_zar"],
+            "by_exchange": totals["by_exchange"],
+            "unlocked_exchanges": unlocked,
+            "reporting_currency": "ZAR",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error("Platform wallet summary error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/platform")
+async def list_platform_wallets(user_id: str = Depends(get_current_user)):
+    """List all per-platform paper wallets for the authenticated user.
+
+    Returns all existing exchange wallets plus stubs for unlocked exchanges
+    that haven't been explicitly funded yet.
+    Only unlocked exchanges (API key present AND tested) are included.
+    """
+    from services.canonical import get_unlocked_exchanges
+    try:
+        unlocked = await get_unlocked_exchanges(user_id)
+        existing = await paper_wallet_service.get_all_exchange_wallets(user_id)
+
+        # Merge: ensure every unlocked exchange has an entry (even if unfunded)
+        wallets: dict = {}
+        for exch in unlocked:
+            if exch in existing:
+                wallets[exch] = existing[exch]
+            else:
+                wallets[exch] = {
+                    "exchange": exch,
+                    "balances": {paper_wallet_service._native_currency_for(exch): 0.0},
+                    "native_currency": paper_wallet_service._native_currency_for(exch),
+                    "available": 0.0,
+                    "funded": False,
+                    "updated_at": None,
+                }
+
+        return {
+            "success": True,
+            "unlocked_exchanges": unlocked,
+            "platform_wallets": wallets,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error("List platform wallets error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/platform/{exchange}")
+async def get_platform_wallet(
+    exchange: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Get the paper wallet for a specific exchange.
+
+    Returns the current balance, native currency, and funded status.
+    No authentication against API keys — returns data for any exchange name.
+    """
+    try:
+        wallet = await paper_wallet_service.get_exchange_wallet(user_id, exchange.lower())
+        return {"success": True, **wallet}
+    except Exception as e:
+        logger.error("Get platform wallet error (%s): %s", exchange, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/platform/{exchange}/fund")
+async def fund_platform_wallet(
+    exchange: str,
+    request: PlatformWalletFundRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Fund the paper wallet for a specific exchange.
+
+    Requires confirmed=True.  The exchange does NOT need to be unlocked —
+    operators may pre-fund paper wallets before adding API keys.
+
+    Args:
+        exchange: Exchange name (e.g. 'luno', 'binance')
+        amount:   Positive amount to add
+        currency: Currency code (defaults to the exchange's native currency)
+        confirmed: Must be True
+    """
+    if not request.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="confirmed must be true to fund a platform paper wallet",
+        )
+    if request.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+
+    exchange = exchange.lower()
+    if exchange not in SUPPORTED_PLATFORMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported exchange '{exchange}'. Supported: {list(SUPPORTED_PLATFORMS)}",
+        )
+
+    try:
+        result = await paper_wallet_service.fund_exchange_wallet(
+            user_id, exchange, request.amount, request.currency
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            await db.audit_logs_collection.insert_one({
+                "user_id": user_id,
+                "action": "platform_paper_wallet_funded",
+                "details": {
+                    "exchange": exchange,
+                    "amount": request.amount,
+                    "currency": (request.currency or result.get("native_currency", "")).upper(),
+                },
+                "timestamp": now_iso,
+            })
+        except Exception as audit_err:
+            logger.warning("Platform wallet fund audit failed: %s", audit_err)
+        return {"success": True, **result, "funded_amount": request.amount}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Fund platform wallet error (%s): %s", exchange, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/platform/{exchange}/reset")
+async def reset_platform_wallet(
+    exchange: str,
+    request: PlatformWalletResetRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Reset the per-exchange paper wallet to zero balance."""
+    if not request.confirm:
+        raise HTTPException(status_code=400, detail="confirm must be true to reset a platform wallet")
+    exchange = exchange.lower()
+    if exchange not in SUPPORTED_PLATFORMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported exchange '{exchange}'. Supported: {list(SUPPORTED_PLATFORMS)}",
+        )
+    try:
+        result = await paper_wallet_service.reset_exchange_wallet(user_id, exchange)
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error("Reset platform wallet error (%s): %s", exchange, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
