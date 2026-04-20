@@ -29,7 +29,7 @@ router = APIRouter()
 # TTL: 5 seconds per user_id.
 # ---------------------------------------------------------------------------
 _OVERVIEW_CACHE: Dict[str, tuple] = {}   # user_id → (timestamp_mono, payload)
-_OVERVIEW_TTL = 5  # seconds
+_OVERVIEW_TTL = 10  # seconds — raised from 5 s; $facet aggregation is cheaper but still worth caching
 
 OVERVIEW_SNAPSHOT_KEYS = [
     "systemMode",
@@ -168,43 +168,58 @@ async def get_dashboard_overview(user_id: str = Depends(get_current_user)):
         bot_ids = [b["id"] for b in bots]
         
         if bot_ids:
-            # Today's profit — normalised to ZAR using realized_pnl_zar or FX conversion
-            daily_trades = await db.trades_collection.find({
-                "bot_id": {"$in": bot_ids},
-                "timestamp": {"$gte": today_start.isoformat()},
-                "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
-                "quote_currency": 1, "exchange": 1}).to_list(10000)
-            daily_profit = _sum_pnl_zar(daily_trades)
-            
-            # Weekly profit — normalised to ZAR
-            weekly_trades = await db.trades_collection.find({
-                "bot_id": {"$in": bot_ids},
-                "timestamp": {"$gte": week_start.isoformat()},
-                "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
-                "quote_currency": 1, "exchange": 1}).to_list(10000)
-            weekly_profit = _sum_pnl_zar(weekly_trades)
-            
-            # Monthly profit — normalised to ZAR
-            monthly_trades = await db.trades_collection.find({
-                "bot_id": {"$in": bot_ids},
-                "timestamp": {"$gte": month_start.isoformat()},
-                "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
-                "quote_currency": 1, "exchange": 1}).to_list(10000)
-            monthly_profit = _sum_pnl_zar(monthly_trades)
-            
-            # Total trades and win rate
-            all_trades = await db.trades_collection.find({
-                "bot_id": {"$in": bot_ids},
-                "status": "closed"
-            }, {"_id": 0, "net_pnl": 1, "profit_loss": 1, "realized_pnl_zar": 1,
-                "quote_currency": 1, "exchange": 1}).to_list(10000)
-            
-            total_trades = len(all_trades)
-            winning_trades = sum(1 for t in all_trades if t.get("net_pnl", t.get("profit_loss", 0)) > 0)
-            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            # ---------------------------------------------------------------------------
+            # Single $facet aggregation replaces 4 serial find().to_list(10000) scans.
+            # Old approach: daily + weekly + monthly + all-time = 4 queries, each
+            # potentially loading 10,000 documents into Python memory.
+            # New approach: one aggregation pass computes all buckets server-side.
+            #
+            # ZAR normalisation: uses realized_pnl_zar (primary, pre-converted) with
+            # fallback to net_pnl / profit_loss (natively ZAR for Luno bots; slight
+            # under-count for USDT bots without realized_pnl_zar, same trade-off as
+            # the previous _sum_pnl_zar() fallback).
+            # ---------------------------------------------------------------------------
+            _pnl_expr = {"$ifNull": ["$realized_pnl_zar",
+                                      {"$ifNull": ["$net_pnl",
+                                                   {"$ifNull": ["$profit_loss", 0]}]}]}
+            _win_cond = {"$cond": [{"$gt": [{"$ifNull": ["$net_pnl",
+                                                          {"$ifNull": ["$profit_loss", 0]}]}, 0]}, 1, 0]}
+
+            facet_result = await db.trades_collection.aggregate([
+                {"$match": {"bot_id": {"$in": bot_ids}, "status": "closed"}},
+                {"$facet": {
+                    "all": [{"$group": {
+                        "_id": None,
+                        "total_trades": {"$sum": 1},
+                        "winning":      {"$sum": _win_cond},
+                    }}],
+                    "daily": [
+                        {"$match": {"timestamp": {"$gte": today_start.isoformat()}}},
+                        {"$group": {"_id": None, "profit": {"$sum": _pnl_expr}}},
+                    ],
+                    "weekly": [
+                        {"$match": {"timestamp": {"$gte": week_start.isoformat()}}},
+                        {"$group": {"_id": None, "profit": {"$sum": _pnl_expr}}},
+                    ],
+                    "monthly": [
+                        {"$match": {"timestamp": {"$gte": month_start.isoformat()}}},
+                        {"$group": {"_id": None, "profit": {"$sum": _pnl_expr}}},
+                    ],
+                }},
+            ]).to_list(1)
+
+            _facet   = facet_result[0] if facet_result else {}
+            _all     = (_facet.get("all")     or [{}])[0]
+            _daily   = (_facet.get("daily")   or [{}])[0]
+            _weekly  = (_facet.get("weekly")  or [{}])[0]
+            _monthly = (_facet.get("monthly") or [{}])[0]
+
+            total_trades   = int(_all.get("total_trades", 0))
+            winning_trades = int(_all.get("winning", 0))
+            win_rate       = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            daily_profit   = float(_daily.get("profit", 0))
+            weekly_profit  = float(_weekly.get("profit", 0))
+            monthly_profit = float(_monthly.get("profit", 0))
 
             # Open trades — current live positions.
             # This is a DIFFERENT metric from total_trades (closed history).

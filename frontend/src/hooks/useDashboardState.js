@@ -479,6 +479,11 @@ export default function useDashboardState(navigate) {
       loadOverviewData();
       loadRiskStatus();
       loadLearningStatus();
+      // Low-priority autopilot status indicators — polled every 30s rather than
+      // on every bot event (where they were causing unnecessary request storms).
+      loadAutoSpawnStatus();
+      loadAutopilotGrowthStatus();
+      loadAutopilotReinvestStatus();
       if (realtimeFallback) {
         loadSystemHealth();
         loadCountdown();
@@ -489,26 +494,18 @@ export default function useDashboardState(navigate) {
     return () => clearInterval(interval);
   }, [token, user, realtimeFallback]);
 
+  // Track realtimeFallback via WS connection events instead of polling the backend
+  // every 10s.  The previous approach fired 6 extra backend requests per minute
+  // (GET /diagnostics/realtime) purely to check whether WS was connected — information
+  // the client already has locally via realtimeClient.connected.
   useEffect(() => {
     if (!token) return;
-    let mounted = true;
-    const checkRealtimeStatus = async () => {
-      try {
-        const res = await get('/diagnostics/realtime');
-        if (!mounted) return;
-        setRealtimeFallback(safeNumber(res?.ws_connected, 0) === 0);
-      } catch (err) {
-        if (mounted) {
-          setRealtimeFallback(true);
-        }
-      }
-    };
-    checkRealtimeStatus();
-    const interval = setInterval(checkRealtimeStatus, 10000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
+    // Set initial state synchronously from current client status.
+    setRealtimeFallback(!realtimeClient.connected);
+    const offConn = realtimeClient.on('connection', (payload) => {
+      setRealtimeFallback(payload?.status !== 'connected');
+    });
+    return () => offConn();
   }, [token]);
 
   useEffect(() => {
@@ -668,12 +665,12 @@ export default function useDashboardState(navigate) {
   }, []);
 
   const refreshBotState = async () => {
+    // Keep the hot-path lean: only reload bot list + overview on every bot event.
+    // The 3 autopilot status endpoints are low-priority indicators that do not
+    // need to update on every trade/bot event — they are polled on the 30s interval.
     await Promise.all([
       loadBots(),
       loadOverviewData(),
-      loadAutoSpawnStatus(),
-      loadAutopilotGrowthStatus(),
-      loadAutopilotReinvestStatus()
     ]);
     if (showAdmin) {
       await Promise.all([loadAdminBots(), loadAdminUsers(), loadSystemStats(), loadAdminKeyMonitor()]);
@@ -761,10 +758,13 @@ export default function useDashboardState(navigate) {
       }));
       if (isUp) {
         if (!_wsConnectedOnce.current) {
-          // First connect only: do a full refresh to populate the dashboard.
+          // First connect: the mount effect already fired all 13 initial loads
+          // simultaneously. Calling refreshAllDashboardData() here would fire
+          // 15 MORE requests on top of those, causing a 28-request storm that
+          // trips the circuit breaker and creates 502 cascades.
+          // Skip the full refresh — the mount loads cover everything.
           _wsConnectedOnce.current = true;
-          console.log('✅ WebSocket connected (initial) — refreshing dashboard');
-          refreshAllDashboardData();
+          console.log('✅ WebSocket connected (initial) — mount loads already in flight, skipping duplicate refresh');
         } else {
           // Reconnect: polling intervals already keep data fresh.
           // Only do a lightweight refresh (overview + risk) rather than 15 parallel calls.
