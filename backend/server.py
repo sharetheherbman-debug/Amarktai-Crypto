@@ -960,42 +960,49 @@ async def batch_create_bots(data: dict, user_id: str = Depends(get_current_user)
     if bots_to_create:
         try:
             from services.paper_wallet_service import paper_wallet_service
+            from services.canonical import get_canonical_paper_wallet_equity
             from config import PAPER_STARTING_CAPITAL_ZAR
-            currency = quote_currency  # "ZAR" for luno, "USDT" for binance/kucoin/etc.
-            # total_required is in quote_currency units — quote_capital is the
-            # correctly FX-converted amount (R1000 / FX for USDT exchanges).
-            total_required = len(bots_to_create) * quote_capital
-            available = await paper_wallet_service.get_available_balance(user_id, currency)
-            # Auto-fund the paper wallet the first time (post-reset or first login)
-            # when the balance is 0 and starting capital is configured.  This matches
-            # the behaviour of the seed-luno-paper endpoint so batch-create works
-            # out-of-the-box without requiring a separate fund step.
-            # Note: auto-fund is always in ZAR.  For USDT exchanges the paper wallet
-            # service's reserve_funds() auto-converts ZAR→USDT at the paper FX rate, so
-            # a ZAR-funded wallet covers all exchanges transparently.
-            if available <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
+            # Affordability is ALWAYS computed in ZAR-equivalent terms regardless of
+            # the exchange's quote currency.  This prevents the USDT-balance=0 false
+            # negative that occurred when the wallet held ZAR only and the check read
+            # the USDT sub-balance (always 0 before the first trade).
+            #
+            # total_required_zar = number of bots × ZAR economic base per bot.
+            # canonical_base_capital_zar was written by _make_bot_record above; it is
+            # always the original ZAR value regardless of quote currency.
+            total_required_zar = len(bots_to_create) * capital_per_bot
+
+            # Auto-fund the paper wallet the first time (post-reset / first login)
+            # when ZAR balance is 0 and starting capital is configured.
+            zar_balance = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+            if zar_balance <= 0 and PAPER_STARTING_CAPITAL_ZAR > 0:
                 try:
                     await paper_wallet_service.fund(user_id, float(PAPER_STARTING_CAPITAL_ZAR), "ZAR")
-                    # Re-read available after funding (USDT will be available via ZAR conversion)
-                    available = await paper_wallet_service.get_available_balance(user_id, currency)
-                    if available <= 0:
-                        # USDT balance still 0 — fall back to full ZAR amount as proxy
-                        available = float(PAPER_STARTING_CAPITAL_ZAR)
                     logger.info(
                         "batch-create: auto-funded paper wallet with R%.2f ZAR for user %s",
                         PAPER_STARTING_CAPITAL_ZAR, user_id[:8],
                     )
                 except Exception as _fund_err:
-                    logger.warning(f"batch-create: auto-fund paper wallet failed: {_fund_err}")
-            if available < total_required:
+                    logger.warning("batch-create: auto-fund paper wallet failed: %s", _fund_err)
+
+            # Read total available ZAR-equivalent equity (ZAR + USDT×fx + other currencies)
+            equity_info = await get_canonical_paper_wallet_equity(user_id)
+            available_zar_equiv = float(equity_info.get("total_equity", 0) or 0)
+
+            if available_zar_equiv < total_required_zar:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Insufficient paper wallet funds ({currency}). Available: {available:.2f}, Required: {total_required:.2f}"
+                    detail=(
+                        f"Insufficient paper wallet funds. "
+                        f"Available: R{available_zar_equiv:.2f} ZAR-equivalent, "
+                        f"Required: R{total_required_zar:.2f} ZAR-equivalent "
+                        f"({len(bots_to_create)} bots × R{capital_per_bot:.2f}/bot)."
+                    ),
                 )
         except HTTPException:
             raise
         except Exception as e:
-            logger.warning(f"Paper wallet check failed for batch bots: {e}")
+            logger.warning("Paper wallet check failed for batch bots: %s", e)
         await db.bots_collection.insert_many(bots_to_create)
         try:
             from bot_lifecycle import bot_lifecycle

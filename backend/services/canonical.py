@@ -382,6 +382,24 @@ async def get_canonical_paper_wallet_equity(user_id: str) -> Dict[str, Any]:
     }
 
 
+async def get_total_paper_equity_zar(user_id: str) -> float:
+    """Convenience wrapper: return the canonical paper wallet total equity in ZAR.
+
+    This is the single callable for all code that needs a simple float ZAR total
+    (affordability checks, countdowns, overview).  It delegates to
+    ``get_canonical_paper_wallet_equity`` and returns only the scalar total.
+
+    Available ZAR + USDT×fx_rate + other supported currencies → ZAR sum.
+    Never raises — returns 0.0 on error.
+    """
+    try:
+        equity = await get_canonical_paper_wallet_equity(user_id)
+        return float(equity.get("total_equity", 0) or 0)
+    except Exception as exc:
+        logger.warning("get_total_paper_equity_zar failed for user %s: %s", user_id[:8], exc)
+        return 0.0
+
+
 async def get_latest_bot_decisions(user_id: str, bot_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     """Return latest machine-readable decision payload per bot for radar/status surfaces."""
     collection = getattr(db, "decisions_collection", None)

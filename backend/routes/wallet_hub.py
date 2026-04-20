@@ -432,7 +432,13 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
     available = await paper_wallet_service.get_balances(user_id)
     allocated = await get_paper_wallet_allocated_balances(user_id)
     totals = await get_paper_wallet_balances(user_id)
-    total_value = sum(float(value or 0) for value in totals.values())
+
+    # Use the canonical equity function to compute a correct ZAR-equivalent total.
+    # The naive sum(totals.values()) is WRONG when totals contains both ZAR and USDT
+    # because it treats 1 USDT as 1 ZAR (inflates the total by ~19×).
+    from services.canonical import get_canonical_paper_wallet_equity
+    equity_info = await get_canonical_paper_wallet_equity(user_id)
+    total_value_zar = float(equity_info.get("total_equity", 0) or 0)
 
     # Invariant: available_wallet_zar MUST equal available["ZAR"] (B).
     # Use the paper_wallet_service balance (unallocated funds) as the single source.
@@ -457,13 +463,15 @@ async def get_paper_wallet(user_id: str = Depends(get_current_user)):
         "required_funds_zar": summary.get("required_funds_zar", 0.0),
         "shortfall_zar": summary.get("shortfall_zar", 0.0),
         "status": summary.get("status", "ok"),
-        "funded_status": "FUNDED" if total_value > 0 else "UNFUNDED",
+        "funded_status": "FUNDED" if total_value_zar > 0 else "UNFUNDED",
         # Legacy balance breakdown (kept for backward compatibility)
         "user_id": user_id,
         "available": available_balances,
         "allocated": allocated,
         "balances": totals,
-        "total": round(total_value, 2),
+        # total is the canonical ZAR-equivalent sum (not a raw multi-currency sum)
+        "total": round(total_value_zar, 2),
+        "total_display_zar": round(total_value_zar, 2),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
