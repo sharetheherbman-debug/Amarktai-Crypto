@@ -700,7 +700,7 @@ class PaperTradingEngine:
                         return available
 
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
-            logger.warning("get_available_pairs: %s timed out fetching markets: %s", exchange, e)
+            logger.warning("get_available_pairs: %s timed out fetching markets: %r", exchange, e)
             # Return stale cache if available rather than falling back to hardcoded list
             if exchange in self.available_pairs_cache:
                 _stale_entry = self.available_pairs_cache[exchange]

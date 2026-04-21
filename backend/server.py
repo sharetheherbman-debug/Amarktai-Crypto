@@ -1729,7 +1729,8 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
                     continue
                 try:
                     trade_date = datetime.fromisoformat(str(_ts).replace('Z', '+00:00'))
-                except Exception:
+                except (ValueError, TypeError) as _ts_err:
+                    logger.debug("profit-history daily: skipping trade with bad timestamp %r: %s", _ts, _ts_err)
                     continue
                 days_ago = (today.date() - trade_date.date()).days
                 
@@ -1760,7 +1761,8 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
                     continue
                 try:
                     trade_date = datetime.fromisoformat(str(_ts).replace('Z', '+00:00'))
-                except Exception:
+                except (ValueError, TypeError) as _ts_err:
+                    logger.debug("profit-history weekly: skipping trade with bad timestamp %r: %s", _ts, _ts_err)
                     continue
                 days_ago = (today.date() - trade_date.date()).days
                 week_index = min(days_ago // 7, 3)  # 0-3 for 4 weeks
@@ -1787,7 +1789,8 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
                     continue
                 try:
                     trade_date = datetime.fromisoformat(str(_ts).replace('Z', '+00:00'))
-                except Exception:
+                except (ValueError, TypeError) as _ts_err:
+                    logger.debug("profit-history monthly: skipping trade with bad timestamp %r: %s", _ts, _ts_err)
                     continue
                 month_diff = (today.year - trade_date.year) * 12 + (today.month - trade_date.month)
                 if 0 <= month_diff < 6:
