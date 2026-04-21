@@ -88,6 +88,7 @@ from config import (
     RISK_MODE_CONFIG,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
+from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE as _DEFAULT_SYMBOL_UNIVERSE
 from realtime_events import rt_events
 
 # Module-level imports for AI/market-intelligence providers.
@@ -167,6 +168,12 @@ BOOTSTRAP_MIN_CONFIDENCE = float(os.getenv("BOOTSTRAP_MIN_CONFIDENCE", "0.30"))
 # cost are still allowed in paper mode for data-collection purposes, provided the expected
 # move is at least this threshold (not a zero-signal entry).
 PAPER_BYPASS_MIN_MOVE_PCT = float(os.getenv("PAPER_BYPASS_MIN_MOVE_PCT", "0.05"))
+# Net-edge floor for the paper-mode hard-edge bypass.
+# If net_edge is below this value (i.e. costs overwhelm expected move by more than this margin),
+# the bypass is cancelled even in paper mode.  Prevents systematically negative-edge trades
+# from going through just because a valid regime label exists.
+# Default: -0.10 % (trades whose costs exceed expected move by more than 0.10% are blocked).
+PAPER_BYPASS_MIN_NET_EDGE_PCT = float(os.getenv("PAPER_BYPASS_MIN_NET_EDGE_PCT", "-0.10"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -967,7 +974,7 @@ class PaperTradingEngine:
                 enforce_trading_gates("paper")
             except TradingGateError as e:
                 logger.error(f"Trading gate check failed: {e}")
-                return {"success": False, "bot_id": bot_id, "error": str(e)}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "mode_disabled", "error": str(e)}
             
             # Update status tracking
             self.is_running = True
@@ -1021,25 +1028,25 @@ class PaperTradingEngine:
                     f"Circuit breaker triggered: {bot_data['name'][:15]} - "
                     f"daily loss {daily_pnl_pct*100:.1f}% exceeds {circuit_breaker_loss_pct*100:.1f}%"
                 )
-                return {"success": False, "bot_id": bot_id, "error": "Circuit breaker: daily loss limit exceeded"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "drawdown_limit", "error": "Circuit breaker: daily loss limit exceeded"}
             
             # Check max drawdown
             max_drawdown = bot_data.get('max_drawdown', 0)
             if max_drawdown > max_drawdown_pct:
                 logger.warning(f"Max drawdown exceeded: {bot_data['name'][:15]} - {max_drawdown*100:.1f}% > {max_drawdown_pct*100:.1f}%")
-                return {"success": False, "bot_id": bot_id, "error": f"Max drawdown limit exceeded"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "drawdown_limit", "error": f"Max drawdown limit exceeded"}
             
             # Check daily trade limit
             trades_today = bot_data.get('trades_today', 0)
             if trades_today >= max_daily_trades:
                 logger.warning(f"Daily trade limit reached: {bot_data['name'][:15]} - {trades_today}/{max_daily_trades}")
-                return {"success": False, "bot_id": bot_id, "error": f"Daily trade limit reached"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "budget_exhausted", "error": f"Daily trade limit reached"}
             
             # 1. CHECK RATE LIMITER
             can_trade, reason = rate_limiter.can_trade(bot_id, exchange)
             if not can_trade:
                 logger.warning(f"Rate limit: {bot_data['name'][:15]} - {reason}")
-                return {"success": False, "bot_id": bot_id, "error": reason}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "symbol_cooldown", "error": reason}
             
             # 2. CHECK DATA SOURCE (PUBLIC vs AUTHENTICATED)
             # Use cached data_source from bot_data if available, otherwise check database
@@ -1103,6 +1110,9 @@ class PaperTradingEngine:
             # Restrict available_pairs to SCALPER_SYMBOL_UNIVERSE before any
             # symbol selection so scalpers never end up on illiquid long-tail pairs
             # where the edge they need for a quick scalp does not exist.
+            # Normal bots are restricted to DEFAULT_SYMBOL_UNIVERSE so they cannot
+            # become locked on a single off-universe pair (e.g. GRT/ZAR) and instead
+            # rotate across the curated diversified universe for their exchange.
             _bot_type_for_universe = str(bot_data.get("bot_type") or "normal").lower()
             if _bot_type_for_universe == "scalper":
                 try:
@@ -1114,7 +1124,23 @@ class PaperTradingEngine:
                             available_pairs = _filtered
                 except Exception:
                     pass  # non-fatal: fall through to full universe
-            if requested_symbol and requested_symbol in available_pairs:
+            else:
+                # Normal bots: restrict to DEFAULT_SYMBOL_UNIVERSE for this exchange
+                # so they rotate across a curated set rather than staying on any one
+                # seed pair that may be illiquid or persistently low-confidence.
+                try:
+                    _normal_subset = _DEFAULT_SYMBOL_UNIVERSE.get(exchange, [])
+                    if _normal_subset:
+                        _filtered = [p for p in available_pairs if p in _normal_subset]
+                        if _filtered:
+                            available_pairs = _filtered
+                except Exception:
+                    pass  # non-fatal: fall through to full universe
+            # Scalpers honor the bot's fixed pair assignment.
+            # Normal bots always run through the universe selector so the fleet
+            # naturally diversifies across all pairs in the allowed universe on each
+            # tick rather than every bot staying locked on its seed pair forever.
+            if _bot_type_for_universe == "scalper" and requested_symbol and requested_symbol in available_pairs:
                 symbol = requested_symbol
                 _used_fixed_pair = True
                 self._last_symbol_selection = {
@@ -1623,7 +1649,7 @@ class PaperTradingEngine:
             _is_strongly_bearish = (
                 trend == "bearish"
                 and _ml_direction_for_check in ("down", "sell", "bearish")
-                and _ml_conf_for_check >= 0.45
+                and _ml_conf_for_check >= 0.35
             )
             if _is_strongly_bearish:
                 logger.info(
@@ -1811,6 +1837,12 @@ class PaperTradingEngine:
                 _is_paper_mode_bot
                 and _regime_is_valid
                 and expected_move_pct > PAPER_BYPASS_MIN_MOVE_PCT
+                # Only bypass when net edge is not deeply negative: if estimated
+                # round-trip cost overwhelms expected move by >0.10%, the trade has
+                # genuinely negative expectancy and should not be allowed even in paper
+                # mode.  This prevents systematic losses driven by entries where costs
+                # are far larger than the available edge.
+                and _net_edge_pct > PAPER_BYPASS_MIN_NET_EDGE_PCT
             )
             if _paper_hard_edge_bypass:
                 _hard_edge_blocked = False
@@ -2123,7 +2155,7 @@ class PaperTradingEngine:
             _regime_indicator_bypass = (
                 _regime_known
                 and _indicators_valid
-                and avg_confidence >= 0.30
+                and avg_confidence >= 0.38
                 and confidence_sources >= 1
             )
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
@@ -2198,6 +2230,7 @@ class PaperTradingEngine:
                 return {
                     "success": False,
                     "bot_id": bot_id,
+                    "skip_reason": "budget_exhausted",
                     "error": "Bot capital is zero"
                 }
 
@@ -2224,6 +2257,7 @@ class PaperTradingEngine:
                 return {
                     "success": False,
                     "bot_id": bot_id,
+                    "skip_reason": "budget_exhausted",
                     "error": (
                         f"Insufficient paper wallet funds: "
                         f"{_available_for_trade:.2f} {_trade_currency} < {trade_amount:.2f}"

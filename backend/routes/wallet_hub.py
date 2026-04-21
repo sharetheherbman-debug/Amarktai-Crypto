@@ -1394,7 +1394,8 @@ async def get_platform_wallet_summary(user_id: str = Depends(get_current_user)):
         unlocked = await get_unlocked_exchanges(user_id)
         return {
             "success": True,
-            "total_portfolio_zar": totals["combined_zar"],
+            # total_portfolio_zar = platform wallets only (no legacy global wallet added on top)
+            "total_portfolio_zar": totals["total_zar"],
             "platform_wallets_zar": totals["total_zar"],
             "global_wallet_zar": totals["global_wallet_zar"],
             "by_exchange": totals["by_exchange"],

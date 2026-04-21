@@ -99,21 +99,23 @@ async def get_user_countdowns(user_id: str = Depends(get_current_user)):
 
 
 async def _get_canonical_portfolio_zar(user_id: str, user_doc=None) -> float:
-    """Return canonical portfolio value in ZAR including USDT balances converted to ZAR.
+    """Return canonical portfolio value in ZAR: sum of per-exchange platform wallets.
 
     Priority:
-    1. Paper wallet canonical equity (available + allocated, all currencies → ZAR)
+    1. Platform wallet totals ZAR (sum of per-exchange paper wallets — canonical for paper mode)
     2. Fallback to user.total_capital (ZAR only — less accurate)
 
     This is the ONE source of truth for countdown / progress / equity displays.
+    The legacy global paper wallet is NOT included to avoid double-counting.
     """
     try:
-        from services.canonical import get_total_paper_equity_zar
-        total = await get_total_paper_equity_zar(user_id)
+        from services.canonical import get_platform_wallet_totals_zar
+        platform_totals = await get_platform_wallet_totals_zar(user_id)
+        total = float(platform_totals.get("total_zar", 0))
         if total > 0:
             return total
     except Exception as e:
-        logger.warning("canonical equity fetch failed for %s: %s", user_id[:8], e)
+        logger.warning("platform wallet totals fetch failed for %s: %s", user_id[:8], e)
     # Fallback: user.total_capital (ZAR only)
     if user_doc is None:
         user_doc = await db.users_collection.find_one({"id": user_id}, {"_id": 0})
