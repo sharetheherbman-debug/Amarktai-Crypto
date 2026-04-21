@@ -1099,6 +1099,21 @@ class PaperTradingEngine:
             # Track whether pair came from the bot's fixed assignment so the
             # portfolio guard below can attempt a dynamic fallback when blocked.
             _used_fixed_pair = False
+            # Scalpers trade only the highest-volume, tightest-spread pairs.
+            # Restrict available_pairs to SCALPER_SYMBOL_UNIVERSE before any
+            # symbol selection so scalpers never end up on illiquid long-tail pairs
+            # where the edge they need for a quick scalp does not exist.
+            _bot_type_for_universe = str(bot_data.get("bot_type") or "normal").lower()
+            if _bot_type_for_universe == "scalper":
+                try:
+                    from services.symbol_universe import SCALPER_SYMBOL_UNIVERSE as _su
+                    _scalper_subset = _su.get(exchange, [])
+                    if _scalper_subset:
+                        _filtered = [p for p in available_pairs if p in _scalper_subset]
+                        if _filtered:
+                            available_pairs = _filtered
+                except Exception:
+                    pass  # non-fatal: fall through to full universe
             if requested_symbol and requested_symbol in available_pairs:
                 symbol = requested_symbol
                 _used_fixed_pair = True

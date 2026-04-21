@@ -42,14 +42,33 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Default symbol universes per exchange  (configurable at runtime)
 # ---------------------------------------------------------------------------
+# Note: Luno uses BTC/ZAR (CCXT normalises their native XBT ticker to BTC).
+# The universe is ordered from most liquid to least — the rotation counter
+# cycles through all entries so bots naturally diversify over time.
 DEFAULT_SYMBOL_UNIVERSE: Dict[str, List[str]] = {
-    "luno": ["XBT/ZAR", "BTC/ZAR", "ETH/ZAR", "XRP/ZAR"],
-    "binance": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT"],
-    "kucoin": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT"],
-    "bybit": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT"],
-    "kraken": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT"],
-    "bitget": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT"],
-    "gate": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT"],
+    "luno":    ["BTC/ZAR", "ETH/ZAR", "XRP/ZAR", "SOL/ZAR", "LTC/ZAR"],
+    "binance": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "ADA/USDT", "DOGE/USDT"],
+    "kucoin":  ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT"],
+    "bybit":   ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT"],
+    "kraken":  ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT"],
+    "bitget":  ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT"],
+    "gate":    ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT"],
+}
+
+# Scalper-specific symbol universe: restricted to the highest-volume, tightest-spread
+# pairs on each exchange.  Scalpers trade for small, fast moves; wider-spread or
+# lower-volume pairs eat into the thin edge a scalp targets.
+# Two pairs per exchange forces measurable diversity: roughly half the scalper fleet
+# will be on BTC, half on ETH.
+SCALPER_SYMBOL_UNIVERSE: Dict[str, List[str]] = {
+    "luno":    ["BTC/ZAR", "ETH/ZAR"],
+    "binance": ["BTC/USDT", "ETH/USDT"],
+    "kucoin":  ["BTC/USDT", "ETH/USDT"],
+    "bybit":   ["BTC/USDT", "ETH/USDT"],
+    "kraken":  ["BTC/USDT", "ETH/USDT"],
+    "bitget":  ["BTC/USDT", "ETH/USDT"],
+    "gate":    ["BTC/USDT", "ETH/USDT"],
+    "coinbase":["BTC/USDT", "ETH/USDT"],
 }
 
 # Penalty multiplier applied to recently-traded symbols (0 = no score, 1 = full score)
@@ -292,12 +311,13 @@ class SymbolUniverseService:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-    def get_universe(self, exchange: str, bot_override: Optional[List[str]] = None) -> List[str]:
+    def get_universe(self, exchange: str, bot_override: Optional[List[str]] = None, bot_type: str = "normal") -> List[str]:
         """Return the symbol universe list for *exchange*.
 
         When PAPER_PAIR_WHITELIST_ENABLED is False (default) the dynamic
         exchange pair list is used and this returns the DEFAULT_SYMBOL_UNIVERSE
-        as a reference / diagnostic aid only (not used as a hard filter).
+        (or SCALPER_SYMBOL_UNIVERSE for scalpers) as a reference / diagnostic
+        aid only (not used as a hard filter).
         """
         if bot_override:
             return list(bot_override)
@@ -305,6 +325,8 @@ class SymbolUniverseService:
             whitelist = PAPER_PAIR_WHITELIST.get(exchange)
             if whitelist:
                 return list(whitelist)
+        if str(bot_type).lower() == "scalper":
+            return list(SCALPER_SYMBOL_UNIVERSE.get(exchange) or DEFAULT_SYMBOL_UNIVERSE.get(exchange) or [])
         return list(DEFAULT_SYMBOL_UNIVERSE.get(exchange) or [])
 
     def last_n_symbols(self, bot_id: str) -> List[str]:

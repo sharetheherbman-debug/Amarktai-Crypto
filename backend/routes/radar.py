@@ -115,6 +115,60 @@ def _compute_exit_forecast(
     return "holding"
 
 
+def _derive_no_position_text(bot: Dict) -> str:
+    """Return a truthful human-readable reason why this bot has no open position.
+
+    Priority:
+    1. last_eligibility_code / last_skip_reason stored by the engine
+    2. Infer from bot status fields
+    3. Generic "scanning" fallback
+    """
+    # Mapping from machine codes to readable phrases
+    _CODE_TO_TEXT: Dict[str, str] = {
+        "allowed":                  "Scanning — eligible, awaiting signal",
+        "scanning_for_entry":       "Scanning for entry signal",
+        "low_confidence":           "Scanning — signal confidence below threshold",
+        "hard_edge_filter":         "Scanning — expected move below round-trip cost",
+        "edge_gate":                "Scanning — edge insufficient (cost + buffer not covered)",
+        "no_usable_signal":         "Scanning — no usable signal from AI sources",
+        "spread_too_wide":          "Waiting — bid/ask spread too wide for entry",
+        "scalper_spread_too_wide":  "Waiting — spread exceeds scalper max",
+        "scalper_ev_too_low":       "Waiting — expected value too low for scalp",
+        "expectancy_gate":          "Waiting — estimated trade expectancy negative",
+        "bearish_long_blocked":     "Waiting — bearish regime; long entry blocked",
+        "regime_standdown":         "Stand-down — extreme volatile downtrend detected",
+        "adaptive_stand_down":      "Stand-down — consecutive losses; cooling off",
+        "open_position_active":     "In position",
+        "portfolio_guard":          "Waiting — max concurrent positions on this pair reached",
+        "symbol_cooldown":          "Waiting — pair in cooldown after recent trade",
+        "drawdown_limit":           "Paused — drawdown limit reached",
+        "budget_exhausted":         "Paused — bot capital below minimum",
+        "no_price_data":            "Waiting — no valid price from exchange",
+        "low_liquidity":            "Waiting — order book depth insufficient",
+        "emergency_stop":           "Stopped — emergency stop active",
+        "user_paused":              "Paused by user",
+        "mode_disabled":            "Paused — trading mode disabled",
+        "signal_mismatch":          "Scanning — conflicting AI signals, skipping cycle",
+        "hurst_mismatch":           "Scanning — market regime mismatch for this bot type",
+        "cycle_error":              "Scanning — cycle error; retrying next tick",
+        "trade_rejected":           "Scanning — entry conditions not met",
+        "unknown":                  "Scanning for entry signal",
+    }
+    code = (
+        bot.get("last_eligibility_code")
+        or bot.get("last_skip_reason")
+        or (bot.get("last_eligibility") or {}).get("reason_code")
+    )
+    if code:
+        code_lower = str(code).lower()
+        if code_lower in _CODE_TO_TEXT:
+            return _CODE_TO_TEXT[code_lower]
+        # Unrecognised code — surface it directly so it's still informative
+        return f"Scanning — last skip: {code}"
+    # No stored code yet (e.g. fresh bot that hasn't run a tick)
+    return "Scanning for entry signal"
+
+
 def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -> Dict:
     """Build a single radar entry from bot + its current open trade."""
     bot_id = str(bot.get("id") or bot.get("_id") or bot.get("bot_id", ""))
@@ -285,7 +339,7 @@ def _compute_radar_entry(bot: Dict, open_trade: Optional[Dict], now: datetime) -
         "hold_timer_display": None,
         "next_action": "WAIT",
         "next_action_reason_code": "NO_POSITION",
-        "next_action_reason_text": "No open position – waiting for entry signal",
+        "next_action_reason_text": _derive_no_position_text(bot),
         "market_regime": bot.get("market_regime") if bot.get("market_regime") is not None else "unknown",
         "regime_confidence": _safe_float(_first_non_none(bot.get("canonical_regime_confidence"), bot.get("confidence_score"), bot.get("confidence")), 0.0),
         "confidence_score": _safe_float(_first_non_none(bot.get("confidence_score"), bot.get("confidence")), 0.0),
