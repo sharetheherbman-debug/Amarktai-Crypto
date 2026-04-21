@@ -202,7 +202,7 @@ async def seed_paper_fleet(
         try:
             from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE, SCALPER_SYMBOL_UNIVERSE
             _normal_pairs = DEFAULT_SYMBOL_UNIVERSE.get(exchange_lower) or [default_pair]
-            _scalper_pairs = SCALPER_SYMBOL_UNIVERSE.get(exchange_lower) or _normal_pairs[:2] or [default_pair]
+            _scalper_pairs = SCALPER_SYMBOL_UNIVERSE.get(exchange_lower) or (_normal_pairs[:2] if _normal_pairs else [default_pair])
         except Exception:
             _normal_pairs = [default_pair]
             _scalper_pairs = [default_pair]
