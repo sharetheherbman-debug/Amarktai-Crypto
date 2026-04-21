@@ -1329,7 +1329,6 @@ export default function useDashboardState(navigate) {
       setRiskStatus(res);
     } catch (err) {
       console.error('Risk status fetch error:', err);
-      notifyError(err);
     }
   };
 
@@ -1339,7 +1338,6 @@ export default function useDashboardState(navigate) {
       setAutoSpawnStatus(res);
     } catch (err) {
       console.error('Auto-spawn status fetch error:', err);
-      notifyError(err);
       setAutoSpawnStatus(null);
     }
   };
@@ -1350,7 +1348,6 @@ export default function useDashboardState(navigate) {
       setAutopilotGrowthStatus(res.data);
     } catch (err) {
       console.error('Autopilot growth status fetch error:', err);
-      notifyError(err);
       setAutopilotGrowthStatus(null);
     }
   };
@@ -1361,7 +1358,6 @@ export default function useDashboardState(navigate) {
       setAutopilotReinvestStatus(res.data);
     } catch (err) {
       console.error('Autopilot reinvest status fetch error:', err);
-      notifyError(err);
       setAutopilotReinvestStatus(null);
     }
   };

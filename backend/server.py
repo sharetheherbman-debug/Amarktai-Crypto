@@ -1871,11 +1871,16 @@ async def countdown_to_million(user_id: str = Depends(get_current_user)):
         stats = await ledger.get_stats(user_id)
         trades_total = stats.get("total_fills", 0)
 
-        # CANONICAL EQUITY: use the single source of truth that converts ALL
-        # per-currency balances (ZAR + USDT + BTC etc.) to ZAR before summing.
-        # This prevents the old max()/raw-sum bugs where USDT was counted as ZAR.
-        equity_info = await _get_canonical_equity(user_id)
-        total_capital = float(equity_info.get("total_equity", 0) or 0)
+        # CANONICAL EQUITY: sum of per-exchange platform wallets, converted to ZAR.
+        # Using platform wallet totals (not the legacy global paper wallet) so that
+        # the countdown figure agrees with the wallet hub / platform summary displays.
+        # The legacy global wallet is excluded to prevent double-counting.
+        from services.canonical import get_platform_wallet_totals_zar as _get_platform_totals
+        try:
+            _platform = await _get_platform_totals(user_id)
+            total_capital = float(_platform.get("total_zar", 0) or 0)
+        except Exception:
+            total_capital = 0.0
 
         # Fallback: if canonical returns 0 (wallet not yet seeded), try ledger equity
         if total_capital <= 0:

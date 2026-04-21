@@ -1643,7 +1643,7 @@ class PaperTradingEngine:
             _is_strongly_bearish = (
                 trend == "bearish"
                 and _ml_direction_for_check in ("down", "sell", "bearish")
-                and _ml_conf_for_check >= 0.45
+                and _ml_conf_for_check >= 0.35
             )
             if _is_strongly_bearish:
                 logger.info(
@@ -1831,6 +1831,12 @@ class PaperTradingEngine:
                 _is_paper_mode_bot
                 and _regime_is_valid
                 and expected_move_pct > PAPER_BYPASS_MIN_MOVE_PCT
+                # Only bypass when net edge is not deeply negative: if estimated
+                # round-trip cost overwhelms expected move by >0.10%, the trade has
+                # genuinely negative expectancy and should not be allowed even in paper
+                # mode.  This prevents systematic losses driven by entries where costs
+                # are far larger than the available edge.
+                and _net_edge_pct > -0.10
             )
             if _paper_hard_edge_bypass:
                 _hard_edge_blocked = False
@@ -2143,7 +2149,7 @@ class PaperTradingEngine:
             _regime_indicator_bypass = (
                 _regime_known
                 and _indicators_valid
-                and avg_confidence >= 0.30
+                and avg_confidence >= 0.38
                 and confidence_sources >= 1
             )
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
