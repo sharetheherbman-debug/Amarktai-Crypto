@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRealtimeEvent, useLastUpdate } from '../hooks/useRealtime';
-import { get, notifyError } from '../lib/apiClient';
+import { get } from '../lib/apiClient';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Line } from 'react-chartjs-2';
@@ -153,7 +153,7 @@ export default function PrometheusMetrics() {
         setSystemHealth(healthData);
       } catch (healthErr) {
         console.error('Error fetching system health:', healthErr);
-        notifyError(healthErr);
+        // Metrics/health are optional — do not raise a toast for polling failures
       }
       
       setError(null);
@@ -162,7 +162,7 @@ export default function PrometheusMetrics() {
       const errorMessage = err.message || 'Failed to fetch metrics';
       const statusCode = err.status || err.response?.status || 'Not available';
       setError(`Metrics not available yet (${statusCode}): ${errorMessage}`);
-      notifyError(err);
+      // Metrics endpoint is optional — suppress toast spam from repeated polling failures
     } finally {
       setLoading(false);
     }

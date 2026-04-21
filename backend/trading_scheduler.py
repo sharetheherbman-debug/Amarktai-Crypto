@@ -457,6 +457,10 @@ class TradingScheduler:
                 "trade_rejected":          EligibilityCode.TRADE_REJECTED,
                 # No usable signal from any AI source
                 "no_usable_signal":        EligibilityCode.NO_USABLE_SIGNAL,
+                # Risk engine block (position sizing / drawdown limits)
+                "risk_blocked":            EligibilityCode.TRADE_REJECTED,
+                # Exchange order validation failure (qty/notional precision)
+                "order_validation_failed": EligibilityCode.TRADE_REJECTED,
             }
 
             # ── Per-bot execution coroutine ──────────────────────────────────────
