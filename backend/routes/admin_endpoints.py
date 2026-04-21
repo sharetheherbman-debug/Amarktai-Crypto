@@ -3194,20 +3194,16 @@ async def get_cohort_skip_counts(
             key = f"{exchange}_{bot_type}"
             cohorts[key]["total_bots"] += 1
             sr = bot.get("last_skip_reason") or ""
-        # last_eligibility is stored as a full event dict by skip_and_persist().
-        # Extract the string reason_code from it.  The fallback chain is:
-        #   1. last_eligibility dict → reason_code  (primary, from event dict)
-        #   2. last_eligibility_code string          (top-level field, written
-        #                                             since the eligibility logger
-        #                                             fix lands in this PR)
-        #   3. last_skip_reason string               (legacy parallel field,
-        #                                             also written by scheduler;
-        #                                             kept for backward compat)
-        _elig_raw = bot.get("last_eligibility")
-        if isinstance(_elig_raw, dict):
-            ec = _elig_raw.get("reason_code") or ""
-        else:
-            ec = bot.get("last_eligibility_code") or bot.get("last_skip_reason") or ""
+            # last_eligibility is stored as a full event dict by skip_and_persist().
+            # Extract the string reason_code from it.  The fallback chain is:
+            #   1. last_eligibility dict → reason_code  (primary, from event dict)
+            #   2. last_eligibility_code string          (top-level field)
+            #   3. last_skip_reason string               (legacy parallel field)
+            _elig_raw = bot.get("last_eligibility")
+            if isinstance(_elig_raw, dict):
+                ec = _elig_raw.get("reason_code") or ""
+            else:
+                ec = bot.get("last_eligibility_code") or bot.get("last_skip_reason") or ""
             if sr:
                 cohorts[key]["skip_reason_counts"][sr] += 1
             if ec:
