@@ -111,7 +111,7 @@ async def _get_canonical_portfolio_zar(user_id: str, user_doc=None) -> float:
     try:
         from services.canonical import get_platform_wallet_totals_zar
         platform_totals = await get_platform_wallet_totals_zar(user_id)
-        total = float(platform_totals.get("total_zar", 0) or 0)
+        total = float(platform_totals.get("total_zar", 0))
         if total > 0:
             return total
     except Exception as e:
