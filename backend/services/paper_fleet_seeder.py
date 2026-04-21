@@ -194,6 +194,19 @@ async def seed_paper_fleet(
 
         default_pair = _default_pair_for(exchange_lower)
 
+        # Pre-build per-type pair lists for diverse initial assignment.
+        # Normal bots cycle through the full DEFAULT_SYMBOL_UNIVERSE so each bot
+        # starts on a different pair.  Scalpers cycle through the narrower
+        # SCALPER_SYMBOL_UNIVERSE (highest-volume pairs) so their fleet is
+        # visibly different from the normal-bot cohort.
+        try:
+            from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE, SCALPER_SYMBOL_UNIVERSE
+            _normal_pairs = DEFAULT_SYMBOL_UNIVERSE.get(exchange_lower) or [default_pair]
+            _scalper_pairs = SCALPER_SYMBOL_UNIVERSE.get(exchange_lower) or (_normal_pairs[:2] if _normal_pairs else [default_pair])
+        except Exception:
+            _normal_pairs = [default_pair]
+            _scalper_pairs = [default_pair]
+
         for bot_type, requested_count in (
             ("normal", normal_per_exchange),
             ("scalper", scalper_per_exchange),
@@ -247,7 +260,13 @@ async def seed_paper_fleet(
                 global_count = 0
 
             bots_to_insert: List[dict] = []
+            # Select the pair-rotation list for this bot type
+            _pair_universe = _scalper_pairs if bot_type == "scalper" else _normal_pairs
             for i in range(requested_count):
+                # Distribute pairs round-robin so each bot in this cohort starts on
+                # a different pair.  Index wraps when the universe is smaller than
+                # the requested count.
+                initial_pair = _pair_universe[i % len(_pair_universe)] if _pair_universe else default_pair
                 seq = global_count + len(bots_to_insert) + 1
                 name = f"Seed-{name_prefix}-{exchange_lower.capitalize()}-{seq}"
                 record: dict = {
@@ -257,7 +276,7 @@ async def seed_paper_fleet(
                     "status": "active",
                     "trading_mode": "paper",
                     "exchange": exchange_lower,
-                    "pair": default_pair,
+                    "pair": initial_pair,
                     "bot_type": bot_type,
                     "strategy_preset": "scalping" if bot_type == "scalper" else "adaptive",
                     "risk_mode": "safe",

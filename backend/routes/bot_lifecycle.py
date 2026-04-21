@@ -1912,13 +1912,26 @@ async def get_all_bots_diagnostics(user_id: str = Depends(get_current_user)):
             if not can_trade_budget:
                 reasons.append("Budget limit")
             
+            if not reasons:
+                # Bot has no hard blocks — show the last skip reason if available
+                # so the operator sees WHY the bot is waiting, not just "ready".
+                _last_skip = (
+                    bot.get("last_eligibility_code")
+                    or bot.get("last_skip_reason")
+                    or (bot.get("last_eligibility") or {}).get("reason_code")
+                )
+                if _last_skip and str(_last_skip).lower() not in ("allowed", ""):
+                    reasons = [f"scanning: {_last_skip}"]
+                else:
+                    reasons = ["scanning_for_entry"]
+            
             diagnostics_list.append({
                 "bot_id": bot_id,
                 "bot_name": bot.get('name'),
                 "exchange": exchange,
                 "status": bot.get('status'),
                 "can_trade": can_trade,
-                "reasons": reasons if reasons else ["Ready to trade"],
+                "reasons": reasons,
                 "remaining_budget": remaining,
                 "trades_count": bot.get('trades_count', 0),
                 "win_rate": bot.get('win_rate', 0),
