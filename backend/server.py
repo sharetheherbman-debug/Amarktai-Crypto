@@ -1698,7 +1698,13 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
         
         # BACKEND TRUTH: Query MongoDB directly for bot and trade data
         bots = await db.bots_collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}, {"_id": 0}).to_list(1000)
-        trades = await db.trades_collection.find({"user_id": user_id}, {"_id": 0}).to_list(None)
+        # Hard cap prevents full-collection scan when the fleet generates many trades.
+        # Fetch newest trades first so recent days are always accurate; older days
+        # degrade gracefully rather than blocking the event loop on a full scan.
+        trades = await db.trades_collection.find(
+            {"user_id": user_id},
+            {"_id": 0, "timestamp": 1, "profit_loss": 1}
+        ).sort("timestamp", -1).to_list(10000)
         
         labels = []
         values = []
@@ -1718,7 +1724,13 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
             daily_profits = defaultdict(float)
             
             for trade in trades:
-                trade_date = datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00'))
+                _ts = trade.get('timestamp')
+                if not _ts:
+                    continue
+                try:
+                    trade_date = datetime.fromisoformat(str(_ts).replace('Z', '+00:00'))
+                except Exception:
+                    continue
                 days_ago = (today.date() - trade_date.date()).days
                 
                 if 0 <= days_ago < 7:
@@ -1743,7 +1755,13 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
             weekly_profits = defaultdict(float)
             
             for trade in trades:
-                trade_date = datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00'))
+                _ts = trade.get('timestamp')
+                if not _ts:
+                    continue
+                try:
+                    trade_date = datetime.fromisoformat(str(_ts).replace('Z', '+00:00'))
+                except Exception:
+                    continue
                 days_ago = (today.date() - trade_date.date()).days
                 week_index = min(days_ago // 7, 3)  # 0-3 for 4 weeks
                 if week_index < 4:
@@ -1764,7 +1782,13 @@ async def get_profit_history(period: str = 'daily', user_id: str = Depends(get_c
             monthly_profits = defaultdict(float)
             
             for trade in trades:
-                trade_date = datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00'))
+                _ts = trade.get('timestamp')
+                if not _ts:
+                    continue
+                try:
+                    trade_date = datetime.fromisoformat(str(_ts).replace('Z', '+00:00'))
+                except Exception:
+                    continue
                 month_diff = (today.year - trade_date.year) * 12 + (today.month - trade_date.month)
                 if 0 <= month_diff < 6:
                     monthly_profits[5 - month_diff] += trade.get('profit_loss', 0)

@@ -410,6 +410,12 @@ class PaperTradingEngine:
         self.available_pairs_cache: dict = {}
         self.market_data_provider = None
         self.ledger_service = None
+        # Per-exchange mutex for load_markets(): prevents 10+ concurrent bots from
+        # simultaneously calling load_markets() when the cache is cold/expired.
+        # Without this, each bot fires an independent HTTP request to fetch
+        # ~2 MB of Binance market data, causing CPU spikes from parallel JSON
+        # parsing that briefly block the asyncio event loop and produce 502s.
+        self._load_markets_locks: Dict[str, asyncio.Lock] = {}
         
         # Status tracking for monitoring
         self.is_running = False
@@ -482,6 +488,7 @@ class PaperTradingEngine:
             if not self.binance_exchange:
                 self.binance_exchange = ccxt.binance({
                     'enableRateLimit': True,
+                    'timeout': 10000,  # 10 s — same guard as all other exchanges; prevents hung event-loop tasks
                     'options': {'defaultType': 'spot'},
                     'apiKey': None,  # Explicitly no API key - public mode
                     'secret': None
@@ -616,6 +623,9 @@ class PaperTradingEngine:
     async def get_available_pairs(self, exchange: str = 'luno') -> list:
         """Dynamically fetch ALL available trading pairs for maximum profit"""
         _CACHE_TTL_SECONDS = 3600  # Refresh pair list every hour
+        # Per-call timeout for load_markets().  Must be less than the scheduler's
+        # 45-second tick timeout so a stuck exchange never consumes the full tick.
+        _LOAD_MARKETS_TIMEOUT = 20.0
         try:
             if exchange in self.available_pairs_cache:
                 _entry = self.available_pairs_cache[exchange]
@@ -654,21 +664,51 @@ class PaperTradingEngine:
                 exchange_obj = self.coinbase_exchange
 
             if exchange_obj:
-                markets = await exchange_obj.load_markets()
+                # Per-exchange mutex: prevents 10+ concurrent bots from all calling
+                # load_markets() simultaneously when the cache is cold/expired.
+                # Only ONE call goes through; all others wait and re-check the cache
+                # after the lock is released, so at most one actual API round-trip
+                # is made per exchange per cache-refresh cycle.
+                if exchange not in self._load_markets_locks:
+                    self._load_markets_locks[exchange] = asyncio.Lock()
+                async with self._load_markets_locks[exchange]:
+                    # Re-check cache under the lock — a sibling task may have
+                    # already populated it while we were waiting.
+                    _entry = self.available_pairs_cache.get(exchange)
+                    if isinstance(_entry, tuple) and len(_entry) == 2:
+                        _cached_pairs, _cached_at = _entry
+                        _age = (datetime.now(timezone.utc) - _cached_at).total_seconds()
+                        if _age < _CACHE_TTL_SECONDS:
+                            return _cached_pairs
 
-                # Filter for active pairs only
-                if exchange == 'luno':
-                    # South African exchange: Focus on ZAR pairs
-                    available = [symbol for symbol in markets.keys() if '/ZAR' in symbol and markets[symbol].get('active', True)]
-                else:
-                    # Global exchanges: Focus on USDT pairs (most liquid); cap at 50 to stay manageable
-                    available = [symbol for symbol in markets.keys() if '/USDT' in symbol and markets[symbol].get('active', True)][:50]
+                    markets = await asyncio.wait_for(
+                        exchange_obj.load_markets(),
+                        timeout=_LOAD_MARKETS_TIMEOUT,
+                    )
 
-                if available:
-                    self.available_pairs_cache[exchange] = (available, datetime.now(timezone.utc))
-                    logger.info(f"✅ Loaded {len(available)} trading pairs from {exchange.upper()}")
-                    return available
+                    # Filter for active pairs only
+                    if exchange == 'luno':
+                        # South African exchange: Focus on ZAR pairs
+                        available = [symbol for symbol in markets.keys() if '/ZAR' in symbol and markets[symbol].get('active', True)]
+                    else:
+                        # Global exchanges: Focus on USDT pairs (most liquid); cap at 50 to stay manageable
+                        available = [symbol for symbol in markets.keys() if '/USDT' in symbol and markets[symbol].get('active', True)][:50]
 
+                    if available:
+                        self.available_pairs_cache[exchange] = (available, datetime.now(timezone.utc))
+                        logger.info(f"✅ Loaded {len(available)} trading pairs from {exchange.upper()}")
+                        return available
+
+        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+            logger.warning("get_available_pairs: %s timed out fetching markets: %s", exchange, e)
+            # Return stale cache if available rather than falling back to hardcoded list
+            if exchange in self.available_pairs_cache:
+                _stale_entry = self.available_pairs_cache[exchange]
+                _stale_pairs = _stale_entry[0] if isinstance(_stale_entry, tuple) and len(_stale_entry) == 2 else (
+                    _stale_entry if isinstance(_stale_entry, list) else None
+                )
+                if _stale_pairs:
+                    return _stale_pairs
         except Exception as e:
             logger.warning(f"Failed to fetch pairs from {exchange}: {e}")
             # Return stale cache if available rather than falling back to hardcoded list
@@ -724,7 +764,10 @@ class PaperTradingEngine:
             if exchange_obj:
                 # Use fetch_ticker which is PUBLIC on most exchanges
                 # In verified mode with Luno, this also benefits from authenticated rate limits
-                ticker = await exchange_obj.fetch_ticker(symbol)
+                ticker = await asyncio.wait_for(
+                    exchange_obj.fetch_ticker(symbol),
+                    timeout=8.0,
+                )
                 price = ticker.get('last') or ticker.get('close') or ticker.get('bid')
                 
                 # Guard against None price
@@ -826,7 +869,10 @@ class PaperTradingEngine:
 
         if exchange_obj:
             try:
-                order_book = await exchange_obj.fetch_order_book(symbol, limit=5)
+                order_book = await asyncio.wait_for(
+                    exchange_obj.fetch_order_book(symbol, limit=5),
+                    timeout=8.0,
+                )
                 bids = order_book.get("bids") or []
                 asks = order_book.get("asks") or []
                 if bids and asks:
@@ -842,7 +888,10 @@ class PaperTradingEngine:
 
             if mid is None:
                 try:
-                    ticker = await exchange_obj.fetch_ticker(symbol)
+                    ticker = await asyncio.wait_for(
+                        exchange_obj.fetch_ticker(symbol),
+                        timeout=8.0,
+                    )
                     bid = ticker.get("bid") or bid
                     ask = ticker.get("ask") or ask
                     last = ticker.get("last") or ticker.get("close") or bid or ask
@@ -885,7 +934,10 @@ class PaperTradingEngine:
             if not exchange_obj:
                 return 'neutral'
             
-            ohlcv = await exchange_obj.fetch_ohlcv(symbol, '5m', limit=20)
+            ohlcv = await asyncio.wait_for(
+                exchange_obj.fetch_ohlcv(symbol, '5m', limit=20),
+                timeout=8.0,
+            )
             
             if len(ohlcv) < 10:
                 return 'neutral'
