@@ -88,6 +88,7 @@ from config import (
     RISK_MODE_CONFIG,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
+from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE as _DEFAULT_SYMBOL_UNIVERSE
 from realtime_events import rt_events
 
 # Module-level imports for AI/market-intelligence providers.
@@ -167,6 +168,12 @@ BOOTSTRAP_MIN_CONFIDENCE = float(os.getenv("BOOTSTRAP_MIN_CONFIDENCE", "0.30"))
 # cost are still allowed in paper mode for data-collection purposes, provided the expected
 # move is at least this threshold (not a zero-signal entry).
 PAPER_BYPASS_MIN_MOVE_PCT = float(os.getenv("PAPER_BYPASS_MIN_MOVE_PCT", "0.05"))
+# Net-edge floor for the paper-mode hard-edge bypass.
+# If net_edge is below this value (i.e. costs overwhelm expected move by more than this margin),
+# the bypass is cancelled even in paper mode.  Prevents systematically negative-edge trades
+# from going through just because a valid regime label exists.
+# Default: -0.10 % (trades whose costs exceed expected move by more than 0.10% are blocked).
+PAPER_BYPASS_MIN_NET_EDGE_PCT = float(os.getenv("PAPER_BYPASS_MIN_NET_EDGE_PCT", "-0.10"))
 
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
@@ -1122,8 +1129,7 @@ class PaperTradingEngine:
                 # so they rotate across a curated set rather than staying on any one
                 # seed pair that may be illiquid or persistently low-confidence.
                 try:
-                    from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE as _du
-                    _normal_subset = _du.get(exchange, [])
+                    _normal_subset = _DEFAULT_SYMBOL_UNIVERSE.get(exchange, [])
                     if _normal_subset:
                         _filtered = [p for p in available_pairs if p in _normal_subset]
                         if _filtered:
@@ -1836,7 +1842,7 @@ class PaperTradingEngine:
                 # genuinely negative expectancy and should not be allowed even in paper
                 # mode.  This prevents systematic losses driven by entries where costs
                 # are far larger than the available edge.
-                and _net_edge_pct > -0.10
+                and _net_edge_pct > PAPER_BYPASS_MIN_NET_EDGE_PCT
             )
             if _paper_hard_edge_bypass:
                 _hard_edge_blocked = False

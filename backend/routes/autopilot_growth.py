@@ -96,7 +96,7 @@ async def reinvest_status(user_id: str = Depends(get_current_user)):
         # Return graceful response so frontend pollers don't receive a 500
         return {
             "status": "error",
-            "message": str(exc),
+            "message": "Reinvest status unavailable",
             "enabled": False,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
