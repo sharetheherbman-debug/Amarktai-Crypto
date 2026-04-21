@@ -1136,34 +1136,24 @@ class PaperTradingEngine:
                             available_pairs = _filtered
                 except Exception:
                     pass  # non-fatal: fall through to full universe
-            # Scalpers honor the bot's fixed pair assignment.
-            # Normal bots always run through the universe selector so the fleet
-            # naturally diversifies across all pairs in the allowed universe on each
-            # tick rather than every bot staying locked on its seed pair forever.
-            if _bot_type_for_universe == "scalper" and requested_symbol and requested_symbol in available_pairs:
-                symbol = requested_symbol
-                _used_fixed_pair = True
-                self._last_symbol_selection = {
-                    "winner": symbol, "winner_reason": "bot_requested",
-                    "candidate_count": len(available_pairs),
-                    "filtered_out_count": 0, "filtered_out_reasons_summary": {},
-                    "top5_scored": [], "bot_id": bot_id, "exchange": exchange,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            else:
-                if not available_pairs and allowed_pairs:
-                    available_pairs = allowed_pairs
+            # All bot types — including scalpers — now use the universe selector so the
+            # fleet naturally diversifies via round-robin rotation across their allowed
+            # universe rather than staying locked on a single seed pair forever.
+            # Scalpers are still restricted to SCALPER_SYMBOL_UNIVERSE (BTC+ETH only)
+            # by the filtering above, so tight-spread focus is preserved.
+            if not available_pairs and allowed_pairs:
+                available_pairs = allowed_pairs
 
-                selected, sym_diag = await _symbol_universe.select(
-                    bot_id=bot_id,
-                    user_id=user_id,
-                    exchange=exchange,
-                    available_pairs=available_pairs if available_pairs else (allowed_pairs or ["BTC/USDT"]),
-                    open_symbols_for_user=open_symbols_for_user,
-                    bot_override_universe=bot_data.get("symbol_universe"),
-                )
-                symbol = selected or (available_pairs[0] if available_pairs else "BTC/USDT")
-                self._last_symbol_selection = sym_diag
+            selected, sym_diag = await _symbol_universe.select(
+                bot_id=bot_id,
+                user_id=user_id,
+                exchange=exchange,
+                available_pairs=available_pairs if available_pairs else (allowed_pairs or ["BTC/USDT"]),
+                open_symbols_for_user=open_symbols_for_user,
+                bot_override_universe=bot_data.get("symbol_universe"),
+            )
+            symbol = selected or (available_pairs[0] if available_pairs else "BTC/USDT")
+            self._last_symbol_selection = sym_diag
 
             # Portfolio guard (C3): prevent >PAPER_PORTFOLIO_GUARD_MAX_SAME_SYMBOL concurrent
             # opens on the same symbol+exchange per user.
@@ -2244,6 +2234,16 @@ class PaperTradingEngine:
             _available_for_trade = await paper_wallet_service.get_available_balance(
                 user_id, _trade_currency
             )
+            # For USDT-denominated trades: if raw USDT balance is insufficient, also
+            # consider ZAR that can be converted to USDT via the paper FX path in
+            # reserve_funds().  This mirrors what reserve_funds() can actually service,
+            # preventing false BUDGET_EXHAUSTED when the global wallet holds ZAR only.
+            if _trade_currency == "USDT" and _available_for_trade < trade_amount:
+                _zar_available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
+                if _zar_available > 0:
+                    # Conservative 18.5 ZAR/USDT rate matches reserve_funds() fallback
+                    _effective_usdt = _available_for_trade + (_zar_available / 18.5)
+                    _available_for_trade = _effective_usdt
             logger.info(
                 f"[CAPITAL_CHECK] bot={bot_id_val[:8] if bot_id_val else '?'} "
                 f"available={_available_for_trade:.2f} required_trade={trade_amount:.2f} "
@@ -2287,13 +2287,13 @@ class PaperTradingEngine:
             )
             if not risk_ok:
                 logger.warning(f"Risk block: {bot_data['name'][:15]} - {risk_reason}")
-                return {"success": False, "bot_id": bot_id, "error": risk_reason}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "risk_blocked", "error": risk_reason}
             
             # Guard against invalid current_price before calculations
             if current_price is None or current_price <= 0:
                 logger.error(f"Invalid current_price before trade: {current_price}")
                 self.last_error = f"Invalid price: {current_price}"
-                return {"success": False, "bot_id": bot_id, "error": "Invalid price before trade"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "no_price_data", "error": "Invalid price before trade"}
             
             # Log when paper mode is executing a trade that used an injected fallback signal
             if _is_paper_mode_bot and _paper_fallback_used:
@@ -2313,7 +2313,7 @@ class PaperTradingEngine:
             is_valid, validation_msg, adjusted_params = validate_order(exchange, symbol, crypto_amount, entry_price)
             if not is_valid:
                 logger.warning(f"Order validation failed: {validation_msg}")
-                return {"success": False, "bot_id": bot_id, "error": f"Order validation failed: {validation_msg}"}
+                return {"success": False, "bot_id": bot_id, "skip_reason": "order_validation_failed", "error": f"Order validation failed: {validation_msg}"}
 
             if adjusted_params:
                 crypto_amount = adjusted_params.get("quantity", crypto_amount)

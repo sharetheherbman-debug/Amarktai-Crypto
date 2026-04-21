@@ -101,7 +101,7 @@ MIN_TRADE_PROFIT_THRESHOLD_ZAR = 2.0
 EDGE_BUFFER_PCT = float(os.getenv('EDGE_BUFFER_PCT', '0.15'))  # 0.15% buffer
 EDGE_GATE_PAPER = os.getenv('EDGE_GATE_PAPER', 'true').lower() == 'true'
 EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'true').lower() == 'true'  # Default ON — live trades must have positive expected edge over fees+spread+slippage
-PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '0.35'))  # 0.35% max spread
+PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '1.0'))  # 1.0% max spread — realistic for Luno ZAR markets (observed spreads 0.5–0.9%)
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
 PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'false').lower() == 'true'
 PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
@@ -148,9 +148,9 @@ SCALPER_CONFIDENCE_THRESHOLD = float(os.getenv('SCALPER_CONFIDENCE_THRESHOLD', '
 # Max hold time for scalpers (minutes).  Normal bots use PAPER_MAX_HOLD_MINUTES.
 SCALPER_MAX_HOLD_MINUTES = int(os.getenv('SCALPER_MAX_HOLD_MINUTES', '25'))
 # Max spread (%) for scalpers.  Normal bots use PAPER_MAX_SPREAD_PCT.
-# Lowered from 0.30 to 0.25 to keep scalpers in tighter-spread conditions while
-# still allowing realistic ZAR-quoted pair spreads (Luno BTC/ZAR is 0.1-0.25%).
-SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.25'))
+# Raised to 0.60 to match real Luno ZAR-market microstructure (observed 0.35–0.55%).
+# Scalpers still require tighter spreads than normals; 0.60% preserves discipline.
+SCALPER_MAX_SPREAD_PCT = float(os.getenv('SCALPER_MAX_SPREAD_PCT', '0.60'))
 # Edge safety buffer (%) for scalpers.  Normal bots use SAFETY_BUFFER_PCT (0.10–0.15%).
 # Scalpers target smaller moves by design; a smaller buffer prevents the edge gate
 # from over-blocking valid scalp setups where expected_move is only slightly above cost.
