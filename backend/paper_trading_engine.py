@@ -138,6 +138,10 @@ PAPER_SPREAD_BPS = float(os.getenv("PAPER_SPREAD_BPS", "6"))     # 0.06%
 PAPER_PARTIAL_FILL_RATIO = float(os.getenv("PAPER_PARTIAL_FILL_RATIO", "0.6"))
 PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER = float(os.getenv("PAPER_PARTIAL_FILL_THRESHOLD_MULTIPLIER", "2"))
 PAPER_LATENCY_MS = int(os.getenv("PAPER_LATENCY_MS", "150"))
+# Conservative ZAR/USDT proxy rate used for paper-mode FX scaling (not for trade sizing or PnL).
+# Matches the fallback in paper_wallet_service._PAPER_ZAR_PER_USDT_DEFAULT and is
+# env-overridable via PAPER_ZAR_PER_USDT for consistency.
+_PAPER_ZAR_USDT_PROXY = float(os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
 
 # Per-exchange slippage calibration (bps = basis points, 1 bps = 0.01%).
 # Binance / KuCoin / Bybit have deep order books so simulated slippage must be
@@ -1329,7 +1333,7 @@ class PaperTradingEngine:
                 # only for threshold scaling, not for any trade sizing or PnL).
                 _quote_currency_sym = (symbol or "").split("/")[-1].upper() if "/" in (symbol or "") else ""
                 if _quote_currency_sym == "USDT":
-                    _PROXY_FX_ZAR_USDT = 18.5
+                    _PROXY_FX_ZAR_USDT = _PAPER_ZAR_USDT_PROXY
                     _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL / _PROXY_FX_ZAR_USDT
                 else:
                     _effective_min_notional = PAPER_MIN_ORDERBOOK_NOTIONAL
@@ -2241,8 +2245,8 @@ class PaperTradingEngine:
             if _trade_currency == "USDT" and _available_for_trade < trade_amount:
                 _zar_available = await paper_wallet_service.get_available_balance(user_id, "ZAR")
                 if _zar_available > 0:
-                    # Conservative 18.5 ZAR/USDT rate matches reserve_funds() fallback
-                    _effective_usdt = _available_for_trade + (_zar_available / 18.5)
+                    # Conservative ZAR/USDT rate matches reserve_funds() fallback
+                    _effective_usdt = _available_for_trade + (_zar_available / _PAPER_ZAR_USDT_PROXY)
                     _available_for_trade = _effective_usdt
             logger.info(
                 f"[CAPITAL_CHECK] bot={bot_id_val[:8] if bot_id_val else '?'} "
