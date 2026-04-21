@@ -2859,8 +2859,8 @@ async def start_all_bots(
                 detail="Confirmation required. Set confirm=true to proceed."
             )
         
-        # Check system modes
-        system_mode_doc = await db.system_mode_collection.find_one({}) or {}
+        # Check system modes (canonical collection: system_modes_collection, plural)
+        system_mode_doc = await db.system_modes_collection.find_one({}) or {}
         paper_trading = system_mode_doc.get("paperTrading", True)
         live_trading = system_mode_doc.get("liveTrading", False)
         emergency_stop = system_mode_doc.get("emergencyStop", False)
