@@ -363,14 +363,12 @@ async def get_equity_curve(
         }
         start_time = now - range_map.get(range, timedelta(days=7))
 
-        # ── 1. current_equity from paper wallet (truth source, not bot capital) ──
-        from services.paper_wallet_service import paper_wallet_service
-        from routes.wallet_hub import get_paper_wallet_allocated_balances
-        wallet_data = await paper_wallet_service.get_balances(user_id)
-        allocated = await get_paper_wallet_allocated_balances(user_id)
-        available_total = float(wallet_data.get("total", 0) or 0)
-        allocated_total = sum(float(v or 0) for v in allocated.values())
-        current_equity = round(available_total + allocated_total, 2)
+        # ── 1. current_equity from canonical platform wallets (same source as
+        #       platform summary / wallet hub).  Uses per-exchange funded amounts,
+        #       not the legacy global paper wallet which may hold stale balances.
+        from services.canonical import get_platform_wallet_totals_zar
+        _platform_totals = await get_platform_wallet_totals_zar(user_id)
+        current_equity = round(float(_platform_totals.get("total_zar", 0) or 0), 2)
 
         # ── 2. Last reset baseline timestamp ──────────────────────────────────
         reset_timestamp_str: Optional[str] = None
@@ -520,23 +518,12 @@ async def get_drawdown_analysis(
         }
         start_time = now - range_map.get(range, timedelta(days=7))
         
-        # Get only non-deleted bots for capital tracking
-        bots = await db.bots_collection.find(
-            {
-                "user_id": user_id,
-                "status": {"$nin": ["deleted", "marked_for_deletion"]},
-                "deleted": {"$ne": True},
-                "is_deleted": {"$ne": True},
-                "deleted_at": {"$exists": False},
-            },
-            {"_id": 0, "initial_capital": 1, "current_capital": 1,
-             "canonical_base_capital_zar": 1, "fx_rate_at_creation": 1, "quote_currency": 1}
-        ).to_list(1000)
-        
-        # Use ZAR-normalised capital to prevent USDT-quoted bots from inflating
-        # the ZAR peak-equity calculation (canonical_base_capital_zar = frozen R1000).
-        initial_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
-        current_capital = sum(_bot_capital_zar(b, "current_capital") for b in bots)
+        # Use canonical platform wallet totals (same source as platform summary /
+        # wallet hub) so the drawdown baseline agrees with every other capital display.
+        from services.canonical import get_platform_wallet_totals_zar
+        _dd_platform = await get_platform_wallet_totals_zar(user_id)
+        initial_capital = round(float(_dd_platform.get("total_zar", 0) or 0), 2)
+        current_capital = initial_capital  # refined below with realized PnL
 
         # Respect the last paper-reset baseline so pre-reset trades don't
         # contaminate peak equity / drawdown for the current session.
@@ -621,7 +608,8 @@ async def get_drawdown_analysis(
                     max_drawdown_pct = drawdown_pct
                     max_drawdown = peak_equity - equity
         
-        # Calculate current drawdown
+        # Calculate current drawdown using realized PnL against platform wallet baseline
+        current_capital = initial_capital + cumulative_pnl
         if peak_equity > 0:
             current_drawdown_pct = ((peak_equity - current_capital) / peak_equity) * 100
         
@@ -780,9 +768,13 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
             {"_id": 0}
         ).to_list(1000)
         
-        # Use ZAR-normalised capital to prevent USDT bots inflating ZAR totals.
-        initial_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
-        current_capital = sum(_bot_capital_zar(b, "current_capital") for b in bots)
+        # Use canonical platform wallet totals (same source as platform summary)
+        # instead of summing per-bot canonical_base_capital_zar fields, which may
+        # reflect the legacy PAPER_STARTING_CAPITAL_ZAR distribution.
+        from services.canonical import get_platform_wallet_totals_zar
+        _sum_platform = await get_platform_wallet_totals_zar(user_id)
+        initial_capital = round(float(_sum_platform.get("total_zar", 0) or 0), 2)
+        current_capital = initial_capital  # refined below with realized PnL
         
         # Get trade statistics with gross/fees/net breakdown
         all_stats = await profit_service.get_trade_stats(user_id)
@@ -791,6 +783,9 @@ async def get_analytics_summary(user_id: str = Depends(get_current_user)):
         
         # Get today's profit
         profit_today = await profit_service.calculate_profit_today(user_id)
+        
+        # Refine current_capital with realized PnL since inception
+        current_capital = round(initial_capital + float(all_stats.get("net_profit", 0) or 0), 2)
         
         # Calculate profit percentage
         profit_pct = ((current_capital - initial_capital) / initial_capital * 100) if initial_capital > 0 else 0
@@ -932,9 +927,14 @@ async def get_countdown_to_target(
             {"_id": 0}
         ).to_list(1000)
         
-        # Use ZAR-normalised capital
-        equity_current = sum(_bot_capital_zar(b, "current_capital") for b in bots)
-        initial_capital = sum(_bot_capital_zar(b, "initial_capital") for b in bots)
+        # Use canonical platform wallet totals for equity baseline
+        from services.canonical import get_platform_wallet_totals_zar
+        _pnl_platform = await get_platform_wallet_totals_zar(user_id)
+        initial_capital = round(float(_pnl_platform.get("total_zar", 0) or 0), 2)
+        
+        # Refine equity_current with realized PnL
+        _pnl_stats = await profit_service.get_trade_stats(user_id)
+        equity_current = round(initial_capital + float(_pnl_stats.get("net_profit", 0) or 0), 2)
         net_pnl_total = equity_current - initial_capital
         
         # Get first trade timestamp
