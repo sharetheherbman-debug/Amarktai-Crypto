@@ -89,6 +89,7 @@ from config import (
     EDGE_COST_MULTIPLIER,
     DYNAMIC_SPREAD_MULTIPLIER,
     MIN_VOLATILITY_RANGE_PCT,
+    SCALPER_MIN_VOLATILITY_RANGE_PCT,
     LOSS_COOLDOWN_SECONDS,
     REGIME_INDICATOR_CONFIDENCE_FLOOR,
 )
@@ -1887,6 +1888,14 @@ class PaperTradingEngine:
             # conditions where a trade is statistically likely to exit via stagnation.
             # Reuses the OHLCV already fetched by the Hurst filter (_hurst_ohlcv_cache).
             # No extra API calls; non-fatal if OHLCV unavailable.
+            # Scalpers use a stricter threshold (SCALPER_MIN_VOLATILITY_RANGE_PCT = 0.30%)
+            # vs normal bots (MIN_VOLATILITY_RANGE_PCT = 0.20%) because scalpers target
+            # smaller moves and cannot tolerate near-flat markets without stagnating.
+            _phase3_min_vol = (
+                SCALPER_MIN_VOLATILITY_RANGE_PCT
+                if _bot_type_for_universe == "scalper"
+                else MIN_VOLATILITY_RANGE_PCT
+            )
             _vol_ohlcv = _hurst_ohlcv_cache
             if _vol_ohlcv is not None and len(_vol_ohlcv) >= 10:
                 try:
@@ -1907,13 +1916,14 @@ class PaperTradingEngine:
                         "range_pct": round(_range_pct, 4),
                         "atr_pct": round(_atr_pct, 4),
                         "recent_change_pct": round(_recent_change_pct, 4),
-                        "min_volatility_range_pct": MIN_VOLATILITY_RANGE_PCT,
+                        "min_volatility_range_pct": _phase3_min_vol,
+                        "bot_type": _bot_type_for_universe,
                     }
-                    if _range_pct < MIN_VOLATILITY_RANGE_PCT:
+                    if _range_pct < _phase3_min_vol:
                         logger.info(
                             "[BLOCK_VOL] %s | %s | range=%.4f%% < min=%.4f%% atr=%.4f%% — low_volatility_block",
                             bot_data.get("name", bot_id[:8]), symbol,
-                            _range_pct, MIN_VOLATILITY_RANGE_PCT, _atr_pct,
+                            _range_pct, _phase3_min_vol, _atr_pct,
                         )
                         logger.info(
                             "BLOCK_DETAIL %s",
@@ -1937,7 +1947,7 @@ class PaperTradingEngine:
                             "skip_reason": "low_volatility_block",
                             "error": (
                                 f"Low volatility: 10-candle range {_range_pct:.3f}% "
-                                f"< min {MIN_VOLATILITY_RANGE_PCT:.3f}%"
+                                f"< min {_phase3_min_vol:.3f}%"
                             ),
                             "details": _vol_metrics,
                         }

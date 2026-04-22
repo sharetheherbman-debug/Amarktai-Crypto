@@ -221,6 +221,13 @@ DYNAMIC_SPREAD_MULTIPLIER = float(os.getenv('DYNAMIC_SPREAD_MULTIPLIER', '1.5'))
 # the proportion of stagnation-exit trades.  Default: 0.20 % (20 bps).
 MIN_VOLATILITY_RANGE_PCT = float(os.getenv('MIN_VOLATILITY_RANGE_PCT', '0.20'))
 
+# Scalper-specific minimum volatility range — raised vs normal bots because scalpers
+# target smaller moves and cannot tolerate near-flat markets.  Default: 0.30 % (30 bps).
+# Set via SCALPER_MIN_VOLATILITY_RANGE_PCT env var.  Falls back to MIN_VOLATILITY_RANGE_PCT
+# if unset but the explicit default is intentionally higher to reduce stagnation losses
+# on Luno BTC/ZAR and ETH/ZAR scalp trades.
+SCALPER_MIN_VOLATILITY_RANGE_PCT = float(os.getenv('SCALPER_MIN_VOLATILITY_RANGE_PCT', '0.30'))
+
 # Phase 4 — Per-bot cooldown after a losing trade (seconds).
 # After any trade that closes with net_profit < 0, the bot is blocked from
 # re-entering for this many seconds to avoid chasing the same bad condition.
@@ -507,5 +514,6 @@ __all__ = [
     'NEW_TRADING_BRAIN_V2',
     'AUTOPILOT_PROFIT_MILESTONE_ZAR', 'AUTOPILOT_REINVEST_MIN_ZAR',
     'AUTOPILOT_MAX_BOTS_PER_PLATFORM',
-    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'AUTO_PROMOTE_LIVE', 'PAPER_SUPPORTED_EXCHANGES'
+    'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'AUTO_PROMOTE_LIVE', 'PAPER_SUPPORTED_EXCHANGES',
+    'SCALPER_MIN_VOLATILITY_RANGE_PCT',
 ]

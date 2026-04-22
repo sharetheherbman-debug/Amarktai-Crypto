@@ -82,6 +82,11 @@ class EligibilityCode(str, Enum):
     CYCLE_ERROR               = "cycle_error"
     TRADE_REJECTED            = "trade_rejected"
 
+    # ── Entry-quality blocks (Phase 1–4) ────────────────────────────────────
+    LOSS_COOLDOWN             = "loss_cooldown"
+    LOW_VOLATILITY_BLOCK      = "low_volatility_block"
+    EDGE_BELOW_COST           = "edge_below_cost"
+
     # ── Catch-all (use only when no specific code applies) ──────────────────
     UNKNOWN                   = "unknown"
 
@@ -124,6 +129,9 @@ ELIGIBILITY_DESCRIPTIONS: Dict[str, str] = {
     EligibilityCode.OPEN_TRADE_CLOSE_FAILED:  "Trade close failed and was abandoned — marked as failed",
     EligibilityCode.CYCLE_ERROR:              "Unhandled error during trading cycle execution",
     EligibilityCode.TRADE_REJECTED:           "Trade rejected by execution layer (entry conditions not met)",
+    EligibilityCode.LOSS_COOLDOWN:            "Post-loss cooldown active — bot waiting before re-entry after a losing trade",
+    EligibilityCode.LOW_VOLATILITY_BLOCK:     "Market volatility too low — 10-candle price range below minimum threshold",
+    EligibilityCode.EDGE_BELOW_COST:          "Expected move below cost × multiplier — insufficient structural edge over fees+spread",
     EligibilityCode.UNKNOWN:                  "Ineligible for unspecified reason",
 }
 

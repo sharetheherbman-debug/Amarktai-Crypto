@@ -409,18 +409,20 @@ async def get_platform_wallet_totals_zar(user_id: str) -> Dict[str, Any]:
 
     Returns:
         {
-            "total_zar": float,          # sum of all platform wallets in ZAR
+            "total_zar": float,          # sum of all platform wallets in ZAR (canonical active capital)
             "by_exchange": {             # per-exchange breakdown
                 "luno": {"zar": float, "native": float, "currency": "ZAR"},
                 "binance": {"zar": float, "native": float, "currency": "USDT"},
                 ...
             },
-            "global_wallet_zar": float,  # legacy global wallet equity (ZAR)
-            "combined_zar": float,       # total_zar + global_wallet_zar (full picture)
+            "global_wallet_zar": float,  # legacy global wallet equity (ZAR, not active capital)
             "source": "platform_wallet_totals_zar",
         }
 
     Never raises — returns safe zero-filled dict on error.
+    Note: combined_zar is intentionally omitted.  It double-counted platform wallets
+    and the legacy global wallet, causing operator capital displays to show ~3× the
+    real funded amount.  Use total_zar as the single canonical active-capital figure.
     """
     from services.fx_normalizer import to_display_zar
 
@@ -456,7 +458,9 @@ async def get_platform_wallet_totals_zar(user_id: str) -> Dict[str, Any]:
         "total_zar": round(platform_total_zar, 2),
         "by_exchange": by_exchange,
         "global_wallet_zar": round(global_wallet_zar, 2),
-        "combined_zar": round(platform_total_zar + global_wallet_zar, 2),
+        # combined_zar intentionally omitted — it double-counts platform_total_zar
+        # and global_wallet_zar, misleading operator capital displays.
+        # Use total_zar (platform wallets only) as the canonical active-capital figure.
         "source": "platform_wallet_totals_zar",
     }
 

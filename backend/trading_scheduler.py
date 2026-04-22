@@ -461,6 +461,12 @@ class TradingScheduler:
                 "risk_blocked":            EligibilityCode.TRADE_REJECTED,
                 # Exchange order validation failure (qty/notional precision)
                 "order_validation_failed": EligibilityCode.TRADE_REJECTED,
+                # Per-bot post-loss cooldown (LOSS_COOLDOWN_SECONDS after any net loss)
+                "cooldown_after_loss":     EligibilityCode.LOSS_COOLDOWN,
+                # Phase 3 stagnation-prevention: flat/low-volatility market block
+                "low_volatility_block":    EligibilityCode.LOW_VOLATILITY_BLOCK,
+                # Phase 1 cost-edge filter: expected move < cost × EDGE_COST_MULTIPLIER
+                "edge_below_cost":         EligibilityCode.EDGE_BELOW_COST,
             }
 
             # ── Per-bot execution coroutine ──────────────────────────────────────
