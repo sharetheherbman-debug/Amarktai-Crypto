@@ -116,7 +116,8 @@ class StrategyVersionLoader:
             return {}
 
         if strategy_name is not None:
-            entry = active.get(strategy_name) or active.get(strategy_name.lower())
+            strategy_name = strategy_name.lower()
+            entry = active.get(strategy_name)
             if entry:
                 return dict(entry.get("config", {}))
             return {}

@@ -107,9 +107,8 @@ class _ExchangeCache:
 
         # LRU eviction: remove oldest if over limit
         while len(self._ticker) > self.max_symbols:
-            oldest = next(iter(self._ticker))
-            self._ticker.popitem(last=False)
-            logger.debug("MarketStateCache LRU evict: %s/%s", self.exchange, oldest)
+            evicted_sym, _ = self._ticker.popitem(last=False)
+            logger.debug("MarketStateCache LRU evict: %s/%s", self.exchange, evicted_sym)
 
     def get_ohlcv(self, symbol: str) -> Optional[List[List[float]]]:
         return self._ohlcv.get(symbol)

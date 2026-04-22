@@ -59,4 +59,4 @@ async def get_feed_health(user_id: str = Depends(get_current_user)):
         }
     except Exception as exc:
         logger.error("get_feed_health error: %s", exc, exc_info=True)
-        return {"feeds": {}, "error": str(exc)}
+        return {"feeds": {}, "error": "Feed health unavailable"}

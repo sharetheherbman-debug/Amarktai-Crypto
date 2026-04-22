@@ -260,8 +260,8 @@ class ExchangeFeedService:
                 bid = float(bids[0][0])
                 ask = float(asks[0][0])
                 mid = (bid + ask) / 2.0
-                bid_volume = sum(lv[1] for lv in bids[:5])
-                ask_volume = sum(lv[1] for lv in asks[:5])
+                bid_volume = sum(level[1] for level in bids[:5])
+                ask_volume = sum(level[1] for level in asks[:5])
                 depth_notional = sum(p * q for p, q in (bids[:5] + asks[:5]))
                 source = "order_book"
         except Exception:

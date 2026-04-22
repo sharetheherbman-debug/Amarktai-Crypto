@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,6 +25,10 @@ import database as db
 from services.strategy_version_loader import strategy_version_loader
 
 logger = logging.getLogger(__name__)
+
+# Resolve project root once at module load time.
+# backend/routes/ → backend/ → project_root/
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 
 router = APIRouter()
 
@@ -63,14 +68,9 @@ async def _write_audit(action: str, user_id: str, payload: dict) -> None:
 def _registry_promote(strategy: str, version: str, from_stage: str = "validated") -> dict:
     """Delegate to research/strategy_registry.py and return the new config."""
     try:
-        import sys, os
-        # Make sure research/ is importable
-        repo_root = str(__file__)
-        # backend/routes/ → backend/ → project_root/
-        for _ in range(3):
-            repo_root = os.path.dirname(repo_root)
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
+        import sys
+        if _REPO_ROOT not in sys.path:
+            sys.path.insert(0, _REPO_ROOT)
 
         from research.strategy_registry import registry  # type: ignore
         registry.promote(strategy, version, from_stage, "active")
@@ -83,14 +83,10 @@ def _registry_promote(strategy: str, version: str, from_stage: str = "validated"
 
 def _registry_rollback(strategy: Optional[str]) -> dict:
     """Remove a strategy (or all) from research/strategies/active.json."""
-    import json, sys, os
-    # Locate active.json
-    repo_root = str(__file__)
-    for _ in range(3):
-        repo_root = os.path.dirname(repo_root)
-    active_path = os.path.join(repo_root, "research", "strategies", "active.json")
+    import json
+    active_path = Path(_REPO_ROOT) / "research" / "strategies" / "active.json"
 
-    if not os.path.exists(active_path):
+    if not active_path.exists():
         strategy_version_loader.reload_active_strategy()
         return {"ok": True, "removed": None}
 
