@@ -179,9 +179,9 @@ async def seed_paper_fleet(
             if native_currency.upper() == "ZAR":
                 exch_wallet_funded_zar = native_amount
             else:
-                # Convert USDT → ZAR using a safe proxy rate
-                from services.paper_wallet_service import _get_paper_zar_per_usdt
-                _usdt_rate = await _get_paper_zar_per_usdt()
+                # Convert USDT → ZAR using the canonical env-overridable proxy rate
+                import os as _os
+                _usdt_rate = float(_os.getenv("PAPER_ZAR_PER_USDT", "18.5"))
                 exch_wallet_funded_zar = native_amount * _usdt_rate
         except Exception as exc:
             logger.warning(

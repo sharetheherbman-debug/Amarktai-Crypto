@@ -677,12 +677,13 @@ class TradingScheduler:
                         logger.warning(f"⛔ {_req_bot['name']} - Trading blocked (gate): {_reason_str}")
                         # Persist the block reason so operators can see why bots
                         # are not running (prevents last_skip_reason staying blank).
-                        _gate_code = _SKIP_TO_CODE.get(
-                            "mode_disabled" if "mode" in _reason_str.lower() else
-                            "emergency_stop" if "emergency" in _reason_str.lower() else
-                            "mode_disabled",
-                            EligibilityCode.MODE_DISABLED,
-                        )
+                        _reason_lower = _reason_str.lower()
+                        if "emergency" in _reason_lower:
+                            _gate_code = EligibilityCode.EMERGENCY_STOP
+                        elif "paused" in _reason_lower or "user" in _reason_lower:
+                            _gate_code = EligibilityCode.USER_PAUSED
+                        else:
+                            _gate_code = EligibilityCode.MODE_DISABLED
                         try:
                             await db.bots_collection.update_one(
                                 {"id": _req_bot_id},
