@@ -500,6 +500,8 @@ class TradingScheduler:
                 "risk_blocked":            EligibilityCode.TRADE_REJECTED,
                 # Exchange order validation failure (qty/notional precision)
                 "order_validation_failed": EligibilityCode.TRADE_REJECTED,
+                # Exchange feed degraded — infrastructure self-healing
+                "exchange_degraded":       EligibilityCode.EXCHANGE_DEGRADED,
             }
 
             # ── Per-bot execution coroutine ──────────────────────────────────────
@@ -513,6 +515,25 @@ class TradingScheduler:
                 _bexch = bot.get('exchange', 'binance')
                 try:
                     logger.debug(f"🔄 Executing trade for {bot['name']} (bot_id={_bid})")
+
+                    # ── Exchange feed degraded check (infrastructure self-healing) ─
+                    # Skip bots whose exchange feed is degraded without crashing or
+                    # stopping healthy exchange cohorts.
+                    try:
+                        from services.exchange_feed_watchdog import exchange_feed_watchdog as _wdog
+                        if _wdog.is_degraded(_bexch):
+                            elig_log.skip(
+                                bot,
+                                reason_code=EligibilityCode.EXCHANGE_DEGRADED,
+                                details={"exchange": _bexch, "reason": "exchange_feed_degraded"},
+                            )
+                            logger.info(
+                                "SKIP exchange_degraded | %s | exchange=%s",
+                                bot['name'], _bexch,
+                            )
+                            return
+                    except Exception:
+                        pass  # Watchdog unavailable — continue normally
 
                     # Check both 'mode' and 'trading_mode' for backwards compatibility
                     _mode = bot.get('mode') or bot.get('trading_mode', 'paper')

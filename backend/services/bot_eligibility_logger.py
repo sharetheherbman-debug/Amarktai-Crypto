@@ -82,6 +82,9 @@ class EligibilityCode(str, Enum):
     CYCLE_ERROR               = "cycle_error"
     TRADE_REJECTED            = "trade_rejected"
 
+    # ── Exchange infrastructure degraded ────────────────────────────────────
+    EXCHANGE_DEGRADED         = "exchange_degraded"
+
     # ── Catch-all (use only when no specific code applies) ──────────────────
     UNKNOWN                   = "unknown"
 

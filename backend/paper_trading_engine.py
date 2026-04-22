@@ -754,6 +754,31 @@ class PaperTradingEngine:
             If with_label=False: float price
             If with_label=True: dict with {'price': float, 'mode': str, 'label': str, ...}
         """
+        # ── Shared market-data cache (fast path) ───────────────────────────
+        # Read from the shared ExchangeFeedService cache before any CCXT call.
+        # Falls through to direct CCXT fetch only on cache miss or stale data.
+        try:
+            from services.market_state_cache import market_state_cache as _shared_msc
+            _cached_state = _shared_msc.get(exchange, symbol)
+            if _cached_state and not _cached_state.get("is_stale", True):
+                _cached_price = _cached_state.get("last") or _cached_state.get("mid")
+                if _cached_price and float(_cached_price) > 0:
+                    self.price_cache[symbol] = float(_cached_price)
+                    if with_label:
+                        mode_info = self.get_mode_label()
+                        return {
+                            "price": float(_cached_price),
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "timestamp": _cached_state.get(
+                                "timestamp", datetime.now(timezone.utc).isoformat()
+                            ),
+                            "source": "shared_cache",
+                            **mode_info,
+                        }
+                    return float(_cached_price)
+        except Exception:
+            pass  # Cache unavailable — continue to direct fetch
         try:
             if not self.luno_exchange and not self.binance_exchange:
                 await self.init_exchanges()
@@ -857,6 +882,26 @@ class PaperTradingEngine:
 
     async def get_market_snapshot(self, symbol: str, exchange: str = "luno") -> Dict:
         """Get best bid/ask snapshot for a symbol with fallback pricing."""
+        # ── Shared market-data cache (primary path) ────────────────────────
+        try:
+            from services.market_state_cache import market_state_cache as _shared_msc
+            _cached = _shared_msc.get(exchange, symbol)
+            if _cached and not _cached.get("is_stale", True):
+                return {
+                    "bid": _cached.get("bid", _cached.get("mid")),
+                    "ask": _cached.get("ask", _cached.get("mid")),
+                    "mid": _cached.get("mid"),
+                    "spread": _cached.get("spread", 0.0),
+                    "spread_bps": round((_cached.get("spread_pct", 0.0) or 0.0) * 100, 4),
+                    "bid_volume": _cached.get("bid_volume"),
+                    "ask_volume": _cached.get("ask_volume"),
+                    "depth_notional": _cached.get("depth_notional"),
+                    "source": "shared_cache",
+                    "timestamp": _cached.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                }
+        except Exception:
+            pass  # Cache unavailable — continue to market_data_provider / direct fetch
+
         if self.market_data_provider:
             return await self.market_data_provider(symbol, exchange)
 
@@ -939,6 +984,24 @@ class PaperTradingEngine:
     
     async def analyze_trend(self, symbol: str, exchange: str = 'luno') -> str:
         """Analyze REAL market trend"""
+        # ── Shared OHLCV cache (fast path) ────────────────────────────────
+        try:
+            from services.market_state_cache import market_state_cache as _shared_msc
+            _ohlcv_cached = _shared_msc.get_ohlcv(exchange, symbol)
+            if _ohlcv_cached and len(_ohlcv_cached) >= 10:
+                _recent = [float(c[4]) for c in _ohlcv_cached[-5:]]
+                _older = [float(c[4]) for c in _ohlcv_cached[-15:-5]]
+                if _recent and _older:
+                    _r_avg = sum(_recent) / len(_recent)
+                    _o_avg = sum(_older) / len(_older)
+                    _chg = ((_r_avg - _o_avg) / _o_avg * 100) if _o_avg else 0
+                    if _chg > 0.4:
+                        return 'bullish'
+                    elif _chg < -0.4:
+                        return 'bearish'
+                    return 'neutral'
+        except Exception:
+            pass  # Cache unavailable — fall through to direct fetch
         try:
             exchange_obj = self.luno_exchange if exchange == 'luno' else self.binance_exchange
             

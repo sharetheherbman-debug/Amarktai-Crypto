@@ -315,8 +315,35 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not start USDT/ZAR updater: {e}")
 
+    # =========================================================================
+    # STEP N: Shared Market Data Plane — ExchangeFeedService + Watchdog
+    # =========================================================================
+    # One background feed per exchange replaces per-bot CCXT polling.
+    # Bots read from MarketStateCache; only the feed services hit exchange APIs.
+    try:
+        from services.exchange_feed_service import start_feed_services
+        await start_feed_services(["luno", "binance"])
+        logger.info("📡 ExchangeFeedService started for luno + binance")
+    except Exception as _feed_err:
+        logger.warning("⚠️ ExchangeFeedService startup failed (non-fatal): %s", _feed_err)
+
+    try:
+        from services.exchange_feed_watchdog import exchange_feed_watchdog as _watchdog
+        await _watchdog.start()
+        logger.info("🛡️ ExchangeFeedWatchdog started")
+    except Exception as _wdog_err:
+        logger.warning("⚠️ ExchangeFeedWatchdog startup failed (non-fatal): %s", _wdog_err)
+
+    # Load promoted strategy version into memory
+    try:
+        from services.strategy_version_loader import strategy_version_loader as _svl
+        _svl.reload_active_strategy()
+        logger.info("📋 Active strategy: %s", _svl.current_version_string())
+    except Exception as _svl_err:
+        logger.warning("⚠️ StrategyVersionLoader startup failed (non-fatal): %s", _svl_err)
+
     logger.info("🚀 All autonomous systems operational")
-    
+
     # Set startup time and bind status in health endpoint
     try:
         from routes.health import set_startup_time, set_bind_ok
@@ -325,7 +352,7 @@ async def lifespan(app: FastAPI):
         logger.info("✅ BOUND_OK - Server successfully bound and ready to accept connections")
     except Exception as e:
         logger.warning(f"Could not set health endpoint state: {e}")
-    
+
     logger.info("="*80)
     logger.info("✅ SERVER STARTUP COMPLETE - Ready to serve traffic")
     logger.info(f"📡 Listening on: {host}:{port}")
@@ -345,7 +372,22 @@ async def lifespan(app: FastAPI):
         await lifecycle_manager.stop_all()
     except Exception as e:
         logger.error(f"Error during lifecycle shutdown: {e}")
-    
+
+    # Stop Exchange Feed Services and Watchdog (new data plane)
+    try:
+        from services.exchange_feed_watchdog import exchange_feed_watchdog as _watchdog
+        await _watchdog.stop()
+        logger.info("✅ ExchangeFeedWatchdog stopped")
+    except Exception as e:
+        logger.warning(f"ExchangeFeedWatchdog stop error: {e}")
+
+    try:
+        from services.exchange_feed_service import stop_feed_services
+        await stop_feed_services()
+        logger.info("✅ ExchangeFeedServices stopped")
+    except Exception as e:
+        logger.warning(f"ExchangeFeedService stop error: {e}")
+
     # Stop optional services
     try:
         from services.daily_reinvestment import get_reinvestment_service
@@ -354,7 +396,7 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Reinvestment Service stopped")
     except Exception as e:
         logger.error(f"Error stopping reinvest_service: {e}")
-    
+
     # Stop Bot Quarantine Service
     try:
         from services.bot_quarantine import quarantine_service
@@ -3366,6 +3408,8 @@ routers_to_mount = [
     ("routes.fx_rates", "FX Rates"),                    # /api/fx/rates,refresh,health
     ("routes.backtesting", "Backtesting"),              # /api/backtest/run,optimize,history
     ("routes.live_funds", "Live Funds Control"),         # /api/live-funds/status,audit,reconcile,health
+    ("routes.feed_health", "Exchange Feed Health"),      # /api/system/feed-health — data plane monitoring
+    ("routes.strategy_admin", "Strategy Admin"),         # /api/strategy/active,promote,rollback
 ]
 
 # Mount realtime router only if enabled via feature flag
