@@ -90,6 +90,7 @@ from config import (
     DYNAMIC_SPREAD_MULTIPLIER,
     MIN_VOLATILITY_RANGE_PCT,
     LOSS_COOLDOWN_SECONDS,
+    REGIME_INDICATOR_CONFIDENCE_FLOOR,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
 from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE as _DEFAULT_SYMBOL_UNIVERSE
@@ -1378,7 +1379,10 @@ class PaperTradingEngine:
                 self._spread_history[_spread_key] = deque(maxlen=20)
             self._spread_history[_spread_key].append(spread_pct)
             _spread_buf = self._spread_history[_spread_key]
-            if len(_spread_buf) >= 5 and spread_pct > 0.1:
+            # Skip dynamic check if spread is near-zero (e.g. synthetic/simulated market
+            # data) — a near-zero rolling avg would make the multiplier trigger nonsensically.
+            _MIN_SPREAD_FOR_DYNAMIC_CHECK = 0.10  # %: ignore spreads below this threshold
+            if len(_spread_buf) >= 5 and spread_pct > _MIN_SPREAD_FOR_DYNAMIC_CHECK:
                 _rolling_avg_spread = sum(_spread_buf) / len(_spread_buf)
                 if spread_pct > _rolling_avg_spread * DYNAMIC_SPREAD_MULTIPLIER:
                     logger.info(
@@ -1890,13 +1894,15 @@ class PaperTradingEngine:
                     _vol_highs = [float(c[2]) for c in _vol_n]
                     _vol_lows = [float(c[3]) for c in _vol_n]
                     _vol_closes = [float(c[4]) for c in _vol_n]
-                    _mid_price = (_vol_closes[-1] + _vol_closes[0]) / 2
+                    # Use high-low midpoint as the price reference for percentage normalisation —
+                    # more accurate than first/last close for ATR and range calculations.
+                    _mid_price = (max(_vol_highs) + min(_vol_lows)) / 2
                     # Range % over last 10 candles: primary volatility measure
                     _range_pct = (max(_vol_highs) - min(_vol_lows)) / max(_mid_price, 1e-9) * 100
-                    # ATR % (average candle range)
+                    # ATR % (average candle high-low range as % of mid price)
                     _atr_pct = sum(h - l for h, l in zip(_vol_highs, _vol_lows)) / max(_mid_price, 1e-9) / len(_vol_n) * 100
-                    # Recent 5-candle price change
-                    _recent_change_pct = abs(_vol_closes[-1] - _vol_closes[-5]) / max(abs(_vol_closes[-5]), 1e-9) * 100
+                    # Recent 5-candle price change — use actual price (always positive) as denominator
+                    _recent_change_pct = abs(_vol_closes[-1] - _vol_closes[-5]) / max(_vol_closes[-5], 1e-9) * 100
                     _vol_metrics = {
                         "range_pct": round(_range_pct, 4),
                         "atr_pct": round(_atr_pct, 4),
@@ -2362,13 +2368,13 @@ class PaperTradingEngine:
                 )
             # Extra bypass: if regime is known (not unknown/error/blank) and indicators are valid,
             # allow entry at a lowered floor even when below the normal threshold.
-            # Phase 5: raised from 0.38 to 0.42 to reduce weak-signal entries.
+            # Phase 5: raised from 0.38 to 0.42 (REGIME_INDICATOR_CONFIDENCE_FLOOR) to reduce weak-signal entries.
             _regime_known = playbook_info.get("regime") not in (None, "", "unknown", "error")
             _indicators_valid = expected_move_pct > 0
             _regime_indicator_bypass = (
                 _regime_known
                 and _indicators_valid
-                and avg_confidence >= 0.42
+                and avg_confidence >= REGIME_INDICATOR_CONFIDENCE_FLOOR
                 and confidence_sources >= 1
             )
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):

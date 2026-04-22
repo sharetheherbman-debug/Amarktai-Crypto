@@ -226,6 +226,12 @@ MIN_VOLATILITY_RANGE_PCT = float(os.getenv('MIN_VOLATILITY_RANGE_PCT', '0.20'))
 # re-entering for this many seconds to avoid chasing the same bad condition.
 LOSS_COOLDOWN_SECONDS = int(os.getenv('LOSS_COOLDOWN_SECONDS', '120'))
 
+# Phase 5 — Regime-indicator bypass confidence floor.
+# The bypass allows entry when regime is known AND avg_confidence >= this value,
+# even if the normal confidence threshold is not fully met.  Raised from 0.38 to
+# 0.42 to reduce weak-signal entries that pass through this narrow bypass.
+REGIME_INDICATOR_CONFIDENCE_FLOOR = float(os.getenv('REGIME_INDICATOR_CONFIDENCE_FLOOR', '0.42'))
+
 # ── Safety buffer & regime playbooks ────────────────────────────────────────
 # Base safety buffer added on top of fees+spread+slippage in the edge gate.
 # Default 0.10 %.  In wide-spread / low-liquidity regimes this is multiplied
