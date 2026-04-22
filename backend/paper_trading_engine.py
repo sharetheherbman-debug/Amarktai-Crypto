@@ -2188,7 +2188,7 @@ class PaperTradingEngine:
                 if expected_move_pct < _cost_edge_floor:
                     logger.info(
                         "[BLOCK_COST_EDGE] %s | %s | move=%.4f%% < cost×%.1f=%.4f%% "
-                        "(spread=%.4f%% fees=%.4f%% slip=%.4f%% luno_normal=%s)",
+                        "(spread=%.4f%% fees=%.4f%% slip=%.4f%% luno_normal_override=%s)",
                         bot_data.get("name", bot_id[:8]), symbol,
                         expected_move_pct, _effective_edge_multiplier, _cost_edge_floor,
                         spread_pct, fee_pct_roundtrip, slippage_pct_roundtrip, _is_luno_normal_edge,
