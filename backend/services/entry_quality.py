@@ -115,14 +115,14 @@ def derive_adaptive_discipline(recent_closed_trades: List[Dict]) -> Dict[str, fl
     loss_ratio = losses / max(sample, 1)
     timeout_loss_ratio = timeout_losses / max(losses, 1) if losses else 0.0
 
-    if max_consecutive_losses >= 4 or (loss_ratio >= 0.75 and timeout_loss_ratio >= 0.6 and sample >= 6):
+    if max_consecutive_losses >= 3 or (loss_ratio >= 0.75 and timeout_loss_ratio >= 0.6 and sample >= 6):
         return {
             "stand_down": True,
             "confidence_uplift": 0.15,
             "edge_uplift_pct": 0.35,
             "reason_code": "ADAPTIVE_STAND_DOWN",
         }
-    if max_consecutive_losses >= 2 or timeout_loss_ratio >= 0.5:
+    if max_consecutive_losses >= 1 or timeout_loss_ratio >= 0.5:
         return {
             "stand_down": False,
             "confidence_uplift": 0.08,

@@ -261,6 +261,45 @@ class TradingScheduler:
 
             active_bots = run_active_bots
 
+            # ── SINGLE-COHORT VALIDATION GATE ────────────────────────────────────
+            # When the operator has set system_modes.paper_validation_cohort for a
+            # user, only bots matching that exact exchange + bot_type participate in
+            # this tick.  All other paper bots are silently skipped (not paused/deleted).
+            # This allows clean single-cohort sampling (e.g. "luno normals only").
+            _user_cohort_cache: dict = {}  # user_id → {exchange, bot_type} or None
+            cohort_active_bots = []
+            for bot in active_bots:
+                _uid = bot.get("user_id", "")
+                if _uid not in _user_cohort_cache:
+                    try:
+                        _sm = await db.system_modes_collection.find_one(
+                            {"user_id": _uid}, {"_id": 0, "paper_validation_cohort": 1}
+                        )
+                        _user_cohort_cache[_uid] = (
+                            _sm.get("paper_validation_cohort") if _sm else None
+                        )
+                    except Exception as _cohort_err:
+                        logger.warning("paper_validation_cohort fetch failed for %s: %s", _uid, _cohort_err)
+                        _user_cohort_cache[_uid] = None
+                _cohort = _user_cohort_cache.get(_uid)
+                if _cohort and _is_paper_bot(bot):
+                    # Cohort mode is active — only tick bots matching the cohort
+                    _cohort_exch = str(_cohort.get("exchange") or "").lower()
+                    _cohort_type = str(_cohort.get("bot_type") or "").lower()
+                    _bot_exch = (bot.get("exchange") or "").lower()
+                    _bot_type = (bot.get("bot_type") or "normal").lower()
+                    _exch_match = not _cohort_exch or _bot_exch == _cohort_exch
+                    _type_match = not _cohort_type or _bot_type == _cohort_type
+                    if not (_exch_match and _type_match):
+                        logger.debug(
+                            "COHORT_SKIP | %s | exchange=%s bot_type=%s not in cohort %s/%s",
+                            bot.get("name", bot["id"][:8]), _bot_exch, _bot_type,
+                            _cohort_exch or "*", _cohort_type or "*",
+                        )
+                        continue
+                cohort_active_bots.append(bot)
+            active_bots = cohort_active_bots
+
             # Sync with runtime truth store (pause/stopped bots are skipped)
             runtime_filtered = []
             for bot in active_bots:

@@ -3325,13 +3325,37 @@ async def go_live_readiness(user_id: str = Depends(get_current_user)):
             "paper_bypass_active": len(_paper_active) > 0,
             "note": (
                 "paper_run_exchanges: exchanges paper bots are ALLOWED to use "
-                "(explicit selection respected; no-selection defaults to all PAPER_SUPPORTED_EXCHANGES). "
+                "(explicit selection > funded wallets > luno fallback). "
                 "paper_active_exchanges: exchanges where paper bots are executing RIGHT NOW. "
                 "configured_exchanges/unlocked_exchanges apply to live trading only. "
                 "ghost_exchanges: run-active but not yet unlocked (key+test) — "
                 "not a hard blocker for paper runs but must be resolved before live go-live."
             ),
         }
+
+        # ── Paper validation cohort (Phase B) ─────────────────────────────────
+        try:
+            _sm_cohort = await db.system_modes_collection.find_one(
+                {"user_id": user_id}, {"_id": 0, "paper_validation_cohort": 1}
+            )
+            _cohort = _sm_cohort.get("paper_validation_cohort") if _sm_cohort else None
+            _cohort_active = bool(
+                _cohort
+                and isinstance(_cohort, dict)
+                and (_cohort.get("exchange") or _cohort.get("bot_type"))
+            )
+            checks["paper_validation_cohort"] = {
+                "active": _cohort_active,
+                "cohort": _cohort if _cohort_active else None,
+                "note": (
+                    "When active, only paper bots matching exchange/bot_type are ticked. "
+                    "Use PUT /api/exchanges/paper-cohort to set; DELETE to clear."
+                ),
+            }
+        except Exception as _cohort_err:
+            logger.debug("go_live_readiness: cohort check failed: %s", _cohort_err)
+            checks["paper_validation_cohort"] = {"active": False, "cohort": None}
+
     except Exception as e:
         logger.error("go_live_readiness: exchange unlock check error: %s", e)
         checks["exchange_unlock"] = {"error": "exchange_unlock_check_failed"}

@@ -457,6 +457,14 @@ async def get_platform_wallet_totals_zar(user_id: str) -> Dict[str, Any]:
         "by_exchange": by_exchange,
         "global_wallet_zar": round(global_wallet_zar, 2),
         "combined_zar": round(platform_total_zar + global_wallet_zar, 2),
+        # validation_zar: operator-facing capital truth for paper validation runs.
+        # Uses ONLY platform (per-exchange) wallets — never the legacy global wallet.
+        # Always use this field when computing paper-test performance metrics,
+        # countdown-to-million, and cohort capital summaries.
+        "validation_zar": round(platform_total_zar, 2),
+        # Warn operators if stale legacy wallet funds are present so they
+        # know the global_wallet_zar must not be double-counted with validation_zar.
+        "legacy_contamination_warning": global_wallet_zar > 0,
         "source": "platform_wallet_totals_zar",
     }
 
@@ -626,15 +634,16 @@ async def get_user_paper_exchanges(user_id: str) -> list[str]:
     ``get_user_run_exchanges`` applies — there is no tier-2 key check here
     because paper trading does not need real API credentials.
 
-    Resolution order:
+    Resolution order (highest priority first):
 
     1. ``system_modes.run_active_exchanges`` — explicit operator selection.
        When set, both live AND paper bots honour it (the operator has spoken).
-    2. ALL ``PAPER_SUPPORTED_EXCHANGES`` — when no explicit selection exists,
-       paper bots may use every exchange the platform supports for paper
-       trading.  This avoids the tier-3 ``["luno"]`` fallback of
-       ``get_user_run_exchanges`` silently restricting a paper fleet that was
-       intentionally created across multiple exchanges.
+    2. Exchanges with a funded platform wallet (available balance > 0).
+       When only Luno is funded, only Luno bots are allowed — prevents ghost
+       paper exchanges (Bybit, Bitget, Binance) from appearing silently during
+       a single-exchange paper test.  If the operator funds more wallets, those
+       exchanges are automatically included on the next scheduler tick.
+    3. ``["luno"]`` — safe single-exchange fallback when no funded wallets exist.
 
     Note: this function never returns exchanges outside PAPER_SUPPORTED_EXCHANGES
     even when the user has an explicit selection that includes unsupported names.
@@ -642,7 +651,6 @@ async def get_user_paper_exchanges(user_id: str) -> list[str]:
     For LIVE bots, use ``get_user_run_exchanges()`` which requires API-key proof.
     """
     from config import PAPER_SUPPORTED_EXCHANGES
-    from config.platforms import SUPPORTED_PLATFORMS
 
     # Tier 1: explicit selection stored in system_modes
     try:
@@ -662,5 +670,29 @@ async def get_user_paper_exchanges(user_id: str) -> list[str]:
     except Exception as exc:
         logger.debug("get_user_paper_exchanges tier-1 failed for %s: %s", user_id, exc)
 
-    # Tier 2: all paper-capable exchanges (no API key required for paper)
-    return list(PAPER_SUPPORTED_EXCHANGES)
+    # Tier 2: exchanges with a funded platform wallet (balance > 0).
+    # Prevents ghost paper exchanges from appearing when only one exchange is
+    # funded.  The seeder auto-funds each exchange it seeds, so funded wallets
+    # are the reliable signal for operator-intended exchanges in a paper run.
+    try:
+        funded: list[str] = []
+        all_wallets = await paper_wallet_service.get_all_exchange_wallets(user_id)
+        for exch, wallet in all_wallets.items():
+            exch_lower = exch.lower()
+            if exch_lower in PAPER_SUPPORTED_EXCHANGES:
+                native_amount = float(wallet.get("available", 0) or 0)
+                if native_amount > 0:
+                    funded.append(exch_lower)
+        if funded:
+            logger.debug(
+                "get_user_paper_exchanges tier-2 (funded wallets) for user %s: %s",
+                user_id[:8], funded,
+            )
+            return list(dict.fromkeys(funded))  # deduplicated, order-preserving
+    except Exception as exc:
+        logger.debug("get_user_paper_exchanges tier-2 failed for %s: %s", user_id, exc)
+
+    # Tier 3: safe single-exchange fallback.
+    # Changed from ALL PAPER_SUPPORTED_EXCHANGES to ["luno"] to prevent ghost
+    # exchange participation when no explicit selection and no funded wallets exist.
+    return ["luno"]

@@ -137,9 +137,10 @@ async def get_run_selection(user_id: str = Depends(get_current_user)):
             "exchange_status": exchange_table,
             "excluded_bots_count": excluded_count,
             "note": (
-                "paper_run_exchanges: exchanges on which paper bots are ALLOWED to execute "
-                "(explicit run_active_exchanges selection, or all PAPER_SUPPORTED_EXCHANGES when "
-                "no selection is set).  "
+                "paper_run_exchanges: exchanges on which paper bots are ALLOWED to execute. "
+                "Resolution: 1) explicit run_active_exchanges; "
+                "2) exchanges with funded platform wallets (balance > 0); "
+                "3) ['luno'] fallback.  "
                 "paper_active_exchanges: exchanges where paper bots are actively executing NOW.  "
                 "run_active_exchanges: exchange gate for live bots (requires API key proof).  "
                 "configured_exchanges/unlocked_exchanges are advisory for paper mode."
@@ -228,3 +229,158 @@ async def set_run_selection(
             "and will not be ticked by the scheduler until the selection is changed."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Single-cohort validation mode — Phase B
+# ---------------------------------------------------------------------------
+
+@router.get("/paper-cohort")
+async def get_paper_cohort(user_id: str = Depends(get_current_user)):
+    """
+    GET /api/exchanges/paper-cohort
+
+    Returns the active single-cohort validation mode for paper trading.
+
+    When a cohort is set, only paper bots matching the specified exchange
+    and/or bot_type are ticked by the scheduler.  All other paper bots are
+    skipped (not paused or deleted) until the cohort is cleared.
+
+    Response:
+        {
+            "active": bool,
+            "cohort": {"exchange": str | null, "bot_type": str | null} | null,
+            "note": str
+        }
+    """
+    try:
+        modes = await db.system_modes_collection.find_one(
+            {"user_id": user_id}, {"_id": 0, "paper_validation_cohort": 1}
+        )
+        cohort = modes.get("paper_validation_cohort") if modes else None
+        is_active = bool(
+            cohort
+            and isinstance(cohort, dict)
+            and (cohort.get("exchange") or cohort.get("bot_type"))
+        )
+        return {
+            "active": is_active,
+            "cohort": cohort if is_active else None,
+            "note": (
+                "When active, only paper bots matching exchange+bot_type are ticked. "
+                "Set exchange=null to match all exchanges; bot_type=null to match all types. "
+                "PUT /api/exchanges/paper-cohort to change; DELETE to clear."
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error("get_paper_cohort error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/paper-cohort")
+async def set_paper_cohort(
+    user_id: str = Depends(get_current_user),
+    payload: Dict = Body(...),
+):
+    """
+    PUT /api/exchanges/paper-cohort
+
+    Set single-cohort validation mode.  Only paper bots matching the given
+    exchange and/or bot_type will be ticked by the scheduler.
+
+    Body (both fields optional — omit or set null to match all):
+        {
+            "exchange": "luno",      // null → all exchanges
+            "bot_type": "normal"     // null → both normal and scalper
+        }
+
+    To clear the cohort and return to full-fleet mode:
+        PUT with {"exchange": null, "bot_type": null}
+    or DELETE /api/exchanges/paper-cohort
+    """
+    try:
+        exchange = payload.get("exchange")
+        bot_type = payload.get("bot_type")
+
+        if exchange is not None:
+            exchange = str(exchange).lower().strip()
+            if exchange not in SUPPORTED_PLATFORMS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported exchange '{exchange}'. Supported: {list(SUPPORTED_PLATFORMS)}",
+                )
+        if bot_type is not None:
+            bot_type = str(bot_type).lower().strip()
+            if bot_type not in ("normal", "scalper"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="bot_type must be 'normal' or 'scalper' (or null to match all)",
+                )
+
+        # If both are null, treat as a clear
+        if exchange is None and bot_type is None:
+            await db.system_modes_collection.update_one(
+                {"user_id": user_id},
+                {"$unset": {"paper_validation_cohort": ""}},
+                upsert=False,
+            )
+            return {
+                "success": True,
+                "active": False,
+                "cohort": None,
+                "message": "Paper validation cohort cleared — all paper bots will be ticked.",
+            }
+
+        cohort = {"exchange": exchange, "bot_type": bot_type}
+        await db.system_modes_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "paper_validation_cohort": cohort,
+                "paper_validation_cohort_set_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+        logger.info("User %s set paper_validation_cohort = %s", user_id, cohort)
+        return {
+            "success": True,
+            "active": True,
+            "cohort": cohort,
+            "message": (
+                f"Cohort set: only {'all exchanges' if not exchange else exchange} / "
+                f"{'all types' if not bot_type else bot_type} bots will be ticked."
+            ),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("set_paper_cohort error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/paper-cohort")
+async def clear_paper_cohort(user_id: str = Depends(get_current_user)):
+    """
+    DELETE /api/exchanges/paper-cohort
+
+    Clear the single-cohort validation mode.  All paper bots resume normal
+    scheduler participation after this call.
+    """
+    try:
+        await db.system_modes_collection.update_one(
+            {"user_id": user_id},
+            {"$unset": {"paper_validation_cohort": ""}},
+            upsert=False,
+        )
+        logger.info("User %s cleared paper_validation_cohort", user_id)
+        return {
+            "success": True,
+            "active": False,
+            "cohort": None,
+            "message": "Paper validation cohort cleared — all paper bots will be ticked.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error("clear_paper_cohort error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
