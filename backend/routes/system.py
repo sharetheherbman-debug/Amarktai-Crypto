@@ -435,3 +435,85 @@ async def get_reset_proof(user_id: str = Depends(get_current_user)):
 
 # NOTE: paper-reset endpoint is defined in routes/system_mode.py (canonical)
 # Do not add a duplicate here - it causes route collisions.
+
+
+@router.get("/feed-health")
+async def get_feed_health(user_id: str = Depends(get_current_user)) -> dict:
+    """GET /api/system/feed-health
+
+    Returns per-exchange price-feed health status.  Checks the last time a price
+    was successfully fetched from each supported exchange and reports whether the
+    feed is fresh, stale, or untested.  No new API calls are made; the response
+    is assembled from in-memory caches only.
+    """
+    from datetime import datetime, timezone
+    import time as _time
+
+    _now = datetime.now(timezone.utc)
+    _now_ts = _now.timestamp()
+
+    # Stale threshold: a feed is considered stale if not updated in 5 minutes.
+    STALE_THRESHOLD_SECONDS = 300
+
+    feeds: dict = {}
+
+    # Check Luno ticker cache (most active exchange in paper mode).
+    try:
+        from services.luno_ticker_cache import luno_ticker_cache as _ltc
+        _luno_ts = getattr(_ltc, "_last_updated", None)
+        if _luno_ts is not None:
+            _age = _now_ts - _luno_ts
+            feeds["luno"] = {
+                "exchange": "luno",
+                "status": "ok" if _age < STALE_THRESHOLD_SECONDS else "stale",
+                "last_updated_seconds_ago": round(_age, 1),
+                "source": "luno_ticker_cache",
+            }
+        else:
+            feeds["luno"] = {"exchange": "luno", "status": "untested", "source": "luno_ticker_cache"}
+    except Exception as _e:
+        feeds["luno"] = {"exchange": "luno", "status": "error", "error": str(_e)}
+
+    # For all other exchanges: check ccxt_service paper balance timestamps as proxy.
+    # ccxt_service.get_paper_balance is in-memory only; if the scheduler has ticked
+    # recently these reflect live feed data.
+    try:
+        from trading_scheduler import trading_scheduler as _sched
+        _last_tick = getattr(_sched, "_last_tick_at", None)
+        _scheduler_age = None
+        if _last_tick is not None:
+            _scheduler_age = round(_now_ts - _last_tick, 1)
+        _scheduler_status = (
+            "ok" if (_scheduler_age is not None and _scheduler_age < STALE_THRESHOLD_SECONDS)
+            else ("stale" if _scheduler_age is not None else "unknown")
+        )
+    except Exception:
+        _scheduler_age = None
+        _scheduler_status = "unknown"
+
+    # Populate other exchanges with scheduler-tick age as a proxy.
+    other_exchanges = ["binance", "kucoin", "bybit", "kraken", "bitget", "gate", "coinbase"]
+    for _ex in other_exchanges:
+        feeds[_ex] = {
+            "exchange": _ex,
+            "status": _scheduler_status,
+            "last_scheduler_tick_seconds_ago": _scheduler_age,
+            "source": "trading_scheduler_last_tick",
+        }
+
+    _healthy = sum(1 for f in feeds.values() if f.get("status") == "ok")
+    _total = len(feeds)
+
+    return {
+        "feeds": feeds,
+        "summary": {
+            "healthy": _healthy,
+            "stale": sum(1 for f in feeds.values() if f.get("status") == "stale"),
+            "untested": sum(1 for f in feeds.values() if f.get("status") == "untested"),
+            "error": sum(1 for f in feeds.values() if f.get("status") == "error"),
+            "total": _total,
+        },
+        "overall_status": "ok" if _healthy == _total else ("degraded" if _healthy > 0 else "down"),
+        "stale_threshold_seconds": STALE_THRESHOLD_SECONDS,
+        "timestamp": _now.isoformat(),
+    }

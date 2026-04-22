@@ -1394,13 +1394,9 @@ async def get_platform_wallet_summary(user_id: str = Depends(get_current_user)):
         unlocked = await get_unlocked_exchanges(user_id)
         return {
             "success": True,
-            # total_portfolio_zar = platform wallets only (no legacy global wallet added on top)
+            # total_portfolio_zar = platform wallets only — canonical active capital.
             "total_portfolio_zar": totals["total_zar"],
             "platform_wallets_zar": totals["total_zar"],
-            # global_wallet_zar is a legacy field retained for debugging only.
-            # It must NOT be used as active capital — platform_wallets_zar is canonical.
-            # We omit combined_zar here to avoid operators seeing a double-counted total.
-            "legacy_global_wallet_zar": totals.get("global_wallet_zar", 0),
             "by_exchange": totals["by_exchange"],
             "unlocked_exchanges": unlocked,
             "reporting_currency": "ZAR",
