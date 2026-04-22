@@ -2,16 +2,20 @@
 Exchange Status & Test Endpoints
 
 Provides:
-  GET  /api/exchanges/status  — status of all 7 exchanges for the authenticated user
-  POST /api/exchanges/test    — test connectivity to a specific exchange
+  GET  /api/exchanges/status      — status of all 7 exchanges for the authenticated user
+  POST /api/exchanges/test        — test connectivity to a specific exchange
+  GET  /api/exchanges/paper-cohort — paper-mode bot cohort status per exchange
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Dict
+from datetime import datetime, timezone
 import logging
 
+import database as db
 from auth import get_current_user
 from services.exchange_adapter import exchange_adapter, SUPPORTED_EXCHANGES
+from utils.bot_state import normalize_bot_state, is_active_bot
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +85,7 @@ async def get_paper_cohort(user_id: str = Depends(get_current_user)):
 
     This is the canonical source for paper-cohort dashboards and radar panels.
     """
-    import database as db
-    from datetime import datetime, timezone
+    from services.paper_wallet_service import PaperWalletService as _PWS
 
     _now = datetime.now(timezone.utc).isoformat()
 
@@ -97,7 +100,6 @@ async def get_paper_cohort(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch bots: {_e}")
 
     # Group by exchange
-    from utils.bot_state import normalize_bot_state, is_active_bot
     cohort: dict = {}
     for bot in all_bots:
         _mode = bot.get("mode") or bot.get("trading_mode", "paper")
@@ -122,7 +124,6 @@ async def get_paper_cohort(user_id: str = Depends(get_current_user)):
 
     # Enrich with wallet funding status
     try:
-        from services.paper_wallet_service import PaperWalletService as _PWS
         _pws = _PWS()
         existing_wallets = await _pws.get_all_exchange_wallets(user_id)
         for exch, wallet in existing_wallets.items():

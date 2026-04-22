@@ -447,7 +447,6 @@ async def get_feed_health(user_id: str = Depends(get_current_user)) -> dict:
     is assembled from in-memory caches only.
     """
     from datetime import datetime, timezone
-    import time as _time
 
     _now = datetime.now(timezone.utc)
     _now_ts = _now.timestamp()
