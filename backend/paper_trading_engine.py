@@ -179,6 +179,14 @@ PAPER_BYPASS_MIN_MOVE_PCT = float(os.getenv("PAPER_BYPASS_MIN_MOVE_PCT", "0.05")
 # Default: -0.10 % (trades whose costs exceed expected move by more than 0.10% are blocked).
 PAPER_BYPASS_MIN_NET_EDGE_PCT = float(os.getenv("PAPER_BYPASS_MIN_NET_EDGE_PCT", "-0.10"))
 
+# PHASE 5: Minimum confidence for the regime-indicator bypass path.
+# This bypass allows entry when regime is known AND indicators are valid AND confidence
+# meets this floor — even if the composite confidence is below the main threshold.
+# Raised from 0.38 to 0.42 to tighten signal quality and reduce weak-signal entries.
+REGIME_INDICATOR_BYPASS_MIN_CONFIDENCE: float = float(
+    os.getenv("REGIME_INDICATOR_BYPASS_MIN_CONFIDENCE", "0.42")
+)
+
 # ── Entry Quality v2 constants ─────────────────────────────────────────────
 # PHASE 1: Cost-multiplier edge filter.
 # A trade is blocked when expected_move_pct < total_cost_pct * EDGE_COST_MULTIPLIER.
@@ -2405,7 +2413,7 @@ class PaperTradingEngine:
             _regime_indicator_bypass = (
                 _regime_known
                 and _indicators_valid
-                and avg_confidence >= 0.42
+                and avg_confidence >= REGIME_INDICATOR_BYPASS_MIN_CONFIDENCE
                 and confidence_sources >= 1
             )
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):

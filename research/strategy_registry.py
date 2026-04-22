@@ -172,8 +172,15 @@ class StrategyRegistry:
                 f"Expected stage={from_stage!r} but {name}/{version} is currently {entry['stage']!r}"
             )
 
-        # Load config, update stage, write back
-        config_file = _REGISTRY_DIR / name / version / "config.json"
+        # Resolve the config file strictly within _REGISTRY_DIR to prevent path traversal.
+        # name and version come from user input; we validate they resolve inside the registry
+        # root before opening any files.
+        config_file = (_REGISTRY_DIR / name / version / "config.json").resolve()
+        _registry_root = _REGISTRY_DIR.resolve()
+        if not str(config_file).startswith(str(_registry_root)):
+            raise ValueError(f"Resolved path escapes registry root: {config_file}")
+        if not config_file.exists():
+            raise FileNotFoundError(f"Config file not found: {config_file}")
         with open(config_file) as f:
             payload = json.load(f)
 
