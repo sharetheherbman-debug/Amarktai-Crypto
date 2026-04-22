@@ -210,6 +210,14 @@ MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.02'))
 # Only applied when the paper data-collection bypass is NOT active.
 EDGE_COST_MULTIPLIER = float(os.getenv('EDGE_COST_MULTIPLIER', '1.5'))
 
+# Luno-normal-specific edge multiplier — stricter than the global default because Luno
+# round-trip costs are higher (0.64% fees + ~0.7–1.0% spread) and realized moves are
+# shallower on ZAR-quoted pairs.  Raising to 2.0 means expected move must be at least
+# 2× the round-trip cost before a Luno normal trade is entered.
+# Applied only when exchange="luno" AND bot_type="normal".
+# Env: LUNO_NORMAL_EDGE_COST_MULTIPLIER  Default: 2.0
+LUNO_NORMAL_EDGE_COST_MULTIPLIER = float(os.getenv('LUNO_NORMAL_EDGE_COST_MULTIPLIER', '2.0'))
+
 # Phase 2 — Dynamic spread multiplier: block entry when spread_pct exceeds
 # the rolling average spread by this factor.  Catches sudden spread spikes
 # that indicate low liquidity / choppy conditions without needing extra API calls.
@@ -228,10 +236,28 @@ MIN_VOLATILITY_RANGE_PCT = float(os.getenv('MIN_VOLATILITY_RANGE_PCT', '0.20'))
 # on Luno BTC/ZAR and ETH/ZAR scalp trades.
 SCALPER_MIN_VOLATILITY_RANGE_PCT = float(os.getenv('SCALPER_MIN_VOLATILITY_RANGE_PCT', '0.30'))
 
+# Luno-normal-specific minimum volatility range.  Raised above the global normal threshold
+# (0.20%) because Luno ZAR-quoted pairs exhibit wider spreads and higher round-trip costs,
+# meaning a flat-market entry requires even more realized movement to clear costs.
+# 0.35% = 35 bps: empirically, setups below this on BTC/ZAR and ETH/ZAR frequently
+# end in stagnation_exit or fee_break_even_fail.  All other exchanges/bot-types use
+# MIN_VOLATILITY_RANGE_PCT.  Env: LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT  Default: 0.35
+LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT = float(os.getenv('LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT', '0.35'))
+
 # Phase 4 — Per-bot cooldown after a losing trade (seconds).
 # After any trade that closes with net_profit < 0, the bot is blocked from
 # re-entering for this many seconds to avoid chasing the same bad condition.
 LOSS_COOLDOWN_SECONDS = int(os.getenv('LOSS_COOLDOWN_SECONDS', '120'))
+
+# Phase 6 — Symbol-level stagnation cooldown for Luno normal bots (seconds).
+# After a stagnation_exit or fee_break_even_fail on a Luno normal bot, ALL normal
+# bots for that user on that exchange are blocked from re-entering the SAME symbol
+# for this duration.  This prevents the fleet from immediately piling back into a
+# symbol that has just shown flat/no-movement behavior.
+# Scope: exchange=luno, bot_type=normal only.
+# Cooldown key: "{user_id}:{exchange}:{symbol}"  (all lower-case).
+# Env: LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS  Default: 900 (15 minutes)
+LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS = int(os.getenv('LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS', '900'))
 
 # Phase 5 — Regime-indicator bypass confidence floor.
 # The bypass allows entry when regime is known AND avg_confidence >= this value,
