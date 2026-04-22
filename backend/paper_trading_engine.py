@@ -87,10 +87,13 @@ from config import (
     SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER,
     RISK_MODE_CONFIG,
     EDGE_COST_MULTIPLIER,
+    LUNO_NORMAL_EDGE_COST_MULTIPLIER,
     DYNAMIC_SPREAD_MULTIPLIER,
     MIN_VOLATILITY_RANGE_PCT,
     SCALPER_MIN_VOLATILITY_RANGE_PCT,
+    LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT,
     LOSS_COOLDOWN_SECONDS,
+    LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS,
     REGIME_INDICATOR_CONFIDENCE_FLOOR,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
@@ -455,6 +458,13 @@ class PaperTradingEngine:
         # Set after each losing trade (net_profit < 0); checked at entry to block
         # immediate re-entry into the same deteriorating market condition.
         self._bot_loss_cooldowns: Dict[str, datetime] = {}
+
+        # Symbol-level stagnation cooldown for Luno normal bots.
+        # Maps "{user_id}:{exchange}:{symbol}" → UTC datetime when the cooldown expires.
+        # Set after a stagnation_exit or fee_break_even_fail; blocks ALL normal bots for
+        # that user/exchange from re-entering the same symbol for LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS.
+        # Intentionally scoped to luno+normal only (set/check gated by exchange/bot_type).
+        self._stagnation_symbol_cooldowns: Dict[str, datetime] = {}
 
         # Rolling spread history per "exchange:symbol" key (deque of recent spread_pct
         # values, max 20 samples).  Used by the Phase 2 dynamic spread gate to compare
@@ -1309,6 +1319,57 @@ class PaperTradingEngine:
                 except Exception:
                     pass  # drawdown gate is best-effort — never crash the engine
 
+            # PHASE 6: Symbol-level stagnation cooldown (Luno normal only).
+            # After a stagnation_exit or fee_break_even_fail on luno+normal, the symbol
+            # is placed in a cooldown for LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS.  This gate
+            # checks that cooldown BEFORE fetching market data so no API calls are wasted.
+            # Scope: only active when exchange=luno AND bot_type=normal.
+            if (
+                str(exchange).lower() == "luno"
+                and str(_bot_type_for_universe).lower() == "normal"
+                and LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS > 0
+            ):
+                _sym_cd_key = f"{user_id}:{str(exchange).lower()}:{str(symbol).upper()}"
+                _sym_cd_until = self._stagnation_symbol_cooldowns.get(_sym_cd_key)
+                _now_sym = datetime.now(timezone.utc)
+                if _sym_cd_until and _now_sym < _sym_cd_until:
+                    _sym_cd_remaining = int((_sym_cd_until - _now_sym).total_seconds())
+                    logger.info(
+                        "[BLOCK_SYM_STAG] %s | %s | %s | sym_cooldown_remaining=%ds "
+                        "reason=symbol_cooldown_after_stagnation",
+                        bot_data.get("name", bot_id[:8]), exchange, symbol, _sym_cd_remaining,
+                    )
+                    logger.info(
+                        "BLOCK_DETAIL %s",
+                        json.dumps({
+                            "bot_id": bot_id,
+                            "reason": "symbol_cooldown_after_stagnation",
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "bot_type": _bot_type_for_universe,
+                            "cooldown_remaining_sec": _sym_cd_remaining,
+                            "cooldown_expires": _sym_cd_until.isoformat(),
+                        }),
+                    )
+                    self._log_action(
+                        "SKIP", bot_id, symbol or "?",
+                        reason="symbol_cooldown_after_stagnation",
+                        bot_name=bot_data.get("name", ""),
+                    )
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "symbol_cooldown_after_stagnation",
+                        "error": (
+                            f"Symbol {symbol} in stagnation cooldown for {_sym_cd_remaining}s "
+                            f"(luno normal — post-stagnation block)"
+                        ),
+                        "details": {
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "cooldown_remaining_sec": _sym_cd_remaining,
+                        },
+                    }
             # Get REAL market snapshot (bid/ask/mid)
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
@@ -1888,14 +1949,20 @@ class PaperTradingEngine:
             # conditions where a trade is statistically likely to exit via stagnation.
             # Reuses the OHLCV already fetched by the Hurst filter (_hurst_ohlcv_cache).
             # No extra API calls; non-fatal if OHLCV unavailable.
-            # Scalpers use a stricter threshold (SCALPER_MIN_VOLATILITY_RANGE_PCT = 0.30%)
-            # vs normal bots (MIN_VOLATILITY_RANGE_PCT = 0.20%) because scalpers target
-            # smaller moves and cannot tolerate near-flat markets without stagnating.
-            _phase3_min_vol = (
-                SCALPER_MIN_VOLATILITY_RANGE_PCT
-                if _bot_type_for_universe == "scalper"
-                else MIN_VOLATILITY_RANGE_PCT
+            # Threshold selection (most → least strict):
+            #   Luno normal  → LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT (0.35%) — ZAR pairs need more room
+            #   Scalper      → SCALPER_MIN_VOLATILITY_RANGE_PCT (0.30%)
+            #   Other normal → MIN_VOLATILITY_RANGE_PCT (0.20%)
+            _is_luno_normal = (
+                str(exchange).lower() == "luno"
+                and str(_bot_type_for_universe).lower() == "normal"
             )
+            if _is_luno_normal:
+                _phase3_min_vol = LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT
+            elif _bot_type_for_universe == "scalper":
+                _phase3_min_vol = SCALPER_MIN_VOLATILITY_RANGE_PCT
+            else:
+                _phase3_min_vol = MIN_VOLATILITY_RANGE_PCT
             _vol_ohlcv = _hurst_ohlcv_cache
             if _vol_ohlcv is not None and len(_vol_ohlcv) >= 10:
                 try:
@@ -2102,19 +2169,29 @@ class PaperTradingEngine:
                 }
 
             # PHASE 1: Cost-aware minimum edge filter.
-            # Expected move must be >= total_cost × EDGE_COST_MULTIPLIER to ensure the
-            # trade has a structural edge, not just a marginal one.
+            # Expected move must be >= total_cost × effective_multiplier.
+            # For Luno normal bots the multiplier is raised above the global default
+            # (LUNO_NORMAL_EDGE_COST_MULTIPLIER=2.0 vs EDGE_COST_MULTIPLIER=1.5) because
+            # Luno round-trip costs are higher and realized moves on ZAR pairs are shallower.
+            # All other exchange/bot-type combos use the global EDGE_COST_MULTIPLIER.
             # Bypassed only when the paper data-collection bypass (_paper_hard_edge_bypass)
             # is active — live mode always enforces this gate.
             if not _paper_hard_edge_bypass:
-                _cost_edge_floor = estimated_cost_pct * EDGE_COST_MULTIPLIER
+                _is_luno_normal_edge = (
+                    str(exchange).lower() == "luno"
+                    and str(_bot_type_for_universe).lower() == "normal"
+                )
+                _effective_edge_multiplier = (
+                    LUNO_NORMAL_EDGE_COST_MULTIPLIER if _is_luno_normal_edge else EDGE_COST_MULTIPLIER
+                )
+                _cost_edge_floor = estimated_cost_pct * _effective_edge_multiplier
                 if expected_move_pct < _cost_edge_floor:
                     logger.info(
                         "[BLOCK_COST_EDGE] %s | %s | move=%.4f%% < cost×%.1f=%.4f%% "
-                        "(spread=%.4f%% fees=%.4f%% slip=%.4f%%)",
+                        "(spread=%.4f%% fees=%.4f%% slip=%.4f%% luno_normal_override=%s)",
                         bot_data.get("name", bot_id[:8]), symbol,
-                        expected_move_pct, EDGE_COST_MULTIPLIER, _cost_edge_floor,
-                        spread_pct, fee_pct_roundtrip, slippage_pct_roundtrip,
+                        expected_move_pct, _effective_edge_multiplier, _cost_edge_floor,
+                        spread_pct, fee_pct_roundtrip, slippage_pct_roundtrip, _is_luno_normal_edge,
                     )
                     logger.info(
                         "BLOCK_DETAIL %s",
@@ -2127,7 +2204,8 @@ class PaperTradingEngine:
                             "total_cost_pct": round(estimated_cost_pct, 4),
                             "expected_move_pct": round(expected_move_pct, 4),
                             "expected_edge_pct": round(_net_edge_pct, 4),
-                            "edge_cost_multiplier": EDGE_COST_MULTIPLIER,
+                            "edge_cost_multiplier": _effective_edge_multiplier,
+                            "luno_normal_override": _is_luno_normal_edge,
                             "required_move_pct": round(_cost_edge_floor, 4),
                             "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
                             "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
@@ -2145,13 +2223,14 @@ class PaperTradingEngine:
                         "skip_reason": "edge_below_cost",
                         "error": (
                             f"Edge below cost threshold: move {expected_move_pct:.3f}% "
-                            f"< cost×{EDGE_COST_MULTIPLIER} = {_cost_edge_floor:.3f}%"
+                            f"< cost×{_effective_edge_multiplier} = {_cost_edge_floor:.3f}%"
                         ),
                         "details": {
                             "expected_move_pct": round(expected_move_pct, 4),
                             "total_cost_pct": round(estimated_cost_pct, 4),
                             "expected_edge_pct": round(_net_edge_pct, 4),
-                            "edge_cost_multiplier": EDGE_COST_MULTIPLIER,
+                            "edge_cost_multiplier": _effective_edge_multiplier,
+                            "luno_normal_override": _is_luno_normal_edge,
                             "required_move_pct": round(_cost_edge_floor, 4),
                             "spread_pct": round(spread_pct, 4),
                             "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
@@ -3227,6 +3306,32 @@ class PaperTradingEngine:
                 # Profitable close — clear any active cooldown so the bot can re-enter
                 self._bot_loss_cooldowns.pop(bot_id, None)
 
+            # PHASE 6: Symbol-level stagnation cooldown (Luno normal only).
+            # After a stagnation_exit or fee_break_even_fail on luno+normal,
+            # block ALL normal bots for this user/exchange from re-entering the
+            # same symbol for LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS.
+            # Scoped by: user_id + exchange + symbol (case-insensitive symbol key).
+            _bot_exchange_close = str(bot_data.get("exchange") or "").lower()
+            _bot_type_close = str(bot_data.get("bot_type") or "normal").lower()
+            _stag_triggers = {"stagnation_exit", "fee_break_even_fail"}
+            if (
+                _bot_exchange_close == "luno"
+                and _bot_type_close == "normal"
+                and close_reason in _stag_triggers
+                and LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS > 0
+                and symbol
+            ):
+                _sym_cd_key = f"{bot_data.get('user_id', '')}:{_bot_exchange_close}:{str(symbol).upper()}"
+                _sym_cd_expires = datetime.now(timezone.utc) + timedelta(seconds=LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS)
+                self._stagnation_symbol_cooldowns[_sym_cd_key] = _sym_cd_expires
+                logger.info(
+                    "[STAG_SYM_COOLDOWN_SET] bot=%s symbol=%s exchange=%s "
+                    "close_reason=%s cooldown_sec=%d expires=%s",
+                    bot_id[:8], symbol, _bot_exchange_close,
+                    close_reason, LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS,
+                    _sym_cd_expires.isoformat(),
+                )
+
             # ── River online learner hook (non-fatal) ────────────────────
             # Exactly one learning update per closed trade, with the real user_id.
             # The duplicate sync call in run_trading_cycle was removed to prevent
@@ -3269,6 +3374,33 @@ class PaperTradingEngine:
             # Update tick time for diagnostics
             self.is_running = True
             self.last_tick_time = datetime.now(timezone.utc).isoformat()
+
+            # ── Exchange-strategy compatibility gate ──────────────────────────
+            # Block immediately if the active strategy for this bot_type is
+            # incompatible with the bot's exchange (e.g. scalper on Luno).
+            try:
+                from services.strategy_compatibility import check_compatible as _chk_compat
+                _compat_ok, _compat_reason = _chk_compat(
+                    bot_type=str(bot_data.get("bot_type") or "normal"),
+                    exchange=str(bot_data.get("exchange") or ""),
+                )
+                if not _compat_ok:
+                    logger.info(
+                        "COMPAT_BLOCK bot=%s bot_type=%s exchange=%s — %s",
+                        bot_id, bot_data.get("bot_type"), bot_data.get("exchange"), _compat_reason,
+                    )
+                    return {
+                        "success": False,
+                        "skip_reason": _compat_reason,
+                        "details": {
+                            "bot_type": bot_data.get("bot_type"),
+                            "exchange": bot_data.get("exchange"),
+                            "reason": "Strategy registry marks this bot_type as incompatible with this exchange.",
+                        },
+                    }
+            except Exception as _ce:
+                logger.warning("run_trading_cycle: compatibility check error (non-fatal): %s", _ce)
+            # ─────────────────────────────────────────────────────────────────
 
             # Check for an open trade first
             open_trade = await trades_collection.find_one({"bot_id": bot_id, "status": "open"}, {"_id": 0})

@@ -249,6 +249,29 @@ async def seed_paper_fleet(
                 )
                 continue
 
+            # ── Exchange-strategy compatibility check ─────────────────────
+            # If the strategy JSON for this bot_type restricts compatible
+            # exchanges, silently skip (and record) incompatible combos here
+            # rather than letting bots be created and then immediately blocked
+            # by the scheduler on every tick.
+            try:
+                from services.strategy_compatibility import check_compatible as _chk
+                _ok, _why = _chk(bot_type=bot_type, exchange=exchange_lower)
+                if not _ok:
+                    logger.info(
+                        "seed_paper_fleet: COMPAT_SKIP %s/%s — %s",
+                        exchange_lower, bot_type, _why,
+                    )
+                    result["bots_skipped"] += requested_count
+                    result["errors"].append(
+                        f"{exchange_lower}/{bot_type}: skipped — "
+                        f"strategy incompatible with this exchange ({_why}). "
+                        "See strategy registry for allowed exchanges."
+                    )
+                    continue
+            except Exception as _ce:
+                logger.warning("seed_paper_fleet: compat check failed (non-fatal): %s", _ce)
+
             # ── Build bot documents ───────────────────────────────────────
             name_prefix = "Scalper" if bot_type == "scalper" else "Normal"
             # Count all existing user bots to get a globally unique sequence number

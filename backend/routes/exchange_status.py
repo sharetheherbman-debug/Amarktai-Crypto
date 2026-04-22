@@ -15,7 +15,7 @@ import logging
 import database as db
 from auth import get_current_user
 from services.exchange_adapter import exchange_adapter, SUPPORTED_EXCHANGES
-from utils.bot_state import normalize_bot_state, is_active_bot
+from utils.bot_state import is_active_bot
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +110,8 @@ async def get_paper_cohort(user_id: str = Depends(get_current_user)):
             cohort[_exch] = {"exchange": _exch, "total": 0, "active": 0, "paused": 0,
                              "scalper": 0, "normal": 0, "funded": False,
                              "native_currency": None, "available_balance": 0.0}
-        _state = normalize_bot_state(bot.get("state") or bot.get("status", ""))
         cohort[_exch]["total"] += 1
-        if is_active_bot({"state": _state}):
+        if is_active_bot(bot):
             cohort[_exch]["active"] += 1
         else:
             cohort[_exch]["paused"] += 1

@@ -339,18 +339,20 @@ const WalletHub = ({ platformFilter = 'all', isPaperMode = true }) => {
         </div>
       )}
 
-      {/* Combined Portfolio Value (read-only summary — funding is per-platform only) */}
-      {mode === 'paper' && availableGlobalZar > 0 && (
+      {/* Combined Portfolio Value (read-only summary — only shown when platform wallets are not yet funded) */}
+      {/* Hide this section when totalPortfolioZar > 0: platform wallets are the canonical source and showing
+          the legacy global balance alongside would cause an inflated combined total (the ~30k display bug). */}
+      {mode === 'paper' && availableGlobalZar > 0 && totalPortfolioZar === 0 && (
         <div style={{
           background: 'var(--glass)', borderRadius: '12px', padding: '20px',
           marginBottom: '30px', border: '1px solid rgba(100,116,139,0.3)',
           opacity: 0.85,
         }}>
           <h2 style={{ marginBottom: '4px', fontSize: '1.1rem', color: 'var(--muted)' }}>
-            Combined Portfolio Value
+            Legacy Global Wallet Balance
           </h2>
           <p style={{ marginBottom: '12px', color: 'var(--muted)', fontSize: '0.82rem' }}>
-            Read-only display. Fund individual platform wallets above to allocate capital to bots.
+            Unallocated balance. Fund individual platform wallets above to activate capital for bots.
           </p>
           <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
             <div>
