@@ -675,10 +675,40 @@ class TradingScheduler:
                     _can_trade, _mode_str, _reason_str = await trading_mode_validator.validate_bot_trading_mode(_req_bot_id, _req_bot)
                     if not _can_trade:
                         logger.warning(f"⛔ {_req_bot['name']} - Trading blocked (gate): {_reason_str}")
+                        # Persist the block reason so operators can see why bots
+                        # are not running (prevents last_skip_reason staying blank).
+                        _gate_code = _SKIP_TO_CODE.get(
+                            "mode_disabled" if "mode" in _reason_str.lower() else
+                            "emergency_stop" if "emergency" in _reason_str.lower() else
+                            "mode_disabled",
+                            EligibilityCode.MODE_DISABLED,
+                        )
+                        try:
+                            await db.bots_collection.update_one(
+                                {"id": _req_bot_id},
+                                {"$set": {
+                                    "last_skip_reason": str(_gate_code),
+                                    "last_order_error": _reason_str,
+                                    "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                                }},
+                            )
+                        except Exception:
+                            pass
                         continue
                     logger.debug(f"✅ Trading gates passed for {_req_bot['name']} in {_mode_str} mode")
                 except TradingGateError as _tge:
                     logger.error(f"⛔ Trading gate error for {_req_bot['name']}: {_tge}")
+                    try:
+                        await db.bots_collection.update_one(
+                            {"id": _req_bot_id},
+                            {"$set": {
+                                "last_skip_reason": str(EligibilityCode.CYCLE_ERROR),
+                                "last_order_error": str(_tge),
+                                "last_tick_at": datetime.now(timezone.utc).isoformat(),
+                            }},
+                        )
+                    except Exception:
+                        pass
                     continue
 
                 # Register start NOW (before concurrent launch) so the exchange

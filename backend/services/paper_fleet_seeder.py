@@ -154,9 +154,10 @@ async def seed_paper_fleet(
         result["by_exchange"].setdefault(exchange_lower, {"normal": 0, "scalper": 0})
 
         # ── Ensure this exchange's paper wallet is funded ─────────────────
-        # Each exchange wallet is funded independently from PAPER_STARTING_CAPITAL_ZAR.
-        # This is the canonical per-platform wallet architecture: no global wallet
-        # fallback is used for bot execution.
+        # Each exchange wallet is funded independently. This block ONLY auto-funds
+        # if the wallet is completely empty (not funded at all by the operator).
+        # If already funded, the operator-provided amount is the hard truth.
+        exch_wallet_funded_zar = 0.0
         try:
             exch_wallet = await paper_wallet_service.get_exchange_wallet(user_id, exchange_lower)
             if not exch_wallet.get("funded") and PAPER_STARTING_CAPITAL_ZAR > 0:
@@ -170,12 +171,55 @@ async def seed_paper_fleet(
                     "seed_paper_fleet: auto-funded %s wallet with %.6f %s for user %s",
                     exchange_lower, seed_capital, seed_currency, user_id[:8],
                 )
+                # Re-read so funded amount reflects the auto-seed
+                exch_wallet = await paper_wallet_service.get_exchange_wallet(user_id, exchange_lower)
+            # Determine funded ZAR equivalent for affordability gate
+            native_amount = float(exch_wallet.get("available", 0) or 0)
+            native_currency = exch_wallet.get("native_currency", "ZAR")
+            if native_currency.upper() == "ZAR":
+                exch_wallet_funded_zar = native_amount
+            else:
+                # Convert USDT → ZAR using a safe proxy rate
+                from services.paper_wallet_service import _get_paper_zar_per_usdt
+                _usdt_rate = await _get_paper_zar_per_usdt()
+                exch_wallet_funded_zar = native_amount * _usdt_rate
         except Exception as exc:
             logger.warning(
                 "seed_paper_fleet: exchange wallet fund/check failed for %s user=%s: %s",
                 exchange_lower, user_id[:8], exc,
             )
             result["errors"].append(f"Exchange wallet fund warning ({exchange_lower}): {exc}")
+
+        # ── Affordability gate — hard-block if funded capital can't support bots ──
+        # Per-bot capital is derived from the ACTUAL funded wallet amount so the
+        # operator cannot silently over-allocate by requesting more bots than the
+        # funded wallet can cover.
+        total_bots_for_exchange = normal_per_exchange + scalper_per_exchange
+        if total_bots_for_exchange > 0 and exch_wallet_funded_zar > 0:
+            # If caller passed explicit capital_zar_per_bot, honour it; otherwise
+            # distribute the funded amount evenly across the requested bot count.
+            if capital_zar_per_bot <= 0:
+                _effective_per_bot = max(
+                    exch_wallet_funded_zar / total_bots_for_exchange,
+                    float(BOT_MANUAL_MIN_CAPITAL_ZAR or 1000.0),
+                )
+            else:
+                _effective_per_bot = capital_zar_per_bot
+            _max_affordable = int(exch_wallet_funded_zar // _effective_per_bot)
+            if _max_affordable < total_bots_for_exchange:
+                _block_msg = (
+                    f"{exchange_lower}: insufficient funded capital for requested bot count. "
+                    f"Funded=R{exch_wallet_funded_zar:.0f} / per-bot=R{_effective_per_bot:.0f} "
+                    f"→ max {_max_affordable} bot(s) but {total_bots_for_exchange} requested. "
+                    f"Fund at least R{int(_effective_per_bot * total_bots_for_exchange)} to proceed."
+                )
+                logger.warning("seed_paper_fleet: AFFORDABILITY_BLOCK %s user=%s", _block_msg, user_id[:8])
+                result["bots_skipped"] += total_bots_for_exchange
+                result["errors"].append(_block_msg)
+                continue
+            # Use exchange-specific per-bot capital derived from actual funded amount
+            # so bots get an honest capital allocation, not the legacy global constant.
+            capital_zar_per_bot = _effective_per_bot
 
         # Resolve capital for this exchange (ZAR for Luno, USDT for others)
         try:
@@ -318,6 +362,10 @@ async def seed_paper_fleet(
                     "paper_end_date": None,
                     "created_at": now_iso,
                     "last_trade": None,
+                    # Phase D: explicit default so diagnostics never show blank/None
+                    # before the first scheduler tick populates the real reason.
+                    "last_skip_reason": "pending_first_tick",
+                    "last_eligibility_code": "pending_first_tick",
                 }
                 if bot_type == "scalper":
                     record["profit_routing"] = "RETURN_TO_MAIN"
@@ -337,6 +385,21 @@ async def seed_paper_fleet(
                     capital_zar_per_bot, quote_capital, quote_currency,
                     user_id[:8],
                 )
+                # ── Phase C: pre-seed pair-rotation counters for diversity ──────
+                # Each bot starts at a different offset in the symbol_universe
+                # scan-counter so that on the first scheduler tick they select
+                # different pairs instead of all converging on candidates[0].
+                # This is the in-memory singleton shared with paper_trading_engine.
+                try:
+                    from services.symbol_universe import _symbol_history
+                    for _idx, _bot_doc in enumerate(bots_to_insert):
+                        _counter_key = f"{_bot_doc['id']}:{exchange_lower}"
+                        _symbol_history._scan_counters[_counter_key] = _idx
+                except Exception as _sc_err:
+                    logger.debug(
+                        "seed_paper_fleet: scan counter pre-seed failed (non-fatal): %s",
+                        _sc_err,
+                    )
             except Exception as exc:
                 logger.warning(
                     "seed_paper_fleet: insert failed for %s/%s user=%s: %s",
