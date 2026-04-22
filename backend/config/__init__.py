@@ -204,6 +204,34 @@ MIN_EXPECTANCY_ZAR = float(os.getenv('MIN_EXPECTANCY_ZAR', '0'))
 # Set to 0.02% (paper-trading learning phase — relaxed for data collection).
 MINIMUM_EDGE_PCT = float(os.getenv('MINIMUM_EDGE_PCT', '0.02'))
 
+# ── Entry Quality Filters (Phases 1–4) ──────────────────────────────────────
+# Phase 1 — Cost-aware edge multiplier: expected_move must be >= cost * EDGE_COST_MULTIPLIER
+# before entry is allowed.  1.5 means edge must be 50% greater than round-trip cost.
+# Only applied when the paper data-collection bypass is NOT active.
+EDGE_COST_MULTIPLIER = float(os.getenv('EDGE_COST_MULTIPLIER', '1.5'))
+
+# Phase 2 — Dynamic spread multiplier: block entry when spread_pct exceeds
+# the rolling average spread by this factor.  Catches sudden spread spikes
+# that indicate low liquidity / choppy conditions without needing extra API calls.
+# Requires at least 5 spread samples before the dynamic gate activates.
+DYNAMIC_SPREAD_MULTIPLIER = float(os.getenv('DYNAMIC_SPREAD_MULTIPLIER', '1.5'))
+
+# Phase 3 — Minimum volatility range (% of price) over the last 10 candles.
+# Flat-market entries lead to stagnation exits; blocking them upfront reduces
+# the proportion of stagnation-exit trades.  Default: 0.20 % (20 bps).
+MIN_VOLATILITY_RANGE_PCT = float(os.getenv('MIN_VOLATILITY_RANGE_PCT', '0.20'))
+
+# Phase 4 — Per-bot cooldown after a losing trade (seconds).
+# After any trade that closes with net_profit < 0, the bot is blocked from
+# re-entering for this many seconds to avoid chasing the same bad condition.
+LOSS_COOLDOWN_SECONDS = int(os.getenv('LOSS_COOLDOWN_SECONDS', '120'))
+
+# Phase 5 — Regime-indicator bypass confidence floor.
+# The bypass allows entry when regime is known AND avg_confidence >= this value,
+# even if the normal confidence threshold is not fully met.  Raised from 0.38 to
+# 0.42 to reduce weak-signal entries that pass through this narrow bypass.
+REGIME_INDICATOR_CONFIDENCE_FLOOR = float(os.getenv('REGIME_INDICATOR_CONFIDENCE_FLOOR', '0.42'))
+
 # ── Safety buffer & regime playbooks ────────────────────────────────────────
 # Base safety buffer added on top of fees+spread+slippage in the edge gate.
 # Default 0.10 %.  In wide-spread / low-liquidity regimes this is multiplied

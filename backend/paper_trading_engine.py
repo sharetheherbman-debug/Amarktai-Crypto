@@ -86,6 +86,11 @@ from config import (
     SAFETY_BUFFER_PCT,
     SAFETY_BUFFER_WIDE_SPREAD_MULTIPLIER,
     RISK_MODE_CONFIG,
+    EDGE_COST_MULTIPLIER,
+    DYNAMIC_SPREAD_MULTIPLIER,
+    MIN_VOLATILITY_RANGE_PCT,
+    LOSS_COOLDOWN_SECONDS,
+    REGIME_INDICATOR_CONFIDENCE_FLOOR,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
 from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE as _DEFAULT_SYMBOL_UNIVERSE
@@ -444,6 +449,16 @@ class PaperTradingEngine:
         # Per-bot consecutive stop-loss counter for adaptive confidence threshold.
         # Incremented on stop_loss close; reset on any take_profit close.
         self._bot_loss_streaks: Dict[str, int] = {}
+
+        # Per-bot loss cooldown: maps bot_id → UTC datetime when cooldown expires.
+        # Set after each losing trade (net_profit < 0); checked at entry to block
+        # immediate re-entry into the same deteriorating market condition.
+        self._bot_loss_cooldowns: Dict[str, datetime] = {}
+
+        # Rolling spread history per "exchange:symbol" key (deque of recent spread_pct
+        # values, max 20 samples).  Used by the Phase 2 dynamic spread gate to compare
+        # the current spread against the rolling average without extra API calls.
+        self._spread_history: Dict[str, deque] = {}
 
         # Last symbol-selection diagnostics (C1)
         self._last_symbol_selection: dict = {}
@@ -1051,6 +1066,37 @@ class PaperTradingEngine:
             if not can_trade:
                 logger.warning(f"Rate limit: {bot_data['name'][:15]} - {reason}")
                 return {"success": False, "bot_id": bot_id, "skip_reason": "symbol_cooldown", "error": reason}
+
+            # PHASE 4: Per-bot loss cooldown — block re-entry into same bad conditions.
+            # After any losing trade, the bot must wait LOSS_COOLDOWN_SECONDS before
+            # opening a new position.  This prevents immediately chasing a bad condition.
+            _now_utc = datetime.now(timezone.utc)
+            _loss_cooldown_until = self._bot_loss_cooldowns.get(bot_id)
+            if _loss_cooldown_until and _now_utc < _loss_cooldown_until:
+                _cd_remaining = int((_loss_cooldown_until - _now_utc).total_seconds())
+                logger.info(
+                    "[BLOCK_COOLDOWN] %s | exchange=%s | cooldown_remaining=%ds reason=cooldown_after_loss",
+                    bot_data.get("name", bot_id[:8]), exchange, _cd_remaining,
+                )
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    json.dumps({
+                        "bot_id": bot_id,
+                        "reason": "cooldown_after_loss",
+                        "cooldown_remaining_sec": _cd_remaining,
+                        "exchange": exchange,
+                    }),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "cooldown_after_loss",
+                    "error": f"Post-loss cooldown active: {_cd_remaining}s remaining",
+                    "details": {
+                        "cooldown_remaining_sec": _cd_remaining,
+                        "exchange": exchange,
+                    },
+                }
             
             # 2. CHECK DATA SOURCE (PUBLIC vs AUTHENTICATED)
             # Use cached data_source from bot_data if available, otherwise check database
@@ -1322,6 +1368,63 @@ class PaperTradingEngine:
                 }
 
             depth_notional = market_snapshot.get("depth_notional")
+
+            # PHASE 2: Dynamic spread filter — block if current spread significantly
+            # exceeds the rolling average for this symbol/exchange.  This catches sudden
+            # spread spikes that indicate choppy / illiquid conditions even when the
+            # spread is still below the static ceiling.  Uses MarketStateCache (the
+            # market_snapshot already fetched above) — no extra API calls needed.
+            _spread_key = f"{exchange}:{symbol}"
+            if _spread_key not in self._spread_history:
+                self._spread_history[_spread_key] = deque(maxlen=20)
+            self._spread_history[_spread_key].append(spread_pct)
+            _spread_buf = self._spread_history[_spread_key]
+            # Skip dynamic check if spread is near-zero (e.g. synthetic/simulated market
+            # data) — a near-zero rolling avg would make the multiplier trigger nonsensically.
+            _MIN_SPREAD_FOR_DYNAMIC_CHECK = 0.10  # %: ignore spreads below this threshold
+            if len(_spread_buf) >= 5 and spread_pct > _MIN_SPREAD_FOR_DYNAMIC_CHECK:
+                _rolling_avg_spread = sum(_spread_buf) / len(_spread_buf)
+                if spread_pct > _rolling_avg_spread * DYNAMIC_SPREAD_MULTIPLIER:
+                    logger.info(
+                        "[BLOCK_SPREAD_DYN] %s | %s | spread=%.4f%% rolling_avg=%.4f%% mult=%.1f",
+                        bot_data.get("name", bot_id[:8]), symbol,
+                        spread_pct, _rolling_avg_spread, DYNAMIC_SPREAD_MULTIPLIER,
+                    )
+                    logger.info(
+                        "BLOCK_DETAIL %s",
+                        json.dumps({
+                            "bot_id": bot_id,
+                            "reason": "spread_too_wide_dynamic",
+                            "spread_pct": round(spread_pct, 4),
+                            "rolling_avg_spread_pct": round(_rolling_avg_spread, 4),
+                            "dynamic_multiplier": DYNAMIC_SPREAD_MULTIPLIER,
+                            "symbol": symbol,
+                            "exchange": exchange,
+                        }),
+                    )
+                    self._log_action(
+                        "SKIP", bot_id, symbol or "?",
+                        reason="spread_too_wide_dynamic",
+                        bot_name=bot_data.get("name", ""),
+                    )
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "spread_too_wide_dynamic",
+                        "error": (
+                            f"Dynamic spread gate: spread {spread_pct:.3f}% > "
+                            f"rolling_avg {_rolling_avg_spread:.3f}% × {DYNAMIC_SPREAD_MULTIPLIER}"
+                        ),
+                        "details": {
+                            "spread_pct": round(spread_pct, 4),
+                            "rolling_avg_spread_pct": round(_rolling_avg_spread, 4),
+                            "dynamic_multiplier": DYNAMIC_SPREAD_MULTIPLIER,
+                            "samples": len(_spread_buf),
+                            "symbol": symbol,
+                            "exchange": exchange,
+                        },
+                    }
+
             if depth_notional is not None and not bot_data.get("allow_low_liquidity"):
                 # PAPER_MIN_ORDERBOOK_NOTIONAL is expressed in ZAR.  For USDT-quoted
                 # pairs the depth_notional is in USDT, so we convert the threshold
@@ -1780,6 +1883,67 @@ class PaperTradingEngine:
                 }
             _paper_fallback_used = False
 
+            # PHASE 3: Stagnation Prevention — block entries in flat / low-volatility
+            # conditions where a trade is statistically likely to exit via stagnation.
+            # Reuses the OHLCV already fetched by the Hurst filter (_hurst_ohlcv_cache).
+            # No extra API calls; non-fatal if OHLCV unavailable.
+            _vol_ohlcv = _hurst_ohlcv_cache
+            if _vol_ohlcv is not None and len(_vol_ohlcv) >= 10:
+                try:
+                    _vol_n = _vol_ohlcv[-10:]
+                    _vol_highs = [float(c[2]) for c in _vol_n]
+                    _vol_lows = [float(c[3]) for c in _vol_n]
+                    _vol_closes = [float(c[4]) for c in _vol_n]
+                    # Use high-low midpoint as the price reference for percentage normalisation —
+                    # more accurate than first/last close for ATR and range calculations.
+                    _mid_price = (max(_vol_highs) + min(_vol_lows)) / 2
+                    # Range % over last 10 candles: primary volatility measure
+                    _range_pct = (max(_vol_highs) - min(_vol_lows)) / max(_mid_price, 1e-9) * 100
+                    # ATR % (average candle high-low range as % of mid price)
+                    _atr_pct = sum(h - l for h, l in zip(_vol_highs, _vol_lows)) / max(_mid_price, 1e-9) / len(_vol_n) * 100
+                    # Recent 5-candle price change — use actual price (always positive) as denominator
+                    _recent_change_pct = abs(_vol_closes[-1] - _vol_closes[-5]) / max(_vol_closes[-5], 1e-9) * 100
+                    _vol_metrics = {
+                        "range_pct": round(_range_pct, 4),
+                        "atr_pct": round(_atr_pct, 4),
+                        "recent_change_pct": round(_recent_change_pct, 4),
+                        "min_volatility_range_pct": MIN_VOLATILITY_RANGE_PCT,
+                    }
+                    if _range_pct < MIN_VOLATILITY_RANGE_PCT:
+                        logger.info(
+                            "[BLOCK_VOL] %s | %s | range=%.4f%% < min=%.4f%% atr=%.4f%% — low_volatility_block",
+                            bot_data.get("name", bot_id[:8]), symbol,
+                            _range_pct, MIN_VOLATILITY_RANGE_PCT, _atr_pct,
+                        )
+                        logger.info(
+                            "BLOCK_DETAIL %s",
+                            json.dumps({
+                                "bot_id": bot_id,
+                                "reason": "low_volatility_block",
+                                "symbol": symbol,
+                                "exchange": exchange,
+                                "spread_pct": round(spread_pct, 4),
+                                **_vol_metrics,
+                            }),
+                        )
+                        self._log_action(
+                            "SKIP", bot_id, symbol or "?",
+                            reason="low_volatility_block",
+                            bot_name=bot_data.get("name", ""),
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "low_volatility_block",
+                            "error": (
+                                f"Low volatility: 10-candle range {_range_pct:.3f}% "
+                                f"< min {MIN_VOLATILITY_RANGE_PCT:.3f}%"
+                            ),
+                            "details": _vol_metrics,
+                        }
+                except Exception as _vol_err:
+                    logger.debug("Phase 3 volatility filter failed (non-fatal): %s", _vol_err)
+
             # Adaptive safety buffer per risk mode and spread quality
             _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
             _base_safety_buffer = float(_risk_mode_cfg.get("safety_buffer_pct", SAFETY_BUFFER_PCT))
@@ -1926,6 +2090,66 @@ class PaperTradingEngine:
                         "playbook": playbook,
                     }
                 }
+
+            # PHASE 1: Cost-aware minimum edge filter.
+            # Expected move must be >= total_cost × EDGE_COST_MULTIPLIER to ensure the
+            # trade has a structural edge, not just a marginal one.
+            # Bypassed only when the paper data-collection bypass (_paper_hard_edge_bypass)
+            # is active — live mode always enforces this gate.
+            if not _paper_hard_edge_bypass:
+                _cost_edge_floor = estimated_cost_pct * EDGE_COST_MULTIPLIER
+                if expected_move_pct < _cost_edge_floor:
+                    logger.info(
+                        "[BLOCK_COST_EDGE] %s | %s | move=%.4f%% < cost×%.1f=%.4f%% "
+                        "(spread=%.4f%% fees=%.4f%% slip=%.4f%%)",
+                        bot_data.get("name", bot_id[:8]), symbol,
+                        expected_move_pct, EDGE_COST_MULTIPLIER, _cost_edge_floor,
+                        spread_pct, fee_pct_roundtrip, slippage_pct_roundtrip,
+                    )
+                    logger.info(
+                        "BLOCK_DETAIL %s",
+                        json.dumps({
+                            "bot_id": bot_id,
+                            "reason": "edge_below_cost",
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "spread_pct": round(spread_pct, 4),
+                            "total_cost_pct": round(estimated_cost_pct, 4),
+                            "expected_move_pct": round(expected_move_pct, 4),
+                            "expected_edge_pct": round(_net_edge_pct, 4),
+                            "edge_cost_multiplier": EDGE_COST_MULTIPLIER,
+                            "required_move_pct": round(_cost_edge_floor, 4),
+                            "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
+                            "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
+                            "regime": playbook_info["regime"],
+                        }),
+                    )
+                    self._log_action(
+                        "SKIP", bot_id, symbol or "?",
+                        reason="edge_below_cost",
+                        bot_name=bot_data.get("name", ""),
+                    )
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "edge_below_cost",
+                        "error": (
+                            f"Edge below cost threshold: move {expected_move_pct:.3f}% "
+                            f"< cost×{EDGE_COST_MULTIPLIER} = {_cost_edge_floor:.3f}%"
+                        ),
+                        "details": {
+                            "expected_move_pct": round(expected_move_pct, 4),
+                            "total_cost_pct": round(estimated_cost_pct, 4),
+                            "expected_edge_pct": round(_net_edge_pct, 4),
+                            "edge_cost_multiplier": EDGE_COST_MULTIPLIER,
+                            "required_move_pct": round(_cost_edge_floor, 4),
+                            "spread_pct": round(spread_pct, 4),
+                            "fee_pct_roundtrip": round(fee_pct_roundtrip, 4),
+                            "slippage_pct_roundtrip": round(slippage_pct_roundtrip, 4),
+                            "exchange": exchange,
+                            "symbol": symbol,
+                        },
+                    }
             
             # ── Expectancy gate ──────────────────────────────────────────────
             # Before entering, estimate whether this trade has positive expectancy.
@@ -2143,13 +2367,14 @@ class PaperTradingEngine:
                     bot_data.get("name", bot_id[:8]), symbol, avg_confidence, playbook_info.get("regime"),
                 )
             # Extra bypass: if regime is known (not unknown/error/blank) and indicators are valid,
-            # allow entry at a lowered floor (0.30) even when below the normal threshold.
+            # allow entry at a lowered floor even when below the normal threshold.
+            # Phase 5: raised from 0.38 to 0.42 (REGIME_INDICATOR_CONFIDENCE_FLOOR) to reduce weak-signal entries.
             _regime_known = playbook_info.get("regime") not in (None, "", "unknown", "error")
             _indicators_valid = expected_move_pct > 0
             _regime_indicator_bypass = (
                 _regime_known
                 and _indicators_valid
-                and avg_confidence >= 0.38
+                and avg_confidence >= REGIME_INDICATOR_CONFIDENCE_FLOOR
                 and confidence_sources >= 1
             )
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
@@ -2976,6 +3201,21 @@ class PaperTradingEngine:
                 # Reset loss streak on any win
                 self._bot_loss_streaks[bot_id] = 0
             _symbol_universe.record_closed(bot_id, symbol or "")
+
+            # PHASE 4: Set / clear per-bot loss cooldown based on actual net profit.
+            # After any losing trade (net_profit < 0), block the bot for
+            # LOSS_COOLDOWN_SECONDS before it can open another position.
+            # This prevents immediately chasing a bad market condition.
+            if net_profit < 0:
+                _cd_expires = datetime.now(timezone.utc) + timedelta(seconds=LOSS_COOLDOWN_SECONDS)
+                self._bot_loss_cooldowns[bot_id] = _cd_expires
+                logger.info(
+                    "[LOSS_COOLDOWN_SET] bot=%s loss=%.2f cooldown_sec=%d expires=%s",
+                    bot_id[:8], net_profit, LOSS_COOLDOWN_SECONDS, _cd_expires.isoformat(),
+                )
+            else:
+                # Profitable close — clear any active cooldown so the bot can re-enter
+                self._bot_loss_cooldowns.pop(bot_id, None)
 
             # ── River online learner hook (non-fatal) ────────────────────
             # Exactly one learning update per closed trade, with the real user_id.
