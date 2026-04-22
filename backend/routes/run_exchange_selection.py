@@ -24,6 +24,7 @@ import logging
 
 from auth import get_current_user
 import database as db
+from config import PAPER_SUPPORTED_EXCHANGES
 from config.platforms import SUPPORTED_PLATFORMS
 from services.canonical import get_user_run_exchanges, get_unlocked_exchanges, get_user_paper_exchanges
 
@@ -305,10 +306,10 @@ async def set_paper_cohort(
 
         if exchange is not None:
             exchange = str(exchange).lower().strip()
-            if exchange not in SUPPORTED_PLATFORMS:
+            if exchange not in PAPER_SUPPORTED_EXCHANGES:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Unsupported exchange '{exchange}'. Supported: {list(SUPPORTED_PLATFORMS)}",
+                    detail=f"Exchange '{exchange}' not supported for paper trading. Supported: {sorted(PAPER_SUPPORTED_EXCHANGES)}",
                 )
         if bot_type is not None:
             bot_type = str(bot_type).lower().strip()
