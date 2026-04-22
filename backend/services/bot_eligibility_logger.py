@@ -87,6 +87,9 @@ class EligibilityCode(str, Enum):
     LOW_VOLATILITY_BLOCK      = "low_volatility_block"
     EDGE_BELOW_COST           = "edge_below_cost"
 
+    # ── Exchange-strategy compatibility ──────────────────────────────────────
+    STRATEGY_EXCHANGE_INCOMPATIBLE = "strategy_exchange_incompatible"
+
     # ── Catch-all (use only when no specific code applies) ──────────────────
     UNKNOWN                   = "unknown"
 
@@ -132,6 +135,7 @@ ELIGIBILITY_DESCRIPTIONS: Dict[str, str] = {
     EligibilityCode.LOSS_COOLDOWN:            "Post-loss cooldown active — bot waiting before re-entry after a losing trade",
     EligibilityCode.LOW_VOLATILITY_BLOCK:     "Market volatility too low — 10-candle price range below minimum threshold",
     EligibilityCode.EDGE_BELOW_COST:          "Expected move below cost × multiplier — insufficient structural edge over fees+spread",
+    EligibilityCode.STRATEGY_EXCHANGE_INCOMPATIBLE: "Strategy is not compatible with this exchange — see strategy registry notes",
     EligibilityCode.UNKNOWN:                  "Ineligible for unspecified reason",
 }
 

@@ -467,6 +467,8 @@ class TradingScheduler:
                 "low_volatility_block":    EligibilityCode.LOW_VOLATILITY_BLOCK,
                 # Phase 1 cost-edge filter: expected move < cost × EDGE_COST_MULTIPLIER
                 "edge_below_cost":         EligibilityCode.EDGE_BELOW_COST,
+                # Exchange-strategy compatibility block (data-driven from strategy registry)
+                "strategy_exchange_incompatible": EligibilityCode.STRATEGY_EXCHANGE_INCOMPATIBLE,
             }
 
             # ── Per-bot execution coroutine ──────────────────────────────────────

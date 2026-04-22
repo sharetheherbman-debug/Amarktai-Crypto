@@ -3,6 +3,7 @@
   "version": "v1",
   "stage": "experimental",
   "notes": "MACD histogram cross + RSI band + volume filter. Optimised for Binance USDT pairs. Luno fees too high for scalping — Binance only.",
+  "compatible_exchanges": ["binance", "kucoin", "bybit", "kraken", "bitget", "gate", "coinbase"],
   "registered_at": "2026-04-15T00:00:00+00:00",
   "config": {
     "strategy": "scalper",

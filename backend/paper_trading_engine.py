@@ -3270,6 +3270,33 @@ class PaperTradingEngine:
             self.is_running = True
             self.last_tick_time = datetime.now(timezone.utc).isoformat()
 
+            # ── Exchange-strategy compatibility gate ──────────────────────────
+            # Block immediately if the active strategy for this bot_type is
+            # incompatible with the bot's exchange (e.g. scalper on Luno).
+            try:
+                from services.strategy_compatibility import check_compatible as _chk_compat
+                _compat_ok, _compat_reason = _chk_compat(
+                    bot_type=str(bot_data.get("bot_type") or "normal"),
+                    exchange=str(bot_data.get("exchange") or ""),
+                )
+                if not _compat_ok:
+                    logger.info(
+                        "COMPAT_BLOCK bot=%s bot_type=%s exchange=%s — %s",
+                        bot_id, bot_data.get("bot_type"), bot_data.get("exchange"), _compat_reason,
+                    )
+                    return {
+                        "success": False,
+                        "skip_reason": _compat_reason,
+                        "details": {
+                            "bot_type": bot_data.get("bot_type"),
+                            "exchange": bot_data.get("exchange"),
+                            "reason": "Strategy registry marks this bot_type as incompatible with this exchange.",
+                        },
+                    }
+            except Exception as _ce:
+                logger.warning("run_trading_cycle: compatibility check error (non-fatal): %s", _ce)
+            # ─────────────────────────────────────────────────────────────────
+
             # Check for an open trade first
             open_trade = await trades_collection.find_one({"bot_id": bot_id, "status": "open"}, {"_id": 0})
             logger.info(

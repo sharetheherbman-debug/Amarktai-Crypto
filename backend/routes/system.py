@@ -457,17 +457,23 @@ async def get_feed_health(user_id: str = Depends(get_current_user)) -> dict:
     feeds: dict = {}
 
     # Check Luno ticker cache (most active exchange in paper mode).
+    # luno_ticker_cache is a module (not a class instance) — import the module itself.
     try:
-        from services.luno_ticker_cache import luno_ticker_cache as _ltc
-        _luno_ts = getattr(_ltc, "_last_updated", None)
-        if _luno_ts is not None:
-            _age = _now_ts - _luno_ts
-            feeds["luno"] = {
-                "exchange": "luno",
-                "status": "ok" if _age < STALE_THRESHOLD_SECONDS else "stale",
-                "last_updated_seconds_ago": round(_age, 1),
-                "source": "luno_ticker_cache",
-            }
+        from services import luno_ticker_cache as _ltc
+        _stats = _ltc.cache_stats()
+        if _stats:
+            # Use the freshest (smallest age) cached pair as the proxy for luno feed health.
+            _min_age = min((v["age_seconds"] for v in _stats.values()), default=None)
+            if _min_age is not None:
+                feeds["luno"] = {
+                    "exchange": "luno",
+                    "status": "ok" if _min_age < STALE_THRESHOLD_SECONDS else "stale",
+                    "last_updated_seconds_ago": round(_min_age, 1),
+                    "cached_pairs": list(_stats.keys()),
+                    "source": "luno_ticker_cache",
+                }
+            else:
+                feeds["luno"] = {"exchange": "luno", "status": "untested", "source": "luno_ticker_cache"}
         else:
             feeds["luno"] = {"exchange": "luno", "status": "untested", "source": "luno_ticker_cache"}
     except Exception as _e:
