@@ -179,6 +179,29 @@ PAPER_BYPASS_MIN_MOVE_PCT = float(os.getenv("PAPER_BYPASS_MIN_MOVE_PCT", "0.05")
 # Default: -0.10 % (trades whose costs exceed expected move by more than 0.10% are blocked).
 PAPER_BYPASS_MIN_NET_EDGE_PCT = float(os.getenv("PAPER_BYPASS_MIN_NET_EDGE_PCT", "-0.10"))
 
+# ── Entry Quality v2 constants ─────────────────────────────────────────────
+# PHASE 1: Cost-multiplier edge filter.
+# A trade is blocked when expected_move_pct < total_cost_pct * EDGE_COST_MULTIPLIER.
+# Default 1.5 means edge must be at least 1.5× the full round-trip cost.
+EDGE_COST_MULTIPLIER: float = float(os.getenv("EDGE_COST_MULTIPLIER", "1.5"))
+
+# PHASE 2: Dynamic spread filter.
+# Block when current spread_pct > rolling_avg_spread_pct * DYNAMIC_SPREAD_MULTIPLIER.
+# Rolling avg is maintained per (exchange, symbol) in a small in-process deque.
+DYNAMIC_SPREAD_MULTIPLIER: float = float(os.getenv("DYNAMIC_SPREAD_MULTIPLIER", "1.5"))
+DYNAMIC_SPREAD_WINDOW: int = int(os.getenv("DYNAMIC_SPREAD_WINDOW", "20"))  # samples
+
+# PHASE 3: Volatility filter.
+# Block entries when recent OHLCV candle range (high-low as % of close) is too low.
+# Default 0.20 % means block when the last N candles move less than 0.20 % in total.
+MIN_VOLATILITY_RANGE_PCT: float = float(os.getenv("MIN_VOLATILITY_RANGE_PCT", "0.20"))
+VOLATILITY_LOOKBACK_CANDLES: int = int(os.getenv("VOLATILITY_LOOKBACK_CANDLES", "6"))
+
+# PHASE 4: Per-bot loss cooldown.
+# After a losing trade (negative net_profit or stagnation exit), block re-entry for
+# this many seconds.  Does not affect other bots or healthy trades.
+LOSS_COOLDOWN_SECONDS: int = int(os.getenv("LOSS_COOLDOWN_SECONDS", "120"))
+
 """
 PAPER TRADING REALISM - COMPREHENSIVE FEATURES (95% Accuracy)
 
@@ -444,6 +467,14 @@ class PaperTradingEngine:
         # Per-bot consecutive stop-loss counter for adaptive confidence threshold.
         # Incremented on stop_loss close; reset on any take_profit close.
         self._bot_loss_streaks: Dict[str, int] = {}
+
+        # Per-bot loss cooldown: datetime after which re-entry is allowed.
+        # Set on any losing trade (negative net_profit or stagnation exit).
+        self._bot_loss_cooldowns: Dict[str, datetime] = {}
+
+        # Rolling spread buffer per (exchange, symbol) for dynamic spread filter.
+        # Keyed by "{exchange}:{symbol}"; stores last DYNAMIC_SPREAD_WINDOW samples.
+        self._spread_history: Dict[str, deque] = {}
 
         # Last symbol-selection diagnostics (C1)
         self._last_symbol_selection: dict = {}
@@ -1114,6 +1145,34 @@ class PaperTradingEngine:
             if not can_trade:
                 logger.warning(f"Rate limit: {bot_data['name'][:15]} - {reason}")
                 return {"success": False, "bot_id": bot_id, "skip_reason": "symbol_cooldown", "error": reason}
+
+            # ── PHASE 4: Per-bot loss cooldown ────────────────────────────────────
+            # Block immediate re-entry after a losing trade.
+            # Fast in-memory check — zero DB access.
+            _cooldown_until = self._bot_loss_cooldowns.get(bot_id)
+            if _cooldown_until is not None:
+                _now_utc = datetime.now(timezone.utc)
+                if _cooldown_until.tzinfo is None:
+                    _cooldown_until = _cooldown_until.replace(tzinfo=timezone.utc)
+                if _now_utc < _cooldown_until:
+                    _remaining_s = (_cooldown_until - _now_utc).total_seconds()
+                    logger.info(
+                        "[COOLDOWN_BLOCK] %s | %s | remaining=%.0fs (after_loss)",
+                        bot_data.get("name", bot_id[:8]), symbol or "?", _remaining_s,
+                    )
+                    return {
+                        "success": False,
+                        "bot_id": bot_id,
+                        "skip_reason": "cooldown_after_loss",
+                        "error": f"Cooling down after loss ({_remaining_s:.0f}s remaining)",
+                        "details": {
+                            "cooldown_remaining_seconds": round(_remaining_s, 0),
+                            "bot_id": bot_id,
+                        },
+                    }
+                else:
+                    # Cooldown expired — clear it
+                    self._bot_loss_cooldowns.pop(bot_id, None)
             
             # 2. CHECK DATA SOURCE (PUBLIC vs AUTHENTICATED)
             # Use cached data_source from bot_data if available, otherwise check database
@@ -1384,6 +1443,45 @@ class PaperTradingEngine:
                     }
                 }
 
+            # ── PHASE 2: Dynamic spread filter ────────────────────────────────────
+            # Update rolling average with current spread and block when current
+            # spread_pct > rolling_avg * DYNAMIC_SPREAD_MULTIPLIER.
+            # Uses in-memory deque (no DB access, no exchange calls).
+            if spread_pct > 0:
+                _spread_key = f"{exchange}:{symbol}"
+                if _spread_key not in self._spread_history:
+                    self._spread_history[_spread_key] = deque(maxlen=DYNAMIC_SPREAD_WINDOW)
+                _sh = self._spread_history[_spread_key]
+                if len(_sh) >= 3:  # need at least 3 samples for a meaningful avg
+                    _rolling_avg_spread = sum(_sh) / len(_sh)
+                    _dynamic_ceiling = _rolling_avg_spread * DYNAMIC_SPREAD_MULTIPLIER
+                    if spread_pct > _dynamic_ceiling:
+                        # Record current spread before early return so history isn't lost
+                        _sh.append(spread_pct)
+                        logger.info(
+                            "[SPREAD_DYNAMIC_BLOCK] %s | %s | spread=%.4f%% > avg=%.4f%% × %.1f=%.4f%%",
+                            bot_data.get("name", bot_id[:8]), symbol,
+                            spread_pct, _rolling_avg_spread, DYNAMIC_SPREAD_MULTIPLIER, _dynamic_ceiling,
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "spread_too_wide_dynamic",
+                            "error": (
+                                f"Spread {spread_pct:.3f}% exceeds rolling avg "
+                                f"{_rolling_avg_spread:.3f}% × {DYNAMIC_SPREAD_MULTIPLIER}"
+                            ),
+                            "details": {
+                                "spread_pct": round(spread_pct, 4),
+                                "rolling_avg_spread_pct": round(_rolling_avg_spread, 4),
+                                "dynamic_ceiling_pct": round(_dynamic_ceiling, 4),
+                                "multiplier": DYNAMIC_SPREAD_MULTIPLIER,
+                                "symbol": symbol,
+                                "exchange": exchange,
+                            },
+                        }
+                _sh.append(spread_pct)  # record sample for future cycles
+
             depth_notional = market_snapshot.get("depth_notional")
             if depth_notional is not None and not bot_data.get("allow_low_liquidity"):
                 # PAPER_MIN_ORDERBOOK_NOTIONAL is expressed in ZAR.  For USDT-quoted
@@ -1635,6 +1733,80 @@ class PaperTradingEngine:
                     prediction["hurst"] = _hurst_detail
             except Exception as _hurst_err:
                 logger.debug("Hurst filter skipped (non-fatal): %s", _hurst_err)
+
+            # ── PHASE 3: Volatility filter (entry prevention) ─────────────────────
+            # Block entries when recent candle range is below the minimum threshold.
+            # Uses OHLCV from MarketStateCache (zero exchange calls) with fallback
+            # to the Hurst OHLCV already fetched above.
+            try:
+                _vol_ohlcv = None
+                try:
+                    from services.market_state_cache import market_state_cache as _vol_msc
+                    _vol_ohlcv = _vol_msc.get_ohlcv(exchange, symbol)
+                except Exception:
+                    pass
+                if (_vol_ohlcv is None or len(_vol_ohlcv) < VOLATILITY_LOOKBACK_CANDLES) and _hurst_ohlcv_cache:
+                    _vol_ohlcv = _hurst_ohlcv_cache
+                if _vol_ohlcv and len(_vol_ohlcv) >= VOLATILITY_LOOKBACK_CANDLES:
+                    _recent_candles = _vol_ohlcv[-VOLATILITY_LOOKBACK_CANDLES:]
+                    # Max candle range (high-low) as % of close over window
+                    _ranges_pct = []
+                    for _c in _recent_candles:
+                        _h, _l, _cl = float(_c[2]), float(_c[3]), float(_c[4])
+                        if _cl > 0:
+                            _ranges_pct.append((_h - _l) / _cl * 100.0)
+                    _avg_range_pct = sum(_ranges_pct) / len(_ranges_pct) if _ranges_pct else 0.0
+                    _max_range_pct = max(_ranges_pct) if _ranges_pct else 0.0
+                    # Also compute ATR-like: avg of abs(close[i] - close[i-1]) as % of close
+                    _closes = [float(_c[4]) for _c in _recent_candles]
+                    _atr_moves = [abs(_closes[i] - _closes[i - 1]) / max(_closes[i - 1], 1e-9) * 100
+                                  for i in range(1, len(_closes))]
+                    _atr_pct = sum(_atr_moves) / len(_atr_moves) if _atr_moves else 0.0
+
+                    if _avg_range_pct < MIN_VOLATILITY_RANGE_PCT:
+                        logger.info(
+                            "[VOL_BLOCK] %s | %s | avg_range=%.4f%% < min=%.4f%% atr=%.4f%% "
+                            "max_range=%.4f%% — low volatility entry blocked",
+                            bot_data.get("name", bot_id[:8]), symbol,
+                            _avg_range_pct, MIN_VOLATILITY_RANGE_PCT, _atr_pct, _max_range_pct,
+                        )
+                        logger.info(
+                            "BLOCK_DETAIL %s",
+                            json.dumps({
+                                "bot_id": bot_id,
+                                "reason": "low_volatility_block",
+                                "avg_range_pct": round(_avg_range_pct, 4),
+                                "min_volatility_pct": MIN_VOLATILITY_RANGE_PCT,
+                                "atr_pct": round(_atr_pct, 4),
+                                "max_range_pct": round(_max_range_pct, 4),
+                                "spread_pct": round(spread_pct, 4),
+                                "symbol": symbol,
+                                "exchange": exchange,
+                            }),
+                        )
+                        return {
+                            "success": False,
+                            "bot_id": bot_id,
+                            "skip_reason": "low_volatility_block",
+                            "error": f"Market volatility too low (avg_range={_avg_range_pct:.4f}% < {MIN_VOLATILITY_RANGE_PCT:.4f}%)",
+                            "details": {
+                                "avg_range_pct": round(_avg_range_pct, 4),
+                                "min_volatility_range_pct": MIN_VOLATILITY_RANGE_PCT,
+                                "atr_pct": round(_atr_pct, 4),
+                                "max_range_pct": round(_max_range_pct, 4),
+                                "lookback_candles": VOLATILITY_LOOKBACK_CANDLES,
+                                "spread_pct": round(spread_pct, 4),
+                                "symbol": symbol,
+                                "exchange": exchange,
+                            },
+                        }
+                    else:
+                        logger.debug(
+                            "[VOL_OK] %s | %s | avg_range=%.4f%% atr=%.4f%%",
+                            bot_data.get("name", bot_id[:8]), symbol, _avg_range_pct, _atr_pct,
+                        )
+            except Exception as _vol_err:
+                logger.debug("Volatility filter skipped (non-fatal): %s", _vol_err)
             
             # 4. AI INTELLIGENCE: CoinStats derived from aggregated signals
             _cs_strength = 0
@@ -1869,10 +2041,26 @@ class PaperTradingEngine:
             # above, so the edge check is meaningful even in sim mode.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
 
+            # ── PHASE 1: Cost-multiplier edge filter ──────────────────────────────
+            # Block when expected_move < total_cost × EDGE_COST_MULTIPLIER.
+            # This is stricter than the bare net-edge check and prevents entering
+            # trades where the edge barely exceeds cost (high-risk, low-reward).
+            # Example: Luno cost ~0.42% → required edge ~0.63% (at 1.5×).
+            _cost_multiplier_required = estimated_cost_pct * EDGE_COST_MULTIPLIER
+            _cost_multiplier_blocked = expected_move_pct < _cost_multiplier_required
+
             # Block when net edge is at or below the minimum threshold for ALL modes.
             # Previously paper mode bypassed this — that allowed negative-expectancy
             # trades through, which this audit is fixing.
-            _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT
+            # Also block when the cost multiplier check fails (Phase 1).
+            _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT or _cost_multiplier_blocked
+
+            if _cost_multiplier_blocked and not (_net_edge_pct <= MINIMUM_EDGE_PCT):
+                logger.info(
+                    "[COST_MULTIPLIER_BLOCK] %s | %s | expected=%.4f%% < cost=%.4f%% × %.1f=%.4f%%",
+                    bot_data.get("name", bot_id[:8]), symbol,
+                    expected_move_pct, estimated_cost_pct, EDGE_COST_MULTIPLIER, _cost_multiplier_required,
+                )
 
             # ── Paper mode regime-aware bypass ───────────────────────────────────────
             # Problem: the OHLCV fallback signal often produces expected_move_pct
@@ -1925,6 +2113,8 @@ class PaperTradingEngine:
                         "edge": round(_net_edge_pct, 4),
                         "cost": round(estimated_cost_pct, 4),
                         "expected_move_pct": round(expected_move_pct, 4),
+                        "cost_multiplier_required_pct": round(_cost_multiplier_required, 4),
+                        "cost_multiplier_blocked": _cost_multiplier_blocked,
                         "regime": playbook_info["regime"],
                         "confidence": round(regime.get("confidence", 0), 4),
                         "ml_is_simulated": ml_is_simulated,
@@ -1945,6 +2135,9 @@ class PaperTradingEngine:
                         "minimum_edge_pct": MINIMUM_EDGE_PCT,
                         "expected_move_pct": round(expected_move_pct, 4),
                         "estimated_cost_pct": round(estimated_cost_pct, 4),
+                        "cost_multiplier_required_pct": round(_cost_multiplier_required, 4),
+                        "cost_multiplier_blocked": _cost_multiplier_blocked,
+                        "edge_cost_multiplier": EDGE_COST_MULTIPLIER,
                         "ml_is_simulated": ml_is_simulated,
                         "exchange": exchange,
                         "symbol": symbol,
@@ -2212,7 +2405,7 @@ class PaperTradingEngine:
             _regime_indicator_bypass = (
                 _regime_known
                 and _indicators_valid
-                and avg_confidence >= 0.38
+                and avg_confidence >= 0.42
                 and confidence_sources >= 1
             )
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
@@ -3038,6 +3231,28 @@ class PaperTradingEngine:
             elif close_reason == "take_profit":
                 # Reset loss streak on any win
                 self._bot_loss_streaks[bot_id] = 0
+
+            # ── PHASE 4: Set loss cooldown on any losing trade ────────────────────
+            # Covers stop_loss exits AND stagnation_exit (both indicate bad entry).
+            # net_profit < 0 catches cases where close_reason isn't stop_loss but
+            # the trade was still a loser (e.g., stagnation exit with negative PnL).
+            if LOSS_COOLDOWN_SECONDS > 0:
+                _is_loss_trade = (
+                    close_reason in ("stop_loss", "stagnation_exit")
+                    or net_profit < 0
+                )
+                if _is_loss_trade:
+                    _cooldown_expiry = datetime.now(timezone.utc) + timedelta(seconds=LOSS_COOLDOWN_SECONDS)
+                    self._bot_loss_cooldowns[bot_id] = _cooldown_expiry
+                    logger.info(
+                        "[LOSS_COOLDOWN_SET] %s | %s | reason=%s pnl=%.2f cooldown=%ds until=%s",
+                        bot_data.get("name", bot_id[:8]), symbol or "?",
+                        close_reason, net_profit, LOSS_COOLDOWN_SECONDS,
+                        _cooldown_expiry.isoformat(),
+                    )
+                else:
+                    # Winning trade clears any outstanding cooldown immediately
+                    self._bot_loss_cooldowns.pop(bot_id, None)
             _symbol_universe.record_closed(bot_id, symbol or "")
 
             # ── River online learner hook (non-fatal) ────────────────────

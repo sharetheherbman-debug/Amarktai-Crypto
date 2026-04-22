@@ -502,6 +502,10 @@ class TradingScheduler:
                 "order_validation_failed": EligibilityCode.TRADE_REJECTED,
                 # Exchange feed degraded — infrastructure self-healing
                 "exchange_degraded":       EligibilityCode.EXCHANGE_DEGRADED,
+                # ── Entry quality v2 (Phase 2/3/4) ──────────────────────────────
+                "spread_too_wide_dynamic": EligibilityCode.SPREAD_TOO_WIDE_DYNAMIC,
+                "low_volatility_block":    EligibilityCode.LOW_VOLATILITY_BLOCK,
+                "cooldown_after_loss":     EligibilityCode.COOLDOWN_AFTER_LOSS,
             }
 
             # ── Per-bot execution coroutine ──────────────────────────────────────

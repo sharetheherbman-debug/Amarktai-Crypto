@@ -85,6 +85,11 @@ class EligibilityCode(str, Enum):
     # ── Exchange infrastructure degraded ────────────────────────────────────
     EXCHANGE_DEGRADED         = "exchange_degraded"
 
+    # ── Entry quality v2 blocks (Phase 2/3/4) ───────────────────────────────
+    SPREAD_TOO_WIDE_DYNAMIC   = "spread_too_wide_dynamic"
+    LOW_VOLATILITY_BLOCK      = "low_volatility_block"
+    COOLDOWN_AFTER_LOSS       = "cooldown_after_loss"
+
     # ── Catch-all (use only when no specific code applies) ──────────────────
     UNKNOWN                   = "unknown"
 
@@ -127,6 +132,10 @@ ELIGIBILITY_DESCRIPTIONS: Dict[str, str] = {
     EligibilityCode.OPEN_TRADE_CLOSE_FAILED:  "Trade close failed and was abandoned — marked as failed",
     EligibilityCode.CYCLE_ERROR:              "Unhandled error during trading cycle execution",
     EligibilityCode.TRADE_REJECTED:           "Trade rejected by execution layer (entry conditions not met)",
+    EligibilityCode.EXCHANGE_DEGRADED:        "Exchange feed is degraded — bots skipped until feed recovers",
+    EligibilityCode.SPREAD_TOO_WIDE_DYNAMIC:  "Spread exceeds dynamic rolling average × multiplier — abnormally wide",
+    EligibilityCode.LOW_VOLATILITY_BLOCK:     "Recent candle range too low — market too flat to trade profitably",
+    EligibilityCode.COOLDOWN_AFTER_LOSS:      "Bot is cooling down after a losing trade before re-entry",
     EligibilityCode.UNKNOWN:                  "Ineligible for unspecified reason",
 }
 
