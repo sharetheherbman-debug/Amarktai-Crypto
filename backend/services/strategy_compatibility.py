@@ -85,7 +85,7 @@ def _load_compat_map() -> Dict[str, Optional[List[str]]]:
                 # No restriction declared → compatible with all exchanges
                 allowed: Optional[List[str]] = None
             elif isinstance(raw_compat, list):
-                allowed = [str(e).strip().lower() for e in raw_compat if e]
+                allowed = [str(e).strip().lower() for e in raw_compat if e is not None and str(e).strip()]
             else:
                 logger.warning(
                     "strategy_compatibility: unexpected compatible_exchanges type in %s: %s",

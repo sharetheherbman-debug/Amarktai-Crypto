@@ -463,7 +463,11 @@ async def get_feed_health(user_id: str = Depends(get_current_user)) -> dict:
         _stats = _ltc.cache_stats()
         if _stats:
             # Use the freshest (smallest age) cached pair as the proxy for luno feed health.
-            _min_age = min((v["age_seconds"] for v in _stats.values()), default=None)
+            # Use .get() with a safe fallback so missing keys never raise KeyError.
+            _min_age = min(
+                (v.get("age_seconds", float("inf")) for v in _stats.values()),
+                default=None,
+            )
             if _min_age is not None:
                 feeds["luno"] = {
                     "exchange": "luno",
