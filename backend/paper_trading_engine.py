@@ -2674,7 +2674,9 @@ class PaperTradingEngine:
             except Exception as _diag_err:
                 logger.debug("Entry diagnostics persist failed (non-fatal): %s", _diag_err)
             # ────────────────────────────────────────────────────────────────────────
-            if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
+            # Confidence gate: _would_pass_confidence was computed above for the
+            # diagnostic log; reuse it here to avoid duplicating the boolean logic.
+            if not _would_pass_confidence:
                 _block_reason = "low_confidence"
                 logger.info(
                     f"⏭️  SKIP_LOW_CONFIDENCE | {bot_data.get('name', bot_id[:8])} | "
