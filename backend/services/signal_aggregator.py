@@ -461,8 +461,9 @@ class SignalAggregator:
         # predicted_change from that estimate so downstream filters receive a non-zero
         # directional move signal.  This prevents HARD_EDGE_FILTER from blocking every
         # bot when the ML model is silent (cold start, no training data, flat regime).
-        if predicted_change == 0 and _raw_gross_bps > 0:
-            _atr_sign = 1 if final_direction in ("up", "neutral") else -1
+        # Only apply when direction is clearly "up" or "down" — neutral means no bias.
+        if predicted_change == 0 and _raw_gross_bps > 0 and final_direction in ("up", "down"):
+            _atr_sign = 1 if final_direction == "up" else -1
             predicted_change = round((_raw_gross_bps / 100.0) * _atr_sign, 4)
             logger.debug(
                 "GROSS_EDGE_FALLBACK | %s | direction=%s raw_gross_bps=%.2f → predicted_change=%.4f",

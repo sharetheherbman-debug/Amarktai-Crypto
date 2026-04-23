@@ -1912,7 +1912,10 @@ class PaperTradingEngine:
             # already tries this (GROSS_EDGE_FALLBACK) but if it was not reached or failed,
             # use its raw gross_edge_bps / atr_pct directly.
             if expected_move_pct == 0 and _agg:
-                _agg_gross_bps = float(_agg.get("gross_edge_bps") or _agg.get("atr_pct", 0) * 100)
+                # gross_edge_bps is already in bps; atr_pct is in % so convert to bps.
+                _agg_gross_bps = float(_agg.get("gross_edge_bps") or 0)
+                if _agg_gross_bps == 0:
+                    _agg_gross_bps = float(_agg.get("atr_pct", 0)) * 100
                 if _agg_gross_bps > 0:
                     expected_move_pct = round(_agg_gross_bps / 100.0, 4)
                     _agg_dir = prediction.get("direction", "up")
@@ -2194,10 +2197,10 @@ class PaperTradingEngine:
                         "expected_net_edge_bps":    _early_net_bps,
                         "spread_bps_last":          _early_spread_bps,
                         "slippage_bps_last":        _early_slip_bps,
-                        # Use regime confidence as a preliminary entry_confidence_score so
-                        # the field is never left at 0.0 when HARD_EDGE_FILTER blocks.
-                        # The full ENTRY_EVAL block below overwrites this with avg_confidence.
-                        "entry_confidence_score":   round(float(regime.get("confidence", 0)), 4),
+                        # Persist current regime confidence in a dedicated field so the
+                        # radar always shows a non-zero confidence value when HARD_EDGE_FILTER
+                        # blocks before the full ENTRY_EVAL block writes entry_confidence_score.
+                        "regime_confidence_last":   round(float(regime.get("confidence", 0)), 4),
                         "last_entry_eval_regime":   playbook_info.get("regime", "unknown"),
                         "last_entry_eval_at":       datetime.now(timezone.utc).isoformat(),
                     }},
