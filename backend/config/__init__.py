@@ -113,9 +113,9 @@ PAPER_MAX_HOLD_MINUTES = int(os.getenv('PAPER_MAX_HOLD_MINUTES', '120'))
 # Default 60 min; set to 0 to disable.
 PAPER_SAFETY_EXIT_MINUTES = int(os.getenv('PAPER_SAFETY_EXIT_MINUTES', '60'))
 # Stagnation exit: close if price hasn't moved beyond estimated round-trip cost
-# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 7 min.
-# (reduced from 10 to exit faster on no movement and reduce stagnation losses).
-STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '7'))
+# (fees + spread) for this many minutes.  Prevents idle capital.  Default: 15 min.
+# (raised from 7 to give trades more time to develop before exiting on stagnation).
+STAGNATION_EXIT_MINUTES = int(os.getenv('STAGNATION_EXIT_MINUTES', '15'))
 # Fee break-even exit: close when the trade has been open at least this long AND
 # the unrealised PnL is definitively below -round_trip_cost_pct (the loss already
 # exceeds what fees/spread would cost even at breakeven).  Default: 10 min.
@@ -212,11 +212,19 @@ EDGE_COST_MULTIPLIER = float(os.getenv('EDGE_COST_MULTIPLIER', '1.5'))
 
 # Luno-normal-specific edge multiplier — stricter than the global default because Luno
 # round-trip costs are higher (0.64% fees + ~0.7–1.0% spread) and realized moves are
-# shallower on ZAR-quoted pairs.  Raising to 2.0 means expected move must be at least
-# 2× the round-trip cost before a Luno normal trade is entered.
+# shallower on ZAR-quoted pairs.  Raising to 2.2 means expected move must be at least
+# 2.2× the round-trip cost before a Luno normal trade is entered.
 # Applied only when exchange="luno" AND bot_type="normal".
-# Env: LUNO_NORMAL_EDGE_COST_MULTIPLIER  Default: 2.0
-LUNO_NORMAL_EDGE_COST_MULTIPLIER = float(os.getenv('LUNO_NORMAL_EDGE_COST_MULTIPLIER', '2.0'))
+# Env: LUNO_NORMAL_EDGE_COST_MULTIPLIER  Default: 2.2 (raised from 2.0 to force real margin)
+LUNO_NORMAL_EDGE_COST_MULTIPLIER = float(os.getenv('LUNO_NORMAL_EDGE_COST_MULTIPLIER', '2.2'))
+
+# Hard absolute minimum expected-move floor for Luno normal bots (%).
+# Even if the cost-ratio check passes, the expected move must still reach this
+# absolute floor.  Current observed moves of 1.0–1.5% cannot beat Luno fees +
+# spread + slippage (~0.4–0.6%); requiring ≥2.5% guarantees a meaningful edge.
+# Applied only when exchange="luno" AND bot_type="normal".
+# Env: LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT  Default: 2.5
+LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT = float(os.getenv('LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT', '2.5'))
 
 # Phase 2 — Dynamic spread multiplier: block entry when spread_pct exceeds
 # the rolling average spread by this factor.  Catches sudden spread spikes
@@ -239,15 +247,22 @@ SCALPER_MIN_VOLATILITY_RANGE_PCT = float(os.getenv('SCALPER_MIN_VOLATILITY_RANGE
 # Luno-normal-specific minimum volatility range.  Raised above the global normal threshold
 # (0.20%) because Luno ZAR-quoted pairs exhibit wider spreads and higher round-trip costs,
 # meaning a flat-market entry requires even more realized movement to clear costs.
-# 0.35% = 35 bps: empirically, setups below this on BTC/ZAR and ETH/ZAR frequently
+# 0.50% = 50 bps: blocks flat markets more aggressively than the previous 0.35% threshold.
 # end in stagnation_exit or fee_break_even_fail.  All other exchanges/bot-types use
-# MIN_VOLATILITY_RANGE_PCT.  Env: LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT  Default: 0.35
-LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT = float(os.getenv('LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT', '0.35'))
+# MIN_VOLATILITY_RANGE_PCT.  Env: LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT  Default: 0.50
+LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT = float(os.getenv('LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT', '0.50'))
 
 # Phase 4 — Per-bot cooldown after a losing trade (seconds).
 # After any trade that closes with net_profit < 0, the bot is blocked from
 # re-entering for this many seconds to avoid chasing the same bad condition.
 LOSS_COOLDOWN_SECONDS = int(os.getenv('LOSS_COOLDOWN_SECONDS', '120'))
+
+# Minimum trade notional (ZAR) for Luno normal bots.
+# Small trades get disproportionately eaten by Luno's fixed fee structure and
+# bid/ask spread; requiring ≥400 ZAR prevents systematic micro-trade losses.
+# Applied only when exchange="luno" AND bot_type="normal".
+# Env: LUNO_NORMAL_MIN_TRADE_ZAR  Default: 400
+LUNO_NORMAL_MIN_TRADE_ZAR = float(os.getenv('LUNO_NORMAL_MIN_TRADE_ZAR', '400'))
 
 # Phase 6 — Symbol-level stagnation cooldown for Luno normal bots (seconds).
 # After a stagnation_exit or fee_break_even_fail on a Luno normal bot, ALL normal
@@ -261,9 +276,9 @@ LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS = int(os.getenv('LUNO_NORMAL_SYMBOL_COOLDOWN
 
 # Phase 5 — Regime-indicator bypass confidence floor.
 # The bypass allows entry when regime is known AND avg_confidence >= this value,
-# even if the normal confidence threshold is not fully met.  Raised from 0.38 to
-# 0.42 to reduce weak-signal entries that pass through this narrow bypass.
-REGIME_INDICATOR_CONFIDENCE_FLOOR = float(os.getenv('REGIME_INDICATOR_CONFIDENCE_FLOOR', '0.42'))
+# even if the normal confidence threshold is not fully met.  Raised from 0.42 to
+# 0.55 to eliminate weak-signal entries that previously slipped through this bypass.
+REGIME_INDICATOR_CONFIDENCE_FLOOR = float(os.getenv('REGIME_INDICATOR_CONFIDENCE_FLOOR', '0.55'))
 
 # ── Safety buffer & regime playbooks ────────────────────────────────────────
 # Base safety buffer added on top of fees+spread+slippage in the edge gate.
@@ -541,5 +556,16 @@ __all__ = [
     'AUTOPILOT_PROFIT_MILESTONE_ZAR', 'AUTOPILOT_REINVEST_MIN_ZAR',
     'AUTOPILOT_MAX_BOTS_PER_PLATFORM',
     'REQUIRE_WALLET_FUNDED', 'REQUIRE_API_KEYS_FOR_LIVE', 'AUTO_PROMOTE_LIVE', 'PAPER_SUPPORTED_EXCHANGES',
+    'EDGE_COST_MULTIPLIER',
+    'LUNO_NORMAL_EDGE_COST_MULTIPLIER',
+    'LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT',
+    'DYNAMIC_SPREAD_MULTIPLIER',
+    'MIN_VOLATILITY_RANGE_PCT',
+    'SCALPER_MIN_VOLATILITY_RANGE_PCT',
+    'LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT',
+    'LOSS_COOLDOWN_SECONDS',
+    'LUNO_NORMAL_MIN_TRADE_ZAR',
+    'LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS',
+    'REGIME_INDICATOR_CONFIDENCE_FLOOR',
     'SCALPER_MIN_VOLATILITY_RANGE_PCT',
 ]
