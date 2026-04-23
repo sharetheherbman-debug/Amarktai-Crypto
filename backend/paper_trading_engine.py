@@ -97,6 +97,7 @@ from config import (
     LUNO_NORMAL_MIN_TRADE_ZAR,
     LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS,
     REGIME_INDICATOR_CONFIDENCE_FLOOR,
+    LUNO_NORMAL_MAX_SPREAD_PCT,
 )
 from services.symbol_universe import symbol_universe as _symbol_universe
 from services.symbol_universe import DEFAULT_SYMBOL_UNIVERSE as _DEFAULT_SYMBOL_UNIVERSE
@@ -1452,8 +1453,15 @@ class PaperTradingEngine:
 
             # Scalpers use a tighter spread limit than normal bots; their profit window
             # is smaller so a wide spread eats a larger fraction of expected move.
+            # Luno normal bots use a wider threshold than the global cap to accommodate
+            # real Luno ZAR-market microstructure (typical spread 0.5–1.3%).
             _bt_spread = str(bot_data.get("bot_type") or "normal").lower()
-            _effective_max_spread = SCALPER_MAX_SPREAD_PCT if _bt_spread == "scalper" else PAPER_MAX_SPREAD_PCT
+            if _bt_spread == "scalper":
+                _effective_max_spread = SCALPER_MAX_SPREAD_PCT
+            elif exchange.lower() == "luno" and _bt_spread == "normal":
+                _effective_max_spread = LUNO_NORMAL_MAX_SPREAD_PCT
+            else:
+                _effective_max_spread = PAPER_MAX_SPREAD_PCT
 
             if spread_pct > _effective_max_spread and not bot_data.get("allow_wide_spread"):
                 # Write a minimal state snapshot so last_strategy_signal is never null
@@ -2277,7 +2285,10 @@ class PaperTradingEngine:
             # Current Luno normal trades show expected_move ~1.0–1.5%, which cannot
             # beat round-trip cost ~0.4–0.6%.  Block any trade below the hard floor
             # regardless of cost ratio.  Applied BEFORE Phase 1 cost-ratio check.
-            if _is_luno_normal and expected_move_pct < LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT:
+            # Exception: when the paper hard-edge bypass is active the bot already has
+            # a real signal with acceptable net edge — enforcing a 2.5% floor would
+            # suppress all paper learning on Luno.  Live mode is unaffected.
+            if _is_luno_normal and not _paper_hard_edge_bypass and expected_move_pct < LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT:
                 logger.info(
                     "[BLOCK_LUNO_MIN_EDGE] %s | %s | expected_move=%.4f%% < floor=%.1f%% — luno_min_edge_not_met",
                     bot_data.get("name", bot_id[:8]), symbol,
@@ -2614,6 +2625,55 @@ class PaperTradingEngine:
                 and avg_confidence >= REGIME_INDICATOR_CONFIDENCE_FLOOR
                 and confidence_sources >= 1
             )
+
+            # ── STRUCTURED ENTRY DIAGNOSTICS ────────────────────────────────────────
+            # Emit a machine-readable log line and persist key decision metrics to the
+            # bot document on every evaluation cycle so the radar always shows real
+            # (non-zero) values for edge, cost, and confidence.  All values are
+            # available at this point in the pipeline.  Non-fatal — never blocks entry.
+            _diag_gross_bps = round(expected_move_pct * 100, 2)
+            _diag_cost_bps  = round(estimated_cost_pct * 100, 2)
+            _diag_net_bps   = round(_net_edge_pct * 100, 2)
+            _diag_spread_bps = round(spread_pct * 100, 2)
+            _would_pass_confidence = (
+                _sim_bypass_confidence or _paper_quality_bypass or _bootstrap_bypass
+                or _regime_indicator_bypass
+                or (confidence_sources >= min_sources_required and avg_confidence >= _conf_threshold)
+            )
+            _diag_decision = "PASS_CONFIDENCE" if _would_pass_confidence else "SKIP_LOW_CONFIDENCE"
+            logger.info(
+                "[ENTRY_EVAL] bot_id=%s exchange=%s requested=%s selected=%s "
+                "spread_bps=%.1f slippage_bps=%.1f "
+                "gross_edge_bps=%.1f cost_bps=%.1f net_edge_bps=%.1f "
+                "confidence=%.4f regime=%s paper_bypass=%s "
+                "decision=%s sources=%d threshold=%.3f",
+                bot_id[:8], exchange,
+                bot_data.get("pair", "?"), symbol,
+                _diag_spread_bps, round(_exch_slippage_bps, 1),
+                _diag_gross_bps, _diag_cost_bps, _diag_net_bps,
+                round(avg_confidence, 4),
+                playbook_info.get("regime", "?"),
+                _paper_hard_edge_bypass,
+                _diag_decision, confidence_sources, round(_conf_threshold, 3),
+            )
+            # Persist to bot document so radar fields show real values
+            try:
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {"$set": {
+                        "expected_gross_edge_bps": _diag_gross_bps,
+                        "all_in_cost_bps": _diag_cost_bps,
+                        "expected_net_edge_bps": _diag_net_bps,
+                        "entry_confidence_score": round(avg_confidence, 4),
+                        "spread_bps_last": _diag_spread_bps,
+                        "slippage_bps_last": round(_exch_slippage_bps, 2),
+                        "last_entry_eval_regime": playbook_info.get("regime", "unknown"),
+                        "last_entry_eval_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+            except Exception as _diag_err:
+                logger.debug("Entry diagnostics persist failed (non-fatal): %s", _diag_err)
+            # ────────────────────────────────────────────────────────────────────────
             if not _sim_bypass_confidence and not _paper_quality_bypass and not _bootstrap_bypass and not _regime_indicator_bypass and (confidence_sources < min_sources_required or avg_confidence < _conf_threshold):
                 _block_reason = "low_confidence"
                 logger.info(

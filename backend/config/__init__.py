@@ -102,6 +102,14 @@ EDGE_BUFFER_PCT = float(os.getenv('EDGE_BUFFER_PCT', '0.15'))  # 0.15% buffer
 EDGE_GATE_PAPER = os.getenv('EDGE_GATE_PAPER', 'true').lower() == 'true'
 EDGE_GATE_LIVE = os.getenv('EDGE_GATE_LIVE', 'true').lower() == 'true'  # Default ON — live trades must have positive expected edge over fees+spread+slippage
 PAPER_MAX_SPREAD_PCT = float(os.getenv('PAPER_MAX_SPREAD_PCT', '1.0'))  # 1.0% max spread — realistic for Luno ZAR markets (observed spreads 0.5–0.9%)
+# Luno-normal-specific spread ceiling (normal bots only, paper mode).
+# Luno ZAR-quoted pairs can have spread 0.8–1.5% during normal conditions.
+# Using the global 1.0% cap blocks valid setups on Luno while Binance bots
+# with 0.02–0.05% spreads never approach this gate.  1.5% accommodates real
+# Luno microstructure while still rejecting genuinely illiquid/spike conditions.
+# Applied only when exchange=luno AND bot_type=normal.
+# Env: LUNO_NORMAL_MAX_SPREAD_PCT  Default: 1.5
+LUNO_NORMAL_MAX_SPREAD_PCT = float(os.getenv('LUNO_NORMAL_MAX_SPREAD_PCT', '1.5'))
 PAPER_MIN_ORDERBOOK_NOTIONAL = float(os.getenv('PAPER_MIN_ORDERBOOK_NOTIONAL', '50000'))  # ZAR/USDT
 PAPER_PAIR_WHITELIST_ENABLED = os.getenv('PAPER_PAIR_WHITELIST_ENABLED', 'false').lower() == 'true'
 PAPER_STALE_EXIT_MINUTES = int(os.getenv('PAPER_STALE_EXIT_MINUTES', '120'))
