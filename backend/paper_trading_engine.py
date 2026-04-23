@@ -871,7 +871,7 @@ class PaperTradingEngine:
             fallback_price = 1.0
         
         logger.warning(f"Using fallback price for {symbol}: {fallback_price}")
-        self.price_cache[f"{exchange}:{symbol}"] = fallback_price
+        self.price_cache[_cache_key] = fallback_price
         
         if with_label:
             return {
@@ -1395,7 +1395,7 @@ class PaperTradingEngine:
             # we block immediately with an explicit reason rather than trading on
             # wrong market data.
             _snapshot_symbol = market_snapshot.get("symbol")
-            _symbol_mismatch = bool(_snapshot_symbol and _snapshot_symbol != symbol)
+            _symbol_mismatch = _snapshot_symbol and _snapshot_symbol != symbol
             _configured_pair = bot_data.get("pair") or bot_data.get("symbol") or symbol
 
             # ── PHASE D: Structured decision-time symbol-integrity diagnostic ─────
@@ -3056,7 +3056,7 @@ class PaperTradingEngine:
 
             # ── PHASE D: symbol-integrity diagnostic for the close path ──────────
             _close_snapshot_symbol = market_snapshot.get("symbol")
-            _close_mismatch = bool(_close_snapshot_symbol and _close_snapshot_symbol != symbol)
+            _close_mismatch = _close_snapshot_symbol and _close_snapshot_symbol != symbol
             logger.info(
                 "SYMBOL_INTEGRITY_CLOSE bot_id=%s trade_symbol=%s exchange=%s "
                 "snapshot_symbol=%s price=%s source=%s mismatch=%s",
