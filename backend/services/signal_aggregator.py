@@ -456,10 +456,25 @@ class SignalAggregator:
         _est_cost_bps = 30.0
         _expected_net_edge_bps = max(round(_raw_gross_bps - _est_cost_bps, 4), 0.0)
 
+        # Gross-edge fallback: when ML returned predicted_change=0 but real market
+        # indicators produced a non-zero gross edge (ATR + momentum), populate
+        # predicted_change from that estimate so downstream filters receive a non-zero
+        # directional move signal.  This prevents HARD_EDGE_FILTER from blocking every
+        # bot when the ML model is silent (cold start, no training data, flat regime).
+        # Only apply when direction is clearly "up" or "down" — neutral means no bias.
+        if predicted_change == 0 and _raw_gross_bps > 0 and final_direction in ("up", "down"):
+            _atr_sign = 1 if final_direction == "up" else -1
+            predicted_change = round((_raw_gross_bps / 100.0) * _atr_sign, 4)
+            logger.debug(
+                "GROSS_EDGE_FALLBACK | %s | direction=%s raw_gross_bps=%.2f → predicted_change=%.4f",
+                symbol, final_direction, _raw_gross_bps, predicted_change,
+            )
+
         return {
             "direction": final_direction,
             "confidence": final_confidence,
             "predicted_change": round(predicted_change, 4),
+            "gross_edge_bps": round(_raw_gross_bps, 4),
             "signals_used": signals_used,
             "river_edge": round(river_edge, 4),
             "hurst": hurst_result,

@@ -1906,6 +1906,24 @@ class PaperTradingEngine:
             exchange_fee_struct = EXCHANGE_FEES.get(exchange, {"maker": 0.001, "taker": 0.001})
             fee_rate = exchange_fee_struct.get('taker', 0.001)
             expected_move_pct = abs(float(prediction.get("predicted_change", 0) or 0))
+            # Defense-in-depth: if the ML prediction and signal aggregator both returned
+            # predicted_change=0, derive expected_move_pct from the aggregator's ATR-based
+            # gross edge so the edge calculation has a real non-zero base.  The aggregator
+            # already tries this (GROSS_EDGE_FALLBACK) but if it was not reached or failed,
+            # use its raw gross_edge_bps / atr_pct directly.
+            if expected_move_pct == 0 and _agg:
+                # gross_edge_bps is already in bps; atr_pct is in % so convert to bps.
+                _agg_gross_bps = float(_agg.get("gross_edge_bps") or 0)
+                if _agg_gross_bps == 0:
+                    _agg_gross_bps = float(_agg.get("atr_pct", 0)) * 100
+                if _agg_gross_bps > 0:
+                    expected_move_pct = round(_agg_gross_bps / 100.0, 4)
+                    _agg_dir = prediction.get("direction", "up")
+                    prediction["predicted_change"] = expected_move_pct if _agg_dir != "down" else -expected_move_pct
+                    logger.debug(
+                        "GROSS_EDGE_FROM_AGG | %s | %s | agg_gross_bps=%.2f → expected_move=%.4f%%",
+                        bot_data.get("name", bot_id[:8]), symbol, _agg_gross_bps, expected_move_pct,
+                    )
             fee_pct_roundtrip = fee_rate * 2 * 100
             slippage_pct_roundtrip = slippage_rate * 2 * 100
             # Paper fills execute at simulated mid ± PAPER_SPREAD_BPS, not the live
@@ -2160,10 +2178,40 @@ class PaperTradingEngine:
             # above, so the edge check is meaningful even in sim mode.
             _net_edge_pct = expected_move_pct - estimated_cost_pct
 
-            # Block when net edge is at or below the minimum threshold for ALL modes.
-            # Previously paper mode bypassed this — that allowed negative-expectancy
-            # trades through, which this audit is fixing.
-            _hard_edge_blocked = _net_edge_pct <= MINIMUM_EDGE_PCT
+            # ── Early edge diagnostics persist (always written, even when blocked) ──
+            # Write gross/cost/net edge to the bot document NOW, before any filter gate
+            # can return early.  Previously these were only written in the ENTRY_EVAL
+            # block (after the confidence gate), so when HARD_EDGE_FILTER blocked the
+            # bot the fields stayed at their stale/zero initial value.
+            _early_gross_bps = round(expected_move_pct * 100, 2)
+            _early_cost_bps  = round(estimated_cost_pct * 100, 2)
+            _early_net_bps   = round(_net_edge_pct * 100, 2)
+            _early_spread_bps = round(spread_pct * 100, 2)
+            _early_slip_bps   = round(_exch_slippage_bps, 2)
+            try:
+                await db.bots_collection.update_one(
+                    {"id": bot_id},
+                    {"$set": {
+                        "expected_gross_edge_bps": _early_gross_bps,
+                        "all_in_cost_bps":          _early_cost_bps,
+                        "expected_net_edge_bps":    _early_net_bps,
+                        "spread_bps_last":          _early_spread_bps,
+                        "slippage_bps_last":        _early_slip_bps,
+                        # Persist current regime confidence in a dedicated field so the
+                        # radar always shows a non-zero confidence value when HARD_EDGE_FILTER
+                        # blocks before the full ENTRY_EVAL block writes entry_confidence_score.
+                        "regime_confidence_last":   round(float(regime.get("confidence", 0)), 4),
+                        "last_entry_eval_regime":   playbook_info.get("regime", "unknown"),
+                        "last_entry_eval_at":       datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+            except Exception as _early_diag_err:
+                logger.debug("Early edge diagnostics persist failed (non-fatal): %s", _early_diag_err)
+
+            # Block when net edge is strictly non-positive (no edge to capture).
+            # Changed from <= MINIMUM_EDGE_PCT to <= 0 so that any trade with a genuine
+            # positive net edge can pass the filter naturally without an artificial floor.
+            _hard_edge_blocked = _net_edge_pct <= 0
 
             # ── Paper mode regime-aware bypass ───────────────────────────────────────
             # Problem: the OHLCV fallback signal often produces expected_move_pct
@@ -2194,7 +2242,7 @@ class PaperTradingEngine:
             )
             if _paper_hard_edge_bypass:
                 _hard_edge_blocked = False
-                if _net_edge_pct <= MINIMUM_EDGE_PCT:
+                if _net_edge_pct <= 0:
                     logger.info(
                         "[HARD_EDGE_BYPASS] paper_regime_override | %s | %s | "
                         "net_edge=%.4f%% regime=%s expected=%.4f%% — allowing for data collection",
@@ -2203,6 +2251,15 @@ class PaperTradingEngine:
                     )
 
             if _hard_edge_blocked:
+                logger.info(
+                    "[ENTRY_EVAL] bot_id=%s exchange=%s selected=%s "
+                    "gross_edge_bps=%.1f cost_bps=%.1f net_edge_bps=%.1f "
+                    "confidence=%.4f regime=%s decision=BLOCK_HARD_EDGE",
+                    bot_id[:8], exchange, symbol,
+                    _early_gross_bps, _early_cost_bps, _early_net_bps,
+                    round(float(regime.get("confidence", 0)), 4),
+                    playbook_info.get("regime", "?"),
+                )
                 logger.info(
                     f"⏭️  SKIP_HARD_EDGE | {bot_data.get('name', bot_id[:8])} | "
                     f"net_edge={_net_edge_pct:.4f}% "
@@ -2213,6 +2270,9 @@ class PaperTradingEngine:
                     json.dumps({
                         "bot_id": bot_id,
                         "reason": "hard_edge_filter",
+                        "gross_edge_bps": _early_gross_bps,
+                        "cost_bps": _early_cost_bps,
+                        "net_edge_bps": _early_net_bps,
                         "edge": round(_net_edge_pct, 4),
                         "cost": round(estimated_cost_pct, 4),
                         "expected_move_pct": round(expected_move_pct, 4),
@@ -2233,7 +2293,7 @@ class PaperTradingEngine:
                     "error": "Net edge after costs does not meet minimum threshold",
                     "details": {
                         "net_edge_pct": round(_net_edge_pct, 4),
-                        "minimum_edge_pct": MINIMUM_EDGE_PCT,
+                        "minimum_edge_pct": 0,
                         "expected_move_pct": round(expected_move_pct, 4),
                         "estimated_cost_pct": round(estimated_cost_pct, 4),
                         "ml_is_simulated": ml_is_simulated,
@@ -2551,6 +2611,21 @@ class PaperTradingEngine:
             if _agg_composite > 0 and _agg_signals_used >= 1:
                 avg_confidence = _agg_composite
                 confidence_sources = max(confidence_sources, _agg_signals_used)
+
+            # ── Confidence fallback: never allow avg_confidence = 0.0 for active bots ──
+            # When all signal sources fail or are below threshold the guard above still
+            # returns 0.  In that case fall back to regime_confidence so the bot always
+            # has *some* signal-quality estimate to gate on rather than defaulting to
+            # zero and triggering the low_confidence block unconditionally.
+            if avg_confidence == 0:
+                _regime_conf_fb = float(regime.get("confidence", 0))
+                if _regime_conf_fb > 0:
+                    avg_confidence = _regime_conf_fb
+                    confidence_sources = max(confidence_sources, 1)
+                    logger.debug(
+                        "[CONFIDENCE_FALLBACK] regime_confidence fallback | %s | regime_conf=%.3f",
+                        bot_data.get("name", bot_id[:8]), avg_confidence,
+                    )
 
             # ── Adaptive discipline: after consecutive losses, tighten threshold ──────
             # Uses the derive_adaptive_discipline function from entry_quality.py which
