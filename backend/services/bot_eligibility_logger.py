@@ -98,6 +98,9 @@ class EligibilityCode(str, Enum):
     # ── Exchange-strategy compatibility ──────────────────────────────────────
     STRATEGY_EXCHANGE_INCOMPATIBLE = "strategy_exchange_incompatible"
 
+    # ── Symbol integrity ─────────────────────────────────────────────────────
+    SYMBOL_STATE_MISMATCH         = "symbol_state_mismatch"
+
     # ── Catch-all (use only when no specific code applies) ──────────────────
     UNKNOWN                   = "unknown"
 
@@ -145,6 +148,7 @@ ELIGIBILITY_DESCRIPTIONS: Dict[str, str] = {
     EligibilityCode.EDGE_BELOW_COST:          "Expected move below cost × multiplier — insufficient structural edge over fees+spread",
     EligibilityCode.STAGNATION_SYMBOL_COOLDOWN: "Symbol in post-stagnation cooldown — Luno normal bots blocked from re-entering this pair after a stagnation or fee-break-even exit",
     EligibilityCode.STRATEGY_EXCHANGE_INCOMPATIBLE: "Strategy is not compatible with this exchange — see strategy registry notes",
+    EligibilityCode.SYMBOL_STATE_MISMATCH:          "Symbol integrity violation: market snapshot was for a different symbol than requested — trade blocked to prevent wrong-symbol execution",
     EligibilityCode.LUNO_MIN_EDGE_NOT_MET:      "Luno normal: expected move < 2.5% hard floor — insufficient edge to clear Luno fees and spread",
     EligibilityCode.LUNO_NO_TRADE_CONSOLIDATION: "Luno normal: consolidation/choppy regime detected — no trade in flat/sideways market",
     EligibilityCode.TRADE_TOO_SMALL_FOR_LUNO:   "Luno normal: trade size below 400 ZAR minimum — small trades eaten by Luno fees and spread",

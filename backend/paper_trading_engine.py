@@ -786,19 +786,19 @@ class PaperTradingEngine:
             if not self.luno_exchange and not self.binance_exchange:
                 await self.init_exchanges()
             
-            # Select exchange
-            if exchange == 'luno':
-                exchange_obj = self.luno_exchange
-            elif exchange == 'binance':
-                exchange_obj = self.binance_exchange
-            elif exchange == 'kucoin':
-                exchange_obj = self.kucoin_exchange
-            elif exchange == 'bybit':
-                exchange_obj = self.bybit_exchange
-            elif exchange == 'bitget':
-                exchange_obj = self.bitget_exchange
-            else:
-                exchange_obj = self.luno_exchange  # Default to Luno
+            # ── Symbol-integrity: resolve the correct exchange object.
+            # Unknown exchanges no longer silently fall back to luno_exchange.
+            _gr_exobj_map = {
+                "luno":     self.luno_exchange,
+                "binance":  self.binance_exchange,
+                "kucoin":   self.kucoin_exchange,
+                "bybit":    self.bybit_exchange,
+                "bitget":   self.bitget_exchange,
+                "kraken":   self.kraken_exchange,
+                "gate":     self.gate_exchange,
+                "coinbase": self.coinbase_exchange,
+            }
+            exchange_obj = _gr_exobj_map.get(exchange)  # None if unknown — no silent wrong-exchange fallback
             
             if exchange_obj:
                 # Use fetch_ticker which is PUBLIC on most exchanges
@@ -811,7 +811,9 @@ class PaperTradingEngine:
                 
                 # Guard against None price
                 if price is not None and price > 0:
-                    self.price_cache[symbol] = float(price)
+                    # Key cache by exchange:symbol to prevent cross-exchange contamination
+                    # (e.g. BTC/USDT on binance must not bleed into kucoin's BTC/USDT cache entry)
+                    self.price_cache[f"{exchange}:{symbol}"] = float(price)
                     
                     if with_label:
                         mode_info = self.get_mode_label()
@@ -829,9 +831,10 @@ class PaperTradingEngine:
         except Exception as e:
             logger.debug(f"Price fetch for {symbol} on {exchange}: {e}")
         
-        # Fallback 1: Try cache
-        if symbol in self.price_cache:
-            cached_price = self.price_cache[symbol]
+        # Fallback 1: Try cache (keyed by exchange:symbol to prevent cross-exchange bleed)
+        _cache_key = f"{exchange}:{symbol}"
+        if _cache_key in self.price_cache:
+            cached_price = self.price_cache[_cache_key]
             if cached_price is not None and cached_price > 0:
                 logger.info(f"Using cached price for {symbol}: {cached_price}")
                 
@@ -868,7 +871,7 @@ class PaperTradingEngine:
             fallback_price = 1.0
         
         logger.warning(f"Using fallback price for {symbol}: {fallback_price}")
-        self.price_cache[symbol] = fallback_price
+        self.price_cache[f"{exchange}:{symbol}"] = fallback_price
         
         if with_label:
             return {
@@ -891,13 +894,21 @@ class PaperTradingEngine:
         if not self.luno_exchange and not self.binance_exchange:
             await self.init_exchanges()
 
-        exchange_obj = {
-            "luno": self.luno_exchange,
-            "binance": self.binance_exchange,
-            "kucoin": self.kucoin_exchange,
-            "bybit": self.bybit_exchange,
-            "bitget": self.bitget_exchange,
-        }.get(exchange, self.luno_exchange)
+        # ── Symbol-integrity: resolve the correct exchange object for this
+        # exact (exchange, symbol) pair.  Unknown exchanges no longer silently
+        # fall back to luno_exchange, which would return Luno market data for
+        # a non-Luno symbol (e.g. kraken BTC/USDT fetched from Luno).
+        _exobj_map = {
+            "luno":     self.luno_exchange,
+            "binance":  self.binance_exchange,
+            "kucoin":   self.kucoin_exchange,
+            "bybit":    self.bybit_exchange,
+            "bitget":   self.bitget_exchange,
+            "kraken":   self.kraken_exchange,
+            "gate":     self.gate_exchange,
+            "coinbase": self.coinbase_exchange,
+        }
+        exchange_obj = _exobj_map.get(exchange)  # None if unknown — no silent wrong-exchange fallback
 
         timestamp = datetime.now(timezone.utc).isoformat()
         bid = ask = mid = None
@@ -953,6 +964,8 @@ class PaperTradingEngine:
         spread_bps = (spread / mid) * 10000 if mid else PAPER_SPREAD_BPS
 
         return {
+            "symbol": symbol,    # symbol-integrity: callers can verify snapshot matches request
+            "exchange": exchange,
             "bid": float(bid),
             "ask": float(ask),
             "mid": float(mid),
@@ -1376,16 +1389,63 @@ class PaperTradingEngine:
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
 
+            # ── PHASE C: Decision-time symbol integrity check ─────────────────────
+            # The snapshot always carries the symbol it was fetched for.  If it
+            # somehow doesn't match the requested symbol (cache key bug, etc.)
+            # we block immediately with an explicit reason rather than trading on
+            # wrong market data.
+            _snapshot_symbol = market_snapshot.get("symbol")
+            _symbol_mismatch = bool(_snapshot_symbol and _snapshot_symbol != symbol)
+            _configured_pair = bot_data.get("pair") or bot_data.get("symbol") or symbol
+
+            # ── PHASE D: Structured decision-time symbol-integrity diagnostic ─────
+            logger.info(
+                "SYMBOL_INTEGRITY bot_id=%s configured_pair=%s selected_symbol=%s "
+                "exchange=%s snapshot_symbol=%s price=%s spread_source=%s "
+                "snapshot_ts=%s mismatch=%s",
+                bot_id, _configured_pair, symbol, exchange,
+                _snapshot_symbol or "?",
+                current_price, market_snapshot.get("source", "?"),
+                market_snapshot.get("timestamp", "?"),
+                _symbol_mismatch,
+            )
+
+            if _symbol_mismatch:
+                logger.error(
+                    "SYMBOL_INTEGRITY_BLOCK bot_id=%s requested=%s got=%s — blocking with symbol_state_mismatch",
+                    bot_id, symbol, _snapshot_symbol,
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "symbol_state_mismatch",
+                    "error": (
+                        f"Symbol integrity violation: requested {symbol!r} "
+                        f"but snapshot contains {_snapshot_symbol!r}"
+                    ),
+                    "details": {
+                        "requested_symbol": symbol,
+                        "snapshot_symbol": _snapshot_symbol,
+                        "exchange": exchange,
+                    },
+                }
+
             # CRITICAL: Guard against None or invalid price
             if current_price is None or current_price <= 0:
                 logger.error(f"Invalid price for {symbol}: {current_price}, skipping trade")
                 self.last_error = f"Invalid price: {current_price}"
                 return {"success": False, "bot_id": bot_id, "skip_reason": "no_price_data", "error": f"Market unavailable for {symbol}"}
 
-            # Update last_market_price whenever we have a valid price (not only on fills)
+            # Update last_market_price and last_selected_symbol so operators can always
+            # tell which symbol's market state was used in the last cycle — critical for
+            # diagnosing SPREAD_TOO_WIDE blocks that show an unexpected price/spread.
             await db.bots_collection.update_one(
                 {"id": bot_id},
-                {"$set": {"last_market_price": current_price}},
+                {"$set": {
+                    "last_market_price": current_price,
+                    "last_selected_symbol": symbol,
+                    "last_snapshot_source": market_snapshot.get("source", "unknown"),
+                }},
             )
 
             spread_pct = (market_snapshot.get("spread", 0) / current_price) * 100 if current_price else 0
@@ -2993,6 +3053,34 @@ class PaperTradingEngine:
             exchange = open_trade.get("exchange", "luno")
             market_snapshot = await self.get_market_snapshot(symbol, exchange)
             current_price = market_snapshot.get("mid")
+
+            # ── PHASE D: symbol-integrity diagnostic for the close path ──────────
+            _close_snapshot_symbol = market_snapshot.get("symbol")
+            _close_mismatch = bool(_close_snapshot_symbol and _close_snapshot_symbol != symbol)
+            logger.info(
+                "SYMBOL_INTEGRITY_CLOSE bot_id=%s trade_symbol=%s exchange=%s "
+                "snapshot_symbol=%s price=%s source=%s mismatch=%s",
+                bot_id, symbol, exchange,
+                _close_snapshot_symbol or "?",
+                current_price, market_snapshot.get("source", "?"),
+                _close_mismatch,
+            )
+            if _close_mismatch:
+                logger.error(
+                    "SYMBOL_INTEGRITY_BLOCK_CLOSE bot_id=%s trade=%s requested=%s got=%s — holding open",
+                    bot_id, open_trade.get("id", "?"), symbol, _close_snapshot_symbol,
+                )
+                return {
+                    "success": False,
+                    "skip_reason": "symbol_state_mismatch",
+                    "status": "open",
+                    "diagnostics": {
+                        "symbol": symbol,
+                        "snapshot_symbol": _close_snapshot_symbol,
+                        "exchange": exchange,
+                    },
+                }
+
             if not current_price:
                 self._log_action(
                     "PRICE_MISSING", bot_id, symbol or "?",
