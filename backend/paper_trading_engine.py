@@ -88,11 +88,13 @@ from config import (
     RISK_MODE_CONFIG,
     EDGE_COST_MULTIPLIER,
     LUNO_NORMAL_EDGE_COST_MULTIPLIER,
+    LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT,
     DYNAMIC_SPREAD_MULTIPLIER,
     MIN_VOLATILITY_RANGE_PCT,
     SCALPER_MIN_VOLATILITY_RANGE_PCT,
     LUNO_NORMAL_MIN_VOLATILITY_RANGE_PCT,
     LOSS_COOLDOWN_SECONDS,
+    LUNO_NORMAL_MIN_TRADE_ZAR,
     LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS,
     REGIME_INDICATOR_CONFIDENCE_FLOOR,
 )
@@ -2021,6 +2023,49 @@ class PaperTradingEngine:
                 except Exception as _vol_err:
                     logger.debug("Phase 3 volatility filter failed (non-fatal): %s", _vol_err)
 
+            # LUNO NORMAL HARD GATE: Block consolidation/choppy regimes entirely.
+            # Luno normal trades in consolidation/sideways regimes show no follow-through
+            # and result in stagnation exits.  Block BEFORE further computation.
+            _consolidation_block_regimes = ("consolidation", "choppy", "sideways", "SQUEEZE")
+            if (
+                _is_luno_normal
+                and str(playbook_info.get("regime") or "").lower() in {r.lower() for r in _consolidation_block_regimes}
+            ):
+                _consol_regime = playbook_info.get("regime", "consolidation")
+                logger.info(
+                    "[BLOCK_LUNO_CONSOLIDATION] %s | %s | regime=%s — luno_no_trade_consolidation",
+                    bot_data.get("name", bot_id[:8]), symbol, _consol_regime,
+                )
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    json.dumps({
+                        "bot_id": bot_id,
+                        "reason": "luno_no_trade_consolidation",
+                        "symbol": symbol,
+                        "exchange": exchange,
+                        "regime": _consol_regime,
+                        "bot_type": _bot_type_for_universe,
+                    }),
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="luno_no_trade_consolidation",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "luno_no_trade_consolidation",
+                    "error": (
+                        f"Luno normal: regime={_consol_regime} is consolidation/choppy — no trade"
+                    ),
+                    "details": {
+                        "regime": _consol_regime,
+                        "exchange": exchange,
+                        "symbol": symbol,
+                    },
+                }
+
             # Adaptive safety buffer per risk mode and spread quality
             _risk_mode_cfg = RISK_MODE_CONFIG.get(risk_mode, RISK_MODE_CONFIG.get("balanced", {}))
             _base_safety_buffer = float(_risk_mode_cfg.get("safety_buffer_pct", SAFETY_BUFFER_PCT))
@@ -2168,10 +2213,53 @@ class PaperTradingEngine:
                     }
                 }
 
+            # LUNO NORMAL HARD GATE: Absolute minimum expected-move floor (2.5%).
+            # Current Luno normal trades show expected_move ~1.0–1.5%, which cannot
+            # beat round-trip cost ~0.4–0.6%.  Block any trade below the hard floor
+            # regardless of cost ratio.  Applied BEFORE Phase 1 cost-ratio check.
+            if _is_luno_normal and expected_move_pct < LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT:
+                logger.info(
+                    "[BLOCK_LUNO_MIN_EDGE] %s | %s | expected_move=%.4f%% < floor=%.1f%% — luno_min_edge_not_met",
+                    bot_data.get("name", bot_id[:8]), symbol,
+                    expected_move_pct, LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT,
+                )
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    json.dumps({
+                        "bot_id": bot_id,
+                        "reason": "luno_min_edge_not_met",
+                        "symbol": symbol,
+                        "exchange": exchange,
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "min_expected_move_pct": LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT,
+                        "bot_type": _bot_type_for_universe,
+                    }),
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="luno_min_edge_not_met",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "luno_min_edge_not_met",
+                    "error": (
+                        f"Luno normal: expected_move {expected_move_pct:.3f}% "
+                        f"< hard floor {LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT:.1f}%"
+                    ),
+                    "details": {
+                        "expected_move_pct": round(expected_move_pct, 4),
+                        "min_expected_move_pct": LUNO_NORMAL_MIN_EXPECTED_MOVE_PCT,
+                        "exchange": exchange,
+                        "symbol": symbol,
+                    },
+                }
+
             # PHASE 1: Cost-aware minimum edge filter.
             # Expected move must be >= total_cost × effective_multiplier.
             # For Luno normal bots the multiplier is raised above the global default
-            # (LUNO_NORMAL_EDGE_COST_MULTIPLIER=2.0 vs EDGE_COST_MULTIPLIER=1.5) because
+            # (LUNO_NORMAL_EDGE_COST_MULTIPLIER=2.2 vs EDGE_COST_MULTIPLIER=1.5) because
             # Luno round-trip costs are higher and realized moves on ZAR pairs are shallower.
             # All other exchange/bot-type combos use the global EDGE_COST_MULTIPLIER.
             # Bypassed only when the paper data-collection bypass (_paper_hard_edge_bypass)
@@ -2598,6 +2686,47 @@ class PaperTradingEngine:
                     f"for {risk_mode} mode (bot capital {_bot_capital_for_risk:.2f})"
                 )
                 trade_amount = _max_allowed_notional
+
+            # LUNO NORMAL HARD GATE: Minimum trade size (400 ZAR).
+            # Small trades get disproportionately consumed by Luno's fixed fee structure
+            # and bid/ask spread; a 400 ZAR floor prevents systematic micro-trade losses.
+            if _is_luno_normal and trade_amount < LUNO_NORMAL_MIN_TRADE_ZAR:
+                logger.info(
+                    "[BLOCK_LUNO_MICRO_TRADE] %s | %s | trade_amount=%.2f < min=%.0f ZAR — trade_too_small_for_luno",
+                    bot_data.get("name", bot_id[:8]), symbol,
+                    trade_amount, LUNO_NORMAL_MIN_TRADE_ZAR,
+                )
+                logger.info(
+                    "BLOCK_DETAIL %s",
+                    json.dumps({
+                        "bot_id": bot_id,
+                        "reason": "trade_too_small_for_luno",
+                        "symbol": symbol,
+                        "exchange": exchange,
+                        "trade_amount": round(trade_amount, 2),
+                        "min_trade_zar": LUNO_NORMAL_MIN_TRADE_ZAR,
+                    }),
+                )
+                self._log_action(
+                    "SKIP", bot_id, symbol or "?",
+                    reason="trade_too_small_for_luno",
+                    bot_name=bot_data.get("name", ""),
+                )
+                return {
+                    "success": False,
+                    "bot_id": bot_id,
+                    "skip_reason": "trade_too_small_for_luno",
+                    "error": (
+                        f"Luno normal: trade_amount {trade_amount:.2f} ZAR "
+                        f"< minimum {LUNO_NORMAL_MIN_TRADE_ZAR:.0f} ZAR"
+                    ),
+                    "details": {
+                        "trade_amount": round(trade_amount, 2),
+                        "min_trade_zar": LUNO_NORMAL_MIN_TRADE_ZAR,
+                        "exchange": exchange,
+                        "symbol": symbol,
+                    },
+                }
 
             # 2. CHECK RISK ENGINE
             risk_ok, risk_reason = await risk_engine.check_trade_risk(
@@ -3307,8 +3436,8 @@ class PaperTradingEngine:
                 self._bot_loss_cooldowns.pop(bot_id, None)
 
             # PHASE 6: Symbol-level stagnation cooldown (Luno normal only).
-            # After a stagnation_exit or fee_break_even_fail on luno+normal,
-            # block ALL normal bots for this user/exchange from re-entering the
+            # After a stagnation_exit, fee_break_even_fail, OR any losing trade (net_profit < 0)
+            # on luno+normal, block ALL normal bots for this user/exchange from re-entering the
             # same symbol for LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS.
             # Scoped by: user_id + exchange + symbol (case-insensitive symbol key).
             _bot_exchange_close = str(bot_data.get("exchange") or "").lower()
@@ -3317,7 +3446,7 @@ class PaperTradingEngine:
             if (
                 _bot_exchange_close == "luno"
                 and _bot_type_close == "normal"
-                and close_reason in _stag_triggers
+                and (close_reason in _stag_triggers or net_profit < 0)
                 and LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS > 0
                 and symbol
             ):
@@ -3326,9 +3455,9 @@ class PaperTradingEngine:
                 self._stagnation_symbol_cooldowns[_sym_cd_key] = _sym_cd_expires
                 logger.info(
                     "[STAG_SYM_COOLDOWN_SET] bot=%s symbol=%s exchange=%s "
-                    "close_reason=%s cooldown_sec=%d expires=%s",
+                    "close_reason=%s net_profit=%.2f cooldown_sec=%d expires=%s",
                     bot_id[:8], symbol, _bot_exchange_close,
-                    close_reason, LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS,
+                    close_reason, net_profit, LUNO_NORMAL_SYMBOL_COOLDOWN_SECONDS,
                     _sym_cd_expires.isoformat(),
                 )
 

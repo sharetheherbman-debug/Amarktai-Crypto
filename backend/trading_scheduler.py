@@ -469,6 +469,10 @@ class TradingScheduler:
                 "edge_below_cost":         EligibilityCode.EDGE_BELOW_COST,
                 # Phase 6 symbol-level stagnation cooldown (Luno normal)
                 "symbol_cooldown_after_stagnation": EligibilityCode.STAGNATION_SYMBOL_COOLDOWN,
+                # Luno normal hard entry gates (Phase 7–9)
+                "luno_min_edge_not_met":        EligibilityCode.LUNO_MIN_EDGE_NOT_MET,
+                "luno_no_trade_consolidation":  EligibilityCode.LUNO_NO_TRADE_CONSOLIDATION,
+                "trade_too_small_for_luno":     EligibilityCode.TRADE_TOO_SMALL_FOR_LUNO,
                 # Exchange-strategy compatibility block (data-driven from strategy registry)
                 "strategy_exchange_incompatible": EligibilityCode.STRATEGY_EXCHANGE_INCOMPATIBLE,
             }
