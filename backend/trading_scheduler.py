@@ -409,6 +409,8 @@ class TradingScheduler:
                 "edge_gate":               EligibilityCode.EDGE_GATE,
                 "pair_not_allowed":        EligibilityCode.PAIR_NOT_ALLOWED,
                 "spread_too_wide":         EligibilityCode.SPREAD_TOO_WIDE,
+                # Dynamic variant: current spread > rolling_avg × DYNAMIC_SPREAD_MULTIPLIER
+                "spread_too_wide_dynamic": EligibilityCode.SPREAD_TOO_WIDE,
                 "low_liquidity":           EligibilityCode.LOW_LIQUIDITY,
                 "no_price_data":           EligibilityCode.NO_PRICE_DATA,
                 "hard_edge_filter":        EligibilityCode.HARD_EDGE_FILTER,
