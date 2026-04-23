@@ -475,6 +475,8 @@ class TradingScheduler:
                 "trade_too_small_for_luno":     EligibilityCode.TRADE_TOO_SMALL_FOR_LUNO,
                 # Exchange-strategy compatibility block (data-driven from strategy registry)
                 "strategy_exchange_incompatible": EligibilityCode.STRATEGY_EXCHANGE_INCOMPATIBLE,
+                # Symbol integrity: snapshot was for a different symbol than requested
+                "symbol_state_mismatch":          EligibilityCode.SYMBOL_STATE_MISMATCH,
             }
 
             # ── Per-bot execution coroutine ──────────────────────────────────────
