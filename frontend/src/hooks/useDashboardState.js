@@ -2045,14 +2045,27 @@ export default function useDashboardState(navigate) {
     try {
       setPaperResetLoading(true);
       setPaperResetError('');
-      const response = await apiClient.post('/user/paper-start-fresh', { 
+      const resetPayload = {
+        password: confirmPhrase,
+        resetPassword: confirmPhrase,
+        reset_password: confirmPhrase,
+        confirmation: confirmPhrase,
         confirmation_phrase: confirmPhrase,
-        scope: 'paper_only',
-        also_reset_risk_locks: true
-      });
-      
-      if (response.data.ok) {
-        toast.success(response.data.message || 'Reset runtime completed successfully');
+        confirm: confirmPhrase
+      };
+
+      const validateResponse = await apiClient.post('/system/paper-reset/validate', resetPayload);
+      if (!validateResponse?.data?.valid) {
+        const reason = validateResponse?.data?.reason || 'Reset validation failed';
+        setPaperResetError(reason);
+        return;
+      }
+
+      const response = await apiClient.post('/system/paper-reset', resetPayload);
+      const data = response?.data || {};
+
+      if (data.success) {
+        toast.success(data.message || 'Reset runtime completed successfully');
         setShowPaperResetModal(false);
         // Clear dashboard state
         setChatMessages([]);
@@ -2088,16 +2101,25 @@ export default function useDashboardState(navigate) {
         // values from before the reset are never shown.
         setEquityData(null);
         setCountdown(null);
-        const totalCleared = response.data?.deleted
-          ? Object.values(response.data.deleted).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0)
-          : response.data?.total_deleted || 0;
+        const totalCleared =
+          Number(data.bots_deleted || 0)
+          + Number(data.open_trades_deleted || 0)
+          + Number(data.fills_deleted || 0)
+          + Number(data.trades_deleted || 0)
+          + Number(data.runtime_deleted || 0);
         if (totalCleared > 0) {
           toast.success(`Reset complete — ${totalCleared} records cleared`);
         }
-        const warnings = response.data?.invariant_warnings || [];
+        const warnings = data?.invariant_warnings || [];
         warnings.forEach(w => toast.warning(`Reset warning: ${w}`));
+        if (data.wallet_reset && Number(data.paper_balance || 0) > 0) {
+          toast.success(`Paper wallet reset to R${safeToFixed(data.paper_balance, 2)}`);
+        }
+        if (!data.invariants_passed && Array.isArray(data.failed_invariants) && data.failed_invariants.length > 0) {
+          toast.warning(`Reset invariant check failed: ${data.failed_invariants.join(', ')}`);
+        }
         // Hard refresh all data sources so no stale panel shows phantom values
-        refreshAllDashboardData();
+        await refreshAllDashboardData();
         // Fetch reset-proof to confirm clean state (non-blocking)
         try {
           const proofRes = await apiClient.get('/system/reset-proof');
@@ -2116,12 +2138,12 @@ export default function useDashboardState(navigate) {
           console.warn('Reset proof check failed:', _proofErr);
         }
       } else {
-        setPaperResetError(response.data.message || 'Reset failed');
+        setPaperResetError(data.message || 'Reset failed');
       }
     } catch (err) {
       const statusCode = err.response?.status;
       if (statusCode === 403) {
-        setPaperResetError('Access denied. Admin privileges required.');
+        setPaperResetError('Invalid reset password or confirmation phrase.');
       } else if (statusCode === 400) {
         setPaperResetError(err.response?.data?.detail || 'Invalid confirmation phrase or request.');
       } else {

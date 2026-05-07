@@ -490,6 +490,21 @@ async def perform_paper_reset(user_id: str) -> dict:
     })
     await rt_events.force_refresh(user_id, reason="Paper trading reset completed.")
 
+    failed_invariants: list[str] = []
+    wallet_reset = bool(result.get("wallet_reset", False))
+    paper_balance = float(result.get("paper_balance", 0) or 0)
+    remaining_paper_bots = int(result.get("remaining_paper_bots", 0) or 0)
+    remaining_open_paper_trades = int(result.get("remaining_open_paper_trades", 0) or 0)
+    remaining_paper_fills = int(result.get("remaining_paper_fills", 0) or 0)
+    if paper_balance <= 0:
+        failed_invariants.append("wallet_non_positive")
+    if remaining_paper_bots > 0:
+        failed_invariants.append("remaining_paper_bots")
+    if remaining_open_paper_trades > 0:
+        failed_invariants.append("remaining_open_paper_trades")
+    if remaining_paper_fills > 0:
+        failed_invariants.append("remaining_paper_fills")
+
     return {
         "summary": {
             "bots_deleted": result.get("bots_soft_deleted", 0),
@@ -513,12 +528,15 @@ async def perform_paper_reset(user_id: str) -> dict:
         "trades_deleted": result.get("trades_deleted", 0),
         "runtime_deleted": result.get("runtime_deleted", 0),
         "risk_locks_cleared": result.get("risk_locks_reset", 0),
-        "wallet_reset": result.get("wallet_reset", False),
+        "wallet_reset": wallet_reset,
         "wallet_available": result.get("wallet_available", 0),
-        "paper_balance": result.get("paper_balance", 0),
-        "remaining_paper_bots": result.get("remaining_paper_bots", 0),
-        "remaining_open_paper_trades": result.get("remaining_open_paper_trades", 0),
-        "remaining_paper_fills": result.get("remaining_paper_fills", 0),
+        "paper_balance": paper_balance,
+        "remaining_paper_bots": remaining_paper_bots,
+        "remaining_open_paper_trades": remaining_open_paper_trades,
+        "remaining_paper_fills": remaining_paper_fills,
+        "baseline_reset": True,
+        "invariants_passed": len(failed_invariants) == 0,
+        "failed_invariants": failed_invariants,
     }
 
 
@@ -798,6 +816,15 @@ async def paper_reset(
             )
 
         result = await perform_paper_reset(user_id)
+        if not result.get("invariants_passed", True):
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Paper reset invariants failed",
+                    "failed_invariants": result.get("failed_invariants", []),
+                    **result,
+                },
+            )
         return {
             "success": True,
             "message": "Paper trading reset completed.",
