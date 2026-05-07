@@ -415,6 +415,76 @@ async def get_paper_wallet_balances(user_id: str) -> Dict:
     return {currency: round(amount, 2) for currency, amount in totals.items()}
 
 
+async def _build_platform_wallet_payload(user_id: str) -> Dict:
+    mode = await system_mode_service.get_current_mode(user_id)
+    summary = await wallet_summary_service.get_summary(user_id)
+    paper_balances = await paper_wallet_service.get_balances(user_id)
+    allocated = await get_paper_wallet_allocated_balances(user_id)
+    paper_available = float((paper_balances.get("balances") or {}).get("ZAR", 0) or 0)
+    paper_allocated = float((allocated or {}).get("ZAR", 0) or 0)
+    paper_total = round(paper_available + paper_allocated, 2)
+
+    live_balance = 0.0
+    live_by_exchange: Dict = {}
+    try:
+        master_balance = await wallet_manager.get_master_balance(user_id)
+        if not master_balance.get("error"):
+            live_balance = float(master_balance.get("total_zar") or master_balance.get("total") or 0)
+    except Exception as e:
+        logger.warning("wallet/platform master balance lookup failed for %s: %s", user_id[:8], e)
+
+    try:
+        exchange_balances = await wallet_manager.get_all_balances(user_id)
+        if isinstance(exchange_balances, dict):
+            live_by_exchange = exchange_balances
+    except Exception as e:
+        logger.warning("wallet/platform exchange balance lookup failed for %s: %s", user_id[:8], e)
+
+    active_total = float(summary.get("available_wallet_zar", 0) or 0)
+    if mode == "live":
+        active_total = live_balance
+
+    platforms = []
+    for exchange, payload in (live_by_exchange or {}).items():
+        amount = 0.0
+        if isinstance(payload, dict):
+            amount = float(payload.get("total_zar") or payload.get("available_zar") or payload.get("zar_balance") or 0)
+        platforms.append({"platform": exchange, "balance": round(amount, 2), "currency": "ZAR"})
+
+    if not platforms:
+        platforms = [
+            {"platform": "paper", "balance": paper_total, "currency": "ZAR"},
+        ]
+
+    return {
+        "success": True,
+        "mode": mode,
+        "currency": "ZAR",
+        "totalBalance": round(active_total, 2),
+        "availableBalance": round(float(summary.get("available_wallet_zar", 0) or 0), 2),
+        "allocatedBalance": round(float(summary.get("allocated_funds_zar", 0) or 0), 2),
+        "paperBalance": round(paper_total, 2),
+        "liveBalance": round(float(live_balance), 2),
+        "platforms": platforms,
+        "byExchange": live_by_exchange,
+        "exchanges": live_by_exchange,
+        "liveWalletMissing": bool(mode == "live" and live_balance <= 0),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/platform")
+async def get_wallet_platform(user_id: str = Depends(get_current_user)):
+    """Compatibility endpoint for legacy dashboard wallet summary."""
+    return await _build_platform_wallet_payload(user_id)
+
+
+@router.get("/platform/summary")
+async def get_wallet_platform_summary(user_id: str = Depends(get_current_user)):
+    """Compatibility alias for /api/wallet/platform."""
+    return await _build_platform_wallet_payload(user_id)
+
+
 @router.get("/paper")
 async def get_paper_wallet(user_id: str = Depends(get_current_user)):
     """Get paper wallet balances and summary.

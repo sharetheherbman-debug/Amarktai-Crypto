@@ -28,6 +28,21 @@ paper_reset_attempts = defaultdict(lambda: {"count": 0, "reset_at": datetime.now
 def get_paper_reset_password() -> str:
     reset_password = os.getenv("PAPER_RESET_PASSWORD")
     if not reset_password:
+        env_path = "/etc/amarktai/amarktai.env"
+        try:
+            if os.path.exists(env_path):
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for raw_line in f:
+                        line = raw_line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, value = line.split("=", 1)
+                        if key.strip() == "PAPER_RESET_PASSWORD":
+                            reset_password = value.strip().strip('"').strip("'")
+                            break
+        except Exception as e:
+            logger.warning("Failed reading PAPER_RESET_PASSWORD from %s: %s", env_path, e)
+    if not reset_password:
         raise HTTPException(
             status_code=500, 
             detail="Paper reset password not configured. Set PAPER_RESET_PASSWORD environment variable to enable runtime reset functionality."
@@ -378,7 +393,22 @@ class ModeSetRequest(BaseModel):
 
 class PaperResetRequest(BaseModel):
     """Request to reset paper trading data"""
-    password: str
+    password: Optional[str] = None
+    resetPassword: Optional[str] = None
+    reset_password: Optional[str] = None
+    confirmation: Optional[str] = None
+    confirmation_phrase: Optional[str] = None
+
+
+def _extract_reset_password(request: "PaperResetRequest") -> str:
+    return str(
+        request.password
+        or request.resetPassword
+        or request.reset_password
+        or request.confirmation
+        or request.confirmation_phrase
+        or ""
+    )
 
 
 async def perform_paper_reset(user_id: str) -> dict:
@@ -609,7 +639,8 @@ async def validate_paper_reset(
     allowed, retry_after = check_paper_reset_attempts(user_id)
     if not allowed:
         return {"valid": False, "reason": f"Too many attempts. Try again in {retry_after}s."}
-    is_valid = is_paper_reset_password_valid(request.password)
+    candidate = _extract_reset_password(request)
+    is_valid = is_paper_reset_password_valid(candidate)
     if is_valid:
         reset_paper_reset_attempts(user_id)
     return {"valid": is_valid}
@@ -821,8 +852,10 @@ async def paper_reset(
         allowed, retry_after = check_paper_reset_attempts(user_id)
         if not allowed:
             raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
-        if not is_paper_reset_password_valid(request.password):
-            raise HTTPException(status_code=403, detail="Invalid reset password")
+        candidate = _extract_reset_password(request)
+        if not is_paper_reset_password_valid(candidate):
+            logger.warning("Paper reset denied for user=%s: invalid password/confirmation", user_id[:8])
+            raise HTTPException(status_code=403, detail="Invalid paper reset password")
         reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
@@ -841,8 +874,8 @@ async def paper_reset(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Paper reset error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Paper reset server error for user=%s: %s", user_id[:8], e)
+        raise HTTPException(status_code=500, detail="Paper reset failed due to server error")
 
 
 @router.post("/reset-paper")
@@ -855,8 +888,10 @@ async def reset_paper_trading(
         allowed, retry_after = check_paper_reset_attempts(user_id)
         if not allowed:
             raise HTTPException(status_code=429, detail=f"Too many attempts. Try again in {retry_after}s.")
-        if not is_paper_reset_password_valid(request.password):
-            raise HTTPException(status_code=403, detail="Invalid reset password")
+        candidate = _extract_reset_password(request)
+        if not is_paper_reset_password_valid(candidate):
+            logger.warning("Legacy paper reset denied for user=%s: invalid password/confirmation", user_id[:8])
+            raise HTTPException(status_code=403, detail="Invalid paper reset password")
         reset_paper_reset_attempts(user_id)
 
         current_mode = await get_system_mode(user_id)
@@ -875,8 +910,8 @@ async def reset_paper_trading(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Paper reset error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Legacy paper reset server error for user=%s: %s", user_id[:8], e)
+        raise HTTPException(status_code=500, detail="Paper reset failed due to server error")
 
 
 @router.post("/mode/switch")

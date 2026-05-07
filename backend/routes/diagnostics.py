@@ -544,6 +544,118 @@ async def get_paper_trading_status(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/paper-trading-readiness")
+async def paper_trading_readiness(user_id: str = Depends(get_current_user)):
+    """Paper trading readiness diagnostics for dashboard contract verification."""
+    from trading_scheduler import trading_scheduler
+    from services.paper_wallet_service import paper_wallet_service
+
+    modes = await db.system_modes_collection.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    scheduler_running = bool(getattr(trading_scheduler, "is_running", False))
+    last_scheduler_tick = getattr(trading_scheduler, "last_tick", None)
+    last_scheduler_tick_iso = (
+        last_scheduler_tick.isoformat()
+        if hasattr(last_scheduler_tick, "isoformat")
+        else last_scheduler_tick
+    )
+
+    paper_wallet = await paper_wallet_service.get_wallet_status(user_id)
+    paper_wallet_ready = bool(paper_wallet.get("balances") is not None)
+
+    paper_bots = await db.bots_collection.find(
+        {
+            "user_id": user_id,
+            "trading_mode": {"$ne": "live"},
+            "status": {"$in": ["active", "running", "paused", "quarantined", "training", "training_failed"]},
+            "deleted": {"$ne": True},
+            "is_deleted": {"$ne": True},
+            "deleted_at": {"$exists": False},
+        },
+        {"_id": 0, "id": 1, "name": 1, "status": 1, "paused_by_user": 1, "paused_by_system": 1, "pause_reason": 1},
+    ).to_list(2000)
+
+    blocked_bots: List[Dict[str, Any]] = []
+    eligible_bots_count = 0
+    for bot in paper_bots:
+        reasons: List[str] = []
+        status = bot.get("status")
+        if status in {"paused", "quarantined", "training", "training_failed"}:
+            reasons.append(f"status:{status}")
+        if bot.get("paused_by_user"):
+            reasons.append("paused_by_user")
+        if bot.get("paused_by_system"):
+            reasons.append("paused_by_system")
+        if bot.get("pause_reason"):
+            reasons.append(str(bot.get("pause_reason")))
+        if reasons:
+            blocked_bots.append({"bot_id": bot.get("id"), "name": bot.get("name"), "reasons": sorted(set(reasons))})
+        else:
+            eligible_bots_count += 1
+
+    paper_filter = {
+        "user_id": user_id,
+        "$or": [
+            {"is_paper": True},
+            {"mode": "paper"},
+            {"trading_mode": "paper"},
+        ],
+    }
+    open_paper_trades = await db.trades_collection.count_documents(
+        {**paper_filter, "status": {"$in": ["open", "pending"]}}
+    )
+    recent_closed = await db.trades_collection.find(
+        {**paper_filter, "status": "closed"},
+        {"_id": 0, "id": 1, "bot_id": 1, "timestamp": 1, "net_pnl": 1, "profit_loss": 1},
+    ).sort("timestamp", -1).to_list(200)
+    wins = sum(1 for trade in recent_closed if float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) > 0)
+    total_closed = len(recent_closed)
+    net_pnl = sum(float(trade.get("net_pnl", trade.get("profit_loss", 0)) or 0) for trade in recent_closed)
+    paper_performance = {
+        "closed_trades": total_closed,
+        "win_rate": round((wins / total_closed) * 100, 2) if total_closed else 0.0,
+        "net_pnl": round(net_pnl, 6),
+        "expectancy": round((net_pnl / total_closed), 6) if total_closed else 0.0,
+    }
+
+    recent_paper_fills: List[Dict[str, Any]] = []
+    if db.db is not None:
+        try:
+            recent_paper_fills = await db.db["fills_ledger"].find(
+                {"user_id": user_id, **paper_filter},
+                {"_id": 0},
+            ).sort("timestamp", -1).limit(10).to_list(10)
+        except Exception:
+            recent_paper_fills = []
+
+    runtime_last = None
+    if db.bot_runtime_state_collection is not None:
+        runtime_last = await db.bot_runtime_state_collection.find_one(
+            {"user_id": user_id},
+            {"_id": 0, "updated_at": 1, "last_tick_at": 1, "last_order_error": 1},
+            sort=[("updated_at", -1)],
+        )
+
+    last_trade_attempt = (runtime_last or {}).get("last_tick_at") or (runtime_last or {}).get("updated_at")
+    last_order_error = (runtime_last or {}).get("last_order_error")
+
+    return {
+        "success": True,
+        "scheduler_running": scheduler_running,
+        "paper_enabled": bool(modes.get("paperTrading", True) and not modes.get("liveTrading", False)),
+        "paper_wallet_ready": paper_wallet_ready,
+        "paper_bots_count": len(paper_bots),
+        "eligible_bots_count": eligible_bots_count,
+        "blocked_bots": blocked_bots,
+        "last_scheduler_tick": last_scheduler_tick_iso,
+        "last_trade_attempt": last_trade_attempt,
+        "last_order_error": last_order_error,
+        "open_paper_trades": open_paper_trades,
+        "recent_paper_fills": recent_paper_fills,
+        "paper_performance": paper_performance,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/auto-spawn")
 async def get_auto_spawn_status(user_id: str = Depends(get_current_user)):
     """Get auto-spawn diagnostic status

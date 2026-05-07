@@ -399,6 +399,15 @@ async def get_bots_status(
         )
 
 
+@router.get("")
+async def get_bots_status_alias(
+    user_id: str = Depends(get_current_user),
+    meta: Optional[int] = 0,
+):
+    """Compatibility alias for GET /api/bots."""
+    return await get_bots_status(user_id=user_id, meta=meta)
+
+
 @router.post("/{bot_id}/start")
 async def start_bot(bot_id: str, user_id: str = Depends(get_current_user)):
     """Start a bot's trading activity
@@ -2016,6 +2025,5 @@ async def seed_luno_paper_bots(user_id: str = Depends(get_current_user)):
     except Exception as e:
         logger.exception("Seed Luno paper bots error")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
