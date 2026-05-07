@@ -2834,7 +2834,7 @@ async def live_trading_readiness(user_id: str = Depends(get_current_user)):
     signal_ok = False
     signal_detail = {}
     try:
-        probe_symbol = (live_bots[0].get("pair") if live_bots else "BTC/USDT") if live_bots else "BTC/USDT"
+        probe_symbol = live_bots[0].get("pair") if live_bots else "BTC/USDT"
         signal_engine = SignalEngine(db.db if hasattr(db, "db") else db)
         signal = await signal_engine.get_signal(
             user_id=user_id,

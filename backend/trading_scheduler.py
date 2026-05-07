@@ -7,7 +7,6 @@ Enforces trading mode gates (paper OR live required)
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 from paper_trading_engine import paper_engine
 from engines.trading_engine_live import live_trading_engine
@@ -529,7 +528,7 @@ class TradingScheduler:
             # Never short spot by default.
             market_type = str(bot.get("market_type", "spot")).lower()
             supports_shorting = bool(bot.get("supports_shorting", False))
-            live_shorting_enabled = os.getenv("LIVE_SHORTING_ENABLED", "false").lower() == "true"
+            live_shorting_enabled = env_bool("LIVE_SHORTING_ENABLED", False)
             if side == "sell" and not (
                 market_type in {"margin", "futures"} and supports_shorting and live_shorting_enabled
             ):

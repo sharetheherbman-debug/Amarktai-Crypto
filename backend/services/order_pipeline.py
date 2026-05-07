@@ -1514,7 +1514,7 @@ class OrderPipeline:
                                     order_type: str = "market", **kwargs) -> Dict[str, Any]:
         """Fee coverage check using helper methods so tests can patch them."""
         try:
-            is_paper = bool(kwargs.get("is_paper", True))
+            is_paper = bool(kwargs.get("is_paper", False))
             allow_signal_fallback = (
                 is_paper and os.getenv("PAPER_DEBUG_ALLOW_SIGNAL_ERRORS", "false").lower() == "true"
             )

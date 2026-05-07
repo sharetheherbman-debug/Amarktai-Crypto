@@ -11,6 +11,7 @@ from typing import Dict, List, Tuple
 import database as db
 
 logger = logging.getLogger(__name__)
+INFINITE_PROFIT_FACTOR = 999.0
 
 
 class LiveGateService:
@@ -108,7 +109,7 @@ class LiveGateService:
                 violations.append(f"Win rate too low: {win_rate:.2%} < {MIN_WIN_RATE:.2%}")
             gross_profit = sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) > 0)
             gross_loss = abs(sum((t.get("profit_loss", 0) or 0) for t in paper_closed if (t.get("profit_loss", 0) or 0) < 0))
-            profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+            profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (INFINITE_PROFIT_FACTOR if gross_profit > 0 else 0.0)
             if profit_factor <= 1.2:
                 violations.append(f"Profit factor too low: {profit_factor:.2f} <= 1.2")
             expectancy = (
